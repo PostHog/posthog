@@ -541,6 +541,31 @@ describe('sessionRecordingPlayerLogic', () => {
         })
     })
 
+    describe('doctor diagnostics flush timer', () => {
+        // Regression test: prior to using kea's disposables, the 2s setTimeout scheduled
+        // by caughtAssetErrorFromIframe fired after unmount and dispatched against a
+        // torn-down reducer, throwing Redux error #3.
+        it('clears the pending diagnostics flush on unmount', () => {
+            jest.useFakeTimers()
+
+            logic.actions.caughtAssetErrorFromIframe({
+                resourceType: 'image',
+                resourceUrl: 'https://example.com/broken.png',
+                message: 'not found',
+            })
+
+            expect(logic.cache.diagnosticsFlushTimer).toBeTruthy()
+
+            logic.unmount()
+
+            // Advancing past the 2s scheduled dispatch would previously throw — now the
+            // disposable has cleared the timeout so this is a no-op.
+            expect(() => jest.advanceTimersByTime(3000)).not.toThrow()
+
+            jest.useRealTimers()
+        })
+    })
+
     describe('recording viewed summary event', () => {
         describe('play_time_ms tracking', () => {
             const startPlaying = (): void => {

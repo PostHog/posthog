@@ -436,7 +436,13 @@ function scheduleDiagnosticsFlush(
     cache: Record<string, any>,
     actions: { flushDoctorDiagnostics: (d: DoctorDiagnostics) => void }
 ): void {
-    if (!cache.diagnosticsFlushTimer) {
+    if (cache.diagnosticsFlushTimer) {
+        return
+    }
+    // Register via disposables so the pending dispatch is cancelled on unmount.
+    // Without this, closing the player within 2s of an rrweb warning or asset
+    // error dispatches against a torn-down reducer and throws Redux error #3.
+    cache.disposables.add(() => {
         cache.diagnosticsFlushTimer = setTimeout(() => {
             cache.diagnosticsFlushTimer = null
             const grouped = cache.groupedAssetErrors as GroupedAssetErrors | null
@@ -453,7 +459,13 @@ function scheduleDiagnosticsFlush(
                 rrwebWarningSummary: cache.rrwebWarningSummary ? { ...cache.rrwebWarningSummary } : {},
             })
         }, 2000)
-    }
+        return () => {
+            if (cache.diagnosticsFlushTimer) {
+                clearTimeout(cache.diagnosticsFlushTimer)
+                cache.diagnosticsFlushTimer = null
+            }
+        }
+    }, 'diagnosticsFlushTimer')
 }
 
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
@@ -1530,10 +1542,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache.groupedAssetErrors = null
             cache.rrwebWarningSummary = null
             cache.rrwebWarningCount = 0
-            if (cache.diagnosticsFlushTimer) {
-                clearTimeout(cache.diagnosticsFlushTimer)
-                cache.diagnosticsFlushTimer = null
-            }
+            cache.disposables.dispose('diagnosticsFlushTimer')
 
             const initialSegment = values.sessionPlayerData?.segments[0]
             if (initialSegment) {
