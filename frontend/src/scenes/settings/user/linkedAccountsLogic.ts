@@ -1,4 +1,4 @@
-import { actions, events, kea, listeners, path } from 'kea'
+import { actions, events, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -14,11 +14,18 @@ export interface LinkedAccount {
     installation_id: string | null
     repository_selection: string | null
     account: { type: string; name: string } | null
+    uses_shared_installation: boolean
     created_at: string | null
+}
+
+export interface TeamGitHubIntegration {
+    installation_id: string | null
+    account_name: string | null
 }
 
 interface LinkedAccountsResponse {
     results: LinkedAccount[]
+    team_github_integrations: TeamGitHubIntegration[]
 }
 
 interface GithubStartResponse {
@@ -58,27 +65,55 @@ export const linkedAccountsLogic = kea<linkedAccountsLogicType>([
     actions({
         disconnectGitHub: true,
         connectGitHub: true,
+        setTeamGitHubIntegrations: (integrations: TeamGitHubIntegration[]) => ({ integrations }),
     }),
 
-    loaders(() => ({
+    reducers({
+        teamGitHubIntegrations: [
+            [] as TeamGitHubIntegration[],
+            {
+                setTeamGitHubIntegrations: (_, { integrations }) => integrations,
+            },
+        ],
+    }),
+
+    loaders(({ actions }) => ({
         linkedAccounts: [
             [] as LinkedAccount[],
             {
                 loadLinkedAccounts: async () => {
                     const response = await api.get<LinkedAccountsResponse>('api/users/@me/linked_accounts/')
+                    actions.setTeamGitHubIntegrations(response.team_github_integrations)
                     return response.results
                 },
                 disconnectGitHub: async () => {
                     const response: Response = await api.delete('api/users/@me/linked_accounts/github/')
                     const body = (await response.json()) as LinkedAccountsResponse
+                    actions.setTeamGitHubIntegrations(body.team_github_integrations)
                     lemonToast.success('Disconnected GitHub')
                     return body.results
                 },
             },
         ],
+        githubRepositories: [
+            [] as string[],
+            {
+                loadGitHubRepositories: async () => {
+                    const response = await api.get<{ repositories: string[] }>(
+                        'api/users/@me/linked_accounts/github/repos/'
+                    )
+                    return response.repositories
+                },
+            },
+        ],
     })),
 
-    listeners(() => ({
+    listeners(({ actions }) => ({
+        loadLinkedAccountsSuccess: ({ linkedAccounts }) => {
+            if (linkedAccounts.some((a) => a.kind === 'github' && a.connected)) {
+                actions.loadGitHubRepositories()
+            }
+        },
         connectGitHub: async () => {
             try {
                 const response = await api.create<GithubStartResponse>(

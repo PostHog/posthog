@@ -1,6 +1,7 @@
 import os
 import re
 import json
+from datetime import UTC, datetime
 from typing import Any, cast
 from urllib.parse import urlencode
 
@@ -82,6 +83,13 @@ def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, 
         return True
     except stripe.SignatureVerificationError:
         return False
+
+
+def _installation_token_expires_at(integration: Integration) -> str:
+    """Compute an ISO 8601 timestamp for when the integration's installation token expires."""
+    refreshed_at = integration.config.get("refreshed_at", 0)
+    expires_in = integration.config.get("expires_in", 3600)
+    return datetime.fromtimestamp(refreshed_at + expires_in, tz=UTC).isoformat()
 
 
 def _ensure_oauth_token_valid(instance: Integration) -> None:
@@ -247,13 +255,39 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, request.user)
 
             # If the frontend forwarded an OAuth code from "Request user authorization during installation",
-            # exchange it for the connecting user's GitHub login and store it on the integration.
+            # exchange it for the connecting user's identity and user-to-server tokens. We store the
+            # login on the team integration (shown on the integration card) and auto-create a
+            # UserIntegration so the user immediately has personal GitHub credentials for
+            # PR authorship and identity attribution — no separate "Linked accounts" step needed.
+            # Skip if the user already has a UserIntegration (they set one up via Linked Accounts
+            # independently and we don't want to overwrite their personal installation).
             code = config.get("code")
             if code:
-                github_login = GitHubIntegration.github_login_from_code(code)
-                if github_login:
-                    instance.config["connecting_user_github_login"] = github_login
+                authorization = GitHubIntegration.github_user_from_code(code)
+                if authorization is not None:
+                    instance.config["connecting_user_github_login"] = authorization.gh_login
                     instance.save(update_fields=["config"])
+
+                    from posthog.models.user_integration import (
+                        UserIntegration,
+                        user_github_integration_from_installation,
+                    )
+
+                    if not UserIntegration.objects.filter(user=request.user, kind="github").exists():
+                        user_github_integration_from_installation(
+                            request.user,
+                            installation_id=installation_id,
+                            installation_info=instance.config,
+                            installation_access_token=instance.sensitive_config.get("access_token", ""),
+                            installation_token_expires_at=_installation_token_expires_at(instance),
+                            repository_selection=instance.config.get("repository_selection", "selected"),
+                            gh_id=authorization.gh_id,
+                            gh_login=authorization.gh_login,
+                            user_access_token=authorization.access_token,
+                            user_refresh_token=authorization.refresh_token,
+                            user_access_token_expires_in=authorization.access_token_expires_in,
+                            user_refresh_token_expires_in=authorization.refresh_token_expires_in,
+                        )
 
             return instance
 

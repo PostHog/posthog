@@ -25,7 +25,7 @@ from rest_framework.response import Response
 
 from posthog.auth import SessionAuthentication, session_auth_required
 from posthog.models.instance_setting import get_instance_settings
-from posthog.models.integration import GitHubIntegration
+from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.user import User
 from posthog.models.user_integration import (
     UserGitHubIntegration,
@@ -43,7 +43,11 @@ GITHUB_INSTALL_STATE_TTL_SECONDS = 10 * 60
 LINKED_ACCOUNTS_SETTINGS_PATH = "/settings/user-linked-accounts"
 
 
-def _serialize_github_integration(integration: UserIntegration | None) -> dict[str, Any]:
+def _serialize_github_integration(
+    integration: UserIntegration | None,
+    *,
+    team_integration_installation_ids: set[str],
+) -> dict[str, Any]:
     """Build the response payload for the user's GitHub integration."""
     if integration is None:
         return {
@@ -53,6 +57,7 @@ def _serialize_github_integration(integration: UserIntegration | None) -> dict[s
             "installation_id": None,
             "repository_selection": None,
             "account": None,
+            "uses_shared_installation": False,
             "created_at": None,
         }
 
@@ -64,6 +69,9 @@ def _serialize_github_integration(integration: UserIntegration | None) -> dict[s
         "installation_id": integration.integration_id,
         "repository_selection": integration.config.get("repository_selection"),
         "account": integration.config.get("account"),
+        "uses_shared_installation": (
+            integration.integration_id is not None and integration.integration_id in team_integration_installation_ids
+        ),
         "created_at": integration.created_at,
     }
 
@@ -84,10 +92,38 @@ class LinkedAccountsViewSet(viewsets.ViewSet):
     def _get_user(self) -> User:
         return cast(User, self.request.user)
 
+    def _team_github_context(self, user: User) -> dict[str, Any]:
+        """Fetch the current team's GitHub integrations for context."""
+        team = user.current_team
+        if team is None:
+            return {"team_github_integrations": [], "_installation_ids": set()}
+
+        team_integrations = Integration.objects.filter(team=team, kind="github").values("integration_id", "config")
+        result = []
+        installation_ids: set[str] = set()
+        for ti in team_integrations:
+            iid = ti["integration_id"]
+            if iid:
+                installation_ids.add(str(iid))
+            config = ti["config"] or {}
+            account = config.get("account", {})
+            result.append({"installation_id": iid, "account_name": account.get("name")})
+        return {"team_github_integrations": result, "_installation_ids": installation_ids}
+
     def list(self, request: Request) -> Response:
         user = self._get_user()
         integration = UserIntegration.objects.filter(user=user, kind="github").first()
-        return Response({"results": [_serialize_github_integration(integration)]})
+        team_ctx = self._team_github_context(user)
+        return Response(
+            {
+                "results": [
+                    _serialize_github_integration(
+                        integration, team_integration_installation_ids=team_ctx["_installation_ids"]
+                    )
+                ],
+                "team_github_integrations": team_ctx["team_github_integrations"],
+            }
+        )
 
     def destroy(self, request: Request, kind: str) -> Response:
         user = self._get_user()
@@ -100,7 +136,27 @@ class LinkedAccountsViewSet(viewsets.ViewSet):
 
         integration.delete()
 
-        return Response({"results": [_serialize_github_integration(None)]})
+        team_ctx = self._team_github_context(user)
+        return Response(
+            {
+                "results": [
+                    _serialize_github_integration(None, team_integration_installation_ids=team_ctx["_installation_ids"])
+                ],
+                "team_github_integrations": team_ctx["team_github_integrations"],
+            }
+        )
+
+    @action(methods=["GET"], detail=False, url_path="github/repos")
+    def github_repos(self, request: Request) -> Response:
+        """List repositories accessible to the user's GitHub integration."""
+        user = self._get_user()
+        integration = UserIntegration.objects.filter(user=user, kind="github").first()
+        if integration is None:
+            raise exceptions.NotFound("No GitHub integration found.")
+
+        github = UserGitHubIntegration(integration)
+        repos = github.list_repository_names()
+        return Response({"repositories": repos})
 
     @action(
         methods=["POST"],
@@ -120,17 +176,20 @@ class LinkedAccountsViewSet(viewsets.ViewSet):
         if not app_slug:
             raise exceptions.ValidationError("GitHub App is not configured on this instance (missing GITHUB_APP_SLUG).")
 
-        state = cache.get(f"{GITHUB_INSTALL_STATE_CACHE_PREFIX}{request.user.id}:token")
-        if not state:
-            from django.utils.crypto import get_random_string
+        from django.utils.crypto import get_random_string
 
-            state = get_random_string(48)
+        token = get_random_string(48)
 
         cache.set(
-            f"{GITHUB_INSTALL_STATE_CACHE_PREFIX}{state}",
+            f"{GITHUB_INSTALL_STATE_CACHE_PREFIX}{token}",
             {"user_id": request.user.id},
             timeout=GITHUB_INSTALL_STATE_TTL_SECONDS,
         )
+        # Encode the state in the same format as team integrations (URL-encoded
+        # query string with `token`), plus `source=linked_accounts` so the frontend
+        # callback handler knows to redirect to the user-level backend endpoint
+        # instead of creating a team integration.
+        state = urlencode({"token": token, "source": "linked_accounts"})
         params = urlencode({"state": state})
         return Response({"install_url": f"https://github.com/apps/{app_slug}/installations/new?{params}"})
 

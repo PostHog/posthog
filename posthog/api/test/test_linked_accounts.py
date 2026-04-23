@@ -73,6 +73,38 @@ class TestLinkedAccountsEndpoints(APIBaseTest):
         self.assertTrue(results[0]["connected"])
         self.assertEqual(results[0]["account_identifier"], "octocat")
         self.assertEqual(results[0]["installation_id"], "12345")
+        self.assertFalse(results[0]["uses_shared_installation"])
+
+    def test_list_detects_shared_installation(self):
+        _create_user_integration(self.user)
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="12345",
+            config={"account": {"name": "PostHog"}},
+            sensitive_config={},
+        )
+        response = self.client.get("/api/users/@me/linked_accounts/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertTrue(results[0]["uses_shared_installation"])
+        team_integrations = response.json()["team_github_integrations"]
+        self.assertEqual(len(team_integrations), 1)
+        self.assertEqual(team_integrations[0]["account_name"], "PostHog")
+
+    def test_list_includes_team_integrations_context(self):
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="99999",
+            config={"account": {"name": "PostHog"}},
+            sensitive_config={},
+        )
+        response = self.client.get("/api/users/@me/linked_accounts/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        team_integrations = response.json()["team_github_integrations"]
+        self.assertEqual(len(team_integrations), 1)
+        self.assertEqual(team_integrations[0]["installation_id"], "99999")
 
     def test_delete_removes_integration(self):
         _create_user_integration(self.user)

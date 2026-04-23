@@ -138,6 +138,14 @@ class UserGitHubIntegration(GitHubIntegrationBase):
             return int(gh_id) if gh_id is not None else None
         return None
 
+    def list_repository_names(self) -> list[str]:
+        """List all repository full_names accessible to this installation.
+
+        Returns a flat list of ``owner/repo`` strings. Delegates to the base
+        class's :meth:`list_all_repositories` for pagination.
+        """
+        return [repo["full_name"] for repo in self.list_all_repositories()]
+
     # --- User-to-server token ---
 
     @property
