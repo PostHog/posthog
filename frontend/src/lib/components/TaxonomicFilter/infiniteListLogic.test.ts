@@ -768,7 +768,7 @@ describe('infiniteListLogic', () => {
                 })
         })
 
-        it('places shortcuts AFTER remote/local results so real events keep default Enter selection', async () => {
+        it('places shortcuts at the TOP of the list so they are prominent and Enter picks them', async () => {
             const listLogic = mountEventsLogic(true)
             await expectLogic(listLogic).toDispatchActions(['loadRemoteItemsSuccess']).toFinishAllListeners()
 
@@ -776,17 +776,21 @@ describe('infiniteListLogic', () => {
                 .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
                 .toFinishAllListeners()
 
-            // The default mock returns `$click` (and similar) for search=click, so remote has real
-            // results. The shortcut must appear after all of them, not before.
+            // First result is the shortcut; real matches follow.
             const results = listLogic.values.items.results
-            const firstShortcutIndex = results.findIndex((item: any) => item._type === 'quick_filter')
-            const lastNonShortcutIndex = results.reduce(
-                (acc: number, item: any, idx: number) => (item._type === 'quick_filter' ? acc : idx),
-                -1
-            )
-            expect(firstShortcutIndex).toBeGreaterThan(-1)
-            expect(lastNonShortcutIndex).toBeGreaterThan(-1)
-            expect(firstShortcutIndex).toBeGreaterThan(lastNonShortcutIndex)
+            expect(results[0]).toMatchObject({ _type: 'quick_filter', filterValue: 'click' })
+        })
+
+        it('contributes shortcuts to topMatchesForQuery so they flow into the SuggestedFilters aggregate', async () => {
+            const listLogic = mountEventsLogic(true)
+            await expectLogic(listLogic).toDispatchActions(['loadRemoteItemsSuccess']).toFinishAllListeners()
+
+            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('click'))
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+
+            const topMatches = listLogic.values.topMatchesForQuery
+            expect(topMatches[0]).toMatchObject({ _type: 'quick_filter', filterValue: 'click' })
         })
 
         it('returns no shortcut items when enableKeywordShortcuts is false', async () => {

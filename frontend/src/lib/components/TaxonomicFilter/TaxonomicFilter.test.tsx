@@ -846,8 +846,10 @@ describe('TaxonomicFilter', () => {
             const searchInput = await waitFor(() => screen.getByTestId('taxonomic-filter-searchfield'))
             await user.type(searchInput, 'click')
 
+            // The shortcut row carries a unique data-attr so the assertion isn't fooled by the
+            // definition popover which renders the same label text.
             await waitFor(() => {
-                expect(screen.getByText('Click (autocapture)')).toBeInTheDocument()
+                expect(document.querySelector('[data-attr="taxonomic-shortcut-click-series"]')).not.toBeNull()
             })
         })
 
@@ -862,7 +864,7 @@ describe('TaxonomicFilter', () => {
 
             // Give the infinite list a moment to settle then assert the row is absent.
             await waitFor(() => expect(searchInput).toHaveValue('click'))
-            expect(screen.queryByText('Click (autocapture)')).not.toBeInTheDocument()
+            expect(document.querySelector('[data-attr="taxonomic-shortcut-click-series"]')).toBeNull()
         })
     })
 })

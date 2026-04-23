@@ -695,14 +695,23 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             },
         ],
         topMatchesForQuery: [
-            (s) => [s.localItems, s.remoteItems, s.searchQuery, s.hasRemoteDataSource],
-            (localItems, remoteItems, searchQuery, hasRemoteDataSource): TaxonomicDefinitionTypes[] => {
+            (s) => [s.localItems, s.remoteItems, s.searchQuery, s.hasRemoteDataSource, s.keywordShortcutItems],
+            (
+                localItems,
+                remoteItems,
+                searchQuery,
+                hasRemoteDataSource,
+                keywordShortcutItems
+            ): TaxonomicDefinitionTypes[] => {
                 if (!searchQuery) {
                     return []
                 }
                 const remoteIsFresh = remoteItems.searchQuery === searchQuery
                 const results = hasRemoteDataSource ? (remoteIsFresh ? remoteItems.results : []) : localItems.results
-                return promoteMatchingProperties(results, searchQuery).slice(0, MAX_TOP_MATCHES_PER_GROUP)
+                const realMatches = promoteMatchingProperties(results, searchQuery).slice(0, MAX_TOP_MATCHES_PER_GROUP)
+                // Shortcuts lead the group's top-match contribution so the aggregated SuggestedFilters
+                // tab surfaces them above real events with the same name.
+                return [...keywordShortcutItems, ...realMatches]
             },
         ],
         suggestedPinnedMatches: [
@@ -758,16 +767,16 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 const topMatches = isSuggested ? topMatchItemsWithSkeletons : []
                 const recentPrefix = isSuggested && !searchQuery ? (contextFilteredRecentItems || []).slice(0, 3) : []
                 const pinnedPrefix = isSuggested && !searchQuery ? (contextFilteredPinnedItems || []).slice(0, 3) : []
-                // Keyword shortcuts render alongside real results but below them, so they don't
-                // steal default selection (Enter key) when the user's query also matches a real
-                // event or property of the same name.
+                // Shortcuts lead the list so users searching for the verb they mean (e.g. "click")
+                // see the autocapture/event-type shortcut prominently and pressing Enter picks it.
+                // Real events with the same name remain accessible below the shortcut.
                 const combinedResults = [
+                    ...keywordShortcutItems,
                     ...recentPrefix,
                     ...pinnedPrefix,
                     ...suggestedPinnedMatches,
                     ...localItems.results,
                     ...remoteItems.results,
-                    ...keywordShortcutItems,
                     ...topMatches,
                 ]
                 return {
