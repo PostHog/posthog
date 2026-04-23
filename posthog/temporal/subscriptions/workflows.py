@@ -59,6 +59,13 @@ from posthog.temporal.subscriptions.types import (
 # the same buffer the predecessor comment prescribed. The same rule applies
 # from this PR's deploy to the step-2 cleanup below.
 #
+# The binding condition is "no workflow whose history was recorded pre-#55943
+# is still replayable" — continue-as-new chains and long signaled workflows
+# can outlive execution_timeout. Verify before merging each step by running:
+#   Temporal UI → WorkflowType="process-subscription" ExecutionStatus=Running
+#                 StartTime <= <preceding-PR-prod-deploy-timestamp>
+# and confirming zero results.
+#
 # Grep `subscriptions-patched-cleanup` to find every site. Step 2 (after
 # another ≥24h drain past this deploy) deletes: the `deprecate_patch()` call,
 # `_PATCH_ID_CONTENT_SNAPSHOT_DIRECT_WRITE`,
@@ -292,7 +299,14 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             # "deprecated" marker so any straggler replay from the original deploy
             # reaches this point without tripping non-determinism. Next cleanup PR
             # removes the call once the "deprecated"-marker histories have drained.
+            # The log emission below gives step 2 an empirical drain signal — a
+            # zero-count search for "process_subscription.deprecate_patch_reached"
+            # over 24h+ is stronger evidence than wall-clock elapsed time alone.
             temporalio.workflow.deprecate_patch(_PATCH_ID_CONTENT_SNAPSHOT_DIRECT_WRITE)
+            temporalio.workflow.logger.info(
+                "process_subscription.deprecate_patch_reached",
+                extra={"subscription_id": inputs.subscription_id},
+            )
 
             # Generate LLM change summary (best-effort, skip if not enabled).
             # Reads content_snapshot back from Postgres — persisted inline by
