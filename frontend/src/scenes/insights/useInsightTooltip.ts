@@ -237,6 +237,7 @@ function initGlobalUnpinListeners(): void {
 
 export function ensureTooltip(id: string): [Root, HTMLElement] {
     ensureHoverDom()
+    clearHoverHideTimeout()
     if (pinned.owner === id) {
         hideHoverNow()
         activeRenderId = null
