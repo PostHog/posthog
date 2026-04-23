@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use metrics::{counter, gauge};
 use rdkafka::error::KafkaError;
 use tracing::error;
@@ -84,16 +86,16 @@ impl rdkafka::ClientContext for KafkaContext {
             .set(stats.msg_cnt as f64 / stats.msg_max as f64);
         }
 
-        for (topic, ts) in &stats.topics {
+        for (topic, ts) in stats.topics {
             gauge!("capture_v1_kafka_batch_size_bytes_avg",
-                "cluster" => sink, "mode" => mode, "topic" => topic.clone())
+                "cluster" => sink, "mode" => mode, "topic" => topic)
             .set(ts.batchsize.avg as f64);
         }
 
         for bs in stats.brokers.values() {
-            let id = bs.nodeid.to_string();
+            let id: Arc<str> = Arc::from(bs.nodeid.to_string());
             gauge!("capture_v1_kafka_broker_connected",
-                "cluster" => sink, "mode" => mode, "broker" => id.clone())
+                "cluster" => sink, "mode" => mode, "broker" => Arc::clone(&id))
             .set(if bs.state == BROKER_STATE_UP {
                 1.0
             } else {
@@ -102,18 +104,18 @@ impl rdkafka::ClientContext for KafkaContext {
             if let Some(rtt) = &bs.rtt {
                 gauge!("capture_v1_kafka_broker_rtt_us",
                     "cluster" => sink, "mode" => mode,
-                    "quantile" => "p50", "broker" => id.clone())
+                    "quantile" => "p50", "broker" => Arc::clone(&id))
                 .set(rtt.p50 as f64);
                 gauge!("capture_v1_kafka_broker_rtt_us",
                     "cluster" => sink, "mode" => mode,
-                    "quantile" => "p99", "broker" => id.clone())
+                    "quantile" => "p99", "broker" => Arc::clone(&id))
                 .set(rtt.p99 as f64);
             }
             counter!("capture_v1_kafka_broker_tx_errors_total",
-                "cluster" => sink, "mode" => mode, "broker" => id.clone())
+                "cluster" => sink, "mode" => mode, "broker" => Arc::clone(&id))
             .absolute(bs.txerrs);
             counter!("capture_v1_kafka_broker_rx_errors_total",
-                "cluster" => sink, "mode" => mode, "broker" => id.clone())
+                "cluster" => sink, "mode" => mode, "broker" => id)
             .absolute(bs.rxerrs);
         }
     }
