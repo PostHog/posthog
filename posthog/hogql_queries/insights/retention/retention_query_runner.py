@@ -1020,8 +1020,8 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
             return_entity_expr = (
                 property_to_expr(self.return_event.properties, self.team)
-                if return_entity_is_dwh
-                else self.return_entity_expr
+                if return_entity_is_dwh and self.return_event.properties
+                else (ast.Constant(value=True) if return_entity_is_dwh else self.return_entity_expr)
             )
             return_event_timestamps = self._get_return_event_timestamps_expr(
                 minimum_occurrences=minimum_occurrences,
