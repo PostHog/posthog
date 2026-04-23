@@ -91,6 +91,7 @@
     flex: 1;
     flex-direction: column;
     min-height: 0;
+    container-type: inline-size;
 
     .NotebookNode &,
     .InsightCard &,
@@ -138,6 +139,36 @@
     .InsightDisplayConfig {
         padding: 0.5rem;
         border-bottom-width: 1px;
+
+        .LemonButton--small {
+            --lemon-button-gap: 0.25rem;
+            --lemon-button-padding-horizontal: 0.375rem;
+        }
+
+        // At wide widths: hide the left icon (IconEllipsis), show text + chevron
+        .InsightDisplayConfig__options-btn .LemonButton__chrome > .LemonButton__icon:first-child {
+            display: none;
+        }
+
+        @container (max-width: 780px) {
+            .IntervalFilter__by {
+                display: none;
+            }
+
+            .InsightDisplayConfig__options-btn {
+                order: 999;
+
+                // Show the left icon (IconEllipsis), hide text and the sideIcon chevron
+                .LemonButton__chrome > .LemonButton__icon:first-child {
+                    display: flex;
+                }
+
+                .LemonButton__content,
+                .LemonButton__chrome > .LemonButton__icon:last-child {
+                    display: none;
+                }
+            }
+        }
     }
 }
 

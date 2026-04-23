@@ -39,7 +39,7 @@ export function SmoothingFilter(): JSX.Element | null {
         <LemonSelect
             key={interval}
             value={smoothingIntervals || 1}
-            dropdownMatchSelectWidth={false}
+            fullWidth
             onChange={(key) => {
                 updateInsightFilter({
                     smoothingIntervals: key,
