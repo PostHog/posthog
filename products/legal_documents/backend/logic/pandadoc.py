@@ -13,9 +13,11 @@ from __future__ import annotations
 
 import hmac
 import hashlib
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import IO, Any
 
 from django.conf import settings
 
@@ -94,6 +96,25 @@ class PandaDocClient:
         except ValueError as exc:
             raise PandaDocError(f"PandaDoc {path} returned non-JSON body: {exc}") from exc
 
+    @contextmanager
+    def _get_stream(self, path: str) -> Iterator[IO[bytes]]:
+        """
+        Open a streaming GET to PandaDoc and yield the raw binary stream.
+        Keeps peak memory flat regardless of payload size — the caller pipes
+        bytes straight from the socket to wherever they're going (e.g. S3).
+        """
+        url = f"{self._base_url}{path}"
+        try:
+            with requests.get(url, headers=self._headers(), stream=True, timeout=self._timeout) as response:
+                if response.status_code >= 400:
+                    raise PandaDocError(f"PandaDoc {path} returned {response.status_code}: {response.text[:500]}")
+                # Transparently handle gzip/deflate on the wire so consumers
+                # see the decoded body.
+                response.raw.decode_content = True
+                yield response.raw
+        except requests.RequestException as exc:
+            raise PandaDocError(f"Network error calling PandaDoc {path}: {exc}") from exc
+
     def create_document_from_template(
         self,
         *,
@@ -136,6 +157,17 @@ class PandaDocClient:
             f"/public/v1/documents/{document_id}/send",
             {"subject": subject, "message": message, "silent": False},
         )
+
+    @contextmanager
+    def stream_document(self, *, document_id: str) -> Iterator[IO[bytes]]:
+        """
+        Open a streaming download for a completed document's signed PDF.
+        PandaDoc's `document.completed` webhook doesn't carry a signed-PDF URL,
+        so this is how we actually retrieve the artifact. Use as a context
+        manager — the underlying HTTP connection is released on exit.
+        """
+        with self._get_stream(f"/public/v1/documents/{document_id}/download") as stream:
+            yield stream
 
 
 def _serialize_recipient(r: PandaDocRecipient) -> dict[str, Any]:
