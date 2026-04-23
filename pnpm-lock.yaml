@@ -82,8 +82,8 @@ catalogs:
       specifier: ^0.35.0
       version: 0.35.0
     posthog-js:
-      specifier: ^1.369.4
-      version: 1.369.4
+      specifier: ^1.370.1
+      version: 1.370.1
     ts-pattern:
       specifier: '4.3'
       version: 4.3.0
@@ -329,11 +329,11 @@ importers:
         specifier: workspace:*
         version: link:../replay-shared
       '@posthog/rrweb':
-        specifier: 0.0.26
-        version: 0.0.26
+        specifier: 0.0.59
+        version: 0.0.59
       '@posthog/rrweb-types':
-        specifier: 0.0.26
-        version: 0.0.26
+        specifier: 0.0.59
+        version: 0.0.59
       p-limit:
         specifier: 3.1.0
         version: 3.1.0
@@ -357,11 +357,11 @@ importers:
   common/replay-shared:
     dependencies:
       '@posthog/rrweb':
-        specifier: 0.0.26
-        version: 0.0.26
+        specifier: 0.0.59
+        version: 0.0.59
       '@posthog/rrweb-types':
-        specifier: 0.0.26
-        version: 0.0.26
+        specifier: 0.0.59
+        version: 0.0.59
       fflate:
         specifier: ^0.8.2
         version: 0.8.2
@@ -549,8 +549,8 @@ importers:
   frontend:
     dependencies:
       '@base-ui/react':
-        specifier: ^1.3.0
-        version: 1.3.0(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        specifier: ^1.4.0
+        version: 1.4.0(@date-fns/tz@1.4.1)(@types/react@18.3.27)(date-fns@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@dagrejs/dagre':
         specifier: ^1.1.5
         version: 1.1.5
@@ -650,6 +650,9 @@ importers:
       '@posthog/products-groups':
         specifier: workspace:*
         version: link:../products/groups
+      '@posthog/products-legal-documents':
+        specifier: workspace:*
+        version: link:../products/legal_documents
       '@posthog/products-links':
         specifier: workspace:*
         version: link:../products/links
@@ -721,19 +724,19 @@ importers:
         version: link:../products/workflows
       '@posthog/react':
         specifier: 'catalog:'
-        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.369.4)(react@18.3.1)
+        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.370.1)(react@18.3.1)
       '@posthog/replay-shared':
         specifier: workspace:*
         version: link:../common/replay-shared
       '@posthog/rrweb':
-        specifier: 0.0.26
-        version: 0.0.26
+        specifier: 0.0.59
+        version: 0.0.59
       '@posthog/rrweb-plugin-console-record':
-        specifier: 0.0.26
-        version: 0.0.26(@posthog/rrweb-utils@0.0.4)(@posthog/rrweb@0.0.26)
+        specifier: 0.0.59
+        version: 0.0.59(@posthog/rrweb-utils@0.0.59)(@posthog/rrweb@0.0.59)
       '@posthog/rrweb-types':
-        specifier: 0.0.26
-        version: 0.0.26
+        specifier: 0.0.59
+        version: 0.0.59
       '@posthog/tailwind':
         specifier: workspace:*
         version: link:../common/tailwind
@@ -1060,7 +1063,7 @@ importers:
         version: 2.11.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.369.4
+        version: 1.370.1
       protomaps-themes-base:
         specifier: 2.0.0-alpha.1
         version: 2.0.0-alpha.1
@@ -1086,8 +1089,8 @@ importers:
         specifier: ^1.7.11
         version: 1.7.11(react@18.3.1)
       react-grid-layout:
-        specifier: ^2.2.2
-        version: 2.2.2(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        specifier: ^2.2.3
+        version: 2.2.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       react-intersection-observer:
         specifier: ^9.5.3
         version: 9.5.3(react@18.3.1)
@@ -2071,6 +2074,10 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
+    devDependencies:
+      kea-test-utils:
+        specifier: 'catalog:'
+        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
 
   products/alerts: {}
 
@@ -2172,7 +2179,7 @@ importers:
         version: 3.3.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.369.4
+        version: 1.370.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2216,7 +2223,7 @@ importers:
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.369.4
+        version: 1.370.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2306,7 +2313,7 @@ importers:
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.369.4
+        version: 1.370.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2443,7 +2450,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.369.4
+        version: 1.370.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2518,7 +2525,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.369.4
+        version: 1.370.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2585,6 +2592,42 @@ importers:
         version: 18.3.1
 
   products/growth: {}
+
+  products/legal_documents:
+    dependencies:
+      '@posthog/icons':
+        specifier: '*'
+        version: 0.36.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@posthog/lemon-ui':
+        specifier: '*'
+        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.5(react@18.3.1)))(kea@4.0.0-pre.5(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@storybook/react':
+        specifier: '*'
+        version: 7.6.24(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3)
+      '@storybook/testing-library':
+        specifier: '*'
+        version: 0.2.2
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      kea:
+        specifier: 'catalog:'
+        version: 4.0.0-pre.5(react@18.3.1)
+      kea-forms:
+        specifier: 'catalog:'
+        version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
+      kea-loaders:
+        specifier: 'catalog:'
+        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+      kea-router:
+        specifier: 'catalog:'
+        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+      posthog-js:
+        specifier: '*'
+        version: 1.369.3
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
 
   products/links:
     dependencies:
@@ -2705,7 +2748,7 @@ importers:
         version: 0.1.7
       posthog-js:
         specifier: 'catalog:'
-        version: 1.369.4
+        version: 1.370.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2787,7 +2830,7 @@ importers:
         version: 5.4.1
       posthog-js:
         specifier: 'catalog:'
-        version: 1.369.4
+        version: 1.370.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3205,7 +3248,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.369.4
+        version: 1.370.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3298,7 +3341,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.369.4
+        version: 1.370.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -8767,6 +8810,9 @@ packages:
   '@posthog/core@1.25.2':
     resolution: {integrity: sha512-h2FO7ut/BbfwpAXWpwdDHTzQgUo9ibDFEs6ZO+3cI3KPWQt5XwczK1OLAuPprcjm8T/jl0SH8jSFo5XdU4RbTg==}
 
+  '@posthog/core@1.26.0':
+    resolution: {integrity: sha512-q6pSkW7V9RC3rIXjJBo7IBXOH2KPJEh8o+xIcSqw7QD4vq7OYVzTJfUIvkD38+sm54RG/61/3QaPdpQZkDnOyg==}
+
   '@posthog/core@1.7.1':
     resolution: {integrity: sha512-kjK0eFMIpKo9GXIbts8VtAknsoZ18oZorANdtuTj1CbgS28t4ZVq//HAWhnxEuXRTrtkd+SUJ6Ux3j2Af8NCuA==}
 
@@ -8811,32 +8857,35 @@ packages:
       '@types/react':
         optional: true
 
-  '@posthog/rrdom@0.0.4':
-    resolution: {integrity: sha512-hUZOgnIxzB6ZWgKBbuf79oHko+7x1+sQMVtovY0k6fO67e5SwhKkLq3Y/Tn2ayIyUqEKqL8971wP1cmIeIVO+A==}
+  '@posthog/rrdom@0.0.59':
+    resolution: {integrity: sha512-0Xl1N9kyAzdwoL/brJaVTmbCBEGg8BWBziZ/k6a/V01etF4KFz7ws+neoXmnP69ClKnHC44Y8FhiegUags5CTA==}
 
-  '@posthog/rrweb-plugin-console-record@0.0.26':
-    resolution: {integrity: sha512-x1pcNVQ5yNRgNObrvMcXOui3d82Ulqils2fYkF87NFQpPCCoLKTb4BIFn9IYIaqkzrUmAdq2zU5bjPlAakzM2A==}
+  '@posthog/rrweb-plugin-console-record@0.0.59':
+    resolution: {integrity: sha512-1Akgh9vA0G9r7RZvACYqhV2UfvOLEJEGaqfbZPwwdZ/DCKyRJCF7r3fr3LaETv1xhvLKTMwjLLd/X+X35hvtXQ==}
     peerDependencies:
-      '@posthog/rrweb': '*'
-      '@posthog/rrweb-utils': '*'
+      '@posthog/rrweb': 0.0.59
+      '@posthog/rrweb-utils': 0.0.59
 
-  '@posthog/rrweb-snapshot@0.0.4':
-    resolution: {integrity: sha512-ifZH6T0FYjHtiCcqQOdrLn8YH9I7OOIWu2GSZMCzFd8F8oX1gtX4Tk/yX0sA6qAIWtfwDC0dKXgHWS2/EqGjgg==}
+  '@posthog/rrweb-snapshot@0.0.59':
+    resolution: {integrity: sha512-SmYUY0ktfmCMUlYTI0whxpQXYoxARoGJDJuo98k/F9qanE7LP7EG0TxZD7ZWzJ41cqgINiUaiUmzhDeFAMZfgw==}
 
-  '@posthog/rrweb-types@0.0.26':
-    resolution: {integrity: sha512-aMQ8zcW1xWH7k2Pk2LcS0ZMev5Jah8JrN43prYNk4t960Fr0NjINP1eeF7vTvDtoQyEBJ6zNg7xa0D0nn4atzA==}
+  '@posthog/rrweb-types@0.0.59':
+    resolution: {integrity: sha512-uTwrfIra1C7z7kzTQ2Mp3UohgPyOiUOZjVnwueA1ue3VcQVwbqT9poVJ6mNEY9U2kyLCuH+gNcOlq8sWab6pXw==}
 
-  '@posthog/rrweb-utils@0.0.4':
-    resolution: {integrity: sha512-ndkpquzqXV/i0u4paOPiESWE/wdOEPdM+Q+sFQfcn6KnvjxtkzsnNNSlOcNHSwuRh0bCk3Cgs2ixDVTSZ+Zdtg==}
+  '@posthog/rrweb-utils@0.0.59':
+    resolution: {integrity: sha512-79CWqVJ+DYwMa4h2dcx2p8I3PGdkI8EiqJeqTVZDP4QMkGhsNv+gt9kU+KFmJaaZREfEPdIEJ48zcqdZphXx0A==}
 
-  '@posthog/rrweb@0.0.26':
-    resolution: {integrity: sha512-UvH8ki2poxIInMbySlTLHWstiY8mhm5pCFFelUf5fe8ke5IYTpDVH6/JrLJbcmxlpad/nhwHH4UU4mx4nnY46Q==}
+  '@posthog/rrweb@0.0.59':
+    resolution: {integrity: sha512-jZySV/9SD/6gOu1jO5Wz/syRckjuj59mD+Rd8FFc0FSO9bnoXoz9Jx5AiME5wkRLPXBy6iGRLYabaYx9G1FIMg==}
 
   '@posthog/siphash@1.1.1':
     resolution: {integrity: sha512-JUFk57H89fOnHpF62FDyFGw4uXeHAX20OPfkLL8/iqg/xrVp5Q21LvJUDijmS5wt0avgUwXF2bxYgaZ5iWRmAg==}
 
-  '@posthog/types@1.369.4':
-    resolution: {integrity: sha512-YDsminlOa7KoV4vc64ElH0Z9FPLLEifdnhQMuGW+aMlKnNDUJqBDfHa62n3TJk6taPs1ALhUUQSh82l+9hUVQw==}
+  '@posthog/types@1.369.3':
+    resolution: {integrity: sha512-Ywqvs4513PixR2TIA5O3GMEyK4F65uefwxPfsIUeHr9ruGylyXp00YJ4CEbp8U0DMzCkeF+LsMKVnHgN3pAXcA==}
+
+  '@posthog/types@1.370.1':
+    resolution: {integrity: sha512-91AGn76zDgitMphnjrhvZ0WZ1oPipW4P8vrhVz/uKjtisYTZtokjrxeZyD+3imx4nYGyi6eNpPcvPdWXNBmN/A==}
 
   '@protobufjs/aspromise@1.1.2':
     resolution: {integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==}
@@ -12114,6 +12163,9 @@ packages:
 
   '@types/pixelmatch@5.2.4':
     resolution: {integrity: sha512-HDaSHIAv9kwpMN7zlmwfTv6gax0PiporJOipcrGsVNF3Ba+kryOZc0Pio5pn6NhisgWr7TaajlPEKTbTAypIBQ==}
+
+  '@types/postcss-safe-parser@5.0.4':
+    resolution: {integrity: sha512-5zGTm1jsW3j4+omgND1SIDbrZOcigTuxa4ihppvKbLkg2INUGBHV/fWNRSRFibK084tU3fxqZ/kVoSIGqRHnrQ==}
 
   '@types/prettier@2.7.3':
     resolution: {integrity: sha512-+68kP9yzs4LMp7VNh8gdzMSPZFL44MLGqiHWvttYJe+6qnuVr4Ek9wSBQoveqY/r+LwjCcU29kNVkidwim+kYA==}
@@ -18489,9 +18541,6 @@ packages:
     resolution: {integrity: sha512-KZxYo1BUkWD2TVFLr0MQoM8vUUigWD3LlD83a/75BqC+4qE0Hb1Vo5v1FgcfaNXvfXzr+5EhQ6ing/CaBijTlw==}
     engines: {node: '>= 18'}
 
-  mitt@3.0.0:
-    resolution: {integrity: sha512-7dX2/10ITVyqh4aOSVI9gdape+t9l2/8QxHrFmUXu4EEUpdlxl6RudZUPZoc+zuY2hk1j7XxVroIVIan/pD/SQ==}
-
   mitt@3.0.1:
     resolution: {integrity: sha512-vKivATfr97l2/QBCYAkXYDbrIWPM2IIKEl7YPhjCvKlG3kE2gm+uBo6nEXK3M5/Ffh/FLpKExzOQ3JJoJGFKBw==}
 
@@ -19743,6 +19792,12 @@ packages:
     peerDependencies:
       postcss: ^8.3.3
 
+  postcss-safe-parser@7.0.1:
+    resolution: {integrity: sha512-0AioNCJZ2DPYz5ABT6bddIqlhgwhpHZ/l65YAYo0BCIn0xiDpsnTHz0gnoTGk0OXZW0JRs+cDwL8u/teRdz+8A==}
+    engines: {node: '>=18.0'}
+    peerDependencies:
+      postcss: ^8.4.31
+
   postcss-scss@4.0.9:
     resolution: {integrity: sha512-AjKOeiwAitL/MXxQW2DliT28EKukvvbEWx3LBmJIRN8KfBGZbRTxNYW0kSqi1COiTZ57nZ9NW06S6ux//N1c9A==}
     engines: {node: '>=12.0'}
@@ -19822,8 +19877,11 @@ packages:
   posthog-js-lite@4.2.2:
     resolution: {integrity: sha512-fFCoGtMICWwoW0tsEdyFS7OFFgwe7bTTha/SKEtUdyJ56UyJ8wi6VghxyPkO2GVWpco5Za/edT1z1ovGYPCyLQ==}
 
-  posthog-js@1.369.4:
-    resolution: {integrity: sha512-tDP7dcX5DQD90enKj6bH9vk7GU3bdLrz1fHExhMnULd6kuuTa2tI4fhHx4AHheVyz8sR5ZICmf9E0vspDkuIAw==}
+  posthog-js@1.369.3:
+    resolution: {integrity: sha512-t4vk8mgkSdhIYr8YDRdLG45uJYH58MC7bPL83lKTEeDgoejyXbJ1/G77GZB/aWVQDST055GkgjQtUtK5DiYGkg==}
+
+  posthog-js@1.370.1:
+    resolution: {integrity: sha512-cj9V6L0qyf0htMfBshBdwvcUEfhTfqUEQPI/ly2dN4kZx4QmhmKERcelSI9CMKoBD1gX5Fp+f/cNTwKvzDvjsQ==}
 
   posthog-node@5.25.0:
     resolution: {integrity: sha512-DFE5lZAoD6hk7RATuT8qVQ7KFgFP5YlFTJciMbU2qq6NX0A8eJxiJcmEsMnB3g30jJJ9suiwGIq4I8ESwf9bZg==}
@@ -20481,8 +20539,8 @@ packages:
   react-error-overlay@6.0.9:
     resolution: {integrity: sha512-nQTTcUu+ATDbrSD1BZHr5kgSD4oF8OFjxun8uAaL8RwPBacGBNPf/yAuVVdx17N8XNzRDMrZ9XcKZHCjPW+9ew==}
 
-  react-grid-layout@2.2.2:
-    resolution: {integrity: sha512-yNo9pxQWoxHWRAwHGSVT4DEGELYPyQ7+q9lFclb5jcqeFzva63/2F72CryS/jiTIr/SBIlTaDdyjqH+ODg8oBw==}
+  react-grid-layout@2.2.3:
+    resolution: {integrity: sha512-OAEJHBxmfuxQfVtZwRzmsokijGlBgzYIJ7MUlLk/VSa43SaGzu15w5D0P2RDrfX5EvP9POMbL6bFrai/huDzbQ==}
     peerDependencies:
       react: 18.3.1
       react-dom: 18.3.1
@@ -20574,10 +20632,11 @@ packages:
       react: 18.3.1
       react-dom: 18.3.1
 
-  react-resizable@3.0.5:
-    resolution: {integrity: sha512-vKpeHhI5OZvYn82kXOs1bC8aOXktGU5AmKAgaZS4F5JPburCtbmDPqE7Pzp+1kN4+Wb81LlF33VpGwWwtXem+w==}
+  react-resizable@3.1.3:
+    resolution: {integrity: sha512-liJBNayhX7qA4tBJiBD321FDhJxgGTJ07uzH5zSORXoE8h7PyEZ8mLqmosST7ppf6C4zUsbd2gzDMmBCfFp9Lw==}
     peerDependencies:
       react: 18.3.1
+      react-dom: 18.3.1
 
   react-shadow@20.4.0:
     resolution: {integrity: sha512-sirvAmFja7Ss6MoyQbKWxaQ5IDTAW3Za3Tvegylfr5jXnwKZObHRIyiatefeNlskoGKfuPaZ8DNT052T0SUGcg==}
@@ -31655,6 +31714,8 @@ snapshots:
 
   '@posthog/core@1.25.2': {}
 
+  '@posthog/core@1.26.0': {}
+
   '@posthog/core@1.7.1':
     dependencies:
       cross-spawn: 7.0.6
@@ -31692,44 +31753,48 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  '@posthog/react@1.9.0(@types/react@18.3.27)(posthog-js@1.369.4)(react@18.3.1)':
+  '@posthog/react@1.9.0(@types/react@18.3.27)(posthog-js@1.370.1)(react@18.3.1)':
     dependencies:
-      posthog-js: 1.369.4
+      posthog-js: 1.370.1
       react: 18.3.1
     optionalDependencies:
       '@types/react': 18.3.27
 
-  '@posthog/rrdom@0.0.4':
+  '@posthog/rrdom@0.0.59':
     dependencies:
-      '@posthog/rrweb-snapshot': 0.0.4
+      '@posthog/rrweb-snapshot': 0.0.59
 
-  '@posthog/rrweb-plugin-console-record@0.0.26(@posthog/rrweb-utils@0.0.4)(@posthog/rrweb@0.0.26)':
+  '@posthog/rrweb-plugin-console-record@0.0.59(@posthog/rrweb-utils@0.0.59)(@posthog/rrweb@0.0.59)':
     dependencies:
-      '@posthog/rrweb': 0.0.26
-      '@posthog/rrweb-utils': 0.0.4
+      '@posthog/rrweb': 0.0.59
+      '@posthog/rrweb-utils': 0.0.59
 
-  '@posthog/rrweb-snapshot@0.0.4':
+  '@posthog/rrweb-snapshot@0.0.59':
     dependencies:
+      '@types/postcss-safe-parser': 5.0.4
       postcss: 8.5.6
+      postcss-safe-parser: 7.0.1(postcss@8.5.6)
 
-  '@posthog/rrweb-types@0.0.26': {}
+  '@posthog/rrweb-types@0.0.59': {}
 
-  '@posthog/rrweb-utils@0.0.4': {}
+  '@posthog/rrweb-utils@0.0.59': {}
 
-  '@posthog/rrweb@0.0.26':
+  '@posthog/rrweb@0.0.59':
     dependencies:
-      '@posthog/rrdom': 0.0.4
-      '@posthog/rrweb-snapshot': 0.0.4
-      '@posthog/rrweb-types': 0.0.26
-      '@posthog/rrweb-utils': 0.0.4
+      '@posthog/rrdom': 0.0.59
+      '@posthog/rrweb-snapshot': 0.0.59
+      '@posthog/rrweb-types': 0.0.59
+      '@posthog/rrweb-utils': 0.0.59
       '@types/css-font-loading-module': 0.0.7
       '@xstate/fsm': 1.6.5
       base64-arraybuffer: 1.0.2
-      mitt: 3.0.0
+      mitt: 3.0.1
 
   '@posthog/siphash@1.1.1': {}
 
-  '@posthog/types@1.369.4': {}
+  '@posthog/types@1.369.3': {}
+
+  '@posthog/types@1.370.1': {}
 
   '@protobufjs/aspromise@1.1.2': {}
 
@@ -33734,7 +33799,7 @@ snapshots:
       '@storybook/client-logger': 7.6.4
       '@storybook/core-events': 7.6.4
       '@storybook/global': 5.0.0
-      qs: 6.14.1
+      qs: 6.15.1
       telejson: 7.2.0
       tiny-invariant: 1.3.3
 
@@ -34153,7 +34218,7 @@ snapshots:
       dequal: 2.0.3
       lodash: 4.18.1
       memoizerific: 1.11.3
-      qs: 6.14.1
+      qs: 6.15.1
       synchronous-promise: 2.0.17
       ts-dedent: 2.2.0
       util-deprecate: 1.0.2
@@ -34170,7 +34235,7 @@ snapshots:
       dequal: 2.0.3
       lodash: 4.18.1
       memoizerific: 1.11.3
-      qs: 6.14.1
+      qs: 6.15.1
       synchronous-promise: 2.0.17
       ts-dedent: 2.2.0
       util-deprecate: 1.0.2
@@ -35935,6 +36000,10 @@ snapshots:
   '@types/pixelmatch@5.2.4':
     dependencies:
       '@types/node': 22.18.8
+
+  '@types/postcss-safe-parser@5.0.4':
+    dependencies:
+      postcss: 8.5.6
 
   '@types/prettier@2.7.3': {}
 
@@ -44359,8 +44428,6 @@ snapshots:
     dependencies:
       minipass: 7.1.2
 
-  mitt@3.0.0: {}
-
   mitt@3.0.1: {}
 
   mj-context-menu@0.6.1: {}
@@ -45998,6 +46065,10 @@ snapshots:
     dependencies:
       postcss: 8.4.31
 
+  postcss-safe-parser@7.0.1(postcss@8.5.6):
+    dependencies:
+      postcss: 8.5.6
+
   postcss-scss@4.0.9(postcss@8.5.6):
     dependencies:
       postcss: 8.5.6
@@ -46089,7 +46160,7 @@ snapshots:
     dependencies:
       '@posthog/core': 1.7.1
 
-  posthog-js@1.369.4:
+  posthog-js@1.369.3:
     dependencies:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/api-logs': 0.208.0
@@ -46097,7 +46168,23 @@ snapshots:
       '@opentelemetry/resources': 2.5.0(@opentelemetry/api@1.9.0)
       '@opentelemetry/sdk-logs': 0.208.0(@opentelemetry/api@1.9.0)
       '@posthog/core': 1.25.2
-      '@posthog/types': 1.369.4
+      '@posthog/types': 1.369.3
+      core-js: 3.40.0
+      dompurify: 3.3.2
+      fflate: 0.4.8
+      preact: 10.28.3
+      query-selector-shadow-dom: 1.0.1
+      web-vitals: 5.1.0
+
+  posthog-js@1.370.1:
+    dependencies:
+      '@opentelemetry/api': 1.9.0
+      '@opentelemetry/api-logs': 0.208.0
+      '@opentelemetry/exporter-logs-otlp-http': 0.208.0(@opentelemetry/api@1.9.0)
+      '@opentelemetry/resources': 2.5.0(@opentelemetry/api@1.9.0)
+      '@opentelemetry/sdk-logs': 0.208.0(@opentelemetry/api@1.9.0)
+      '@posthog/core': 1.26.0
+      '@posthog/types': 1.370.1
       core-js: 3.40.0
       dompurify: 3.3.2
       fflate: 0.4.8
@@ -46997,7 +47084,7 @@ snapshots:
 
   react-error-overlay@6.0.9: {}
 
-  react-grid-layout@2.2.2(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
+  react-grid-layout@2.2.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
       clsx: 2.1.1
       fast-equals: 4.0.3
@@ -47005,7 +47092,7 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
       react-draggable: 4.5.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      react-resizable: 3.0.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      react-resizable: 3.1.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       resize-observer-polyfill: 1.5.1
 
   react-intersection-observer@9.5.3(react@18.3.1):
@@ -47096,13 +47183,12 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  react-resizable@3.0.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
+  react-resizable@3.1.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
       prop-types: 15.8.1
       react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
       react-draggable: 4.5.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-    transitivePeerDependencies:
-      - react-dom
 
   react-shadow@20.4.0(prop-types@15.8.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:

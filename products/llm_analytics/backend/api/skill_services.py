@@ -9,6 +9,7 @@ from posthog.models import Team, User
 from ..models.skills import LLMSkill, LLMSkillFile, annotate_llm_skill_version_history_metadata
 
 MAX_SKILL_VERSION = 2000
+MAX_SKILL_BODY_BYTES = 1_000_000
 
 
 class LLMSkillNotFoundError(Exception):
@@ -25,8 +26,45 @@ class LLMSkillVersionLimitError(Exception):
     max_version: int
 
 
+@dataclass
+class LLMSkillEditError(Exception):
+    message: str
+    edit_index: int
+
+
 class LLMSkillDuplicateNameConflictError(Exception):
     pass
+
+
+def apply_skill_body_edits(body: str, edits: list[dict[str, str]]) -> str:
+    """Apply sequential find/replace edits to a skill body.
+
+    Each edit's 'old' text must match exactly once in the current body.
+    """
+    text = body
+    for i, edit in enumerate(edits):
+        old = edit["old"]
+        new = edit["new"]
+        count = text.count(old)
+        if count == 0:
+            raise LLMSkillEditError(
+                message="Text to replace was not found in the skill body.",
+                edit_index=i,
+            )
+        if count > 1:
+            raise LLMSkillEditError(
+                message=f"Text to replace matches {count} times — provide more context to make it unique.",
+                edit_index=i,
+            )
+        text = text.replace(old, new, 1)
+
+    if len(text.encode("utf-8")) > MAX_SKILL_BODY_BYTES:
+        raise LLMSkillEditError(
+            message=f"Resulting skill body exceeds the {MAX_SKILL_BODY_BYTES} byte size limit.",
+            edit_index=len(edits) - 1,
+        )
+
+    return text
 
 
 def get_active_skill_queryset(team: Team) -> QuerySet[LLMSkill]:
@@ -95,6 +133,7 @@ def publish_skill_version(
     user: User,
     skill_name: str,
     body: str | None = None,
+    edits: list[dict[str, str]] | None = None,
     description: str | None = None,
     license: str | None = None,
     compatibility: str | None = None,
@@ -118,12 +157,17 @@ def publish_skill_version(
         if current_latest.version >= MAX_SKILL_VERSION:
             raise LLMSkillVersionLimitError(max_version=MAX_SKILL_VERSION)
 
+        if edits is not None:
+            resolved_body = apply_skill_body_edits(current_latest.body, edits)
+        else:
+            resolved_body = _carry_forward(body, current_latest.body)
+
         LLMSkill.objects.filter(pk=current_latest.pk).update(is_latest=False)
         published_skill = LLMSkill.objects.create(
             team=team,
             name=current_latest.name,
             description=_carry_forward(description, current_latest.description),
-            body=_carry_forward(body, current_latest.body),
+            body=resolved_body,
             license=_carry_forward(license, current_latest.license),
             compatibility=_carry_forward(compatibility, current_latest.compatibility),
             allowed_tools=_carry_forward(allowed_tools, current_latest.allowed_tools),

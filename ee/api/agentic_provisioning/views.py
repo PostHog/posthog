@@ -349,6 +349,19 @@ def account_requests(request: Request) -> Response:
             },
             status=400,
         )
+    if code_challenge and (
+        len(code_challenge) < 43 or len(code_challenge) > 128 or not re.fullmatch(r"[A-Za-z0-9_\-]+", code_challenge)
+    ):
+        return Response(
+            {
+                "type": "error",
+                "error": {
+                    "code": "invalid_request",
+                    "message": "code_challenge must be 43-128 characters using base64url charset",
+                },
+            },
+            status=400,
+        )
 
     region = (configuration.get("region") or "US").upper()
 
@@ -399,6 +412,40 @@ def _handle_existing_user(
     code_challenge: str = "",
     code_challenge_method: str = "S256",
 ) -> Response:
+    # Only server-to-server partners with shared secrets skip consent.
+    # Everything else (pkce, future methods) requires browser approval.
+    TRUSTED_AUTH_METHODS = ("hmac", "bearer")
+    if partner and partner.provisioning_auth_method not in TRUSTED_AUTH_METHODS:
+        if not code_challenge:
+            return Response(
+                {
+                    "id": request_id,
+                    "type": "error",
+                    "error": {"code": "invalid_request", "message": "code_challenge is required for public clients"},
+                },
+                status=400,
+            )
+        validated_scopes = _validate_scopes(scopes)
+        if validated_scopes is None:
+            return Response(
+                {
+                    "id": request_id,
+                    "type": "error",
+                    "error": {"code": "invalid_scope", "message": "One or more requested scopes are not recognized"},
+                },
+                status=400,
+            )
+        return _require_user_consent(
+            request_id,
+            user,
+            validated_scopes,
+            partner_account_id,
+            region,
+            partner,
+            code_challenge,
+            code_challenge_method,
+        )
+
     team = _resolve_team_for_existing_user(user, team_id)
     if team is None:
         _capture_provisioning_event("account_request", "error", error_code="team_resolution_failed")
@@ -431,6 +478,55 @@ def _handle_existing_user(
     _capture_provisioning_event("account_request", "existing_user", region=region, team_id=team.id)
 
     return Response({"id": request_id, "type": "oauth", "oauth": {"code": code}})
+
+
+def _require_user_consent(
+    request_id: str,
+    user: User,
+    scopes: list[str],
+    partner_account_id: str,
+    region: str,
+    partner: OAuthApplication,
+    code_challenge: str,
+    code_challenge_method: str,
+) -> Response:
+    # Dedup: overwrite any prior pending state for same partner+email so
+    # retries don't leave multiple live consent URLs.
+    dedup_key = f"pending_auth_state:{partner.id}:{user.email}"
+    old_state = cache.get(dedup_key)
+    if old_state:
+        cache.delete(f"{PENDING_AUTH_CACHE_PREFIX}{old_state}")
+
+    state = secrets.token_urlsafe(32)
+    cache.set(dedup_key, state, timeout=PENDING_AUTH_TTL_SECONDS)
+
+    pending_key = f"{PENDING_AUTH_CACHE_PREFIX}{state}"
+    cache.set(
+        pending_key,
+        {
+            "email": user.email,
+            "scopes": scopes,
+            "stripe_account_id": partner_account_id,
+            "partner_id": str(partner.id),
+            "partner_name": partner.name,
+            "region": region,
+            "code_challenge": code_challenge,
+            "code_challenge_method": code_challenge_method,
+        },
+        timeout=PENDING_AUTH_TTL_SECONDS,
+    )
+
+    auth_url = _build_authorize_url(state, scopes, region=region)
+
+    _capture_provisioning_event("account_request", "requires_auth", region=region)
+
+    return Response(
+        {
+            "id": request_id,
+            "type": "requires_auth",
+            "requires_auth": {"url": auth_url},
+        }
+    )
 
 
 def _resolve_team_for_existing_user(user: User, requested_team_id: int | None = None) -> Team | None:
@@ -549,8 +645,8 @@ def _handle_new_user(
     return Response({"id": request_id, "type": "oauth", "oauth": {"code": code}})
 
 
-def _build_authorize_url(confirmation_secret: str, scopes: list[str]) -> str:
-    base = settings.SITE_URL.rstrip("/")
+def _build_authorize_url(confirmation_secret: str, scopes: list[str], region: str = "") -> str:
+    base = _region_to_host(region).rstrip("/") if region else settings.SITE_URL.rstrip("/")
     params = urlencode({"state": confirmation_secret, "scope": " ".join(scopes)})
     return f"{base}/api/agentic/authorize?{params}"
 
@@ -580,8 +676,6 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
         _capture_provisioning_event("authorize", "email_mismatch")
         return HttpResponseRedirect(f"{settings.SITE_URL}?error=email_mismatch")
 
-    scope = " ".join(pending.get("scopes", []))
-
     user = request.user
     memberships = list(user.organization_memberships.select_related("organization").all())
     if not memberships:
@@ -597,9 +691,22 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
         non_demo_teams = [team]
         _capture_provisioning_event("authorize", "auto_created_project", team_id=team.id)
 
-    if len(memberships) == 1 and len(non_demo_teams) == 1:
-        cache.delete(pending_key)
+    # Re-check partner is still active (could have been deactivated since account_requests)
+    TRUSTED_AUTH_METHODS = ("hmac", "bearer")
+    partner_id = pending.get("partner_id", "")
+    is_trusted_partner = not partner_id
+    if partner_id:
+        try:
+            partner_app = OAuthApplication.objects.get(id=partner_id)
+            if not partner_app.provisioning_active:
+                cache.delete(pending_key)
+                _capture_provisioning_event("authorize", "partner_deactivated")
+                return HttpResponseRedirect(f"{settings.SITE_URL}?error=partner_deactivated")
+            is_trusted_partner = partner_app.provisioning_auth_method in TRUSTED_AUTH_METHODS
+        except OAuthApplication.DoesNotExist:
+            pass
 
+    if is_trusted_partner and len(memberships) == 1 and len(non_demo_teams) == 1:
         organization = memberships[0].organization
         team = non_demo_teams[0]
 
@@ -619,6 +726,7 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
             },
             timeout=AUTH_CODE_TTL_SECONDS,
         )
+        cache.delete(pending_key)
 
         _capture_provisioning_event("authorize", "auto_redirect", team_id=team.id)
 
@@ -631,8 +739,36 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
 
     base = settings.SITE_URL.rstrip("/")
     sanitized_state = re.sub(r"[^A-Za-z0-9_\-]", "", state)
-    params = urlencode({"state": sanitized_state, "scope": scope})
+    params = urlencode({"state": sanitized_state})
     return HttpResponseRedirect(f"{base}/agentic/authorize?{params}")
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def agentic_authorize_pending(request: Request) -> Response:
+    """Return server-verified partner name and scopes for a pending auth state.
+
+    The frontend calls this instead of reading from URL params, preventing
+    an attacker from spoofing the partner identity on the consent page.
+    """
+    state = request.query_params.get("state", "")
+    if not state or not _SAFE_STATE_RE.match(state):
+        return Response({"error": "invalid_state"}, status=400)
+
+    pending = cache.get(f"{PENDING_AUTH_CACHE_PREFIX}{state}")
+    if pending is None:
+        return Response({"error": "expired_or_invalid_state"}, status=400)
+
+    user = cast(User, request.user)
+    if user.email != pending["email"]:
+        return Response({"error": "email_mismatch"}, status=403)
+
+    return Response(
+        {
+            "partner_name": pending.get("partner_name", "the requesting app"),
+            "scopes": pending.get("scopes", []),
+        }
+    )
 
 
 @api_view(["POST"])
@@ -667,9 +803,20 @@ def agentic_authorize_confirm(request: Request) -> Response:
         _capture_provisioning_event("authorize_confirm", "team_not_accessible", team_id=team_id)
         return Response({"error": "team_not_accessible"}, status=403)
 
-    cache.delete(pending_key)
+    confirm_partner_id = pending.get("partner_id", "")
+    if confirm_partner_id:
+        try:
+            confirm_partner = OAuthApplication.objects.get(id=confirm_partner_id)
+            if not confirm_partner.provisioning_active:
+                cache.delete(pending_key)
+                _capture_provisioning_event("authorize_confirm", "partner_deactivated")
+                return Response({"error": "partner_deactivated"}, status=403)
+        except OAuthApplication.DoesNotExist:
+            pass
 
     code = secrets.token_urlsafe(32)
+    # Set auth code BEFORE deleting pending state so a cache hiccup
+    # between the two doesn't leave the user with no recovery path.
     cache.set(
         f"{AUTH_CODE_CACHE_PREFIX}{code}",
         {
@@ -685,6 +832,7 @@ def agentic_authorize_confirm(request: Request) -> Response:
         },
         timeout=AUTH_CODE_TTL_SECONDS,
     )
+    cache.delete(pending_key)
 
     callback_url = _get_callback_url(pending.get("partner_id", ""))
     sanitized_state = re.sub(r"[^A-Za-z0-9_\-]", "", state)
@@ -1596,6 +1744,35 @@ def _verify_hmac_if_present(request: Request) -> Response | None:
     if request.META.get("HTTP_STRIPE_SIGNATURE"):
         return verify_stripe_signature(request)
     return None
+
+
+ALLOWED_PROVISIONING_SCOPES = {
+    "customer_journey:read",
+    "query:read",
+    "conversation:read",
+    "conversation:write",
+    "experiment:read",
+    "feature_flag:read",
+    "insight:read",
+    "organization:read",
+    "person:read",
+    "project:read",
+    "ticket:read",
+    "ticket:write",
+    "user:read",
+    "hog_flow:read",
+    "hog_flow:write",
+}
+
+
+def _validate_scopes(scopes: list[str]) -> list[str] | None:
+    """Validate scopes against the allowlist. Returns filtered scopes or None if any are invalid."""
+    if not scopes:
+        return scopes
+    for scope in scopes:
+        if scope not in ALLOWED_PROVISIONING_SCOPES:
+            return None
+    return scopes
 
 
 def _error_response(code: str, message: str, resource_id: str = "", status: int = 400) -> Response:
