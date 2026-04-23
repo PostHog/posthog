@@ -127,7 +127,7 @@ class TestProvisioningResources(ProvisioningTestBase):
         )
         pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
         assert pat is not None
-        assert pat.label.startswith("Provisioning")
+        assert pat.label.startswith("Stripe Projects")
 
     def test_create_resource_does_not_delete_existing_pats(self):
         token = self._get_bearer_token()
@@ -136,7 +136,7 @@ class TestProvisioningResources(ProvisioningTestBase):
             data={"service_id": "analytics"},
             token=token,
         )
-        first_pat = PersonalAPIKey.objects.filter(user=self.user, label__startswith="Provisioning").first()
+        first_pat = PersonalAPIKey.objects.filter(user=self.user, label__startswith="Stripe Projects").first()
         assert first_pat is not None
 
         self._post_signed_with_bearer(
@@ -144,7 +144,7 @@ class TestProvisioningResources(ProvisioningTestBase):
             data={"service_id": "analytics"},
             token=token,
         )
-        provisioning_pats = PersonalAPIKey.objects.filter(user=self.user, label__startswith="Provisioning")
+        provisioning_pats = PersonalAPIKey.objects.filter(user=self.user, label__startswith="Stripe Projects")
         assert provisioning_pats.count() == 2
         assert PersonalAPIKey.objects.filter(id=first_pat.id).exists()
 
