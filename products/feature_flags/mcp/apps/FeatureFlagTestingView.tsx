@@ -85,11 +85,11 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                                 <span className="text-text-secondary">#{flag.condition_index + 1}</span>
                             </div>
                         )}
-                        {flag.payload && (
+                        {flag.payload != null && (
                             <div className="text-sm">
                                 <span className="font-medium">Payload: </span>
                                 <code className="text-xs bg-bg-light p-1 rounded">
-                                    {JSON.stringify(flag.payload) ?? 'null'}
+                                    {JSON.stringify(flag.payload) || 'null'}
                                 </code>
                             </div>
                         )}
@@ -106,7 +106,7 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                                     <div key={key} className="flex items-center gap-2 text-sm">
                                         <span className="font-mono text-text-primary">{key}:</span>
                                         <span className="text-text-secondary">
-                                            {typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                                            {typeof value === 'object' ? String(JSON.stringify(value)) : String(value)}
                                         </span>
                                     </div>
                                 ))}
