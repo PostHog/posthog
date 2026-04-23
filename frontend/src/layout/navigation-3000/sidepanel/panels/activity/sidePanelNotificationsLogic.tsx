@@ -383,7 +383,6 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                             await actions.markAsRead(notification.id)
                         }
                         window.location.href = urls.project(notification.team_id!, path)
-
                     },
                 },
                 secondaryButton: {
