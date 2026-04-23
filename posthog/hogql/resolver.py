@@ -58,6 +58,11 @@ POSTGRES_KEYWORD_TYPES: dict[str, PostgresKeywordType] = {
     "localtimestamp": ast.DateTimeType,
 }
 
+# Dialects that share Postgres's SQL surface (feature support, keyword set, syntax quirks).
+# DuckDB is Postgres-wire compatible and accepts nearly all PG-specific constructs, so it
+# takes the PG code path in the resolver.
+_POSTGRES_FAMILY: frozenset[HogQLDialect] = frozenset({"postgres", "duckdb"})
+
 
 def resolve_constant_data_type(constant: Any) -> ConstantType:
     if constant is None:
@@ -173,9 +178,6 @@ class Resolver(CloningVisitor):
         parent_ctes = self.ctes
         self.ctes = dict(parent_ctes)
 
-        if node.limit_with_ties and self.dialect == "postgres":
-            raise QueryError("WITH TIES is not supported in postgres dialect")
-
         initial = self.visit(node.initial_select_query)
 
         # Root WITH propagates to all subsequent branches. Branch-level CTEs shadow root CTEs.
@@ -233,7 +235,7 @@ class Resolver(CloningVisitor):
         return result
 
     def visit_unpivot_expr(self, node: ast.UnpivotExpr):
-        if self.dialect != "postgres":
+        if self.dialect not in _POSTGRES_FAMILY:
             raise QueryError(f"UNPIVOT is not allowed in {self.dialect} dialect")
 
         node = cast(ast.UnpivotExpr, clone_expr(node))
@@ -420,7 +422,7 @@ class Resolver(CloningVisitor):
             self.scopes.pop()
 
     def visit_pivot_expr(self, node: ast.PivotExpr):
-        if self.dialect != "postgres":
+        if self.dialect not in _POSTGRES_FAMILY:
             raise QueryError(f"PIVOT is not allowed in {self.dialect} dialect")
 
         node = cast(ast.PivotExpr, clone_expr(node))
@@ -594,8 +596,6 @@ class Resolver(CloningVisitor):
 
     def visit_select_query(self, node: ast.SelectQuery):
         """Visit each SELECT query or subquery."""
-        if node.limit_with_ties and self.dialect == "postgres":
-            raise QueryError("WITH TIES is not supported in postgres dialect")
         # This "SelectQueryType" is also a new scope for variables in the SELECT query.
         # We will add fields to it when we encounter them. This is used to resolve fields later.
         node_type = ast.SelectQueryType()
@@ -633,7 +633,7 @@ class Resolver(CloningVisitor):
         # Visit the FROM clauses first. This resolves all table aliases onto self.scopes[-1]
         new_node.select_from = self.visit(node.select_from)
 
-        if node.limit_percent and self.dialect != "postgres":
+        if node.limit_percent and self.dialect not in _POSTGRES_FAMILY:
             if self.dialect == "clickhouse":
                 if not (isinstance(node.limit, ast.Constant) and isinstance(node.limit.value, (int, float))):
                     raise QueryError("LIMIT percent with expressions is not supported in clickhouse dialect")
@@ -1197,7 +1197,7 @@ class Resolver(CloningVisitor):
                 # For non-postgres dialects, bake column aliases into the inner
                 # SELECT as AS aliases so ClickHouse/HogQL (which don't support
                 # the ``AS t(col1, col2)`` syntax) get correct column names.
-                if self.dialect != "postgres":
+                if self.dialect not in _POSTGRES_FAMILY:
                     inner_query = cast(ast.SelectQuery, inner_select)
                     new_select: list[ast.Expr] = []
                     for i, expr in enumerate(inner_query.select):
@@ -1526,21 +1526,21 @@ class Resolver(CloningVisitor):
         return new_node
 
     def visit_try_cast(self, node: ast.TryCast):
-        if self.dialect != "postgres":
+        if self.dialect not in _POSTGRES_FAMILY:
             raise QueryError(f"TRY_CAST is not allowed in {self.dialect} dialect")
         node = cast(ast.TryCast, clone_expr(node))
         node.expr = self.visit(node.expr)
         return node
 
     def visit_positional_ref(self, node: ast.PositionalRef):
-        if self.dialect != "postgres":
+        if self.dialect not in _POSTGRES_FAMILY:
             raise QueryError(f"Positional references are not allowed in {self.dialect} dialect")
         node = cast(ast.PositionalRef, clone_expr(node))
         node.type = ast.UnknownType()
         return node
 
     def visit_array_slice(self, node: ast.ArraySlice):
-        if self.dialect not in {"postgres", "clickhouse"}:
+        if self.dialect not in _POSTGRES_FAMILY and self.dialect != "clickhouse":
             raise QueryError(f"Array slices are not allowed in {self.dialect} dialect")
         node = cast(ast.ArraySlice, clone_expr(node))
         node.array = self.visit(node.array)
@@ -1558,7 +1558,7 @@ class Resolver(CloningVisitor):
         scope = self._get_scope()
         name = str(node.chain[0])
 
-        if self.dialect == "postgres" and len(node.chain) == 1:
+        if self.dialect in _POSTGRES_FAMILY and len(node.chain) == 1:
             keyword = name.lower()
             if keyword in POSTGRES_KEYWORD_TYPES and name not in scope.columns and name not in scope.aliases:
                 keyword_type = POSTGRES_KEYWORD_TYPES[keyword]
@@ -1601,7 +1601,7 @@ class Resolver(CloningVisitor):
         if (
             not type
             and len(node.chain) == 1
-            and self.dialect == "postgres"
+            and self.dialect in _POSTGRES_FAMILY
             and name.lower() in POSTGRES_KEYWORD_TYPES
             and name in scope.columns
         ):

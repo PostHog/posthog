@@ -327,7 +327,7 @@ def _log_warning_for_missing_events(batch_export_id: UUID, missing_events: list[
     bind_contextvars(batch_export_id=batch_export_id)
     logger = LOGGER.bind()
 
-    message = f"Batch Exports Monitoring: Found missing events:\n"
+    message = "Batch Exports Monitoring: Found missing events:\n"
     for event in missing_events:
         message += f"- {event.count} events missing in interval {event.interval_start} to {event.interval_end}\n"
 

@@ -221,6 +221,7 @@ def _evaluate_single_alert(
             result_count=None,
             threshold_breached=False,
             error_message=classified.user_message,
+            is_transient_error=classified.is_transient,
         )
 
     outcome = evaluate_alert_check(alert.to_snapshot(), check_result, now)
