@@ -15,7 +15,6 @@ from django.http import StreamingHttpResponse
 from django.test import TestCase, override_settings
 from django.utils import timezone as django_timezone
 
-
 import jwt
 from parameterized import parameterized
 from rest_framework import status
