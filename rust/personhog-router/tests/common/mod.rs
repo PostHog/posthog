@@ -16,10 +16,12 @@ use personhog_proto::personhog::replica::v1::person_hog_replica_server::{
 use personhog_proto::personhog::service::v1::person_hog_service_client::PersonHogServiceClient;
 use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHogServiceServer;
 use personhog_proto::personhog::types::v1::{
-    CheckCohortMembershipRequest, CohortMembershipResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
-    DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
-    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
+    CheckCohortMembershipRequest, CohortMembershipResponse, CountCohortMembersRequest,
+    CountCohortMembersResponse, DeleteCohortMemberRequest, DeleteCohortMemberResponse,
+    DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
+    DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
+    DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
+    DeletePersonsResponse, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
     GetGroupResponse, GetGroupTypeMappingsByProjectIdRequest,
     GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
@@ -28,16 +30,18 @@ use personhog_proto::personhog::types::v1::{
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
-    Person, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest,
-    UpsertHashKeyOverridesResponse,
+    InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
+    ListCohortMemberIdsResponse, Person, PersonsByDistinctIdsInTeamResponse,
+    PersonsByDistinctIdsResponse, PersonsResponse, UpdatePersonPropertiesRequest,
+    UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
-use personhog_router::backend::{LeaderBackend, ReplicaBackend};
+use personhog_router::backend::{LeaderBackend, ReplicaBackend, ReplicaBackendConfig};
 use personhog_router::config::RetryConfig;
 use personhog_router::router::PersonHogRouter;
 use personhog_router::service::PersonHogRouterService;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
+use tonic::codec::CompressionEncoding;
 use tonic::transport::{Channel, Server};
 use tonic::{Request, Response, Status};
 
@@ -232,6 +236,48 @@ impl PersonHogReplica for TestReplicaService {
         }))
     }
 
+    async fn count_cohort_members(
+        &self,
+        _request: Request<CountCohortMembersRequest>,
+    ) -> Result<Response<CountCohortMembersResponse>, Status> {
+        Ok(Response::new(CountCohortMembersResponse { count: 0 }))
+    }
+
+    async fn delete_cohort_member(
+        &self,
+        _request: Request<DeleteCohortMemberRequest>,
+    ) -> Result<Response<DeleteCohortMemberResponse>, Status> {
+        Ok(Response::new(DeleteCohortMemberResponse { deleted: false }))
+    }
+
+    async fn delete_cohort_members_bulk(
+        &self,
+        _request: Request<DeleteCohortMembersBulkRequest>,
+    ) -> Result<Response<DeleteCohortMembersBulkResponse>, Status> {
+        Ok(Response::new(DeleteCohortMembersBulkResponse {
+            deleted_count: 0,
+        }))
+    }
+
+    async fn insert_cohort_members(
+        &self,
+        _request: Request<InsertCohortMembersRequest>,
+    ) -> Result<Response<InsertCohortMembersResponse>, Status> {
+        Ok(Response::new(InsertCohortMembersResponse {
+            inserted_count: 0,
+        }))
+    }
+
+    async fn list_cohort_member_ids(
+        &self,
+        _request: Request<ListCohortMemberIdsRequest>,
+    ) -> Result<Response<ListCohortMemberIdsResponse>, Status> {
+        Ok(Response::new(ListCohortMemberIdsResponse {
+            person_ids: vec![],
+            next_cursor: 0,
+        }))
+    }
+
     async fn get_group(
         &self,
         _request: Request<GetGroupRequest>,
@@ -316,7 +362,11 @@ pub async fn start_test_replica(service: TestReplicaService) -> SocketAddr {
 
     tokio::spawn(async move {
         Server::builder()
-            .add_service(PersonHogReplicaServer::new(service))
+            .add_service(
+                PersonHogReplicaServer::new(service)
+                    .accept_compressed(CompressionEncoding::Zstd)
+                    .send_compressed(CompressionEncoding::Zstd),
+            )
             .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
             .await
             .unwrap();
@@ -339,16 +389,16 @@ pub async fn start_test_router(replica_addr: SocketAddr) -> SocketAddr {
         initial_backoff_ms: 1,
         max_backoff_ms: 1,
     };
-    let backend = ReplicaBackend::new(
-        &replica_url,
-        Duration::from_secs(5),
+    let backend = ReplicaBackend::new(ReplicaBackendConfig {
+        url: replica_url,
+        timeout: Duration::from_secs(5),
         retry_config,
-        None,
-        None,
-        4 * 1024 * 1024,
-        4 * 1024 * 1024,
-    )
-    .unwrap();
+        keepalive_interval: None,
+        keepalive_timeout: None,
+        max_send_message_size: 4 * 1024 * 1024,
+        max_recv_message_size: 4 * 1024 * 1024,
+        num_channels: 1,
+    });
     let router = PersonHogRouter::new(Arc::new(backend));
     let service = PersonHogRouterService::new(Arc::new(router));
 
@@ -482,7 +532,11 @@ pub async fn start_test_leader(service: TestLeaderService) -> SocketAddr {
 
     tokio::spawn(async move {
         Server::builder()
-            .add_service(PersonHogLeaderServer::new(service))
+            .add_service(
+                PersonHogLeaderServer::new(service)
+                    .accept_compressed(CompressionEncoding::Zstd)
+                    .send_compressed(CompressionEncoding::Zstd),
+            )
             .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
             .await
             .unwrap();
@@ -511,16 +565,16 @@ pub async fn start_test_router_with_leader(
 
     // Replica backend
     let replica_url = format!("http://{}", replica_addr);
-    let replica = ReplicaBackend::new(
-        &replica_url,
-        Duration::from_secs(5),
+    let replica = ReplicaBackend::new(ReplicaBackendConfig {
+        url: replica_url,
+        timeout: Duration::from_secs(5),
         retry_config,
-        None,
-        None,
-        4 * 1024 * 1024,
-        4 * 1024 * 1024,
-    )
-    .unwrap();
+        keepalive_interval: None,
+        keepalive_timeout: None,
+        max_send_message_size: 4 * 1024 * 1024,
+        max_recv_message_size: 4 * 1024 * 1024,
+        num_channels: 1,
+    });
 
     // Leader backend: all partitions → "leader-0", resolver → leader_addr
     let mut routing = HashMap::new();

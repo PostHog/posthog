@@ -641,136 +641,6 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
 
         assert sorted(results) == sorted(expected_results)
 
-    def test_scroll_depth_bounce_rate_one_user(self):
-        self._create_pageviews(
-            "p1",
-            [
-                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.1),
-                PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:01", scroll=0.2),
-                PageViewProperties(pathname="/c", timestamp="2023-12-02T12:00:02", scroll=0.9),
-            ],
-        )
-
-        results = self._run_web_stats_table_query(
-            "all",
-            "2023-12-15",
-            breakdown_by=WebStatsBreakdown.PAGE,
-            include_scroll_depth=True,
-            include_bounce_rate=True,
-        ).results
-
-        assert [
-            ["/a", (1, 0), (1, 0), (0, None), (0.1, None), (0, None), 1 / 3, ""],
-            ["/b", (1, 0), (1, 0), (None, None), (0.2, None), (0, None), 1 / 3, ""],
-            ["/c", (1, 0), (1, 0), (None, None), (0.9, None), (1, None), 1 / 3, ""],
-        ] == results
-
-    def test_scroll_depth_bounce_rate(self):
-        self._create_pageviews(
-            "p1",
-            [
-                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.1),
-                PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:01", scroll=0.2),
-                PageViewProperties(pathname="/c", timestamp="2023-12-02T12:00:02", scroll=0.9),
-            ],
-        )
-        self._create_pageviews(
-            "p2",
-            [
-                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.9),
-                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:01", scroll=0.9),
-                PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:02", scroll=0.2),
-                PageViewProperties(pathname="/c", timestamp="2023-12-02T12:00:03", scroll=0.9),
-            ],
-        )
-        self._create_pageviews(
-            "p3",
-            [
-                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.1),
-            ],
-        )
-
-        results = self._run_web_stats_table_query(
-            "all",
-            "2023-12-15",
-            breakdown_by=WebStatsBreakdown.PAGE,
-            include_scroll_depth=True,
-            include_bounce_rate=True,
-        ).results
-
-        assert [
-            ["/a", (3, 0), (4, 0), (1 / 3, None), (0.5, None), (0.5, None), 3 / 7, ""],
-            ["/b", (2, 0), (2, 0), (None, None), (0.2, None), (0, None), 2 / 7, ""],
-            ["/c", (2, 0), (2, 0), (None, None), (0.9, None), (1, None), 2 / 7, ""],
-        ] == results
-
-    def test_scroll_depth_bounce_rate_with_filter(self):
-        self._create_pageviews(
-            "p1",
-            [
-                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.1),
-                PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:01", scroll=0.2),
-                PageViewProperties(pathname="/c", timestamp="2023-12-02T12:00:02", scroll=0.9),
-            ],
-        )
-        self._create_pageviews(
-            "p2",
-            [
-                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.9),
-                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:01", scroll=0.9),
-                PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:02", scroll=0.2),
-                PageViewProperties(pathname="/c", timestamp="2023-12-02T12:00:03", scroll=0.9),
-            ],
-        )
-        self._create_pageviews(
-            "p3",
-            [
-                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.1),
-            ],
-        )
-
-        results = self._run_web_stats_table_query(
-            "all",
-            "2023-12-15",
-            breakdown_by=WebStatsBreakdown.PAGE,
-            include_scroll_depth=True,
-            include_bounce_rate=True,
-            properties=[EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/a")],
-        ).results
-
-        assert [
-            ["/a", (3, 0), (4, 0), (1 / 3, None), (0.5, None), (0.5, None), 1, ""],
-        ] == results
-
-    def test_scroll_depth_bounce_rate_path_cleaning(self):
-        self._create_pageviews(
-            "p1",
-            [
-                PageViewProperties(pathname="/a/123", timestamp="2023-12-02T12:00:00", scroll=0.1),
-                PageViewProperties(pathname="/b/123", timestamp="2023-12-02T12:00:01", scroll=0.2),
-                PageViewProperties(pathname="/c/123", timestamp="2023-12-02T12:00:02", scroll=0.9),
-            ],
-        )
-
-        results = self._run_web_stats_table_query(
-            "all",
-            "2023-12-15",
-            breakdown_by=WebStatsBreakdown.PAGE,
-            include_scroll_depth=True,
-            include_bounce_rate=True,
-            path_cleaning_filters=[
-                {"regex": "\\/a\\/\\d+", "alias": "/a/:id"},
-                {"regex": "\\/b\\/\\d+", "alias": "/b/:id"},
-                {"regex": "\\/c\\/\\d+", "alias": "/c/:id"},
-            ],
-        ).results
-
-        assert [
-            ["/a/:id", (1, 0), (1, 0), (0, None), (0.1, None), (0, None), 1 / 3, ""],
-            ["/b/:id", (1, 0), (1, 0), (None, None), (0.2, None), (0, None), 1 / 3, ""],
-            ["/c/:id", (1, 0), (1, 0), (None, None), (0.9, None), (1, None), 1 / 3, ""],
-        ] == results
-
     def test_bounce_rate_one_user(self):
         self._create_pageviews(
             "p1",
@@ -1204,16 +1074,6 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
             "all", "2024-07-31", breakdown_by=WebStatsBreakdown.PAGE, include_bounce_rate=True
         ).results
         assert [["/path", (1, 0), (2, 0), (None, None), 1, ""]] == results_event
-
-        # Try this with a query using the scroll depth
-        results_event = self._run_web_stats_table_query(
-            "all",
-            "2024-07-31",
-            breakdown_by=WebStatsBreakdown.PAGE,
-            include_bounce_rate=True,
-            include_scroll_depth=True,
-        ).results
-        assert [["/path", (1, 0), (2, 0), (None, None), (None, None), (None, None), 1, ""]] == results_event
 
     def test_no_session_id(self):
         d1 = "d1"
@@ -1885,52 +1745,6 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
         ).results
 
         assert [row[0] for row in results] == ["/path1", "/path3", "/path2"]
-
-    def test_sorting_by_scroll_depth(self):
-        self._create_pageviews(
-            "p1",
-            [
-                PageViewProperties(pathname="/path1", timestamp="2023-12-02T12:00:00", scroll=0.1),  # Low scroll
-            ],
-        )
-        self._create_pageviews(
-            "p2",
-            [
-                PageViewProperties(pathname="/path2", timestamp="2023-12-02T12:00:00", scroll=0.5),  # Medium scroll
-            ],
-        )
-        self._create_pageviews(
-            "p3",
-            [
-                PageViewProperties(pathname="/path3", timestamp="2023-12-02T12:00:00", scroll=0.9),  # High scroll
-            ],
-        )
-
-        flush_persons_and_events()
-
-        # Test ascending order by average scroll percentage
-        results = self._run_web_stats_table_query(
-            "all",
-            "2023-12-15",
-            breakdown_by=WebStatsBreakdown.PAGE,
-            include_scroll_depth=True,
-            include_bounce_rate=True,
-            orderBy=(WebAnalyticsOrderByFields.AVERAGE_SCROLL_PERCENTAGE, WebAnalyticsOrderByDirection.ASC),
-        ).results
-
-        assert [row[0] for row in results] == ["/path1", "/path2", "/path3"]
-
-        # Test descending order by average scroll percentage
-        results = self._run_web_stats_table_query(
-            "all",
-            "2023-12-15",
-            breakdown_by=WebStatsBreakdown.PAGE,
-            include_scroll_depth=True,
-            include_bounce_rate=True,
-            orderBy=(WebAnalyticsOrderByFields.AVERAGE_SCROLL_PERCENTAGE, WebAnalyticsOrderByDirection.DESC),
-        ).results
-
-        assert [row[0] for row in results] == ["/path3", "/path2", "/path1"]
 
     def test_sorting_by_total_conversions(self):
         s1 = str(uuid7("2023-12-01"))

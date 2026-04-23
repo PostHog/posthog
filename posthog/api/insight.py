@@ -27,6 +27,7 @@ from pydantic import (
 from rest_framework import request, serializers, status, viewsets
 from rest_framework.exceptions import ParseError, PermissionDenied, ValidationError
 from rest_framework.parsers import JSONParser
+from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -1123,7 +1124,10 @@ class InsightViewSet(
         ClickHouseBurstRateThrottle,
         ClickHouseSustainedRateThrottle,
     ]
-    renderer_classes = (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.CSVRenderer)
+    renderer_classes = cast(
+        tuple[type[BaseRenderer], ...],
+        (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.CSVRenderer),
+    )
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id"]
     sharing_enabled_actions = ["retrieve", "list"]
@@ -1844,7 +1848,7 @@ When set, the specified dashboard's filters and date range override will be appl
     @extend_schema(exclude=True)  # internal endpoint, not for public use
     @action(methods=["POST"], detail=False)
     def timing(self, request: request.Request, **kwargs):
-        from posthog.kafka_client.client import KafkaProducer
+        from posthog.kafka_client.routing import get_producer
         from posthog.models.event.util import format_clickhouse_timestamp
         from posthog.utils import cast_timestamp_or_now
 
@@ -1859,7 +1863,9 @@ When set, the specified dashboard's filters and date range override will be appl
                 payload["min_last_refresh"] = format_clickhouse_timestamp(payload["min_last_refresh"])
             if "max_last_refresh" in payload:
                 payload["max_last_refresh"] = format_clickhouse_timestamp(payload["max_last_refresh"])
-            KafkaProducer().produce(topic=KAFKA_METRICS_TIME_TO_SEE_DATA, data=payload)
+            get_producer(topic=KAFKA_METRICS_TIME_TO_SEE_DATA).produce(
+                topic=KAFKA_METRICS_TIME_TO_SEE_DATA, data=payload
+            )
 
         return Response(status=status.HTTP_201_CREATED)
 

@@ -1,0 +1,183 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "allow_impersonation": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "allow_sidebar_suggestions": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "anonymize_data": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Whether PostHog should anonymize events captured for this user when identified."
+        },
+        "current_password": {
+            "description": "The user's current password. Required when changing `password` if the user already has a usable password set.",
+            "type": "string"
+        },
+        "email": {
+            "format": "email",
+            "maxLength": 254,
+            "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
+            "type": "string"
+        },
+        "events_column_config": {},
+        "first_name": {
+            "maxLength": 150,
+            "type": "string"
+        },
+        "has_seen_product_intro_for": {
+            "anyOf": [
+                {},
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "hedgehog_config": {
+            "anyOf": [
+                {},
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "last_name": {
+            "maxLength": 150,
+            "type": "string"
+        },
+        "notification_settings": {
+            "additionalProperties": {},
+            "description": "Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "passkeys_enabled_for_2fa": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login."
+        },
+        "password": {
+            "maxLength": 128,
+            "type": "string"
+        },
+        "role_at_organization": {
+            "description": "* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other",
+            "enum": ["engineering", "data", "product", "founder", "leadership", "marketing", "sales", "other"],
+            "type": "string"
+        },
+        "set_current_organization": {
+            "type": "string"
+        },
+        "set_current_team": {
+            "type": "string"
+        },
+        "shortcut_position": {
+            "anyOf": [
+                {
+                    "anyOf": [
+                        {
+                            "description": "* `above` - Above\n* `below` - Below\n* `hidden` - Hidden",
+                            "enum": ["above", "below", "hidden"],
+                            "type": "string"
+                        },
+                        {
+                            "enum": [""],
+                            "type": "string"
+                        },
+                        {
+                            "const": null,
+                            "type": "null"
+                        }
+                    ]
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "theme_mode": {
+            "anyOf": [
+                {
+                    "anyOf": [
+                        {
+                            "description": "* `light` - Light\n* `dark` - Dark\n* `system` - System",
+                            "enum": ["light", "dark", "system"],
+                            "type": "string"
+                        },
+                        {
+                            "enum": [""],
+                            "type": "string"
+                        },
+                        {
+                            "const": null,
+                            "type": "null"
+                        }
+                    ]
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "toolbar_mode": {
+            "anyOf": [
+                {
+                    "anyOf": [
+                        {
+                            "description": "* `disabled` - disabled\n* `toolbar` - toolbar",
+                            "enum": ["disabled", "toolbar"],
+                            "type": "string"
+                        },
+                        {
+                            "enum": [""],
+                            "type": "string"
+                        },
+                        {
+                            "const": null,
+                            "type": "null"
+                        }
+                    ]
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "uuid": {
+            "description": "User UUID, or `@me` to target the authenticated user.",
+            "type": "string"
+        }
+    },
+    "required": ["uuid"],
+    "type": "object"
+}

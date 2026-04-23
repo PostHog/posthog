@@ -5,7 +5,7 @@ import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
 
 import api from 'lib/api'
-import { now } from 'lib/dayjs'
+import { dayjs, now } from 'lib/dayjs'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
@@ -641,6 +641,75 @@ describe('dashboardLogic', () => {
                         textTiles: truth((textTiles) => textTiles.length === 1),
                         dashboardFailedToLoad: false,
                     })
+            })
+        })
+
+        describe('last refreshed display', () => {
+            it.each([
+                {
+                    scenario: 'all insight tiles share the same older last_refresh',
+                    staleIso: '2026-01-15T12:00:00.000Z',
+                    mode: 'all-stale' as const,
+                },
+                {
+                    scenario: 'tiles have mixed last_refresh so the banner follows the stalest',
+                    staleIso: '2026-01-15T10:00:00.000Z',
+                    mode: 'mixed' as const,
+                },
+            ])('effectiveLastRefresh stays at the stalest tile — $scenario', async ({ staleIso, mode }) => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                const loaded = logic.values.dashboard!
+                if (mode === 'all-stale') {
+                    expect(loaded.tiles?.length).toBeGreaterThan(0)
+                    for (const tile of loaded.tiles) {
+                        const insight = tile.insight
+                        if (!insight) {
+                            continue
+                        }
+
+                        await expectLogic(logic, () => {
+                            dashboardsModel.actions.updateDashboardInsight(
+                                { ...insight, last_refresh: staleIso, query: insight.query ?? null },
+                                undefined,
+                                5
+                            )
+                        }).toFinishAllListeners()
+                    }
+                } else {
+                    const insightTiles = loaded.tiles.filter((t) => !!t.insight)
+                    expect(insightTiles.length).toBeGreaterThanOrEqual(2)
+                    const freshIso = now().toISOString()
+                    await expectLogic(logic, () => {
+                        dashboardsModel.actions.updateDashboardInsight(
+                            {
+                                ...insightTiles[0].insight!,
+                                last_refresh: staleIso,
+                                query: insightTiles[0].insight!.query ?? null,
+                            },
+                            undefined,
+                            5
+                        )
+                    }).toFinishAllListeners()
+                    await expectLogic(logic, () => {
+                        dashboardsModel.actions.updateDashboardInsight(
+                            {
+                                ...insightTiles[1].insight!,
+                                last_refresh: freshIso,
+                                query: insightTiles[1].insight!.query ?? null,
+                            },
+                            undefined,
+                            5
+                        )
+                    }).toFinishAllListeners()
+                }
+
+                await expectLogic(logic, () => {
+                    logic.actions.updateDashboardLastRefresh(now())
+                }).toFinishAllListeners()
+
+                expect(logic.values.oldestRefreshed?.toISOString()).toEqual(dayjs(staleIso).toISOString())
+                expect(logic.values.effectiveLastRefresh?.toISOString()).toEqual(dayjs(staleIso).toISOString())
             })
         })
 

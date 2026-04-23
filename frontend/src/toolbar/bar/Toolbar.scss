@@ -172,6 +172,14 @@
     }
 }
 
+// Shared modal shell used by both `UiHostConfigModal` (informational: "PostHog could
+// not be reached") and `AuthConfirmModal` (security gate before OAuth redirect).
+// If you rename or restructure these rules, both components are affected.
+//
+// Colors here are hard-coded hex values rather than CSS variables on purpose — the
+// toolbar renders inside customer websites where `--primary-3000` and friends may
+// be overridden by the host page's stylesheet. Hard-coding keeps the modal legible
+// regardless of the surrounding CSS.
 .UiHostConfigModal {
     position: fixed;
     inset: 0;
@@ -185,7 +193,12 @@
         position: relative;
         width: calc(100vw - 2rem);
         max-width: 36rem;
+
+        // Prevent Cancel/Continue from falling below the fold on short viewports
+        // (mobile landscape) when a long uiHost pushes the modal tall.
+        max-height: calc(100vh - 2rem);
         padding: 2rem;
+        overflow-y: auto;
         font-size: 0.9375rem;
         line-height: 1.6;
         color: #1d1f27;
@@ -208,10 +221,15 @@
 
     &__header {
         margin-bottom: 0.75rem;
+        font-size: 1.0625rem;
+        font-weight: 600;
         text-align: center;
 
+        // UiHostConfigModal wraps its title in <strong>; AuthConfirmModal uses an
+        // <h2>. Both get the same visual treatment.
         strong {
             font-size: 1.0625rem;
+            font-weight: 600;
         }
     }
 
@@ -259,6 +277,38 @@
         background: #f5f5f5;
         border-radius: 0.2rem;
     }
+
+    &__button {
+        padding: 0.5rem 1rem;
+        font-size: 0.875rem;
+        font-weight: 500;
+        cursor: pointer;
+        border: none;
+        border-radius: 0.375rem;
+
+        &:disabled {
+            cursor: default;
+            opacity: 0.6;
+        }
+
+        &--primary {
+            color: #fff;
+            background: #1d4aff;
+
+            &:hover:not(:disabled) {
+                background: #1330bf;
+            }
+        }
+
+        &--secondary {
+            color: #1d1f27;
+            background: #e5e7eb;
+
+            &:hover:not(:disabled) {
+                background: #d1d5db;
+            }
+        }
+    }
 }
 
 [theme='dark'] .UiHostConfigModal {
@@ -273,5 +323,14 @@
 
     code {
         background: #1d1f27;
+    }
+
+    &__button--secondary {
+        color: #e0e0e8;
+        background: #3c3f47;
+
+        &:hover:not(:disabled) {
+            background: #4c4f57;
+        }
     }
 }

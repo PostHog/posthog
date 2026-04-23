@@ -297,7 +297,7 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
         })
     }
 
-    public async start(): Promise<void> {
+    public override async start(): Promise<void> {
         await super.start()
 
         await this.eventKafkaConsumer.connect(async (messages) => {
@@ -323,7 +323,7 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
         })
     }
 
-    public async stop(): Promise<void> {
+    public override async stop(): Promise<void> {
         logger.info('💤', `Stopping ${this.name}...`)
         await this.eventKafkaConsumer.disconnect()
 

@@ -36,17 +36,45 @@ An **output** is a named destination (e.g. `'events'`, `'heatmaps'`). Each outpu
 
 ## Dual writes
 
-To enable dual writes for a specific output, set both secondary env vars:
+Each output can have a secondary target with configurable routing via mode and percentage.
+
+### Configuration
+
+Set the secondary target, mode, and percentage for an output:
 
 ```bash
-# Example: dual-write events to a secondary WarpStream cluster
 INGESTION_OUTPUT_EVENTS_SECONDARY_TOPIC=events_json_v2
 INGESTION_OUTPUT_EVENTS_SECONDARY_PRODUCER=WARPSTREAM
+INGESTION_OUTPUT_EVENTS_SECONDARY_MODE=copy
+INGESTION_OUTPUT_EVENTS_SECONDARY_PERCENTAGE=100
 ```
 
-Both env vars must be set — if only one is set, the secondary target is skipped. The secondary producer must be defined in the pipeline's `producers.ts` with its own env var config mapping.
+The secondary producer must be defined in the pipeline's `producers.ts` with its own env var config mapping.
 
-When dual writes are active, `produce()` and `queueMessages()` write to both targets in parallel. If either target fails, the call fails. Other outputs are unaffected — dual writes are per-output.
+### Modes
+
+- **`off`** (default) — secondary is ignored.
+  All messages go to primary only, regardless of other secondary settings.
+- **`copy`** — primary always receives all messages.
+  A percentage of messages (by key hash) is also copied to secondary.
+  Useful for validating a new cluster while keeping the original fully fed.
+- **`move`** — messages are routed to exactly one target.
+  A percentage of messages (by key hash) goes to secondary; the rest go to primary.
+  Useful for gradually migrating traffic from one cluster to another.
+
+### Percentage and key hashing
+
+The `percentage` (0–100) controls what fraction of messages are routed to secondary.
+Routing is deterministic per message key using FNV-1a 32-bit — the same key always routes the same way,
+so related messages (e.g. same `distinct_id`) stay together on the same target.
+
+Messages without a key are routed randomly based on the percentage,
+since the absence of a key means ordering doesn't matter for those messages.
+
+### Failure semantics
+
+If either target fails, the entire produce call fails.
+Other outputs are unaffected — dual writes are per-output.
 
 ## Conventions
 

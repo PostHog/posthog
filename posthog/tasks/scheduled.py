@@ -17,7 +17,11 @@ from posthog.tasks.alerts.checks import (
     reset_stuck_alerts_task,
 )
 from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_token_cache_task
-from posthog.tasks.email import send_error_tracking_weekly_digest, send_hog_functions_daily_digest
+from posthog.tasks.email import (
+    send_error_tracking_weekly_digest,
+    send_hog_functions_daily_digest,
+    send_matview_failure_digest,
+)
 from posthog.tasks.feature_flags import (
     cleanup_stale_flag_definitions_expiry_tracking_task,
     cleanup_stale_flags_expiry_tracking_task,
@@ -74,8 +78,10 @@ from posthog.tasks.tasks import (
 from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refresh_expiring_team_metadata_cache_entries
 from posthog.utils import get_crontab, get_instance_region
 
+from products.conversations.backend.tasks import wake_snoozed_tickets
 from products.data_modeling.backend.tasks.cleanup_test_saved_queries import cleanup_expired_test_saved_queries
 from products.endpoints.backend.tasks import deactivate_stale_materializations
+from products.logs.backend.tasks import logs_alert_events_cleanup_task
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
@@ -318,6 +324,21 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="send Error Tracking weekly digest",
     )
 
+    # Send materialized view failure digest daily at morning local time per region
+    cloud_deployment = (settings.CLOUD_DEPLOYMENT or "").upper()
+    if cloud_deployment == "EU":
+        matview_digest_hour = "8"
+    elif cloud_deployment == "US":
+        matview_digest_hour = "14"
+    else:
+        matview_digest_hour = "9"
+
+    sender.add_periodic_task(
+        crontab(hour=matview_digest_hour, minute="0"),
+        send_matview_failure_digest.s(),
+        name="send matview failure digest",
+    )
+
     # PostHog Cloud cron jobs
     # NOTE: We can't use is_cloud here as some Django elements aren't loaded yet. We check in the task execution instead
     # Verify that persons data is in sync every day at 4 AM UTC
@@ -487,6 +508,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="clean up old alert checks",
     )
 
+    sender.add_periodic_task(
+        crontab(hour="8", minute="15"),
+        logs_alert_events_cleanup_task.s(),
+        name="clean up old logs alert events",
+    )
+
     if settings.EE_AVAILABLE:
         sender.add_periodic_task(
             crontab(hour="0", minute=str(randrange(0, 40))),
@@ -584,4 +611,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="3", minute="30"),
         cleanup_expired_test_saved_queries.s(),
         name="cleanup expired test saved queries",
+    )
+
+    # Reopen snoozed conversation tickets whose snooze period has expired
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        wake_snoozed_tickets.s(),
+        name="wake snoozed conversation tickets",
     )

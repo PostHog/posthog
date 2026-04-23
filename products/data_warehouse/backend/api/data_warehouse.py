@@ -29,6 +29,7 @@ from posthog.cloud_utils import get_cached_instance_license
 from posthog.helpers.dashboard_templates import create_data_ops_dashboard
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionState, HogFunctionType
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.security.outbound_proxy import internal_requests as _internal_requests
 from posthog.utils import convert_property_value, flatten
 
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
@@ -846,7 +847,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             headers["X-Duckgres-Internal-Secret"] = token
 
         try:
-            resp = http_requests.request(method, url, json=json_body, params=params, headers=headers, timeout=timeout)
+            resp = _internal_requests.request(
+                method, url, json=json_body, params=params, headers=headers, timeout=timeout
+            )
         except http_requests.Timeout:
             logger.warning("Provisioning API timeout", method=method, path=path, team_id=team_id)
             return Response({"error": "Provisioning service timed out"}, status=status.HTTP_504_GATEWAY_TIMEOUT)

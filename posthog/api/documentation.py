@@ -470,7 +470,7 @@ property_help_text = "Filter events by event property, person property, cohort, 
 
 
 class PropertySerializer(serializers.Serializer):
-    def run_validation(self, data):
+    def run_validation(self, data=fields.empty):
         if isinstance(data, list):
             items = []
             for item in data:

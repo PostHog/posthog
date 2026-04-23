@@ -7,7 +7,7 @@ export { CardGroup } from './card-group'
 export { Checkbox, CheckboxIndicator } from './checkbox'
 export { Chip, ChipClose, ChipGroup } from './chip'
 export { Collapsible, CollapsibleTrigger, CollapsibleContent } from './collapsible'
-export { MenuLabel } from './menuLabel'
+export { MenuLabel } from './menu-label'
 export {
     Combobox,
     ComboboxInput,
@@ -18,6 +18,7 @@ export {
     ComboboxLabel,
     ComboboxCollection,
     ComboboxEmpty,
+    ComboboxListFooter,
     ComboboxSeparator,
     ComboboxChips,
     ComboboxChip,
@@ -112,11 +113,21 @@ export {
 } from './field'
 export { Input } from './input'
 export {
+    NumberFieldRoot,
+    NumberFieldGroup,
+    NumberFieldInput,
+    NumberFieldIncrement,
+    NumberFieldDecrement,
+    NumberFieldScrubArea,
+    NumberFieldScrubAreaCursor,
+} from './number-field'
+export {
     InputGroup,
     InputGroupAddon,
     InputGroupButton,
     InputGroupText,
     InputGroupInput,
+    InputGroupNumberInput,
     InputGroupTextarea,
 } from './input-group'
 export {
@@ -158,7 +169,7 @@ export { Popover, PopoverContent, PopoverTrigger } from './popover'
 export { Progress } from './progress'
 export { RadioGroup, RadioGroupItem, RadioIndicator } from './radio-group'
 export { ResizableHandle, ResizablePanel, ResizablePanelGroup } from './resizable'
-export { ScrollArea, ScrollBar } from './scroll-area'
+export { ScrollArea, ScrollBar, scrollShadowsCss, SCROLL_SHADOWS_STYLE_ID } from './scroll-area'
 export {
     Select,
     SelectContent,

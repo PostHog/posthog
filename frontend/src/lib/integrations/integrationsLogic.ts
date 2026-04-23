@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { combineUrl, router, urlToAction } from 'kea-router'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
@@ -196,10 +196,17 @@ export const integrationsLogic = kea<integrationsLogicType>([
                         throw new Error('Invalid state token')
                     }
 
-                    await api.integrations.create({
+                    const integration = await api.integrations.create({
                         kind: 'github',
                         config: { installation_id, state: stateToken, code },
                     })
+
+                    // Forward the ids so the `next` landing page (e.g. the PostHog Code
+                    // deep link) knows which install was just completed.
+                    replaceUrl = combineUrl(replaceUrl, {
+                        installation_id: String(installation_id),
+                        integration_id: String(integration.id),
+                    }).url
 
                     actions.loadIntegrations()
                     lemonToast.success(`Integration successful.`)
@@ -212,13 +219,21 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 }
             } catch (e) {
                 toastApiError(e)
+                const detail = e instanceof ApiError ? e.detail : null
+                replaceUrl = combineUrl(replaceUrl, {
+                    error: 'github_install_failed',
+                    error_message: detail || (e instanceof Error ? e.message : 'Unknown error'),
+                }).url
             } finally {
                 router.actions.replace(replaceUrl)
             }
         },
         handleOauthCallback: async ({ kind, searchParams }) => {
             const { state, code, error } = searchParams
-            const { next, token, source, server_id } = fromParamsGivenUrl(state)
+            const { next, token, source, server_id, kind: stateKind } = fromParamsGivenUrl(state)
+            // slack-posthog-code reuses /integrations/slack/callback as its approved redirect URI,
+            // so the real kind is carried in OAuth state and takes precedence over the URL path.
+            const resolvedKind = (stateKind as IntegrationKind) || kind
             let replaceUrl: string = next || urls.settings('project-integrations')
 
             if (error) {
@@ -237,7 +252,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
                     lemonToast.success('Authorization successful.')
                 } else {
                     const integration = await api.integrations.create({
-                        kind,
+                        kind: resolvedKind,
                         config: { state, code },
                     })
 

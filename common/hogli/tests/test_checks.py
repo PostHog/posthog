@@ -7,12 +7,16 @@ from pathlib import Path
 
 import pytest
 
+from hogli.product import gh as gh_module
 from hogli.product.checks import (
     CheckContext,
     PackageJsonScriptsCheck,
+    ProductYamlCheck,
+    ProductYamlOwnersCheck,
     _has_test_files,
     _is_noop_script,
     _parse_pytest_paths,
+    has_legacy_interface_leaks,
 )
 
 # ---------------------------------------------------------------------------
@@ -40,6 +44,7 @@ def _make_product(
     if isolated:
         (backend_dir / "facade").mkdir(parents=True, exist_ok=True)
         (backend_dir / "facade" / "contracts.py").write_text("")
+        (backend_dir / "facade" / "api.py").write_text("def get_thing():\n    pass\n")
 
     if scripts is not None:
         (product_dir / "package.json").write_text(json.dumps({"scripts": scripts}))
@@ -368,3 +373,207 @@ class TestCombinedScenarios:
         result = check.run(ctx)
         # Should report: contract-check forbidden, || true, nonexistent path
         assert len(result.issues) >= 3
+
+
+# ---------------------------------------------------------------------------
+# has_legacy_interface_leaks
+# ---------------------------------------------------------------------------
+
+_TACH_SAMPLE = """\
+[[modules]]
+path = "products.visual_review"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[modules]]
+path = "products.experiments"
+depends_on = ["ee", "posthog"]
+layer = "modules"
+
+[[modules]]
+path = "products.mcp_store"
+depends_on = ["ee", "posthog"]
+layer = "modules"
+
+# Facade + views: canonical public surface
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products\\.(experiments|mcp_store|visual_review)",
+]
+
+# Legacy leaks — experiments
+[[interfaces]]
+expose = [
+    "backend\\.models.*",
+    "stats\\..*",
+]
+from = [
+    "products.experiments",
+]
+
+# Legacy leaks — mcp_store
+[[interfaces]]
+expose = [
+    "backend\\.models.*",
+    "backend\\.oauth.*",
+]
+from = [
+    "products.mcp_store",
+]
+"""
+
+
+class TestLegacyInterfaceLeaks:
+    @pytest.mark.parametrize(
+        "module_path, expected",
+        [
+            ("products.visual_review", False),
+            ("products.experiments", True),
+            ("products.mcp_store", True),
+            ("products.nonexistent", False),
+        ],
+    )
+    def test_detection(self, module_path: str, expected: bool) -> None:
+        assert has_legacy_interface_leaks(_TACH_SAMPLE, module_path) == expected
+
+    def test_empty_tach(self) -> None:
+        assert has_legacy_interface_leaks("", "products.anything") is False
+
+    def test_only_facade_block(self) -> None:
+        tach = """\
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.clean_product",
+]
+"""
+        assert has_legacy_interface_leaks(tach, "products.clean_product") is False
+
+    def test_regex_from_does_not_false_positive(self) -> None:
+        assert has_legacy_interface_leaks(_TACH_SAMPLE, "products.mcp") is False
+
+
+# ---------------------------------------------------------------------------
+# ProductYamlCheck
+# ---------------------------------------------------------------------------
+
+yaml_check = ProductYamlCheck()
+owners_check = ProductYamlOwnersCheck()
+
+
+def _make_yaml_ctx(tmp_path: Path, yaml_content: str | None = None) -> CheckContext:
+    product_dir = tmp_path / "test_product"
+    product_dir.mkdir()
+    backend_dir = product_dir / "backend"
+    backend_dir.mkdir()
+    if yaml_content is not None:
+        (product_dir / "product.yaml").write_text(yaml_content)
+    return CheckContext(
+        name="test_product",
+        product_dir=product_dir,
+        backend_dir=backend_dir,
+        is_isolated=False,
+        structure={},
+        detailed=False,
+    )
+
+
+class TestProductYamlCheck:
+    def test_missing_file(self, tmp_path: Path) -> None:
+        ctx = _make_yaml_ctx(tmp_path)
+        result = yaml_check.run(ctx)
+        assert any("Missing product.yaml" in i for i in result.issues)
+
+    def test_valid_yaml(self, tmp_path: Path) -> None:
+        ctx = _make_yaml_ctx(tmp_path, "name: My product\nowners:\n  - team-foo\n")
+        result = yaml_check.run(ctx)
+        assert not result.issues
+
+    def test_invalid_yaml(self, tmp_path: Path) -> None:
+        ctx = _make_yaml_ctx(tmp_path, "name: [\ninvalid")
+        result = yaml_check.run(ctx)
+        assert any("invalid YAML" in i for i in result.issues)
+
+    def test_non_dict_yaml(self, tmp_path: Path) -> None:
+        ctx = _make_yaml_ctx(tmp_path, "- just\n- a\n- list\n")
+        result = yaml_check.run(ctx)
+        assert any("must be a YAML mapping" in i for i in result.issues)
+
+    def test_missing_name(self, tmp_path: Path) -> None:
+        ctx = _make_yaml_ctx(tmp_path, "owners:\n  - team-foo\n")
+        result = yaml_check.run(ctx)
+        assert any("missing 'name'" in i for i in result.issues)
+
+    def test_missing_owners(self, tmp_path: Path) -> None:
+        ctx = _make_yaml_ctx(tmp_path, "name: My product\n")
+        result = yaml_check.run(ctx)
+        assert any("missing 'owners'" in i for i in result.issues)
+
+    def test_owners_must_be_list(self, tmp_path: Path) -> None:
+        ctx = _make_yaml_ctx(tmp_path, "name: My product\nowners: team-foo\n")
+        result = yaml_check.run(ctx)
+        assert any("list of strings" in i for i in result.issues)
+
+    def test_owners_must_be_strings(self, tmp_path: Path) -> None:
+        ctx = _make_yaml_ctx(tmp_path, "name: My product\nowners:\n  - 123\n")
+        result = yaml_check.run(ctx)
+        assert any("list of strings" in i for i in result.issues)
+
+    def test_name_must_be_string(self, tmp_path: Path) -> None:
+        ctx = _make_yaml_ctx(tmp_path, "name: 42\nowners:\n  - team-foo\n")
+        result = yaml_check.run(ctx)
+        assert any("missing 'name'" in i for i in result.issues)
+
+
+class TestProductYamlOwnersCheck:
+    def test_skip_when_no_owners(self, tmp_path: Path) -> None:
+        ctx = _make_yaml_ctx(tmp_path, "name: My product\n")
+        result = owners_check.run(ctx)
+        assert result.skip
+
+    def test_skip_when_owners_wrong_type(self, tmp_path: Path) -> None:
+        ctx = _make_yaml_ctx(tmp_path, "name: My product\nowners: team-foo\n")
+        result = owners_check.run(ctx)
+        assert result.skip
+
+    def test_invalid_slug_reported(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        ctx = _make_yaml_ctx(tmp_path, "name: My product\nowners:\n  - team-nonexistent\n")
+        monkeypatch.setattr(gh_module, "_fetch_attempted", True)
+        monkeypatch.setattr(gh_module, "_team_slugs", {"team-real"})
+        monkeypatch.setattr(gh_module, "_fetch_err", "")
+        result = owners_check.run(ctx)
+        assert any("team-nonexistent" in i for i in result.issues)
+
+    def test_valid_slug_passes(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        ctx = _make_yaml_ctx(tmp_path, "name: My product\nowners:\n  - team-real\n")
+        monkeypatch.setattr(gh_module, "_fetch_attempted", True)
+        monkeypatch.setattr(gh_module, "_team_slugs", {"team-real"})
+        monkeypatch.setattr(gh_module, "_fetch_err", "")
+        result = owners_check.run(ctx)
+        assert not result.issues
+
+    def test_gh_unavailable_is_error_locally(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        ctx = _make_yaml_ctx(tmp_path, "name: My product\nowners:\n  - team-foo\n")
+        monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+        monkeypatch.setattr(gh_module, "_fetch_attempted", True)
+        monkeypatch.setattr(gh_module, "_team_slugs", None)
+        monkeypatch.setattr(gh_module, "_fetch_err", "gh CLI not found")
+        result = owners_check.run(ctx)
+        assert result.issues
+        assert any("gh CLI" in i for i in result.issues)
+
+    def test_gh_unavailable_skips_in_ci(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        ctx = _make_yaml_ctx(tmp_path, "name: My product\nowners:\n  - team-foo\n")
+        monkeypatch.setenv("GITHUB_ACTIONS", "true")
+        monkeypatch.setattr(gh_module, "_fetch_attempted", True)
+        monkeypatch.setattr(gh_module, "_team_slugs", None)
+        monkeypatch.setattr(gh_module, "_fetch_err", "gh CLI not found")
+        result = owners_check.run(ctx)
+        assert not result.issues

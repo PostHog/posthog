@@ -58,7 +58,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 description: 'Visualize how events or actions vary over time.',
                 taskType: 'explore',
                 dependsOn: [SetupTaskId.CreateFirstInsight],
-                getUrl: () => urls.insightOptions(),
+                getUrl: () => urls.insightQuickStart(),
                 targetSelector: '[data-attr="insight-option-trends"]',
             },
             {
@@ -67,7 +67,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 description: 'Track how users move through steps like signup → activation → purchase.',
                 taskType: 'explore',
                 dependsOn: [SetupTaskId.CreateFirstInsight],
-                getUrl: () => urls.insightOptions(),
+                getUrl: () => urls.insightQuickStart(),
                 targetSelector: '[data-attr="insight-option-funnels"]',
             },
             {
@@ -76,7 +76,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 description: 'See how many users return on subsequent days after an initial action.',
                 taskType: 'explore',
                 dependsOn: [SetupTaskId.CreateFirstInsight],
-                getUrl: () => urls.insightOptions(),
+                getUrl: () => urls.insightQuickStart(),
                 targetSelector: '[data-attr="insight-option-retention"]',
             },
             {
@@ -85,7 +85,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 description: 'Trace the journeys users take within your product.',
                 taskType: 'explore',
                 dependsOn: [SetupTaskId.CreateFirstInsight],
-                getUrl: () => urls.insightOptions(),
+                getUrl: () => urls.insightQuickStart(),
                 targetSelector: '[data-attr="insight-option-paths"]',
             },
             {
@@ -94,7 +94,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 description: 'See what keeps users coming back by viewing repeated actions.',
                 taskType: 'explore',
                 dependsOn: [SetupTaskId.CreateFirstInsight],
-                getUrl: () => urls.insightOptions(),
+                getUrl: () => urls.insightQuickStart(),
                 targetSelector: '[data-attr="insight-option-stickiness"]',
             },
             {
@@ -103,7 +103,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 description: 'Break down users into new, returning, resurrected, and dormant.',
                 taskType: 'explore',
                 dependsOn: [SetupTaskId.CreateFirstInsight],
-                getUrl: () => urls.insightOptions(),
+                getUrl: () => urls.insightQuickStart(),
                 targetSelector: '[data-attr="insight-option-lifecycle"]',
             },
             {

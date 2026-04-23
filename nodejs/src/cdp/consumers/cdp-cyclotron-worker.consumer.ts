@@ -71,7 +71,7 @@ export class CdpCyclotronWorker<
 
                     failedInvocations.push(item)
 
-                    return null
+                    return
                 }
 
                 if (!hogFunction.enabled || hogFunction.deleted) {
@@ -81,7 +81,7 @@ export class CdpCyclotronWorker<
 
                     failedInvocations.push(item)
 
-                    return null
+                    return
                 }
 
                 const hogFuncState = item.state as CyclotronJobInvocationHogFunction['state']
@@ -166,12 +166,12 @@ export class CdpCyclotronWorker<
         await this.cyclotronJobQueue.queueInvocationResults(invocations)
     }
 
-    public async start() {
+    public override async start() {
         await super.start()
         await this.cyclotronJobQueue.start(this.queue, (batch) => this.processBatch(batch))
     }
 
-    public async stop() {
+    public override async stop() {
         logger.info('🔄', 'Stopping cyclotron worker consumer')
         await this.cyclotronJobQueue.stop()
 

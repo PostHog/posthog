@@ -224,3 +224,27 @@ def set_cached_slack_avatar(email: str, avatar_url: str) -> None:
         cache.set(key, avatar_url, timeout=SLACK_AVATAR_CACHE_TTL)
     except Exception:
         logger.warning("conversations_cache_set_error", key=key)
+
+
+# Teams User Cache
+# Caches Teams user profile lookups (displayName, email) resolved via Graph API.
+# Keyed by tenant_id:teams_user_id. Short TTL keeps profiles fresh.
+
+TEAMS_USER_CACHE_TTL = 5 * 60  # 5 minutes
+
+
+def get_cached_teams_user(tenant_id: str, teams_user_id: str) -> dict | None:
+    key = _make_cache_key("teams_user", tenant_id, teams_user_id)
+    try:
+        return cache.get(key)
+    except Exception:
+        logger.warning("conversations_cache_get_error", key=key)
+        return None
+
+
+def set_cached_teams_user(tenant_id: str, teams_user_id: str, user_info: dict) -> None:
+    key = _make_cache_key("teams_user", tenant_id, teams_user_id)
+    try:
+        cache.set(key, user_info, timeout=TEAMS_USER_CACHE_TTL)
+    except Exception:
+        logger.warning("conversations_cache_set_error", key=key)

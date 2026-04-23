@@ -2,8 +2,6 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SessionSummaryContent } from 'scenes/session-recordings/player/player-meta/types'
 
 import { useMocks } from '~/mocks/jest'
@@ -251,27 +249,11 @@ describe('notebookNodePersonFeedLogic', () => {
     })
 
     describe('canSummarize selector', () => {
-        it('returns true when AI_SESSION_SUMMARY feature flag is enabled', async () => {
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.AI_SESSION_SUMMARY]: true,
-            })
-
-            // Set feature flag to true
+        it('returns true', async () => {
             logic = notebookNodePersonFeedLogic({ personId: 'test-person-123' })
             logic.mount()
 
             expect(logic.values.canSummarize).toBe(true)
-        })
-
-        it('returns false when AI_SESSION_SUMMARY feature flag is disabled', async () => {
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.AI_SESSION_SUMMARY]: false,
-            })
-
-            logic = notebookNodePersonFeedLogic({ personId: 'test-person-123' })
-            logic.mount()
-
-            expect(logic.values.canSummarize).toBe(false)
         })
     })
 

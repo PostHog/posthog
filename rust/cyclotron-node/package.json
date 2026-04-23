@@ -14,6 +14,7 @@
         "build:cargo:debug": "pnpm run build:cargo",
         "build:cross": "cross build --message-format=json > cross.log",
         "build:typescript": "tsc",
+        "typecheck": "tsc --noEmit",
         "clean": "rm -rf index.node",
         "package": "NODE_ENV=development pnpm --filter=@posthog/cyclotron run build"
     },

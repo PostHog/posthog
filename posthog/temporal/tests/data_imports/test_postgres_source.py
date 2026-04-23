@@ -384,7 +384,19 @@ class TestSSLRequirement:
         assert str(error) == "Test error message"
 
     @pytest.mark.django_db(transaction=True)
-    def test_source_requires_ssl_for_new_sources(self, team, postgres_config):
+    @pytest.mark.parametrize(
+        "is_new_source,ssh_tunnel_enabled,require_tls,expected_require_ssl",
+        [
+            pytest.param(True, False, True, True, id="new_source_no_tunnel"),
+            pytest.param(True, True, True, True, id="new_source_tunnel_tls_on"),
+            pytest.param(True, True, False, False, id="new_source_tunnel_tls_off"),
+            pytest.param(True, False, False, True, id="new_source_no_tunnel_tls_off_ignored"),
+            pytest.param(False, False, True, False, id="old_source"),
+        ],
+    )
+    def test_source_ssl_requirement(
+        self, team, postgres_config, is_new_source, ssh_tunnel_enabled, require_tls, expected_require_ssl
+    ):
         from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
         source = ExternalDataSource.objects.create(
@@ -395,10 +407,12 @@ class TestSSLRequirement:
             source_type="Postgres",
             job_inputs=postgres_config,
         )
-        # Force created_at to be after the cutoff date
-        ExternalDataSource.objects.filter(pk=source.pk).update(
-            created_at=SSL_REQUIRED_AFTER_DATE + dt.timedelta(days=1)
+        created_at = (
+            SSL_REQUIRED_AFTER_DATE + dt.timedelta(days=1)
+            if is_new_source
+            else SSL_REQUIRED_AFTER_DATE - dt.timedelta(days=1)
         )
+        ExternalDataSource.objects.filter(pk=source.pk).update(created_at=created_at)
         source.refresh_from_db()
 
         schema = ExternalDataSchema.objects.create(
@@ -411,6 +425,10 @@ class TestSSLRequirement:
 
         postgres_source = PostgresSource()
         config = postgres_source.parse_config(postgres_config)
+        if ssh_tunnel_enabled:
+            config.ssh_tunnel = mock.MagicMock(enabled=True, require_tls=mock.MagicMock(enabled=require_tls))
+        elif not require_tls:
+            config.ssh_tunnel = mock.MagicMock(enabled=False, require_tls=mock.MagicMock(enabled=require_tls))
 
         mock_inputs = mock.MagicMock()
         mock_inputs.schema_id = str(schema.id)
@@ -429,55 +447,7 @@ class TestSSLRequirement:
             postgres_source.source_for_pipeline(config, mock_inputs)
             mock_postgres_source.assert_called_once()
             call_kwargs = mock_postgres_source.call_args.kwargs
-            assert call_kwargs["require_ssl"] is True
-
-    @pytest.mark.django_db(transaction=True)
-    def test_source_does_not_require_ssl_for_old_sources(self, team, postgres_config):
-        from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
-
-        source = ExternalDataSource.objects.create(
-            source_id=str(uuid.uuid4()),
-            connection_id=str(uuid.uuid4()),
-            team=team,
-            status="running",
-            source_type="Postgres",
-            job_inputs=postgres_config,
-        )
-        # Force created_at to be before the cutoff date
-        ExternalDataSource.objects.filter(pk=source.pk).update(
-            created_at=SSL_REQUIRED_AFTER_DATE - dt.timedelta(days=1)
-        )
-        source.refresh_from_db()
-
-        schema = ExternalDataSchema.objects.create(
-            name="test_table",
-            team_id=team.pk,
-            source_id=source.pk,
-            sync_type="full_refresh",
-            sync_type_config={},
-        )
-
-        postgres_source = PostgresSource()
-        config = postgres_source.parse_config(postgres_config)
-
-        mock_inputs = mock.MagicMock()
-        mock_inputs.schema_id = str(schema.id)
-        mock_inputs.schema_name = "test_table"
-        mock_inputs.should_use_incremental_field = False
-        mock_inputs.incremental_field = None
-        mock_inputs.incremental_field_type = None
-        mock_inputs.db_incremental_field_last_value = None
-        mock_inputs.team_id = team.id
-        mock_inputs.logger = mock.MagicMock()
-
-        with mock.patch(
-            "posthog.temporal.data_imports.sources.postgres.source.postgres_source"
-        ) as mock_postgres_source:
-            assert isinstance(postgres_source, SimpleSource)
-            postgres_source.source_for_pipeline(config, mock_inputs)
-            mock_postgres_source.assert_called_once()
-            call_kwargs = mock_postgres_source.call_args.kwargs
-            assert call_kwargs["require_ssl"] is False
+            assert call_kwargs["require_ssl"] is expected_require_ssl
 
     @pytest.mark.django_db(transaction=True)
     def test_validate_credentials_returns_error_on_ssl_failure(self, team, postgres_config):

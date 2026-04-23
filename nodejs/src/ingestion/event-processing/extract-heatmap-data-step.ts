@@ -46,11 +46,12 @@ export function createExtractHeatmapDataStep<TInput extends ExtractHeatmapDataSt
                         heatmapEvents.map((rawEvent) => ({
                             key: eventUuid,
                             value: Buffer.from(JSON.stringify(rawEvent)),
+                            teamId: preparedEvent.teamId,
                         }))
                     )
                 )
             }
-        } catch (e) {
+        } catch {
             warnings.push({
                 type: 'invalid_heatmap_data',
                 details: {

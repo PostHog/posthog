@@ -7,7 +7,7 @@ import { membersLogic } from 'scenes/organization/membersLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { sidePanelContextLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelContextLogic'
+import { sidePanelContextLogic } from '~/layout/navigation-3000/sidepanel/sidePanelContextLogic'
 import { SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { hogql } from '~/queries/utils'
 

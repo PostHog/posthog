@@ -346,8 +346,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         // insights
         reportInsightMetadataAiGenerated: (queryKind: NodeKind) => ({ queryKind }),
         reportInsightMetadataAiGenerationFailed: (queryKind: NodeKind) => ({ queryKind }),
-        reportDashboardMetadataAiGenerated: (payload: { dashboardId: number }) => payload,
-        reportDashboardMetadataAiGenerationFailed: (payload: { dashboardId: number }) => payload,
         reportInsightCreated: (query: Node | null) => ({ query }),
         reportInsightSaved: (
             insight: Partial<QueryBasedInsightModel> | null,
@@ -709,6 +707,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 is_retry: boolean
                 refresh_id: string
                 metric_kind: string
+                execution_mode: 'sync' | 'async'
             }
         ) => ({
             experimentId,
@@ -757,6 +756,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 experiment_duration_hours: number | null
                 experiment_status: string | null
                 total_metrics_count: number
+                execution_mode: 'sync' | 'async'
             }
         ) => ({
             experimentId,
@@ -1165,12 +1165,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportInsightMetadataAiGenerationFailed: async ({ queryKind }) => {
             posthog.capture('insight metadata ai generation failed', { query_kind: queryKind })
-        },
-        reportDashboardMetadataAiGenerated: async ({ dashboardId }) => {
-            posthog.capture('dashboard metadata ai generated', { dashboard_id: dashboardId })
-        },
-        reportDashboardMetadataAiGenerationFailed: async ({ dashboardId }) => {
-            posthog.capture('dashboard metadata ai generation failed', { dashboard_id: dashboardId })
         },
         reportInsightSaved: async ({ insight, query, isNewInsight, saveType }) => {
             // "insight saved" is a proxy for the new insight's results being valuable to the user

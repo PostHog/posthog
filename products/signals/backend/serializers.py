@@ -6,10 +6,19 @@ from rest_framework import serializers
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.service import RPCError, RPCStatusCode
 
+from posthog.models import User
 from posthog.temporal.ai.video_segment_clustering.constants import clustering_workflow_id
 from posthog.temporal.common.client import sync_connect
 
-from .models import SignalReport, SignalReportArtefact, SignalSourceConfig
+from .models import (
+    AutonomyPriority,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportTask,
+    SignalSourceConfig,
+    SignalTeamConfig,
+    SignalUserAutonomyConfig,
+)
 from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members
 
 logger = logging.getLogger(__name__)
@@ -110,6 +119,40 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         return attrs
 
 
+class SignalTeamConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SignalTeamConfig
+        fields = ["id", "default_autostart_priority", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class _UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ["id", "uuid", "first_name", "last_name", "email"]
+        read_only_fields = fields
+
+
+class SignalUserAutonomyConfigSerializer(serializers.ModelSerializer):
+    user = _UserSerializer(read_only=True)
+
+    class Meta:
+        model = SignalUserAutonomyConfig
+        fields = ["id", "user", "autostart_priority", "created_at", "updated_at"]
+        read_only_fields = ["id", "user", "created_at", "updated_at"]
+
+
+class SignalReportTaskSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SignalReportTask
+        fields = ["id", "relationship", "task_id", "created_at"]
+        read_only_fields = fields
+
+
+class SignalUserAutonomyConfigCreateSerializer(serializers.Serializer):
+    autostart_priority = serializers.ChoiceField(choices=AutonomyPriority.choices, required=False, allow_null=True)
+
+
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
     priority = serializers.SerializerMethodField(
@@ -122,6 +165,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
         help_text="Whether the issue appears already fixed, from the actionability judgment artefact.",
     )
     is_suggested_reviewer = serializers.BooleanField(read_only=True, default=False)
+    source_products = serializers.SerializerMethodField(
+        help_text="Distinct source products contributing signals to this report (from ClickHouse).",
+    )
+    implementation_pr_url = serializers.SerializerMethodField(
+        help_text="PR URL from the latest implementation task run, if available.",
+    )
 
     class Meta:
         model = SignalReport
@@ -140,6 +189,8 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "actionability",
             "already_addressed",
             "is_suggested_reviewer",
+            "source_products",
+            "implementation_pr_url",
         ]
         read_only_fields = fields
 
@@ -186,8 +237,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
         data = self._get_actionability_artefact_data(obj)
         if data is None:
             return None
-        # Support both agentic ("actionability") and legacy ("choice") field names
-        value = data.get("actionability") or data.get("choice")
+        value = data.get("actionability")
         return value if isinstance(value, str) else None
 
     def get_already_addressed(self, obj: SignalReport) -> bool | None:
@@ -196,6 +246,19 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return None
         value = data.get("already_addressed")
         return value if isinstance(value, bool) else None
+
+    def get_source_products(self, obj: SignalReport) -> list[str]:
+        source_products_map: dict[str, list[str]] | None = self.context.get("source_products_map")
+        if source_products_map is not None:
+            return source_products_map.get(str(obj.id), [])
+        return []
+
+    def get_implementation_pr_url(self, obj: SignalReport) -> str | None:
+        implementation_pr_url_map: dict[str, str] | None = self.context.get("implementation_pr_url_map")
+        if implementation_pr_url_map is not None:
+            return implementation_pr_url_map.get(str(obj.id))
+        value = getattr(obj, "implementation_pr_url", None)
+        return value if isinstance(value, str) else None
 
 
 class SignalReportArtefactSerializer(serializers.ModelSerializer):

@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    BulkUpdateTagsRequestApi,
+    BulkUpdateTagsResponseApi,
     EnterpriseEventDefinitionApi,
     EventDefinitionApi,
     EventDefinitionsByNameRetrieveParams,
@@ -152,6 +154,34 @@ export const eventDefinitionsMetricsRetrieve = async (
     return apiMutator<void>(getEventDefinitionsMetricsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+/**
+ * Bulk update tags on multiple objects.
+
+Accepts:
+- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+
+Actions:
+- "add": Add tags to existing tags on each object
+- "remove": Remove specific tags from each object
+- "set": Replace all tags on each object with the provided list
+ */
+export const getEventDefinitionsBulkUpdateTagsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/event_definitions/bulk_update_tags/`
+}
+
+export const eventDefinitionsBulkUpdateTagsCreate = async (
+    projectId: string,
+    bulkUpdateTagsRequestApi: BulkUpdateTagsRequestApi,
+    options?: RequestInit
+): Promise<BulkUpdateTagsResponseApi> => {
+    return apiMutator<BulkUpdateTagsResponseApi>(getEventDefinitionsBulkUpdateTagsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkUpdateTagsRequestApi),
     })
 }
 

@@ -28,6 +28,7 @@ function TooltipContent({
     return (
         <TooltipPrimitive.Portal>
             <TooltipPrimitive.Positioner
+                data-quill
                 align={align}
                 alignOffset={alignOffset}
                 side={side}

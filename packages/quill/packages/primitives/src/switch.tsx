@@ -12,6 +12,7 @@ function Switch({
 }): React.ReactElement {
     return (
         <SwitchPrimitive.Root
+            data-quill
             data-slot="switch"
             data-size={size}
             className={cn(

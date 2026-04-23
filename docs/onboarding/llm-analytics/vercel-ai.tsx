@@ -3,7 +3,7 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 import { StepDefinition } from '../steps'
 
 export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { CodeBlock, CalloutBox, Markdown, Blockquote, dedent, snippets } = ctx
+    const { CodeBlock, Markdown, Blockquote, dedent, snippets } = ctx
 
     const NotableGenerationProperties = snippets?.NotableGenerationProperties
 
@@ -21,13 +21,6 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
                             npm install @posthog/ai @ai-sdk/openai ai @opentelemetry/sdk-node @opentelemetry/resources
                         `}
                     />
-
-                    <CalloutBox type="fyi" icon="IconInfo" title="No proxy">
-                        <Markdown>
-                            These SDKs **do not** proxy your calls. They only send analytics data to PostHog in the
-                            background.
-                        </Markdown>
-                    </CalloutBox>
                 </>
             ),
         },
@@ -37,7 +30,7 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
             content: (
                 <>
                     <Markdown>
-                        Initialize the OpenTelemetry SDK with PostHog's `PostHogTraceExporter`. This sends `gen_ai.*`
+                        Initialize the OpenTelemetry SDK with PostHog's `PostHogSpanProcessor`. This sends `gen_ai.*`
                         spans directly to PostHog's OTLP ingestion endpoint. PostHog converts these into
                         `$ai_generation` events automatically.
                     </Markdown>
@@ -47,16 +40,18 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
                         code={dedent`
                             import { NodeSDK } from '@opentelemetry/sdk-node'
                             import { resourceFromAttributes } from '@opentelemetry/resources'
-                            import { PostHogTraceExporter } from '@posthog/ai/otel'
+                            import { PostHogSpanProcessor } from '@posthog/ai/otel'
 
                             const sdk = new NodeSDK({
                               resource: resourceFromAttributes({
-                                'service.name': 'my-ai-app',
+                                'service.name': 'my-app',
                               }),
-                              traceExporter: new PostHogTraceExporter({
-                                apiKey: '<ph_project_token>',
-                                host: '<ph_client_api_host>',
-                              }),
+                              spanProcessors: [
+                                new PostHogSpanProcessor({
+                                  apiKey: '<ph_project_token>',
+                                  host: '<ph_client_api_host>',
+                                }),
+                              ],
                             })
                             sdk.start()
                         `}
@@ -93,8 +88,6 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
                             })
 
                             console.log(result.text)
-
-                            await sdk.shutdown()
                         `}
                     />
 

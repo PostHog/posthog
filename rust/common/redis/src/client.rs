@@ -234,6 +234,12 @@ impl Client for RedisClient {
         Ok(results)
     }
 
+    async fn zadd(&self, k: String, member: String, score: i64) -> Result<(), CustomRedisError> {
+        let mut conn = self.connection.clone();
+        conn.zadd::<_, _, _, ()>(k, member, score).await?;
+        Ok(())
+    }
+
     async fn hincrby(
         &self,
         k: String,
