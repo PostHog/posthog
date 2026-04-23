@@ -1,4 +1,5 @@
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, Mock, patch
@@ -203,7 +204,7 @@ class TestConvexSource:
             resumable_source_manager=manager,
         )
 
-        batches = list(response.items())
+        batches = list(cast(Iterable[Any], response.items()))
         assert batches == [[{"_id": "a", "_creationTime": 1}]]
         assert response.primary_keys == ["_id"]
         manager.can_resume.assert_called_once()
@@ -224,7 +225,7 @@ class TestConvexSource:
             resumable_source_manager=manager,
         )
 
-        batches = list(response.items())
+        batches = list(cast(Iterable[Any], response.items()))
         assert batches == [[{"_id": "a"}]]
         # document_deltas path must have been used: first call uses cursor=10.
         first_params = mock_get.call_args_list[0].kwargs["params"]
