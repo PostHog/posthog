@@ -5,11 +5,15 @@ use crate::{
         flag_models::FeatureFlagList,
         flag_request::FlagRequestType,
     },
+    metrics::consts::FLAG_BILLING_INCREMENT_TIME,
 };
-use common_metrics::inc;
+use common_metrics::{histogram, inc};
+use common_redis::CustomRedisError;
 use limiters::redis::ServiceName;
 use std::collections::HashMap;
+use std::time::Instant;
 
+use super::canonical_log::with_canonical_log;
 use super::types::{Library, RequestContext};
 
 pub async fn check_limits(
@@ -53,15 +57,30 @@ pub async fn record_usage(
     let has_billable_flags = contains_billable_flags(filtered_flags);
 
     if has_billable_flags {
-        if let Err(e) = increment_request_count(
+        let start = Instant::now();
+        let result = increment_request_count(
             context.state.redis_client.clone(),
             team_id,
             1,
             FlagRequestType::Decide,
             Some(library),
         )
-        .await
-        {
+        .await;
+        let elapsed_ms = start.elapsed().as_millis() as u64;
+
+        let outcome = match &result {
+            Ok(()) => "ok",
+            Err(CustomRedisError::Timeout) => "timeout",
+            Err(_) => "error",
+        };
+        histogram(
+            FLAG_BILLING_INCREMENT_TIME,
+            &[("outcome".to_string(), outcome.to_string())],
+            elapsed_ms as f64,
+        );
+        with_canonical_log(|log| log.billing_duration_ms = Some(elapsed_ms));
+
+        if let Err(e) = result {
             inc(
                 "flag_request_redis_error",
                 &[("error".to_string(), e.to_string())],
