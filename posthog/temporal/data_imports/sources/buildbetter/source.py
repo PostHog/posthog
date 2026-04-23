@@ -85,7 +85,7 @@ class BuildBetterSource(ResumableSource[BuildBetterSourceConfig, BuildBetterResu
         return SourceConfig(
             name=SchemaExternalDataSourceType.BUILD_BETTER,
             label="BuildBetter",
-            betaSource=True,
+            releaseStatus="beta",
             caption="Connect your BuildBetter workspace to sync interviews, extractions, persons, and companies.",
             iconPath="/static/services/buildbetter.png",
             fields=cast(

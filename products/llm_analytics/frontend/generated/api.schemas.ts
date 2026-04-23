@@ -351,19 +351,22 @@ export interface TestHogResponseApi {
 /**
  * * `trace` - trace
  * `generation` - generation
+ * `evaluation` - evaluation
  */
-export type AnalysisLevelEnumApi = (typeof AnalysisLevelEnumApi)[keyof typeof AnalysisLevelEnumApi]
+export type ClusteringJobAnalysisLevelEnumApi =
+    (typeof ClusteringJobAnalysisLevelEnumApi)[keyof typeof ClusteringJobAnalysisLevelEnumApi]
 
-export const AnalysisLevelEnumApi = {
+export const ClusteringJobAnalysisLevelEnumApi = {
     Trace: 'trace',
     Generation: 'generation',
+    Evaluation: 'evaluation',
 } as const
 
 export interface ClusteringJobApi {
     readonly id: string
     /** @maxLength 100 */
     name: string
-    analysis_level: AnalysisLevelEnumApi
+    analysis_level: ClusteringJobAnalysisLevelEnumApi
     event_filters?: unknown
     enabled?: boolean
     readonly created_at: string
@@ -383,7 +386,7 @@ export interface PatchedClusteringJobApi {
     readonly id?: string
     /** @maxLength 100 */
     name?: string
-    analysis_level?: AnalysisLevelEnumApi
+    analysis_level?: ClusteringJobAnalysisLevelEnumApi
     event_filters?: unknown
     enabled?: boolean
     readonly created_at?: string
@@ -1076,13 +1079,25 @@ export interface ScoreDefinitionNewVersionApi {
     config: ScoreDefinitionConfigApi
 }
 
+/**
+ * * `trace` - trace
+ * `generation` - generation
+ */
+export type SentimentRequestAnalysisLevelEnumApi =
+    (typeof SentimentRequestAnalysisLevelEnumApi)[keyof typeof SentimentRequestAnalysisLevelEnumApi]
+
+export const SentimentRequestAnalysisLevelEnumApi = {
+    Trace: 'trace',
+    Generation: 'generation',
+} as const
+
 export interface SentimentRequestApi {
     /**
      * @minItems 1
      * @maxItems 5
      */
     ids: string[]
-    analysis_level?: AnalysisLevelEnumApi
+    analysis_level?: SentimentRequestAnalysisLevelEnumApi
     force_refresh?: boolean
     /** @nullable */
     date_from?: string | null
@@ -1745,10 +1760,20 @@ export interface LLMSkillApi {
 export type PatchedLLMSkillPublishApiMetadata = { [key: string]: unknown }
 
 export interface LLMSkillEditOperationApi {
-    /** Text to find in the current skill body. Must match exactly once. */
+    /** Text to find in the target content. Must match exactly once. */
     old: string
     /** Replacement text. */
     new: string
+}
+
+export interface LLMSkillFileEditApi {
+    /**
+     * Path of the bundled file to edit. Must match an existing file on the current skill version.
+     * @maxLength 500
+     */
+    path: string
+    /** Sequential find/replace operations to apply to this file's content. */
+    edits: LLMSkillEditOperationApi[]
 }
 
 export interface PatchedLLMSkillPublishApi {
@@ -1775,8 +1800,10 @@ export interface PatchedLLMSkillPublishApi {
     allowed_tools?: string[]
     /** Arbitrary key-value metadata. */
     metadata?: PatchedLLMSkillPublishApiMetadata
-    /** Bundled files to include with this version. Replaces all files from the previous version. */
+    /** Bundled files to include with this version. Replaces all files from the previous version. Mutually exclusive with file_edits. */
     files?: LLMSkillFileInputApi[]
+    /** Per-file find/replace updates. Each entry targets one existing file by path and applies sequential edits to its content. Non-targeted files carry forward unchanged. Cannot add, remove, or rename files — use 'files' for that. Mutually exclusive with files. */
+    file_edits?: LLMSkillFileEditApi[]
     /**
      * Latest version you are editing from. Used for optimistic concurrency checks.
      * @minimum 1
@@ -1790,6 +1817,44 @@ export interface LLMSkillDuplicateApi {
      * @maxLength 64
      */
     new_name: string
+}
+
+export interface LLMSkillFileCreateApi {
+    /**
+     * File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.
+     * @maxLength 500
+     */
+    path: string
+    /** Text content of the file. */
+    content: string
+    /**
+     * MIME type of the file content.
+     * @maxLength 100
+     */
+    content_type?: string
+    /**
+     * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
+     * @minimum 1
+     */
+    base_version?: number
+}
+
+export interface LLMSkillFileRenameApi {
+    /**
+     * Current file path to rename.
+     * @maxLength 500
+     */
+    old_path: string
+    /**
+     * New file path. Must not already exist in the skill.
+     * @maxLength 500
+     */
+    new_path: string
+    /**
+     * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
+     * @minimum 1
+     */
+    base_version?: number
 }
 
 export interface LLMSkillFileApi {
@@ -2256,6 +2321,14 @@ export type LlmSkillsNameFilesRetrieveParams = {
      * @minimum 1
      */
     version?: number
+}
+
+export type LlmSkillsNameFilesDestroyParams = {
+    /**
+     * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
+     * @minimum 1
+     */
+    base_version?: number
 }
 
 export type LlmSkillsResolveNameRetrieveParams = {

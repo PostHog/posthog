@@ -2,6 +2,7 @@ import { Meta, StoryObj } from '@storybook/react'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
+import { makeBillingWithPlatformAddons } from '~/mocks/fixtures/_billing_platform_addons'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { BillingProductV2Type } from '~/types'
 
@@ -305,4 +306,31 @@ export const BillingProductInclusionOnlyWithAddon: Story = {
 
         return <BillingProduct product={product as BillingProductV2Type} />
     },
+}
+
+const renderPlatformAddonsStory = (scenario: Parameters<typeof makeBillingWithPlatformAddons>[1]): JSX.Element => {
+    const billing = makeBillingWithPlatformAddons(billingJson, scenario)
+    useStorybookMocks({
+        get: {
+            '/api/billing/': billing,
+        },
+    })
+    const product = billing.products.find((p) => p.type === 'platform_and_support')
+    return <BillingProduct product={product as BillingProductV2Type} />
+}
+
+export const BillingProductPlatformAddonsTrialAvailable: Story = {
+    render: () => renderPlatformAddonsStory('trial-available'),
+}
+
+export const BillingProductPlatformAddonsTrialUsed: Story = {
+    render: () => renderPlatformAddonsStory('trial-used'),
+}
+
+export const BillingProductPlatformAddonsOnScale: Story = {
+    render: () => renderPlatformAddonsStory('on-scale'),
+}
+
+export const BillingProductPlatformAddonsOnLegacyTeams: Story = {
+    render: () => renderPlatformAddonsStory('on-legacy-teams'),
 }

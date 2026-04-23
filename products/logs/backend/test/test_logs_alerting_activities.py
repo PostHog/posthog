@@ -857,10 +857,16 @@ class TestEvaluateSingleAlert(APIBaseTest):
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.logs.backend.temporal.activities.produce_internal_event")
     def test_errored_notification_emitted_on_first_error(self, mock_produce, mock_query_cls):
-        mock_query_cls.return_value.execute.side_effect = RuntimeError("CH down")
+        mock_query_cls.return_value.execute.side_effect = Exception(
+            "Code: 160. DB::Exception: Estimated query execution time is too long"
+        )
         alert = self._make_alert()
 
-        _evaluate_single_alert(alert, datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), _make_stats())
+        with patch(
+            "products.logs.backend.alert_error_classifier.classify_query_error",
+            return_value=QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
+        ):
+            _evaluate_single_alert(alert, datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), _make_stats())
 
         alert.refresh_from_db()
         assert alert.state == LogsAlertConfiguration.State.ERRORED
@@ -900,13 +906,21 @@ class TestEvaluateSingleAlert(APIBaseTest):
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.logs.backend.temporal.activities.capture_exception")
     def test_broken_notification_retried_after_kafka_failure(self, _mock_capture, mock_query_cls):
-        mock_query_cls.return_value.execute.side_effect = RuntimeError("CH down")
+        mock_query_cls.return_value.execute.side_effect = Exception(
+            "Code: 160. DB::Exception: Estimated query execution time is too long"
+        )
         # 4 prior failures — one more pushes consecutive_failures to MAX (5) → BROKEN.
         alert = self._make_alert(state=LogsAlertConfiguration.State.ERRORED, consecutive_failures=4)
         now1 = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
         now2 = datetime(2025, 1, 1, 0, 6, 0, tzinfo=UTC)
 
-        with patch("products.logs.backend.temporal.activities.produce_internal_event") as mock_produce:
+        with (
+            patch("products.logs.backend.temporal.activities.produce_internal_event") as mock_produce,
+            patch(
+                "products.logs.backend.alert_error_classifier.classify_query_error",
+                return_value=QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
+            ),
+        ):
             mock_produce.side_effect = Exception("Kafka down")
             _evaluate_single_alert(alert, now1, _make_stats())
 
@@ -943,11 +957,17 @@ class TestEvaluateSingleAlert(APIBaseTest):
         mock_query_cls,
         mock_notif_failures,
     ):
-        mock_query_cls.return_value.execute.side_effect = RuntimeError("CH down")
+        mock_query_cls.return_value.execute.side_effect = Exception(
+            "Code: 160. DB::Exception: Estimated query execution time is too long"
+        )
         self._make_alert(state=initial_state, consecutive_failures=initial_failures)
 
-        _evaluate_single_alert(
-            LogsAlertConfiguration.objects.get(), datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), _make_stats()
-        )
+        with patch(
+            "products.logs.backend.alert_error_classifier.classify_query_error",
+            return_value=QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
+        ):
+            _evaluate_single_alert(
+                LogsAlertConfiguration.objects.get(), datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), _make_stats()
+            )
 
         mock_notif_failures.assert_called_once_with(expected_action)
