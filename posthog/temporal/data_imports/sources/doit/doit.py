@@ -11,6 +11,7 @@ from structlog.types import FilteringBoundLogger
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_iterator
+from posthog.temporal.data_imports.sources.common.sql import normalize_schema_field_names
 from posthog.temporal.data_imports.sources.generated_configs import DoItSourceConfig
 
 from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
@@ -150,9 +151,11 @@ def doit_source(
         result = res.json()
 
         schema: list[dict[str, str]] = result["result"]["schema"]
-        column_names = [column["name"] for column in schema]
+        column_names = [NamingConvention.normalize_identifier(column["name"]) for column in schema]
         column_types_dict = {column["name"]: column["type"] for column in schema}
-        arrow_schema = build_pyarrow_schema(column_types_dict)
+        # Keep schema field names and streamed dict keys aligned — see the
+        # matching note in `mysql.py:mysql_source`.
+        arrow_schema = normalize_schema_field_names(build_pyarrow_schema(column_types_dict))
 
         rows: list[list[Any]] = result["result"]["rows"]
 

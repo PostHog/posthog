@@ -30,7 +30,12 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     build_pyarrow_decimal_type,
     table_from_iterator,
 )
-from posthog.temporal.data_imports.sources.common.sql import Column, Table
+from posthog.temporal.data_imports.sources.common.sql import (
+    Column,
+    Table,
+    normalize_cursor_column_names,
+    normalize_schema_field_names,
+)
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
@@ -762,7 +767,14 @@ def mysql_source(
                 if primary_keys is None and "id" in table:
                     primary_keys = ["id"]
 
-    arrow_schema = table.to_arrow_schema()
+    # Keep the arrow schema's field names aligned with the dict keys we build
+    # below from `cursor.description`. The pipeline's downstream
+    # `normalize_table_column_names` normalizes dataframe column names, so
+    # sources drifting on either side of that normalization would yield dicts
+    # that don't match the passed-in schema and fail in `pa.Table.from_pydict`
+    # with `KeyError: '<normalized_name>'` (issue 019da925-d07f-7c42 covered
+    # the MySQL case with raw columns like `FamilyName GivenName`).
+    arrow_schema = normalize_schema_field_names(table.to_arrow_schema())
 
     def _stream_with_optional_force_index(force_index_name: str | None) -> Iterator[Any]:
         """Open a fresh connection and stream rows from `db_incremental_field_last_value`.
@@ -820,7 +832,7 @@ def mysql_source(
 
                     cursor.execute(query, args)
 
-                    column_names = [column[0] for column in cursor.description or []]
+                    column_names = normalize_cursor_column_names(cursor.description)
 
                     while True:
                         # use chunk_size to fetch rows instead of DEFAULT_CHUNK_SIZE

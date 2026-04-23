@@ -204,6 +204,103 @@ def _drain_source():
     list(source.items())  # type: ignore[arg-type]  # MySQL source is always sync
 
 
+class TestSpecialCharacterColumnNames:
+    """Regression tests for issue 019da925-d07f-7c42.
+
+    Columns whose raw MySQL names contain spaces or other non-alphanumerics
+    (e.g. `FamilyName GivenName`) used to crash the streaming yield in
+    `pa.Table.from_pydict` because the arrow schema carried the normalized
+    field name while the per-row dict kept the raw driver name.
+    """
+
+    @pytest.fixture
+    def mysql_mocks_with_special_columns(self, mocker):
+        fake_table = Table(
+            name="messages",
+            parents=("mydb",),
+            columns=[
+                MySQLColumn(name="id", data_type="int", column_type="int", nullable=False),
+                MySQLColumn(name="FamilyName GivenName", data_type="varchar", column_type="varchar", nullable=True),
+                MySQLColumn(
+                    name="FamilyName Space GivenName",
+                    data_type="varchar",
+                    column_type="varchar",
+                    nullable=True,
+                ),
+            ],
+        )
+        mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql._get_table", return_value=fake_table)
+        mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql._get_primary_keys", return_value=["id"])
+        mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql._get_rows_to_sync", return_value=2)
+        mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql._get_table_chunk_size", return_value=1000)
+        mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql._get_partition_settings", return_value=None)
+
+        setup_cursor = MagicMock()
+        setup_cursor.__enter__.return_value = setup_cursor
+
+        ss_cursor = MagicMock()
+        ss_cursor.__enter__.return_value = ss_cursor
+        # The driver preserves the raw DB column names as defined, even
+        # when they contain spaces or other non-alphanumerics.
+        ss_cursor.description = [
+            ("id",),
+            ("FamilyName GivenName",),
+            ("FamilyName Space GivenName",),
+        ]
+        ss_cursor.fetchmany.side_effect = [
+            [(1, "Smith Alice", "Dr."), (2, "Doe Bob", "Mr.")],
+            [],
+        ]
+
+        metadata_cursor = MagicMock()
+        metadata_cursor.__enter__.return_value = metadata_cursor
+
+        state = {"metadata_done": False}
+
+        def cursor_factory(*args, **kwargs):
+            if args or kwargs:
+                return ss_cursor
+            if not state["metadata_done"]:
+                state["metadata_done"] = True
+                return metadata_cursor
+            return setup_cursor
+
+        mock_connection = MagicMock()
+        mock_connection.__enter__.return_value = mock_connection
+        mock_connection.cursor.side_effect = cursor_factory
+
+        mocker.patch(
+            "posthog.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            return_value=mock_connection,
+        )
+        return ss_cursor
+
+    def test_streams_rows_when_columns_have_spaces(self, mysql_mocks_with_special_columns):
+        source = mysql_source(
+            tunnel=_fake_tunnel,
+            user="u",
+            password="p",
+            database="d",
+            using_ssl=False,
+            schema="mydb",
+            table_names=["messages"],
+            should_use_incremental_field=False,
+            logger=MagicMock(),
+            db_incremental_field_last_value=None,
+        )
+
+        tables = list(source.items())  # type: ignore[arg-type]  # MySQL source is always sync
+
+        assert len(tables) == 1
+        table = tables[0]
+        # The streamed arrow table must use the normalized field names so the
+        # downstream delta write can resolve them without collisions.
+        assert "family_name_given_name" in table.column_names
+        assert "family_name_space_given_name" in table.column_names
+        assert "id" in table.column_names
+        assert table.num_rows == 2
+
+
 class TestStreamingConnectionTimeouts:
     def test_read_timeout_is_passed_to_streaming_connection(self, mysql_mocks):
         mock_connect, _, _ = mysql_mocks

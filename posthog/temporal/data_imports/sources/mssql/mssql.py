@@ -23,7 +23,12 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     build_pyarrow_decimal_type,
     table_from_iterator,
 )
-from posthog.temporal.data_imports.sources.common.sql import Column, Table
+from posthog.temporal.data_imports.sources.common.sql import (
+    Column,
+    Table,
+    normalize_cursor_column_names,
+    normalize_schema_field_names,
+)
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
@@ -579,7 +584,9 @@ def mssql_source(
                     primary_keys = ["id"]
 
     def get_rows() -> Iterator[Any]:
-        arrow_schema = table.to_arrow_schema()
+        # Keep schema field names and streamed dict keys aligned — see the
+        # matching note in `mysql.py:mysql_source`.
+        arrow_schema = normalize_schema_field_names(table.to_arrow_schema())
 
         with tunnel() as (host, port):
             with pymssql.connect(
@@ -606,7 +613,7 @@ def mssql_source(
 
                     cursor.execute(query, args)
 
-                    column_names = [column[0] for column in cursor.description or []]
+                    column_names = normalize_cursor_column_names(cursor.description)
 
                     while True:
                         rows = cursor.fetchmany(chunk_size)

@@ -7,6 +7,8 @@ import collections.abc
 
 import pyarrow as pa
 
+from posthog.temporal.data_imports.naming_convention import NamingConvention
+
 
 @typing.runtime_checkable
 class Column(typing.Protocol):
@@ -170,6 +172,48 @@ class Table(TableBase, typing.Generic[ColumnType]):
     def to_arrow_schema(self) -> pa.Schema:
         """Generate a `pyarrow.Schema` that matches this `Table`'s columns."""
         return pa.schema(column.to_arrow_field() for column in self.columns)
+
+
+def normalize_schema_field_names(schema: pa.Schema) -> pa.Schema:
+    """Return `schema` with every field name passed through `NamingConvention.normalize_identifier`.
+
+    SQL sources stream rows as dicts keyed by the identifiers that
+    `cursor.description` returns from the driver. Those identifiers must match
+    the field names in the `pa.Schema` passed to `pa.Table.from_pydict`, or the
+    conversion fails with a `KeyError` naming the unmatched field. Applying the
+    same normalization to both the schema and the per-row dict keys — the same
+    one that `normalize_table_column_names` runs downstream — keeps the two
+    sides aligned even when the driver preserves the raw database identifier
+    (e.g. `FamilyName GivenName`) but some other layer has already normalized
+    the schema (e.g. `family_name_given_name`).
+    """
+    return pa.schema(
+        pa.field(
+            NamingConvention.normalize_identifier(field.name),
+            field.type,
+            nullable=field.nullable,
+            metadata=field.metadata,
+        )
+        for field in schema
+    )
+
+
+def normalize_cursor_column_names(description: typing.Any) -> list[str]:
+    """Return column names from a DB-API `cursor.description`, normalized for dict keys.
+
+    Pair with `normalize_schema_field_names` so streamed dicts and the
+    arrow schema share the same field name namespace.
+    """
+    if not description:
+        return []
+    names: list[str] = []
+    for column in description:
+        # Drivers expose the name either as `column[0]` or as `column.name`.
+        name = getattr(column, "name", None)
+        if name is None:
+            name = column[0]
+        names.append(NamingConvention.normalize_identifier(name))
+    return names
 
 
 TableSchemas = dict[str, Table[ColumnType]]

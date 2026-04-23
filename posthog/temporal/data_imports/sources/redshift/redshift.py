@@ -27,7 +27,12 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     build_pyarrow_decimal_type,
     table_from_iterator,
 )
-from posthog.temporal.data_imports.sources.common.sql import Column, Table
+from posthog.temporal.data_imports.sources.common.sql import (
+    Column,
+    Table,
+    normalize_cursor_column_names,
+    normalize_schema_field_names,
+)
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
@@ -689,7 +694,9 @@ def redshift_source(
                     raise
 
     def get_rows(chunk_size: int) -> Iterator[Any]:
-        arrow_schema = table.to_arrow_schema()
+        # Keep schema field names and streamed dict keys aligned — see the
+        # matching note in `mysql.py:mysql_source`.
+        arrow_schema = normalize_schema_field_names(table.to_arrow_schema())
         with tunnel() as (host, port):
 
             def get_connection():
@@ -724,7 +731,7 @@ def redshift_source(
 
                     cursor.execute(query)
 
-                    column_names = [column.name for column in cursor.description or []]
+                    column_names = normalize_cursor_column_names(cursor.description)
 
                     while True:
                         rows = cursor.fetchmany(chunk_size)
