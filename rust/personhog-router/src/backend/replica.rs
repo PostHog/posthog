@@ -80,6 +80,7 @@ fn create_clients(config: &ReplicaBackendConfig) -> Vec<PersonHogReplicaClient<C
             PersonHogReplicaClient::new(channel)
                 .max_encoding_message_size(config.max_send_message_size)
                 .max_decoding_message_size(config.max_recv_message_size)
+                .send_compressed(CompressionEncoding::Zstd)
                 .accept_compressed(CompressionEncoding::Zstd)
         })
         .collect()
