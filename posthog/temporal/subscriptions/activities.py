@@ -64,20 +64,39 @@ async def _resolve_target_delivery_id(inputs: CreateExportAssetsInputs) -> uuid.
         return None
 
     @database_sync_to_async(thread_sensitive=False)
-    def _lookup() -> uuid.UUID | None:
-        row = (
-            SubscriptionDelivery.objects.filter(
-                temporal_workflow_id=workflow_id,
-                subscription_id=inputs.subscription_id,
-                finished_at__isnull=True,
-            )
-            .order_by("-created_at")
-            .values_list("id", flat=True)
-            .first()
-        )
-        return row
+    def _lookup() -> tuple[uuid.UUID | None, int]:
+        qs = SubscriptionDelivery.objects.filter(
+            temporal_workflow_id=workflow_id,
+            subscription_id=inputs.subscription_id,
+            finished_at__isnull=True,
+        ).order_by("-created_at")
+        total = qs.count()
+        row = qs.values_list("id", flat=True).first()
+        return row, total
 
-    return await _lookup()
+    row, total = await _lookup()
+    if total > 1:
+        # Multiple unfinished delivery rows for the same workflow_id is a
+        # surprise invariant violation — surface it rather than silently picking
+        # the newest. Could indicate a failed prior run or a workflow_id reuse.
+        await LOGGER.awarning(
+            "create_export_assets.workflow_id_lookup_ambiguous",
+            subscription_id=inputs.subscription_id,
+            workflow_id=workflow_id,
+            match_count=total,
+            picked=str(row) if row else None,
+        )
+    if row is None:
+        # Inside an activity context and the fallback lookup found nothing —
+        # this path should never fire in steady state (create_delivery_record
+        # always runs first). Canary for a regression back to the old
+        # shuttle-through-Temporal flow.
+        await LOGGER.awarning(
+            "create_export_assets.delivery_row_not_found",
+            subscription_id=inputs.subscription_id,
+            workflow_id=workflow_id,
+        )
+    return row
 
 
 async def _persist_content_snapshot(

@@ -78,12 +78,11 @@ class CreateExportAssetsResult:
     team_id: int = 0
     distinct_id: str = ""
     target_type: str = ""
-    # Deprecated — kept only so that in-flight Temporal workflows (whose
-    # history contains an old-format result) can still deserialize on new
-    # workers during a rolling deploy. New code does not populate this field;
-    # the per-insight snapshot is now written directly to Postgres by the
-    # activity via delivery_id. Safe to remove in a follow-up once the
-    # subscriptions task queue has drained.
+    # Deprecated (TODO slug: subscriptions-patched-cleanup) — kept only so
+    # that in-flight Temporal workflows (whose history contains an old-format
+    # result) still deserialize on new workers during a rolling deploy. New
+    # code does not populate this field. Remove in the second cleanup PR per
+    # the sequence in workflows.py.
     insight_snapshots: typing.Optional[list[dict[str, typing.Any]]] = None
 
 
@@ -172,9 +171,9 @@ class UpdateDeliveryRecordInputs:
     recipient_results: typing.Optional[list[dict[str, typing.Any]]] = None
     error: typing.Optional[dict[str, typing.Any]] = None
     finished: bool = False
-    # Deprecated — see docstring. Remove in a follow-up after the subscriptions
-    # task queue has drained enough that no in-flight workflows still carry a
-    # populated content_snapshot in history.
+    # Deprecated (TODO slug: subscriptions-patched-cleanup) — see docstring
+    # above and cleanup sequence at top of workflows.py. Remove in the second
+    # cleanup PR after task queue drain.
     content_snapshot: typing.Optional[dict[str, typing.Any]] = None
 
 
