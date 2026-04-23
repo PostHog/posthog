@@ -336,15 +336,12 @@ mod tests {
     use std::collections::{HashMap, HashSet};
     use std::time::Duration;
 
-    fn make_limiter_with_clock<C>(
+    fn make_limiter_with_clock(
         default_rate: u32,
         custom_rates: HashMap<TeamId, String>,
         allowlist: HashSet<TeamId>,
-        clock: C,
-    ) -> KeyedRateLimiter<TeamId, C>
-    where
-        C: clock::Clock + Clone,
-    {
+        clock: FakeRelativeClock,
+    ) -> KeyedRateLimiter<TeamId, FakeRelativeClock> {
         KeyedRateLimiter::new_with_clock(
             default_rate,
             custom_rates,

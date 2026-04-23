@@ -402,6 +402,7 @@ async fn test_rate_limit_replenishment() -> Result<()> {
         "Second request blocked"
     );
 
+    // Replenish window is ~100ms (10 tokens/sec); 250ms gives a 2.5x margin above Blacksmith TSC drift (#55399).
     tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
 
     let response = client
