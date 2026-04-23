@@ -8,8 +8,10 @@ Also available to Claude Code / Codex via `hogli sync:skill`.
 
 - **exploring-llm-traces** — how to query, inspect, and debug LLM traces via MCP tools.
   Covers the `$ai_*` event schema, content detail levels, and step-by-step debugging workflows.
-- **exploring-llm-clusters** — how to investigate LLM analytics clustering results,
-  compare cluster behavior, compute metrics, and drill into individual traces.
+- **exploring-llm-clusters** — how to investigate LLM analytics clustering
+  results: discover usage patterns, compare clusters by cost/latency/errors/
+  sentiment, decode run IDs, diff runs over time, and drill into representative
+  or outlier traces.
 - **exploring-llm-evaluations** — how to manage and investigate LLM analytics
   evaluations (both `hog` and `llm_judge` types), run them on specific generations,
   query individual results, and generate AI-powered summaries of pass/fail/N/A patterns.

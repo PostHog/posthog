@@ -1,104 +1,100 @@
 ---
 name: exploring-llm-clusters
-description: 'Investigate LLM analytics clusters — understand usage patterns in AI/LLM traffic, compare cluster behavior, compute cost/latency metrics, and drill into individual traces within clusters.'
+description: >
+  Investigate LLM analytics clusters — discover usage patterns in AI/LLM traffic,
+  compare cluster cost/latency/errors/sentiment, track clusters across runs,
+  inspect outliers, and drill into representative traces. Use when the user asks
+  "what kinds of LLM usage do we have?", "which cluster is most expensive?",
+  "what are the error-heavy patterns?", pastes a `/llm-analytics/clusters/...`
+  URL, or wants to understand clustering run results.
 ---
 
-# Exploring LLM clusters
+# Exploring LLM clusters with MCP tools
 
-Use this skill when investigating LLM analytics clusters —
-understanding what patterns exist in your AI/LLM traffic,
-comparing cluster behavior, and drilling into individual clusters.
+PostHog clusters LLM traces (or individual generations) by embedding similarity.
+A Temporal workflow (`llma-trace-clustering`) runs daily per team: it fetches
+recent trace summary embeddings, reduces dimensions, clusters with HDBSCAN,
+labels each cluster with an LLM agent, and emits **one event per run** to
+ClickHouse containing the full cluster structure.
 
-## Tools
+## Available tools
 
-| Tool                                             | Purpose                                         |
-| ------------------------------------------------ | ----------------------------------------------- |
-| `posthog:llm-analytics-clustering-jobs-list`     | List clustering job configurations for the team |
-| `posthog:llm-analytics-clustering-jobs-retrieve` | Get a specific clustering job by ID             |
-| `posthog:execute-sql`                            | Query cluster run events and compute metrics    |
-| `posthog:query-llm-traces-list`                  | Find traces belonging to a cluster              |
-| `posthog:query-llm-trace`                        | Inspect a specific trace in detail              |
+| Tool                                             | Purpose                                                |
+| ------------------------------------------------ | ------------------------------------------------------ |
+| `posthog:execute-sql`                            | Query cluster run events and join to traces/metrics    |
+| `posthog:llm-analytics-clustering-jobs-list`     | List clustering job configurations for the team        |
+| `posthog:llm-analytics-clustering-jobs-retrieve` | Get a specific clustering job by ID                    |
+| `posthog:query-llm-traces-list`                  | Search traces in the window, e.g. to sanity-check      |
+| `posthog:query-llm-trace`                        | Inspect a specific trace (use for representative ones) |
+| `posthog:read-data-schema`                       | Discover custom properties before filtering            |
 
 ## How clustering works
 
-PostHog clusters LLM traces (or individual generations) by embedding similarity.
-A Temporal workflow runs periodically or on-demand, producing cluster events stored as
-`$ai_trace_clusters` (trace-level) or `$ai_generation_clusters` (generation-level).
+See the [event reference](./references/cluster-events.md) for the full property schema.
 
-Each cluster event contains:
+### Pipeline (per team, per run)
 
-- `$ai_clustering_run_id` — unique run identifier (format: `<team_id>_<level>_<YYYYMMDD>_<HHMMSS>[_<job_id>]`)
-- `$ai_clustering_level` — `"trace"` or `"generation"`
-- `$ai_window_start` / `$ai_window_end` — time window analyzed
-- `$ai_total_items_analyzed` — number of traces/generations processed
-- `$ai_clusters` — JSON array of cluster objects
-- `$ai_clustering_params` — algorithm parameters used
-
-### Cluster object shape (inside `$ai_clusters`)
-
-```json
-{
-  "cluster_id": 0,
-  "size": 42,
-  "title": "User authentication flows",
-  "description": "Traces involving login, signup, and token refresh operations",
-  "traces": {
-    "<trace_or_generation_id>": {
-      "distance_to_centroid": 0.123,
-      "rank": 0,
-      "x": -2.34,
-      "y": 1.56,
-      "timestamp": "2026-03-28T10:00:00Z",
-      "trace_id": "abc-123",
-      "generation_id": "gen-456"
-    }
-  },
-  "centroid_x": -2.1,
-  "centroid_y": 1.4
-}
+```text
+  1. Fetch trace/generation summary embeddings from raw_document_embeddings
+       (filtered by document_type + optional job_id suffix on `rendering`)
+  2. Optional L2-normalize embeddings
+  3. Dimensionality reduction (UMAP→100d, PCA, or none) for clustering
+  4. Cluster (HDBSCAN default — auto-k, identifies outliers as cluster_id=-1;
+             or k-means with silhouette-optimized k)
+  5. Compute distance matrix + 2D projection (UMAP/PCA/t-SNE) for scatter plot
+  6. Label clusters with an LLM agent (gpt-5.4 via LangGraph, 10-min budget)
+  7. Aggregate per-cluster metrics (cost, latency, tokens, error_rate, sentiment)
+  8. Emit single $ai_trace_clusters or $ai_generation_clusters event
 ```
 
-- `cluster_id: -1` is the **noise/outlier** cluster (items that didn't fit any cluster)
-- Items in `traces` are keyed by trace ID (trace-level) or generation event UUID (generation-level)
-- `rank` orders items by proximity to centroid (0 = closest)
-- `x`, `y` are 2D coordinates for visualization (UMAP/PCA/t-SNE reduced)
+### Two levels
 
-## Clustering jobs
+- **Trace-level** (`$ai_trace_clusters`) — clusters whole traces; items keyed by `trace_id`
+- **Generation-level** (`$ai_generation_clusters`) — clusters individual LLM calls; items keyed by `$ai_generation` event UUID, and each item also carries its parent `trace_id`
 
-Each team can have up to 5 clustering jobs. A job defines:
+### Run ID format
 
-- **name** — human-readable label
-- **analysis_level** — `"trace"` or `"generation"`
-- **event_filters** — property filters scoping which traces are included
-- **enabled** — whether the job runs on schedule
+```text
+<team_id>_<level>_<YYYYMMDD>_<HHMMSS>[_<job_id>][_<run_label>]
+```
 
-Default jobs named `"Default - trace"` and `"Default - generation"` are auto-created
-and disabled when a custom job is created for the same level.
+- `level` is `trace` or `generation`
+- `job_id` is a UUID when the run was triggered by a saved `ClusteringJob`
+- `run_label` is a free-form experiment tag (rare — mostly for manual runs)
+- Example: `1_trace_20250123_000000_019cb7f3-a126-7809-bffc-7f13bffe1325`
+
+Use helpers from [`scripts/parse_run_id.py`](./scripts/parse_run_id.py) to decode.
+
+### Noise / outlier cluster (HDBSCAN only)
+
+- `cluster_id: -1` contains items HDBSCAN couldn't fit anywhere
+- Items are sorted by **max** distance-to-any-centroid (most anomalous first, rank 0)
+- Noise cluster has no real `centroid` (empty list); `centroid_x`/`centroid_y` is the mean of its points' 2D coords
+- k-means runs don't produce a noise cluster
 
 ## Workflow: explore clusters
 
-### Step 1 — List recent clustering runs
+### Step 1 — List recent runs
 
 ```sql
-posthog:execute-sql
 SELECT
     JSONExtractString(properties, '$ai_clustering_run_id') as run_id,
     JSONExtractString(properties, '$ai_clustering_level') as level,
+    JSONExtractString(properties, '$ai_clustering_job_name') as job_name,
     JSONExtractString(properties, '$ai_window_start') as window_start,
     JSONExtractString(properties, '$ai_window_end') as window_end,
     JSONExtractInt(properties, '$ai_total_items_analyzed') as total_items,
     timestamp
 FROM events
 WHERE event IN ('$ai_trace_clusters', '$ai_generation_clusters')
-    AND timestamp >= now() - INTERVAL 7 DAY
+    AND timestamp >= now() - INTERVAL 30 DAY
 ORDER BY timestamp DESC
-LIMIT 10
+LIMIT 20
 ```
 
-### Step 2 — Get clusters from a specific run
+### Step 2 — Load a specific run's cluster payload
 
 ```sql
-posthog:execute-sql
 SELECT
     JSONExtractString(properties, '$ai_clustering_run_id') as run_id,
     JSONExtractString(properties, '$ai_clustering_level') as level,
@@ -112,57 +108,39 @@ SELECT
 FROM events
 WHERE event IN ('$ai_trace_clusters', '$ai_generation_clusters')
     AND JSONExtractString(properties, '$ai_clustering_run_id') = '<run_id>'
+    AND timestamp >= parseDateTimeBestEffort('<day_start_utc>')
+    AND timestamp <= parseDateTimeBestEffort('<day_end_utc>')
 LIMIT 1
 ```
 
-The `clusters` field is a JSON array. Parse it to see cluster titles, sizes, and descriptions.
+**Always include a tight timestamp window** — the run ID is in UTC and encodes
+the window end date. Use `parse_run_id.py` to derive day bounds, otherwise the
+query scans ClickHouse unnecessarily.
 
-**Important:** The clusters JSON can be very large (thousands of trace IDs with coordinates).
-When the result is too large for inline display, it auto-persists to a file.
-Use `print_clusters.py` from [scripts/](./scripts/) to get a readable summary.
+The `clusters` JSON can be large (thousands of trace IDs with 2D coords and
+metrics per cluster). When the result is persisted to a file, use the helper
+scripts in [`scripts/`](./scripts/) to parse it.
 
-### Step 3 — Compute metrics for clusters
+### Step 3 — Summarize the run
 
-For trace-level clusters, compute cost/latency/token metrics:
+```bash
+# Overview: metadata, cluster sizes, titles, top traces per cluster
+python3 scripts/print_clusters.py /path/to/persisted-file.json
 
-```sql
-posthog:execute-sql
-SELECT
-    JSONExtractString(properties, '$ai_trace_id') as trace_id,
-    sum(toFloat(properties.$ai_total_cost_usd)) as total_cost,
-    max(toFloat(properties.$ai_latency)) as latency,
-    sum(toInt(properties.$ai_input_tokens)) as input_tokens,
-    sum(toInt(properties.$ai_output_tokens)) as output_tokens,
-    countIf(properties.$ai_is_error = 'true') as error_count
-FROM events
-WHERE event IN ('$ai_generation', '$ai_embedding', '$ai_span')
-    AND timestamp >= parseDateTimeBestEffort('<window_start>')
-    AND timestamp <= parseDateTimeBestEffort('<window_end>')
-    AND JSONExtractString(properties, '$ai_trace_id') IN ('<trace_id_1>', '<trace_id_2>', ...)
-GROUP BY trace_id
+# Cluster metrics (pre-aggregated) — cost, latency, error_rate, sentiment
+python3 scripts/print_cluster_metrics.py /path/to/persisted-file.json
+
+# Extract trace IDs from one cluster for drill-down
+CLUSTER_ID=0 python3 scripts/extract_cluster_items.py /path/to/persisted-file.json
+
+# Decode a run ID
+python3 scripts/parse_run_id.py '1_trace_20250123_000000_019cb7f3-...'
 ```
 
-For generation-level clusters, match by event UUID:
+### Step 4 — Drill into representative traces
 
-```sql
-posthog:execute-sql
-SELECT
-    toString(uuid) as generation_id,
-    toFloat(properties.$ai_total_cost_usd) as cost,
-    toFloat(properties.$ai_latency) as latency,
-    toInt(properties.$ai_input_tokens) as input_tokens,
-    toInt(properties.$ai_output_tokens) as output_tokens,
-    if(properties.$ai_is_error = 'true', 1, 0) as is_error
-FROM events
-WHERE event = '$ai_generation'
-    AND timestamp >= parseDateTimeBestEffort('<window_start>')
-    AND timestamp <= parseDateTimeBestEffort('<window_end>')
-    AND toString(uuid) IN ('<gen_uuid_1>', '<gen_uuid_2>', ...)
-```
-
-### Step 4 — Drill into specific traces
-
-Once you've identified interesting clusters, use the trace tools to inspect individual traces:
+Each cluster's `traces` map is keyed by item ID with a `rank` field (0 = closest
+to centroid = most representative). Pick the top 3–5 ranked items and inspect:
 
 ```json
 posthog:query-llm-trace
@@ -172,43 +150,149 @@ posthog:query-llm-trace
 }
 ```
 
+For generation-level clusters the item key is a `$ai_generation` event UUID —
+use the sibling `trace_id` field inside the item info to call `query-llm-trace`
+with the parent trace.
+
+### Step 5 — Read cluster metrics
+
+Recent clusters have **pre-aggregated** metrics baked in under a `metrics` field
+per cluster object:
+
+```json
+"metrics": {
+  "avg_cost": 0.0123,
+  "avg_latency": 2.45,
+  "avg_tokens": 1250.0,
+  "total_cost": 4.321,
+  "error_rate": 0.05,
+  "error_count": 2,
+  "item_count": 37,
+  "sentiment": {"label": "positive", "score": 0.7,
+                "counts": {"positive": 20, "neutral": 5, "negative": 2}, "total": 27}
+}
+```
+
+Older runs (before the aggregates activity was added) may not have this field.
+If missing, compute on-demand with the SQL in
+[`references/cluster-metrics-sql.md`](./references/cluster-metrics-sql.md) — it
+mirrors what the frontend does when the baked-in metrics are absent.
+
 ## Investigation patterns
 
 ### "What kinds of LLM usage do we have?"
 
-1. List recent clustering runs (Step 1)
-2. Load the latest run's clusters (Step 2)
-3. Review cluster titles and descriptions — each represents a distinct usage pattern
-4. Compare cluster sizes to understand traffic distribution
+1. List recent runs (Step 1), pick the most recent trace-level one
+2. Load its clusters (Step 2) and run `print_clusters.py`
+3. Review cluster `title` + `description` — each is a distinct usage pattern
+4. Compare cluster `size` fields to understand traffic distribution
+5. Don't forget cluster -1 (outliers) — this is where novel/rare patterns hide
 
-### "Which cluster is most expensive / slowest?"
+### "Which cluster is most expensive / slowest / errors the most?"
 
-1. Load clusters from a run (Step 2)
-2. Extract trace IDs from each cluster
-3. Compute metrics per cluster (Step 3)
-4. Aggregate: `avg(cost)`, `avg(latency)`, `sum(cost)` per cluster
-5. Compare across clusters
+1. Load the run (Step 2), run `print_cluster_metrics.py`
+2. It sorts clusters by `total_cost` desc, shows averages, error rate, and sentiment
+3. If the run predates baked-in metrics, fall back to the on-demand SQL in
+   [`references/cluster-metrics-sql.md`](./references/cluster-metrics-sql.md)
+4. Drill into the top 3 ranked traces of the offending cluster to see why
 
 ### "What's in this cluster?"
 
-1. Load the cluster's traces (from the `traces` field)
-2. Sort by `rank` (closest to centroid = most representative)
-3. Inspect the top 3-5 traces via `query-llm-trace` to understand the pattern
-4. Check the cluster `title` and `description` for the AI-generated summary
+1. `CLUSTER_ID=<id> python3 scripts/extract_cluster_items.py FILE` dumps item IDs in rank order
+2. Inspect the top 3–5 ranked items via `query-llm-trace` (rank 0 = closest to centroid)
+3. The cluster `title`/`description` is an LLM-generated summary — treat as a hypothesis and verify against real traces
 
 ### "Are there error-heavy clusters?"
 
-1. Compute metrics (Step 3) with `error_count`
-2. Calculate error rate per cluster: `items_with_errors / total_items`
-3. Focus on clusters with high error rates
-4. Drill into errored traces to find root causes
+1. From the metrics: sort clusters by `error_rate` descending, filter `item_count >= 5` to avoid tiny-sample noise
+2. For high-error clusters, drill into items ranked lowest (furthest from centroid) —
+   these are where the cluster's "edge" is, often where errors cluster
+3. Cross-reference with `$ai_generation` `$ai_is_error = 'true'` events in the window
+
+### "What's new or weird?" (outliers)
+
+1. Load the run, filter the clusters array to `cluster_id = -1`
+2. Noise items are sorted by `rank` ascending where rank 0 has the **highest** min-distance-to-any-centroid (most anomalous)
+3. Inspect the top-ranked noise items via `query-llm-trace` — these are candidate new usage patterns
 
 ### "How do clusters compare across runs?"
 
-1. List multiple runs (Step 1)
-2. Load clusters from each run
-3. Compare cluster titles — similar titles across runs indicate stable patterns
-4. Track cluster size changes to detect shifts in traffic patterns
+1. List multiple runs for the same level + job_id (Step 1)
+2. Load two runs and compare their cluster titles side-by-side — similar titles signal stable patterns
+3. Track cluster-size shifts to detect traffic pattern changes week-over-week
+4. Use `diff_runs.py` for a side-by-side summary
+
+```bash
+python3 scripts/diff_runs.py /path/to/run_a.json /path/to/run_b.json
+```
+
+### "Why did this specific trace end up here?"
+
+1. Find the trace ID inside `cluster.traces`; note its `distance_to_centroid` and `rank`
+2. High rank (far from centroid) = weakly representative → maybe it should be noise
+3. Inspect the `$ai_trace_summary` event for that trace — that's the text the embedding was computed from:
+
+   ```sql
+   SELECT properties.$ai_summary_title, properties.$ai_summary_bullets,
+          properties.$ai_batch_run_id, timestamp
+   FROM events
+   WHERE event = '$ai_trace_summary'
+     AND JSONExtractString(properties, '$ai_trace_id') = '<trace_id>'
+     AND timestamp >= now() - INTERVAL 30 DAY
+   ORDER BY timestamp DESC LIMIT 1
+   ```
+
+### "What params were used for this run?"
+
+The `$ai_clustering_params` property records the full config:
+
+```json
+{
+  "clustering_method": "hdbscan",
+  "clustering_method_params": { "min_cluster_size_fraction": 0.02, "min_samples": 5 },
+  "embedding_normalization": "l2",
+  "dimensionality_reduction_method": "umap",
+  "dimensionality_reduction_ndims": 100,
+  "visualization_method": "umap",
+  "max_samples": 1500
+}
+```
+
+Useful when comparing clustering runs that used different algorithms or samples.
+
+## Clustering jobs
+
+Each team can have up to 5 clustering jobs. A job defines:
+
+- **name** — human-readable label
+- **analysis_level** — `"trace"` or `"generation"`
+- **event_filters** — PostHog property filters (same shape as feature flags / evaluations) that scope which items are included
+- **enabled** — whether the scheduled run picks it up
+
+Defaults named `"Default - trace"` and `"Default - generation"` are auto-created
+and auto-disabled as soon as a custom job is created for the same level.
+
+```json
+posthog:llm-analytics-clustering-jobs-list {}
+posthog:llm-analytics-clustering-jobs-retrieve {"id": "<job_uuid>"}
+```
+
+Match a run to its job via the `$ai_clustering_job_id` / `$ai_clustering_job_name`
+properties on the cluster event, or decode the run ID with `parse_run_id.py`.
+
+## Trace summaries (what the clustering actually sees)
+
+Clustering does **not** embed raw trace data — it embeds a **summary** produced
+by a separate hourly workflow (`llma-trace-summarization`). Each trace gets:
+
+| Event                    | Emitted per | Key properties                                                                                                                              |
+| ------------------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `$ai_trace_summary`      | Trace       | `$ai_trace_id`, `$ai_batch_run_id`, `$ai_summary_title`, `$ai_summary_flow_diagram`, `$ai_summary_bullets`, `$ai_summary_interesting_notes` |
+| `$ai_generation_summary` | Generation  | Same as above plus `$ai_generation_id`                                                                                                      |
+
+If a cluster title feels "off", the root cause is often the summary — pull the
+summary event for a representative trace and confirm it captured the right
+semantic signal.
 
 ## Constructing UI links
 
@@ -216,14 +300,16 @@ posthog:query-llm-trace
 - **Specific run**: `https://app.posthog.com/llm-analytics/clusters/<url_encoded_run_id>`
 - **Cluster detail**: `https://app.posthog.com/llm-analytics/clusters/<url_encoded_run_id>/<cluster_id>`
 
-Always surface these links so the user can verify visually in the PostHog UI.
+URL-encode the run ID (it contains `_` and UUIDs). Always surface these links
+so the user can verify visually in the PostHog UI.
 
 ## Tips
 
-- Always set a time range in SQL queries — cluster events without time bounds are slow
-- Start with run listing to orient, then drill into specific clusters
-- Cluster titles and descriptions are AI-generated summaries — verify by inspecting traces
-- The noise cluster (`cluster_id: -1`) contains outliers that didn't fit any pattern
-- Use `llm-analytics-clustering-jobs-list` to understand what clustering configs are active
-- Trace IDs in clusters can be used directly with `query-llm-trace` for deep inspection
-- For large clusters, inspect the top-ranked traces (closest to centroid) for representative examples
+- **Always scope by timestamp** — cluster events exist in the regular `events` table, so unbounded queries are slow. Use `parse_run_id.py` to derive a tight day-window around the run
+- **One event per run** — no joins or per-cluster rows; the whole cluster payload is a single JSON blob on a single event
+- **Noise cluster items are ranked by anomaly, not proximity** — the most outlying item is rank 0
+- **Cluster titles/descriptions are AI-generated** — great starting hypothesis, but always verify by inspecting representative traces
+- **`metrics` may be missing on older runs** — check for the field before using; fall back to on-demand SQL
+- **For generation-level drill-downs, use `item.trace_id`** (the parent trace) with `query-llm-trace`, not the item key (which is the generation UUID)
+- **Minimum 20 items required** — teams with fewer traces in the window produce no cluster event (check with Step 1 and expect gaps)
+- **Run in UTC** — run IDs and windows are UTC; set `convertToProjectTimezone: false` if you construct HogQL that compares to them
