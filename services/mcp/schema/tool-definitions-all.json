@@ -1046,36 +1046,6 @@
             "readOnlyHint": false
         }
     },
-    "project-get": {
-        "description": "Retrieve a project and its settings. Pass `@current` as the ID to fetch the caller's active project.",
-        "category": "Core",
-        "feature": "core",
-        "summary": "Get project",
-        "title": "Get project",
-        "required_scopes": ["project:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "project-settings-update": {
-        "description": "Update a project's settings using PATCH semantics — only the fields included in the request body are changed. Use `project-get` first to inspect current settings. Always confirm changes with the user before applying.",
-        "category": "Core",
-        "feature": "core",
-        "summary": "Update project settings",
-        "title": "Update project settings",
-        "required_scopes": ["project:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
     "subscriptions-list": {
         "description": "List subscriptions for the project. Returns scheduled email, Slack, or webhook deliveries of insight or dashboard snapshots. Each subscription includes its schedule (frequency, interval, byweekday), next_delivery_date, and a human-readable summary.",
         "category": "Core",
