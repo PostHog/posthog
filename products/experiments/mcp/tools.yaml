@@ -144,16 +144,17 @@ tools:
                metric guidance.
 
 
-            Creates a new experiment in draft status. Requires name
-            and feature_flag_key. Feature flag is auto-created — do
-            not create one separately. Defaults: 50/50 control/test,
-            100% rollout, Bayesian stats, type "product". Launch the
-            experiment with the launch tool when ready.
+            Creates a new experiment in draft status (ignore the "type"
+            param, since no-code/toolbar experiments must be created
+            in the PostHog UI). Requires name and feature_flag_key.
+            Feature flag is auto-created — do not create one
+            separately. Defaults: 50/50 control/test, 100% rollout,
+            Bayesian stats. Launch the experiment with the launch
+            tool when ready.
         include_params:
             - name
             - description
             - feature_flag_key
-            - type
             - parameters
             - stats_config
             - holdout_id

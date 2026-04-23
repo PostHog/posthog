@@ -22,7 +22,9 @@ Gather these before calling `experiment-create`:
 - **Hypothesis** — what you expect to happen (goes in `description`)
 - **Feature flag key** — kebab-case. Ask if they want a new flag or to reuse an existing one.
   The flag is auto-created — do NOT create one separately.
-- **Type** — "web" for frontend, "product" for backend (default "product")
+- **Type** — leave empty (will internally default to `"product"`. The `"web"` value is reserved for no-code experiments configured visually with the PostHog
+  toolbar in a browser; it cannot be meaningfully driven via MCP. If a user asks for a
+  no-code/toolbar experiment, point them to the PostHog UI instead of creating one here.)
 
 If the user gives enough context to infer these, don't ask — just proceed.
 

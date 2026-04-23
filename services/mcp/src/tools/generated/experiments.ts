@@ -97,6 +97,7 @@ const ExperimentCreateSchema = ExperimentsCreateBody.omit({
     filters: true,
     archived: true,
     deleted: true,
+    type: true,
     metrics: true,
     metrics_secondary: true,
     scheduling_config: true,
@@ -134,9 +135,6 @@ const experimentCreate = (): ToolBase<typeof ExperimentCreateSchema, WithPostHog
             }
             if (params.parameters !== undefined) {
                 body['parameters'] = params.parameters
-            }
-            if (params.type !== undefined) {
-                body['type'] = params.type
             }
             if (params.exposure_criteria !== undefined) {
                 body['exposure_criteria'] = params.exposure_criteria
