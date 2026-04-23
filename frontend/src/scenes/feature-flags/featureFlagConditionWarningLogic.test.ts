@@ -480,86 +480,53 @@ describe('featureFlagConditionWarningLogic', () => {
     })
 
     describe('server runtime - mixed user/group targeting', () => {
-        it('warns when groups have different aggregation_group_type_index values', () => {
-            const filterGroups: FeatureFlagGroupType[] = [
-                {
-                    properties: [],
-                    rollout_percentage: 100,
-                    variant: null,
-                    aggregation_group_type_index: null,
-                },
-                {
-                    properties: [],
-                    rollout_percentage: 100,
-                    variant: null,
-                    aggregation_group_type_index: 0,
-                },
-            ]
-
-            const logic = featureFlagConditionWarningLogic({
-                properties: [],
-                filterGroups,
-                evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
-            })
-            logic.mount()
-
-            expect(logic.values.warning).toBe('mixed user and group targeting')
+        const groupWithAggregation = (index: number | null): FeatureFlagGroupType => ({
+            properties: [],
+            rollout_percentage: 100,
+            variant: null,
+            aggregation_group_type_index: index,
         })
 
-        it('does not warn when all groups share the same aggregation', () => {
-            const filterGroups: FeatureFlagGroupType[] = [
-                {
-                    properties: [],
-                    rollout_percentage: 100,
-                    variant: null,
-                    aggregation_group_type_index: null,
-                },
-                {
-                    properties: [],
-                    rollout_percentage: 100,
-                    variant: null,
-                    aggregation_group_type_index: null,
-                },
-            ]
-
-            const logic = featureFlagConditionWarningLogic({
-                properties: [],
-                filterGroups,
+        it.each([
+            {
+                name: 'warns when groups have different aggregation_group_type_index values on SERVER runtime',
+                aggregations: [null, 0],
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
-            })
-            logic.mount()
-
-            expectLogic(logic).toMatchValues({
-                warning: undefined,
-            })
-        })
-
-        it('does not warn for client-only runtime even with mixed targeting', () => {
-            const filterGroups: FeatureFlagGroupType[] = [
-                {
-                    properties: [],
-                    rollout_percentage: 100,
-                    variant: null,
-                    aggregation_group_type_index: null,
-                },
-                {
-                    properties: [],
-                    rollout_percentage: 100,
-                    variant: null,
-                    aggregation_group_type_index: 0,
-                },
-            ]
-
-            const logic = featureFlagConditionWarningLogic({
-                properties: [],
-                filterGroups,
+                expectedWarning: 'mixed user and group targeting',
+            },
+            {
+                name: 'warns on ALL runtime with mixed aggregations',
+                aggregations: [null, 0],
+                evaluationRuntime: FeatureFlagEvaluationRuntime.ALL,
+                expectedWarning: 'mixed user and group targeting',
+            },
+            {
+                name: 'does not warn when all groups share the same aggregation (user-level)',
+                aggregations: [null, null],
+                evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
+                expectedWarning: undefined,
+            },
+            {
+                name: 'does not warn when all groups share the same aggregation (group-level)',
+                aggregations: [0, 0],
+                evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
+                expectedWarning: undefined,
+            },
+            {
+                name: 'does not warn for client-only runtime even with mixed targeting',
+                aggregations: [null, 0],
                 evaluationRuntime: FeatureFlagEvaluationRuntime.CLIENT,
+                expectedWarning: undefined,
+            },
+        ])('$name', ({ aggregations, evaluationRuntime, expectedWarning }) => {
+            const logic = featureFlagConditionWarningLogic({
+                properties: [],
+                filterGroups: aggregations.map(groupWithAggregation),
+                evaluationRuntime,
             })
             logic.mount()
 
-            expectLogic(logic).toMatchValues({
-                warning: undefined,
-            })
+            expectLogic(logic).toMatchValues({ warning: expectedWarning })
         })
     })
 

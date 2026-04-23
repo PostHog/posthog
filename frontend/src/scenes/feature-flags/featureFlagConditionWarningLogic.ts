@@ -26,7 +26,7 @@ const REGEX_BACKREFERENCE = /(?<!\\)\\[1-9]/ // \1 through \9
 export const featureFlagConditionWarningLogic = kea<featureFlagConditionWarningLogicType>([
     path(['scenes', 'feature-flags', 'featureFlagConditionWarningLogic']),
     props({ filterGroups: undefined } as FeatureFlagConditionWarningLogicProps),
-    key((props) => JSON.stringify(props.properties)),
+    key((props) => JSON.stringify({ properties: props.properties, filterGroups: props.filterGroups })),
     connect(() => ({
         values: [cohortsModel, ['cohortsById']],
     })),
