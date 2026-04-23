@@ -19,24 +19,20 @@ import {
 import api from 'lib/api'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    DataWarehouseSyncInterval,
-    ExternalDataSource,
-    ExternalDataSourceSchema,
-} from '~/types'
+import { DataWarehouseSyncInterval, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 import {
     SyncMethodForm,
     SyncMethodFormHandle,
 } from 'products/data_warehouse/frontend/shared/components/forms/SyncMethodForm'
-import { SourceEditorAction } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
+import {
+    SourceEditorAction,
+    useSourceEditorAccess,
+} from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
 import {
     StatusTagSetting,
     SyncFrequencyLabelMap,
@@ -291,18 +287,7 @@ function SyncMethodSection({
     const [saveDisabledReason, setSaveDisabledReason] = useState<string | undefined>()
     const [saving, setSaving] = useState(false)
 
-    // We intentionally do NOT use `SourceEditorAction`'s render-prop form around the form here:
-    // the inline render-prop is a new function reference on every parent render, which makes React
-    // treat it as a new component type and remount the whole subtree (including SyncMethodForm),
-    // wiping the user's radio/field selections on every sourceSettingsLogic auto-refresh.
-    // Derive the disabled state once via the underlying helper and wrap the form in a plain
-    // `<fieldset>` whose identity is stable.
-    const accessDisabledReason =
-        getAccessControlDisabledReason(
-            AccessControlResourceType.ExternalDataSource,
-            AccessControlLevel.Editor,
-            source?.user_access_level
-        ) ?? undefined
+    const { disabledReason: accessDisabledReason } = useSourceEditorAccess(source)
 
     // Load incremental fields only when the schema id changes. We intentionally exclude the kea
     // action refs from the deps — if they aren't stable, the effect would re-fire on every parent
@@ -435,6 +420,7 @@ function ScheduleSection({
     )
     const [draftSyncTimeOfDay, setDraftSyncTimeOfDay] = useState<string | null>(schema.sync_time_of_day ?? null)
     const [saving, setSaving] = useState(false)
+    const { disabledReason: accessDisabledReason } = useSourceEditorAccess(source)
 
     const serverFrequency = schema.sync_frequency || (isCdc ? '5min' : '6hour')
     const serverSyncTimeOfDay = schema.sync_time_of_day ?? null
@@ -491,20 +477,16 @@ function ScheduleSection({
                         load on the source database
                         {isCdc ? ' — CDC supports sub-minute replication for near-real-time syncs.' : '.'}
                     </span>
-                    <SourceEditorAction source={source}>
-                        {({ disabledReason: accessDisabledReason }) => (
-                            <LemonSelect
-                                fullWidth
-                                disabledReason={
-                                    accessDisabledReason ??
-                                    (!schema.should_sync ? 'Enable syncing to set frequency' : undefined)
-                                }
-                                value={draftFrequency}
-                                onChange={(value) => setDraftFrequency(value as DataWarehouseSyncInterval)}
-                                options={isCdc ? [...cdcOnlyOptions, ...standardOptions] : standardOptions}
-                            />
-                        )}
-                    </SourceEditorAction>
+                    <LemonSelect
+                        fullWidth
+                        disabledReason={
+                            accessDisabledReason ??
+                            (!schema.should_sync ? 'Enable syncing to set frequency' : undefined)
+                        }
+                        value={draftFrequency}
+                        onChange={(value) => setDraftFrequency(value as DataWarehouseSyncInterval)}
+                        options={isCdc ? [...cdcOnlyOptions, ...standardOptions] : standardOptions}
+                    />
                 </div>
                 <AnchorTimeField
                     source={source}
@@ -526,18 +508,14 @@ function ScheduleSection({
                         Discard
                     </LemonButton>
                 )}
-                <SourceEditorAction source={source}>
-                    {({ disabledReason: accessDisabledReason }) => (
-                        <LemonButton
-                            type="primary"
-                            loading={saving}
-                            onClick={handleSave}
-                            disabledReason={accessDisabledReason ?? (!isDirty ? 'No changes to save' : undefined)}
-                        >
-                            Save
-                        </LemonButton>
-                    )}
-                </SourceEditorAction>
+                <LemonButton
+                    type="primary"
+                    loading={saving}
+                    onClick={handleSave}
+                    disabledReason={accessDisabledReason ?? (!isDirty ? 'No changes to save' : undefined)}
+                >
+                    Save
+                </LemonButton>
             </div>
         </div>
     )
@@ -561,6 +539,7 @@ function AnchorTimeField({
     setIsProjectTime: (v: boolean) => void
 }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
+    const { disabledReason: accessDisabledReason } = useSourceEditorAccess(source)
 
     const isSyncTimeSet = draftSyncTimeOfDay !== null
     const utcTime = draftSyncTimeOfDay || '00:00:00'
@@ -606,45 +585,40 @@ function AnchorTimeField({
                     </div>
                 )}
             </div>
-            <SourceEditorAction source={source}>
-                {({ disabledReason: accessDisabledReason }) => (
-                    <div className="flex items-center gap-2">
-                        <LemonSwitch
-                            checked={isSyncTimeSet}
-                            disabledReason={
-                                accessDisabledReason ??
-                                (!schema.should_sync ? 'Enable syncing to set anchor time' : undefined)
-                            }
-                            onChange={(checked) => {
-                                setDraftSyncTimeOfDay(checked ? (isProjectTime ? localTime : utcTime) : null)
-                            }}
-                        />
-                        <LemonInput
-                            className="flex-1"
-                            type="time"
-                            disabledReason={accessDisabledReason ?? disabledReasonForInput()}
-                            value={isSyncTimeSet ? localTime.substring(0, 5) : undefined}
-                            onChange={(value) => {
-                                const newValue = `${value}:00`
-                                const utcValue = isProjectTime
-                                    ? dayjs(`${dayjs().format('YYYY-MM-DD')}T${newValue}`)
-                                          .tz(currentTeam?.timezone || 'UTC')
-                                          .utc()
-                                          .format('HH:mm:00')
-                                    : newValue
-                                setDraftSyncTimeOfDay(utcValue)
-                            }}
-                            suffix={
-                                isSyncTimeSet && schema.should_sync ? (
-                                    <Tooltip title={syncAnchorIntervalToHumanReadable(utcTime, draftFrequency)}>
-                                        <IconInfo className="text-muted-alt" />
-                                    </Tooltip>
-                                ) : undefined
-                            }
-                        />
-                    </div>
-                )}
-            </SourceEditorAction>
+            <div className="flex items-center gap-2">
+                <LemonSwitch
+                    checked={isSyncTimeSet}
+                    disabledReason={
+                        accessDisabledReason ?? (!schema.should_sync ? 'Enable syncing to set anchor time' : undefined)
+                    }
+                    onChange={(checked) => {
+                        setDraftSyncTimeOfDay(checked ? (isProjectTime ? localTime : utcTime) : null)
+                    }}
+                />
+                <LemonInput
+                    className="flex-1"
+                    type="time"
+                    disabledReason={accessDisabledReason ?? disabledReasonForInput()}
+                    value={isSyncTimeSet ? localTime.substring(0, 5) : undefined}
+                    onChange={(value) => {
+                        const newValue = `${value}:00`
+                        const utcValue = isProjectTime
+                            ? dayjs(`${dayjs().format('YYYY-MM-DD')}T${newValue}`)
+                                  .tz(currentTeam?.timezone || 'UTC')
+                                  .utc()
+                                  .format('HH:mm:00')
+                            : newValue
+                        setDraftSyncTimeOfDay(utcValue)
+                    }}
+                    suffix={
+                        isSyncTimeSet && schema.should_sync ? (
+                            <Tooltip title={syncAnchorIntervalToHumanReadable(utcTime, draftFrequency)}>
+                                <IconInfo className="text-muted-alt" />
+                            </Tooltip>
+                        ) : undefined
+                    }
+                />
+            </div>
         </div>
     )
 }
