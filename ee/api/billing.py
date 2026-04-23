@@ -97,9 +97,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     param_derived_from_user_current_team = "team_id"
 
     scope_object = "INTERNAL"
-    force_include_in_api_docs = (
-        True  # surface in OpenAPI despite INTERNAL + root-router (see preprocess_exclude_path_format)
-    )
+    # Surface in OpenAPI despite INTERNAL + root-router. See preprocess_exclude_path_format.
+    force_include_in_api_docs = True
 
     def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
         # Selective opt-in for PAT/OAuth access. Only the listed actions are reachable via API token;
