@@ -4,6 +4,7 @@ from typing import cast
 from posthog.schema import AggregationType, EntityType, IntervalType, RetentionEntity, RetentionQuery, RetentionType
 
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import entity_to_expr, property_to_expr
 
 from posthog.constants import TREND_FILTER_TYPE_EVENTS
@@ -238,3 +239,31 @@ class RetentionQueryContext:
             )
 
         return events_where
+
+    def get_first_time_anchor_expr(self) -> ast.Expr:
+        if self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence:
+            start_entity_with_properties_expr = entity_to_expr(self.start_event, self.team)
+
+            if self.is_first_ever_occurrence:
+                # Create a clean entity without properties to find the true first-ever event
+                clean_start_event = self.start_event.model_copy(deep=True)
+                clean_start_event.properties = []
+                start_entity_expr_no_props = entity_to_expr(clean_start_event, self.team)
+
+                # First-ever occurrence of the target event, then check filters.
+                # We find the timestamp of the first event of this type, and the first event of this type that also matches properties.
+                # If they are the same, this is the user's cohorting event.
+                min_ts_expr = parse_expr("minIf(events.timestamp, {expr})", {"expr": start_entity_expr_no_props})
+                min_ts_with_props_expr = parse_expr(
+                    "minIf(events.timestamp, {expr})", {"expr": start_entity_with_properties_expr}
+                )
+
+                return parse_expr(
+                    "if({min_ts} = {min_ts_with_props}, {min_ts}, NULL)",
+                    {"min_ts": min_ts_expr, "min_ts_with_props": min_ts_with_props_expr},
+                )
+            else:  # is_first_occurrence_matching_filters
+                # First occurrence of the target event that matches filters.
+                return parse_expr("minIf(events.timestamp, {expr})", {"expr": start_entity_with_properties_expr})
+        else:
+            return ast.Constant(value=None)

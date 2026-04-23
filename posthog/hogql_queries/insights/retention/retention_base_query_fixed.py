@@ -11,18 +11,18 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         start_interval_index_filter: int | None = None,
         selected_breakdown_value: str | list[str] | int | None = None,
     ) -> ast.SelectQuery:
-        start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(
+        start_of_interval_sql = self.context.query_date_range.get_start_of_interval_hogql(
             source=ast.Field(chain=["events", "timestamp"])
         )
 
-        event_filters = self.global_event_filters.copy()
+        event_filters = self.context.global_event_filters.copy()
         if (
-            self.query.breakdownFilter
-            and self.query.breakdownFilter.breakdowns
-            and len(self.query.breakdownFilter.breakdowns) == 1
-            and self.query.breakdownFilter.breakdowns[0].type == "cohort"
+            self.context.query.breakdownFilter
+            and self.context.query.breakdownFilter.breakdowns
+            and len(self.context.query.breakdownFilter.breakdowns) == 1
+            and self.context.query.breakdownFilter.breakdowns[0].type == "cohort"
         ):
-            cohort_id = self.query.breakdownFilter.breakdowns[0].property
+            cohort_id = self.context.query.breakdownFilter.breakdowns[0].property
             # Don't add cohort filter for "all users" (cohort_id = 0)
             if int(cohort_id) != ALL_USERS_COHORT_ID:
                 event_filters.append(
@@ -45,19 +45,19 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             """,
             {
                 "start_of_interval_sql": start_of_interval_sql,
-                "start_entity_expr": self.start_entity_expr,
-                "filter_timestamp": self.events_timestamp_filter,
+                "start_entity_expr": self.context.start_entity_expr,
+                "filter_timestamp": self.context.events_timestamp_filter,
             },
         )
 
-        minimum_occurrences = self.query.retentionFilter.minimumOccurrences or 1
+        minimum_occurrences = self.context.query.retentionFilter.minimumOccurrences or 1
         minimum_occurrences_aliases = self._get_minimum_occurrences_aliases(
             minimum_occurrences=minimum_occurrences,
             start_of_interval_sql=start_of_interval_sql,
-            return_entity_expr=self.return_entity_expr,
+            return_entity_expr=self.context.return_entity_expr,
         )
 
-        if self.property_aggregation_expr:
+        if self.context.property_aggregation_expr:
             # For property aggregation, we need separate handling for start (interval 0) and return events (interval 1+).
             # Tuples are (interval_start, value, actual_timestamp); actual_timestamp is used when start and
             # return events differ to filter interval-0 return events that happen after the start event.
@@ -76,15 +76,15 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 """,
                 {
                     "start_of_interval_sql": start_of_interval_sql,
-                    "property_aggregation_expr": self.property_aggregation_expr,
-                    "start_entity_expr": self.start_entity_expr,
-                    "filter_timestamp": self.events_timestamp_filter,
+                    "property_aggregation_expr": self.context.property_aggregation_expr,
+                    "start_entity_expr": self.context.start_entity_expr,
+                    "filter_timestamp": self.context.events_timestamp_filter,
                 },
             )
             return_event_data = self._get_return_event_timestamps_expr(
                 minimum_occurrences=minimum_occurrences,
                 start_of_interval_sql=start_of_interval_sql,
-                return_entity_expr=self.return_entity_expr,
+                return_entity_expr=self.context.return_entity_expr,
             )
             # Reference the pre-computed aliases rather than inlining the expressions again
             return_event_timestamps = parse_expr("arrayMap(x -> x.1, _return_event_data)")
@@ -93,12 +93,12 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             return_event_timestamps = self._get_return_event_timestamps_expr(
                 minimum_occurrences=minimum_occurrences,
                 start_of_interval_sql=start_of_interval_sql,
-                return_entity_expr=self.return_entity_expr,
+                return_entity_expr=self.context.return_entity_expr,
             )
             return_event_values = None
 
-        if self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence:
-            min_timestamp_inner_expr = self.get_first_time_anchor_expr()
+        if self.context.is_first_occurrence_matching_filters or self.context.is_first_ever_occurrence:
+            min_timestamp_inner_expr = self.context.get_first_time_anchor_expr()
 
             start_event_timestamps = parse_expr(
                 """
@@ -114,7 +114,9 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 {
                     "start_event_timestamps": start_event_timestamps,
                     # cast this to start of interval as well so we can compare with the timestamps fetched above
-                    "min_timestamp": self.query_date_range.date_to_start_of_interval_hogql(min_timestamp_inner_expr),
+                    "min_timestamp": self.context.query_date_range.date_to_start_of_interval_hogql(
+                        min_timestamp_inner_expr
+                    ),
                 },
             )
             # interval must be same as first interval of in which start event happened
@@ -134,7 +136,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         intervals_from_base_expr: ast.Expr
         retention_value_expr: ast.Expr | None = None
 
-        if self.property_aggregation_expr and return_event_values:
+        if self.context.property_aggregation_expr and return_event_values:
             # return_event_values raw exprs are added as named SELECT aliases (_start_event_data, _return_event_data)
             # in select_fields below. Here we only build the combined_data expression using field references.
             start_event_data_ref = ast.Field(chain=["_start_event_data"])
@@ -145,7 +147,8 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             # When they are the same event type, start_data already captures all occurrences in
             # interval 0; allowing return_data to also contribute would double-count.
             different_event_entities = (
-                self.start_event.id != self.return_event.id or self.start_event.type != self.return_event.type
+                self.context.start_event.id != self.context.return_event.id
+                or self.context.start_event.type != self.context.return_event.type
             )
 
             if different_event_entities:
@@ -193,7 +196,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                     )
                     """,
                     {
-                        "lookahead_plus_one": ast.Constant(value=self.query_date_range.lookahead + 1),
+                        "lookahead_plus_one": ast.Constant(value=self.context.query_date_range.lookahead + 1),
                         "start_data": start_event_data_ref,
                         "return_data": return_event_data_ref,
                     },
@@ -226,7 +229,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                     )
                     """,
                     {
-                        "lookahead": ast.Constant(value=self.query_date_range.lookahead),
+                        "lookahead": ast.Constant(value=self.context.query_date_range.lookahead),
                         "start_data": start_event_data_ref,
                         "return_data": return_event_data_ref,
                     },
@@ -235,7 +238,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             intervals_from_base_expr = parse_expr("(arrayJoin({data})).1", {"data": combined_data})
             retention_value_expr = parse_expr("(arrayJoin({data})).2", {"data": combined_data})
 
-        elif self.is_custom_bracket_retention:
+        elif self.context.is_custom_bracket_retention:
             bucket_logic = self._get_custom_bracket_intervals_from_base_expr()
             intervals_from_base_expr = parse_expr(
                 f"""
@@ -265,7 +268,9 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             )
 
         select_fields: list[ast.Expr] = [
-            ast.Alias(alias="actor_id", expr=ast.Field(chain=["events", self.aggregation_target_events_column])),
+            ast.Alias(
+                alias="actor_id", expr=ast.Field(chain=["events", self.context.aggregation_target_events_column])
+            ),
             # start events between date_from and date_to (represented by start of interval)
             # when TARGET_FIRST_TIME, also adds filter for start (target) event performed for first time
             ast.Alias(alias="start_event_timestamps", expr=start_event_timestamps),
@@ -280,10 +285,10 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                         )
                     """,
                     {
-                        "intervals_between": ast.Constant(value=self.query_date_range.intervals_between),
-                        "date_from_start_of_interval": self.query_date_range.date_from_to_start_of_interval_hogql(),
+                        "intervals_between": ast.Constant(value=self.context.query_date_range.intervals_between),
+                        "date_from_start_of_interval": self.context.query_date_range.date_from_to_start_of_interval_hogql(),
                         "to_interval_function": ast.Call(
-                            name=f"toInterval{self.query_date_range.interval_name.capitalize()}",
+                            name=f"toInterval{self.context.query_date_range.interval_name.capitalize()}",
                             args=[ast.Field(chain=["x"])],
                         ),
                     },
@@ -295,7 +300,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         # When using aggregation mode, add the grouped data arrays as named aliases BEFORE columns that reference them.
         # This ensures ClickHouse uses the pre-aggregated arrays rather than re-executing the groupArrayIf inside
         # lambda functions, which would otherwise trigger a self-join on the events table and exceed memory limits.
-        if self.property_aggregation_expr and return_event_values:
+        if self.context.property_aggregation_expr and return_event_values:
             start_event_data_raw, return_event_data_raw = return_event_values
             select_fields.append(ast.Alias(alias="_start_event_data", expr=start_event_data_raw))
             select_fields.append(ast.Alias(alias="_return_event_data", expr=return_event_data_raw))
@@ -393,7 +398,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 {
                     "start_of_interval_timestamp": start_of_interval_sql,
                     "returning_entity_expr": return_entity_expr,
-                    "filter_timestamp": self.events_timestamp_filter,
+                    "filter_timestamp": self.context.events_timestamp_filter,
                 },
             ),
         )
@@ -413,7 +418,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
     def _get_return_event_timestamps_expr(
         self, minimum_occurrences: int, start_of_interval_sql: ast.Expr, return_entity_expr: ast.Expr
     ) -> ast.Expr:
-        if self.property_aggregation_expr:
+        if self.context.property_aggregation_expr:
             # Collect 3-tuples of (interval_start, value, actual_timestamp) for return events.
             # actual_timestamp is needed to filter same-interval return events that happen after the start event.
             return parse_expr(
@@ -426,9 +431,9 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 """,
                 {
                     "start_of_interval_timestamp": start_of_interval_sql,
-                    "property_aggregation_expr": self.property_aggregation_expr,
+                    "property_aggregation_expr": self.context.property_aggregation_expr,
                     "returning_entity_expr": return_entity_expr,
-                    "filter_timestamp": self.events_timestamp_filter,
+                    "filter_timestamp": self.context.events_timestamp_filter,
                 },
             )
 
@@ -459,7 +464,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             {
                 "start_of_interval_timestamp": start_of_interval_sql,
                 "returning_entity_expr": return_entity_expr,
-                "filter_timestamp": self.events_timestamp_filter,
+                "filter_timestamp": self.context.events_timestamp_filter,
             },
         )
 
@@ -483,7 +488,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                                     arraySlice(  -- only look for matches for return events after start event and in the lookahead period
                                         date_range,
                                         start_interval_index + 1,  -- reset from 0 to 1 based index
-                                        {self.query_date_range.lookahead}
+                                        {self.context.query_date_range.lookahead}
                                     ),
                                 _timestamp
                             ) - 1,
@@ -499,10 +504,10 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         )
 
     def _get_custom_bracket_intervals_from_base_expr(self) -> ast.Expr:
-        if not self.query.retentionFilter.retentionCustomBrackets:
+        if not self.context.query.retentionFilter.retentionCustomBrackets:
             raise ValueError("Custom brackets not defined")
 
-        period_name = self.query_date_range.interval_name
+        period_name = self.context.query_date_range.interval_name
         unit = period_name
 
         date_diff_expr = parse_expr(
@@ -514,7 +519,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             ast.Constant(value=-1),
         ]
         cumulative_total = 0
-        for i, bracket_size in enumerate(self.query.retentionFilter.retentionCustomBrackets):
+        for i, bracket_size in enumerate(self.context.query.retentionFilter.retentionCustomBrackets):
             cumulative_total += int(bracket_size)
             condition = ast.CompareOperation(
                 op=ast.CompareOperationOp.LtEq,

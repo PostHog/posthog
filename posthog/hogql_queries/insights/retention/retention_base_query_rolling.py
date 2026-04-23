@@ -10,7 +10,7 @@ class RetentionRollingIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         start_interval_index_filter: int | None = None,
         selected_breakdown_value: str | list[str] | int | None = None,
     ) -> ast.SelectQuery:
-        interval = self.query_date_range.interval_name
+        interval = self.context.query_date_range.interval_name
         if interval == "hour":
             unit, count = "hour", 1
         elif interval == "week":
@@ -21,19 +21,21 @@ class RetentionRollingIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             unit, count = "hour", 24
 
         t0_expr: ast.Expr
-        if self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence:
-            t0_expr = self.get_first_time_anchor_expr()
+        if self.context.is_first_occurrence_matching_filters or self.context.is_first_ever_occurrence:
+            t0_expr = self.context.get_first_time_anchor_expr()
         else:
-            t0_expr = parse_expr("minIf(events.timestamp, {expr})", {"expr": self.start_entity_expr})
+            t0_expr = parse_expr("minIf(events.timestamp, {expr})", {"expr": self.context.start_entity_expr})
 
         # CTE to get t_0 for each actor
         first_event_cte = ast.SelectQuery(
             select=[
-                ast.Alias(alias="actor_id", expr=ast.Field(chain=["events", self.aggregation_target_events_column])),
+                ast.Alias(
+                    alias="actor_id", expr=ast.Field(chain=["events", self.context.aggregation_target_events_column])
+                ),
                 ast.Alias(alias="t_0", expr=t0_expr),
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=ast.And(exprs=self.global_event_filters),
+            where=ast.And(exprs=self.context.global_event_filters),
             group_by=[ast.Field(chain=["actor_id"])],
             having=ast.CompareOperation(
                 op=ast.CompareOperationOp.NotEq, left=ast.Field(chain=["t_0"]), right=ast.Constant(value=None)
@@ -50,7 +52,7 @@ class RetentionRollingIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                         {
                             "unit": ast.Constant(value=unit),
                             "count": ast.Constant(value=count),
-                            "date_from": self.query_date_range.date_from_as_hogql(),
+                            "date_from": self.context.query_date_range.date_from_as_hogql(),
                         },
                     ),
                 ),
@@ -77,7 +79,7 @@ class RetentionRollingIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                         )
                         """,
                         {
-                            "return_entity_expr": self.return_entity_expr,
+                            "return_entity_expr": self.context.return_entity_expr,
                             "unit": ast.Constant(value=unit),
                             "count": ast.Constant(value=count),
                         },
@@ -93,14 +95,14 @@ class RetentionRollingIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                     constraint=ast.JoinConstraint(
                         expr=ast.CompareOperation(
                             op=ast.CompareOperationOp.Eq,
-                            left=ast.Field(chain=["events", self.aggregation_target_events_column]),
+                            left=ast.Field(chain=["events", self.context.aggregation_target_events_column]),
                             right=ast.Field(chain=["actors_with_t0", "actor_id"]),
                         ),
                         constraint_type="ON",
                     ),
                 ),
             ),
-            where=ast.And(exprs=[*self.global_event_filters, parse_expr("timestamp >= t_0")]),
+            where=ast.And(exprs=[*self.context.global_event_filters, parse_expr("timestamp >= t_0")]),
             group_by=[ast.Field(chain=["actors_with_t0", "actor_id"]), ast.Field(chain=["actors_with_t0", "t_0"])],
         )
 
