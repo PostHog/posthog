@@ -10,10 +10,11 @@ export interface AutocaptureInteraction {
     keywords: string[]
 }
 
-/** Minimum trimmed query length before any shortcut is offered. Keeps single- and two-character
- *  keystrokes (e.g. `c`, `s`) from flooding search results with every keyword whose first
- *  letter matches. */
-export const MIN_SHORTCUT_QUERY_LENGTH = 3
+/** Maximum number of distinct interactions a query can match before we suppress shortcuts. A
+ *  single-character query like `s` matches submit / scroll / swipe / toggle-via-switch; showing
+ *  all four would drown real results. Once the query narrows to this many or fewer distinct
+ *  interactions (as the user keeps typing), we surface them. */
+export const MAX_SHORTCUT_MATCHES = 3
 
 /** Keyword set for each `$event_type` autocapture emits. The set of `eventType` values must stay
  *  in sync with `eventTypeToVerb` in `lib/utils.tsx`; a test enforces this. Keywords are matched
@@ -45,10 +46,14 @@ function matchesKeyword(interaction: AutocaptureInteraction, trimmedQuery: strin
 
 function matchingInteractions(searchQuery: string): AutocaptureInteraction[] {
     const query = searchQuery.trim().toLowerCase()
-    if (query.length < MIN_SHORTCUT_QUERY_LENGTH) {
+    if (!query) {
         return []
     }
-    return AUTOCAPTURE_INTERACTIONS.filter((interaction) => matchesKeyword(interaction, query))
+    const matches = AUTOCAPTURE_INTERACTIONS.filter((interaction) => matchesKeyword(interaction, query))
+    // If the query is still too ambiguous (matches many interactions), suppress shortcuts rather
+    // than flood the results. Once the user types another character or two the set narrows
+    // naturally and the shortcuts reappear.
+    return matches.length <= MAX_SHORTCUT_MATCHES ? matches : []
 }
 
 /** Shortcuts for event-series pickers: selecting one adds an `$autocapture` series with a

@@ -800,10 +800,11 @@ describe('infiniteListLogic', () => {
                 })
         })
 
-        it('returns no shortcut items for queries shorter than the min length', async () => {
+        it('returns no shortcut items for ambiguous prefixes that would match too many interactions', async () => {
+            // 's' matches submit/scroll/swipe/toggle (via switch) — suppressed until narrowed.
             const listLogic = mountEventsLogic(true)
 
-            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('cl'))
+            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('s'))
                 .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
                 .toFinishAllListeners()
                 .toMatchValues({
