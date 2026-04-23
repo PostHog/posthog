@@ -21,6 +21,10 @@ AUTO_FILL_KEYS = [
     "SANDBOX_MCP_URL",
 ]
 GITHUB_APP_KEYS = ["GITHUB_APP_CLIENT_ID", "GITHUB_APP_SLUG", "GITHUB_APP_PRIVATE_KEY"]
+FEATURE_FLAGS_TO_ENABLE: list[tuple[str, str]] = [
+    ("tasks", "Background agents"),
+    ("posthog-code-inbox", "PostHog Code inbox"),
+]
 # Canonical local-dev redirect URIs for the Array OAuth app (matches
 # posthog/demo/products/hedgebox/matrix.py and docs/published/handbook/engineering/oauth-development-guide.md).
 EXPECTED_REDIRECT_URIS = (
@@ -132,29 +136,30 @@ class Command(BaseCommand):
         }
 
         for team in teams:
-            # Use _base_manager to also see soft-deleted flags (the default `objects`
-            # manager filters out deleted=True). Avoids an IntegrityError on re-run when
-            # the flag was previously soft-deleted via the UI.
-            existing = FeatureFlag._base_manager.filter(team=team, key="tasks").first()
-            if existing is None:
-                FeatureFlag.objects.create(
-                    team=team,
-                    key="tasks",
-                    name="Background agents",
-                    filters=full_rollout_filters,
-                    active=True,
-                    deleted=False,
-                )
-                self.stdout.write(self.style.SUCCESS(f"  Created 'tasks' flag for team {team.id} ({team.name})"))
-            elif existing.deleted or not existing.active:
-                existing.deleted = False
-                existing.active = True
-                existing.save(update_fields=["deleted", "active"])
-                self.stdout.write(self.style.SUCCESS(f"  Restored 'tasks' flag for team {team.id} ({team.name})"))
-            else:
-                self.stdout.write(
-                    self.style.SUCCESS(f"  'tasks' flag already active for team {team.id} ({team.name}).")
-                )
+            for key, name in FEATURE_FLAGS_TO_ENABLE:
+                # Use _base_manager to also see soft-deleted flags (the default `objects`
+                # manager filters out deleted=True). Avoids an IntegrityError on re-run when
+                # the flag was previously soft-deleted via the UI.
+                existing = FeatureFlag._base_manager.filter(team=team, key=key).first()
+                if existing is None:
+                    FeatureFlag.objects.create(
+                        team=team,
+                        key=key,
+                        name=name,
+                        filters=full_rollout_filters,
+                        active=True,
+                        deleted=False,
+                    )
+                    self.stdout.write(self.style.SUCCESS(f"  Created '{key}' flag for team {team.id} ({team.name})"))
+                elif existing.deleted or not existing.active:
+                    existing.deleted = False
+                    existing.active = True
+                    existing.save(update_fields=["deleted", "active"])
+                    self.stdout.write(self.style.SUCCESS(f"  Restored '{key}' flag for team {team.id} ({team.name})"))
+                else:
+                    self.stdout.write(
+                        self.style.SUCCESS(f"  '{key}' flag already active for team {team.id} ({team.name}).")
+                    )
 
     def _build_skills(self):
         self.stdout.write(self.style.MIGRATE_HEADING("Building agent skills (this can take a minute)..."))
