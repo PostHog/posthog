@@ -82,7 +82,12 @@ export const UsageMetricCard = ({ metric }: { metric: UsageMetric }): JSX.Elemen
                         hoverEffect={false}
                         className="p-4 flex flex-col flex-1 justify-between max-w-80 min-h-36"
                     >
-                        <div className="text-sm font-semibold text-muted-alt mb-1">{metric.name}</div>
+                        <div className="flex items-start gap-2 mb-1">
+                            <div className="text-sm font-semibold text-muted-alt truncate">{metric.name}</div>
+                            <span className="text-xs text-muted ml-auto whitespace-nowrap shrink-0">
+                                Last {metric.interval} days
+                            </span>
+                        </div>
                         <div className="flex-1 my-1">
                             <Sparkline
                                 data={metric.timeseries}
@@ -96,7 +101,6 @@ export const UsageMetricCard = ({ metric }: { metric: UsageMetric }): JSX.Elemen
                         <div className="flex items-center gap-2 text-sm">
                             <span className="font-semibold">{formatValue(metric)}</span>
                             <TrendIndicator metric={metric} />
-                            <span className="text-xs text-muted ml-auto">Last {metric.interval} days</span>
                         </div>
                     </LemonCard>
                 </div>
