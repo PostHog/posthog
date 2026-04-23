@@ -1631,10 +1631,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         filterValue: item.filterValue,
                         propertyFilterType: item.propertyFilterType,
                         eventName: item.eventName,
-                        // Distinguish shortcuts surfaced inline in Events/EventProperties (via a
-                        // group's keywordShortcuts builder) from the dedicated SuggestedFilters tab.
+                        // Distinguish shortcuts picked from the dedicated SuggestedFilters tab
+                        // (where cross-group top matches aggregate) from those picked inline in
+                        // their origin group tab. Use activeTab, not group.type — `group` has
+                        // already been resolved to the shortcut's origin group by getItemGroup.
                         source:
-                            group.type === TaxonomicFilterGroupType.SuggestedFilters
+                            values.activeTab === TaxonomicFilterGroupType.SuggestedFilters
                                 ? 'suggested_filters_tab'
                                 : 'keyword_shortcut',
                     })

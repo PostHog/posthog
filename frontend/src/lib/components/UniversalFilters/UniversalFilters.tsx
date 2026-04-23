@@ -136,7 +136,6 @@ const Value = ({
                                     TaxonomicFilterGroupType.Events,
                                     TaxonomicFilterGroupType.Actions,
                                 ]}
-                                enableKeywordShortcuts
                             />
                         ) : (
                             <>
