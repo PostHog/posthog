@@ -7,9 +7,11 @@ from django.conf import settings
 import pydantic
 import tiktoken
 import temporalio
+import posthoganalytics
 
 from posthog.schema import SignalInput
 
+from posthog.event_usage import groups
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
@@ -124,6 +126,17 @@ async def emit_signal(
             "weight": weight,
             "extra": extra or {},
         }
+    )
+
+    posthoganalytics.capture(
+        event="signal_emitted",
+        distinct_id=str(team.uuid),
+        properties={
+            "source_product": source_product,
+            "source_type": source_type,
+            "source_id": source_id,
+        },
+        groups=groups(organization, team),
     )
 
     client = await async_connect()

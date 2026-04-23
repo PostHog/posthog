@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -16,6 +18,7 @@ def team_stub() -> MagicMock:
     org.is_ai_data_processing_approved = True
     team = MagicMock()
     team.id = 1
+    team.uuid = uuid.UUID("00000000-0000-0000-0000-000000000001")
     team.organization = org
     return team
 
@@ -128,3 +131,38 @@ class TestEmitSignalValidation:
                 )
 
         client.start_workflow.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+class TestEmitSignalAnalytics:
+    async def test_capture_called_on_emit(self, team_stub):
+        client = AsyncMock()
+        client.start_workflow.side_effect = [
+            temporalio.exceptions.WorkflowAlreadyStartedError("already started", "buffer-signals-1"),
+            AsyncMock(),
+        ]
+
+        with (
+            patch("products.signals.backend.api.async_connect", return_value=client),
+            patch.object(SignalSourceConfig, "is_source_enabled", return_value=True),
+            patch("products.signals.backend.api.posthoganalytics.capture") as capture,
+        ):
+            await emit_signal(
+                team=team_stub,
+                source_product="github",
+                source_type="issue",
+                source_id="posthog/posthog#42",
+                description="A valid signal",
+                extra=GITHUB_ISSUE_EXTRA,
+            )
+
+        capture.assert_called_once()
+        kwargs = capture.call_args.kwargs
+        assert kwargs["event"] == "signal_emitted"
+        assert kwargs["distinct_id"] == str(team_stub.uuid)
+        assert kwargs["properties"] == {
+            "source_product": "github",
+            "source_type": "issue",
+            "source_id": "posthog/posthog#42",
+        }
+        assert "project" in kwargs["groups"]
