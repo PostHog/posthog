@@ -48,6 +48,9 @@ class SignalReportDeletionWorkflow:
 
     @temporalio.workflow.run
     async def run(self, inputs: SignalReportDeletionWorkflowInputs) -> None:
+        # Bind team_id + report_id so all logs flow to the log_entries sink (the Temporal
+        # structlog renderer skips producing when team_id isn't in the event dict).
+        log = logger.bind(team_id=inputs.team_id, report_id=inputs.report_id)
         # 1. Fetch all signals for the report from ClickHouse
         fetch_result: FetchSignalsForReportOutput = await workflow.execute_activity(
             fetch_signals_for_report_activity,
@@ -57,10 +60,7 @@ class SignalReportDeletionWorkflow:
         )
 
         if not fetch_result.signals:
-            logger.warning(
-                "No signals found for report, deleting report only",
-                report_id=inputs.report_id,
-            )
+            log.warning("No signals found for report, deleting report only")
             await workflow.execute_activity(
                 delete_report_activity,
                 DeleteReportInput(team_id=inputs.team_id, report_id=inputs.report_id),
@@ -104,8 +104,7 @@ class SignalReportDeletionWorkflow:
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-        logger.info(
+        log.info(
             "Deletion complete for report: signals soft-deleted",
-            report_id=inputs.report_id,
             signal_count=len(fetch_result.signals),
         )
