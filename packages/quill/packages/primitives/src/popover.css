@@ -1,0 +1,27 @@
+@layer components {
+    .quill-popover__content {
+        z-index: 50;
+        width: 18rem;
+        padding: 0.625rem;
+        font-size: var(--text-xs, 0.75rem);
+        color: var(--popover-foreground);
+        background-color: var(--popover);
+        border-radius: var(--radius-md);
+        outline: none;
+        box-shadow: var(--shadow-md, 0 4px 6px -1px rgb(0 0 0 / 10%));
+        box-shadow:
+            0 0 0 1px color-mix(in oklab, var(--foreground) 10%, transparent),
+            0 4px 6px -1px rgb(0 0 0 / 10%);
+        transform-origin: var(--transform-origin);
+    }
+
+    .quill-popover__title {
+        font-size: var(--text-sm, 0.875rem);
+        font-weight: 500;
+        line-height: var(--text-sm--line-height, 1.25rem);
+    }
+
+    .quill-popover__description {
+        color: var(--muted-foreground);
+    }
+}

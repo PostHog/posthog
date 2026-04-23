@@ -1,0 +1,11 @@
+/*
+ * Layer strategy for quill primitives.
+ *
+ * BEM rules sit inside Tailwind's `@layer components` — one layer above base
+ * (so preflight `*{border-width:0}` does not strip our borders) and one layer
+ * below utilities (so Tailwind utility classes in JSX still override BEM
+ * defaults and consumer `className` overrides work as expected).
+ *
+ * Layer priority (low → high):
+ *   theme → base → components (BEM) → utilities → unlayered
+ */

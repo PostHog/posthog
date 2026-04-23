@@ -1,0 +1,25 @@
+@layer components {
+    .quill-chip {
+        max-width: 100%;
+        background-color: var(--background);
+        border-radius: var(--radius-sm);
+    }
+
+    .quill-chip:focus-visible {
+        border-color: color-mix(in oklab, var(--ring) 50%, transparent);
+        box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 30%, transparent);
+    }
+
+    /* ChipClose sits at the right inside a Chip; collapse right padding so it hugs the edge */
+    .quill-chip:has([data-slot='chip-close']) {
+        padding-inline-end: 0;
+    }
+
+    .quill-chip-close {
+        opacity: 0.5;
+    }
+
+    .quill-chip-close:hover {
+        opacity: 1;
+    }
+}

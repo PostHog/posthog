@@ -13,7 +13,9 @@
         "dist"
     ],
     "type": "module",
-    "sideEffects": false,
+    "sideEffects": [
+        "**/*.css"
+    ],
     "main": "./dist/index.cjs",
     "module": "./dist/index.js",
     "types": "./dist/index.d.ts",
@@ -24,6 +26,7 @@
             "require": "./dist/index.cjs",
             "default": "./dist/index.js"
         },
+        "./styles.css": "./dist/style.css",
         "./package.json": "./package.json"
     },
     "scripts": {

@@ -4,6 +4,7 @@ import * as React from 'react'
 
 import { Button, type buttonVariants } from './button'
 import { ButtonGroup, type buttonGroupVariants } from './button-group'
+import './chip.css'
 import { cn } from './lib/utils'
 
 type ChipProps = React.ComponentProps<typeof Button> & VariantProps<typeof buttonVariants>
@@ -17,7 +18,7 @@ const Chip = React.forwardRef<HTMLButtonElement, ChipProps>(
                 data-slot="chip"
                 size={size}
                 variant={variant}
-                className={cn('gap-1 rounded-sm has-data-[slot=chip-close]:pe-0 bg-background max-w-full focus-visible:border-ring/50 focus-visible:ring-3', className)}
+                className={cn('quill-chip gap-1', className)}
                 {...props}
             >
                 {children}
@@ -34,7 +35,7 @@ const ChipClose = React.forwardRef<HTMLButtonElement, React.ComponentProps<typeo
                 ref={ref}
                 data-slot="chip-close"
                 size="icon-xs"
-                className={cn('opacity-50 hover:opacity-100', className)}
+                className={cn('quill-chip-close', className)}
                 {...props}
             >
                 {children ?? <XIcon />}
