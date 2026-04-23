@@ -16903,11 +16903,13 @@ export namespace Schemas {
       payload: ExternalDataSourceCreatePayload;
       /**
        * Table name prefix in HogQL.
+       * @maxLength 100
        * @nullable
        */
       prefix?: string | null;
       /**
        * Human-readable description.
+       * @maxLength 400
        * @nullable
        */
       description?: string | null;
@@ -21312,7 +21314,6 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
-<<<<<<< HEAD
     /**
      * * `business` - Business Operations
     * `data` - Data & Analytics
@@ -21333,27 +21334,19 @@ export namespace Schemas {
       Productivity: 'productivity',
     } as const;
 
-=======
->>>>>>> 3a654a5e0a9 (discard generated files)
     export interface MCPServerTemplate {
       readonly id: string;
       /** @maxLength 200 */
       name: string;
       /** @maxLength 2048 */
       url: string;
-<<<<<<< HEAD
       /** @maxLength 2048 */
       docs_url?: string;
-=======
->>>>>>> 3a654a5e0a9 (discard generated files)
       description?: string;
       auth_type?: AuthType9cbEnum;
       /** @maxLength 100 */
       icon_key?: string;
-<<<<<<< HEAD
       category?: MCPServerTemplateCategoryEnum;
-=======
->>>>>>> 3a654a5e0a9 (discard generated files)
     }
 
     export interface MarkToleratedInput {

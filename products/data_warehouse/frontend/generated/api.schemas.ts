@@ -933,11 +933,13 @@ export interface ExternalDataSourceCreateApi {
     payload: ExternalDataSourceCreateApiPayload
     /**
      * Table name prefix in HogQL.
+     * @maxLength 100
      * @nullable
      */
     prefix?: string | null
     /**
      * Human-readable description.
+     * @maxLength 400
      * @nullable
      */
     description?: string | null

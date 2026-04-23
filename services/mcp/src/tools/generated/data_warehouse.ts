@@ -283,21 +283,6 @@ const externalDataSourcesDbSchema = (): ToolBase<typeof ExternalDataSourcesDbSch
     handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesDbSchemaSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.client_secret !== undefined) {
-            body['client_secret'] = params.client_secret
-        }
-        if (params.account_id !== undefined) {
-            body['account_id'] = params.account_id
-        }
-        if (params.prefix !== undefined) {
-            body['prefix'] = params.prefix
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.job_inputs !== undefined) {
-            body['job_inputs'] = params.job_inputs
-        }
         if (params.source_type !== undefined) {
             body['source_type'] = params.source_type
         }
@@ -1008,6 +993,27 @@ const externalDataSchemasIncrementalFieldsCreate = (): ToolBase<
         const body: Record<string, unknown> = {}
         if (params.should_sync !== undefined) {
             body['should_sync'] = params.should_sync
+        }
+        if (params.sync_type !== undefined) {
+            body['sync_type'] = params.sync_type
+        }
+        if (params.incremental_field !== undefined) {
+            body['incremental_field'] = params.incremental_field
+        }
+        if (params.incremental_field_type !== undefined) {
+            body['incremental_field_type'] = params.incremental_field_type
+        }
+        if (params.sync_frequency !== undefined) {
+            body['sync_frequency'] = params.sync_frequency
+        }
+        if (params.sync_time_of_day !== undefined) {
+            body['sync_time_of_day'] = params.sync_time_of_day
+        }
+        if (params.primary_key_columns !== undefined) {
+            body['primary_key_columns'] = params.primary_key_columns
+        }
+        if (params.cdc_table_mode !== undefined) {
+            body['cdc_table_mode'] = params.cdc_table_mode
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
