@@ -671,6 +671,11 @@ class RedshiftSourceConfig(config.Config):
 
 
 @config.config
+class ResendSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
 class RevenueCatSourceConfig(config.Config):
     pass
 

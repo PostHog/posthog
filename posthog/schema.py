@@ -2124,6 +2124,7 @@ class ExternalDataSourceType(StrEnum):
     CONVEX = "Convex"
     CLICK_HOUSE = "ClickHouse"
     PLAIN = "Plain"
+    RESEND = "Resend"
 
 
 class ExternalQueryErrorCode(StrEnum):
