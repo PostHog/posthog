@@ -142,9 +142,16 @@ class MetricSourceInfo:
                 expr=ast.Constant(value=""),
             ),
             # timestamp
+            # For DW sources, use unqualified field name to avoid issues with dotted table names
+            # (e.g., "schema.table" would become "schema.table.timestamp" if qualified).
+            # For events table, qualification is safe and conventional.
             ast.Alias(
                 alias="timestamp",
-                expr=ast.Field(chain=[self.table_name, self.timestamp_field]),
+                expr=ast.Field(
+                    chain=[self.timestamp_field]
+                    if self.kind == "datawarehouse"
+                    else [self.table_name, self.timestamp_field]
+                ),
             ),
         ]
 

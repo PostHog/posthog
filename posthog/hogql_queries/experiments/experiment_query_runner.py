@@ -123,6 +123,11 @@ class ExperimentQueryRunner(QueryRunner):
         # Check if this is a data warehouse query
         if isinstance(self.query.metric, ExperimentMeanMetric):
             self.is_data_warehouse_query = self.query.metric.source.kind == "ExperimentDataWarehouseNode"
+        elif isinstance(self.query.metric, ExperimentFunnelMetric):
+            # For funnel metrics, check if any step uses data warehouse
+            self.is_data_warehouse_query = any(
+                isinstance(step, ExperimentDataWarehouseNode) for step in self.query.metric.series
+            )
         elif isinstance(self.query.metric, ExperimentRatioMetric):
             # For ratio metrics, check if either numerator or denominator uses data warehouse
             numerator_is_dw = isinstance(self.query.metric.numerator, ExperimentDataWarehouseNode)

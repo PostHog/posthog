@@ -301,8 +301,14 @@ class ExperimentQueryBuilder:
         Returns True when the optimized single-scan funnel query should be used.
         The legacy path is kept for precomputed exposures, where the exposures CTE
         reads from a cheap preaggregated table (no double-scan penalty).
+
+        Also routes to legacy path for DW funnels, which use UNION ALL pattern
+        only implemented in the legacy path.
         """
         if self.preaggregation_job_ids and not self.breakdowns:
+            return False
+        # Route DW funnels to legacy path which supports UNION ALL
+        if isinstance(self.metric, ExperimentFunnelMetric) and self._has_datawarehouse_steps():
             return False
         return True
 
@@ -2109,12 +2115,46 @@ class ExperimentQueryBuilder:
         # (DW steps will be queried separately)
         event_action_filters = list(step_filters.values())
 
+        # Build time window filter (experiment date range + conversion window)
+        conversion_window_seconds = self._get_conversion_window_seconds()
+        date_to_expr: ast.Expr
+        if conversion_window_seconds > 0:
+            date_to_expr = ast.Call(
+                name="plus",
+                args=[
+                    self.date_range_query.date_to_as_hogql(),
+                    ast.Call(
+                        name="toIntervalSecond",
+                        args=[ast.Constant(value=conversion_window_seconds)],
+                    ),
+                ],
+            )
+        else:
+            date_to_expr = self.date_range_query.date_to_as_hogql()
+
+        time_range_filter = ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=self.date_range_query.date_from_as_hogql(),
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=date_to_expr,
+                ),
+            ]
+        )
+
+        # Combine step matching with time range
         where: ast.Expr
         if event_action_filters:
-            where = ast.Or(exprs=[self._build_exposure_predicate(), ast.Or(exprs=event_action_filters)])
+            step_match = ast.Or(exprs=[self._build_exposure_predicate(), ast.Or(exprs=event_action_filters)])
+            where = ast.And(exprs=[time_range_filter, step_match])
         else:
             # Only exposure events (all steps are DW)
-            where = self._build_exposure_predicate()
+            where = ast.And(exprs=[time_range_filter, self._build_exposure_predicate()])
 
         # Build query
         query = ast.SelectQuery(
@@ -2193,7 +2233,8 @@ class ExperimentQueryBuilder:
         conversion_window_seconds = self._get_conversion_window_seconds()
 
         # Build timestamp filter
-        timestamp_field = ast.Field(chain=[source_info.table_name, source_info.timestamp_field])
+        # Use unqualified field name for DW to avoid issues with dotted table names
+        timestamp_field = ast.Field(chain=[source_info.timestamp_field])
 
         # date_from <= timestamp < date_to + conversion_window
         date_from_expr = self.date_range_query.date_from_as_hogql()
