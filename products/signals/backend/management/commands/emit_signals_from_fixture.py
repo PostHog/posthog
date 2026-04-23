@@ -10,11 +10,12 @@ from posthog.temporal.data_imports.signals import get_signal_config
 from posthog.temporal.data_imports.signals.pipeline import run_signal_pipeline
 
 # Maps the CLI --type arg to (registry source_type, registry schema_name, fixture filename).
-# These three sources are auto-registered at module load by registry._register_all_emitters().
+# These sources are auto-registered at module load by registry._register_all_emitters().
 _SOURCES = {
     "zendesk": ("Zendesk", "tickets", "zendesk_tickets.json"),
     "github": ("Github", "issues", "github_issues.json"),
     "linear": ("Linear", "issues", "linear_issues.json"),
+    "conversations": ("conversations", "tickets", "conversations_tickets.json"),
 }
 
 _FIXTURES_DIR = Path(__file__).resolve().parents[3] / "eval" / "fixtures"
@@ -22,7 +23,7 @@ _FIXTURES_DIR = Path(__file__).resolve().parents[3] / "eval" / "fixtures"
 
 class Command(BaseCommand):
     help = (
-        "Run the signal emission pipeline against a static fixture file (zendesk, github, or linear).\n\n"
+        "Run the signal emission pipeline against a static fixture file.\n\n"
         "Bypasses the data warehouse fetcher entirely — loads fixture records straight into "
         "run_signal_pipeline so the real emitter, summarization, actionability filter, and "
         "emit_signal path can be exercised locally without a data import or warehouse table."

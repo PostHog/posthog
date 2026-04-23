@@ -1421,9 +1421,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                             },
                             {
                                 "type": "FeatureFlag",
-                                "action": "created",
+                                "action": "changed",
                                 "field": "filters",
-                                "before": None,
+                                "before": {"groups": []},
                                 "after": {
                                     "groups": [
                                         {
@@ -2169,9 +2169,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                             },
                             {
                                 "type": "FeatureFlag",
-                                "action": "created",
+                                "action": "changed",
                                 "field": "filters",
-                                "before": None,
+                                "before": {"groups": []},
                                 "after": {
                                     "groups": [
                                         {
@@ -2572,9 +2572,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                         "changes": [
                             {
                                 "type": "FeatureFlag",
-                                "action": "created",
+                                "action": "changed",
                                 "field": "filters",
-                                "before": None,
+                                "before": {"groups": []},
                                 "after": {
                                     "groups": [
                                         {
@@ -2693,9 +2693,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                         "changes": [
                             {
                                 "type": "FeatureFlag",
-                                "action": "created",
+                                "action": "changed",
                                 "field": "filters",
-                                "before": None,
+                                "before": {"groups": []},
                                 "after": {
                                     "groups": [
                                         {
@@ -3062,6 +3062,30 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         flag.refresh_from_db()
         assert flag.deleted is False
         assert flag.key == "held-flag-2"
+
+    def test_rename_flag_to_key_held_by_soft_deleted_flag(self):
+        # Create a flag, soft-delete it, then create another flag and rename it
+        # to the key held by the soft-deleted flag.
+        first = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="56397-delete-flag")
+        other = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="56397-delete-flag-v2")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{first.id}/",
+            {"deleted": True},
+        )
+        assert response.status_code == 200
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{other.id}/",
+            {"key": "56397-delete-flag"},
+        )
+        assert response.status_code == 200, response.content
+        other.refresh_from_db()
+        assert other.key == "56397-delete-flag"
+        # The soft-deleted flag should have been hard-deleted to free up the key.
+        assert not FeatureFlag.objects_including_soft_deleted.filter(
+            team=self.team, key="56397-delete-flag", deleted=True
+        ).exists()
 
     def test_soft_delete_flag_blocked_with_active_experiment(self):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="flag2")
@@ -5531,6 +5555,16 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "attr": "filters",
             },
         )
+
+    def test_create_without_filters_persists_groups_invariant(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"name": "No filters flag", "key": "no-filters-flag"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        instance = FeatureFlag.objects.get(id=response.json()["id"])
+        self.assertEqual(instance.filters, {"groups": []})
 
     def test_validation_groups_with_empty_properties_allowed(self):
         """Test that creating a flag with groups having empty properties but valid rollout is allowed"""
@@ -12279,3 +12313,135 @@ class TestFeatureFlagLimits(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Maximum of 2 feature flags allowed per team" in str(response.json())
+
+
+class TestFeatureFlagVersions(APIBaseTest):
+    def _create_flag_via_api(self, key="test-flag", **kwargs):
+        data = {
+            "name": "Test Flag",
+            "key": key,
+            "filters": {"groups": [{"rollout_percentage": 100}]},
+            **kwargs,
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            data,
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        return response.json()
+
+    def _update_flag_via_api(self, flag_id, **kwargs):
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+            kwargs,
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return response.json()
+
+    def test_get_version_1_after_update(self):
+        flag = self._create_flag_via_api(name="V1 Name")
+        flag_id = flag["id"]
+
+        self._update_flag_via_api(flag_id, name="V2 Name", version=flag["version"])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/1/")
+        assert response.status_code == status.HTTP_200_OK
+
+        data = response.json()
+        assert data["version"] == 1
+        assert data["name"] == "V1 Name"
+        assert data["is_historical"] is True
+        assert data["id"] == flag_id
+
+    def test_get_current_version(self):
+        flag = self._create_flag_via_api(name="V1 Name")
+        flag_id = flag["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/1/")
+        assert response.status_code == status.HTTP_200_OK
+
+        data = response.json()
+        assert data["version"] == 1
+        assert data["is_historical"] is False
+
+    def test_version_not_found_returns_404(self):
+        flag = self._create_flag_via_api()
+        flag_id = flag["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/999/")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_version_zero_returns_404(self):
+        flag = self._create_flag_via_api()
+        flag_id = flag["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/0/")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_reconstruct_filters_change(self):
+        v1_filters = {"groups": [{"rollout_percentage": 50}]}
+        v2_filters = {
+            "groups": [
+                {
+                    "rollout_percentage": 100,
+                    "properties": [{"key": "email", "value": "test@example.com", "type": "person"}],
+                }
+            ]
+        }
+
+        flag = self._create_flag_via_api(filters=v1_filters)
+        flag_id = flag["id"]
+
+        self._update_flag_via_api(flag_id, filters=v2_filters, version=flag["version"])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/1/")
+        assert response.status_code == status.HTTP_200_OK
+
+        data = response.json()
+        assert data["filters"]["groups"][0]["rollout_percentage"] == 50
+
+    def test_multiple_versions(self):
+        flag = self._create_flag_via_api(name="V1")
+        flag_id = flag["id"]
+
+        updated = self._update_flag_via_api(flag_id, name="V2", version=flag["version"])
+        self._update_flag_via_api(flag_id, name="V3", version=updated["version"])
+
+        v1 = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/1/").json()
+        v2 = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/2/").json()
+        v3 = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/3/").json()
+
+        assert v1["name"] == "V1"
+        assert v1["is_historical"] is True
+        assert v2["name"] == "V2"
+        assert v2["is_historical"] is True
+        assert v3["name"] == "V3"
+        assert v3["is_historical"] is False
+
+    def test_incomplete_history_returns_422(self):
+        flag = self._create_flag_via_api()
+        flag_id = flag["id"]
+
+        FeatureFlag.objects.filter(id=flag_id).update(version=5)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/2/")
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert "incomplete" in response.json()["detail"].lower()
+
+    @parameterized.expand(
+        [
+            ("remote_configuration", {"is_remote_configuration": True}),
+            ("encrypted_payloads", {"has_encrypted_payloads": True}),
+        ]
+    )
+    def test_unsupported_flag_returns_400(self, _name, update_kwargs):
+        flag = self._create_flag_via_api()
+        flag_id = flag["id"]
+
+        FeatureFlag.objects.filter(id=flag_id).update(**update_kwargs)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/1/")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not available" in response.json()["detail"].lower()

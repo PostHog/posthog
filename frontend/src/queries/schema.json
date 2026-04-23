@@ -1515,6 +1515,11 @@
                     "$ref": "#/definitions/AssistantFunnelsMath",
                     "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time."
                 },
+                "optionalInFunnel": {
+                    "default": false,
+                    "description": "If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required).",
+                    "type": "boolean"
+                },
                 "properties": {
                     "items": {
                         "$ref": "#/definitions/AssistantPropertyFilter"
@@ -1542,6 +1547,11 @@
                 "name": {
                     "description": "Action name from the plan.",
                     "type": "string"
+                },
+                "optionalInFunnel": {
+                    "default": false,
+                    "description": "If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required).",
+                    "type": "boolean"
                 },
                 "properties": {
                     "items": {
@@ -1611,6 +1621,11 @@
                 "math": {
                     "$ref": "#/definitions/AssistantFunnelsMath",
                     "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time."
+                },
+                "optionalInFunnel": {
+                    "default": false,
+                    "description": "If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required).",
+                    "type": "boolean"
                 },
                 "properties": {
                     "items": {
@@ -2828,7 +2843,7 @@
                     "type": "string"
                 },
                 "properties": {
-                    "description": "Property filters to narrow results. Each filter has a `key`, `value`, `operator`, and `type`.\n\nSupported types:\n- `person`: Filter by person properties (e.g. email, country).\n- `session`: Filter by session properties (e.g. $session_duration, $channel_type, $entry_current_url).\n- `event`: Filter by properties of events in the session (e.g. $current_url, $browser).\n- `recording`: Filter by recording metrics (e.g. console_error_count, click_count, activity_score).",
+                    "description": "Property filters to narrow results. Each filter has a `key`, `value`, `operator`, and `type`.\n\nSupported types:\n- `person`: Filter by person properties (e.g. email, country).\n- `session`: Filter by session properties (e.g. $session_duration, $channel_type, $entry_current_url).\n- `event`: Filter by properties of events in the session (e.g. $current_url, $browser).\n- `recording`: Filter by recording metrics (e.g. console_error_count, click_count, activity_score).\n- `cohort`: Filter recordings to persons belonging to a cohort. Example: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"in\" }`.",
                     "items": {
                         "$ref": "#/definitions/AssistantRecordingsQueryPropertyFilter"
                     },
@@ -2853,11 +2868,11 @@
             "additionalProperties": false,
             "properties": {
                 "id": {
-                    "description": "Action ID from the plan.",
+                    "description": "The numeric action ID from the plan. This is the field the retention query engine uses to look up the action definition. For events use `AssistantRetentionEventsNode` instead, where `id` is the event name string.",
                     "type": "number"
                 },
                 "name": {
-                    "description": "Action name from the plan.",
+                    "description": "Optional human-readable label for the action, used for display only. Defaults to the action's stored name if omitted and is never used for action matching.",
                     "type": "string"
                 },
                 "properties": {
@@ -2872,7 +2887,7 @@
                     "type": "string"
                 }
             },
-            "required": ["type", "id", "name"],
+            "required": ["type", "id"],
             "type": "object"
         },
         "AssistantRetentionEntity": {
@@ -2892,8 +2907,12 @@
                     "description": "Custom name for the event if it is needed to be renamed.",
                     "type": "string"
                 },
+                "id": {
+                    "description": "The event name from the plan as a string. This is the field the retention query engine uses to match events, so it must be populated exactly as the event appears in the plan. For actions use `AssistantRetentionActionsNode` instead, where `id` is the numeric action ID.",
+                    "type": "string"
+                },
                 "name": {
-                    "description": "Event name from the plan.",
+                    "description": "Optional human-readable label for the event, used for display only. Defaults to `id` if omitted and is never used for event matching.",
                     "type": "string"
                 },
                 "properties": {
@@ -2908,7 +2927,7 @@
                     "type": "string"
                 }
             },
-            "required": ["type", "name"],
+            "required": ["type", "id"],
             "type": "object"
         },
         "AssistantRetentionFilter": {
@@ -3539,6 +3558,47 @@
                 }
             },
             "required": ["id", "kind", "name"],
+            "type": "object"
+        },
+        "AssistantTrendsActorsQuery": {
+            "additionalProperties": false,
+            "description": "Drills into a trends insight to list the persons behind a specific data point. Returned rows are `distinct_id`, `name`, `email`, `event_count`, and optionally matched session recordings.\n\nUse the selector fields (`day`, `series`, `breakdown`, `compare`) to identify the specific cell in the source insight.",
+            "properties": {
+                "breakdown": {
+                    "description": "Breakdown values, one per dimension in the source's `breakdownFilter.breakdowns`, in the same order. Array length must equal the number of breakdown dimensions.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "compare": {
+                    "description": "Whether to pull from the previous period when `compare` is enabled in the source.",
+                    "enum": ["current", "previous"],
+                    "type": "string"
+                },
+                "day": {
+                    "description": "Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'.",
+                    "type": "string"
+                },
+                "includeRecordings": {
+                    "default": true,
+                    "description": "Whether to include matched session recordings for each actor.",
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "InsightActorsQuery",
+                    "type": "string"
+                },
+                "series": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Series index (0-based) when the source has multiple series."
+                },
+                "source": {
+                    "$ref": "#/definitions/AssistantTrendsQuery",
+                    "description": "The source insight query whose data point we are drilling into."
+                }
+            },
+            "required": ["kind", "source", "day"],
             "type": "object"
         },
         "AssistantTrendsBreakdownFilter": {
@@ -8723,7 +8783,7 @@
             "additionalProperties": false,
             "properties": {
                 "boxplot_data": {
-                    "description": "Box plot data when display type is BoxPlot",
+                    "deprecated": "Box plot data is now returned in results. This field is no longer populated.",
                     "items": {
                         "$ref": "#/definitions/BoxPlotDatum"
                     },
@@ -9991,7 +10051,13 @@
                 "showNullsAsZero": {
                     "type": "boolean"
                 },
+                "showPieTotal": {
+                    "type": "boolean"
+                },
                 "showTotalRow": {
+                    "type": "boolean"
+                },
+                "showValuesOnSeries": {
                     "type": "boolean"
                 },
                 "showXAxisBorder": {
@@ -10030,7 +10096,7 @@
                     "type": "string"
                 },
                 "displayType": {
-                    "enum": ["auto", "line", "bar"],
+                    "enum": ["auto", "line", "bar", "area"],
                     "type": "string"
                 },
                 "label": {
@@ -10193,6 +10259,69 @@
                     "type": "null"
                 }
             ]
+        },
+        "ConversationsTicketSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "channel_detail": {
+                    "type": ["string", "null"]
+                },
+                "channel_source": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "email_subject": {
+                    "type": ["string", "null"]
+                },
+                "priority": {
+                    "type": ["string", "null"]
+                },
+                "status": {
+                    "type": "string"
+                },
+                "ticket_number": {
+                    "type": "number"
+                }
+            },
+            "required": [
+                "ticket_number",
+                "channel_source",
+                "channel_detail",
+                "status",
+                "priority",
+                "created_at",
+                "email_subject"
+            ],
+            "type": "object"
+        },
+        "ConversationsTicketSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/ConversationsTicketSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "conversations",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "ticket",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
         },
         "ConversionGoalFilter": {
             "anyOf": [
@@ -13827,6 +13956,65 @@
             },
             "type": "object"
         },
+        "EndpointExecutionFailedSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "endpoint_name": {
+                    "type": "string"
+                },
+                "endpoint_version": {
+                    "type": ["number", "null"]
+                },
+                "error_class": {
+                    "type": "string"
+                },
+                "error_message": {
+                    "type": "string"
+                },
+                "materialized": {
+                    "type": "boolean"
+                },
+                "saved_query_id": {
+                    "type": ["string", "null"]
+                }
+            },
+            "required": [
+                "endpoint_name",
+                "endpoint_version",
+                "materialized",
+                "saved_query_id",
+                "error_class",
+                "error_message"
+            ],
+            "type": "object"
+        },
+        "EndpointExecutionFailedSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/EndpointExecutionFailedSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "endpoints",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "endpoint_execution_failed",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
+        },
         "EndpointLastExecutionTimesRequest": {
             "additionalProperties": false,
             "properties": {
@@ -17065,9 +17253,6 @@
                 "metric": {
                     "$ref": "#/definitions/ExperimentMetric"
                 },
-                "metric_events_precomputation": {
-                    "type": "boolean"
-                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
@@ -17606,11 +17791,15 @@
                     "type": "string"
                 },
                 "rollout_percentage": {
-                    "description": "Percentage of users assigned to this variant (0–100). All variants must sum to 100.",
+                    "deprecated": "Use split_percent instead. Accepted for backward compatibility.",
+                    "type": "number"
+                },
+                "split_percent": {
+                    "description": "Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided.",
                     "type": "number"
                 }
             },
-            "required": ["key", "rollout_percentage"],
+            "required": ["key"],
             "type": "object"
         },
         "ExperimentVariantFunnelsBaseStats": {
@@ -17924,7 +18113,8 @@
                 "Postmark",
                 "Granola",
                 "BuildBetter",
-                "Convex"
+                "Convex",
+                "ClickHouse"
             ],
             "type": "string"
         },
@@ -20205,6 +20395,10 @@
                     "type": "string"
                 },
                 "s3TableUseInvalidColumns": {
+                    "type": "boolean"
+                },
+                "sessionIdPushdown": {
+                    "description": "Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter.",
                     "type": "boolean"
                 },
                 "sessionTableVersion": {
@@ -26325,6 +26519,7 @@
                 "session_replay",
                 "site_apps",
                 "subscriptions",
+                "streamlit_apps",
                 "surveys",
                 "tasks",
                 "teams",
@@ -30210,7 +30405,7 @@
                     "additionalProperties": false,
                     "properties": {
                         "boxplot_data": {
-                            "description": "Box plot data when display type is BoxPlot",
+                            "deprecated": "Box plot data is now returned in results. This field is no longer populated.",
                             "items": {
                                 "$ref": "#/definitions/BoxPlotDatum"
                             },
@@ -33961,6 +34156,102 @@
             "required": ["session_id", "events"],
             "type": "object"
         },
+        "SessionProblemEventEntry": {
+            "additionalProperties": false,
+            "properties": {
+                "current_url": {
+                    "type": "string"
+                },
+                "event": {
+                    "type": "string"
+                },
+                "event_type": {
+                    "type": "string"
+                },
+                "interaction_text": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "string"
+                }
+            },
+            "required": ["event", "timestamp"],
+            "type": "object"
+        },
+        "SessionProblemSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "distinct_id": {
+                    "type": "string"
+                },
+                "end_time": {
+                    "type": "string"
+                },
+                "event_history": {
+                    "items": {
+                        "$ref": "#/definitions/SessionProblemEventEntry"
+                    },
+                    "type": "array"
+                },
+                "exported_asset_id": {
+                    "type": "number"
+                },
+                "problem_type": {
+                    "enum": ["confusion", "abandonment", "blocking_exception", "non_blocking_exception", "failure"],
+                    "type": "string"
+                },
+                "segment_title": {
+                    "type": "string"
+                },
+                "session_active_seconds": {
+                    "type": "number"
+                },
+                "session_duration": {
+                    "type": "number"
+                },
+                "session_end_time": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "session_start_time": {
+                    "type": "string"
+                },
+                "start_time": {
+                    "type": "string"
+                }
+            },
+            "required": ["session_id", "segment_title", "start_time", "end_time", "problem_type", "distinct_id"],
+            "type": "object"
+        },
+        "SessionProblemSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/SessionProblemSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "session_replay",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "session_problem",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
+        },
         "SessionPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -34183,6 +34474,7 @@
         },
         "SessionReplaySegment": {
             "additionalProperties": false,
+            "deprecated": "No longer emitted.",
             "properties": {
                 "content": {
                     "type": "string"
@@ -34205,6 +34497,7 @@
         },
         "SessionSegmentClusterMetrics": {
             "additionalProperties": false,
+            "deprecated": "No longer emitted.",
             "properties": {
                 "active_users_in_period": {
                     "type": "number"
@@ -34221,6 +34514,7 @@
         },
         "SessionSegmentClusterSignalExtra": {
             "additionalProperties": false,
+            "deprecated": "No longer emitted.",
             "properties": {
                 "actionable": {
                     "type": "boolean"
@@ -34243,6 +34537,7 @@
         },
         "SessionSegmentClusterSignalInput": {
             "additionalProperties": false,
+            "deprecated": "No longer emitted.",
             "properties": {
                 "description": {
                     "type": "string"
@@ -34541,7 +34836,7 @@
             },
             "oneOf": [
                 {
-                    "$ref": "#/definitions/SessionSegmentClusterSignalInput"
+                    "$ref": "#/definitions/SessionProblemSignalInput"
                 },
                 {
                     "$ref": "#/definitions/LlmEvaluationSignalInput"
@@ -34556,7 +34851,13 @@
                     "$ref": "#/definitions/LinearIssueSignalInput"
                 },
                 {
+                    "$ref": "#/definitions/ConversationsTicketSignalInput"
+                },
+                {
                     "$ref": "#/definitions/ErrorTrackingSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/EndpointExecutionFailedSignalInput"
                 }
             ],
             "required": ["source_product"],
@@ -34585,18 +34886,29 @@
             "type": "object"
         },
         "SignalSourceProduct": {
-            "enum": ["session_replay", "llm_analytics", "github", "linear", "zendesk", "error_tracking"],
+            "enum": [
+                "session_replay",
+                "llm_analytics",
+                "github",
+                "linear",
+                "zendesk",
+                "conversations",
+                "error_tracking",
+                "endpoints"
+            ],
             "type": "string"
         },
         "SignalSourceType": {
             "enum": [
                 "session_analysis_cluster",
+                "session_problem",
                 "evaluation",
                 "issue",
                 "ticket",
                 "issue_created",
                 "issue_reopened",
-                "issue_spiking"
+                "issue_spiking",
+                "endpoint_execution_failed"
             ],
             "type": "string"
         },
@@ -35127,7 +35439,7 @@
                     "$ref": "#/definitions/StickinessOperator"
                 },
                 "value": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/positive_integer"
                 }
             },
             "required": ["operator", "value"],
@@ -35256,7 +35568,7 @@
                     "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
                 },
                 "intervalCount": {
-                    "$ref": "#/definitions/integer",
+                    "$ref": "#/definitions/positive_integer",
                     "description": "How many intervals comprise a period. Only used for cohorts, otherwise default 1."
                 },
                 "kind": {
@@ -37009,7 +37321,7 @@
             "additionalProperties": false,
             "properties": {
                 "boxplot_data": {
-                    "description": "Box plot data when display type is BoxPlot",
+                    "deprecated": "Box plot data is now returned in results. This field is no longer populated.",
                     "items": {
                         "$ref": "#/definitions/BoxPlotDatum"
                     },
@@ -39619,6 +39931,10 @@
                 }
             },
             "type": "object"
+        },
+        "positive_integer": {
+            "minimum": 1,
+            "type": "integer"
         }
     }
 }

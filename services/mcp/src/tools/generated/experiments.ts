@@ -33,7 +33,7 @@ const experimentGetAll = (): ToolBase<typeof ExperimentGetAllSchema, WithPostHog
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.PaginatedExperimentList>({
                 method: 'GET',
-                path: `/api/projects/${projectId}/experiments/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/`,
                 query: {
                     limit: params.limit,
                     offset: params.offset,
@@ -80,7 +80,7 @@ const experimentGet = (): ToolBase<typeof ExperimentGetSchema, WithPostHogUrl<Sc
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'GET',
-                path: `/api/projects/${projectId}/experiments/${params.id}/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/`,
             })
             return await withPostHogUrl(context, result, `/experiments/${result.id}`)
         },
@@ -144,7 +144,7 @@ const experimentCreate = (): ToolBase<typeof ExperimentCreateSchema, WithPostHog
             }
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'POST',
-                path: `/api/projects/${projectId}/experiments/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/`,
                 body,
             })
             return await withPostHogUrl(context, result, `/experiments/${result.id}`)
@@ -209,7 +209,7 @@ const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHog
             }
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'PATCH',
-                path: `/api/projects/${projectId}/experiments/${params.id}/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/`,
                 body,
             })
             return await withPostHogUrl(context, result, `/experiments/${result.id}`)
@@ -225,7 +225,7 @@ const experimentDelete = (): ToolBase<typeof ExperimentDeleteSchema, Schemas.Exp
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Experiment>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/experiments/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/`,
             body: { deleted: true },
         })
         const filtered = pickResponseFields(result, ['id', 'name', 'deleted']) as typeof result
@@ -243,7 +243,7 @@ const experimentLaunch = (): ToolBase<typeof ExperimentLaunchSchema, WithPostHog
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'POST',
-                path: `/api/projects/${projectId}/experiments/${params.id}/launch/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/launch/`,
             })
             return await withPostHogUrl(context, result, `/experiments/${result.id}`)
         },
@@ -266,7 +266,7 @@ const experimentEnd = (): ToolBase<typeof ExperimentEndSchema, WithPostHogUrl<Sc
             }
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'POST',
-                path: `/api/projects/${projectId}/experiments/${params.id}/end/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/end/`,
                 body,
             })
             return await withPostHogUrl(context, result, `/experiments/${result.id}`)
@@ -283,7 +283,7 @@ const experimentArchive = (): ToolBase<typeof ExperimentArchiveSchema, WithPostH
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'POST',
-                path: `/api/projects/${projectId}/experiments/${params.id}/archive/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/archive/`,
             })
             return await withPostHogUrl(context, result, `/experiments/${result.id}`)
         },
@@ -311,7 +311,7 @@ const experimentShipVariant = (): ToolBase<typeof ExperimentShipVariantSchema, W
             }
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'POST',
-                path: `/api/projects/${projectId}/experiments/${params.id}/ship_variant/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/ship_variant/`,
                 body,
             })
             return await withPostHogUrl(context, result, `/experiments/${result.id}`)
@@ -328,7 +328,7 @@ const experimentPause = (): ToolBase<typeof ExperimentPauseSchema, WithPostHogUr
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'POST',
-                path: `/api/projects/${projectId}/experiments/${params.id}/pause/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/pause/`,
             })
             return await withPostHogUrl(context, result, `/experiments/${result.id}`)
         },
@@ -344,7 +344,7 @@ const experimentResume = (): ToolBase<typeof ExperimentResumeSchema, WithPostHog
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'POST',
-                path: `/api/projects/${projectId}/experiments/${params.id}/resume/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/resume/`,
             })
             return await withPostHogUrl(context, result, `/experiments/${result.id}`)
         },
@@ -360,7 +360,7 @@ const experimentReset = (): ToolBase<typeof ExperimentResetSchema, WithPostHogUr
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'POST',
-                path: `/api/projects/${projectId}/experiments/${params.id}/reset/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/reset/`,
             })
             return await withPostHogUrl(context, result, `/experiments/${result.id}`)
         },

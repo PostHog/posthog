@@ -106,7 +106,7 @@ async def run_external_data_job_workflow(
                 )
 
     # if not ignore_assertions:
-    run: ExternalDataJob = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=external_data_source.pk)
+    run = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=external_data_source.pk)
 
     assert run is not None
     assert run.status == ExternalDataJob.Status.COMPLETED

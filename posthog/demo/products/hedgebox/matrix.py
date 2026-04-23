@@ -65,6 +65,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
     ErrorTrackingStackFrame,
+    sync_issues_to_clickhouse,
 )
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType
@@ -1891,6 +1892,7 @@ class HedgeboxMatrix(Matrix):
         selected_people = sorted(people, key=lambda person: person.in_product_id)[:6]
         self._upsert_error_tracking_stack_frames(team, issue_specs)
 
+        created_issue_ids: list = []
         for issue_spec in issue_specs:
             if ErrorTrackingIssueFingerprintV2.objects.filter(
                 team=team, fingerprint=issue_spec["fingerprint"]
@@ -1907,6 +1909,7 @@ class HedgeboxMatrix(Matrix):
                 issue=issue,
                 fingerprint=issue_spec["fingerprint"],
             )
+            created_issue_ids.append(issue.id)
 
             for index, days_ago in enumerate(issue_spec["days_ago"]):
                 person = selected_people[index % len(selected_people)]
@@ -1969,6 +1972,9 @@ class HedgeboxMatrix(Matrix):
                     person_properties=person.properties_at_now,
                     person_created_at=person.first_seen_at or timestamp,
                 )
+
+        if created_issue_ids:
+            sync_issues_to_clickhouse(issue_ids=created_issue_ids, team_id=team.pk)
 
     def _upsert_error_tracking_stack_frames(self, team: "Team", issue_specs: list[ErrorTrackingDemoIssueSpec]) -> None:
         for issue_spec in issue_specs:

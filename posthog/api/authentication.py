@@ -9,11 +9,13 @@ from django.conf import settings
 from django.contrib.auth import (
     authenticate,
     login,
+    logout as auth_logout,
     views as auth_views,
 )
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.signals import user_logged_in
 from django.contrib.auth.tokens import PasswordResetTokenGenerator as DefaultPasswordResetTokenGenerator
+from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import ValidationError
 from django.core.signing import BadSignature
 from django.db import transaction
@@ -21,6 +23,7 @@ from django.dispatch import receiver
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import csrf_protect
 
 import structlog
@@ -56,6 +59,7 @@ from posthog.helpers.two_factor_session import (
     has_passkeys,
     set_two_factor_verified_in_session,
 )
+from posthog.helpers.user_devices import has_valid_known_device_cookie
 from posthog.models import OrganizationDomain, User
 from posthog.models.activity_logging import signal_handlers  # noqa: F401
 from posthog.models.webauthn_credential import WebauthnCredential
@@ -120,8 +124,13 @@ def logout(request):
         restore_original_login(request)
         return redirect(f"/admin/posthog/user/{impersonated_user_pk}/change/")
 
-    response = auth_views.logout_then_login(request)
-    return response
+    # Preserve any safe `next` param
+    next_param = request.GET.get("next")
+    if next_param and url_has_allowed_host_and_scheme(next_param, allowed_hosts={request.get_host()}):
+        auth_logout(request)
+        return redirect_to_login(next_param, login_url=settings.LOGIN_URL)
+
+    return auth_views.logout_then_login(request)
 
 
 def axes_locked_out(*args, **kwargs):
@@ -150,7 +159,7 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
         query_dict["next"] = (
             f"/account/social-connected?{urlencode({'provider': backend, 'connect_from': connect_from})}"
         )
-        request.GET = query_dict  # type: ignore[assignment]
+        request.GET = query_dict  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
     sso_providers = get_instance_available_sso_providers()
     # because SAML is configured at the domain-level, we have to assume it's enabled for someone in the instance
@@ -341,7 +350,7 @@ class LoginSerializer(serializers.Serializer):
         request.session.save()
 
         # Trigger login notification (password, no-2FA) and skip re-auth
-        if not was_authenticated_before_login_attempt:
+        if not was_authenticated_before_login_attempt and not has_valid_known_device_cookie(request, user):
             short_user_agent = get_short_user_agent(request)
             ip_address = get_ip_address(request)
             backend_name = request.session.get("_auth_user_backend", "django.contrib.auth.backends.ModelBackend")
@@ -986,7 +995,10 @@ def social_login_notification(
         report_user_logged_in(user, social_provider=getattr(backend, "name", ""))
 
         request = strategy.request
-        short_user_agent = get_short_user_agent(request)
-        ip_address = get_ip_address(request)
-        backend_name = getattr(backend, "name", "")
-        login_from_new_device_notification.delay(user.id, timezone.now(), short_user_agent, ip_address, backend_name)
+        if not has_valid_known_device_cookie(request, user):
+            short_user_agent = get_short_user_agent(request)
+            ip_address = get_ip_address(request)
+            backend_name = getattr(backend, "name", "")
+            login_from_new_device_notification.delay(
+                user.id, timezone.now(), short_user_agent, ip_address, backend_name
+            )

@@ -192,6 +192,46 @@ class AlertCheckQuery:
         )
 
 
+# Explicit per-partition `GROUP BY` is required on both the dev `MergeTree`
+# shard (no auto-merge at all) and the prod `AggregatingMergeTree` between
+# merges. A bare `min(max_observed_timestamp)` scans every raw insert and
+# returns the oldest value ever written.
+_LIVE_LOGS_CHECKPOINT_SQL = """
+    SELECT min(partition_checkpoint) FROM (
+        SELECT _topic, _partition, max(max_observed_timestamp) AS partition_checkpoint
+        FROM logs_kafka_metrics
+        GROUP BY _topic, _partition
+    )
+"""
+
+# Fall back to `now` when the checkpoint is older than this — a quiet partition
+# can pin `min(...)` hours behind while other partitions have fresh data.
+CHECKPOINT_MAX_STALENESS = dt.timedelta(minutes=5)
+
+
+def fetch_live_logs_checkpoint(team: Team) -> dt.datetime | None:
+    response = execute_hogql_query(
+        query_type="alert_check_checkpoint",
+        query=parse_select(_LIVE_LOGS_CHECKPOINT_SQL),
+        team=team,
+        workload=Workload.LOGS,
+        modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
+    )
+    if not response.results or response.results[0][0] is None:
+        return None
+    checkpoint = response.results[0][0]
+    if checkpoint.tzinfo is None:
+        checkpoint = checkpoint.replace(tzinfo=ZoneInfo("UTC"))
+    return checkpoint
+
+
+def resolve_alert_date_to(now: dt.datetime, checkpoint: dt.datetime | None) -> dt.datetime:
+    """Anchor `date_to` on the checkpoint when fresh, else fall back to `now`."""
+    if checkpoint is None or (now - checkpoint) > CHECKPOINT_MAX_STALENESS:
+        return now
+    return min(now, checkpoint)
+
+
 def is_projection_eligible(filters: dict) -> bool:
     """True when filters use only serviceNames + severityLevels (no filterGroup values).
 
