@@ -1,1 +1,1 @@
-0006_mcpservertemplate_installation_fields_and_tools
+0007_migrate_mcp_creds_to_per_installation

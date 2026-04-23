@@ -13956,6 +13956,65 @@
             },
             "type": "object"
         },
+        "EndpointExecutionFailedSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "endpoint_name": {
+                    "type": "string"
+                },
+                "endpoint_version": {
+                    "type": ["number", "null"]
+                },
+                "error_class": {
+                    "type": "string"
+                },
+                "error_message": {
+                    "type": "string"
+                },
+                "materialized": {
+                    "type": "boolean"
+                },
+                "saved_query_id": {
+                    "type": ["string", "null"]
+                }
+            },
+            "required": [
+                "endpoint_name",
+                "endpoint_version",
+                "materialized",
+                "saved_query_id",
+                "error_class",
+                "error_message"
+            ],
+            "type": "object"
+        },
+        "EndpointExecutionFailedSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/EndpointExecutionFailedSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "endpoints",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "endpoint_execution_failed",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
+        },
         "EndpointLastExecutionTimesRequest": {
             "additionalProperties": false,
             "properties": {
@@ -34796,6 +34855,9 @@
                 },
                 {
                     "$ref": "#/definitions/ErrorTrackingSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/EndpointExecutionFailedSignalInput"
                 }
             ],
             "required": ["source_product"],
@@ -34831,7 +34893,8 @@
                 "linear",
                 "zendesk",
                 "conversations",
-                "error_tracking"
+                "error_tracking",
+                "endpoints"
             ],
             "type": "string"
         },
@@ -34844,7 +34907,8 @@
                 "ticket",
                 "issue_created",
                 "issue_reopened",
-                "issue_spiking"
+                "issue_spiking",
+                "endpoint_execution_failed"
             ],
             "type": "string"
         },

@@ -1,5 +1,6 @@
 from urllib.parse import urlparse
 
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
@@ -7,14 +8,18 @@ from django.test import TestCase
 import requests
 from parameterized import parameterized
 
+from products.mcp_store.backend.models import MCPServerInstallation, MCPServerTemplate
 from products.mcp_store.backend.oauth import (
     TIMEOUT,
+    OAuthTokenExchangeError,
     SSRFBlockedError,
     TokenRefreshError,
     _resolve_issuer,
     discover_oauth_metadata,
+    exchange_oauth_token,
     refresh_oauth_token,
     register_dcr_client,
+    resolve_installation_oauth_context,
 )
 
 
@@ -474,3 +479,144 @@ class TestSSRFProtection(TestCase):
         }[func_name]
         with self.assertRaises(SSRFBlockedError):
             func(**kwargs)  # type: ignore[operator]
+
+
+class TestResolveInstallationOauthContext(BaseTest):
+    def test_template_backed_install_returns_template_creds(self):
+        template = MCPServerTemplate.objects.create(
+            name="Template",
+            url="https://mcp.template.example.com/mcp",
+            auth_type="oauth",
+            oauth_metadata={"token_endpoint": "https://auth.template.example.com/token"},
+            oauth_credentials={"client_id": "template-client", "client_secret": "template-secret"},
+            created_by=self.user,
+        )
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            template=template,
+            url=template.url,
+            auth_type="oauth",
+            # Installation sensitive_configuration does NOT carry a dcr_client_secret
+            # for template installs — creds live on the template.
+            sensitive_configuration={"access_token": "tok"},
+        )
+
+        metadata, client_id, client_secret = resolve_installation_oauth_context(installation)
+
+        assert metadata["token_endpoint"] == "https://auth.template.example.com/token"
+        assert client_id == "template-client"
+        assert client_secret == "template-secret"
+
+    def test_custom_install_returns_per_installation_dcr_creds(self):
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            url="https://mcp.custom.example.com/mcp",
+            auth_type="oauth",
+            oauth_metadata={"token_endpoint": "https://auth.custom.example.com/token"},
+            sensitive_configuration={
+                "dcr_client_id": "per-user-client",
+                "dcr_client_secret": "per-user-secret",
+            },
+        )
+
+        metadata, client_id, client_secret = resolve_installation_oauth_context(installation)
+
+        assert metadata["token_endpoint"] == "https://auth.custom.example.com/token"
+        assert client_id == "per-user-client"
+        assert client_secret == "per-user-secret"
+
+    def test_custom_install_without_secret_returns_none(self):
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            url="https://mcp.custom.example.com/mcp",
+            auth_type="oauth",
+            oauth_metadata={"token_endpoint": "https://auth.custom.example.com/token"},
+            sensitive_configuration={"dcr_client_id": "public-client"},
+        )
+
+        _metadata, _client_id, client_secret = resolve_installation_oauth_context(installation)
+
+        assert client_secret is None
+
+
+class TestExchangeOauthToken(BaseTest):
+    def _make_installation(self, *, sensitive_configuration: dict) -> MCPServerInstallation:
+        return MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            url="https://mcp.custom.example.com/mcp",
+            auth_type="oauth",
+            oauth_metadata={"token_endpoint": "https://auth.custom.example.com/token"},
+            sensitive_configuration=sensitive_configuration,
+        )
+
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_confidential_custom_install_sends_client_secret(self, mock_post, _allow):
+        """dcr_client_secret round-trips through resolve_installation_oauth_context into the token exchange body."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"access_token": "abc", "refresh_token": "def"}
+        mock_post.return_value = mock_resp
+
+        installation = self._make_installation(
+            sensitive_configuration={
+                "dcr_client_id": "confidential-client",
+                "dcr_client_secret": "confidential-secret",
+            },
+        )
+
+        result = exchange_oauth_token(
+            installation=installation,
+            code="auth-code",
+            pkce_verifier="pkce-verifier",
+            redirect_uri="https://app.posthog.com/callback",
+            is_https=lambda url: url.startswith("https://"),
+        )
+
+        assert result["access_token"] == "abc"
+        sent_form = mock_post.call_args[1]["data"]
+        assert sent_form["client_id"] == "confidential-client"
+        assert sent_form["client_secret"] == "confidential-secret"
+        assert sent_form["grant_type"] == "authorization_code"
+        assert sent_form["code_verifier"] == "pkce-verifier"
+
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_public_custom_install_omits_client_secret(self, mock_post, _allow):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"access_token": "abc"}
+        mock_post.return_value = mock_resp
+
+        installation = self._make_installation(
+            sensitive_configuration={"dcr_client_id": "public-client"},
+        )
+
+        exchange_oauth_token(
+            installation=installation,
+            code="auth-code",
+            pkce_verifier="pkce-verifier",
+            redirect_uri="https://app.posthog.com/callback",
+            is_https=lambda url: url.startswith("https://"),
+        )
+
+        sent_form = mock_post.call_args[1]["data"]
+        assert "client_secret" not in sent_form
+
+    def test_missing_pkce_verifier_raises(self):
+        installation = self._make_installation(
+            sensitive_configuration={"dcr_client_id": "public-client"},
+        )
+
+        with self.assertRaises(OAuthTokenExchangeError):
+            exchange_oauth_token(
+                installation=installation,
+                code="auth-code",
+                pkce_verifier="",
+                redirect_uri="https://app.posthog.com/callback",
+                is_https=lambda url: url.startswith("https://"),
+            )
