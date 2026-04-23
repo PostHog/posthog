@@ -17275,6 +17275,13 @@ class RetentionFilter(BaseModel):
         description="The aggregation type to use for retention",
     )
     cumulative: bool | None = None
+    customAggregationTarget: bool | None = Field(
+        default=None,
+        description=(
+            "For data warehouse based retention insights when the aggregation target"
+            " can't be mapped to persons or groups."
+        ),
+    )
     dashboardDisplay: RetentionDashboardDisplayType | None = None
     display: ChartDisplayType | None = Field(default=None, description="controls the display of the retention graph")
     goalLines: list[GoalLine] | None = None
@@ -17287,12 +17294,6 @@ class RetentionFilter(BaseModel):
     retentionReference: RetentionReference | None = Field(
         default=None,
         description=("Whether retention is with regard to initial cohort size, or that of the previous period."),
-    )
-    customAggregationTarget: bool | None = Field(
-        default=None,
-        description=(
-            "For data warehouse based retention insights when the aggregation target can't be mapped to persons or groups."
-        ),
     )
     retentionType: RetentionType | None = None
     returningEntity: RetentionEntity | None = None
