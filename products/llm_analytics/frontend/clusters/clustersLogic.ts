@@ -27,7 +27,21 @@ import {
     TraceSummary,
     getLevelFromRunId,
     getTimestampBoundsFromRunId,
+    parseClusterMetrics,
 } from './types'
+
+/** Map a clustering level to the ClickHouse event name its runs are emitted under. */
+function eventNameForLevel(
+    level: ClusteringLevel
+): '$ai_trace_clusters' | '$ai_generation_clusters' | '$ai_evaluation_clusters' {
+    if (level === 'generation') {
+        return '$ai_generation_clusters'
+    }
+    if (level === 'evaluation') {
+        return '$ai_evaluation_clusters'
+    }
+    return '$ai_trace_clusters'
+}
 
 export interface ScatterDataset {
     label: string
@@ -150,8 +164,7 @@ export const clustersLogic = kea<clustersLogicType>([
             [] as ClusteringRunOption[],
             {
                 loadClusteringRuns: async () => {
-                    const eventName =
-                        values.clusteringLevel === 'generation' ? '$ai_generation_clusters' : '$ai_trace_clusters'
+                    const eventName = eventNameForLevel(values.clusteringLevel)
 
                     const response = await api.queryHogQL(
                         hogql`
@@ -189,7 +202,7 @@ export const clustersLogic = kea<clustersLogicType>([
                     const { dayStart, dayEnd } = getTimestampBoundsFromRunId(runId)
                     // Derive level from runId to ensure correct event is queried even on direct URL navigation
                     const level = getLevelFromRunId(runId)
-                    const eventName = level === 'generation' ? '$ai_generation_clusters' : '$ai_trace_clusters'
+                    const eventName = eventNameForLevel(level)
 
                     const response = await api.queryHogQL(
                         hogql`
@@ -222,7 +235,22 @@ export const clustersLogic = kea<clustersLogicType>([
 
                     let clustersData: Cluster[] = []
                     try {
-                        clustersData = JSON.parse((row[4] as string) || '[]')
+                        const rawClusters: Array<Record<string, unknown>> = JSON.parse((row[4] as string) || '[]')
+                        // The backend emits per-cluster aggregate metrics with snake_case
+                        // field names (dataclasses.asdict on ClusterAggregateMetrics);
+                        // normalize to the frontend's camelCase ClusterMetrics shape here
+                        // so consumers don't need to know both conventions.
+                        clustersData = rawClusters.map((raw) => {
+                            const { metrics: rawMetrics, ...rest } = raw as { metrics?: unknown } & Record<
+                                string,
+                                unknown
+                            >
+                            const parsed = parseClusterMetrics(rawMetrics)
+                            return {
+                                ...(rest as unknown as Cluster),
+                                ...(parsed ? { metrics: parsed } : {}),
+                            }
+                        })
                     } catch {
                         console.error('Failed to parse clusters data')
                         return null
@@ -369,15 +397,28 @@ export const clustersLogic = kea<clustersLogicType>([
                 return
             }
 
+            const level = run.level || values.clusteringLevel
+
+            // Evaluation clusters ship with metrics baked into the event by the backend
+            // (ClusterAggregateMetrics → dataclasses.asdict → $ai_clusters[i].metrics).
+            // Use those directly instead of a second HogQL round-trip that tries to
+            // recompute from the events table — the backend already joined eval →
+            // generation and computed both operational + eval-specific metrics.
+            if (level === 'evaluation') {
+                const baked: Record<number, ClusterMetrics> = {}
+                for (const cluster of run.clusters) {
+                    if (cluster.metrics) {
+                        baked[cluster.cluster_id] = cluster.metrics
+                    }
+                }
+                actions.setClusterMetrics(baked)
+                return
+            }
+
             actions.setClusterMetricsLoading(true)
 
             try {
-                const metrics = await loadClusterMetrics(
-                    run.clusters,
-                    run.windowStart,
-                    run.windowEnd,
-                    run.level || values.clusteringLevel
-                )
+                const metrics = await loadClusterMetrics(run.clusters, run.windowStart, run.windowEnd, level)
                 actions.setClusterMetrics(metrics)
             } catch (error) {
                 console.error('Failed to load cluster metrics:', error)
