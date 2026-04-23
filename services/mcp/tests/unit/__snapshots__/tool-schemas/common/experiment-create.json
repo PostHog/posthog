@@ -288,27 +288,6 @@
                     "type": "null"
                 }
             ]
-        },
-        "type": {
-            "anyOf": [
-                {
-                    "anyOf": [
-                        {
-                            "description": "* `web` - web\n* `product` - product",
-                            "enum": ["web", "product"],
-                            "type": "string"
-                        },
-                        {
-                            "const": null,
-                            "type": "null"
-                        }
-                    ]
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Experiment type: web for frontend UI changes, product for backend/API changes.\n\n* `web` - web\n* `product` - product"
         }
     },
     "required": ["name", "feature_flag_key"],
