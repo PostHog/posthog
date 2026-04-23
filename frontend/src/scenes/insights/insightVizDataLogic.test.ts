@@ -556,11 +556,11 @@ describe('insightVizDataLogic', () => {
         it('returns all intervals', () => {
             expectLogic(builtInsightVizDataLogic).toMatchValues({
                 enabledIntervals: {
-                    day: { label: 'day', newDateFrom: undefined },
-                    minute: { label: 'minute', newDateFrom: 'hStart' },
-                    hour: { label: 'hour', newDateFrom: 'dStart' },
-                    month: { label: 'month', newDateFrom: '-90d' },
-                    week: { label: 'week', newDateFrom: '-30d' },
+                    day: { label: 'Day', newDateFrom: undefined },
+                    minute: { label: 'Minute', newDateFrom: 'hStart' },
+                    hour: { label: 'Hour', newDateFrom: 'dStart' },
+                    month: { label: 'Month', newDateFrom: '-90d' },
+                    week: { label: 'Week', newDateFrom: '-30d' },
                 },
             })
         })
@@ -579,24 +579,24 @@ describe('insightVizDataLogic', () => {
                 } as Partial<TrendsQuery>)
             }).toMatchValues({
                 enabledIntervals: {
-                    day: { label: 'day', newDateFrom: undefined },
+                    day: { label: 'Day', newDateFrom: undefined },
                     minute: {
-                        label: 'minute',
+                        label: 'Minute',
                         newDateFrom: 'hStart',
                     },
                     hour: {
-                        label: 'hour',
+                        label: 'Hour',
                         newDateFrom: 'dStart',
                         disabledReason:
                             'Grouping by hour is not supported on insights with weekly or monthly active users series.',
                     },
                     month: {
-                        label: 'month',
+                        label: 'Month',
                         newDateFrom: '-90d',
                         disabledReason:
                             'Grouping by month is not supported on insights with weekly active users series.',
                     },
-                    week: { label: 'week', newDateFrom: '-30d' },
+                    week: { label: 'Week', newDateFrom: '-30d' },
                 },
             })
         })
