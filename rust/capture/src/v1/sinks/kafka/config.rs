@@ -74,6 +74,26 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub sticky_partitioning_linger_ms: u32,
 
+    /// IP family for broker connections. Empty = let librdkafka decide (default);
+    /// "v4" / "v6" / "any" force-select. Matches legacy KAFKA_BROKER_ADDRESS_FAMILY.
+    #[envconfig(default = "")]
+    pub broker_address_family: String,
+    /// Log broker connection close events. librdkafka default = true.
+    #[envconfig(default = "true")]
+    pub log_connection_close: bool,
+    /// Max messages buffered in the producer queue. librdkafka default = 100_000.
+    #[envconfig(default = "100000")]
+    pub queue_buffering_max_messages: u32,
+    /// Upper bound on exponential retry backoff (ms). librdkafka default = 1000.
+    #[envconfig(default = "1000")]
+    pub retry_backoff_max_ms: u32,
+    /// TCP socket send buffer size in bytes. 0 = use OS default. librdkafka default = 0.
+    #[envconfig(default = "0")]
+    pub socket_send_buffer_bytes: u32,
+    /// TCP socket receive buffer size in bytes. 0 = use OS default. librdkafka default = 0.
+    #[envconfig(default = "0")]
+    pub socket_receive_buffer_bytes: u32,
+
     // -- QueueFull backpressure --
     /// Max enqueue retry attempts when rdkafka returns QueueFull.
     /// 0 = no retries (immediate failure, pre-backpressure behavior).
@@ -191,6 +211,12 @@ mod tests {
         env.insert("MAX_RETRIES".into(), "6".into());
         env.insert("MAX_IN_FLIGHT_REQUESTS".into(), "500000".into());
         env.insert("STICKY_PARTITIONING_LINGER_MS".into(), "20".into());
+        env.insert("BROKER_ADDRESS_FAMILY".into(), "v4".into());
+        env.insert("LOG_CONNECTION_CLOSE".into(), "false".into());
+        env.insert("QUEUE_BUFFERING_MAX_MESSAGES".into(), "250000".into());
+        env.insert("RETRY_BACKOFF_MAX_MS".into(), "2000".into());
+        env.insert("SOCKET_SEND_BUFFER_BYTES".into(), "65536".into());
+        env.insert("SOCKET_RECEIVE_BUFFER_BYTES".into(), "65536".into());
 
         let cfg = Config::init_from_hashmap(&env).unwrap();
         assert_eq!(cfg.hosts, "localhost:9092");
@@ -215,6 +241,12 @@ mod tests {
         assert_eq!(cfg.max_retries, 6);
         assert_eq!(cfg.max_in_flight_requests, 500000);
         assert_eq!(cfg.sticky_partitioning_linger_ms, 20);
+        assert_eq!(cfg.broker_address_family, "v4");
+        assert!(!cfg.log_connection_close);
+        assert_eq!(cfg.queue_buffering_max_messages, 250000);
+        assert_eq!(cfg.retry_backoff_max_ms, 2000);
+        assert_eq!(cfg.socket_send_buffer_bytes, 65536);
+        assert_eq!(cfg.socket_receive_buffer_bytes, 65536);
         assert_eq!(cfg.topic_main, "events_main");
     }
 
@@ -243,6 +275,12 @@ mod tests {
         assert_eq!(cfg.max_retries, 4);
         assert_eq!(cfg.max_in_flight_requests, 1000000);
         assert_eq!(cfg.sticky_partitioning_linger_ms, 10);
+        assert_eq!(cfg.broker_address_family, "");
+        assert!(cfg.log_connection_close);
+        assert_eq!(cfg.queue_buffering_max_messages, 100000);
+        assert_eq!(cfg.retry_backoff_max_ms, 1000);
+        assert_eq!(cfg.socket_send_buffer_bytes, 0);
+        assert_eq!(cfg.socket_receive_buffer_bytes, 0);
     }
 
     #[test]

@@ -155,8 +155,28 @@ impl KafkaProducer {
             .set(
                 "sticky.partitioning.linger.ms",
                 config.sticky_partitioning_linger_ms.to_string(),
+            )
+            .set("log.connection.close", config.log_connection_close.to_string())
+            .set(
+                "queue.buffering.max.messages",
+                config.queue_buffering_max_messages.to_string(),
+            )
+            .set(
+                "retry.backoff.max.ms",
+                config.retry_backoff_max_ms.to_string(),
+            )
+            .set(
+                "socket.send.buffer.bytes",
+                config.socket_send_buffer_bytes.to_string(),
+            )
+            .set(
+                "socket.receive.buffer.bytes",
+                config.socket_receive_buffer_bytes.to_string(),
             );
 
+        if !config.broker_address_family.is_empty() {
+            client_config.set("broker.address.family", &config.broker_address_family);
+        }
         if !config.client_id.is_empty() {
             client_config.set("client.id", &config.client_id);
         }
