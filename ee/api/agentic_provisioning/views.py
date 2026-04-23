@@ -14,6 +14,7 @@ from django.conf import settings
 from django.contrib.auth import login as auth_login
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.http import HttpResponseRedirect
 from django.http.response import HttpResponseBase
@@ -78,6 +79,11 @@ PARTNER_RATE_LIMIT_DEFAULTS: dict[str, int] = {
     "account_requests": 10,
     "token_exchanges": 20,
     "resource_creates": 20,
+}
+PARTNER_RATE_LIMIT_EVENT_NAMES: dict[str, str] = {
+    "account_requests": "account_request",
+    "token_exchanges": "token_exchange",
+    "resource_creates": "resource_created",
 }
 
 _SAFE_STATE_RE = re.compile(r"^[A-Za-z0-9_\-]{1,256}$")
@@ -935,7 +941,7 @@ def _exchange_authorization_code(request: Request) -> Response:
             partner = OAuthApplication.objects.get(id=partner_id)
             if error := _enforce_partner_rate_limit(partner, "token_exchanges"):
                 return error
-        except OAuthApplication.DoesNotExist:
+        except (OAuthApplication.DoesNotExist, ValidationError, ValueError):
             logger.warning("partner_rate_limit_app_missing", partner_id=partner_id)
 
     cache.delete(cache_key)
@@ -1796,6 +1802,10 @@ def _enforce_partner_rate_limit(partner: OAuthApplication, endpoint: str) -> Res
 
     Returns a 429 Response if the limit is exceeded, or None if the request is allowed.
     Setting the model field to 0 disables rate limiting for that endpoint.
+
+    Uses a fixed-window counter keyed on partner id + window-of-epoch. A partner can
+    burst up to 2x the limit across a window boundary (`limit` at :59:59 plus `limit`
+    at :00:00); switch to a sliding window if that matters.
     """
     if endpoint not in PARTNER_RATE_LIMIT_DEFAULTS:
         raise ValueError(f"Unknown rate limit endpoint: {endpoint}")
@@ -1817,13 +1827,16 @@ def _enforce_partner_rate_limit(partner: OAuthApplication, endpoint: str) -> Res
     try:
         cache.add(cache_key, 0, timeout=PARTNER_RATE_LIMIT_WINDOW_SECONDS)
         count = cache.incr(cache_key)
-    except ValueError:
-        logger.warning("partner_rate_limit_cache_error", endpoint=endpoint, partner_id=str(partner.id))
-        cache.set(cache_key, 1, timeout=PARTNER_RATE_LIMIT_WINDOW_SECONDS)
+    except (ValueError, ConnectionError, TimeoutError) as e:
+        logger.warning("partner_rate_limit_cache_error", endpoint=endpoint, partner_id=str(partner.id), error=str(e))
+        # cache.add preserves any counter a concurrent request already initialized,
+        # so a transient cache error doesn't reset the window for a partner at the limit.
+        cache.add(cache_key, 1, timeout=PARTNER_RATE_LIMIT_WINDOW_SECONDS)
         count = 1
 
     if count > limit:
-        _capture_provisioning_event(endpoint, "rate_limited", partner_id=str(partner.id), limit=limit, count=count)
+        event_name = PARTNER_RATE_LIMIT_EVENT_NAMES.get(endpoint, endpoint)
+        _capture_provisioning_event(event_name, "rate_limited", partner_id=str(partner.id), limit=limit, count=count)
         retry_after = PARTNER_RATE_LIMIT_WINDOW_SECONDS - (int(time.time()) % PARTNER_RATE_LIMIT_WINDOW_SECONDS)
         response = Response(
             {
