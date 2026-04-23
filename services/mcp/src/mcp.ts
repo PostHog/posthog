@@ -29,12 +29,13 @@ import { buildInstructionsV1, buildInstructionsV2 } from '@/lib/instructions'
 import { initMcpCatObservability } from '@/lib/mcpcat'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
-import { sanitizeHeaderValue } from '@/lib/utils'
+import { formatPrompt, sanitizeHeaderValue } from '@/lib/utils'
 import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
 import CLI_PROXY_COMMAND from '@/templates/cli-proxy-command.md'
 import CLI_PROXY_TOOL from '@/templates/cli-proxy-tool.md'
+import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import INSTRUCTIONS_TEMPLATE_V1 from '@/templates/instructions-v1.md'
 import INSTRUCTIONS_TEMPLATE_V2 from '@/templates/instructions-v2.md'
 import { createExecTool } from '@/tools/exec'
@@ -565,6 +566,15 @@ export class MCP extends McpAgent<Env> {
         // In single-exec mode, register one "posthog" tool that wraps all tools
         // behind a CLI-like interface. Otherwise, register each tool individually.
         if (useSingleExec) {
+            // Swap execute-sql's description with the single-exec-specific
+            // prompt (visible via `info execute-sql`). It already folds in
+            // the HogQL/SQL intro, guidelines, discovery workflow, and the
+            // truncation guidance that the base JSON description carried.
+            const sqlTool = allTools.find((t) => t.name === 'execute-sql')
+            if (sqlTool) {
+                sqlTool.description = formatPrompt(EXECUTE_SQL_PROMPT, { guidelines: guidelines.trim() })
+            }
+
             const toolInfos = allTools.map((t) => ({
                 name: t.name,
                 category: getToolDefinition(t.name, version).category,

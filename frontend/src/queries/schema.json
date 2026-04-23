@@ -32357,6 +32357,10 @@
                 "cumulative": {
                     "type": "boolean"
                 },
+                "customAggregationTarget": {
+                    "description": "For data warehouse based retention insights when the aggregation target can't be mapped to persons or groups.",
+                    "type": "boolean"
+                },
                 "dashboardDisplay": {
                     "$ref": "#/definitions/RetentionDashboardDisplayType"
                 },
