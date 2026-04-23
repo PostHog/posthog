@@ -45,6 +45,11 @@ let activeRenderId: string | null = null
 const wrappedHoverRoot: Root = {
     render: (children: ReactNode): void => {
         if (activeRenderId === null || hover.owner !== activeRenderId) {
+            console.error('[useInsightTooltip] dropped render — caller no longer owns the hover tooltip', {
+                activeRenderId,
+                hoverOwner: hover.owner,
+                pinnedOwner: pinned.owner,
+            })
             return
         }
         hover.lastRendered = children
