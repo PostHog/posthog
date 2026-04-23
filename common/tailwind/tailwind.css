@@ -14,6 +14,42 @@
 /* Scan Quill's compiled JS for Tailwind class strings */
 @import '@posthog/quill/tailwind.css';
 
+/* Register quill's semantic color tokens as Tailwind theme colors.
+ * This bridges the scoped CSS vars (--border, --accent, etc.) to
+ * Tailwind utilities (border-border, bg-accent, etc.) so quill's
+ * compiled class names resolve correctly.
+ * Only colors — no font, spacing, shadow, or radius overrides. */
+@theme inline {
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+    --color-popover: var(--popover);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-accent: var(--accent);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-secondary: var(--secondary);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-destructive: var(--destructive);
+    --color-destructive-foreground: var(--destructive-foreground);
+    --color-success: var(--success);
+    --color-success-foreground: var(--success-foreground);
+    --color-warning: var(--warning);
+    --color-warning-foreground: var(--warning-foreground);
+    --color-info: var(--info);
+    --color-info-foreground: var(--info-foreground);
+    --color-border: var(--border);
+    --color-input: var(--input);
+    --color-ring: var(--ring);
+    --color-fill-expanded: var(--fill-expanded);
+    --color-fill-selected: var(--fill-selected);
+    --color-fill-hover: var(--fill-hover);
+}
+
 /* if this shows a warning, change the type of file in vscode to 'tailwind CSS' */
 @config "./tailwind.config.js";
 
