@@ -5966,6 +5966,16 @@
                   "table": null,
                   "type": "expression"
               },
+              "favorited": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "favorited",
+                  "id": null,
+                  "name": "favorited",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
               "created_at": {
                   "chain": null,
                   "fields": null,
@@ -5975,6 +5985,36 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "last_modified_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_modified_at",
+                  "id": null,
+                  "name": "last_modified_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_modified_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_modified_by_id",
+                  "id": null,
+                  "name": "last_modified_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
               },
               "updated_at": {
                   "chain": null,
@@ -12070,6 +12110,16 @@
                   "table": null,
                   "type": "expression"
               },
+              "favorited": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "favorited",
+                  "id": null,
+                  "name": "favorited",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
               "created_at": {
                   "chain": null,
                   "fields": null,
@@ -12079,6 +12129,36 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "last_modified_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_modified_at",
+                  "id": null,
+                  "name": "last_modified_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_modified_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_modified_by_id",
+                  "id": null,
+                  "name": "last_modified_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
               },
               "updated_at": {
                   "chain": null,
