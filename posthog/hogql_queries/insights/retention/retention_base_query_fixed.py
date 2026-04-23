@@ -37,6 +37,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         start_interval_index_filter: int | None = None,
         selected_breakdown_value: str | list[str] | int | None = None,
     ) -> ast.SelectQuery:
+        event_filters = self._event_filters()
         start_entity_is_dwh = self.start_event.type == EntityType.DATA_WAREHOUSE
 
         start_actor_column_name = (
@@ -232,23 +233,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             source=ast.Field(chain=["events", "timestamp"])
         )
 
-        event_filters = self.global_event_filters.copy()
-        if (
-            self.query.breakdownFilter
-            and self.query.breakdownFilter.breakdowns
-            and len(self.query.breakdownFilter.breakdowns) == 1
-            and self.query.breakdownFilter.breakdowns[0].type == "cohort"
-        ):
-            cohort_id = self.query.breakdownFilter.breakdowns[0].property
-            # Don't add cohort filter for "all users" (cohort_id = 0)
-            if int(cohort_id) != ALL_USERS_COHORT_ID:
-                event_filters.append(
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.InCohort,
-                        left=ast.Field(chain=["person_id"]),
-                        right=ast.Constant(value=int(cohort_id)),
-                    )
-                )
+        event_filters = self._event_filters()
 
         start_event_timestamps = parse_expr(
             """
@@ -629,6 +614,27 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 },
             ),
         )
+
+    def _event_filters(self) -> list[ast.Expr]:
+        event_filters = self.global_event_filters.copy()
+        if (
+            self.query.breakdownFilter
+            and self.query.breakdownFilter.breakdowns
+            and len(self.query.breakdownFilter.breakdowns) == 1
+            and self.query.breakdownFilter.breakdowns[0].type == "cohort"
+        ):
+            cohort_id = self.query.breakdownFilter.breakdowns[0].property
+            # Don't add cohort filter for "all users" (cohort_id = 0)
+            if int(cohort_id) != ALL_USERS_COHORT_ID:
+                event_filters.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.InCohort,
+                        left=ast.Field(chain=["person_id"]),
+                        right=ast.Constant(value=int(cohort_id)),
+                    )
+                )
+
+        return event_filters
 
     def _get_return_event_timestamps_expr(
         self, minimum_occurrences: int, start_of_interval_sql: ast.Expr, return_entity_expr: ast.Expr
