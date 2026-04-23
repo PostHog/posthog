@@ -53,9 +53,19 @@ class TestDirectCommandExecution:
         assert "arg1" in cmd_str
         assert "'arg with spaces'" in cmd_str or '"arg with spaces"' in cmd_str
 
+    @pytest.mark.parametrize(
+        "cmd_str",
+        [
+            'pnpm exec oxfmt "$@"',
+            "echo $1",
+            "echo $HOME",
+        ],
+        ids=["dollar_at", "dollar_1", "dollar_env"],
+    )
     @patch("hogli.core.command_types._run")
-    def test_shell_variables_trigger_shell_mode(self, mock_run: MagicMock) -> None:
-        cmd = DirectCommand("test", {"cmd": 'pnpm exec oxfmt "$@"'})
+    def test_shell_variables_trigger_shell_mode(self, mock_run: MagicMock, cmd_str: str) -> None:
+        """Commands with shell variable references use shell=True."""
+        cmd = DirectCommand("test", {"cmd": cmd_str})
 
         cmd.execute("src/")
 
