@@ -15,10 +15,10 @@ import type { LogRecord } from './log-record-avro'
 export const PII_REDACTED = '{{REDACTED}}'
 
 export type PiiScrubStats = {
-    piiReplacements: number
+    readonly piiReplacements: number
 }
 
-export const EMPTY_PII: PiiScrubStats = { piiReplacements: 0 }
+export const EMPTY_PII: Readonly<PiiScrubStats> = Object.freeze({ piiReplacements: 0 })
 
 /** Match Rust serde_json::Value::String(s).to_string() / CH kafka_logs_avro_mv JSONExtractString expectations. */
 export function encodeAttributeCell(semantic: string): string {
@@ -34,20 +34,22 @@ const PII_COMBINED_RE = createTrackedRE2(
     'log-pii-scrub:combined'
 )
 
-/** One regex pass; `piiReplacements` is the number of replace callback invocations (redaction events). */
+/** One regex pass; `piiReplacements` counts only successful redactions (a matched capture group). */
 export function scrubPlainStringWithStats(input: string): { output: string; piiReplacements: number } {
     let piiReplacements = 0
     const output = input.replace(
         PII_COMBINED_RE,
         (match: string, bearer: string | undefined, stripe: string | undefined, email: string | undefined) => {
-            piiReplacements += 1
             if (bearer !== undefined) {
+                piiReplacements += 1
                 return `Bearer ${PII_REDACTED}`
             }
             if (stripe !== undefined) {
+                piiReplacements += 1
                 return PII_REDACTED
             }
             if (email !== undefined) {
+                piiReplacements += 1
                 return PII_REDACTED
             }
             return match
