@@ -55,16 +55,16 @@ describe('exec tool', () => {
             expect(parsed).toEqual({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
         })
 
-        it('returns JSON for tool with responseFormat json even without flag', async () => {
-            const tool = makeMockTool({ _meta: { [POSTHOG_META_KEY]: { responseFormat: 'json' } } })
+        it('returns JSON for tool with outputFormat json even without flag', async () => {
+            const tool = makeMockTool({ _meta: { [POSTHOG_META_KEY]: { outputFormat: 'json' } } })
             const exec = createExec([tool])
             const result = await exec.handler(mockContext, { command: 'call mock-tool {}' })
             const parsed = JSON.parse(result as string)
             expect(parsed).toEqual({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
         })
 
-        it('returns JSON when both --json flag and responseFormat json are present', async () => {
-            const tool = makeMockTool({ _meta: { [POSTHOG_META_KEY]: { responseFormat: 'json' } } })
+        it('returns JSON when both --json flag and outputFormat json are present', async () => {
+            const tool = makeMockTool({ _meta: { [POSTHOG_META_KEY]: { outputFormat: 'json' } } })
             const exec = createExec([tool])
             const result = await exec.handler(mockContext, { command: 'call --json mock-tool {}' })
             const parsed = JSON.parse(result as string)

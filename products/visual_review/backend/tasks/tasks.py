@@ -16,7 +16,12 @@ from celery import shared_task
 logger = structlog.get_logger(__name__)
 
 
-@shared_task(name="products.visual_review.backend.tasks.process_run_diffs", ignore_result=True)
+@shared_task(
+    name="products.visual_review.backend.tasks.process_run_diffs",
+    ignore_result=True,
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
 def process_run_diffs(run_id: str) -> None:
     """
     Process diffs for all snapshots in a run.

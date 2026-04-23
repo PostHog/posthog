@@ -17,6 +17,7 @@ function Collapsible({ variant = 'default', className, ...props }: CollapsiblePr
     return (
         <CollapsibleVariantContext.Provider value={variant}>
             <CollapsiblePrimitive.Root
+                data-quill
                 data-slot="collapsible"
                 data-variant={variant}
                 className={cn(

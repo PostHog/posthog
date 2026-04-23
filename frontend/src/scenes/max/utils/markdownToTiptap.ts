@@ -1,11 +1,11 @@
+import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
 import { MarkdownManager } from '@tiptap/markdown'
 import StarterKit from '@tiptap/starter-kit'
 
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 
-// Create a singleton MarkdownManager with the same extensions used in notebooks
 const markdownManager = new MarkdownManager({
-    extensions: [StarterKit],
+    extensions: [StarterKit, Table, TableRow, TableHeader, TableCell],
 })
 
 /**

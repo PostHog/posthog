@@ -159,6 +159,7 @@ class RunState(BaseModel, extra="allow"):
     sandbox_connect_token: str | None = None
     sandbox_environment_id: str | None = None
     pending_user_message: str | None = None
+    pending_user_artifact_ids: list[str] | None = None
     pending_user_message_ts: str | None = None
     initial_permission_mode: InitialPermissionMode | None = None
     slack_thread_url: str | None = None

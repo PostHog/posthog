@@ -21,6 +21,7 @@ wrappers:
         title: Run a trends query
         description_file: ./prompts/query-trends.md
         ui_resource_uri: ui://posthog/query-results.html
+        use_optimized_output: true
         exclude_properties:
             - response
             - modifiers
@@ -39,6 +40,7 @@ wrappers:
         title: Run a funnel query
         description_file: ./prompts/query-funnel.md
         ui_resource_uri: ui://posthog/query-results.html
+        use_optimized_output: true
         exclude_properties:
             - response
             - modifiers
@@ -57,6 +59,7 @@ wrappers:
         title: Run a retention query
         description_file: ./prompts/query-retention.md
         ui_resource_uri: ui://posthog/query-results.html
+        use_optimized_output: true
         exclude_properties:
             - response
             - modifiers
@@ -75,6 +78,7 @@ wrappers:
         title: Run a stickiness query
         description_file: ./prompts/query-stickiness.md
         ui_resource_uri: ui://posthog/query-results.html
+        use_optimized_output: true
         exclude_properties:
             - response
             - modifiers
@@ -93,6 +97,7 @@ wrappers:
         title: Run a paths query
         description_file: ./prompts/query-paths.md
         ui_resource_uri: ui://posthog/query-results.html
+        use_optimized_output: true
         exclude_properties:
             - response
             - modifiers
@@ -111,6 +116,7 @@ wrappers:
         title: Run a lifecycle query
         description_file: ./prompts/query-lifecycle.md
         ui_resource_uri: ui://posthog/query-results.html
+        use_optimized_output: true
         exclude_properties:
             - response
             - modifiers
@@ -128,7 +134,6 @@ wrappers:
         mcp_version: 2
         title: List LLM traces
         description_file: ./prompts/query-llm-traces-list.md
-        response_format: json
         exclude_properties:
             - response
             - modifiers
@@ -145,7 +150,6 @@ wrappers:
         mcp_version: 2
         title: Get LLM trace
         description_file: ./prompts/query-llm-trace.md
-        response_format: json
         exclude_properties:
             - response
             - modifiers

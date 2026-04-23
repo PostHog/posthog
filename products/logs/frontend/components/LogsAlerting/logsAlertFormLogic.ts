@@ -24,6 +24,7 @@ import {
 import type { logsAlertFormLogicType } from './logsAlertFormLogicType'
 import { logsAlertingLogic } from './logsAlertingLogic'
 import { logsAlertNotificationLogic } from './logsAlertNotificationLogic'
+import { buildAlertFilters, hasAnyFilter } from './logsAlertUtils'
 
 const EMPTY_FILTER_GROUP: UniversalFiltersGroup = {
     type: FilterLogicalOperator.And,
@@ -59,32 +60,7 @@ function extractFilterGroup(alert: LogsAlertConfigurationApi | null): UniversalF
     return EMPTY_FILTER_GROUP
 }
 
-function buildFilters(
-    severityLevels: string[],
-    serviceNames: string[],
-    filterGroup: UniversalFiltersGroup
-): Record<string, unknown> {
-    const filters: Record<string, unknown> = {}
-    if (severityLevels.length > 0) {
-        filters.severityLevels = severityLevels
-    }
-    if (serviceNames.length > 0) {
-        filters.serviceNames = serviceNames
-    }
-    if (filterGroup.values.length > 0) {
-        filters.filterGroup = {
-            type: FilterLogicalOperator.And,
-            values: [filterGroup],
-        }
-    }
-    return filters
-}
-
-function hasAnyFilter(severityLevels: string[], serviceNames: string[], filterGroup: UniversalFiltersGroup): boolean {
-    return severityLevels.length > 0 || serviceNames.length > 0 || filterGroup.values.length > 0
-}
-
-function buildFormDefaults(alert: LogsAlertConfigurationApi | null): LogsAlertFormType {
+export function buildFormDefaults(alert: LogsAlertConfigurationApi | null): LogsAlertFormType {
     return {
         name: alert?.name ?? '',
         severityLevels:
@@ -156,7 +132,7 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
                     }
                     const projectId = String(values.currentTeamId)
                     return await logsAlertsSimulateCreate(projectId, {
-                        filters: buildFilters(form.severityLevels, form.serviceNames, form.filterGroup),
+                        filters: buildAlertFilters(form.severityLevels, form.serviceNames, form.filterGroup),
                         threshold_count: form.thresholdCount,
                         threshold_operator: form.thresholdOperator,
                         window_minutes: form.windowMinutes,
@@ -205,7 +181,7 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
                 const projectId = String(values.currentTeamId)
                 const payload = {
                     name: form.name.trim(),
-                    filters: buildFilters(form.severityLevels, form.serviceNames, form.filterGroup),
+                    filters: buildAlertFilters(form.severityLevels, form.serviceNames, form.filterGroup),
                     threshold_count: form.thresholdCount,
                     threshold_operator: form.thresholdOperator,
                     window_minutes: form.windowMinutes,

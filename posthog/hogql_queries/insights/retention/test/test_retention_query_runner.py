@@ -6333,6 +6333,7 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         assert canada_day0_cohort is not None
         self.assertEqual(canada_day0_cohort["values"][0]["count"], 3, "Canada should have 3 users")
 
+    @snapshot_clickhouse_queries
     def test_retention_24h_window_calculation(self):
         # This test validates that 24-hour window retention works differently from calendar-based retention
         # Key difference: with 24h windows, intervals are calculated from each user's first event timestamp,
