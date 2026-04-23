@@ -1210,6 +1210,25 @@ class TestExternalDataSource(APIBaseTest):
         self.assertIn("Could not fetch schemas from source", response.json().get("message", ""))
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_returns_known_source_error_when_get_schemas_raises(self, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.side_effect = Exception("Connection refused")
+        mock_get_source.return_value.get_non_retryable_errors.return_value = {
+            "Connection refused": "Could not connect to the host on the port given."
+        }
+        source = self._create_external_data_source()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json().get("message"),
+            "Could not fetch schemas from source. Could not connect to the host on the port given.",
+        )
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     @patch("products.data_warehouse.backend.api.external_data_source.trigger_external_data_source_workflow")
     def test_reload_direct_external_data_source_refreshes_schemas(self, mock_trigger, mock_get_source):
         mock_get_source.return_value.parse_config.return_value = None

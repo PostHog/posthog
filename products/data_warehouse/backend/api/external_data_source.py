@@ -186,6 +186,25 @@ def strip_sensitive_from_dict(data: dict, nonsensitive: set[str], sensitive: set
     return result
 
 
+def get_schema_fetch_error_message(source: Any | None, error: Exception) -> str:
+    """Return a user-safe schema fetch error without exposing saved credentials."""
+    default_message = "Could not fetch schemas from source."
+    get_non_retryable_errors = getattr(source, "get_non_retryable_errors", None)
+    if not callable(get_non_retryable_errors):
+        return default_message
+
+    known_errors = get_non_retryable_errors()
+    if not isinstance(known_errors, dict):
+        return default_message
+
+    error_message = " ".join(str(arg) for arg in getattr(error, "args", []) if arg) or str(error)
+    for known_error, user_message in known_errors.items():
+        if known_error in error_message and user_message:
+            return f"{default_message} {user_message}"
+
+    return default_message
+
+
 def get_direct_postgres_connection_metadata(
     *,
     source_impl: Any,
@@ -1311,6 +1330,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Source has no configuration."},
             )
+        source: Any | None = None
         try:
             source_type = ExternalDataSourceType(instance.source_type)
             source = SourceRegistry.get_source(source_type)
@@ -1338,7 +1358,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             logger.exception("Could not fetch schemas from source", exc_info=e)
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Could not fetch schemas from source."},
+                data={"message": get_schema_fetch_error_message(source, e)},
             )
         descriptions = {s.name: s.description for s in schemas}
         with transaction.atomic():
