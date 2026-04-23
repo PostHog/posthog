@@ -399,6 +399,20 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
     else:
         if verification is not None:
             _touch_verification_token(verification)
+        # Emit a distinct event on org re-linking so a metadata compromise
+        # flipping A→B (or A→None, None→A) is visible in analytics, not
+        # just buried in the generic refresh event.
+        if old_org_id != new_org_id:
+            posthoganalytics.capture(
+                distinct_id=app.cimd_metadata_url or str(app.pk),
+                event="cimd_application_org_changed",
+                properties={
+                    "cimd_url": app.cimd_metadata_url,
+                    "app_id": str(app.pk),
+                    "old_organization_id": str(old_org_id) if old_org_id else None,
+                    "new_organization_id": str(new_org_id) if new_org_id else None,
+                },
+            )
 
     return app
 
