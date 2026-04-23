@@ -204,7 +204,7 @@ describe('IngestionOutputsBuilder', () => {
         }
 
         const outputs = new IngestionOutputsBuilder()
-            .registerDualWrite('events', {
+            .registerDualWriteWithDenylist('events', {
                 topicKey: 'EVENTS_TOPIC',
                 producerKey: 'EVENTS_PRODUCER',
                 secondaryTopicKey: 'EVENTS_SECONDARY_TOPIC',
@@ -268,7 +268,7 @@ describe('IngestionOutputsBuilder', () => {
 
         expect(() =>
             new IngestionOutputsBuilder()
-                .registerDualWrite('events', {
+                .registerDualWriteWithDenylist('events', {
                     topicKey: 'EVENTS_TOPIC',
                     producerKey: 'EVENTS_PRODUCER',
                     secondaryTopicKey: 'EVENTS_SECONDARY_TOPIC',

@@ -5,11 +5,6 @@ export type IngestionOutputMessage = {
     value: Buffer | null
     key?: MessageKey
     headers?: Record<string, string>
-    /**
-     * The team the message belongs to. Used by dual-write outputs with a team-denylist
-     * routing mode to decide whether the message goes to primary or secondary.
-     * When missing, team-denylist routing falls back to primary only.
-     */
     teamId?: number
 }
 

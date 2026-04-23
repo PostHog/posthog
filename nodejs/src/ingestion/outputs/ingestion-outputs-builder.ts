@@ -22,18 +22,35 @@ interface DualWriteDef<
     SPK extends string,
     MK extends string,
     PerK extends string,
-    DenyK extends string,
 > extends PrimaryDef<TK, PK> {
     secondaryTopicKey: STK
     secondaryProducerKey: SPK
     modeKey: MK
     percentageKey: PerK
-    /**
-     * Optional config key holding a comma-separated list of team IDs.
-     * Required when the output uses a `*_team_denylist` mode; ignored otherwise.
-     */
-    teamDenylistKey?: DenyK
 }
+
+interface DualWriteDefWithDenylist<
+    TK extends string,
+    PK extends string,
+    STK extends string,
+    SPK extends string,
+    MK extends string,
+    PerK extends string,
+    DenyK extends string,
+> extends DualWriteDef<TK, PK, STK, SPK, MK, PerK> {
+    /** Config key holding a comma-separated list of team IDs that stay on primary in denylist modes. */
+    teamDenylistKey: DenyK
+}
+
+/** Internal storage shape — denylist key is optional so both variants can share the map. */
+type StoredDualWriteDef<SK extends string, PK extends string, NumK extends string> = DualWriteDef<
+    SK,
+    PK,
+    SK,
+    PK,
+    SK,
+    NumK
+> & { teamDenylistKey?: SK }
 
 /**
  * Builder for `IngestionOutputs` that validates config keys at compile time.
@@ -44,8 +61,10 @@ interface DualWriteDef<
  * - The config contains all accumulated producer keys as `P` (the registry's producer name type)
  * - The config contains all accumulated number keys as `number`
  *
- * Use `registerDualWrite()` to enable dual writes for an output — the mode and percentage
- * config keys control routing behavior at build time.
+ * Use `registerDualWrite()` to enable dual writes for an output with percentage-based modes
+ * (`off`, `copy`, `move`). Use `registerDualWriteWithDenylist()` for outputs that also need
+ * team-denylist routing (`copy_team_denylist`, `move_team_denylist`) — the denylist key is
+ * required in the signature, so it cannot be omitted by mistake.
  *
  * @example
  * ```ts
@@ -66,10 +85,7 @@ export class IngestionOutputsBuilder<
 > {
     constructor(
         private readonly primaryDefs: Map<string, PrimaryDef<StringKey, ProducerKey>> = new Map(),
-        private readonly dualWriteDefs: Map<
-            string,
-            DualWriteDef<StringKey, ProducerKey, StringKey, ProducerKey, StringKey, NumberKey, StringKey>
-        > = new Map()
+        private readonly dualWriteDefs: Map<string, StoredDualWriteDef<StringKey, ProducerKey, NumberKey>> = new Map()
     ) {}
 
     /**
@@ -88,13 +104,12 @@ export class IngestionOutputsBuilder<
     }
 
     /**
-     * Register an output with primary and secondary config key pairs for dual writes.
+     * Register an output with primary and secondary config key pairs for dual writes,
+     * using percentage-based routing modes (`off`, `copy`, `move`).
      *
-     * The mode key controls routing behavior (`off`, `copy`, `move`, `copy_team_denylist`,
-     * `move_team_denylist`). For percentage modes (`copy`/`move`), the percentage key controls
-     * what fraction of messages (by key hash) are routed to secondary. For team-denylist modes,
-     * `teamDenylistKey` must be supplied and holds a comma-separated list of team IDs that
-     * stay on primary — every other team goes to secondary.
+     * The mode key controls routing behavior. For `copy`/`move`, the percentage key controls
+     * what fraction of messages (by key hash) are routed to secondary. Use
+     * `registerDualWriteWithDenylist()` instead if the output needs `*_team_denylist` modes.
      */
     registerDualWrite<
         Name extends string,
@@ -104,10 +119,43 @@ export class IngestionOutputsBuilder<
         NewSPK extends string,
         NewMK extends string,
         NewPerK extends string,
-        NewDenyK extends string = never,
     >(
         name: Name & (Name extends O ? never : Name),
-        definition: DualWriteDef<NewTK, NewPK, NewSTK, NewSPK, NewMK, NewPerK, NewDenyK>
+        definition: DualWriteDef<NewTK, NewPK, NewSTK, NewSPK, NewMK, NewPerK>
+    ): IngestionOutputsBuilder<
+        O | Name,
+        StringKey | NewTK | NewSTK | NewMK,
+        ProducerKey | NewPK | NewSPK,
+        NumberKey | NewPerK
+    > {
+        const duals = new Map<
+            string,
+            StoredDualWriteDef<StringKey | NewTK | NewSTK | NewMK, ProducerKey | NewPK | NewSPK, NumberKey | NewPerK>
+        >(this.dualWriteDefs)
+        duals.set(name, definition)
+        return new IngestionOutputsBuilder(this.primaryDefs, duals)
+    }
+
+    /**
+     * Register a dual-write output that also supports team-denylist routing modes
+     * (`copy_team_denylist`, `move_team_denylist`).
+     *
+     * `teamDenylistKey` is required in the signature — this is what makes the config complete
+     * at the type level. Team IDs in the denylist stay on primary; other teams go to secondary
+     * (move) or both (copy). Messages without a `teamId` stay on primary.
+     */
+    registerDualWriteWithDenylist<
+        Name extends string,
+        NewTK extends string,
+        NewPK extends string,
+        NewSTK extends string,
+        NewSPK extends string,
+        NewMK extends string,
+        NewPerK extends string,
+        NewDenyK extends string,
+    >(
+        name: Name & (Name extends O ? never : Name),
+        definition: DualWriteDefWithDenylist<NewTK, NewPK, NewSTK, NewSPK, NewMK, NewPerK, NewDenyK>
     ): IngestionOutputsBuilder<
         O | Name,
         StringKey | NewTK | NewSTK | NewMK | NewDenyK,
@@ -116,14 +164,10 @@ export class IngestionOutputsBuilder<
     > {
         const duals = new Map<
             string,
-            DualWriteDef<
+            StoredDualWriteDef<
                 StringKey | NewTK | NewSTK | NewMK | NewDenyK,
                 ProducerKey | NewPK | NewSPK,
-                StringKey | NewTK | NewSTK | NewMK | NewDenyK,
-                ProducerKey | NewPK | NewSPK,
-                StringKey | NewTK | NewSTK | NewMK | NewDenyK,
-                NumberKey | NewPerK,
-                StringKey | NewTK | NewSTK | NewMK | NewDenyK
+                NumberKey | NewPerK
             >
         >(this.dualWriteDefs)
         duals.set(name, definition)
