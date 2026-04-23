@@ -16,8 +16,8 @@ import { getTabsSnapshotForHistory, sceneLogic } from 'scenes/sceneLogic'
 import { disposablesPlugin } from '~/kea-disposables'
 
 /*
-Actions for which we don't want to show error alerts,
-mostly to avoid user confusion.
+Actions for which we don't want to show error alerts or report exceptions,
+mostly to avoid user confusion and noisy error tracking for handled failures.
 */
 const ERROR_FILTER_ALLOW_LIST = [
     'loadPreflight', // Gracefully handled if it fails
@@ -32,6 +32,11 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadSimilarIssues', // Gracefully handled in the similar issues list
     'saveEarlyAccessFeature', // Field-level errors handled in earlyAccessFeatureLogic
 ]
+
+// Expected client errors that are handled elsewhere in the app and should not be reported to error tracking:
+// 401 handled by api.ts / userLogic, 403 by sceneLogic gates, 404 typically renders a not-found state,
+// 409 by the approval workflow.
+const EXPECTED_CLIENT_ERROR_STATUSES = [401, 403, 404, 409]
 
 interface InitKeaProps {
     state?: Record<string, any>
@@ -126,7 +131,11 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                posthog.captureException(error)
+                const isExpectedClientError =
+                    typeof error?.status === 'number' && EXPECTED_CLIENT_ERROR_STATUSES.includes(error.status)
+                if (!ERROR_FILTER_ALLOW_LIST.includes(actionKey) && !isExpectedClientError) {
+                    posthog.captureException(error)
+                }
             },
         }),
         subscriptionsPlugin,
