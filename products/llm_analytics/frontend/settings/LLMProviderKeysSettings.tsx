@@ -327,11 +327,13 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
                             <LemonInput
                                 value={apiVersion}
                                 onChange={setApiVersion}
-                                placeholder="2024-10-21"
+                                placeholder={DEFAULT_AZURE_API_VERSION}
                                 className="mt-1"
                                 fullWidth
                             />
-                            <p className="text-xs text-muted mt-1">Azure OpenAI API version (defaults to 2024-10-21)</p>
+                            <p className="text-xs text-muted mt-1">
+                                Azure OpenAI API version (defaults to {DEFAULT_AZURE_API_VERSION})
+                            </p>
                         </div>
                     </>
                 )}
