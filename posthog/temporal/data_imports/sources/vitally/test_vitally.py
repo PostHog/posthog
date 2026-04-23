@@ -68,7 +68,7 @@ def _run_get_messages(
 class TestGetMessagesResume:
     def test_fresh_run_saves_cursor_on_each_subsequent_page(self) -> None:
         manager = _make_manager(can_resume=False)
-        pages = [
+        pages: list[dict[str, Any]] = [
             {"results": [], "next": "cursor-page-2"},
             {"results": [], "next": "cursor-page-3"},
             {"results": [], "next": None},
@@ -97,7 +97,7 @@ class TestGetMessagesResume:
 
     def test_resume_seeds_paginator_and_skips_initial_request(self) -> None:
         manager = _make_manager(can_resume=True, state=VitallyResumeConfig(cursor="cursor-resume"))
-        pages = [{"results": [], "next": None}]
+        pages: list[dict[str, Any]] = [{"results": [], "next": None}]
 
         with patch("posthog.temporal.data_imports.sources.vitally.vitally.requests.Session") as session_cls:
             _, from_params = _run_get_messages(session_cls, manager, pages)
@@ -110,7 +110,7 @@ class TestGetMessagesResume:
 
     def test_resume_continues_paginating_and_saves_next_cursor(self) -> None:
         manager = _make_manager(can_resume=True, state=VitallyResumeConfig(cursor="cursor-resume"))
-        pages = [
+        pages: list[dict[str, Any]] = [
             {"results": [], "next": "cursor-after-resume"},
             {"results": [], "next": None},
         ]

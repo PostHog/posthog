@@ -2776,18 +2776,11 @@ async def test_append_only_table(team, mock_stripe_client):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_worker_shutdown_desc_sort_order(team):
-    """Testing that a descending sort ordered source will not trigger the rescheduling"""
+async def test_worker_shutdown_desc_sort_order(team, stripe_balance_transaction, mock_stripe_client):
+    """Testing that a descending sort ordered, non-resumable source will not trigger the rescheduling"""
 
     def mock_raise_if_is_worker_shutdown(self):
         raise WorkerShuttingDownError("test_id", "test_type", "test_queue", 1, "test_workflow", "test_workflow_type")
-
-    def mock_get_messages(*args, **kwargs):
-        yield {
-            "id": "test-message-id",
-            "conversation_updated_at": datetime.now().isoformat(),
-            "created_at": datetime.now().isoformat(),
-        }
 
     with (
         mock.patch.object(ShutdownMonitor, "raise_if_is_worker_shutdown", mock_raise_if_is_worker_shutdown),
@@ -2795,20 +2788,19 @@ async def test_worker_shutdown_desc_sort_order(team):
             "posthog.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
         ) as mock_trigger_schedule_buffer_one,
         mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1),
-        mock.patch("posthog.temporal.data_imports.sources.vitally.vitally.get_messages", mock_get_messages),
     ):
         _, inputs = await _run(
             team=team,
-            schema_name="Messages",
-            table_name="vitally_messages",
-            source_type="Vitally",
+            schema_name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
+            table_name="stripe_balancetransaction",
+            source_type="Stripe",
             job_inputs={
-                "secret_token": "test_token",
-                "region": {"selection": "EU", "subdomain": ""},
+                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                "stripe_account_id": "acct_id",
             },
-            mock_data_response=[],
+            mock_data_response=stripe_balance_transaction["data"],
             sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
-            sync_type_config={"incremental_field": "conversation_updated_at", "incremental_field_type": "datetime"},
+            sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
             ignore_assertions=True,
         )
 
