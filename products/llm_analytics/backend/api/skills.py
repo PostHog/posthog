@@ -138,11 +138,11 @@ class LLMSkillViewSet(
             return ["llm_skill:write"] if request.method == "PATCH" else ["llm_skill:read"]
         # get_file and delete_file share a URL via @get_file.mapping.delete. We deliberately do
         # NOT set required_scopes on get_file's @action — see the note there. Resolve per-method:
-        # GET → read, DELETE → write.
+        # GET (and HEAD, which DRF auto-routes to GET handlers) → read, DELETE → write.
         if view.action in ["get_file", "delete_file"]:
             if request.method == "DELETE":
                 return ["llm_skill:write"]
-            if request.method == "GET":
+            if request.method in ("GET", "HEAD"):
                 return ["llm_skill:read"]
         return None
 
