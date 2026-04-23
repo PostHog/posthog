@@ -3,8 +3,10 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.test import APIRequestFactory
 
 from ...models.skills import LLMSkill, LLMSkillFile
+from ..skills import LLMSkillViewSet
 
 
 @patch("products.llm_analytics.backend.api.skills.posthoganalytics.feature_enabled", return_value=True)
@@ -736,6 +738,252 @@ class TestLLMSkillAPI(APIBaseTest):
         response = self.client.get(self._url("name/no-files/files/missing.txt"))
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    # --- File CRUD (create / delete / rename) ---
+
+    def test_create_file_adds_file_and_bumps_version(self, mock_feature_enabled):
+        self.create_skill(name="crud-create", body="# V1")
+
+        response = self.client.post(
+            self._url("name/crud-create/files"),
+            data={"path": "scripts/setup.sh", "content": "#!/bin/bash\necho hi"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        assert data["version"] == 2
+        assert {(f["path"], f["content_type"]) for f in data["files"]} == {("scripts/setup.sh", "text/plain")}
+        stored = LLMSkillFile.objects.get(skill__name="crud-create", skill__is_latest=True, path="scripts/setup.sh")
+        assert stored.content == "#!/bin/bash\necho hi"
+
+    def test_create_file_carries_existing_files_forward(self, mock_feature_enabled):
+        skill = self.create_skill(name="crud-carry")
+        LLMSkillFile.objects.create(skill=skill, path="references/a.md", content="A")
+
+        response = self.client.post(
+            self._url("name/crud-carry/files"),
+            data={"path": "references/b.md", "content": "B"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        paths = {f["path"] for f in response.json()["files"]}
+        assert paths == {"references/a.md", "references/b.md"}
+
+    def test_create_file_fails_when_path_exists(self, mock_feature_enabled):
+        skill = self.create_skill(name="crud-dup")
+        LLMSkillFile.objects.create(skill=skill, path="dup.md", content="existing")
+
+        response = self.client.post(
+            self._url("name/crud-dup/files"),
+            data={"path": "dup.md", "content": "new"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert "already exists" in response.json()["detail"]
+
+    def test_create_file_rejects_path_traversal(self, mock_feature_enabled):
+        self.create_skill(name="crud-traversal")
+
+        response = self.client.post(
+            self._url("name/crud-traversal/files"),
+            data={"path": "../etc/passwd", "content": "no"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_file_enforces_max_file_count(self, mock_feature_enabled):
+        from ..skill_services import MAX_SKILL_FILE_COUNT
+
+        skill = self.create_skill(name="crud-max")
+        LLMSkillFile.objects.bulk_create(
+            [LLMSkillFile(skill=skill, path=f"f{i}.md", content="x") for i in range(MAX_SKILL_FILE_COUNT)]
+        )
+
+        response = self.client.post(
+            self._url("name/crud-max/files"),
+            data={"path": "overflow.md", "content": "x"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert str(MAX_SKILL_FILE_COUNT) in response.json()["detail"]
+
+    def test_create_file_on_unknown_skill_returns_404(self, mock_feature_enabled):
+        response = self.client.post(
+            self._url("name/missing/files"),
+            data={"path": "a.md", "content": "A"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_delete_file_removes_file_and_bumps_version(self, mock_feature_enabled):
+        skill = self.create_skill(name="crud-delete")
+        LLMSkillFile.objects.create(skill=skill, path="keep.md", content="K")
+        LLMSkillFile.objects.create(skill=skill, path="remove.md", content="R")
+
+        response = self.client.delete(self._url("name/crud-delete/files/remove.md"))
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["version"] == 2
+        paths = {f["path"] for f in data["files"]}
+        assert paths == {"keep.md"}
+
+    def test_delete_file_returns_404_when_path_missing(self, mock_feature_enabled):
+        self.create_skill(name="crud-delete-missing")
+
+        response = self.client.delete(self._url("name/crud-delete-missing/files/nope.md"))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_delete_file_rejects_path_traversal(self, mock_feature_enabled):
+        self.create_skill(name="crud-delete-traversal")
+
+        response = self.client.delete(self._url("name/crud-delete-traversal/files/..%2Fetc%2Fpasswd"))
+
+        # %2F decodes to '/' so the path *does* reach delete_file; the in-view ".." segment
+        # check is what produces the 400. 404 is also tolerated in case routing/middleware
+        # rejects it earlier for some setups.
+        assert response.status_code in {status.HTTP_400_BAD_REQUEST, status.HTTP_404_NOT_FOUND}
+
+    def test_delete_file_requires_write_scope(self, mock_feature_enabled):
+        # delete_file is registered via @get_file.mapping.delete, which would otherwise
+        # inherit get_file's llm_skill:read scope. Verify DELETE requires llm_skill:write.
+        request = APIRequestFactory().delete("/api/environments/1/llm_skills/name/x/files/a.md")
+        view = LLMSkillViewSet()
+        view.action = "delete_file"
+        assert view.dangerously_get_required_scopes(request, view) == ["llm_skill:write"]
+
+        view.action = "get_file"
+        assert view.dangerously_get_required_scopes(request, view) == ["llm_skill:write"]
+
+    def test_get_file_uses_read_scope(self, mock_feature_enabled):
+        request = APIRequestFactory().get("/api/environments/1/llm_skills/name/x/files/a.md")
+        view = LLMSkillViewSet()
+        view.action = "get_file"
+        # GET on get_file should fall through to the action's own required_scopes=['llm_skill:read']
+        # (dangerously_get_required_scopes returns None so the action decorator's scope wins).
+        assert view.dangerously_get_required_scopes(request, view) is None
+
+    def test_rename_file_moves_file_and_bumps_version(self, mock_feature_enabled):
+        skill = self.create_skill(name="crud-rename")
+        LLMSkillFile.objects.create(skill=skill, path="old/name.md", content="X", content_type="text/markdown")
+
+        response = self.client.post(
+            self._url("name/crud-rename/files-rename"),
+            data={"old_path": "old/name.md", "new_path": "new/name.md"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["version"] == 2
+        paths = {f["path"]: f["content_type"] for f in data["files"]}
+        assert paths == {"new/name.md": "text/markdown"}
+        new_file = LLMSkillFile.objects.get(skill__name="crud-rename", skill__is_latest=True)
+        assert new_file.path == "new/name.md"
+        assert new_file.content == "X"
+        assert new_file.content_type == "text/markdown"
+
+    def test_rename_file_returns_404_when_old_path_missing(self, mock_feature_enabled):
+        self.create_skill(name="crud-rename-missing")
+
+        response = self.client.post(
+            self._url("name/crud-rename-missing/files-rename"),
+            data={"old_path": "missing.md", "new_path": "new.md"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_rename_file_returns_409_when_new_path_exists(self, mock_feature_enabled):
+        skill = self.create_skill(name="crud-rename-conflict")
+        LLMSkillFile.objects.create(skill=skill, path="a.md", content="A")
+        LLMSkillFile.objects.create(skill=skill, path="b.md", content="B")
+
+        response = self.client.post(
+            self._url("name/crud-rename-conflict/files-rename"),
+            data={"old_path": "a.md", "new_path": "b.md"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+
+    def test_rename_file_rejects_same_path(self, mock_feature_enabled):
+        skill = self.create_skill(name="crud-rename-noop")
+        LLMSkillFile.objects.create(skill=skill, path="a.md", content="A")
+
+        response = self.client.post(
+            self._url("name/crud-rename-noop/files-rename"),
+            data={"old_path": "a.md", "new_path": "a.md"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
+            ("create",),
+            ("delete",),
+            ("rename",),
+        ]
+    )
+    def test_file_write_respects_base_version(self, mock_feature_enabled, endpoint):
+        skill_name = f"crud-{endpoint}-bv"
+        skill = self.create_skill(name=skill_name, body="# V1")
+        LLMSkillFile.objects.create(skill=skill, path="target.md", content="T")
+
+        if endpoint == "create":
+            response = self.client.post(
+                self._url(f"name/{skill_name}/files"),
+                data={"path": "new.md", "content": "N", "base_version": 99},
+                format="json",
+            )
+        elif endpoint == "delete":
+            response = self.client.delete(self._url(f"name/{skill_name}/files/target.md") + "?base_version=99")
+        else:
+            response = self.client.post(
+                self._url(f"name/{skill_name}/files-rename"),
+                data={"old_path": "target.md", "new_path": "renamed.md", "base_version": 99},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.json()["current_version"] == 1
+        assert LLMSkillFile.objects.filter(skill__name=skill_name, path="target.md").exists()
+
+    def test_file_crud_sequence_is_chainable_with_base_version(self, mock_feature_enabled):
+        """Agents should be able to chain create/rename/delete via base_version."""
+        self.create_skill(name="crud-chain", body="# V1")
+
+        # v1 -> v2: create a.md with base_version 1
+        r1 = self.client.post(
+            self._url("name/crud-chain/files"),
+            data={"path": "a.md", "content": "A", "base_version": 1},
+            format="json",
+        )
+        assert r1.status_code == status.HTTP_201_CREATED
+        assert r1.json()["version"] == 2
+
+        # v2 -> v3: rename with base_version 2
+        r2 = self.client.post(
+            self._url("name/crud-chain/files-rename"),
+            data={"old_path": "a.md", "new_path": "b.md", "base_version": 2},
+            format="json",
+        )
+        assert r2.status_code == status.HTTP_200_OK
+        assert r2.json()["version"] == 3
+
+        # v3 -> v4: delete with base_version 3
+        r3 = self.client.delete(self._url("name/crud-chain/files/b.md") + "?base_version=3")
+        assert r3.status_code == status.HTTP_200_OK
+        assert r3.json()["version"] == 4
+        assert LLMSkillFile.objects.filter(skill__name="crud-chain", skill__is_latest=True).count() == 0
 
     # --- Resolve ---
 

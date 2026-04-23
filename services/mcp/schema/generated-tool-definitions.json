@@ -3276,7 +3276,7 @@
         }
     },
     "skill-update": {
-        "description": "Publish a new version of an existing agent skill by name. Any field not provided\nis carried forward from the current latest version. Requires base_version for\noptimistic concurrency. If files are provided, they replace all files from the\nprevious version; if omitted, files are carried forward.\n\nFor the body, you can either provide the full content via 'body', or use 'edits'\nfor incremental find/replace updates. Each edit must have 'old' (text to find,\nmust match exactly once) and 'new' (replacement text). Edits are applied\nsequentially. Only one of 'body' or 'edits' may be provided.\n\nFor bundled files, use 'file_edits' to apply find/replace updates to individual\nfiles without resending the full file set — each entry targets one existing file\nby path. Non-targeted files carry forward unchanged. 'file_edits' cannot add,\nremove, or rename files; use 'files' (replace-all) for that. 'files' and\n'file_edits' are mutually exclusive.",
+        "description": "Publish a new version of an existing agent skill by name. Any field not provided\nis carried forward from the current latest version. Requires base_version for\noptimistic concurrency.\n\nFor the body, you can either provide the full content via 'body', or use 'edits'\nfor incremental find/replace updates. Each edit must have 'old' (text to find,\nmust match exactly once) and 'new' (replacement text). Edits are applied\nsequentially. Only one of 'body' or 'edits' may be provided.\n\nFor file changes, prefer the per-file tools rather than passing a 'files' list:\nskill-file-create / skill-file-delete / skill-file-rename handle add/remove/rename\none file at a time and return the updated skill (including the bumped version) so\ncallers can chain further edits via base_version.\n\nFor per-file content updates, use 'file_edits' to apply find/replace updates to\nindividual files without resending the full file set — each entry targets one\nexisting file by path. Non-targeted files carry forward unchanged. 'file_edits'\ncannot add, remove, or rename files; use the per-file tools or 'files' (replace-all)\nfor that. 'files' and 'file_edits' are mutually exclusive.\n\nPassing a 'files' list here replaces ALL files and risks data loss if any file is\nomitted — use it only when you intentionally want to replace the entire bundle.",
         "category": "Skills",
         "feature": "skills",
         "summary": "Update skill",
@@ -3286,6 +3286,51 @@
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "skill-file-create": {
+        "description": "Add a new bundled file to an agent skill. Fails with 409 if a file at the given path already exists — use skill-update with files to replace, or skill-file-delete followed by skill-file-create to overwrite. Publishes a new skill version and returns the updated skill (read its 'version' field to chain further edits via base_version). Supply base_version for optimistic concurrency.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Create skill file",
+        "title": "Create skill file",
+        "required_scopes": ["llm_skill:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "skill-file-delete": {
+        "description": "Remove a bundled file from an agent skill by path. Fails with 404 if the file is not in the latest version. Publishes a new skill version and returns 200 with the updated skill body (not 204) — read its 'version' field to chain further edits via base_version. Supply base_version for optimistic concurrency.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Delete skill file",
+        "title": "Delete skill file",
+        "required_scopes": ["llm_skill:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "skill-file-rename": {
+        "description": "Rename a bundled file within an agent skill. Fails with 404 if old_path is not in the latest version, and with 409 if new_path already exists. Use this to move a file without rewriting its content. Publishes a new skill version and returns the updated skill (read its 'version' field to chain further edits via base_version). Supply base_version for optimistic concurrency.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Rename skill file",
+        "title": "Rename skill file",
+        "required_scopes": ["llm_skill:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
         }
