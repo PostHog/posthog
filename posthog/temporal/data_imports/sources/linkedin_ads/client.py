@@ -37,20 +37,28 @@ class LinkedinAdsClient:
         """Get ad accounts."""
         return self._make_request(endpoint=LinkedinAdsResource.Accounts, finder="search")
 
-    def get_campaigns(self, account_id: str) -> Generator[list[dict[str, Any]], None, None]:
-        """Get campaigns with pagination, yielding each page."""
+    def get_campaigns(
+        self, account_id: str, starting_page_token: Optional[str] = None
+    ) -> Generator[tuple[list[dict[str, Any]], Optional[str]], None, None]:
+        """Get campaigns with pagination, yielding each page with its nextPageToken."""
         account_endpoint = LINKEDIN_ADS_ENDPOINTS[LinkedinAdsResource.Accounts]
         campaigns_endpoint = LINKEDIN_ADS_ENDPOINTS[LinkedinAdsResource.Campaigns]
         yield from self._make_paginated_request(
-            endpoint=LinkedinAdsResource.Campaigns, path=f"/{account_endpoint}/{account_id}/{campaigns_endpoint}"
+            endpoint=LinkedinAdsResource.Campaigns,
+            path=f"/{account_endpoint}/{account_id}/{campaigns_endpoint}",
+            starting_page_token=starting_page_token,
         )
 
-    def get_campaign_groups(self, account_id: str) -> Generator[list[dict[str, Any]], None, None]:
-        """Get campaign groups with pagination, yielding each page."""
+    def get_campaign_groups(
+        self, account_id: str, starting_page_token: Optional[str] = None
+    ) -> Generator[tuple[list[dict[str, Any]], Optional[str]], None, None]:
+        """Get campaign groups with pagination, yielding each page with its nextPageToken."""
         account_endpoint = LINKEDIN_ADS_ENDPOINTS[LinkedinAdsResource.Accounts]
         groups_endpoint = LINKEDIN_ADS_ENDPOINTS[LinkedinAdsResource.CampaignGroups]
         yield from self._make_paginated_request(
-            endpoint=LinkedinAdsResource.CampaignGroups, path=f"/{account_endpoint}/{account_id}/{groups_endpoint}"
+            endpoint=LinkedinAdsResource.CampaignGroups,
+            path=f"/{account_endpoint}/{account_id}/{groups_endpoint}",
+            starting_page_token=starting_page_token,
         )
 
     def get_analytics(
@@ -86,16 +94,21 @@ class LinkedinAdsClient:
         account_id: str,
         date_start: Optional[str] = None,
         date_end: Optional[str] = None,
-    ) -> Generator[list[dict[str, Any]], None, None]:
-        """Get data by resource, yielding each page separately for paginated endpoints."""
+        starting_page_token: Optional[str] = None,
+    ) -> Generator[tuple[list[dict[str, Any]], Optional[str]], None, None]:
+        """Get data by resource, yielding each page and its nextPageToken (if any).
+
+        starting_page_token applies only to paginated endpoints (campaigns, campaign_groups)
+        and is ignored for single-shot endpoints (accounts, analytics).
+        """
         if resource == LinkedinAdsResource.Accounts:
-            yield self.get_accounts()
+            yield self.get_accounts(), None
         elif resource == LinkedinAdsResource.Campaigns:
-            yield from self.get_campaigns(account_id)
+            yield from self.get_campaigns(account_id, starting_page_token=starting_page_token)
         elif resource == LinkedinAdsResource.CampaignGroups:
-            yield from self.get_campaign_groups(account_id)
+            yield from self.get_campaign_groups(account_id, starting_page_token=starting_page_token)
         elif resource in LINKEDIN_ADS_PIVOTS:
-            yield self.get_analytics(account_id, LINKEDIN_ADS_PIVOTS[resource], date_start, date_end)
+            yield self.get_analytics(account_id, LINKEDIN_ADS_PIVOTS[resource], date_start, date_end), None
         else:
             raise ValueError(f"Unsupported resource: {resource}")
 
@@ -151,10 +164,18 @@ class LinkedinAdsClient:
         return response.elements
 
     def _make_paginated_request(
-        self, endpoint: LinkedinAdsResource, path: str
-    ) -> Generator[list[dict[str, Any]], None, None]:
-        """Make paginated requests yielding each page separately."""
-        page_token = None
+        self,
+        endpoint: LinkedinAdsResource,
+        path: str,
+        starting_page_token: Optional[str] = None,
+    ) -> Generator[tuple[list[dict[str, Any]], Optional[str]], None, None]:
+        """Make paginated requests yielding each page with its nextPageToken.
+
+        Yields (elements, next_page_token) where next_page_token is the token to request
+        the page AFTER the one just yielded (None for the final page). Callers can persist
+        this token to resume a run at the next page without re-fetching yielded data.
+        """
+        page_token = starting_page_token
 
         while True:
             fields = self._get_fields_for_resource(endpoint)
@@ -167,12 +188,19 @@ class LinkedinAdsClient:
             if not response.elements:
                 break
 
-            yield response.elements
+            # A malformed/empty envelope is treated as "no more pages" rather than crashing the sync.
+            try:
+                metadata = json.loads(response.response.text).get("metadata", {})
+            except (TypeError, ValueError):
+                metadata = {}
+            next_page_token = metadata.get("nextPageToken")
 
-            metadata = json.loads(response.response.text).get("metadata", {})
-            page_token = metadata.get("nextPageToken")
-            if not page_token:
+            yield response.elements, next_page_token
+
+            if not next_page_token:
                 break
+
+            page_token = next_page_token
 
     def _format_date_range(self, date_start: str, date_end: str) -> dict:
         """Format date range for LinkedIn API as structured object."""

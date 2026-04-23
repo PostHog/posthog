@@ -57,7 +57,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
             caption="Enter your Redshift credentials to automatically pull your Redshift data into the PostHog Data warehouse",
             iconPath="/static/services/redshift.png",
             docsUrl="https://posthog.com/docs/cdp/sources/redshift",
-            betaSource=True,
+            releaseStatus="beta",
             fields=cast(
                 list[FieldType],
                 [

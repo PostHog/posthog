@@ -1,6 +1,6 @@
 import abc
 import threading
-from typing import Any, Optional, Union
+from typing import IO, Any, Optional, Union
 
 from django.conf import settings
 
@@ -67,6 +67,10 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
+    def write_stream(self, bucket: str, key: str, fileobj: IO[bytes], extras: dict | None = None) -> None:
+        pass
+
+    @abc.abstractmethod
     def write_from_file(self, bucket: str, key: str, file_path: str) -> None:
         pass
 
@@ -121,6 +125,9 @@ class UnavailableStorage(ObjectStorageClient):
         pass
 
     def write(self, bucket: str, key: str, content: Union[str, bytes], extras: dict | None) -> None:
+        pass
+
+    def write_stream(self, bucket: str, key: str, fileobj: IO[bytes], extras: dict | None = None) -> None:
         pass
 
     def write_from_file(self, bucket: str, key: str, file_path: str) -> None:
@@ -277,6 +284,30 @@ class ObjectStorage(ObjectStorageClient):
             capture_exception(e)
             raise ObjectStorageError("write failed") from e
 
+    def write_stream(self, bucket: str, key: str, fileobj: IO[bytes], extras: dict | None = None) -> None:
+        """
+        Stream an upload straight from a binary file-like object. Peak memory is
+        bounded by boto3's chunk size rather than the size of the payload — use
+        this when the source is a network stream (e.g. `requests.get(stream=True).raw`)
+        instead of buffering the whole body before calling `write()`.
+        """
+        try:
+            self.aws_client.upload_fileobj(
+                Fileobj=fileobj,
+                Bucket=bucket,
+                Key=key,
+                ExtraArgs=extras or {},
+            )
+        except Exception as e:
+            logger.exception(
+                "object_storage.write_stream_failed",
+                bucket=bucket,
+                file_name=key,
+                error=e,
+            )
+            capture_exception(e)
+            raise ObjectStorageError("write_stream failed") from e
+
     def write_from_file(self, bucket: str, key: str, file_path: str) -> None:
         """Upload a file to S3 by streaming from disk."""
         try:
@@ -387,6 +418,15 @@ def write_from_file(file_name: str, file_path: str, bucket: str | None = None) -
         bucket=bucket or settings.OBJECT_STORAGE_BUCKET,
         key=file_name,
         file_path=file_path,
+    )
+
+
+def write_stream(file_name: str, fileobj: IO[bytes], extras: dict | None = None, bucket: str | None = None) -> None:
+    return object_storage_client().write_stream(
+        bucket=bucket or settings.OBJECT_STORAGE_BUCKET,
+        key=file_name,
+        fileobj=fileobj,
+        extras=extras,
     )
 
 

@@ -44,11 +44,36 @@ export class PostHogClient {
         return body.results.filter((f: PostHogFeatureFlag) => !f.deleted)
     }
 
-    async fetchExperiments(projectId: string): Promise<PostHogExperiment[]> {
-        const path = `/api/projects/${encodeURIComponent(projectId)}/experiments/?limit=25&order=-updated_at`
-        logger.debug('Fetching experiments', path)
-        const body = await this.getJson<ListResponse<PostHogExperiment>>(path)
-        return body.results.filter((e: PostHogExperiment) => !e.archived)
+    async fetchAllFeatureFlags(projectId: string, onPage: (page: PostHogFeatureFlag[]) => void): Promise<void> {
+        const firstPath = `/api/projects/${encodeURIComponent(projectId)}/feature_flags/?limit=100&order=-updated_at`
+        await this.streamAllPages<PostHogFeatureFlag>(firstPath, (page) => {
+            onPage(page.filter((f) => !f.deleted))
+        })
+    }
+
+    async fetchAllExperiments(projectId: string, onPage: (page: PostHogExperiment[]) => void): Promise<void> {
+        const firstPath = `/api/projects/${encodeURIComponent(projectId)}/experiments/?limit=100&order=-updated_at`
+        await this.streamAllPages<PostHogExperiment>(firstPath, (page) => {
+            onPage(page.filter((e) => !e.archived))
+        })
+    }
+
+    private async streamAllPages<T>(firstPath: string, onPage: (page: T[]) => void): Promise<void> {
+        let nextPath: string | null = firstPath
+        while (nextPath) {
+            const body: ListResponse<T> = await this.getJson<ListResponse<T>>(nextPath)
+            onPage(body.results)
+            nextPath = body.next ? this.toRelativePath(body.next) : null
+        }
+    }
+
+    private toRelativePath(url: string): string {
+        try {
+            const parsed = new URL(url)
+            return parsed.pathname + parsed.search
+        } catch {
+            return url
+        }
     }
 
     async fetchCustomerJourneys(projectId: string): Promise<PostHogCustomerJourney[]> {
@@ -64,23 +89,25 @@ export class PostHogClient {
         return this.getJson<PostHogInsight>(path)
     }
 
-    async fetchEventTrends(projectId: string): Promise<{ date: string; count: number }[]> {
+    async fetchEventTrends(projectId: string, days: number): Promise<{ date: string; count: number }[]> {
         const path = `/api/projects/${encodeURIComponent(projectId)}/query/`
         logger.debug('Fetching event trends', path)
+
+        const bucket = days > 31 ? 'toStartOfWeek' : 'toStartOfDay'
         const body = await this.postJson<{ results: [number, string][] }>(path, {
             query: {
                 kind: 'HogQLQuery',
-                query: `SELECT count() AS count, toStartOfWeek(timestamp) AS week
+                query: `SELECT count() AS count, ${bucket}(timestamp) AS bucket
                          FROM events
-                         WHERE timestamp >= today() - INTERVAL 8 WEEK
-                         GROUP BY week
-                         ORDER BY week`,
+                         WHERE timestamp >= today() - INTERVAL ${days} DAY
+                         GROUP BY bucket
+                         ORDER BY bucket`,
             },
         })
-        return body.results.map(([count, week]: [number, string]) => ({ date: week, count }))
+        return body.results.map(([count, bucket]: [number, string]) => ({ date: bucket, count }))
     }
 
-    async fetchTopEvents(projectId: string, limit = 5): Promise<{ event: string; count: number }[]> {
+    async fetchTopEvents(projectId: string, days: number, limit = 5): Promise<{ event: string; count: number }[]> {
         const path = `/api/projects/${encodeURIComponent(projectId)}/query/`
         logger.debug('Fetching top events', path)
         const body = await this.postJson<{ results: [number, string][] }>(path, {
@@ -88,7 +115,7 @@ export class PostHogClient {
                 kind: 'HogQLQuery',
                 query: `SELECT count() AS count, event
                          FROM events
-                         WHERE timestamp >= today() - INTERVAL 8 WEEK
+                         WHERE timestamp >= today() - INTERVAL ${days} DAY
                            AND event NOT IN (${IGNORED_EVENTS_SQL})
                          GROUP BY event
                          ORDER BY count DESC
@@ -98,14 +125,14 @@ export class PostHogClient {
         return body.results.map(([count, event]: [number, string]) => ({ event, count }))
     }
 
-    async fetchWebOverview(projectId: string): Promise<WebOverviewItem[]> {
+    async fetchWebOverview(projectId: string, dateFrom: string): Promise<WebOverviewItem[]> {
         const path = `/api/projects/${encodeURIComponent(projectId)}/query/`
         logger.debug('Fetching web overview', path)
         const body = await this.postJson<{ results: WebOverviewItem[] }>(path, {
             query: {
                 kind: 'WebOverviewQuery',
                 properties: [],
-                dateRange: { date_from: '-30d' },
+                dateRange: { date_from: dateFrom },
                 compareFilter: { compare: true },
                 filterTestAccounts: true,
             },

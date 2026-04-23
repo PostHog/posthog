@@ -31,6 +31,7 @@ from posthog.temporal.data_imports.sources.bigquery.bigquery import BigQuerySour
 from posthog.temporal.data_imports.sources.common.base import FieldType
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.postgres.postgres import PostgresDiscoveredSchema
+from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
@@ -1953,6 +1954,46 @@ class TestExternalDataSource(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json(), {"message": "Schema is required for warehouse imports."})
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_database_schema_postgres_direct_allows_blank_schema(self, mock_get_source):
+        source = PostgresSource()
+        mock_get_source.return_value = source
+
+        with (
+            patch.object(source, "validate_credentials_for_access_method", return_value=(True, None)) as validate,
+            patch.object(
+                source,
+                "get_schemas",
+                return_value=[
+                    SourceSchema(
+                        name="public.accounts",
+                        supports_incremental=False,
+                        supports_append=False,
+                        columns=[("id", "integer", False)],
+                        foreign_keys=[],
+                    )
+                ],
+            ),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+                data={
+                    "source_type": "Postgres",
+                    "access_method": "direct",
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "",
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()[0]["table"], "public.accounts")
+        validate.assert_called_once()
+        self.assertEqual(validate.call_args.args[2], "direct")
 
     def test_database_schema(self):
         postgres_connection = psycopg.connect(
