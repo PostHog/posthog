@@ -866,8 +866,6 @@ const AssistantStickinessDisplayType = z.enum(['ActionsLineGraph', 'ActionsBar',
 
 const StickinessOperator = z.enum(['gte', 'lte', 'exact'])
 
-const positive_integer = z.coerce.number().int()
-
 const non_negative_integer = z.coerce.number().int()
 
 const StickinessCriteria = z.object({
