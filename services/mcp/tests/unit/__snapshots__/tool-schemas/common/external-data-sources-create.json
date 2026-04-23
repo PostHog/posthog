@@ -10,6 +10,7 @@
         "description": {
             "anyOf": [
                 {
+                    "maxLength": 400,
                     "type": "string"
                 },
                 {
@@ -29,6 +30,7 @@
         "prefix": {
             "anyOf": [
                 {
+                    "maxLength": 100,
                     "type": "string"
                 },
                 {
