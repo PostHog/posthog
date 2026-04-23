@@ -1,4 +1,6 @@
-from posthog.schema import EntityType
+from typing import Literal
+
+from posthog.schema import EntityType, RetentionEntity
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
@@ -37,99 +39,18 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         start_interval_index_filter: int | None = None,
         selected_breakdown_value: str | list[str] | int | None = None,
     ) -> ast.SelectQuery:
-        event_filters = self._event_filters()
         is_valid_start_interval = self._is_valid_start_interval_expr()
         intervals_from_base_expr, _ = self._get_intervals_from_base_exprs()
-        start_entity_is_dwh = self.start_event.type == EntityType.DATA_WAREHOUSE
 
-        start_actor_column_name = (
-            self.start_event.aggregation_target_field if start_entity_is_dwh else self.aggregation_target_events_column
+        start_event_query = self._build_dwh_retention_event_query(
+            entity=self.start_event,
+            legacy_entity_expr=self.start_entity_expr,
+            query_kind="start",
         )
-        assert start_actor_column_name
-        start_actor_field = ast.Field(chain=[start_actor_column_name])
-
-        start_timestamp_column_name = self.start_event.timestamp_field if start_entity_is_dwh else "timestamp"
-        assert start_timestamp_column_name
-        start_timestamp_field = ast.Field(chain=[start_timestamp_column_name])
-
-        start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(source=start_timestamp_field)
-        start_entity_expr = (
-            property_to_expr(self.start_event.properties, self.team)
-            if start_entity_is_dwh and self.start_event.properties
-            else (ast.Constant(value=True) if start_entity_is_dwh else self.start_entity_expr)
-        )
-        start_event_timestamps = parse_expr(
-            """
-            arraySort(
-                groupUniqArrayIf(
-                    {start_of_interval_sql},
-                    {start_entity_expr} and
-                    {filter_timestamp}
-                )
-            )
-            """,
-            {
-                "start_of_interval_sql": start_of_interval_sql,
-                "start_entity_expr": start_entity_expr,
-                "filter_timestamp": self.events_timestamp_filter(field=start_timestamp_field),
-            },
-        )
-
-        start_table_name = self.start_event.table_name if start_entity_is_dwh else "events"
-        assert start_table_name
-        start_where_expr = None if start_entity_is_dwh else ast.And(exprs=event_filters)
-
-        start_event_query = ast.SelectQuery(
-            select=[
-                ast.Alias(alias="actor_id", expr=start_actor_field),
-                ast.Alias(alias="start_event_timestamps", expr=start_event_timestamps),
-                ast.Alias(alias="return_event_timestamps", expr=ast.Array(exprs=[])),
-            ],
-            select_from=ast.JoinExpr(table=ast.Field(chain=[start_table_name])),
-            where=start_where_expr,
-            group_by=[ast.Field(chain=["actor_id"])],
-        )
-
-        return_entity_is_dwh = self.return_event.type == EntityType.DATA_WAREHOUSE
-
-        return_actor_column_name = (
-            self.return_event.aggregation_target_field
-            if return_entity_is_dwh
-            else self.aggregation_target_events_column
-        )
-        assert return_actor_column_name
-        return_actor_field = ast.Field(chain=[return_actor_column_name])
-
-        return_timestamp_column_name = self.return_event.timestamp_field if return_entity_is_dwh else "timestamp"
-        assert return_timestamp_column_name
-        return_timestamp_field = ast.Field(chain=[return_timestamp_column_name])
-        return_start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(source=return_timestamp_field)
-
-        return_table_name = self.return_event.table_name if return_entity_is_dwh else "events"
-        assert return_table_name
-        return_where_expr = None if return_entity_is_dwh else ast.And(exprs=event_filters)
-
-        return_entity_expr = (
-            property_to_expr(self.return_event.properties, self.team)
-            if return_entity_is_dwh and self.return_event.properties
-            else (ast.Constant(value=True) if return_entity_is_dwh else self.return_entity_expr)
-        )
-        return_event_timestamps = self._get_return_event_timestamps_expr(
-            minimum_occurrences=self.minimum_occurrences,
-            start_of_interval_sql=return_start_of_interval_sql,
-            return_entity_expr=return_entity_expr,
-            timestamp_field=return_timestamp_field,
-        )
-
-        return_event_query = ast.SelectQuery(
-            select=[
-                ast.Alias(alias="actor_id", expr=return_actor_field),
-                ast.Alias(alias="start_event_timestamps", expr=ast.Array(exprs=[])),
-                ast.Alias(alias="return_event_timestamps", expr=return_event_timestamps),
-            ],
-            select_from=ast.JoinExpr(table=ast.Field(chain=[return_table_name])),
-            where=return_where_expr,
-            group_by=[ast.Field(chain=["actor_id"])],
+        return_event_query = self._build_dwh_retention_event_query(
+            entity=self.return_event,
+            legacy_entity_expr=self.return_entity_expr,
+            query_kind="return",
         )
 
         retention_events = ast.SelectSetQuery.create_from_queries([start_event_query, return_event_query], "UNION ALL")
@@ -198,6 +119,80 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         )
 
         return base_query
+
+    def _build_dwh_retention_event_query(
+        self,
+        entity: RetentionEntity,
+        legacy_entity_expr: ast.Expr,
+        query_kind: Literal["start", "return"],
+    ) -> ast.SelectQuery:
+        entity_is_dwh = entity.type == EntityType.DATA_WAREHOUSE
+
+        actor_column_name = entity.aggregation_target_field if entity_is_dwh else self.aggregation_target_events_column
+        assert actor_column_name
+        actor_field = ast.Field(chain=[actor_column_name])
+
+        timestamp_column_name = entity.timestamp_field if entity_is_dwh else "timestamp"
+        assert timestamp_column_name
+        timestamp_field = ast.Field(chain=[timestamp_column_name])
+
+        start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(source=timestamp_field)
+        entity_expr = self._get_dwh_retention_entity_expr(entity=entity, legacy_entity_expr=legacy_entity_expr)
+
+        if query_kind == "start":
+            timestamps_expr = parse_expr(
+                """
+                arraySort(
+                    groupUniqArrayIf(
+                        {start_of_interval_sql},
+                        {entity_expr} and
+                        {filter_timestamp}
+                    )
+                )
+                """,
+                {
+                    "start_of_interval_sql": start_of_interval_sql,
+                    "entity_expr": entity_expr,
+                    "filter_timestamp": self.events_timestamp_filter(field=timestamp_field),
+                },
+            )
+        else:
+            timestamps_expr = self._get_return_event_timestamps_expr(
+                minimum_occurrences=self.minimum_occurrences,
+                start_of_interval_sql=start_of_interval_sql,
+                return_entity_expr=entity_expr,
+                timestamp_field=timestamp_field,
+            )
+
+        table_name = entity.table_name if entity_is_dwh else "events"
+        assert table_name
+        where_expr = None if entity_is_dwh else ast.And(exprs=self._event_filters())
+
+        return ast.SelectQuery(
+            select=[
+                ast.Alias(alias="actor_id", expr=actor_field),
+                ast.Alias(
+                    alias="start_event_timestamps",
+                    expr=timestamps_expr if query_kind == "start" else ast.Array(exprs=[]),
+                ),
+                ast.Alias(
+                    alias="return_event_timestamps",
+                    expr=ast.Array(exprs=[]) if query_kind == "start" else timestamps_expr,
+                ),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
+            where=where_expr,
+            group_by=[ast.Field(chain=["actor_id"])],
+        )
+
+    def _get_dwh_retention_entity_expr(self, entity: RetentionEntity, legacy_entity_expr: ast.Expr) -> ast.Expr:
+        if entity.type != EntityType.DATA_WAREHOUSE:
+            return legacy_entity_expr
+
+        if entity.properties:
+            return property_to_expr(entity.properties, self.team)
+
+        return ast.Constant(value=True)
 
     # Original version of the fixed interval query.
     def build_base_query_legacy(
