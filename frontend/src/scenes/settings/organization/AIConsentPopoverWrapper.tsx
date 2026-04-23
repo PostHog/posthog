@@ -36,10 +36,9 @@ export function AIConsentPopoverWrapper({
 
     return (
         <Popover
-            maxContentWidth
             // Note: Sync the copy below with organization-ai-consent in SettingsMap.tsx
             overlay={
-                <div className="flex flex-col m-1.5">
+                <div className="flex flex-col m-1.5 max-w-[33vw]">
                     <p className="font-medium text-pretty mb-0">
                         PostHog AI needs your approval to potentially process
                         <br />
