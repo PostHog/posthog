@@ -1,6 +1,7 @@
 import json
 from datetime import timedelta
 
+import structlog
 import temporalio
 from temporalio import workflow
 from temporalio.common import RetryPolicy
@@ -20,6 +21,8 @@ from products.signals.backend.temporal.signal_queries import (
     wait_for_signal_in_clickhouse_activity,
 )
 from products.signals.backend.temporal.types import SignalReportDeletionWorkflowInputs
+
+logger = structlog.get_logger(__name__)
 
 
 @temporalio.workflow.defn(name="signal-report-deletion")
@@ -54,7 +57,10 @@ class SignalReportDeletionWorkflow:
         )
 
         if not fetch_result.signals:
-            workflow.logger.warning(f"No signals found for report {inputs.report_id}, deleting report only")
+            logger.warning(
+                "No signals found for report, deleting report only",
+                report_id=inputs.report_id,
+            )
             await workflow.execute_activity(
                 delete_report_activity,
                 DeleteReportInput(team_id=inputs.team_id, report_id=inputs.report_id),
@@ -98,6 +104,8 @@ class SignalReportDeletionWorkflow:
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-        workflow.logger.info(
-            f"Deletion complete for report {inputs.report_id}: {len(fetch_result.signals)} signals soft-deleted"
+        logger.info(
+            "Deletion complete for report: signals soft-deleted",
+            report_id=inputs.report_id,
+            signal_count=len(fetch_result.signals),
         )

@@ -326,7 +326,10 @@ class SignalReportReingestionWorkflow:
         )
 
         if not fetch_result.signals:
-            workflow.logger.warning(f"No signals found for report {inputs.report_id}, deleting report only")
+            logger.warning(
+                "No signals found for report, deleting report only",
+                report_id=inputs.report_id,
+            )
             await workflow.execute_activity(
                 delete_report_activity,
                 DeleteReportInput(team_id=inputs.team_id, report_id=inputs.report_id),
@@ -335,8 +338,10 @@ class SignalReportReingestionWorkflow:
             )
             return
 
-        workflow.logger.info(
-            f"Fetched {len(fetch_result.signals)} signals for report {inputs.report_id}, proceeding with reingestion"
+        logger.info(
+            "Fetched signals for report, proceeding with reingestion",
+            report_id=inputs.report_id,
+            signal_count=len(fetch_result.signals),
         )
 
         # 2. Soft-delete all signals in ClickHouse
@@ -382,9 +387,10 @@ class SignalReportReingestionWorkflow:
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-        workflow.logger.info(
-            f"Reingestion complete for report {inputs.report_id}: "
-            f"{len(fetch_result.signals)} signals re-submitted to grouping"
+        logger.info(
+            "Reingestion complete for report: signals re-submitted to grouping",
+            report_id=inputs.report_id,
+            signal_count=len(fetch_result.signals),
         )
 
 
@@ -461,7 +467,7 @@ class TeamSignalReingestionWorkflow:
                 )
 
                 if batch_result.processed_count == 0:
-                    workflow.logger.info(
+                    logger.info(
                         "Team-wide signal reingestion complete",
                         team_id=inputs.team_id,
                         delete_only=inputs.delete_only,

@@ -79,7 +79,11 @@ class SignalReportSummaryWorkflow:
             should_loop = await self._run_once(inputs)
             if not should_loop:
                 return
-        workflow.logger.warning(f"Report {inputs.report_id} hit max loop iterations ({max_iterations}), exiting")
+        logger.warning(
+            "Report hit max loop iterations, exiting",
+            report_id=inputs.report_id,
+            max_iterations=max_iterations,
+        )
 
     async def _run_once(self, inputs: SignalReportSummaryWorkflowInputs) -> bool:
         """Run a single report generation cycle. Returns True if new signals arrived and another cycle is needed."""
@@ -91,7 +95,10 @@ class SignalReportSummaryWorkflow:
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         if not fetch_result.signals:
-            workflow.logger.error(f"No signals found for report {inputs.report_id}, marking as failed")
+            logger.error(
+                "No signals found for report, marking as failed",
+                report_id=inputs.report_id,
+            )
             await workflow.execute_activity(
                 mark_report_failed_activity,
                 MarkReportFailedInput(team_id=inputs.team_id, report_id=inputs.report_id, error="No signals found"),
@@ -121,7 +128,11 @@ class SignalReportSummaryWorkflow:
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
             if not safety_result.safe:
-                workflow.logger.warning(f"Report {inputs.report_id} failed safety review: {safety_result.explanation}")
+                logger.warning(
+                    "Report failed safety review",
+                    report_id=inputs.report_id,
+                    explanation=safety_result.explanation,
+                )
                 await workflow.execute_activity(
                     mark_report_failed_activity,
                     MarkReportFailedInput(
@@ -146,7 +157,11 @@ class SignalReportSummaryWorkflow:
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
             if repo_result.repository is None:
-                workflow.logger.warning(f"Report {inputs.report_id} no repository selected: {repo_result.reason}")
+                logger.warning(
+                    "Report has no repository selected",
+                    report_id=inputs.report_id,
+                    reason=repo_result.reason,
+                )
                 decision = ReportDecision(
                     title="Repository selection required",
                     summary=f"Could not automatically select a repository: {repo_result.reason}",
@@ -174,7 +189,11 @@ class SignalReportSummaryWorkflow:
                     explanation=agentic_result.explanation,
                 )
             if decision.choice == ActionabilityChoice.NOT_ACTIONABLE:
-                workflow.logger.info(f"Report {inputs.report_id} deemed not actionable: {decision.explanation}")
+                logger.info(
+                    "Report deemed not actionable",
+                    report_id=inputs.report_id,
+                    explanation=decision.explanation,
+                )
                 await workflow.execute_activity(
                     reset_report_to_potential_activity,
                     ResetReportToPotentialInput(
@@ -188,7 +207,11 @@ class SignalReportSummaryWorkflow:
                 # No loop, as report is not actionable
                 return False
             if decision.choice == ActionabilityChoice.REQUIRES_HUMAN_INPUT:
-                workflow.logger.info(f"Report {inputs.report_id} requires human input: {decision.explanation}")
+                logger.info(
+                    "Report requires human input",
+                    report_id=inputs.report_id,
+                    explanation=decision.explanation,
+                )
                 await workflow.execute_activity(
                     mark_report_pending_input_activity,
                     MarkReportPendingInput(
@@ -218,7 +241,10 @@ class SignalReportSummaryWorkflow:
             )
             # 7. If new signals arrived during the run - loop back to the start
             if has_new_signals:
-                workflow.logger.info(f"Report {inputs.report_id} has new signals since run started, looping")
+                logger.info(
+                    "Report has new signals since run started, looping",
+                    report_id=inputs.report_id,
+                )
             else:  # Only emit the notification if we're not going to immediately re-run
                 await workflow.execute_activity(
                     publish_report_completed_activity,
