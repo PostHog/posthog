@@ -63,7 +63,7 @@ export const POSTHOG_CODE_CONSUMER = 'posthog-code'
 export type ClientCapabilities = {
     // MCP `initialize` response includes an `instructions` field that most
     // clients inject into the model's system prompt. Codex discards it, so
-    // we skip the build + payload cost for those sessions.
+    // we skip sending it (saving the payload cost) for those sessions.
     supportsInstructions: boolean
 }
 
