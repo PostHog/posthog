@@ -88,6 +88,9 @@ class LLMAEvaluationSamplerWorkflow(PostHogWorkflow):
         )
 
 
+# Replaced by the real Stage B implementation in the follow-up PR that adds
+# the activities module; this whole class, its reuse of SamplerWorkflowInputs/Result,
+# and the no-op run body go away at that point.
 @workflow.defn(name=CLUSTERING_WORKFLOW_NAME)
 class LLMAEvaluationClusteringWorkflow(PostHogWorkflow):
     """Daily per-job clustering workflow.
