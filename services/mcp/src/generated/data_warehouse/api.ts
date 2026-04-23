@@ -3,10 +3,22 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 27 enabled ops
+ * PostHog API - MCP 35 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+/**
+ * Returns failed/disabled data pipeline items for the Pipeline status side panel.
+Includes: materializations, syncs, sources, destinations, and transformations.
+ */
+export const DataWarehouseDataHealthIssuesRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
 
 export const ExternalDataSchemasListParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -64,6 +76,19 @@ export const ExternalDataSchemasDeleteDataDestroyParams = /* @__PURE__ */ zod.ob
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+})
+
+export const ExternalDataSchemasIncrementalFieldsCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this external data schema.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zod.object({
+    should_sync: zod.boolean().optional(),
 })
 
 export const ExternalDataSchemasReloadCreateParams = /* @__PURE__ */ zod.object({
@@ -182,6 +207,58 @@ export const ExternalDataSourcesDestroyParams = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export const ExternalDataSourcesCreateWebhookCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this external data source.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const externalDataSourcesCreateWebhookCreateBodyPrefixMax = 100
+
+export const externalDataSourcesCreateWebhookCreateBodyDescriptionMax = 400
+
+export const ExternalDataSourcesCreateWebhookCreateBody = /* @__PURE__ */ zod
+    .object({
+        client_secret: zod.string(),
+        account_id: zod.string(),
+        prefix: zod.string().max(externalDataSourcesCreateWebhookCreateBodyPrefixMax).nullish(),
+        description: zod.string().max(externalDataSourcesCreateWebhookCreateBodyDescriptionMax).nullish(),
+        job_inputs: zod.unknown().nullish(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export const ExternalDataSourcesDeleteWebhookCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this external data source.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const externalDataSourcesDeleteWebhookCreateBodyPrefixMax = 100
+
+export const externalDataSourcesDeleteWebhookCreateBodyDescriptionMax = 400
+
+export const ExternalDataSourcesDeleteWebhookCreateBody = /* @__PURE__ */ zod
+    .object({
+        client_secret: zod.string(),
+        account_id: zod.string(),
+        prefix: zod.string().max(externalDataSourcesDeleteWebhookCreateBodyPrefixMax).nullish(),
+        description: zod.string().max(externalDataSourcesDeleteWebhookCreateBodyDescriptionMax).nullish(),
+        job_inputs: zod.unknown().nullish(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
+
+/**
  * Fetch current schema/table list from the source and create any new ExternalDataSchema rows (no data sync).
  */
 export const ExternalDataSourcesRefreshSchemasCreateParams = /* @__PURE__ */ zod.object({
@@ -211,6 +288,83 @@ export const ExternalDataSourcesReloadCreateParams = /* @__PURE__ */ zod.object(
 
 export const ExternalDataSourcesReloadCreateBody = /* @__PURE__ */ zod
     .object({})
+    .describe('Mixin for serializers to add user access control fields')
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export const ExternalDataSourcesUpdateWebhookInputsCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this external data source.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const externalDataSourcesUpdateWebhookInputsCreateBodyPrefixMax = 100
+
+export const externalDataSourcesUpdateWebhookInputsCreateBodyDescriptionMax = 400
+
+export const ExternalDataSourcesUpdateWebhookInputsCreateBody = /* @__PURE__ */ zod
+    .object({
+        client_secret: zod.string(),
+        account_id: zod.string(),
+        prefix: zod.string().max(externalDataSourcesUpdateWebhookInputsCreateBodyPrefixMax).nullish(),
+        description: zod.string().max(externalDataSourcesUpdateWebhookInputsCreateBodyDescriptionMax).nullish(),
+        job_inputs: zod.unknown().nullish(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export const ExternalDataSourcesWebhookInfoRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this external data source.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Validate CDC prerequisites against a live Postgres connection.
+
+Used by the source wizard to surface ✅/❌ checks before source creation,
+and by the self-managed setup popup to verify user-created publications.
+ */
+export const ExternalDataSourcesCheckCdcPrerequisitesCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export const ExternalDataSourcesDatabaseSchemaCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const externalDataSourcesDatabaseSchemaCreateBodyPrefixMax = 100
+
+export const externalDataSourcesDatabaseSchemaCreateBodyDescriptionMax = 400
+
+export const ExternalDataSourcesDatabaseSchemaCreateBody = /* @__PURE__ */ zod
+    .object({
+        client_secret: zod.string(),
+        account_id: zod.string(),
+        prefix: zod.string().max(externalDataSourcesDatabaseSchemaCreateBodyPrefixMax).nullish(),
+        description: zod.string().max(externalDataSourcesDatabaseSchemaCreateBodyDescriptionMax).nullish(),
+        job_inputs: zod.unknown().nullish(),
+    })
     .describe('Mixin for serializers to add user access control fields')
 
 /**

@@ -304,7 +304,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "quantileIf": HogQLFunctionMeta("quantileIf", 2, 2, min_params=1, max_params=1, aggregate=True),
     "quantiles": HogQLFunctionMeta("quantiles", 1, None, aggregate=True),
     "quantilesIf": HogQLFunctionMeta("quantilesIf", 2, 2, min_params=1, max_params=1, aggregate=True),
-    # "quantileExact": HogQLFunctionMeta("quantileExact", 1, 1, aggregate=True),
+    "quantileExact": HogQLFunctionMeta("quantileExact", 1, 1, min_params=1, max_params=1, aggregate=True),
     # "quantileExactIf": HogQLFunctionMeta("quantileExactIf", 2, 2, aggregate=True),
     # "quantileExactLow": HogQLFunctionMeta("quantileExactLow", 1, 1, aggregate=True),
     # "quantileExactLowIf": HogQLFunctionMeta("quantileExactLowIf", 2, 2, aggregate=True),

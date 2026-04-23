@@ -318,7 +318,9 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
 
     if django_db_keepdb:
         # Reset ClickHouse data, unless we're running AI evals, where we want to keep the DB between runs
-        if not settings.IN_EVAL_TESTING:
+        # Also allow skipping reset via environment variable for faster development iteration
+        skip_ch_reset = os.environ.get("SKIP_CLICKHOUSE_RESET", "0").lower() in {"1", "true", "yes"}
+        if not settings.IN_EVAL_TESTING and not skip_ch_reset:
             reset_clickhouse_tables()
     else:
         database.drop_database()

@@ -44,6 +44,7 @@ members = [
     "personhog-common",
     "personhog-coordination",
     "personhog-leader",
+    "personhog-writer",
     "personhog-proto",
     "personhog-replica",
     "personhog-router",

@@ -22,7 +22,9 @@ export const AgenticAuthorize = (): JSX.Element => {
         allOrganizations,
         filteredTeams,
         allTeamsLoading,
+        pendingAuthLoading,
         state,
+        partnerName,
         agenticAuthorization,
         isAgenticAuthorizationSubmitting,
     } = useValues(agenticAuthorizeLogic)
@@ -32,7 +34,7 @@ export const AgenticAuthorize = (): JSX.Element => {
         return <OAuthAuthorizeError title="Invalid request" description="Missing required state parameter." />
     }
 
-    if (allTeamsLoading) {
+    if (allTeamsLoading || pendingAuthLoading) {
         return (
             <div className="flex items-center justify-center h-full py-12">
                 <Spinner />
@@ -47,10 +49,10 @@ export const AgenticAuthorize = (): JSX.Element => {
             <div className="max-w-2xl mx-auto py-8 px-4 sm:py-12 sm:px-6">
                 <div className="text-center mb-4 sm:mb-8">
                     <h2 className="text-xl sm:text-2xl font-semibold">
-                        Authorize <strong>Stripe</strong>
+                        Authorize <strong>{partnerName}</strong>
                     </h2>
                     <p className="text-muted mt-2 text-sm sm:text-base">
-                        Stripe is requesting access to your PostHog project.
+                        {partnerName} is requesting access to your PostHog project.
                     </p>
                 </div>
 
@@ -131,7 +133,7 @@ export const AgenticAuthorize = (): JSX.Element => {
                                 disabledReason={isAgenticAuthorizationSubmitting ? 'Authorizing...' : undefined}
                                 onClick={() => submitAgenticAuthorization()}
                             >
-                                Authorize Stripe
+                                Authorize {partnerName}
                             </LemonButton>
                         </div>
                     </LemonCard>

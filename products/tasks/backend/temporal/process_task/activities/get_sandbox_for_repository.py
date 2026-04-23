@@ -212,6 +212,8 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         # can be rebuilt from logs even when the filesystem snapshot has expired.
         if run_state.resume_from_run_id:
             environment_variables["POSTHOG_RESUME_RUN_ID"] = run_state.resume_from_run_id
+        elif run_state.handoff_resumed:
+            environment_variables["POSTHOG_RESUME_RUN_ID"] = str(ctx.run_id)
 
         # Check for resume snapshot (takes priority over integration-level snapshots)
         resume_snapshot_ext_id = run_state.snapshot_external_id

@@ -4726,7 +4726,7 @@ class TestPostgresPrinter(BaseTest):
             ),
             (
                 "SELECT distinct_id, event FROM events WHERE event = 'test'",
-                "SELECT events.distinct_id, events.event FROM events WHERE (events.event = 'test') LIMIT 50000",
+                "SELECT events.distinct_id, events.event FROM events WHERE (events.event = %(hogql_val_0)s) LIMIT 50000",
             ),
             (
                 "SELECT event FROM events ORDER BY timestamp DESC",
@@ -4814,17 +4814,17 @@ class TestPostgresPrinter(BaseTest):
             (
                 "basic",
                 "SELECT 1 FROM events PIVOT (count() FOR event IN ('a', 'b'))",
-                "SELECT 1 FROM events PIVOT (count() FOR events.event IN ('a', 'b')) LIMIT 50000",
+                "SELECT 1 FROM events PIVOT (count() FOR events.event IN (%(hogql_val_0)s, %(hogql_val_1)s)) LIMIT 50000",
             ),
             (
                 "multiple_columns",
                 "SELECT 1 FROM events PIVOT (count() FOR event IN ('a') distinct_id IN (1, 2) GROUP BY timestamp)",
-                "SELECT 1 FROM events PIVOT (count() FOR events.event IN ('a') events.distinct_id IN (1, 2) GROUP BY events.timestamp) LIMIT 50000",
+                "SELECT 1 FROM events PIVOT (count() FOR events.event IN (%(hogql_val_0)s) events.distinct_id IN (1, 2) GROUP BY events.timestamp) LIMIT 50000",
             ),
             (
                 "join",
                 "SELECT 1 FROM events JOIN events AS e2 ON 1 PIVOT (count() FOR events.event IN ('a'))",
-                "SELECT 1 FROM events JOIN events AS e2 ON 1 PIVOT (count() FOR events.event IN ('a')) LIMIT 50000",
+                "SELECT 1 FROM events JOIN events AS e2 ON 1 PIVOT (count() FOR events.event IN (%(hogql_val_0)s)) LIMIT 50000",
             ),
         ]
     )
@@ -5025,14 +5025,14 @@ class TestPostgresPrinter(BaseTest):
 
     @parameterized.expand(
         [
-            ("date_trunc('second', timestamp)", "date_trunc('second', events.timestamp)"),
-            ("date_trunc('minute', timestamp)", "date_trunc('minute', events.timestamp)"),
-            ("date_trunc('hour', timestamp)", "date_trunc('hour', events.timestamp)"),
-            ("date_trunc('day', timestamp)", "date_trunc('day', events.timestamp)"),
-            ("date_trunc('week', timestamp)", "date_trunc('week', events.timestamp)"),
-            ("date_trunc('month', timestamp)", "date_trunc('month', events.timestamp)"),
-            ("date_trunc('quarter', timestamp)", "date_trunc('quarter', events.timestamp)"),
-            ("date_trunc('year', timestamp)", "date_trunc('year', events.timestamp)"),
+            ("date_trunc('second', timestamp)", "date_trunc(%(hogql_val_0)s, events.timestamp)"),
+            ("date_trunc('minute', timestamp)", "date_trunc(%(hogql_val_0)s, events.timestamp)"),
+            ("date_trunc('hour', timestamp)", "date_trunc(%(hogql_val_0)s, events.timestamp)"),
+            ("date_trunc('day', timestamp)", "date_trunc(%(hogql_val_0)s, events.timestamp)"),
+            ("date_trunc('week', timestamp)", "date_trunc(%(hogql_val_0)s, events.timestamp)"),
+            ("date_trunc('month', timestamp)", "date_trunc(%(hogql_val_0)s, events.timestamp)"),
+            ("date_trunc('quarter', timestamp)", "date_trunc(%(hogql_val_0)s, events.timestamp)"),
+            ("date_trunc('year', timestamp)", "date_trunc(%(hogql_val_0)s, events.timestamp)"),
         ]
     )
     def test_date_trunc_passthrough_in_postgres(self, expr: str, expected: str):
@@ -5106,7 +5106,7 @@ class TestPostgresPrinter(BaseTest):
             stack=[prepared_select_query],
         )
 
-        self.assertEqual(rendered, "('__hx_tag', 'div')")
+        self.assertEqual(rendered, "(%(hogql_val_0)s, %(hogql_val_1)s)")
 
     def test_comparison_operators(self):
         self.assertEqual(self._expr("a = b"), "(a = b)")
@@ -5168,7 +5168,7 @@ class TestPostgresPrinter(BaseTest):
     def test_postgres_style_cast(self):
         self.assertEqual(self._expr("123::int"), "CAST(123 AS int)")
         self.assertEqual(self._expr("123.45::float"), "CAST(123.45 AS float)")
-        self.assertEqual(self._expr("'2024-01-01'::date"), "CAST('2024-01-01' AS date)")
+        self.assertEqual(self._expr("'2024-01-01'::date"), "CAST(%(hogql_val_0)s AS date)")
         self.assertEqual(self._expr("event::int"), "CAST(events.event AS int)")
         self.assertEqual(self._expr("event::text"), "CAST(events.event AS text)")
         self.assertEqual(self._expr("event::boolean"), "CAST(events.event AS boolean)")
@@ -5211,6 +5211,35 @@ class TestPostgresPrinter(BaseTest):
             type_name=type_name,
         )
         self.assertEqual(self._expr(node), f"CAST(123 AS {expected_escaped})")
+
+    @parameterized.expand(
+        [
+            # SQL injection attempts — mirrors test_type_cast_typename_escape for TRY_CAST.
+            ("int); DROP TABLE users; --", '"int); DROP TABLE users; --"'),
+            ("text' OR '1'='1", "\"text' OR '1'='1\""),
+            ("int; DELETE FROM events;", '"int; DELETE FROM events;"'),
+            ("varchar(100)); --", '"varchar(100)); --"'),
+            # Quote escaping
+            ('int"test', '"int""test"'),
+            ("int'test", '"int\'test"'),
+            # Backslash handling
+            ("int\\test", '"int\\test"'),
+            # Unicode/special chars
+            ("int\x00test", '"int\x00test"'),
+            # Newlines and whitespace injection
+            ("int\nDROP TABLE", '"int\nDROP TABLE"'),
+            ("int\rtest", '"int\rtest"'),
+            # Simple identifiers should not be quoted
+            ("varchar", "varchar"),
+            ("integer", "integer"),
+        ]
+    )
+    def test_try_cast_typename_escape(self, type_name, expected_escaped):
+        node = ast.TryCast(
+            expr=ast.Constant(value=123),
+            type_name=type_name,
+        )
+        self.assertEqual(self._expr(node), f"TRY_CAST(123 AS {expected_escaped})")
 
     @parameterized.expand(
         [
@@ -5304,19 +5333,19 @@ class TestPostgresPrinter(BaseTest):
     def test_values_query(self):
         self.assertEqual(
             self._select("SELECT * FROM (VALUES (1, 'a'), (2, 'b')) AS v (id, name)"),
-            "SELECT v.id, v.name FROM (VALUES (1, 'a'), (2, 'b')) AS v (id, name) LIMIT 50000",
+            "SELECT v.id, v.name FROM (VALUES (1, %(hogql_val_0)s), (2, %(hogql_val_1)s)) AS v (id, name) LIMIT 50000",
         )
 
     def test_values_query_no_alias_columns(self):
         self.assertEqual(
             self._select("SELECT * FROM (VALUES (1, 'hello')) AS v"),
-            "SELECT v.col0, v.col1 FROM (VALUES (1, 'hello')) AS v (col0, col1) LIMIT 50000",
+            "SELECT v.col0, v.col1 FROM (VALUES (1, %(hogql_val_0)s)) AS v (col0, col1) LIMIT 50000",
         )
 
     def test_values_query_no_alias(self):
         self.assertEqual(
             self._select("SELECT * FROM (VALUES (1, 'george', 'created'), (2, 'jack', 'deleted'))"),
-            "SELECT values.col0, values.col1, values.col2 FROM (VALUES (1, 'george', 'created'), (2, 'jack', 'deleted')) AS values (col0, col1, col2) LIMIT 50000",
+            "SELECT values.col0, values.col1, values.col2 FROM (VALUES (1, %(hogql_val_0)s, %(hogql_val_1)s), (2, %(hogql_val_2)s, %(hogql_val_3)s)) AS values (col0, col1, col2) LIMIT 50000",
         )
 
     def test_values_query_clickhouse_raises_error(self):
@@ -5423,28 +5452,32 @@ class TestPostgresPrinter(BaseTest):
         [
             # Renames
             ("ifNull", "ifNull(1, 2)", "COALESCE(1, 2)"),
-            ("replaceAll", "replaceAll('abc', 'a', 'z')", "REPLACE('abc', 'a', 'z')"),
-            ("replaceRegexpAll", "replaceRegexpAll('abc', 'a', 'z')", "REGEXP_REPLACE('abc', 'a', 'z')"),
+            ("replaceAll", "replaceAll('abc', 'a', 'z')", "REPLACE(%(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s)"),
+            (
+                "replaceRegexpAll",
+                "replaceRegexpAll('abc', 'a', 'z')",
+                "REGEXP_REPLACE(%(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s)",
+            ),
             ("toTypeName", "toTypeName(1)", "pg_typeof(1)"),
             ("now", "now()", "NOW()"),
             ("any", "any(event)", "MIN(events.event)"),
-            ("startsWith", "startsWith('hello', 'he')", "starts_with('hello', 'he')"),
+            ("startsWith", "startsWith('hello', 'he')", "starts_with(%(hogql_val_0)s, %(hogql_val_1)s)"),
             ("rand", "rand()", "random()"),
             ("generateSeries", "generateSeries(1, 10, 1)", "generate_series(1, 10, 1)"),
             # Type conversions
-            ("toDate", "toDate('2024-01-01')", "CAST('2024-01-01' AS DATE)"),
-            ("toDateTime", "toDateTime('2024-01-01')", "CAST('2024-01-01' AS TIMESTAMP)"),
-            ("toDateTime_tz", "toDateTime('2024-01-01', 'UTC')", "CAST('2024-01-01' AS TIMESTAMP)"),
+            ("toDate", "toDate('2024-01-01')", "CAST(%(hogql_val_0)s AS DATE)"),
+            ("toDateTime", "toDateTime('2024-01-01')", "CAST(%(hogql_val_0)s AS TIMESTAMP)"),
+            ("toDateTime_tz", "toDateTime('2024-01-01', 'UTC')", "CAST(%(hogql_val_0)s AS TIMESTAMP)"),
             ("toString", "toString(123)", "CAST(123 AS TEXT)"),
             ("toInt", "toInt(3.14)", "CAST(3.14 AS BIGINT)"),
             ("toFloat", "toFloat(1)", "CAST(1 AS DOUBLE PRECISION)"),
-            ("toFloatOrZero", "toFloatOrZero('1.5')", "CAST('1.5' AS DOUBLE PRECISION)"),
-            ("toFloatOrDefault", "toFloatOrDefault('1.5')", "CAST('1.5' AS DOUBLE PRECISION)"),
-            ("toIntOrZero", "toIntOrZero('42')", "CAST('42' AS BIGINT)"),
+            ("toFloatOrZero", "toFloatOrZero('1.5')", "CAST(%(hogql_val_0)s AS DOUBLE PRECISION)"),
+            ("toFloatOrDefault", "toFloatOrDefault('1.5')", "CAST(%(hogql_val_0)s AS DOUBLE PRECISION)"),
+            ("toIntOrZero", "toIntOrZero('42')", "CAST(%(hogql_val_0)s AS BIGINT)"),
             ("toBool", "toBool(1)", "CAST(1 AS BOOLEAN)"),
-            ("toUUID", "toUUID('abc')", "CAST('abc' AS UUID)"),
+            ("toUUID", "toUUID('abc')", "CAST(%(hogql_val_0)s AS UUID)"),
             ("toDecimal", "toDecimal(1, 2)", "CAST(1 AS DECIMAL)"),
-            ("toDateTime64", "toDateTime64('2024-01-01', 3)", "CAST('2024-01-01' AS TIMESTAMP)"),
+            ("toDateTime64", "toDateTime64('2024-01-01', 3)", "CAST(%(hogql_val_0)s AS TIMESTAMP)"),
             # Date extraction
             ("toYear", "toYear(now())", "EXTRACT(YEAR FROM NOW())"),
             ("toQuarter", "toQuarter(now())", "EXTRACT(QUARTER FROM NOW())"),
@@ -5495,38 +5528,62 @@ class TestPostgresPrinter(BaseTest):
             (
                 "dateDiff",
                 "dateDiff('day', now(), now())",
-                "DATE_PART('day', CAST(NOW() AS TIMESTAMP) - CAST(NOW() AS TIMESTAMP))",
+                "DATE_PART(%(hogql_val_0)s, CAST(NOW() AS TIMESTAMP) - CAST(NOW() AS TIMESTAMP))",
             ),
             # Conditional
-            ("if", "if(1, 'yes', 'no')", "CASE WHEN 1 THEN 'yes' ELSE 'no' END"),
-            ("multiIf", "multiIf(1, 'a', 0, 'b', 'c')", "CASE WHEN 1 THEN 'a' WHEN 0 THEN 'b' ELSE 'c' END"),
+            ("if", "if(1, 'yes', 'no')", "CASE WHEN 1 THEN %(hogql_val_0)s ELSE %(hogql_val_1)s END"),
+            (
+                "multiIf",
+                "multiIf(1, 'a', 0, 'b', 'c')",
+                "CASE WHEN 1 THEN %(hogql_val_0)s WHEN 0 THEN %(hogql_val_1)s ELSE %(hogql_val_2)s END",
+            ),
             # Null/empty
-            ("empty", "empty('test')", "('test' IS NULL OR 'test' = '')"),
-            ("notEmpty", "notEmpty('test')", "('test' IS NOT NULL AND 'test' != '')"),
+            ("empty", "empty('test')", "(%(hogql_val_0)s IS NULL OR %(hogql_val_0)s = '')"),
+            ("notEmpty", "notEmpty('test')", "(%(hogql_val_0)s IS NOT NULL AND %(hogql_val_0)s != '')"),
             ("isNull", "isNull(1)", "(1 IS NULL)"),
             ("isNotNull", "isNotNull(1)", "(1 IS NOT NULL)"),
             ("assumeNotNull", "assumeNotNull(1)", "1"),
             ("toNullable", "toNullable(1)", "1"),
             # JSON
-            ("JSONExtractInt", "JSONExtractInt('{}', 'key')", "CAST(json_extract_path_text('{}', 'key') AS INTEGER)"),
+            (
+                "JSONExtractInt",
+                "JSONExtractInt('{}', 'key')",
+                "CAST(json_extract_path_text(%(hogql_val_0)s, %(hogql_val_1)s) AS INTEGER)",
+            ),
             (
                 "JSONExtractFloat",
                 "JSONExtractFloat('{}', 'key')",
-                "CAST(json_extract_path_text('{}', 'key') AS DOUBLE PRECISION)",
+                "CAST(json_extract_path_text(%(hogql_val_0)s, %(hogql_val_1)s) AS DOUBLE PRECISION)",
             ),
-            ("JSONExtractBool", "JSONExtractBool('{}', 'key')", "CAST(json_extract_path_text('{}', 'key') AS BOOLEAN)"),
+            (
+                "JSONExtractBool",
+                "JSONExtractBool('{}', 'key')",
+                "CAST(json_extract_path_text(%(hogql_val_0)s, %(hogql_val_1)s) AS BOOLEAN)",
+            ),
             (
                 "JSONExtractUInt",
                 "JSONExtractUInt('{}', 'key')",
-                "CAST(json_extract_path_text('{}', 'key') AS INTEGER)",
+                "CAST(json_extract_path_text(%(hogql_val_0)s, %(hogql_val_1)s) AS INTEGER)",
             ),
             # String
-            ("match", "match('hello', 'h.*o')", "('hello' ~ 'h.*o')"),
-            ("splitByString", "splitByString(',', 'a,b,c')", "STRING_TO_ARRAY('a,b,c', ',')"),
-            ("splitByChar", "splitByChar(',', 'a,b,c')", "STRING_TO_ARRAY('a,b,c', ',')"),
-            ("endsWith", "endsWith('hello', 'lo')", "(RIGHT('hello', LENGTH('lo')) = 'lo')"),
-            ("replaceOne", "replaceOne('abc', 'a', 'z')", "REGEXP_REPLACE('abc', 'a', 'z')"),
-            ("replaceRegexpOne", "replaceRegexpOne('abc', 'a+', 'z')", "REGEXP_REPLACE('abc', 'a+', 'z')"),
+            ("match", "match('hello', 'h.*o')", "(%(hogql_val_0)s ~ %(hogql_val_1)s)"),
+            ("splitByString", "splitByString(',', 'a,b,c')", "STRING_TO_ARRAY(%(hogql_val_1)s, %(hogql_val_0)s)"),
+            ("splitByChar", "splitByChar(',', 'a,b,c')", "STRING_TO_ARRAY(%(hogql_val_1)s, %(hogql_val_0)s)"),
+            (
+                "endsWith",
+                "endsWith('hello', 'lo')",
+                "(RIGHT(%(hogql_val_0)s, LENGTH(%(hogql_val_1)s)) = %(hogql_val_1)s)",
+            ),
+            (
+                "replaceOne",
+                "replaceOne('abc', 'a', 'z')",
+                "REGEXP_REPLACE(%(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s)",
+            ),
+            (
+                "replaceRegexpOne",
+                "replaceRegexpOne('abc', 'a+', 'z')",
+                "REGEXP_REPLACE(%(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s)",
+            ),
             # Math
             ("e", "e()", "exp(1)"),
             ("log2", "log2(8)", "log(2, 8)"),
@@ -5624,3 +5681,125 @@ class TestPostgresPrinter(BaseTest):
             self._expr("date_bin(toIntervalHour(1), now(), now())", context=context),
             "date_bin((1 * INTERVAL '1 hour'), NOW(), NOW())",
         )
+
+
+class TestDuckDBPrinter(BaseTest):
+    """DuckDB printer tests — focused on the DuckDB-specific overrides vs Postgres.
+
+    The DuckDB dialect inherits most of its behavior from PostgresPrinter, so the
+    full PG test surface is implicitly covered via inheritance. The assertions below
+    lock in the specific places DuckDB output diverges from PG.
+    """
+
+    maxDiff = None
+
+    def _expr(
+        self,
+        query: ast.Expr | str,
+        context: Optional[HogQLContext] = None,
+        settings: Optional[HogQLQuerySettings] = None,
+        backend: HogQLParserBackend = "cpp-json",
+    ) -> str:
+        node = parse_expr(query, backend=backend) if isinstance(query, str) else query
+        context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        select_query = ast.SelectQuery(
+            select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])), settings=settings
+        )
+        prepared_select_query: ast.SelectQuery = cast(
+            ast.SelectQuery,
+            prepare_ast_for_printing(select_query, context=context, dialect="duckdb", stack=[select_query]),
+        )
+        return print_prepared_ast(
+            prepared_select_query.select[0],
+            context=context,
+            dialect="duckdb",
+            stack=[prepared_select_query],
+        )
+
+    def _select(
+        self,
+        query: str,
+        context: Optional[HogQLContext] = None,
+        placeholders: Optional[dict[str, ast.Expr]] = None,
+    ) -> str:
+        return prepare_and_print_ast(
+            parse_select(query, placeholders=placeholders, backend="cpp-json"),
+            context or HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "duckdb",
+        )[0]
+
+    @parameterized.expand(
+        [
+            ("any_renames_to_any_value", "any(event)", "any_value(events.event)"),
+            ("toTypeName_renames_to_typeof", "toTypeName(event)", "typeof(events.event)"),
+            (
+                "formatDateTime_renames_to_strftime",
+                "formatDateTime(timestamp, '%Y-%m-%d')",
+                "strftime(events.timestamp, %(hogql_val_0)s)",
+            ),
+            (
+                "endsWith_renames_to_ends_with",
+                "endsWith(event, '_done')",
+                "ends_with(events.event, %(hogql_val_0)s)",
+            ),
+        ]
+    )
+    def test_function_renames(self, _name: str, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
+    def test_smoke_basic_select(self):
+        self.assertEqual(
+            self._select("SELECT event FROM events"),
+            "SELECT events.event FROM events LIMIT 50000",
+        )
+
+    def test_identifier_no_truncation(self):
+        # PG would truncate a >63-char generated alias containing double underscores into a SHA-suffixed
+        # name via ``_print_identifier``'s truncation heuristic. The separate ``escape_postgres_identifier``
+        # length error applies to overlong identifiers that don't hit that heuristic. DuckDB leaves it intact.
+        long_name = "a_really_long_table_name_that_would_force_pg_to_truncate__here"
+        long_name += "_even_further_past_63_chars"
+        self.assertGreater(len(long_name), 63)
+        from posthog.hogql.printer.duckdb import DuckDBPrinter
+
+        printer = DuckDBPrinter(context=HogQLContext(team_id=self.team.pk))
+        # Simple alphanumeric identifier — returned verbatim without quoting.
+        self.assertEqual(printer._print_identifier(long_name), long_name)
+
+    @parameterized.expand(
+        [
+            ("anti",),
+            ("asof",),
+            ("attach",),
+            ("detach",),
+            ("exclude",),
+            ("install",),
+            ("load",),
+            ("macro",),
+            ("pivot",),
+            ("positional",),
+            ("pragma",),
+            ("qualify",),
+            ("replace",),
+            ("sample",),
+            ("semi",),
+            ("summarize",),
+            ("unpivot",),
+        ]
+    )
+    def test_duckdb_extra_reserved_keywords_are_quoted(self, name: str):
+        # DuckDB reserves these even though Postgres doesn't — an unquoted identifier would parse-error.
+        from posthog.hogql.printer.duckdb import DuckDBPrinter
+
+        printer = DuckDBPrinter(context=HogQLContext(team_id=self.team.pk))
+        self.assertEqual(printer._print_identifier(name), f'"{name}"')
+
+    def test_percent_in_identifier_rejected_postgres_family(self):
+        # ``%`` in an identifier would confuse psycopg's parameter-placeholder scanning.
+        from posthog.hogql.printer.duckdb import DuckDBPrinter
+        from posthog.hogql.printer.postgres import PostgresPrinter
+
+        ctx = HogQLContext(team_id=self.team.pk)
+        for printer in (DuckDBPrinter(context=ctx), PostgresPrinter(context=ctx)):
+            with self.assertRaisesMessage(QueryError, 'is not permitted as it contains the "%" character'):
+                printer._print_identifier("bad%name")

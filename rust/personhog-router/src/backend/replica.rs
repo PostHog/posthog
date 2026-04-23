@@ -19,9 +19,11 @@ use personhog_proto::personhog::types::v1::{
     ListCohortMemberIdsResponse, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
     PersonsResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
-use tonic::transport::Channel;
+use tonic::transport::{Channel, Endpoint};
 use tonic::{Request, Status};
+use tracing::info;
 
 use personhog_common::grpc::current_client_name;
 
@@ -29,42 +31,84 @@ use super::retry::with_retry;
 use super::PersonHogBackend;
 use crate::config::RetryConfig;
 
-/// Backend implementation that forwards requests to a personhog-replica service.
+/// Backend implementation that forwards requests to a personhog-replica service
+/// using multiple gRPC channels with round-robin selection.
+///
+/// Connection lifecycle is managed server-side via `max_connection_age` on the
+/// replica's gRPC server, which sends GOAWAY to trigger transparent client
+/// reconnects — no client-side recycling needed.
 pub struct ReplicaBackend {
-    client: PersonHogReplicaClient<Channel>,
+    clients: Vec<PersonHogReplicaClient<Channel>>,
+    next_idx: AtomicUsize,
     retry_config: RetryConfig,
 }
 
-impl ReplicaBackend {
-    /// Create a new replica backend with a lazy connection to the given URL.
-    pub fn new(
-        url: &str,
-        timeout: Duration,
-        retry_config: RetryConfig,
-        keepalive_interval: Option<Duration>,
-        keepalive_timeout: Option<Duration>,
-        max_send_message_size: usize,
-        max_recv_message_size: usize,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let mut endpoint = Channel::from_shared(url.to_string())?
-            .timeout(timeout)
-            .tcp_nodelay(true);
-        if let Some(interval) = keepalive_interval {
-            endpoint = endpoint
-                .http2_keep_alive_interval(interval)
-                .keep_alive_while_idle(true);
-        }
-        if let Some(timeout) = keepalive_timeout {
-            endpoint = endpoint.keep_alive_timeout(timeout);
-        }
-        let channel = endpoint.connect_lazy();
+/// Configuration for creating replica backend channels.
+#[derive(Clone)]
+pub struct ReplicaBackendConfig {
+    pub url: String,
+    pub timeout: Duration,
+    pub retry_config: RetryConfig,
+    pub keepalive_interval: Option<Duration>,
+    pub keepalive_timeout: Option<Duration>,
+    pub max_send_message_size: usize,
+    pub max_recv_message_size: usize,
+    pub num_channels: usize,
+}
 
-        Ok(Self {
-            client: PersonHogReplicaClient::new(channel)
-                .max_encoding_message_size(max_send_message_size)
-                .max_decoding_message_size(max_recv_message_size),
-            retry_config,
+fn build_endpoint(config: &ReplicaBackendConfig) -> Endpoint {
+    let mut endpoint = Channel::from_shared(config.url.clone())
+        .unwrap_or_else(|e| panic!("invalid replica URL '{}': {e}", config.url))
+        .timeout(config.timeout)
+        .tcp_nodelay(true);
+    if let Some(interval) = config.keepalive_interval {
+        endpoint = endpoint
+            .http2_keep_alive_interval(interval)
+            .keep_alive_while_idle(true);
+    }
+    if let Some(timeout) = config.keepalive_timeout {
+        endpoint = endpoint.keep_alive_timeout(timeout);
+    }
+    endpoint
+}
+
+fn create_clients(config: &ReplicaBackendConfig) -> Vec<PersonHogReplicaClient<Channel>> {
+    (0..config.num_channels)
+        .map(|_| {
+            let channel = build_endpoint(config).connect_lazy();
+            PersonHogReplicaClient::new(channel)
+                .max_encoding_message_size(config.max_send_message_size)
+                .max_decoding_message_size(config.max_recv_message_size)
         })
+        .collect()
+}
+
+impl ReplicaBackend {
+    pub fn new(config: ReplicaBackendConfig) -> Self {
+        let retry_config = config.retry_config;
+        let num_channels = config.num_channels.max(1);
+        let config = ReplicaBackendConfig {
+            num_channels,
+            ..config
+        };
+
+        let clients = create_clients(&config);
+        info!(
+            num_channels,
+            url = config.url,
+            "created replica backend channels"
+        );
+
+        Self {
+            clients,
+            next_idx: AtomicUsize::new(0),
+            retry_config,
+        }
+    }
+
+    fn next_client(&self) -> PersonHogReplicaClient<Channel> {
+        let idx = self.next_idx.fetch_add(1, Ordering::Relaxed) % self.clients.len();
+        self.clients[idx].clone()
     }
 }
 
@@ -72,9 +116,9 @@ impl ReplicaBackend {
 /// Forwards the `x-client-name` header so the downstream service can
 /// attribute metrics to the originating client.
 macro_rules! retry_call {
-    ($self:expr, $method:ident, $request:expr) => {
+    ($self:expr, $method:ident, $request:expr) => {{
         with_retry(&$self.retry_config, stringify!($method), || {
-            let mut client = $self.client.clone();
+            let mut client = $self.next_client();
             let req = $request.clone();
             let client_name = current_client_name();
             async move {
@@ -86,7 +130,7 @@ macro_rules! retry_call {
             }
         })
         .await
-    };
+    }};
 }
 
 #[async_trait]
@@ -282,5 +326,57 @@ impl PersonHogBackend for ReplicaBackend {
         request: GetGroupTypeMappingsByProjectIdsRequest,
     ) -> Result<GroupTypeMappingsBatchResponse, Status> {
         retry_call!(self, get_group_type_mappings_by_project_ids, request)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_backend(num_channels: usize) -> ReplicaBackend {
+        ReplicaBackend::new(ReplicaBackendConfig {
+            url: "http://localhost:50051".to_string(),
+            timeout: Duration::from_secs(1),
+            retry_config: RetryConfig {
+                max_retries: 0,
+                initial_backoff_ms: 1,
+                max_backoff_ms: 1,
+            },
+            keepalive_interval: None,
+            keepalive_timeout: None,
+            max_send_message_size: 4 * 1024 * 1024,
+            max_recv_message_size: 4 * 1024 * 1024,
+            num_channels,
+        })
+    }
+
+    #[tokio::test]
+    async fn next_client_round_robins_across_channels() {
+        let backend = make_backend(4);
+        for round in 0..3u64 {
+            for ch in 0..4u64 {
+                backend.next_client();
+                let expected = round * 4 + ch + 1;
+                assert_eq!(backend.next_idx.load(Ordering::Relaxed), expected as usize);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn next_client_wraps_around() {
+        let backend = make_backend(3);
+        for _ in 0..3 {
+            backend.next_client();
+        }
+        // 4th call uses counter=3, so index = 3 % 3 = 0 (wraps back to first channel)
+        let idx_before = backend.next_idx.load(Ordering::Relaxed);
+        backend.next_client();
+        assert_eq!(idx_before % backend.clients.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn num_channels_floors_to_one() {
+        let backend = make_backend(0);
+        assert_eq!(backend.clients.len(), 1);
     }
 }

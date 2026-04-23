@@ -30,7 +30,7 @@ from products.experiments.backend.experiment_summary_data_service import (
     transform_variant_for_max,
 )
 from products.experiments.backend.metric_utils import get_default_metric_title
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -433,3 +433,193 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
 
         self.assertFalse(pending_calculation)
         self.assertIsNotNone(last_refresh)
+
+    @freeze_time("2020-01-10T12:00:00Z")
+    async def test_fetch_experiment_data_includes_saved_metrics(self):
+        experiment = await self.acreate_experiment(name="saved-metrics-test", with_metrics=False)
+
+        # Create saved metrics and link them via ExperimentToSavedMetric
+        primary_saved = await ExperimentSavedMetric.objects.acreate(
+            team=self.team,
+            name="Team Growth NSM",
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "funnel",
+                "series": [{"kind": "EventsNode", "event": "first team event ingested"}],
+                "uuid": "primary-saved-uuid",
+            },
+        )
+        secondary_saved = await ExperimentSavedMetric.objects.acreate(
+            team=self.team,
+            name="Onboarding Completion",
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "funnel",
+                "series": [{"kind": "EventsNode", "event": "onboarding completed"}],
+                "uuid": "secondary-saved-uuid",
+            },
+        )
+        await ExperimentToSavedMetric.objects.acreate(
+            experiment=experiment, saved_metric=primary_saved, metadata={"type": "primary"}
+        )
+        await ExperimentToSavedMetric.objects.acreate(
+            experiment=experiment, saved_metric=secondary_saved, metadata={"type": "secondary"}
+        )
+
+        mock_query_result = MagicMock()
+        mock_query_result.variant_results = [
+            ExperimentVariantResultBayesian(
+                key="control",
+                method="bayesian",
+                chance_to_win=0.4,
+                credible_interval=[-0.05, 0.05],
+                significant=False,
+                number_of_samples=100,
+                sum=50,
+                sum_squares=2500,
+            ),
+            ExperimentVariantResultBayesian(
+                key="test",
+                method="bayesian",
+                chance_to_win=0.6,
+                credible_interval=[-0.02, 0.08],
+                significant=False,
+                number_of_samples=100,
+                sum=55,
+                sum_squares=3025,
+            ),
+        ]
+        mock_query_result.last_refresh = datetime(2020, 1, 10, 11, 0, tzinfo=ZoneInfo("UTC"))
+
+        mock_exposure_result = MagicMock()
+        mock_exposure_result.total_exposures = {"control": 500, "test": 500}
+        mock_exposure_result.last_refresh = datetime(2020, 1, 10, 11, 0, tzinfo=ZoneInfo("UTC"))
+
+        with (
+            patch(
+                "products.experiments.backend.experiment_summary_data_service.posthoganalytics.feature_enabled",
+                return_value=False,
+            ),
+            patch(
+                "products.experiments.backend.experiment_summary_data_service.ExperimentQueryRunner"
+            ) as mock_query_runner_class,
+            patch(
+                "products.experiments.backend.experiment_summary_data_service.ExperimentExposuresQueryRunner"
+            ) as mock_exposure_runner_class,
+        ):
+            mock_query_runner_class.return_value.run.return_value = mock_query_result
+            mock_exposure_runner_class.return_value.run.return_value = mock_exposure_result
+
+            data_service = ExperimentSummaryDataService(self.team)
+            context, _, _ = await data_service.fetch_experiment_data(experiment.id)
+
+        self.assertEqual(len(context.primary_metrics_results), 1)
+        self.assertEqual(len(context.secondary_metrics_results), 1)
+
+        # Verify the saved metric queries were actually passed to the query runner
+        query_runner_calls = mock_query_runner_class.call_args_list
+        self.assertEqual(len(query_runner_calls), 2)
+        metrics_queried = [call.kwargs["query"].metric.metric_type for call in query_runner_calls]
+        self.assertEqual(metrics_queried, ["funnel", "funnel"])
+
+    @freeze_time("2020-01-10T12:00:00Z")
+    async def test_fetch_experiment_data_combines_inline_and_saved_metrics(self):
+        experiment = await self.acreate_experiment(name="mixed-metrics-test", with_metrics=True)
+        # experiment.metrics already has 1 inline primary metric from acreate_experiment
+
+        # Add 1 inline secondary
+        experiment.metrics_secondary = [
+            {
+                "metric_type": "funnel",
+                "series": [{"kind": "EventsNode", "event": "signup"}],
+                "name": "Signup conversion",
+            }
+        ]
+        await experiment.asave(update_fields=["metrics_secondary"])
+
+        # Add 1 saved primary + 1 saved secondary
+        saved_primary = await ExperimentSavedMetric.objects.acreate(
+            team=self.team,
+            name="Saved Primary",
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "revenue"},
+                "uuid": "saved-primary-uuid",
+            },
+        )
+        saved_secondary = await ExperimentSavedMetric.objects.acreate(
+            team=self.team,
+            name="Saved Secondary",
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "funnel",
+                "series": [{"kind": "EventsNode", "event": "activation"}],
+                "uuid": "saved-secondary-uuid",
+            },
+        )
+        await ExperimentToSavedMetric.objects.acreate(
+            experiment=experiment, saved_metric=saved_primary, metadata={"type": "primary"}
+        )
+        await ExperimentToSavedMetric.objects.acreate(
+            experiment=experiment, saved_metric=saved_secondary, metadata={"type": "secondary"}
+        )
+
+        mock_query_result = MagicMock()
+        mock_query_result.variant_results = [
+            ExperimentVariantResultBayesian(
+                key="control",
+                method="bayesian",
+                chance_to_win=0.5,
+                credible_interval=[-0.03, 0.03],
+                significant=False,
+                number_of_samples=100,
+                sum=50,
+                sum_squares=2500,
+            ),
+            ExperimentVariantResultBayesian(
+                key="test",
+                method="bayesian",
+                chance_to_win=0.5,
+                credible_interval=[-0.03, 0.03],
+                significant=False,
+                number_of_samples=100,
+                sum=50,
+                sum_squares=2500,
+            ),
+        ]
+        mock_query_result.last_refresh = datetime(2020, 1, 10, 11, 0, tzinfo=ZoneInfo("UTC"))
+
+        mock_exposure_result = MagicMock()
+        mock_exposure_result.total_exposures = {"control": 500, "test": 500}
+        mock_exposure_result.last_refresh = datetime(2020, 1, 10, 11, 0, tzinfo=ZoneInfo("UTC"))
+
+        with (
+            patch(
+                "products.experiments.backend.experiment_summary_data_service.posthoganalytics.feature_enabled",
+                return_value=False,
+            ),
+            patch(
+                "products.experiments.backend.experiment_summary_data_service.ExperimentQueryRunner"
+            ) as mock_query_runner_class,
+            patch(
+                "products.experiments.backend.experiment_summary_data_service.ExperimentExposuresQueryRunner"
+            ) as mock_exposure_runner_class,
+        ):
+            mock_query_runner_class.return_value.run.return_value = mock_query_result
+            mock_exposure_runner_class.return_value.run.return_value = mock_exposure_result
+
+            data_service = ExperimentSummaryDataService(self.team)
+            context, _, _ = await data_service.fetch_experiment_data(experiment.id)
+
+        # 1 inline primary + 1 saved primary = 2
+        self.assertEqual(len(context.primary_metrics_results), 2)
+        # 1 inline secondary + 1 saved secondary = 2
+        self.assertEqual(len(context.secondary_metrics_results), 2)
+
+        # Verify all 4 metrics were passed to the query runner (2 primary + 2 secondary)
+        query_runner_calls = mock_query_runner_class.call_args_list
+        self.assertEqual(len(query_runner_calls), 4)
+        metrics_queried = [call.kwargs["query"].metric.metric_type for call in query_runner_calls]
+        # Inline funnel primary, saved mean primary, inline funnel secondary, saved funnel secondary
+        self.assertEqual(metrics_queried, ["funnel", "mean", "funnel", "funnel"])
