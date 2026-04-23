@@ -205,6 +205,28 @@ def structlog_context():
     structlog.contextvars.bind_contextvars(**ctx)
 
 
+async def test_kafka_log_producer_init_does_not_require_running_loop():
+    """`KafkaLogProducerFromQueueAsync.__init__` must not require a running event loop.
+
+    `configure_logger()` is called from `start_temporal_worker` synchronously, before
+    `asyncio.Runner.run(...)` starts the loop. confluent_kafka's underlying `AIOProducer`
+    calls `asyncio.get_running_loop()` in its own `__init__`, so building the producer
+    eagerly raised `RuntimeError: no running event loop` and the whole log pipeline
+    silently fell back to write-only — dropping all temporal worker logs from
+    `log_entries` in ClickHouse. This test guards against regressing back to eager init.
+    """
+    from posthog.temporal.common.logger import KafkaLogProducerFromQueueAsync
+
+    def _construct_without_running_loop() -> KafkaLogProducerFromQueueAsync:
+        # Thread has no running loop, mirroring configure_logger() running before
+        # asyncio.Runner.run(...) starts the worker loop.
+        return KafkaLogProducerFromQueueAsync(queue=asyncio.Queue(maxsize=0))
+
+    log_producer = await asyncio.to_thread(_construct_without_running_loop)
+
+    assert log_producer.producer is None
+
+
 async def test_logger_context(log_capture):
     """Test whether log messages contain the expected context.
 
