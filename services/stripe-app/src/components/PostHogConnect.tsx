@@ -156,7 +156,7 @@ export const DevTokenEntry = ({ onSaved }: { onSaved: () => void }): JSX.Element
             <Banner
                 type="default"
                 title="Dev mode"
-                description="Paste values from `manage.py generate_stripe_app_tokens --team-id 1` to connect to PostHog in development."
+                description="Paste values from `python manage.py generate_stripe_app_tokens --team-id 1` to connect to PostHog in development."
             />
             <Select label="Region" value={region} onChange={(e): void => setRegion(e.target.value as Region)}>
                 <option value="us">US</option>

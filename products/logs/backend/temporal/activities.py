@@ -14,7 +14,7 @@ import temporalio.activity
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.exceptions_capture import capture_exception
 
-from products.logs.backend.alert_check_query import AlertCheckQuery
+from products.logs.backend.alert_check_query import AlertCheckQuery, fetch_live_logs_checkpoint, resolve_alert_date_to
 from products.logs.backend.alert_error_classifier import (
     AlertErrorCode,
     classify as classify_alert_error,
@@ -37,6 +37,7 @@ from products.logs.backend.temporal.metrics import (
     increment_state_transition,
     record_alerts_active,
     record_check_duration,
+    record_checkpoint_lag,
     record_scheduler_lag,
 )
 
@@ -82,13 +83,25 @@ def _check_alerts_sync() -> CheckAlertsOutput:
     except Exception:
         logger.exception("Failed to record alerts_active gauge")
 
+    checkpoint: datetime | None = None
+    if all_alerts:
+        try:
+            checkpoint = fetch_live_logs_checkpoint(all_alerts[0].team)
+        except Exception:
+            logger.exception("Failed to fetch logs ingestion checkpoint; falling back to wall-clock")
+
+    try:
+        record_checkpoint_lag(now, checkpoint)
+    except Exception:
+        logger.exception("Failed to record checkpoint lag gauge")
+
     stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
 
     # Sequential for now. TODO, stagger
     # or cap concurrency to avoid bursting all ClickHouse queries at :00 each minute.
     for alert in all_alerts:
         try:
-            _evaluate_single_alert(alert, now, stats)
+            _evaluate_single_alert(alert, now, stats, checkpoint=checkpoint)
         except Exception:
             logger.exception(
                 "Unexpected error evaluating alert",
@@ -112,17 +125,66 @@ def _check_alerts_sync() -> CheckAlertsOutput:
     )
 
 
+def _dispatch_notification(
+    outcome: AlertCheckOutcome,
+    alert: LogsAlertConfiguration,
+    check_result: CheckResult,
+    now: datetime,
+    stats: dict[str, int],
+    *,
+    date_from: datetime,
+    date_to: datetime,
+) -> bool:
+    """Emit the notification for this outcome. Returns True if delivery failed."""
+    action = outcome.notification
+    if action == NotificationAction.NONE:
+        return False
+
+    log = logger.bind(alert_id=str(alert.id), alert_name=alert.name, team_id=alert.team_id)
+
+    if action == NotificationAction.FIRE:
+        notified = _emit_alert_event(
+            alert, "$logs_alert_firing", check_result, now, date_from=date_from, date_to=date_to
+        )
+        if notified:
+            stats["fired"] += 1
+        log.info("Alert fired", result_count=check_result.result_count, notified=notified)
+    elif action == NotificationAction.RESOLVE:
+        notified = _emit_alert_event(
+            alert, "$logs_alert_resolved", check_result, now, date_from=date_from, date_to=date_to
+        )
+        if notified:
+            stats["resolved"] += 1
+        log.info("Alert resolved", notified=notified)
+    elif action == NotificationAction.ERROR:
+        notified = _emit_alert_errored_event(alert, outcome, now)
+        log.info("Alert entered errored state", consecutive_failures=outcome.consecutive_failures, notified=notified)
+    elif action == NotificationAction.BROKEN:
+        notified = _emit_auto_disabled_event(alert, outcome, now)
+        log.warning(
+            "Alert broken after consecutive failures",
+            consecutive_failures=outcome.consecutive_failures,
+            notified=notified,
+        )
+    else:
+        raise ValueError(f"Unhandled NotificationAction: {action!r}")
+
+    return not notified
+
+
 def _evaluate_single_alert(
     alert: LogsAlertConfiguration,
     now: datetime,
     stats: dict[str, int],
+    *,
+    checkpoint: datetime | None = None,
 ) -> None:
     """Run the ClickHouse query, apply state machine, persist, and emit events for a single alert."""
     start_time = time.perf_counter()
     original_next_check_at = alert.next_check_at
 
-    date_to = now
-    date_from = now - timedelta(minutes=alert.window_minutes)
+    date_to = resolve_alert_date_to(now, checkpoint)
+    date_from = date_to - timedelta(minutes=alert.window_minutes)
 
     check_result: CheckResult
     error_category: AlertErrorCode | None = None
@@ -159,6 +221,7 @@ def _evaluate_single_alert(
             result_count=None,
             threshold_breached=False,
             error_message=classified.user_message,
+            is_transient_error=classified.is_transient,
         )
 
     outcome = evaluate_alert_check(alert.to_snapshot(), check_result, now)
@@ -166,48 +229,9 @@ def _evaluate_single_alert(
     # Attempt Kafka delivery BEFORE committing state transition.
     # If delivery fails and we needed to notify, keep old state so the
     # next tick retries the full transition (NOT_FIRING → FIRING again).
-    notified = False
-    notification_failed = False
-    if outcome.notification == NotificationAction.FIRE:
-        notified = _emit_alert_event(
-            alert,
-            "$logs_alert_firing",
-            check_result,
-            now,
-            date_from=date_from,
-            date_to=date_to,
-        )
-        notification_failed = not notified
-        if notified:
-            stats["fired"] += 1
-        logger.info(
-            "Alert fired",
-            alert_id=str(alert.id),
-            alert_name=alert.name,
-            team_id=alert.team_id,
-            result_count=check_result.result_count,
-            notified=notified,
-        )
-    elif outcome.notification == NotificationAction.RESOLVE:
-        notified = _emit_alert_event(
-            alert,
-            "$logs_alert_resolved",
-            check_result,
-            now,
-            date_from=date_from,
-            date_to=date_to,
-        )
-        notification_failed = not notified
-        if notified:
-            stats["resolved"] += 1
-        logger.info(
-            "Alert resolved",
-            alert_id=str(alert.id),
-            alert_name=alert.name,
-            team_id=alert.team_id,
-            notified=notified,
-        )
-
+    notification_failed = _dispatch_notification(
+        outcome, alert, check_result, now, stats, date_from=date_from, date_to=date_to
+    )
     # If the notification delivery failed, don't commit the state transition
     # so the next tick will re-evaluate and retry the notification.
     if notification_failed:
@@ -235,7 +259,11 @@ def _evaluate_single_alert(
         alert.next_check_at = advance_next_check_at(alert.next_check_at, alert.check_interval_minutes, now)
         update_fields.extend(["last_checked_at", "next_check_at", "updated_at"])
 
-        if notified and outcome.update_last_notified_at:
+        if (
+            not notification_failed
+            and outcome.notification != NotificationAction.NONE
+            and outcome.update_last_notified_at
+        ):
             alert.last_notified_at = now
             update_fields.append("last_notified_at")
 
@@ -264,17 +292,6 @@ def _evaluate_single_alert(
             LogsAlertEvent.objects.filter(id__in=prunable_ids).delete()
     except Exception:
         logger.exception("Failed to prune non-event rows", alert_id=str(alert.id))
-
-    transitioned_to_broken = committed_state == AlertState.BROKEN and state_before != AlertState.BROKEN.value
-    if transitioned_to_broken:
-        logger.warning(
-            "Alert broken after consecutive failures",
-            alert_id=str(alert.id),
-            alert_name=alert.name,
-            team_id=alert.team_id,
-            consecutive_failures=outcome.consecutive_failures,
-        )
-        _emit_auto_disabled_event(alert, outcome, now)
 
     stats["checked"] += 1
 
@@ -361,19 +378,41 @@ def _emit_alert_event(
     return _produce_alert_internal_event(alert, event_name, properties, now)
 
 
-def _emit_auto_disabled_event(
+def _base_failure_properties(
     alert: LogsAlertConfiguration,
     outcome: AlertCheckOutcome,
     now: datetime,
-) -> None:
-    properties: dict = {
+) -> dict:
+    return {
         "alert_id": str(alert.id),
         "alert_name": alert.name,
         "team_id": alert.team_id,
         "consecutive_failures": outcome.consecutive_failures,
-        "last_error_message": outcome.error_message or "",
         "service_names": alert.filters.get("serviceNames", []),
         "severity_levels": alert.filters.get("severityLevels", []),
         "triggered_at": now.isoformat(),
     }
-    _produce_alert_internal_event(alert, "$logs_alert_auto_disabled", properties, now)
+
+
+def _emit_auto_disabled_event(
+    alert: LogsAlertConfiguration,
+    outcome: AlertCheckOutcome,
+    now: datetime,
+) -> bool:
+    properties = {
+        **_base_failure_properties(alert, outcome, now),
+        "last_error_message": outcome.error_message or "",
+    }
+    return _produce_alert_internal_event(alert, "$logs_alert_auto_disabled", properties, now)
+
+
+def _emit_alert_errored_event(
+    alert: LogsAlertConfiguration,
+    outcome: AlertCheckOutcome,
+    now: datetime,
+) -> bool:
+    properties = {
+        **_base_failure_properties(alert, outcome, now),
+        "error_message": outcome.error_message or "",
+    }
+    return _produce_alert_internal_event(alert, "$logs_alert_errored", properties, now)

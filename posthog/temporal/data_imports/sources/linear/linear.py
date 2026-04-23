@@ -1,3 +1,4 @@
+import dataclasses
 from typing import Any
 
 import requests
@@ -5,6 +6,7 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.linear.queries import QUERIES, VIEWER_QUERY
 from posthog.temporal.data_imports.sources.linear.settings import (
     LINEAR_API_URL,
@@ -17,10 +19,16 @@ class LinearRetryableError(Exception):
     pass
 
 
+@dataclasses.dataclass
+class LinearResumeConfig:
+    cursor: str
+
+
 def _make_paginated_request(
     access_token: str,
     endpoint_name: str,
     logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[LinearResumeConfig],
     updated_at_gte: str | None = None,
 ):
     endpoint_config = LINEAR_ENDPOINTS.get(endpoint_name)
@@ -82,6 +90,11 @@ def _make_paginated_request(
     if updated_at_gte:
         variables["filter"] = {"updatedAt": {"gt": updated_at_gte}}
 
+    resume_config = resumable_source_manager.load_state()
+    if resume_config is not None:
+        variables["cursor"] = resume_config.cursor
+        logger.debug(f"Linear: resuming {endpoint_name} from saved cursor")
+
     try:
         has_next_page = True
         while has_next_page:
@@ -94,7 +107,17 @@ def _make_paginated_request(
             page_info = payload["data"][graphql_query_name]["pageInfo"]
             has_next_page = page_info["hasNextPage"]
             if has_next_page:
-                variables["cursor"] = page_info["endCursor"]
+                end_cursor = page_info.get("endCursor")
+                if not end_cursor:
+                    # If the API reports hasNextPage=True with a missing/null endCursor the
+                    # paginator would loop forever on the same page. Fail the run instead of
+                    # silently returning partial results, so the issue is visible.
+                    raise Exception(f"Linear: hasNextPage=True but endCursor is empty for {endpoint_name}")
+                variables["cursor"] = end_cursor
+                # Checkpoint points at the next page to fetch. On resume the first request
+                # re-fetches that page; full-refresh appends and incremental merges on the
+                # endpoint's primary_key, so duplicates are tolerated.
+                resumable_source_manager.save_state(LinearResumeConfig(cursor=end_cursor))
     finally:
         sess.close()
 
@@ -103,6 +126,7 @@ def linear_source(
     access_token: str,
     endpoint_name: str,
     logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[LinearResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any | None = None,
 ) -> SourceResponse:
@@ -120,6 +144,7 @@ def linear_source(
             access_token=access_token,
             endpoint_name=endpoint_name,
             logger=logger,
+            resumable_source_manager=resumable_source_manager,
             updated_at_gte=updated_at_gte,
         )
 

@@ -152,7 +152,7 @@ jobs:
               id: read-versions
               if: github.event_name == 'push' || steps.filter.outputs.dagster == 'true'
               run: |
-                  oldest_supported=$(jq -r '.oldest_supported' .github/clickhouse-versions.json)
+                  oldest_supported=$(jq -r '.versions.oldest_supported' .github/clickhouse-versions.json)
                   if [ -z "$oldest_supported" ] || [ "$oldest_supported" = "null" ]; then
                     echo "::error::No oldest_supported version found in .github/clickhouse-versions.json"
                     exit 1

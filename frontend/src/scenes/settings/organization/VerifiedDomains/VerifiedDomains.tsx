@@ -32,7 +32,7 @@ import { VerifyDomainModal } from './VerifyDomainModal'
 
 export function VerifiedDomains(): JSX.Element {
     const { verifiedDomainsLoading, updatingDomainLoading } = useValues(verifiedDomainsLogic)
-    const { setAddModalShown } = useActions(verifiedDomainsLogic)
+    const { showAddDomainModal } = useActions(verifiedDomainsLogic)
 
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -49,7 +49,7 @@ export function VerifiedDomains(): JSX.Element {
             <VerifiedDomainsTable />
             <LemonButton
                 type="primary"
-                onClick={() => setAddModalShown(true)}
+                onClick={() => showAddDomainModal()}
                 className="mt-4"
                 disabledReason={verifiedDomainsLoading || updatingDomainLoading ? 'loading...' : restrictionReason}
             >

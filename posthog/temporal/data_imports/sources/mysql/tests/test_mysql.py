@@ -4,15 +4,22 @@ from contextlib import contextmanager
 import pytest
 from unittest.mock import MagicMock
 
+import pymysql
+
 from posthog.temporal.data_imports.sources.common.sql import Table
 from posthog.temporal.data_imports.sources.mysql.mysql import (
     STATEMENT_TIMEOUT_SECONDS,
     MySQLColumn,
+    _build_query,
+    _find_index_for_cursor,
+    _is_bad_plan_timeout,
     _safe_convert_date,
     _safe_convert_datetime,
     _sanitize_identifier,
     mysql_source,
 )
+
+from products.data_warehouse.backend.types import IncrementalFieldType
 
 
 @pytest.mark.parametrize(
@@ -220,3 +227,166 @@ class TestStreamingConnectionTimeouts:
         _drain_source()
 
         assert ss_cursor.execute.called
+
+
+def _show_index_rows(*triples: tuple[str, str, int]) -> list[tuple]:
+    """Build fake SHOW INDEX rows from (key_name, column_name, seq_in_index) triples.
+
+    Column order must match the cursor.description returned by the mock.
+    """
+    return [
+        (
+            "message",  # Table
+            1,  # Non_unique
+            key_name,  # Key_name
+            seq,  # Seq_in_index
+            column,  # Column_name
+            "A",  # Collation
+            1000,  # Cardinality
+            None,  # Sub_part
+            None,  # Packed
+            "",  # Null
+            "BTREE",  # Index_type
+            "",  # Comment
+            "",  # Index_comment
+            "YES",  # Visible
+            None,  # Expression
+        )
+        for key_name, column, seq in triples
+    ]
+
+
+_SHOW_INDEX_COLUMNS = [
+    ("Table",),
+    ("Non_unique",),
+    ("Key_name",),
+    ("Seq_in_index",),
+    ("Column_name",),
+    ("Collation",),
+    ("Cardinality",),
+    ("Sub_part",),
+    ("Packed",),
+    ("Null",),
+    ("Index_type",),
+    ("Comment",),
+    ("Index_comment",),
+    ("Visible",),
+    ("Expression",),
+]
+
+
+class TestFindIndexForCursor:
+    def _make_cursor(self, rows):
+        cursor = MagicMock()
+        cursor.description = _SHOW_INDEX_COLUMNS
+        cursor.fetchall.return_value = rows
+        return cursor
+
+    def test_returns_index_name_when_cursor_is_leading_column(self):
+        cursor = self._make_cursor(_show_index_rows(("idx_created_at", "created_at", 1)))
+        result = _find_index_for_cursor(cursor, "mydb", "message", "created_at", MagicMock())
+        assert result == "idx_created_at"
+
+    def test_returns_none_when_cursor_is_not_leading_column(self):
+        # Composite index (user_id, created_at) — can't use for WHERE on created_at alone
+        cursor = self._make_cursor(
+            _show_index_rows(
+                ("idx_composite", "user_id", 1),
+                ("idx_composite", "created_at", 2),
+            )
+        )
+        result = _find_index_for_cursor(cursor, "mydb", "message", "created_at", MagicMock())
+        assert result is None
+
+    def test_returns_none_when_no_index_mentions_cursor(self):
+        cursor = self._make_cursor(_show_index_rows(("PRIMARY", "id", 1)))
+        result = _find_index_for_cursor(cursor, "mydb", "message", "created_at", MagicMock())
+        assert result is None
+
+    def test_returns_first_matching_index_among_several(self):
+        cursor = self._make_cursor(
+            _show_index_rows(
+                ("idx_a", "created_at", 1),
+                ("idx_b", "created_at", 1),
+            )
+        )
+        result = _find_index_for_cursor(cursor, "mydb", "message", "created_at", MagicMock())
+        assert result == "idx_a"
+
+    def test_returns_none_on_query_failure(self):
+        cursor = MagicMock()
+        cursor.execute.side_effect = Exception("SHOW INDEX failed")
+        result = _find_index_for_cursor(cursor, "mydb", "message", "created_at", MagicMock())
+        assert result is None
+
+
+class TestIsBadPlanTimeout:
+    def test_matches_error_2013(self):
+        assert _is_bad_plan_timeout(pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query"))
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            (2003, "Can't connect to MySQL server"),
+            (1045, "Access denied for user"),
+        ],
+    )
+    def test_does_not_match_other_error_codes(self, code, message):
+        assert not _is_bad_plan_timeout(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_bad_plan_timeout(pymysql.err.OperationalError())
+
+
+class TestBuildQueryForceIndex:
+    def test_force_index_hint_omitted_by_default(self):
+        query, _ = _build_query(
+            schema="mydb",
+            table_name="message",
+            should_use_incremental_field=True,
+            incremental_field="created_at",
+            incremental_field_type=IncrementalFieldType.DateTime,
+            db_incremental_field_last_value="2025-01-01",
+        )
+        assert "FORCE INDEX" not in query
+
+    def test_force_index_hint_added_when_provided(self):
+        query, _ = _build_query(
+            schema="mydb",
+            table_name="message",
+            should_use_incremental_field=True,
+            incremental_field="created_at",
+            incremental_field_type=IncrementalFieldType.DateTime,
+            db_incremental_field_last_value="2025-01-01",
+            force_index_name="idx_created_at",
+        )
+        assert "FORCE INDEX (`idx_created_at`)" in query
+        # Hint goes between the table and the WHERE clause
+        assert query.index("FORCE INDEX") < query.index("WHERE")
+
+    def test_force_index_hint_applied_for_non_incremental_query_too(self):
+        # Full refresh mode — the hint still attaches so callers can force a
+        # specific scan order if they choose (no ORDER BY, but hint is still valid).
+        query, _ = _build_query(
+            schema="mydb",
+            table_name="message",
+            should_use_incremental_field=False,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            force_index_name="PRIMARY",
+        )
+        assert "FORCE INDEX (`PRIMARY`)" in query
+
+    def test_force_index_identifier_is_sanitized(self):
+        # Rejects invalid SQL identifiers to prevent injection via index name.
+        with pytest.raises(ValueError, match="Invalid SQL identifier"):
+            _build_query(
+                schema="mydb",
+                table_name="message",
+                should_use_incremental_field=True,
+                incremental_field="created_at",
+                incremental_field_type=IncrementalFieldType.DateTime,
+                db_incremental_field_last_value="2025-01-01",
+                force_index_name="bad;injection",
+            )
