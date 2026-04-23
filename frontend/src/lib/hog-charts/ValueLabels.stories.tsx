@@ -132,7 +132,7 @@ export const DualYAxes: Story = {
         return (
             <Stage>
                 <LineChart series={series} labels={LABELS} config={CONFIG} theme={theme} tooltip={() => null}>
-                    <ValueLabels valueFormatter={(v) => (v > 10 ? `$${v}` : `${v.toFixed(1)}%`)} />
+                    <ValueLabels valueFormatter={(v, si) => (si === 0 ? `$${v}` : `${v.toFixed(1)}%`)} />
                 </LineChart>
             </Stage>
         )
