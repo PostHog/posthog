@@ -17288,6 +17288,12 @@ class RetentionFilter(BaseModel):
         default=None,
         description=("Whether retention is with regard to initial cohort size, or that of the previous period."),
     )
+    customAggregationTarget: bool | None = Field(
+        default=None,
+        description=(
+            "For data warehouse based retention insights when the aggregation target can't be mapped to persons or groups."
+        ),
+    )
     retentionType: RetentionType | None = None
     returningEntity: RetentionEntity | None = None
     selectedInterval: int | None = Field(

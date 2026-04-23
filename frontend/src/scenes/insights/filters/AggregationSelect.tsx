@@ -3,7 +3,9 @@ import { useActions, useValues } from 'kea'
 import { LemonSelect, LemonSelectSection } from '@posthog/lemon-ui'
 
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -62,10 +64,13 @@ export function AggregationSelect({
 
     const { groupTypes, aggregationLabel } = useValues(groupsModel)
     const { needsUpgradeForGroups, canStartUsingGroups } = useValues(groupsAccessLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     if (!isInsightQueryNode(querySource)) {
         return null
     }
+
+    const isRetentionDWHEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_RETENTION_DWH]
 
     const value =
         (isLifecycleQuery(querySource) && querySource.customAggregationTarget) ||
@@ -167,7 +172,7 @@ export function AggregationSelect({
         })
     }
 
-    if (isFunnels || isLifecycle || isRetention) {
+    if (isFunnels || isLifecycle || (isRetention && isRetentionDWHEnabled)) {
         const hasOnlyDataWarehouseRetentionEntities =
             isRetentionQuery(querySource) &&
             querySource.retentionFilter &&
