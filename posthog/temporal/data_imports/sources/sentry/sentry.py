@@ -33,6 +33,12 @@ _MAX_PAGES_PER_PARENT = 100
 _REQUEST_TIMEOUT = 30
 _MAX_RETRIES = 3
 _RETRYABLE_STATUS_CODES = (429, 500, 502, 503, 504)
+# Safety bound for how many issues the issue_tag_values fan-out will skip while
+# fast-forwarding to a saved checkpoint issue. If the checkpoint issue was
+# deleted between runs, we'd otherwise skip every remaining issue and yield
+# nothing. Once this bound is exceeded we treat the checkpoint as stale and
+# fall through to fresh processing of the current and remaining issues.
+_RESUME_ISSUE_SKIP_LIMIT = 5000
 logger = structlog.get_logger(__name__)
 
 
@@ -294,14 +300,17 @@ def _iter_issue_tag_values_rows(
 ) -> Iterator[dict[str, Any]]:
     cutoff_last_seen = _parse_datetime_value(incremental_last_seen_max)
 
-    # Resume state only honours the fan-out fields; flat-endpoint next_url is
-    # meaningless here. If ``issue_id`` is absent we fall through to a fresh run.
+    # Resume state only honours the fan-out fields; the flat-endpoint
+    # ``next_url`` is meaningless here. We require the full (issue_id, tag_key,
+    # values_next_url) triple to be present — anything partial is treated as
+    # absent and falls through to a fresh run so we don't apply a stale URL to
+    # the wrong (issue, tag) pair.
     resume_issue_id: str | None = None
     resume_tag_key: str | None = None
     resume_values_next_url: str | None = None
     if resumable_source_manager is not None and resumable_source_manager.can_resume():
         loaded = resumable_source_manager.load_state()
-        if loaded is not None and loaded.issue_id:
+        if loaded is not None and loaded.issue_id and loaded.tag_key and loaded.values_next_url:
             resume_issue_id = loaded.issue_id
             resume_tag_key = loaded.tag_key
             resume_values_next_url = loaded.values_next_url
@@ -313,6 +322,8 @@ def _iter_issue_tag_values_rows(
         params={"limit": 100, "query": "", "sort": "date"},
     )
 
+    skipped_for_resume = 0
+
     for issue in issues:
         if cutoff_last_seen is not None:
             issue_last_seen = _parse_datetime_value(issue.get("lastSeen"))
@@ -323,8 +334,22 @@ def _iter_issue_tag_values_rows(
 
         # Fast-forward until we reach the saved checkpoint issue. We rely on
         # the deterministic sort=date ordering to land back on the same issue.
+        # If the checkpoint issue has been deleted we could skip forever, so
+        # bound the skip count and fall through to a fresh run when exceeded.
         if resume_issue_id is not None and issue_id != resume_issue_id:
-            continue
+            skipped_for_resume += 1
+            if skipped_for_resume > _RESUME_ISSUE_SKIP_LIMIT:
+                logger.info(
+                    "sentry_source.stale_resume_checkpoint",
+                    resume_issue_id=resume_issue_id,
+                    skipped=skipped_for_resume,
+                )
+                resume_issue_id = None
+                resume_tag_key = None
+                resume_values_next_url = None
+                # Fall through: process the current issue and subsequent ones fresh.
+            else:
+                continue
 
         # Mark that we've found the checkpoint issue. If the checkpoint tag has
         # since disappeared, we still exit the middle loop with no match — clear
@@ -395,8 +420,9 @@ def _iter_issue_tag_values_rows(
 
                 next_url = _parse_next_link(response.headers.get("Link", ""))
 
-                # Checkpoint the NEXT page we need to fetch for this (issue, tag).
-                # On resume we re-request this URL and rely on primary-key dedupe.
+                # Checkpoint the URL of the NEXT values page — it has not been
+                # fetched yet, so resume can pick it up directly without
+                # re-processing any rows that were already yielded.
                 if next_url and resumable_source_manager is not None:
                     resumable_source_manager.save_state(
                         SentryResumeConfig(

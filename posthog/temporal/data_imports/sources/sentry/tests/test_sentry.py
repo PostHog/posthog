@@ -616,6 +616,81 @@ class TestIssueTagValuesResumable:
         initial_values_url = "https://sentry.io/api/0/organizations/acme/issues/100/tags/browser/values/"
         assert initial_values_url not in seen_urls
 
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry._RESUME_ISSUE_SKIP_LIMIT", 2)
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.requests.get")
+    def test_stale_checkpoint_falls_through_after_skip_limit(self, mock_get) -> None:
+        """If the checkpoint issue was deleted between runs, bounded skipping
+        falls through so subsequent issues still get processed."""
+
+        def side_effect(url, headers=None, params=None, timeout=None):
+            if url.endswith("/organizations/acme/issues/"):
+                # None of these match the checkpoint issue_id=999.
+                return _response([{"id": "100"}, {"id": "101"}, {"id": "102"}])
+            if url.endswith("/organizations/acme/issues/102/tags/"):
+                return _response([{"key": "browser"}])
+            if url.endswith("/organizations/acme/issues/102/tags/browser/values/"):
+                return _response([{"value": "Chrome"}])
+            return _response([])
+
+        mock_get.side_effect = side_effect
+        manager = _make_fake_manager(
+            can_resume=True,
+            state=SentryResumeConfig(
+                issue_id="999",
+                tag_key="browser",
+                values_next_url="https://sentry.io/api/0/organizations/acme/issues/999/tags/browser/values/?cursor=0:100:2",
+            ),
+        )
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="issue_tag_values",
+            team_id=123,
+            job_id="job-id",
+            resumable_source_manager=manager,
+        )
+
+        rows = list(cast(Any, resp.items()))
+        # With skip limit 2, issues 100 and 101 are skipped; on 102 we exceed
+        # the limit, clear the markers, and process it fresh.
+        assert rows == [{"value": "Chrome", "issue_id": "102", "tag_key": "browser"}]
+
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.requests.get")
+    def test_partial_resume_state_falls_through_to_fresh_run(self, mock_get) -> None:
+        """Only activate resume when the full (issue_id, tag_key, values_next_url)
+        triple is present; partial state must fall through to a fresh run."""
+
+        def side_effect(url, headers=None, params=None, timeout=None):
+            if url.endswith("/organizations/acme/issues/"):
+                return _response([{"id": "100"}])
+            if url.endswith("/organizations/acme/issues/100/tags/"):
+                return _response([{"key": "browser"}])
+            if url.endswith("/organizations/acme/issues/100/tags/browser/values/"):
+                return _response([{"value": "Chrome"}])
+            return _response([])
+
+        mock_get.side_effect = side_effect
+        # issue_id set, but tag_key + values_next_url are missing → partial state.
+        manager = _make_fake_manager(
+            can_resume=True,
+            state=SentryResumeConfig(issue_id="100"),
+        )
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="issue_tag_values",
+            team_id=123,
+            job_id="job-id",
+            resumable_source_manager=manager,
+        )
+
+        rows = list(cast(Any, resp.items()))
+        assert rows == [{"value": "Chrome", "issue_id": "100", "tag_key": "browser"}]
+
     @patch("posthog.temporal.data_imports.sources.sentry.sentry.requests.get")
     def test_resume_with_empty_state_falls_through_to_fresh_run(self, mock_get) -> None:
         def side_effect(url, headers=None, params=None, timeout=None):
