@@ -6,6 +6,7 @@ import {
     formatPermissionErrorMessage,
 } from '@/lib/errors'
 import { RequestLogger, withLogging } from '@/lib/logging'
+import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
 import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
 import { hash, sanitizeHeaderValue } from '@/lib/utils'
 import type { CloudRegion } from '@/tools/types'
@@ -235,6 +236,19 @@ const handleRequest = async (
     const rawUserAgent = request.headers.get('User-Agent') || undefined
     const clientUserAgent = sanitizeHeaderValue(rawUserAgent)
 
+    // Self-identification signal set by a wrapping consumer app (e.g. PostHog's
+    // Tasks sandbox) when the wrapped MCP client's name is too generic to
+    // distinguish (e.g. both direct and sandboxed Claude Code send `claude-code`).
+    const mcpConsumer = sanitizeHeaderValue(request.headers.get('x-posthog-mcp-consumer') || undefined)
+
+    // Extract MCP `clientInfo` eagerly from the JSON-RPC initialize message in the
+    // request body (streamable-http only). The framework's async
+    // `getInitializeRequest()` relies on Durable Object storage which is only
+    // written after `onStart`/`init()` runs, so on the first connect `init()` has
+    // no client info to read. Parsing the body here gives `init()` the values
+    // synchronously via `RequestProperties`.
+    const clientInfo = await extractClientInfoFromBody(request)
+
     Object.assign(ctx.props, {
         apiToken: token,
         userHash: hash(token),
@@ -242,6 +256,10 @@ const handleRequest = async (
         organizationId,
         projectId,
         clientUserAgent,
+        mcpConsumer,
+        mcpClientName: clientInfo.clientName,
+        mcpClientVersion: clientInfo.clientVersion,
+        mcpProtocolVersion: clientInfo.protocolVersion,
         requestStartTime: Date.now(),
     })
 
@@ -267,6 +285,12 @@ const handleRequest = async (
     const extraContextProps = { features, tools, region: regionParam, version, readOnly }
     Object.assign(ctx.props, extraContextProps)
     log.extend(extraContextProps)
+    if (mcpConsumer) {
+        log.extend({ mcpConsumer })
+    }
+    if (clientInfo.clientName) {
+        log.extend({ mcpClientName: clientInfo.clientName })
+    }
 
     let server: Promise<Response> | null = null
     if (url.pathname.startsWith('/mcp')) {

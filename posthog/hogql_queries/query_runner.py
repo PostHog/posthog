@@ -942,10 +942,12 @@ def get_query_runner(
         )
 
     if kind == "TraceSpansQuery":
+        from posthog.schema import TraceSpansQuery
+
         from products.tracing.backend.logic import TraceSpansQueryRunner
 
         return TraceSpansQueryRunner(
-            query=query,
+            query=cast(TraceSpansQuery, query),
             team=team,
             timings=timings,
             modifiers=modifiers,

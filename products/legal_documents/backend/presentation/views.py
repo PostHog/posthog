@@ -10,6 +10,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.cloud_utils import is_cloud, is_dev_mode
@@ -30,7 +31,7 @@ class IsCloudOrDevDeployment(BasePermission):
 
     message = "Legal documents are only available on PostHog Cloud."
 
-    def has_permission(self, request: Request, view) -> bool:
+    def has_permission(self, request: Request, view: APIView) -> bool:
         if not (is_cloud() or is_dev_mode()):
             raise exceptions.NotFound("Not found.")
         return True
@@ -46,7 +47,7 @@ class IsOrganizationAdminOrOwner(BasePermission):
 
     message = "Your organization access level is insufficient."
 
-    def has_permission(self, request: Request, view) -> bool:
+    def has_permission(self, request: Request, view: "APIView") -> bool:
         organization = getattr(view, "organization", None)
         if organization is None:
             # Mixin hasn't resolved the org yet — defer. TeamAndOrgViewSetMixin

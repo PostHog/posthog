@@ -3,6 +3,7 @@ from datetime import timedelta
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings as django_settings
 from django.core.cache import cache
 from django.test.client import Client as HttpClient
 from django.utils import timezone
@@ -10,6 +11,7 @@ from django.utils import timezone
 from rest_framework import status
 
 from posthog.api.integration import IntegrationViewSet
+from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models.integration import (
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
     PRIVATE_CHANNEL_WITHOUT_ACCESS,
@@ -1113,6 +1115,13 @@ class TestStripeIntegration:
 
 
 class TestStripeIntegrationOAuthTokens:
+    @pytest.fixture(autouse=True)
+    def _override_oidc_key(self, settings):
+        settings.OAUTH2_PROVIDER = {
+            **django_settings.OAUTH2_PROVIDER,
+            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+        }
+
     @pytest.fixture(autouse=True)
     def setup(self, db):
         self.organization = Organization.objects.create(name="Test Org")

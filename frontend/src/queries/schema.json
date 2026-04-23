@@ -18114,7 +18114,8 @@
                 "Granola",
                 "BuildBetter",
                 "Convex",
-                "ClickHouse"
+                "ClickHouse",
+                "Plain"
             ],
             "type": "string"
         },

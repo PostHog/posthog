@@ -821,10 +821,21 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'spans',
                         type: TaxonomicFilterGroupType.Spans,
                         options: [
+                            { key: 'name', name: 'name', propertyFilterType: 'span' },
+                            { key: 'kind', name: 'kind', propertyFilterType: 'span' },
+                            { key: 'duration', name: 'duration (ms)', propertyFilterType: 'span' },
                             { key: 'trace_id', name: 'trace_id', propertyFilterType: 'span' },
                             { key: 'span_id', name: 'span_id', propertyFilterType: 'span' },
-                            { key: 'duration', name: 'duration (ms)', propertyFilterType: 'span' },
+                            { key: 'status_code', name: 'status code', propertyFilterType: 'span' },
                         ],
+                        valuesEndpoint: (key) =>
+                            key === 'name'
+                                ? combineUrl(`api/environments/${projectId}/tracing/spans/values`, {
+                                      attribute_type: 'span',
+                                      key: key,
+                                      ...endpointFilters,
+                                  }).url
+                                : undefined,
                         localItemsSearch: (items: any[], q: string): any[] => {
                             if (!q) {
                                 return items

@@ -48,3 +48,13 @@ export const CODING_AGENT_CLIENT_NAME_FRAGMENTS = [
 export function isCodingAgentClient(clientName: string | undefined): boolean {
     return matchesAnyFragment(clientName, CODING_AGENT_CLIENT_NAME_FRAGMENTS)
 }
+
+// Value sent in `x-posthog-mcp-consumer` by PostHog Code (the Tasks sandbox
+// wrapper around the Claude Agent SDK) when the task was launched from the
+// PostHog Code UI. Used to force coding-agent behavior and to gate UI-apps
+// emission in single-exec mode. Slack-launched runs send `"slack"` instead.
+export const POSTHOG_CODE_CONSUMER = 'posthog-code'
+
+export function isPostHogCodeConsumer(mcpConsumer: string | undefined): boolean {
+    return mcpConsumer === POSTHOG_CODE_CONSUMER
+}

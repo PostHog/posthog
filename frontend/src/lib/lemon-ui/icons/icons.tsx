@@ -751,6 +751,18 @@ export function IconSlackExternal(props: LemonIconProps): JSX.Element {
     )
 }
 
+export function IconMicrosoftTeams(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 24 24" {...props}>
+            <path
+                d="M19.5 4.5h-3V3a1.5 1.5 0 0 0-1.5-1.5H9A1.5 1.5 0 0 0 7.5 3v1.5h-3A1.5 1.5 0 0 0 3 6v12a1.5 1.5 0 0 0 1.5 1.5h15A1.5 1.5 0 0 0 21 18V6a1.5 1.5 0 0 0-1.5-1.5zM9 3h6v1.5H9V3zm3 15a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9z"
+                fill="#5059C9"
+            />
+            <circle cx="12" cy="13.5" r="3" fill="#7B83EB" />
+        </LemonIconBase>
+    )
+}
+
 export function IconTwilio(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase viewBox="0 0 256 256" {...props}>

@@ -1,4 +1,5 @@
 import json
+from collections.abc import Iterator
 from typing import Any
 
 from django.http import HttpResponse, StreamingHttpResponse
@@ -53,14 +54,18 @@ def ensure_valid_token(installation: MCPServerInstallation) -> None:
     refresh_installation_token(installation)
 
 
-def validate_installation_auth(installation: MCPServerInstallation) -> tuple[bool, HttpResponse | None]:
+def validate_installation_auth(
+    installation: MCPServerInstallation,
+) -> tuple[bool, HttpResponse | None]:
     """Validate that the installation has valid auth credentials.
 
     Returns (True, None) if auth is valid, or (False, error_response) if not.
     """
     if not installation.is_enabled:
         logger.warning(
-            "Proxy auth failed: server is disabled", installation_id=str(installation.id), url=installation.url
+            "Proxy auth failed: server is disabled",
+            installation_id=str(installation.id),
+            url=installation.url,
         )
         return False, HttpResponse(
             '{"error": "Server is disabled"}',
@@ -336,7 +341,7 @@ def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> Http
     return response
 
 
-def _stream_upstream(upstream_response: httpx.Response, client: httpx.Client):
+def _stream_upstream(upstream_response: httpx.Response, client: httpx.Client) -> Iterator[bytes]:
     try:
         yield from upstream_response.iter_bytes(4096)
     finally:
