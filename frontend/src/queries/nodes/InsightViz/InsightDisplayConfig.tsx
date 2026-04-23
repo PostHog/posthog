@@ -389,6 +389,7 @@ export function InsightDisplayConfig(): JSX.Element {
                             size="small"
                             disabledReason={editingDisabledReason}
                             icon={<IconEllipsis />}
+                            aria-label="Options"
                             className="InsightDisplayConfig__options-btn"
                         >
                             <span className="font-medium whitespace-nowrap">
