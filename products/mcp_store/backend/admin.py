@@ -65,11 +65,29 @@ class MCPServerTemplateAdmin(admin.ModelAdmin):
 
     @admin.action(description="Mark selected templates active")
     def activate_templates(self, request: HttpRequest, queryset: Any) -> None:
+        template_ids = [str(pk) for pk in queryset.values_list("pk", flat=True)]
         queryset.update(is_active=True)
+        logger.info(
+            "mcp_store admin: templates activated",
+            extra={
+                "template_ids": template_ids,
+                "count": len(template_ids),
+                "actor_user_id": request.user.id,
+            },
+        )
 
     @admin.action(description="Mark selected templates inactive")
     def deactivate_templates(self, request: HttpRequest, queryset: Any) -> None:
+        template_ids = [str(pk) for pk in queryset.values_list("pk", flat=True)]
         queryset.update(is_active=False)
+        logger.info(
+            "mcp_store admin: templates deactivated",
+            extra={
+                "template_ids": template_ids,
+                "count": len(template_ids),
+                "actor_user_id": request.user.id,
+            },
+        )
 
     @admin.action(description="Discover OAuth metadata from server URL")
     def discover_metadata(self, request: HttpRequest, queryset: Any) -> None:
@@ -86,6 +104,14 @@ class MCPServerTemplateAdmin(admin.ModelAdmin):
                 logger.exception("oauth metadata discovery failed for template %s", template.id)
                 messages.warning(request, f"{template.name}: {type(e).__name__}: {e}")
                 failed += 1
+        logger.info(
+            "mcp_store admin: discover_metadata action completed",
+            extra={
+                "succeeded": ok,
+                "failed": failed,
+                "actor_user_id": request.user.id,
+            },
+        )
         if ok:
             messages.success(request, f"Discovered metadata for {ok} template(s)")
         if failed:

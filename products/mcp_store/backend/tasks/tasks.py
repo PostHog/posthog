@@ -22,3 +22,9 @@ def sync_installation_tools_task(installation_id: str) -> None:
             installation_id=installation_id,
             error=str(exc),
         )
+        return
+    logger.info(
+        "sync_installation_tools_task: completed",
+        installation_id=installation_id,
+        team_id=installation.team_id,
+    )

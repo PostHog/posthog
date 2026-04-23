@@ -361,6 +361,13 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
     def perform_destroy(self, instance: MCPServerInstallation) -> None:
+        logger.info(
+            "MCP installation uninstalled",
+            installation_id=str(instance.id),
+            template_id=str(instance.template_id) if instance.template_id else None,
+            team_id=self.team_id,
+            auth_type=instance.auth_type,
+        )
         report_user_action(
             self.request.user,
             "mcp_store server uninstalled",
@@ -446,6 +453,14 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             setattr(installation, field, value)
         installation.save()
 
+        logger.info(
+            "MCP installation updated",
+            installation_id=str(installation.id),
+            team_id=self.team_id,
+            changed_fields=sorted(data.keys()),
+            is_enabled=installation.is_enabled,
+        )
+
         serializer = self.get_serializer(installation)
         return Response(serializer.data)
 
@@ -502,11 +517,19 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             },
         )
         # Re-link in case a previous install pointed elsewhere (e.g. post-migration reconnect).
-        if installation.template_id != template.id:
+        previous_template_id = installation.template_id
+        if previous_template_id != template.id:
             installation.template = template
             installation.display_name = installation.display_name or template.name
             installation.auth_type = template.auth_type
             installation.save(update_fields=["template", "display_name", "auth_type", "updated_at"])
+            logger.info(
+                "MCP installation re-linked to new template",
+                installation_id=str(installation.id),
+                old_template_id=str(previous_template_id) if previous_template_id else None,
+                new_template_id=str(template.id),
+                team_id=self.team_id,
+            )
 
         if template.auth_type == "api_key":
             api_key = data.get("api_key") or ""
@@ -520,6 +543,13 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             # Tool sync runs in the background so a slow upstream can't block the install request.
             transaction.on_commit(lambda: sync_installation_tools_task.delay(str(installation.id)))
 
+            logger.info(
+                "MCP server installed via API key template",
+                installation_id=str(installation.id),
+                template_id=str(template.id),
+                team_id=self.team_id,
+                install_source=install_source,
+            )
             report_user_action(
                 request.user,
                 "mcp_store server installed",
@@ -578,6 +608,13 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 installation.delete()
             return Response({"detail": "Could not build OAuth authorize URL"}, status=status.HTTP_400_BAD_REQUEST)
 
+        logger.info(
+            "OAuth flow started (template install)",
+            installation_id=str(installation.id),
+            template_id=str(template.id),
+            team_id=self.team_id,
+            install_source=install_source,
+        )
         report_user_action(
             request.user,
             "mcp_store oauth started",
@@ -746,6 +783,12 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     installation.delete()
                 return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
             dcr_is_user_provided = False
+            logger.info(
+                "DCR client registered for installation",
+                installation_id=str(installation.id),
+                server_url=mcp_url,
+                team_id=self.team_id,
+            )
 
         # Cache the (non-secret) discovery metadata and the per-user creds on
         # the installation itself so refresh + reconnect don't re-run discovery.
@@ -905,6 +948,13 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             )
             return Response({"detail": "Could not build OAuth authorize URL"}, status=status.HTTP_400_BAD_REQUEST)
 
+        logger.info(
+            "OAuth flow started (template authorize)",
+            installation_id=str(installation.id),
+            template_id=str(template.id),
+            team_id=self.team_id,
+            install_source=install_source,
+        )
         report_user_action(
             request.user,
             "mcp_store oauth started",
@@ -984,6 +1034,12 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         except OAuthAuthorizeURLError:
             return Response({"detail": "Authorization endpoint must use HTTPS"}, status=status.HTTP_400_BAD_REQUEST)
 
+        logger.info(
+            "OAuth flow started (installation reconnect)",
+            installation_id=str(installation.id),
+            team_id=self.team_id,
+            install_source=install_source,
+        )
         response = HttpResponse(status=302)
         response["Location"] = authorize_url
         return response
@@ -1016,9 +1072,18 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             return Response({"detail": "Tool not found"}, status=status.HTTP_404_NOT_FOUND)
 
         new_state = request.validated_data["approval_state"]
-        if tool.approval_state != new_state:
+        previous_state = tool.approval_state
+        if previous_state != new_state:
             tool.approval_state = new_state
             tool.save(update_fields=["approval_state", "updated_at"])
+            logger.info(
+                "MCP tool approval changed",
+                installation_id=str(installation.id),
+                tool_name=tool.tool_name,
+                previous_state=previous_state,
+                new_state=new_state,
+                team_id=self.team_id,
+            )
             report_user_action(
                 request.user,
                 "mcp_store tool approval changed",
@@ -1059,6 +1124,12 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
         queryset = installation.tools.filter(removed_at__isnull=True).order_by("tool_name")
         serializer = MCPServerInstallationToolSerializer(queryset, many=True)
+        logger.info(
+            "Tools refreshed",
+            installation_id=str(installation.id),
+            team_id=self.team_id,
+            tool_count=queryset.count(),
+        )
         return Response({"results": serializer.data})
 
 
@@ -1214,6 +1285,12 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
 
             oauth_state.consumed_at = now
             oauth_state.save(update_fields=["consumed_at", "updated_at"])
+            logger.info(
+                "OAuth state consumed",
+                installation_id=str(oauth_state.installation_id),
+                team_id=oauth_state.team_id,
+                install_source=oauth_state.install_source,
+            )
             return oauth_state
 
     @staticmethod
