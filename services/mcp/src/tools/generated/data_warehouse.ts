@@ -24,6 +24,10 @@ import {
     ExternalDataSourcesReloadCreateBody,
     ExternalDataSourcesReloadCreateParams,
     ExternalDataSourcesRetrieveParams,
+    InsightVariablesCreateBody,
+    InsightVariablesDestroyParams,
+    InsightVariablesPartialUpdateBody,
+    InsightVariablesPartialUpdateParams,
     WarehouseSavedQueriesCreateBody,
     WarehouseSavedQueriesDestroyParams,
     WarehouseSavedQueriesListQueryParams,
@@ -258,6 +262,81 @@ const externalDataSourcesWizard = (): ToolBase<typeof ExternalDataSourcesWizardS
             '*.fields',
         ]) as typeof result
         return filtered
+    },
+})
+
+const SqlVariablesCreateSchema = InsightVariablesCreateBody
+
+const sqlVariablesCreate = (): ToolBase<typeof SqlVariablesCreateSchema, Schemas.InsightVariable> => ({
+    name: 'sql-variables-create',
+    schema: SqlVariablesCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof SqlVariablesCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.type !== undefined) {
+            body['type'] = params.type
+        }
+        if (params.default_value !== undefined) {
+            body['default_value'] = params.default_value
+        }
+        if (params.values !== undefined) {
+            body['values'] = params.values
+        }
+        const result = await context.api.request<Schemas.InsightVariable>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/insight_variables/`,
+            body,
+        })
+        return result
+    },
+})
+
+const SqlVariablesUpdateSchema = InsightVariablesPartialUpdateParams.omit({ project_id: true }).extend(
+    InsightVariablesPartialUpdateBody.shape
+)
+
+const sqlVariablesUpdate = (): ToolBase<typeof SqlVariablesUpdateSchema, Schemas.InsightVariable> => ({
+    name: 'sql-variables-update',
+    schema: SqlVariablesUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof SqlVariablesUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.type !== undefined) {
+            body['type'] = params.type
+        }
+        if (params.default_value !== undefined) {
+            body['default_value'] = params.default_value
+        }
+        if (params.values !== undefined) {
+            body['values'] = params.values
+        }
+        const result = await context.api.request<Schemas.InsightVariable>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/insight_variables/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const SqlVariablesDeleteSchema = InsightVariablesDestroyParams.omit({ project_id: true })
+
+const sqlVariablesDelete = (): ToolBase<typeof SqlVariablesDeleteSchema, unknown> => ({
+    name: 'sql-variables-delete',
+    schema: SqlVariablesDeleteSchema,
+    handler: async (context: Context, params: z.infer<typeof SqlVariablesDeleteSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/insight_variables/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
     },
 })
 
@@ -722,6 +801,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'external-data-sources-refresh-schemas': externalDataSourcesRefreshSchemas,
     'external-data-sources-reload': externalDataSourcesReload,
     'external-data-sources-wizard': externalDataSourcesWizard,
+    'sql-variables-create': sqlVariablesCreate,
+    'sql-variables-update': sqlVariablesUpdate,
+    'sql-variables-delete': sqlVariablesDelete,
     'view-list': viewList,
     'view-create': viewCreate,
     'view-get': viewGet,

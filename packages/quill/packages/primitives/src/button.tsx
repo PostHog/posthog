@@ -61,6 +61,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         return (
             <ButtonPrimitive
                 ref={ref}
+                data-quill
                 data-slot="button"
                 className={cn(buttonVariants({ variant, size, className, focusableWhenDisabled, left }))}
                 {...props}

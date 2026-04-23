@@ -104,6 +104,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'hog_function:write',
     'insight:read',
     'insight:write',
+    'insight_variable:read',
+    'insight_variable:write',
     'integration:read',
     'integration:write',
     'llm_analytics:read',

@@ -1,40 +1,41 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { lazyLoaders } from 'kea-loaders'
 
-import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { FilterType } from '~/types'
+
+import {
+    groupsTypesMetricsCreate,
+    groupsTypesMetricsDestroy,
+    groupsTypesMetricsList,
+    groupsTypesMetricsUpdate,
+} from 'products/customer_analytics/frontend/generated/api'
+import type { GroupUsageMetricApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import type { usageMetricsConfigLogicType } from './usageMetricsConfigLogicType'
 
-export interface UsageMetric {
-    id: string
-    name: string
-    format: string
-    interval: number
-    display: string
-    filters: object
-}
-
-export interface UsageMetricFormData {
+export type UsageMetricFormData = Omit<GroupUsageMetricApi, 'id' | 'filters'> & {
     id?: string
-    name: string
-    format: string
-    interval: number
-    display: string
-    filters: object
+    filters: FilterType
 }
 
-const NEW_USAGE_METRIC = {
+const NEW_USAGE_METRIC: UsageMetricFormData = {
+    name: '',
     format: 'numeric',
     interval: 7,
     display: 'number',
     filters: {},
-} as UsageMetricFormData
+    math: 'count',
+    math_property: null,
+}
+
+// Hardcoded to 0 — the backend model is coupled to groups but will be refactored to be group-agnostic
+const GROUP_TYPE_INDEX = 0
 
 export interface UsageMetricsConfigLogicProps {
     logicKey?: string
@@ -74,41 +75,47 @@ export const usageMetricsConfigLogic = kea<usageMetricsConfigLogicType>([
 
     lazyLoaders(({ values }) => ({
         usageMetrics: [
-            [] as UsageMetric[],
+            [] as GroupUsageMetricApi[],
             {
                 loadUsageMetrics: async () => {
-                    return await api.get(values.metricsUrl).then((response) => response.results)
+                    const response = await groupsTypesMetricsList(String(values.currentProjectId), GROUP_TYPE_INDEX)
+                    return response.results
                 },
                 addUsageMetric: async ({ metric }) => {
-                    const newMetric = await api.create(values.metricsUrl, metric)
+                    const { id: _id, ...payload } = metric
+                    const newMetric = await groupsTypesMetricsCreate(
+                        String(values.currentProjectId),
+                        GROUP_TYPE_INDEX,
+                        payload as GroupUsageMetricApi
+                    )
                     return [...values.usageMetrics, newMetric]
                 },
                 updateUsageMetric: async ({ metric }) => {
-                    const updatedMetric = await api.update(`${values.metricsUrl}/${metric.id}`, metric)
+                    if (!metric.id) {
+                        throw new Error('Cannot update a metric without an id')
+                    }
+                    const updatedMetric = await groupsTypesMetricsUpdate(
+                        String(values.currentProjectId),
+                        GROUP_TYPE_INDEX,
+                        metric.id,
+                        metric as GroupUsageMetricApi
+                    )
                     return [...values.usageMetrics.filter((m) => m.id !== metric.id), updatedMetric]
                 },
                 removeUsageMetric: async ({ id }) => {
-                    const deletedMetric = await api.delete(`${values.metricsUrl}/${id}`)
-                    return [...values.usageMetrics.filter((m) => m.id !== id), deletedMetric]
+                    await groupsTypesMetricsDestroy(String(values.currentProjectId), GROUP_TYPE_INDEX, id)
+                    return values.usageMetrics.filter((m) => m.id !== id)
                 },
             },
         ],
     })),
 
-    selectors({
-        metricsUrl: [
-            (s) => [s.currentProjectId],
-            // Defaulting group type index to 0 as we want to make this group-agnostic.
-            // Backend model/endpoint will be refactored
-            (currentProjectId) => `/api/projects/${currentProjectId}/groups_types/0/metrics`,
-        ],
-    }),
-
     forms(({ actions }) => ({
         usageMetric: {
             defaults: NEW_USAGE_METRIC,
-            errors: ({ name }) => ({
+            errors: ({ name, math, math_property }) => ({
                 name: !name ? 'Name is required' : undefined,
+                math_property: math === 'sum' && !math_property ? 'Property is required for sum' : undefined,
             }),
             submit: (formData) => {
                 if (formData?.id) {
