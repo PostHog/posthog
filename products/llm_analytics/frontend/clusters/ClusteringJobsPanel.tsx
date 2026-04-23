@@ -132,6 +132,17 @@ function JobEditor({
 export function ClusteringJobsPanel(): JSX.Element {
     const { isJobsPanelOpen, jobs, jobsLoading, editingJob } = useValues(clusteringJobsLogic)
     const { closeJobsPanel, setEditingJob, createJob, updateJob, deleteJob } = useActions(clusteringJobsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const evaluationsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_CLUSTERING]
+
+    // Hide eval-level jobs from the admin list when the FF is off so the
+    // auto-seeded "Default - evaluations" row (from the migration + post_save
+    // signal) doesn't surface for teams that aren't on the feature yet. The
+    // create dropdown's "Evaluations" option is already FF-gated below, so
+    // mirroring the gate on the list keeps the two surfaces consistent.
+    const visibleJobs = evaluationsEnabled
+        ? jobs
+        : jobs.filter((job: ClusteringJob) => job.analysis_level !== 'evaluation')
 
     return (
         <LemonModal
@@ -156,7 +167,7 @@ export function ClusteringJobsPanel(): JSX.Element {
                 />
             ) : (
                 <div className="space-y-3">
-                    {jobs.map((job: ClusteringJob) => (
+                    {visibleJobs.map((job: ClusteringJob) => (
                         <div
                             key={job.id}
                             className="flex items-center justify-between border rounded p-3 hover:bg-surface-secondary transition-colors"
@@ -204,7 +215,7 @@ export function ClusteringJobsPanel(): JSX.Element {
                         </div>
                     ))}
 
-                    {jobs.length === 0 && !jobsLoading && (
+                    {visibleJobs.length === 0 && !jobsLoading && (
                         <div className="text-center text-muted p-4">No clustering jobs configured yet.</div>
                     )}
 
