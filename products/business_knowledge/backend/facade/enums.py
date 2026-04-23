@@ -28,3 +28,19 @@ MAX_TEXT_SIZE_BYTES = 1_000_000
 # can import them without pulling Django.
 CHUNK_TARGET_CHARS = 1200
 CHUNK_HARD_MAX_CHARS = 1600
+
+# --- Stage 2a: URL fetch tunables ---
+# Hard cap on remote response bodies. Above this we abort mid-stream rather
+# than ever materializing the full payload — protects memory and makes a
+# zip-bomb attempt cheap to reject.
+URL_MAX_BYTES = 10 * 1024 * 1024
+# Connect + read timeouts (seconds). Short because fetch happens inline on
+# the request thread; Stage 2c moves it to Temporal and can be generous.
+URL_CONNECT_TIMEOUT = 5
+URL_READ_TIMEOUT = 10
+# Max redirect hops. We handle redirects manually so we can re-validate SSRF
+# on every Location header.
+URL_MAX_REDIRECTS = 5
+# Self-identifying User-Agent — gives site operators something searchable
+# and a contact point if we hammer their site by accident.
+URL_USER_AGENT = "PostHog-BusinessKnowledge/1.0 (+https://posthog.com)"

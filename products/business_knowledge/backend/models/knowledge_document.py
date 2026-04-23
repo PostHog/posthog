@@ -27,6 +27,22 @@ class KnowledgeDocument(UUIDModel):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # --- Stage 2a: URL-document fields ---
+    # Absolute fetched URL (after any redirects). For Stage 2a this mirrors
+    # `source.source_url`; Stage 2b crawl makes them diverge.
+    url = models.URLField(max_length=2048, blank=True, default="")
+    # Per-document ETag — deliberately separate from `source.last_etag` so
+    # the crawl case can use per-page conditional GETs later.
+    etag = models.CharField(max_length=255, blank=True, default="")
+    # sha256 of the parsed text we stored in `content`. Lets us skip
+    # re-chunking when a refresh returns new HTML but semantically identical
+    # content (common with news/CMS templates).
+    content_hash = models.CharField(max_length=64, blank=True, default="")
+    # Set when a crawl stops seeing a page that used to exist. Stage 2a
+    # never writes this; kept as a forward-compatible field so Stage 2b
+    # doesn't need another migration.
+    tombstoned_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         db_table = "posthog_business_knowledge_knowledgedocument"
         indexes = [

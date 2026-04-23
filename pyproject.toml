@@ -17,6 +17,7 @@ dependencies = [
     "antlr4-python3-runtime==4.13.1",
     "asyncstdlib==3.13.1",
     "beautifulsoup4==4.12.3",
+    "trafilatura~=2.0.0",
     "boto3==1.40.49",
     "brotli==1.2.0",
     "celery==5.6.3",

@@ -39,7 +39,7 @@ class SupportAgentPromptBuilder(AgentPromptBuilderBase):
             self._get_billing_prompt(),
             self._aget_core_memory_text(),
             self._context_manager.get_group_names(),
-            sync_to_async(business_knowledge_api.format_knowledge_prompt, thread_sensitive=False)(self._team.id),
+            sync_to_async(business_knowledge_api.format_knowledge_prompt)(self._team.id),
         )
 
         format_args = {

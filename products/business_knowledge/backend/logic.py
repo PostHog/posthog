@@ -6,12 +6,19 @@ to call into this module.
 """
 
 import uuid
+import hashlib
 from dataclasses import dataclass
 from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Count
+from django.utils import timezone
 
+import structlog
+
+from posthog.security.url_validation import is_url_allowed
+
+from . import html_parse, url_fetch
 from .facade.enums import (
     CHUNK_HARD_MAX_CHARS,
     CHUNK_TARGET_CHARS,
@@ -20,6 +27,9 @@ from .facade.enums import (
     MAX_TEXT_SIZE_BYTES,
 )
 from .models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource, SourceStatus, SourceType
+from .models.constants import RefreshStatus
+
+logger = structlog.get_logger(__name__)
 
 # Deterministic namespace for chunk uuid5. Rolling this breaks id stability
 # across Stage 1 data — so don't. Generated once via uuid.uuid4() and frozen.
@@ -32,6 +42,22 @@ class QuotaExceededError(Exception):
 
 class TextTooLargeError(Exception):
     """Raw text exceeds MAX_TEXT_SIZE_BYTES."""
+
+
+class InvalidUrlError(Exception):
+    """URL failed SSRF or basic validation. Message is user-safe."""
+
+
+class UrlFetchFailedError(Exception):
+    """Fetch or parse failed. Message is user-safe (never includes server detail)."""
+
+
+class SourceBusyError(Exception):
+    """A refresh is already running for this source."""
+
+
+class EmptyContentError(Exception):
+    """Remote returned nothing usable after parsing."""
 
 
 @dataclass(frozen=True)
@@ -338,3 +364,319 @@ def update_text_source(
 def delete_source(source_id: UUID, team_id: int) -> bool:
     deleted, _ = KnowledgeSource.objects.filter(id=source_id, team_id=team_id).delete()
     return deleted > 0
+
+
+# --- Stage 2a: URL sources ---------------------------------------------------
+
+
+def _sha256_of(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _validate_url(url: str) -> str:
+    """Normalize + SSRF check. Raises InvalidUrlError on failure."""
+
+    try:
+        normalized = url_fetch.normalize_url(url)
+    except url_fetch.UrlFetchError:
+        raise InvalidUrlError("Invalid URL.")
+    allowed, _reason = is_url_allowed(normalized)
+    if not allowed:
+        raise InvalidUrlError("URL is not reachable from this environment.")
+    return normalized
+
+
+def check_url_source_quota(team_id: int) -> None:
+    """
+    Byte/chunk caps are enforced post-fetch (we don't know the body size until
+    we've fetched). Here we only short-circuit the per-team source count.
+    """
+
+    if _count_sources(team_id) >= MAX_SOURCES_PER_TEAM:
+        raise QuotaExceededError(f"Team already has {MAX_SOURCES_PER_TEAM} knowledge sources.")
+
+
+def _fetch_and_parse(url: str, *, etag: str | None) -> tuple[url_fetch.FetchResult, str, str]:
+    """
+    Fetch + parse for create/refresh paths. Returns (fetch_result, title, text).
+    Raises UrlFetchFailedError / EmptyContentError on bad input.
+
+    On 304 returns empty (title, text) — caller must check fetch.status first.
+    """
+
+    try:
+        result = url_fetch.fetch_url(url, etag=etag)
+    except url_fetch.UrlFetchError as exc:
+        raise UrlFetchFailedError(str(exc))
+
+    if result.status == 304:
+        return result, "", ""
+
+    if not result.body:
+        raise EmptyContentError("Remote response was empty.")
+
+    if not url_fetch.is_html_content_type(result.content_type):
+        raise UrlFetchFailedError("Unsupported content type.")
+
+    title, text = html_parse.parse_html(result.body, result.final_url)
+    if not text.strip():
+        raise EmptyContentError("Could not extract any text from the URL.")
+    if len(text.encode("utf-8")) > MAX_TEXT_SIZE_BYTES:
+        # Trim rather than refuse — a 2MB Wikipedia page is still useful.
+        # Cut on a character boundary within the byte budget.
+        raise UrlFetchFailedError("URL content exceeds the maximum allowed size.")
+    return result, title, text
+
+
+def _replace_source_content(
+    *,
+    source: KnowledgeSource,
+    team_id: int,
+    title: str,
+    text: str,
+    url: str,
+    etag: str,
+    content_hash: str,
+) -> None:
+    """
+    Delete existing documents+chunks for `source` and create a fresh 1-doc/
+    N-chunk set from the given text. Must be called inside a transaction.
+
+    The chunk count budget is enforced here (after we already know the exact
+    count). Existing chunks for this source are subtracted before comparison.
+    """
+
+    chunks = chunk_text(text)
+    existing_chunks_for_source = KnowledgeChunk.objects.filter(team_id=team_id, source_id=source.id).count()
+    if _count_chunks(team_id) - existing_chunks_for_source + len(chunks) > MAX_CHUNKS_PER_TEAM:
+        raise QuotaExceededError(f"Team already near the {MAX_CHUNKS_PER_TEAM} chunk cap.")
+
+    KnowledgeChunk.objects.filter(team_id=team_id, source_id=source.id).delete()
+    KnowledgeDocument.objects.filter(team_id=team_id, source_id=source.id).delete()
+
+    document_id = uuid.uuid4()
+    # stable_id = normalized URL so Stage 2b crawls can upsert by (source, url)
+    # and a re-fetch of the same URL keeps the same identity — helps agents
+    # that cache by document id across refreshes.
+    document = KnowledgeDocument.objects.create(
+        id=document_id,
+        team_id=team_id,
+        source=source,
+        stable_id=url,
+        title=title or source.name,
+        content=text,
+        metadata={"source_type": SourceType.URL, "url": url},
+        url=url,
+        etag=etag,
+        content_hash=content_hash,
+    )
+    KnowledgeChunk.objects.bulk_create(
+        [
+            KnowledgeChunk(
+                id=_chunk_id(document.stable_id, c.heading_path, c.ordinal),
+                team_id=team_id,
+                source=source,
+                document=document,
+                heading_path=c.heading_path,
+                ordinal=c.ordinal,
+                content=c.content,
+                char_count=len(c.content),
+            )
+            for c in chunks
+        ]
+    )
+
+
+def create_url_source(
+    *,
+    team_id: int,
+    created_by_id: int | None,
+    name: str,
+    url: str,
+) -> KnowledgeSource:
+    """
+    Stage 2a URL ingestion: validate → fetch → parse → chunk.
+
+    Fetch happens *before* the DB transaction so a 10s HTTP call doesn't hold
+    a row-level write lock. The source row is then created atomically with
+    its documents and chunks.
+    """
+
+    check_url_source_quota(team_id)
+    normalized = _validate_url(url)
+
+    try:
+        result, title, text = _fetch_and_parse(normalized, etag=None)
+    except (UrlFetchFailedError, EmptyContentError) as exc:
+        # Create the source in ERROR state so the user can see what happened
+        # and retry via refresh. Keeping it visible is better UX than a
+        # silent 4xx that vanishes.
+        with transaction.atomic():
+            now = timezone.now()
+            source = KnowledgeSource.objects.create(
+                team_id=team_id,
+                created_by_id=created_by_id,
+                name=name,
+                source_type=SourceType.URL,
+                status=SourceStatus.ERROR,
+                error_message=str(exc),
+                source_url=normalized,
+                last_refresh_at=now,
+                last_refresh_status=RefreshStatus.ERROR,
+                last_refresh_error=str(exc),
+            )
+        raise UrlFetchFailedError(str(exc)) from exc
+
+    content_hash = _sha256_of(text)
+    with transaction.atomic():
+        source = KnowledgeSource.objects.create(
+            team_id=team_id,
+            created_by_id=created_by_id,
+            name=name,
+            source_type=SourceType.URL,
+            status=SourceStatus.PROCESSING,
+            source_url=normalized,
+        )
+        _replace_source_content(
+            source=source,
+            team_id=team_id,
+            title=title,
+            text=text,
+            url=result.final_url,
+            etag=result.etag or "",
+            content_hash=content_hash,
+        )
+        source.status = SourceStatus.READY
+        source.last_refresh_at = timezone.now()
+        source.last_refresh_status = RefreshStatus.SUCCESS
+        source.last_refresh_error = ""
+        source.last_etag = result.etag or ""
+        source.save(
+            update_fields=[
+                "status",
+                "last_refresh_at",
+                "last_refresh_status",
+                "last_refresh_error",
+                "last_etag",
+                "updated_at",
+            ]
+        )
+
+    return get_for_team(source.id, team_id) or source
+
+
+def refresh_source(*, source_id: UUID, team_id: int) -> KnowledgeSource | None:
+    """
+    Re-fetch a URL source and rebuild its content if it changed.
+
+    Uses `If-None-Match` with the last-seen ETag for cheap 304 short-circuits.
+    On 200 we compare `content_hash(parsed_text)` before re-chunking — avoids
+    churn when a template change leaves the visible text identical.
+
+    The DB transaction is held only while mutating rows; the HTTP fetch is
+    outside the txn to keep lock windows small.
+    """
+
+    # Pull the source once outside the txn just to verify it exists + claim it.
+    with transaction.atomic():
+        try:
+            source = KnowledgeSource.objects.select_for_update(skip_locked=True).get(id=source_id, team_id=team_id)
+        except KnowledgeSource.DoesNotExist:
+            return None
+        if source.source_type != SourceType.URL or not source.source_url:
+            raise InvalidUrlError("Only URL sources can be refreshed.")
+        if source.status == SourceStatus.PROCESSING:
+            raise SourceBusyError("This source is already refreshing.")
+        source.status = SourceStatus.PROCESSING
+        source.save(update_fields=["status", "updated_at"])
+
+    try:
+        # Re-validate the URL before every fetch — we don't assume stored URLs
+        # are still safe (DNS may have been rebound since create time).
+        normalized = _validate_url(source.source_url)
+        result, title, text = _fetch_and_parse(normalized, etag=source.last_etag or None)
+    except (InvalidUrlError, UrlFetchFailedError, EmptyContentError) as exc:
+        with transaction.atomic():
+            fresh = KnowledgeSource.objects.get(id=source.id, team_id=team_id)
+            # Leave existing chunks intact so queries keep working even while
+            # refresh is broken — that's why last_refresh_status is separate.
+            fresh.status = SourceStatus.READY if fresh.documents.exists() else SourceStatus.ERROR
+            fresh.last_refresh_at = timezone.now()
+            fresh.last_refresh_status = RefreshStatus.ERROR
+            fresh.last_refresh_error = str(exc)
+            if fresh.status == SourceStatus.ERROR:
+                fresh.error_message = str(exc)
+            fresh.save(
+                update_fields=[
+                    "status",
+                    "last_refresh_at",
+                    "last_refresh_status",
+                    "last_refresh_error",
+                    "error_message",
+                    "updated_at",
+                ]
+            )
+        raise
+
+    if result.status == 304:
+        with transaction.atomic():
+            fresh = KnowledgeSource.objects.get(id=source.id, team_id=team_id)
+            fresh.status = SourceStatus.READY
+            fresh.last_refresh_at = timezone.now()
+            fresh.last_refresh_status = RefreshStatus.NOT_MODIFIED
+            fresh.last_refresh_error = ""
+            # ETag occasionally rotates without content changes; store whatever
+            # the server sent (or keep the previous one if absent).
+            if result.etag:
+                fresh.last_etag = result.etag
+            fresh.save(
+                update_fields=[
+                    "status",
+                    "last_refresh_at",
+                    "last_refresh_status",
+                    "last_refresh_error",
+                    "last_etag",
+                    "updated_at",
+                ]
+            )
+        return get_for_team(source.id, team_id) or fresh
+
+    new_hash = _sha256_of(text)
+    with transaction.atomic():
+        fresh = KnowledgeSource.objects.select_for_update().get(id=source.id, team_id=team_id)
+        existing_doc = (
+            KnowledgeDocument.objects.filter(team_id=team_id, source_id=fresh.id).order_by("created_at").first()
+        )
+        content_changed = existing_doc is None or existing_doc.content_hash != new_hash
+        if content_changed:
+            _replace_source_content(
+                source=fresh,
+                team_id=team_id,
+                title=title,
+                text=text,
+                url=result.final_url,
+                etag=result.etag or "",
+                content_hash=new_hash,
+            )
+        fresh.status = SourceStatus.READY
+        fresh.last_refresh_at = timezone.now()
+        # Distinct status from "no content change" — NOT_MODIFIED means
+        # "server told us 304". If content hash matches despite a 200, we still
+        # classify as SUCCESS (a refresh happened; it just produced no diff).
+        fresh.last_refresh_status = RefreshStatus.SUCCESS
+        fresh.last_refresh_error = ""
+        fresh.last_etag = result.etag or ""
+        fresh.error_message = ""
+        fresh.save(
+            update_fields=[
+                "status",
+                "last_refresh_at",
+                "last_refresh_status",
+                "last_refresh_error",
+                "last_etag",
+                "error_message",
+                "updated_at",
+            ]
+        )
+
+    return get_for_team(source.id, team_id) or fresh

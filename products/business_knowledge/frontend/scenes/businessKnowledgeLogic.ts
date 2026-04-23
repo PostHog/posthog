@@ -22,12 +22,23 @@ export interface KnowledgeSource {
     chunk_count: number
     created_at: string
     updated_at: string | null
+    source_url: string
+    last_refresh_at: string | null
+    last_refresh_status: '' | 'success' | 'not_modified' | 'error'
+    last_refresh_error: string
 }
 
 export interface TextSourceFormValues {
     name: string
     text: string
 }
+
+export interface UrlSourceFormValues {
+    name: string
+    url: string
+}
+
+export type CreateTab = 'text' | 'url'
 
 const MAX_TEXT_BYTES = 1_000_000
 
@@ -49,14 +60,39 @@ function validateText({ name, text }: TextSourceFormValues): {
     }
 }
 
+function validateUrl({ name, url }: UrlSourceFormValues): {
+    name: string | undefined
+    url: string | undefined
+} {
+    let urlError: string | undefined
+    if (!url.trim()) {
+        urlError = 'Paste a public HTTPS URL'
+    } else {
+        try {
+            const parsed = new URL(url)
+            if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+                urlError = 'Only http(s) URLs are allowed'
+            }
+        } catch {
+            urlError = 'Not a valid URL'
+        }
+    }
+    return {
+        name: !name.trim() ? 'Give the source a short name' : undefined,
+        url: urlError,
+    }
+}
+
 export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
     path(['products', 'business_knowledge', 'businessKnowledgeLogic']),
     actions({
         openCreateModal: true,
         closeCreateModal: true,
+        setCreateTab: (tab: CreateTab) => ({ tab }),
         openEditModal: (source: KnowledgeSource) => ({ source }),
         closeEditModal: true,
         deleteSource: (id: string) => ({ id }),
+        refreshSource: (id: string) => ({ id }),
     }),
     reducers({
         isCreateModalOpen: [
@@ -66,11 +102,24 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                 closeCreateModal: () => false,
             },
         ],
+        createTab: [
+            'text' as CreateTab,
+            {
+                setCreateTab: (_, { tab }) => tab,
+                closeCreateModal: () => 'text',
+            },
+        ],
         editingSource: [
             null as KnowledgeSource | null,
             {
                 openEditModal: (_, { source }) => source,
                 closeEditModal: () => null,
+            },
+        ],
+        refreshingIds: [
+            [] as string[],
+            {
+                refreshSource: (state, { id }) => (state.includes(id) ? state : [...state, id]),
             },
         ],
     }),
@@ -104,7 +153,11 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
             errors: validateText,
             submit: async ({ name, text }: TextSourceFormValues) => {
                 try {
-                    const created = await api.create<KnowledgeSource>(apiUrl(), { name, text })
+                    const created = await api.create<KnowledgeSource>(apiUrl(), {
+                        name,
+                        text,
+                        source_type: 'text',
+                    })
                     lemonToast.success(`"${created.name}" indexed into ${created.chunk_count} chunks`)
                     actions.closeCreateModal()
                     actions.resetTextSource()
@@ -114,6 +167,31 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                         error?.detail ||
                             error?.data?.detail ||
                             'Could not save the source. Check the error and try again.'
+                    )
+                    throw error
+                }
+            },
+        },
+        urlSource: {
+            defaults: { name: '', url: '' } as UrlSourceFormValues,
+            errors: validateUrl,
+            submit: async ({ name, url }: UrlSourceFormValues) => {
+                try {
+                    const created = await api.create<KnowledgeSource>(apiUrl(), {
+                        name,
+                        url,
+                        source_type: 'url',
+                    })
+                    lemonToast.success(`"${created.name}" fetched and indexed into ${created.chunk_count} chunks`)
+                    actions.closeCreateModal()
+                    actions.resetUrlSource()
+                    actions.loadSources()
+                } catch (error: any) {
+                    lemonToast.error(
+                        error?.detail ||
+                            error?.data?.url?.[0] ||
+                            error?.data?.detail ||
+                            'Could not fetch the URL. Make sure it is publicly accessible.'
                     )
                     throw error
                 }
@@ -153,6 +231,24 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                 lemonToast.success('Knowledge source deleted')
             } catch (error: any) {
                 lemonToast.error(error?.detail || 'Could not delete the source.')
+            }
+        },
+        refreshSource: async ({ id }) => {
+            try {
+                const updated = await api.create<KnowledgeSource>(`${apiUrl()}/${id}/refresh`)
+                actions.replaceSourceInList({ source: updated })
+                if (updated.last_refresh_status === 'not_modified') {
+                    lemonToast.info(`"${updated.name}" is already up to date`)
+                } else {
+                    lemonToast.success(`"${updated.name}" refreshed`)
+                }
+            } catch (error: any) {
+                lemonToast.error(
+                    error?.detail || error?.data?.detail || error?.data?.url?.[0] || 'Could not refresh the source.'
+                )
+            } finally {
+                // Remove id from in-flight set by loading fresh state from server.
+                actions.loadSources()
             }
         },
         openEditModal: ({ source }) => {

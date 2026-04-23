@@ -16,3 +16,16 @@ class SourceStatus(models.TextChoices):
     PROCESSING = "processing", "Processing"
     READY = "ready", "Ready"
     ERROR = "error", "Error"
+
+
+class RefreshStatus(models.TextChoices):
+    """
+    Outcome of the last refresh attempt on a URL source. Decoupled from
+    `SourceStatus` because we want to keep a source `READY` even if the
+    latest refresh returned `NOT_MODIFIED` or `ERROR` — the old chunks are
+    still serving queries.
+    """
+
+    SUCCESS = "success", "Success"
+    NOT_MODIFIED = "not_modified", "Not modified"
+    ERROR = "error", "Error"

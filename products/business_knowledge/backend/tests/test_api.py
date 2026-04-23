@@ -85,20 +85,20 @@ class TestKnowledgeSourceAPI(APIBaseTest):
     def test_rejects_empty_text(self) -> None:
         response = self.client.post(self.url, {"name": "Docs", "text": "   "}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "text" in response.json()
+        body = response.json()
+        # drf-exceptions-hog normalizes single-field errors into a flat
+        # {type, code, detail, attr} shape; we assert the offending field
+        # lands in `attr` so UX code can still target it.
+        assert body.get("attr") == "text"
 
     def test_rejects_oversized_text(self) -> None:
         response = self.client.post(self.url, {"name": "Docs", "text": "x" * 1_000_001}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "text" in response.json()
+        assert response.json().get("attr") == "text"
 
-    def test_source_type_is_pinned_to_text(self) -> None:
-        # Clients shouldn't be able to sneak a url/file source through the
-        # text endpoint — the serializer must force source_type=text.
-        response = self.client.post(
-            self.url,
-            {"name": "Docs", "text": "hello", "source_type": "url", "url": "https://evil.example"},
-            format="json",
-        )
+    def test_create_defaults_source_type_to_text(self) -> None:
+        # Stage 2a dispatches on `source_type`. Omitting it must still land
+        # on the text path so Stage 1 clients keep working unchanged.
+        response = self.client.post(self.url, {"name": "Docs", "text": "hello"}, format="json")
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["source_type"] == "text"

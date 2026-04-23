@@ -22,6 +22,11 @@ class KnowledgeSourceDTO:
     chunk_count: int
     created_at: datetime
     updated_at: datetime | None
+    # Stage 2a: URL sources. Empty string / None for text sources.
+    source_url: str = ""
+    last_refresh_at: datetime | None = None
+    last_refresh_status: str = ""
+    last_refresh_error: str = ""
 
 
 @dataclass(frozen=True)
@@ -48,6 +53,21 @@ class UpdateTextSourceInput:
     team_id: int
     name: str | None
     text: str | None
+
+
+@dataclass(frozen=True)
+class CreateUrlSourceInput:
+    """
+    Input for creating a URL-type knowledge source. Team / user come from the
+    request context; the serializer is the only layer that normalizes / validates
+    the URL before it gets here (the logic layer still re-validates SSRF at
+    fetch time — defense in depth).
+    """
+
+    team_id: int
+    created_by_id: int | None
+    name: str
+    url: str
 
 
 @dataclass(frozen=True)

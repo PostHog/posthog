@@ -36,6 +36,10 @@ def _to_dto(source: KnowledgeSource) -> contracts.KnowledgeSourceDTO:
         chunk_count=chunk_count,
         created_at=source.created_at,
         updated_at=source.updated_at,
+        source_url=source.source_url or "",
+        last_refresh_at=source.last_refresh_at,
+        last_refresh_status=source.last_refresh_status or "",
+        last_refresh_error=source.last_refresh_error or "",
     )
 
 
@@ -56,6 +60,21 @@ def create_text_source(data: contracts.CreateTextSourceInput) -> contracts.Knowl
         text=data.text,
     )
     return _to_dto(source)
+
+
+def create_url_source(data: contracts.CreateUrlSourceInput) -> contracts.KnowledgeSourceDTO:
+    source = logic.create_url_source(
+        team_id=data.team_id,
+        created_by_id=data.created_by_id,
+        name=data.name,
+        url=data.url,
+    )
+    return _to_dto(source)
+
+
+def refresh_source(source_id: UUID, team_id: int) -> contracts.KnowledgeSourceDTO | None:
+    source = logic.refresh_source(source_id=source_id, team_id=team_id)
+    return _to_dto(source) if source is not None else None
 
 
 def delete_source(source_id: UUID, team_id: int) -> bool:

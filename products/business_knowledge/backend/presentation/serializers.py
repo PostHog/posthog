@@ -12,6 +12,9 @@ create_text_source inside the transaction.
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.security.url_validation import is_url_allowed
+
+from .. import url_fetch
 from ..facade.contracts import KnowledgeSourceDTO
 from ..facade.enums import MAX_TEXT_SIZE_BYTES, SourceType
 
@@ -93,4 +96,48 @@ class UpdateTextSourceSerializer(serializers.Serializer):
     def validate(self, attrs: dict) -> dict:
         if "name" not in attrs and "text" not in attrs:
             raise serializers.ValidationError("Provide at least one of `name` or `text`.")
+        return attrs
+
+
+class CreateUrlSourceSerializer(serializers.Serializer):
+    """
+    POST payload for URL sources. Normalizes + SSRF-validates the URL here
+    so the client gets a precise 400 instead of a created-but-errored source.
+    The logic layer re-validates on every fetch anyway — this is UX, not
+    security.
+    """
+
+    name = serializers.CharField(
+        max_length=255,
+        help_text="Short human label for the source. Shown in the settings list and in agent citations.",
+    )
+    url = serializers.URLField(
+        max_length=2048,
+        help_text=(
+            "Public HTTP(S) URL to fetch. Private / internal hosts are rejected. "
+            "Stage 2a fetches this URL once at create time; Stage 2c will refresh it on a schedule."
+        ),
+    )
+
+    def validate_name(self, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("Name cannot be blank.")
+        return value
+
+    def validate_url(self, value: str) -> str:
+        try:
+            normalized = url_fetch.normalize_url(value)
+        except url_fetch.UrlFetchError:
+            raise serializers.ValidationError("Invalid URL.")
+        allowed, reason = is_url_allowed(normalized)
+        if not allowed:
+            # Don't echo the exact SSRF reason — it's a reconnaissance aid.
+            # A generic message is enough for the user.
+            raise serializers.ValidationError("URL is not reachable.")
+        return normalized
+
+    def to_internal_value(self, data: dict) -> dict:
+        attrs = super().to_internal_value(data)
+        attrs["source_type"] = SourceType.URL.value
         return attrs
