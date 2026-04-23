@@ -488,3 +488,55 @@ class LLMSkillResolveResponseSerializer(serializers.Serializer):
     skill = LLMSkillSerializer()
     versions = LLMSkillVersionSummarySerializer(many=True)
     has_more = serializers.BooleanField()
+
+
+class LLMSkillFileCreateSerializer(LLMSkillFileInputSerializer):
+    base_version = serializers.IntegerField(
+        min_value=1,
+        required=False,
+        help_text=(
+            "Latest version you are editing from. If provided, the request fails with 409 "
+            "when another write has landed in the meantime."
+        ),
+    )
+
+
+class LLMSkillFileRenameSerializer(serializers.Serializer):
+    old_path = serializers.CharField(
+        max_length=500,
+        help_text="Current file path to rename.",
+    )
+    new_path = serializers.CharField(
+        max_length=500,
+        help_text="New file path. Must not already exist in the skill.",
+    )
+    base_version = serializers.IntegerField(
+        min_value=1,
+        required=False,
+        help_text=(
+            "Latest version you are editing from. If provided, the request fails with 409 "
+            "when another write has landed in the meantime."
+        ),
+    )
+
+    def validate_old_path(self, value: str) -> str:
+        return validate_skill_file_path(value)
+
+    def validate_new_path(self, value: str) -> str:
+        return validate_skill_file_path(value)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs["old_path"] == attrs["new_path"]:
+            raise serializers.ValidationError("new_path must differ from old_path.")
+        return attrs
+
+
+class LLMSkillFileDeleteQuerySerializer(serializers.Serializer):
+    base_version = serializers.IntegerField(
+        min_value=1,
+        required=False,
+        help_text=(
+            "Latest version you are editing from. If provided, the request fails with 409 "
+            "when another write has landed in the meantime."
+        ),
+    )

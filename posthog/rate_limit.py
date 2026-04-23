@@ -850,3 +850,34 @@ class EmailVerifyDomainThrottle(UserRateThrottle):
 class EmailSendTestThrottle(UserRateThrottle):
     scope = "email_send_test"
     rate = "6/minute"
+
+
+class TeamsAdminGraphThrottle(UserRateThrottle):
+    """
+    Protect the bot's per-tenant Graph API quota. The TeamsTeamsView /
+    TeamsChannelsView / TeamsInstallAppView / TeamsSelectChannelView endpoints
+    each proxy directly to Graph on every request; a misbehaving admin client
+    could otherwise drive the bot's Graph app-wide quota and get us throttled
+    out for an entire tenant.
+    """
+
+    scope = "teams_admin_graph"
+    rate = "60/minute"
+
+
+class TeamsEventWebhookThrottle(IPThrottle):
+    """
+    Rate limit the unauthenticated Bot Framework inbound webhook by IP.
+    """
+
+    scope = "teams_event_webhook"
+    rate = "300/minute"
+
+
+class TeamsOAuthCallbackThrottle(IPThrottle):
+    """
+    Rate limit the unauthenticated Teams OAuth callback endpoint by IP.
+    """
+
+    scope = "teams_oauth_callback"
+    rate = "30/minute"

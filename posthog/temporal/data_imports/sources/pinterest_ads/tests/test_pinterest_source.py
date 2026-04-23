@@ -111,13 +111,16 @@ class TestPinterestAdsSource:
             inputs.should_use_incremental_field = False
             inputs.db_incremental_field_last_value = None
 
-            result = self.source.source_for_pipeline(self.config, inputs)
+            resumable_manager = mock.MagicMock()
+            result = self.source.source_for_pipeline(self.config, resumable_manager, inputs)
 
             assert result == mock_response
             mock_pipeline.assert_called_once_with(
                 ad_account_id=self.config.ad_account_id,
                 endpoint="campaigns",
                 access_token="test_token",
+                resumable_source_manager=resumable_manager,
+                source_logger=inputs.logger,
                 should_use_incremental_field=False,
                 db_incremental_field_last_value=None,
             )
@@ -136,4 +139,11 @@ class TestPinterestAdsSource:
         inputs.db_incremental_field_last_value = None
 
         with pytest.raises(ValueError, match="Pinterest Ads access token not found for job test_job"):
-            self.source.source_for_pipeline(self.config, inputs)
+            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+
+    def test_get_resumable_source_manager(self):
+        inputs = mock.MagicMock()
+        inputs.team_id = self.team_id
+        inputs.job_id = "job-1"
+        manager = self.source.get_resumable_source_manager(inputs)
+        assert manager._data_class.__name__ == "PinterestAdsResumeConfig"
