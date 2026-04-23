@@ -270,7 +270,7 @@ const CATALOG: Record<AddonType, AddonSpec> = {
         description:
             'Unlimited projects, white labeling, HIPAA BAA, SSO enforcement, and features for collaboration with team members.',
         planKey: 'boost-addon-20250429',
-        price: '100.00',
+        price: '250.00',
         features: BOOST_FEATURES,
         legacy: false,
     },
@@ -279,7 +279,7 @@ const CATALOG: Record<AddonType, AddonSpec> = {
         description:
             'Priority support, SAML, and more features to scale your organization. Includes all features in the boost add-on features.',
         planKey: 'scale-addon-20250429',
-        price: '450.00',
+        price: '750.00',
         features: SCALE_FEATURES,
         legacy: false,
     },
@@ -288,7 +288,7 @@ const CATALOG: Record<AddonType, AddonSpec> = {
         description:
             'RBAC, dedicated support, training, and more. Includes all features in the scales and boost add-on features.',
         planKey: 'enterprise-addon-20241001',
-        price: '1500.00',
+        price: '2000.00',
         features: ENTERPRISE_FEATURES,
         legacy: false,
     },
