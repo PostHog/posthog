@@ -82,8 +82,6 @@ is_invalid_algorithm = lambda algo: algo not in CLICKHOUSE_SUPPORTED_JOIN_ALGORI
 class UntaggedQueryError(Exception):
     """Raised in DEBUG mode when a ClickHouse query is executed without product or feature tags."""
 
-    pass
-
 
 class KillSwitchLevel(StrEnum):
     OFF = "off"
@@ -312,11 +310,11 @@ def sync_execute(
     # Fail fast if trying to run an untagged query in local dev.
     # If you are reading this because you got the error below, please fix your query by
     # adding tags!
-    # See `tag_queries` at posthog/clickhouse/query_tagging.py:297 and `tags_context` at
-    # posthog/clickhouse/query_tagging.py:342 for how to attach tags.
+    # See `tag_queries` and `tags_context` in posthog/clickhouse/query_tagging.py for how to
+    # attach tags.
     # Please add whichever tags are relevant, in particular use helper functions like
-    # `get_request_analytics_properties` at posthog/event_usage.py:356 for anything that was
-    # an http request.
+    # `get_request_analytics_properties` in posthog/event_usage.py for anything that was an
+    # http request.
     if DEBUG and not TEST and (tags.product is None or tags.feature is None):
         missing = [name for name, value in (("product", tags.product), ("feature", tags.feature)) if value is None]
         raise UntaggedQueryError(
