@@ -381,10 +381,6 @@ def iterate_date_windows(
     cursor_lo: Any = db_incremental_field_last_value
     if cursor_lo is None:
         cursor_lo = incremental_type_to_initial_value(incremental_field_type)
-    # Partition bounds parsed from the catalog are always UTC-aware (see
-    # _parse_bound_value). The pipeline cursor can be naive when it was
-    # persisted without tz info; coerce both sides to UTC-aware so
-    # comparisons don't raise `can't compare offset-naive and offset-aware`.
     cursor_lo = _ensure_aware(cursor_lo, incremental_field_type)
 
     if range_bounds:
