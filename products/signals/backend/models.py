@@ -122,6 +122,7 @@ class SignalReport(UUIDModel):
         IN_PROGRESS = "in_progress"
         PENDING_INPUT = "pending_input"
         READY = "ready"
+        RESOLVED = "resolved"
         FAILED = "failed"
         DELETED = "deleted"
         SUPPRESSED = "suppressed"
@@ -227,7 +228,7 @@ class SignalReport(UUIDModel):
                 updated_fields.update(["title", "summary", "error"])
 
             # Reset to potential (from in_progress via actionability judge, from suppressed, or by user snooze on a ready report)
-            case (S.IN_PROGRESS | S.SUPPRESSED | S.READY, S.POTENTIAL):
+            case (S.IN_PROGRESS | S.SUPPRESSED | S.READY | S.RESOLVED, S.POTENTIAL):
                 self.promoted_at = None
                 updated_fields.add("promoted_at")
                 if snooze_for is not None:
@@ -240,21 +241,37 @@ class SignalReport(UUIDModel):
                     self.error = error
                     updated_fields.add("error")
 
+            # Reports are marked resolved when the linked implementation PR is merged (see tasks GitHub webhook).
+            # Any non-terminal pipeline status can resolve — a PR may merge before the report finishes summarising.
+            case (S.POTENTIAL | S.CANDIDATE | S.IN_PROGRESS | S.PENDING_INPUT | S.READY | S.FAILED, S.RESOLVED):
+                self.promoted_at = None
+                updated_fields.add("promoted_at")
+
             # Any non-deleted status can fail
-            case (S.POTENTIAL | S.CANDIDATE | S.IN_PROGRESS | S.PENDING_INPUT | S.READY, S.FAILED):
+            case (S.POTENTIAL | S.CANDIDATE | S.IN_PROGRESS | S.PENDING_INPUT | S.READY | S.RESOLVED, S.FAILED):
                 if error is None:
                     raise ValueError("error is required for transition to failed")
                 self.error = error
                 updated_fields.add("error")
 
             # Any non-deleted status can be suppressed
-            case (S.POTENTIAL | S.CANDIDATE | S.IN_PROGRESS | S.PENDING_INPUT | S.READY | S.FAILED, S.SUPPRESSED):
+            case (
+                S.POTENTIAL | S.CANDIDATE | S.IN_PROGRESS | S.PENDING_INPUT | S.READY | S.RESOLVED | S.FAILED,
+                S.SUPPRESSED,
+            ):
                 self.promoted_at = None
                 updated_fields.add("promoted_at")
 
             # Any non-deleted status can be deleted
             case (
-                S.POTENTIAL | S.CANDIDATE | S.IN_PROGRESS | S.PENDING_INPUT | S.READY | S.FAILED | S.SUPPRESSED,
+                S.POTENTIAL
+                | S.CANDIDATE
+                | S.IN_PROGRESS
+                | S.PENDING_INPUT
+                | S.READY
+                | S.RESOLVED
+                | S.FAILED
+                | S.SUPPRESSED,
                 S.DELETED,
             ):
                 pass

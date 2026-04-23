@@ -1,1 +1,1 @@
-0016_signalautonomyconfig_alter_signalreportartefact_type
+0017_add_resolved_signal_report_status

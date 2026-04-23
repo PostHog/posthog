@@ -13,6 +13,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.signals.backend.models import SignalReport, SignalReportTask
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.webhooks import find_task_run
 
@@ -237,6 +238,111 @@ class TestGitHubPRWebhook(TestCase):
         """Test that non-POST methods are rejected."""
         response = self.client.get("/webhooks/github/pr/")
         self.assertEqual(response.status_code, 405)
+
+
+class TestGitHubPRWebhookResolvesSignalReports(TestCase):
+    """Webhook resolves any SignalReport linked to the merged PR's task."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Test Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
+        cls.user = User.objects.create(email="test@example.com", distinct_id="user-123")
+
+    def setUp(self):
+        self.client = APIClient()
+        self.webhook_secret = "test-webhook-secret"
+        self.task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Signal task",
+            description="Implementation of a signal report",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            repository="posthog/posthog",
+        )
+        self.task_run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": "https://github.com/posthog/posthog/pull/42"},
+        )
+        self.report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Test report",
+            summary="Test summary",
+        )
+        SignalReportTask.objects.create(
+            team=self.team,
+            report=self.report,
+            task=self.task,
+            relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+        )
+
+    def _post_pr_webhook(self, action: str, merged: bool) -> "object":
+        payload = {
+            "action": action,
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/42",
+                "merged": merged,
+            },
+        }
+        payload_bytes = json.dumps(payload).encode("utf-8")
+        signature = generate_github_signature(payload_bytes, self.webhook_secret)
+        return self.client.post(
+            "/webhooks/github/pr/",
+            data=payload_bytes,
+            content_type="application/json",
+            HTTP_X_HUB_SIGNATURE_256=signature,
+            HTTP_X_GITHUB_EVENT="pull_request",
+        )
+
+    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_merged_pr_resolves_linked_signal_report(self, _mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+
+        response = self._post_pr_webhook(action="closed", merged=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, SignalReport.Status.RESOLVED)
+
+    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_closed_without_merge_does_not_resolve(self, _mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+
+        response = self._post_pr_webhook(action="closed", merged=False)
+
+        self.assertEqual(response.status_code, 200)
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, SignalReport.Status.READY)
+
+    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_merge_on_task_without_linked_report_is_a_noop(self, _mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        SignalReportTask.objects.filter(task=self.task).delete()
+
+        response = self._post_pr_webhook(action="closed", merged=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, SignalReport.Status.READY)
+
+    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_merge_on_suppressed_report_does_not_raise(self, _mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        self.report.status = SignalReport.Status.SUPPRESSED
+        self.report.save(update_fields=["status"])
+
+        response = self._post_pr_webhook(action="closed", merged=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, SignalReport.Status.SUPPRESSED)
 
 
 class TestFindTaskRun(TestCase):
