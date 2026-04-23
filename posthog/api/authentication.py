@@ -211,7 +211,11 @@ def is_email_verified_for_login(user: User) -> bool:
         return True
 
     EmailVerifier.create_token_and_send_email_verification(user)
-    return user.is_email_verified is not False
+    if user.is_email_verified is False:
+        return False
+
+    # legacy None users are still allowed to log in
+    return True
 
 
 class LoginSerializer(serializers.Serializer):
