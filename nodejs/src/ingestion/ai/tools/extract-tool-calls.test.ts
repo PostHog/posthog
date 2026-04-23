@@ -754,6 +754,40 @@ describe('processAiToolCallExtraction', () => {
         expect(result.properties!['$ai_tool_call_count']).toBe(5)
     })
 
+    it.each([
+        ['array of strings', ['get_weather', 'search_docs'], 'get_weather,search_docs', 2],
+        ['JSON-stringified array', '["get_weather","search_docs"]', 'get_weather,search_docs', 2],
+        ['JSON-stringified array with whitespace', '  ["a", "b"]  ', 'a,b', 2],
+        ['single-element array', ['only_tool'], 'only_tool', 1],
+        ['sanitizes commas within tool names from arrays', ['a,b', 'c'], 'a_b,c', 2],
+    ])(
+        'normalizes user-provided $ai_tools_called (%s) to comma-separated string',
+        (_desc, input, expectedTools, expectedCount) => {
+            const event = createEvent('$ai_generation', { $ai_tools_called: input })
+
+            const result = processAiToolCallExtraction(event)
+
+            expect(result.properties!['$ai_tools_called']).toBe(expectedTools)
+            expect(result.properties!['$ai_tool_call_count']).toBe(expectedCount)
+        }
+    )
+
+    it('drops $ai_tools_called when user provides an empty array', () => {
+        const event = createEvent('$ai_generation', { $ai_tools_called: [] })
+
+        const result = processAiToolCallExtraction(event)
+
+        expect(result.properties!['$ai_tools_called']).toBeUndefined()
+    })
+
+    it('falls back to string on malformed JSON that looks like an array', () => {
+        const event = createEvent('$ai_generation', { $ai_tools_called: '[not, valid, json' })
+
+        const result = processAiToolCallExtraction(event)
+
+        expect(result.properties!['$ai_tools_called']).toBe('[not, valid, json')
+    })
+
     it('handles missing $ai_output_choices', () => {
         const event = createEvent('$ai_generation', {
             $ai_model: 'gpt-4',
