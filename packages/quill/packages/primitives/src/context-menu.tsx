@@ -131,8 +131,25 @@ function ContextMenuSubTrigger({
     )
 }
 
-function ContextMenuSubContent({ ...props }: React.ComponentProps<typeof ContextMenuContent>): React.ReactElement {
-    return <ContextMenuContent data-slot="context-menu-sub-content" className="shadow-lg" side="inline-start" alignOffset={0} {...props} />
+function ContextMenuSubContent({
+    className,
+    align = 'start',
+    alignOffset = -3,
+    side = 'inline-end',
+    sideOffset = 0,
+    ...props
+}: React.ComponentProps<typeof ContextMenuContent>): React.ReactElement {
+    return (
+        <ContextMenuContent
+            data-slot="context-menu-sub-content"
+            className={cn('quill-menu__sub-content w-auto', className)}
+            align={align}
+            alignOffset={alignOffset}
+            side={side}
+            sideOffset={sideOffset}
+            {...props}
+        />
+    )
 }
 
 function ContextMenuCheckboxItem({

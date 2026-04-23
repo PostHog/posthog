@@ -37,14 +37,3 @@ export const Default: Story = {
         )
     },
 } satisfies Story
-
-export const WithField: Story = {
-    render: () => {
-        return (
-            <Field className="max-w-sm">
-                <FieldLabel htmlFor="email">Your email address</FieldLabel>
-                <Input id="email" />
-            </Field>
-        )
-    },
-} satisfies Story

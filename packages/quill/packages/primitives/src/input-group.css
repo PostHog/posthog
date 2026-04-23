@@ -180,7 +180,7 @@
     .quill-input-group__button {
         font-size: var(--text-xs, 0.75rem);
         line-height: 1.625;
-        border-radius: var(--radius-sm);
+        border-radius: calc(var(--radius-sm) - 2px);
         box-shadow: none;
     }
 

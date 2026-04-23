@@ -19,8 +19,8 @@
     }
 
     .quill-dot--pulse .quill-dot__inner {
-        animation-duration: 0.5s;
-        animation-delay: -2s;
+        animation-duration: 2s;
+        animation-delay: -4s;
     }
 
     /* Variants — text = outer color ring, inner = solid fill, pulse = border color */

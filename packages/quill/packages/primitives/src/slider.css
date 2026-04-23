@@ -97,13 +97,11 @@
         opacity: 0.5;
     }
 
-    .quill-slider__thumb[data-orientation='horizontal'] {
-        top: 50%;
-        transform: translateY(-50%);
-    }
-
-    .quill-slider__thumb[data-orientation='vertical'] {
-        left: 50%;
-        transform: translateX(-50%);
-    }
+    /*
+     * Perpendicular positioning (top: 50% / left: 50%) and the centering
+     * translate are set by Base UI as inline styles via the `translate` CSS
+     * property. Do not add `transform: translate*` here — it stacks additively
+     * with Base UI's `translate` (different CSS properties) and doubles the
+     * offset, pushing the thumb off-track.
+     */
 }

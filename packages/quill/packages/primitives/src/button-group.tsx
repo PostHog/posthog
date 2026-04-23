@@ -21,7 +21,7 @@ const buttonGroupVariants = cva('quill-button-group', {
 
 function ButtonGroup({
     className,
-    orientation,
+    orientation = 'horizontal',
     ...props
 }: React.ComponentProps<'div'> & VariantProps<typeof buttonGroupVariants>): React.ReactElement {
     return (

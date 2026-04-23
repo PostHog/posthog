@@ -21,7 +21,6 @@
         position: fixed;
         inset-inline-start: 50%;
         top: calc(max(1rem, 10vh + 1.25rem * var(--nested-dialogs, 0)));
-        z-index: 50;
         width: 100%;
         max-width: calc(100vw - 3rem);
         font-size: var(--text-xs, 0.75rem);
