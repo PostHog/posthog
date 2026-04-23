@@ -136,42 +136,16 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
         base_query = ast.SelectQuery(
             select=[
-                ast.Alias(alias="actor_id", expr=ast.Field(chain=["retention_events", "actor_id"])),
+                ast.Alias(alias="actor_id", expr=ast.Field(chain=["actor_id"])),
                 ast.Alias(
                     alias="start_event_timestamps",
-                    expr=parse_expr(
-                        """
-                        arraySort(
-                            arrayDistinct(
-                                arrayFlatten(
-                                    groupArrayIf(
-                                        start_event_timestamps,
-                                        isNotNull(start_event_timestamps)
-                                    )
-                                )
-                            )
-                        )
-                        """
-                    ),
+                    expr=parse_expr("arrayFlatten(groupArray(start_event_timestamps))"),
                 ),
-                self._date_range_alias(),
                 ast.Alias(
                     alias="return_event_timestamps",
-                    expr=parse_expr(
-                        """
-                        arraySort(
-                            arrayDistinct(
-                                arrayFlatten(
-                                    groupArrayIf(
-                                        return_event_timestamps,
-                                        isNotNull(return_event_timestamps)
-                                    )
-                                )
-                            )
-                        )
-                        """
-                    ),
+                    expr=parse_expr("arrayFlatten(groupArray(return_event_timestamps))"),
                 ),
+                self._date_range_alias(),
                 ast.Alias(
                     alias="start_interval_index",
                     expr=parse_expr(
@@ -198,7 +172,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 ast.Alias(alias="intervals_from_base", expr=intervals_from_base_expr),
             ],
             select_from=ast.JoinExpr(table=retention_events, alias="retention_events"),
-            group_by=[ast.Field(chain=["retention_events", "actor_id"])],
+            group_by=[ast.Field(chain=["actor_id"])],
             having=ast.And(
                 exprs=[
                     (
