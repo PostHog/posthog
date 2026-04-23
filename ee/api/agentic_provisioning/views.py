@@ -1167,10 +1167,14 @@ def _try_activate_billing_with_spt(request: Request, team: Team, user: User) -> 
 def _create_provisioned_pat(user: User, team: Team) -> str | None:
     """Create a Personal API Key for a provisioned user and return the raw key value.
 
-    Granted all scopes: the user just self-provisioned a brand-new account via
-    a partner flow, owns everything in it, and has no in-product mechanism to
-    upgrade scopes later. A narrow default would produce silent 403s in
-    downstream tooling (e.g. the wizard CI install flow).
+    Scopes are ["*"] so downstream tooling (e.g. the wizard CI install flow)
+    can use the key without silent 403s — a narrow default has no in-product
+    recovery path since there's no scope upgrade UI.
+
+    scoped_teams is set to [team.id] so the PAT only grants access to the team
+    being provisioned, matching the scoping of the OAuth token issued in the
+    same flow. Without this, a provisioning call from an existing user would
+    return a PAT that reaches across every team the user already belongs to.
     """
     try:
         api_key_value = generate_random_token_personal()
