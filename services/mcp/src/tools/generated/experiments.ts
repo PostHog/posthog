@@ -89,32 +89,13 @@ const experimentGet = (): ToolBase<typeof ExperimentGetSchema, WithPostHogUrl<Sc
         },
     })
 
-const ExperimentCreateSchema = ExperimentsCreateBody.omit({
-    start_date: true,
-    end_date: true,
-    secondary_metrics: true,
-    saved_metrics_ids: true,
-    filters: true,
-    archived: true,
-    deleted: true,
-    type: true,
-    metrics: true,
-    metrics_secondary: true,
-    scheduling_config: true,
-    _create_in_folder: true,
-    conclusion: true,
-    conclusion_comment: true,
-    primary_metrics_ordered_uuids: true,
-    secondary_metrics_ordered_uuids: true,
-    only_count_matured_users: true,
-    update_feature_flag_params: true,
-}).extend({
+const ExperimentCreateSchema = ExperimentsCreateBody.omit({ feature_flag_filters: true }).extend({
     parameters: ExperimentsCreateBody.shape['parameters'].describe(
         'Variant split and rollout scope. If the user mentions a specific percentage, load the configuring-experiment-rollout skill and clarify before setting these values. Set rollout_percentage (0-100) to control the overall fraction of users entering the experiment. Set feature_flag_variants with split_percent on each variant to customize the variant split. Default: 50/50 control/test, 100% rollout.'
     ),
 })
 
-const experimentCreate = (): ToolBase<typeof ExperimentCreateSchema, WithPostHogUrl<Schemas.Experiment>> =>
+const experimentCreate = (): ToolBase<typeof ExperimentCreateSchema, WithPostHogUrl<Schemas.ExperimentCreate>> =>
     withUiApp('experiment', {
         name: 'experiment-create',
         schema: ExperimentCreateSchema,
@@ -124,30 +105,18 @@ const experimentCreate = (): ToolBase<typeof ExperimentCreateSchema, WithPostHog
             if (params.name !== undefined) {
                 body['name'] = params.name
             }
-            if (params.description !== undefined) {
-                body['description'] = params.description
-            }
             if (params.feature_flag_key !== undefined) {
                 body['feature_flag_key'] = params.feature_flag_key
             }
-            if (params.holdout_id !== undefined) {
-                body['holdout_id'] = params.holdout_id
+            if (params.description !== undefined) {
+                body['description'] = params.description
             }
             if (params.parameters !== undefined) {
                 body['parameters'] = params.parameters
             }
-            if (params.exposure_criteria !== undefined) {
-                body['exposure_criteria'] = params.exposure_criteria
-            }
-            if (params.stats_config !== undefined) {
-                body['stats_config'] = params.stats_config
-            }
-            if (params.allow_unknown_events !== undefined) {
-                body['allow_unknown_events'] = params.allow_unknown_events
-            }
-            const result = await context.api.request<Schemas.Experiment>({
+            const result = await context.api.request<Schemas.ExperimentCreate>({
                 method: 'POST',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/`,
+                path: `/api/environments/${encodeURIComponent(String(projectId))}/experiments/`,
                 body,
             })
             return await withPostHogUrl(context, result, `/experiments/${result.id}`)

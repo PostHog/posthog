@@ -9,6 +9,78 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Create a new experiment using the facade API.
+
+Supports both:
+- Old format: parameters.feature_flag_variants
+- New format: feature_flag_filters
+
+Returns:
+    201 Created with experiment data
+    400 Bad Request if validation fails
+ */
+export const experimentsCreateBodyDescriptionDefault = ``
+export const experimentsCreateBodyFeatureFlagFiltersOneVariantsItemRolloutPercentageMin = 0
+export const experimentsCreateBodyFeatureFlagFiltersOneVariantsItemRolloutPercentageMax = 100
+
+export const experimentsCreateBodyFeatureFlagFiltersOneRolloutPercentageMin = 0
+export const experimentsCreateBodyFeatureFlagFiltersOneRolloutPercentageMax = 100
+
+export const ExperimentsCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod.string().describe('Name of the experiment'),
+        feature_flag_key: zod.string().describe('Key of the feature flag (existing or to be created)'),
+        description: zod
+            .string()
+            .default(experimentsCreateBodyDescriptionDefault)
+            .describe('Description of the experiment'),
+        parameters: zod
+            .unknown()
+            .nullish()
+            .describe('[Deprecated] Old format for experiment parameters including feature_flag_variants'),
+        feature_flag_filters: zod
+            .object({
+                key: zod.string().describe('Unique key for the feature flag'),
+                name: zod.string().nullish().describe('Display name for the feature flag'),
+                variants: zod
+                    .array(
+                        zod
+                            .object({
+                                key: zod.string().describe('Unique key for the variant'),
+                                name: zod.string().nullish().describe('Display name for the variant'),
+                                rollout_percentage: zod
+                                    .number()
+                                    .min(experimentsCreateBodyFeatureFlagFiltersOneVariantsItemRolloutPercentageMin)
+                                    .max(experimentsCreateBodyFeatureFlagFiltersOneVariantsItemRolloutPercentageMax)
+                                    .describe('Percentage of users to assign to this variant'),
+                            })
+                            .describe('Serializer for feature flag variant.')
+                    )
+                    .describe('List of variants for the multivariate flag'),
+                rollout_percentage: zod
+                    .number()
+                    .min(experimentsCreateBodyFeatureFlagFiltersOneRolloutPercentageMin)
+                    .max(experimentsCreateBodyFeatureFlagFiltersOneRolloutPercentageMax)
+                    .nullish()
+                    .describe('Percentage of users to include in the experiment'),
+                aggregation_group_type_index: zod
+                    .number()
+                    .nullish()
+                    .describe('Group type index for group-based experiments'),
+                ensure_experience_continuity: zod
+                    .boolean()
+                    .nullish()
+                    .describe('Whether to ensure users see consistent variants'),
+            })
+            .describe('Serializer for new feature flag creation data.')
+            .nullish()
+            .describe('New format for feature flag configuration'),
+    })
+    .describe(
+        'Serializer for experiment creation.\n\nSupports both old format (parameters.feature_flag_variants)\nand new format (feature_flag_filters).'
+    )
+
 export const experimentHoldoutsCreateBodyNameMax = 400
 
 export const experimentHoldoutsCreateBodyDescriptionMax = 400
@@ -81,7 +153,7 @@ export const ExperimentSavedMetricsPartialUpdateBody = /* @__PURE__ */ zod
 /**
  * Create a new experiment in draft status with optional metrics.
  */
-export const ExperimentsCreateBody = /* @__PURE__ */ zod
+export const ExperimentsCreate2Body = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
