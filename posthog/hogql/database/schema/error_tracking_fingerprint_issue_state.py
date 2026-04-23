@@ -105,8 +105,14 @@ def select_from_error_tracking_fingerprint_issue_state_table(
             )
     select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
 
+    # Historically error tracking used to query 2 datasources and we didn't have that problem described below.
+    # Error tracking issue related data lives in Postgres for transactional purposes and in CH for reads when we need to join it with events.
+    # It lives in a ReplacingMergeTree table in CH and there is a delay between user mutating an issue and that CH table receiving an update (usually ~5s)
+    # This breaks the UX because user often doesn't see his own updates reflected in the refreshed issues list.
+    # For that reason whenever user does any mutation to an issue, we construct a row with an updated data on frontend.
+    # We then include these rows (called pending updated) when we run a list query and we UNION these rows with the base table.
+    # Thanks to that, argMax will pick the latest version of the issue state before that version even reaches CH.
     if pending_updates:
-        # Wrap the raw-table scan so argMax sees pending update rows with higher versions and picks them.
         select.select_from = ast.JoinExpr(
             table=_build_union_with_pending_updates(pending_updates),
             alias=RAW_TABLE_NAME,
@@ -115,7 +121,7 @@ def select_from_error_tracking_fingerprint_issue_state_table(
     return select
 
 
-def _build_union_with_pending_updates(pending_updates: list[dict[str, Any]]):
+def _build_union_with_pending_updates(pending_updates: list[dict[str, Any]]):  #
     from posthog.hogql import ast
 
     base = ast.SelectQuery(
