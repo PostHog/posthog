@@ -1,0 +1,14 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this external data schema.",
+            "type": "string"
+        },
+        "should_sync": {
+            "type": "boolean"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

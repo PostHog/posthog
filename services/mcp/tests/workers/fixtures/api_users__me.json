@@ -1,0 +1,206 @@
+{
+  "date_joined": "2026-04-13T08:22:39.902628Z",
+  "uuid": "00000000-0000-0000-0000-000000000001",
+  "distinct_id": "test-distinct-id",
+  "first_name": "Test",
+  "last_name": "User",
+  "email": "test@example.com",
+  "pending_email": null,
+  "is_email_verified": null,
+  "notification_settings": {
+    "plugin_disabled": true,
+    "error_tracking_issue_assigned": true,
+    "error_tracking_weekly_digest": true,
+    "discussions_mentioned": true,
+    "project_weekly_digest_disabled": {},
+    "all_weekly_digest_disabled": false,
+    "data_pipeline_error_threshold": 0.01,
+    "project_api_key_exposed": true,
+    "materialized_view_sync_failed": false,
+    "web_analytics_weekly_digest": true,
+    "organization_member_join_email_disabled": {}
+  },
+  "anonymize_data": false,
+  "allow_impersonation": true,
+  "toolbar_mode": "toolbar",
+  "has_password": true,
+  "id": 1,
+  "is_staff": true,
+  "is_impersonated": false,
+  "is_impersonated_until": null,
+  "is_impersonated_read_only": null,
+  "sensitive_session_expires_at": null,
+  "team": {
+    "id": 1,
+    "uuid": "00000000-0000-0000-0000-000000000001",
+    "organization": "019d85ef-7e7d-0000-090c-f2f598b3949b",
+    "project_id": 1,
+    "api_token": "phc_test_token",
+    "name": "Hedgebox",
+    "completed_snippet_onboarding": true,
+    "has_completed_onboarding_for": null,
+    "ingested_event": true,
+    "is_demo": true,
+    "timezone": "UTC",
+    "access_control": false
+  },
+  "organization": {
+    "id": "019d85ef-7e7d-0000-090c-f2f598b3949b",
+    "name": "Hedgebox Inc.",
+    "slug": "hedgebox-inc",
+    "logo_media_id": null,
+    "created_at": "2026-04-13T08:22:38.462149Z",
+    "updated_at": "2026-04-13T08:22:38.462161Z",
+    "membership_level": 8,
+    "plugins_access_level": 9,
+    "teams": [
+      {
+        "id": 1,
+        "uuid": "00000000-0000-0000-0000-000000000001",
+        "organization": "019d85ef-7e7d-0000-090c-f2f598b3949b",
+        "project_id": 1,
+        "api_token": "phc_test_token",
+        "name": "Hedgebox",
+        "completed_snippet_onboarding": true,
+        "has_completed_onboarding_for": null,
+        "ingested_event": true,
+        "is_demo": true,
+        "timezone": "UTC",
+        "access_control": false
+      }
+    ],
+    "projects": [
+      {
+        "id": 1,
+        "organization_id": "019d85ef-7e7d-0000-090c-f2f598b3949b",
+        "name": "Default project"
+      }
+    ],
+    "available_product_features": [
+      {
+        "key": "zapier",
+        "name": "Zapier"
+      },
+      {
+        "key": "organizations_projects",
+        "name": "Organizations_projects"
+      },
+      {
+        "key": "social_sso",
+        "name": "Social_sso"
+      },
+      {
+        "key": "ingestion_taxonomy",
+        "name": "Ingestion_taxonomy"
+      },
+      {
+        "key": "paths_advanced",
+        "name": "Paths_advanced"
+      },
+      {
+        "key": "correlation_analysis",
+        "name": "Correlation_analysis"
+      },
+      {
+        "key": "group_analytics",
+        "name": "Group_analytics"
+      },
+      {
+        "key": "behavioral_cohort_filtering",
+        "name": "Behavioral_cohort_filtering"
+      },
+      {
+        "key": "white_labelling",
+        "name": "White_labelling"
+      },
+      {
+        "key": "subscriptions",
+        "name": "Subscriptions"
+      },
+      {
+        "key": "app_metrics",
+        "name": "App_metrics"
+      },
+      {
+        "key": "recordings_playlists",
+        "name": "Recordings_playlists"
+      },
+      {
+        "key": "recordings_file_export",
+        "name": "Recordings_file_export"
+      },
+      {
+        "key": "recordings_performance",
+        "name": "Recordings_performance"
+      },
+      {
+        "key": "advanced_permissions",
+        "name": "Advanced_permissions"
+      },
+      {
+        "key": "saml",
+        "name": "Saml"
+      },
+      {
+        "key": "scim",
+        "name": "Scim"
+      },
+      {
+        "key": "sso_enforcement",
+        "name": "Sso_enforcement"
+      },
+      {
+        "key": "role_based_access",
+        "name": "Role_based_access"
+      }
+    ],
+    "is_member_join_email_enabled": true,
+    "metadata": {
+      "instance_tag": "none"
+    },
+    "customer_id": null,
+    "enforce_2fa": null,
+    "members_can_invite": true,
+    "members_can_use_personal_api_keys": true,
+    "allow_publicly_shared_resources": true,
+    "member_count": 1,
+    "is_ai_data_processing_approved": true,
+    "default_experiment_stats_method": "bayesian",
+    "default_anonymize_ips": false,
+    "default_role_id": null,
+    "is_active": true,
+    "is_not_active_reason": null,
+    "is_pending_deletion": false
+  },
+  "organizations": [
+    {
+      "id": "019d85ef-7e7d-0000-090c-f2f598b3949b",
+      "name": "Hedgebox Inc.",
+      "slug": "hedgebox-inc",
+      "logo_media_id": null,
+      "membership_level": 8,
+      "members_can_use_personal_api_keys": true,
+      "is_active": true,
+      "is_not_active_reason": null,
+      "is_pending_deletion": false
+    }
+  ],
+  "events_column_config": {
+    "active": "DEFAULT"
+  },
+  "is_2fa_enabled": false,
+  "has_social_auth": false,
+  "has_sso_enforcement": false,
+  "has_seen_product_intro_for": {
+    "feature_flags": true
+  },
+  "scene_personalisation": [],
+  "theme_mode": "system",
+  "hedgehog_config": null,
+  "allow_sidebar_suggestions": true,
+  "shortcut_position": "above",
+  "role_at_organization": "engineering",
+  "passkeys_enabled_for_2fa": false,
+  "is_organization_first_user": true,
+  "pending_invites": []
+}

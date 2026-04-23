@@ -21,7 +21,15 @@ import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/Prope
 import { dayjs } from 'lib/dayjs'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
-import { formatDate, isOperatorBetween, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
+import {
+    formatDate,
+    isOperatorBetween,
+    isOperatorDate,
+    isOperatorFlag,
+    isOperatorMulti,
+    isOperatorRegex,
+    toString,
+} from 'lib/utils'
 
 import {
     PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS,
@@ -94,6 +102,7 @@ export function PropertyValue({
 
     const isNumericProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Numeric
+    const shouldRestrictToNumericInput = isNumericProperty && !isOperatorRegex(operator)
 
     const isGroupKeyProperty = propertyKey === '$group_key' && groupTypeIndex != null
 
@@ -395,7 +404,7 @@ export function PropertyValue({
                 singleValueAsSnack
                 allowCustomValues={propertyOptions?.allowCustomValues ?? true}
                 inputTransform={
-                    isNumericProperty
+                    shouldRestrictToNumericInput
                         ? (input: string) => {
                               // Only allow numeric characters, decimal point, and +/- signs
                               return input.replace(/[^0-9+\-.]/g, '')
