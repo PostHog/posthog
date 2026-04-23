@@ -156,7 +156,10 @@ impl KafkaProducer {
                 "sticky.partitioning.linger.ms",
                 config.sticky_partitioning_linger_ms.to_string(),
             )
-            .set("log.connection.close", config.log_connection_close.to_string())
+            .set(
+                "log.connection.close",
+                config.log_connection_close.to_string(),
+            )
             .set(
                 "queue.buffering.max.messages",
                 config.queue_buffering_max_messages.to_string(),
