@@ -278,20 +278,14 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
         )
 
 
-def send_notifications_for_breaches(
-    alert: AlertConfiguration, breaches: list[str], idempotency_key: str | None = None
-) -> list[str]:
+def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[str], idempotency_key: str) -> list[str]:
     """A stable idempotency_key (typically alert_check.id) lets MessagingRecord enforce
-    per-recipient at-most-once delivery on retries. Without one, each call gets a
-    timestamp-based key, disabling retry dedup.
+    per-recipient at-most-once delivery on retries.
     """
     email_targets = alert.get_subscribed_users_emails()
     if email_targets:
         subject = f"PostHog alert {alert.name} is firing"
-        if idempotency_key is not None:
-            campaign_key = f"alert-firing-notification-{idempotency_key}"
-        else:
-            campaign_key = f"alert-firing-notification-{alert.id}-{timezone.now().timestamp()}"
+        campaign_key = f"alert-firing-notification-{idempotency_key}"
         insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
         alert_url = f"{insight_url}?alert_id={alert.id}"
         message = EmailMessage(

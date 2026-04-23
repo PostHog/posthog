@@ -353,7 +353,9 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
     ) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         alert = AlertConfiguration.objects.get(pk=self.alert["id"])
-        send_notifications_for_breaches(alert, ["first anomaly description", "second anomaly description"])
+        send_notifications_for_breaches(
+            alert, ["first anomaly description", "second anomaly description"], idempotency_key="test-send-emails"
+        )
 
         assert len(mocked_email_messages) == 1
         email = mocked_email_messages[0]
@@ -1053,7 +1055,7 @@ class TestAlertSubscriptionOrgMembership(APIBaseTest):
 
         OrganizationMembership.objects.filter(user=self.other_user, organization=self.organization).delete()
 
-        send_notifications_for_breaches(alert, ["test breach"])
+        send_notifications_for_breaches(alert, ["test breach"], idempotency_key="test-excludes-removed-members")
 
         assert len(mocked_email_messages) == 1
         email = mocked_email_messages[0]
