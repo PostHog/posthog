@@ -7,6 +7,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.event_usage import groups
 from posthog.models import EventDefinition, ObjectMediaPreview
+from posthog.models.organization import OrganizationMembership
 
 from ee.models.event_definition import EnterpriseEventDefinition
 
@@ -77,6 +78,17 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             extra_kwargs["name"] = {"read_only": False}
 
         return extra_kwargs
+
+    def validate_owner(self, value):
+        if value is None:
+            return value
+        view = self.context.get("view")
+        organization_id = getattr(view, "organization_id", None) if view else None
+        if organization_id is None:
+            raise serializers.ValidationError("Cannot assign owner without organization context")
+        if not OrganizationMembership.objects.filter(organization_id=organization_id, user=value).exists():
+            raise serializers.ValidationError("Owner must be a member of this organization")
+        return value
 
     def validate_name(self, value):
         # For creation, check if event definition with this name already exists

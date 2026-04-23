@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Any
+from typing import Any, Literal
 
 from django.conf import settings
 from django.http import HttpResponse
@@ -22,6 +22,7 @@ from posthog.event_usage import EventSource, get_event_source, groups
 from posthog.models import Insight, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.exported_asset import ExportedAsset, get_content_response
+from posthog.models.organization import Organization
 from posthog.security.url_validation import is_url_allowed
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
@@ -30,8 +31,19 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
 from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
 
-# Allow max 10 full video exports per team per calendar month
-FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM = 10
+# Full video exports per team per calendar month, tiered by plan.
+FULL_VIDEO_EXPORTS_LIMIT_BY_TIER: dict[Literal["free", "paid", "enterprise"], int] = {
+    "free": 10,
+    "paid": 15,
+    "enterprise": 25,
+}
+
+
+def get_full_video_exports_limit_for_organization(organization: Organization | None) -> int:
+    """Monthly full video export limit for the organization's plan tier."""
+    tier = organization.get_plan_tier() if organization is not None else "free"
+    return FULL_VIDEO_EXPORTS_LIMIT_BY_TIER[tier]
+
 
 logger = structlog.get_logger(__name__)
 
@@ -125,25 +137,30 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                 created_at__gte=start_of_month,
             ).count()
 
-            # Get team-specific limit from extra_settings, fallback to default
-            team_limit = FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM
+            # Plan-tier default with an optional per-team override that acts as a floor.
+            # Taking max() preserves the override's original purpose — bumping a team above
+            # their tier default — without silently downgrading orgs whose tier default is
+            # now higher than a legacy override set during the flat-10 era.
+            get_organization = self.context.get("get_organization")
+            organization = get_organization() if get_organization is not None else None
+            team_limit = get_full_video_exports_limit_for_organization(organization)
+
             get_team = self.context.get("get_team")
-            if get_team is not None:
-                team = get_team()
-                if team is not None and team.extra_settings and "full_video_exports_limit" in team.extra_settings:
-                    limit_value = team.extra_settings["full_video_exports_limit"]
-                    try:
-                        team_limit = int(limit_value)
-                        if team_limit <= 0:
-                            raise ValueError("Limit must be positive")
-                    except (ValueError, TypeError):
-                        logger.warning(
-                            "invalid_full_video_exports_limit",
-                            team_id=team.id,
-                            limit_value=limit_value,
-                            limit_value_type=type(limit_value).__name__,
-                        )
-                        team_limit = FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM
+            team = get_team() if get_team is not None else None
+            if team is not None and team.extra_settings and "full_video_exports_limit" in team.extra_settings:
+                limit_value = team.extra_settings["full_video_exports_limit"]
+                try:
+                    override_limit = int(limit_value)
+                    if override_limit <= 0:
+                        raise ValueError("Limit must be positive")
+                    team_limit = max(team_limit, override_limit)
+                except (ValueError, TypeError):
+                    logger.warning(
+                        "invalid_full_video_exports_limit",
+                        team_id=team.id,
+                        limit_value=limit_value,
+                        limit_value_type=type(limit_value).__name__,
+                    )
 
             if not self.context["request"].user.is_staff and existing_full_video_exports_count >= team_limit:
                 raise ValidationError(

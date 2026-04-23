@@ -189,12 +189,14 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
 
                     // Create a local copy of the registry state for synchronous lookups during parsing
                     const localWindowIds: Record<string, number> = { ...values.uuidToIndex }
+                    const newUuids: string[] = []
                     const registerWindowIdCallback = (uuid: string): number => {
                         if (uuid in localWindowIds) {
                             return localWindowIds[uuid]
                         }
                         const index = Object.keys(localWindowIds).length + 1
                         localWindowIds[uuid] = index
+                        newUuids.push(uuid)
                         return index
                     }
 
@@ -208,11 +210,11 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                         )
                     ).sort((a, b) => a.timestamp - b.timestamp)
 
+                    breakpoint()
+
                     // Sync any newly discovered window IDs to the shared registry
-                    for (const uuid of Object.keys(localWindowIds)) {
-                        if (!(uuid in values.uuidToIndex)) {
-                            actions.registerWindowId(uuid)
-                        }
+                    for (const uuid of newUuids) {
+                        actions.registerWindowId(uuid)
                     }
                     cache.pendingBatch = { sources, snapshots: parsedSnapshots }
 

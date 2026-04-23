@@ -23,9 +23,6 @@ class ModelInfo:
 _PROVIDER_TO_API_KEY: Final[dict[str, tuple[str, str]]] = {
     "openai": ("openai_api_key", "OPENAI_API_KEY"),
     "anthropic": ("anthropic_api_key", "ANTHROPIC_API_KEY"),
-    "vertex_ai": ("gemini_api_key", "GEMINI_API_KEY"),
-    "vertex_ai-language-models": ("gemini_api_key", "GEMINI_API_KEY"),
-    "gemini": ("gemini_api_key", "GEMINI_API_KEY"),
     "openrouter": ("openrouter_api_key", "OPENROUTER_API_KEY"),
     "fireworks_ai": ("fireworks_api_key", "FIREWORKS_API_KEY"),
 }

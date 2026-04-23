@@ -36,6 +36,7 @@ from posthog.personhog_client.metrics import (
     get_client_name,
 )
 from posthog.personhog_client.proto import (
+    DeletePersonsRequest,
     GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonsRequest,
     GetPersonByDistinctIdRequest,
@@ -59,7 +60,6 @@ if TEST:
             uuid=str(instance.uuid),
             is_identified=instance.is_identified,
             version=instance.version or 0,
-            sync=True,
         )
 
     @mutable_receiver(post_save, sender=PersonDistinctId)
@@ -69,7 +69,6 @@ if TEST:
             instance.distinct_id,
             str(instance.person.uuid),
             version=instance.version or 0,
-            sync=True,
         )
 
     @receiver(post_delete, sender=Person)
@@ -79,7 +78,6 @@ if TEST:
             instance.uuid,
             int(instance.version or 0),
             instance.created_at,
-            sync=True,
         )
 
     @receiver(post_delete, sender=PersonDistinctId)
@@ -89,7 +87,6 @@ if TEST:
             instance.person.uuid,
             instance.distinct_id,
             instance.version or 0,
-            sync=True,
         )
 
     try:
@@ -148,7 +145,6 @@ def create_person(
     version: int,
     uuid: Optional[str] = None,
     properties: Optional[dict] = None,
-    sync: bool = False,
     is_identified: bool = False,
     is_deleted: bool = False,
     timestamp: Optional[Union[datetime.datetime, str]] = None,
@@ -194,7 +190,7 @@ def create_person(
         "last_seen_at": last_seen_at_formatted,
     }
     p = ClickhouseProducer()
-    p.produce(topic=KAFKA_PERSON, sql=INSERT_PERSON_SQL, data=data, sync=sync)
+    p.produce(topic=KAFKA_PERSON, sql=INSERT_PERSON_SQL, data=data)
     return uuid
 
 
@@ -204,7 +200,6 @@ def create_person_distinct_id(
     person_id: str,
     version=0,
     is_deleted: bool = False,
-    sync: bool = False,
 ) -> None:
     p = ClickhouseProducer()
     p.produce(
@@ -217,7 +212,6 @@ def create_person_distinct_id(
             "version": version,
             "is_deleted": int(is_deleted),
         },
-        sync=sync,
     )
 
 
@@ -613,12 +607,43 @@ def validate_person_uuids_exist(team_id: int, uuids: list[str]) -> list[str]:
     )
 
 
-def delete_person(person: Person, sync: bool = False) -> None:
+def delete_persons_from_postgres(team_id: int, persons: list[Person]) -> None:
+    """Delete Person rows (and associated PersonDistinctId rows) from Postgres.
+
+    Uses the personhog RPC when available, falling back to ORM-based deletion.
+    Processes in batches of 1000 (the RPC maximum).
+    """
+
+    def personhog_fn() -> None:
+        from posthog.personhog_client.client import get_personhog_client
+
+        client = get_personhog_client()
+        if client is None:
+            raise RuntimeError("personhog client not configured")
+
+        uuids = [str(p.uuid) for p in persons]
+        for i in range(0, len(uuids), 1000):
+            batch = uuids[i : i + 1000]
+            client.delete_persons(DeletePersonsRequest(team_id=team_id, person_uuids=batch))
+
+    def orm_fn() -> None:
+        for person in persons:
+            person.delete()
+
+    _personhog_routed(
+        "delete_persons",
+        personhog_fn,
+        orm_fn,
+        team_id=team_id,
+    )
+
+
+def delete_person(person: Person) -> None:
     # This is racy https://github.com/PostHog/posthog/issues/11590
     distinct_ids_to_version = _get_distinct_ids_with_version(person)
-    _delete_person(person.team_id, person.uuid, int(person.version or 0), person.created_at, sync)
+    _delete_person(person.team_id, person.uuid, int(person.version or 0), person.created_at)
     for distinct_id, version in distinct_ids_to_version.items():
-        _delete_ch_distinct_id(person.team_id, person.uuid, distinct_id, version, sync)
+        _delete_ch_distinct_id(person.team_id, person.uuid, distinct_id, version)
 
 
 def _delete_person(
@@ -626,7 +651,6 @@ def _delete_person(
     uuid: UUID,
     version: int,
     created_at: Optional[datetime.datetime] = None,
-    sync: bool = False,
 ) -> None:
     create_person(
         uuid=str(uuid),
@@ -638,7 +662,6 @@ def _delete_person(
         version=version + 100,
         created_at=created_at,
         is_deleted=True,
-        sync=sync,
     )
 
 
@@ -652,12 +675,11 @@ def _get_distinct_ids_with_version(person: Person) -> dict[str, int]:
     }
 
 
-def _delete_ch_distinct_id(team_id: int, uuid: UUID, distinct_id: str, version: int, sync: bool = False) -> None:
+def _delete_ch_distinct_id(team_id: int, uuid: UUID, distinct_id: str, version: int) -> None:
     create_person_distinct_id(
         team_id=team_id,
         distinct_id=distinct_id,
         person_id=str(uuid),
         version=version + 100,
         is_deleted=True,
-        sync=sync,
     )

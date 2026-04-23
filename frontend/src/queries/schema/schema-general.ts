@@ -59,7 +59,7 @@ import {
     TrendsFilterType,
 } from '~/types'
 
-import { integer, numerical_key } from './type-utils'
+import { integer, numerical_key, positive_integer } from './type-utils'
 
 export { ChartDisplayCategory }
 
@@ -417,6 +417,8 @@ export interface HogQLQueryModifiers {
     inCohortVia?: 'auto' | 'leftjoin' | 'subquery' | 'leftjoin_conjoined'
     materializationMode?: 'auto' | 'legacy_null_as_string' | 'legacy_null_as_null' | 'disabled'
     optimizeJoinedFilters?: boolean
+    /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
+    sessionIdPushdown?: boolean
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
     debug?: boolean
     timings?: boolean
@@ -1090,7 +1092,7 @@ export interface ChartSettingsDisplay {
     label?: string
     trendLine?: boolean
     yAxisPosition?: 'left' | 'right'
-    displayType?: 'auto' | 'line' | 'bar'
+    displayType?: 'auto' | 'line' | 'bar' | 'area'
 }
 
 export interface HeatmapGradientStop {
@@ -1141,7 +1143,9 @@ export interface ChartSettings {
     showXAxisBorder?: boolean
     showYAxisBorder?: boolean
     showLegend?: boolean
+    showValuesOnSeries?: boolean
     showTotalRow?: boolean
+    showPieTotal?: boolean
     showNullsAsZero?: boolean
     heatmap?: HeatmapSettings
 }
@@ -1440,7 +1444,7 @@ export interface TrendsQueryResponse extends AnalyticsQueryResponseBase {
     results: Record<string, any>[]
     /** Wether more breakdown values are available. */
     hasMore?: boolean
-    /** Box plot data when display type is BoxPlot */
+    /** @deprecated Box plot data is now returned in results. This field is no longer populated. */
     boxplot_data?: BoxPlotDatum[]
 }
 
@@ -1639,6 +1643,8 @@ export type RetentionFilter = {
     /** @description The type of property to aggregate on (event or person). Defaults to event.
      * @default event */
     aggregationPropertyType?: 'event' | 'person'
+    /** For data warehouse based retention insights when the aggregation target can't be mapped to persons or groups. */
+    customAggregationTarget?: boolean
 
     //frontend only
     meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
@@ -1754,7 +1760,7 @@ export type StickinessComputationMode = (typeof StickinessComputationModes)[keyo
 
 export interface StickinessCriteria {
     operator: StickinessOperator
-    value: integer
+    value: positive_integer
 }
 
 export type StickinessFilter = {
@@ -1802,7 +1808,7 @@ export interface StickinessQuery extends Omit<
     /**
      * How many intervals comprise a period. Only used for cohorts, otherwise default 1.
      */
-    intervalCount?: integer
+    intervalCount?: positive_integer
     /** Events and actions to include */
     series: AnyEntityNode[]
     /** Properties specific to the stickiness insight */
@@ -3348,8 +3354,10 @@ export interface ExperimentVariant {
     key: string
     /** Human-readable variant name. */
     name?: string
-    /** Percentage of users assigned to this variant (0–100). All variants must sum to 100. */
-    rollout_percentage: number
+    /** @deprecated Use split_percent instead. Accepted for backward compatibility. */
+    rollout_percentage?: number
+    /** Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided. */
+    split_percent?: number
 }
 
 export interface ExperimentParameters {
@@ -3491,7 +3499,6 @@ export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
     experiment_id?: integer
     name?: string
     precomputation_mode?: 'precomputed' | 'direct'
-    metric_events_precomputation?: boolean
 }
 
 export interface ExperimentExposureQuery extends DataNode<ExperimentExposureQueryResponse> {
@@ -5429,7 +5436,7 @@ export interface SourceConfig {
     disabledReason?: string | null
     existingSource?: boolean
     unreleasedSource?: boolean
-    betaSource?: boolean
+    releaseStatus?: 'alpha' | 'beta' | 'ga'
     iconPath: string
     featureFlag?: string
     iconClassName?: string
@@ -5591,6 +5598,8 @@ export const externalDataSources = [
     'Granola',
     'BuildBetter',
     'Convex',
+    'ClickHouse',
+    'Plain',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -6069,6 +6078,7 @@ export enum ProductKey {
     SESSION_REPLAY = 'session_replay',
     SITE_APPS = 'site_apps',
     SUBSCRIPTIONS = 'subscriptions',
+    STREAMLIT_APPS = 'streamlit_apps',
     SURVEYS = 'surveys',
     TASKS = 'tasks',
     TEAMS = 'teams',

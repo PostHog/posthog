@@ -99,6 +99,8 @@ public:
 
     virtual std::any visitOrderByClause(HogQLParser::OrderByClauseContext *context) = 0;
 
+    virtual std::any visitInterpolateClause(HogQLParser::InterpolateClauseContext *context) = 0;
+
     virtual std::any visitProjectionOrderByClause(HogQLParser::ProjectionOrderByClauseContext *context) = 0;
 
     virtual std::any visitLimitByClause(HogQLParser::LimitByClauseContext *context) = 0;
@@ -144,6 +146,10 @@ public:
     virtual std::any visitOrderExprList(HogQLParser::OrderExprListContext *context) = 0;
 
     virtual std::any visitOrderExpr(HogQLParser::OrderExprContext *context) = 0;
+
+    virtual std::any visitWithFillClause(HogQLParser::WithFillClauseContext *context) = 0;
+
+    virtual std::any visitInterpolateExpr(HogQLParser::InterpolateExprContext *context) = 0;
 
     virtual std::any visitRatioExpr(HogQLParser::RatioExprContext *context) = 0;
 

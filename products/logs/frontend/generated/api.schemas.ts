@@ -153,16 +153,50 @@ export const LogsAlertConfigurationStateEnumApi = {
     Broken: 'broken',
 } as const
 
+export interface LogsAlertStateIntervalApi {
+    /** Interval start (UTC, inclusive). */
+    start: string
+    /** Interval end (UTC, exclusive). */
+    end: string
+    /** Alert state during this interval.
+
+* `not_firing` - Not firing
+* `firing` - Firing
+* `pending_resolve` - Pending resolve
+* `errored` - Errored
+* `snoozed` - Snoozed
+* `broken` - Broken */
+    state: LogsAlertConfigurationStateEnumApi
+    /** Whether the alert was enabled during this interval. Disabled alerts keep their state but are inactive. */
+    enabled: boolean
+}
+
+/**
+ * * `slack` - slack
+ * `webhook` - webhook
+ */
+export type DestinationTypesEnumApi = (typeof DestinationTypesEnumApi)[keyof typeof DestinationTypesEnumApi]
+
+export const DestinationTypesEnumApi = {
+    Slack: 'slack',
+    Webhook: 'webhook',
+} as const
+
 export interface LogsAlertConfigurationApi {
+    /** Unique identifier for this alert. */
     readonly id: string
-    /** @maxLength 255 */
+    /**
+     * Human-readable name for this alert.
+     * @maxLength 255
+     */
     name: string
+    /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
     enabled?: boolean
     /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). */
     filters: unknown
     /**
+     * Number of matching log entries that constitutes a threshold breach within the evaluation window.
      * @minimum 1
-     * @maximum 2147483647
      */
     threshold_count: number
     /** Whether the alert fires when the count is above or below the threshold.
@@ -170,12 +204,18 @@ export interface LogsAlertConfigurationApi {
 * `above` - Above
 * `below` - Below */
     threshold_operator?: ThresholdOperatorEnumApi
-    /**
-     * @minimum 0
-     * @maximum 2147483647
-     */
+    /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
     window_minutes?: number
+    /** How often the alert is evaluated, in minutes. Server-managed. */
     readonly check_interval_minutes: number
+    /** Current alert state: not_firing, firing, pending_resolve, errored, or snoozed. Server-managed.
+
+* `not_firing` - Not firing
+* `firing` - Firing
+* `pending_resolve` - Pending resolve
+* `errored` - Errored
+* `snoozed` - Snoozed
+* `broken` - Broken */
     readonly state: LogsAlertConfigurationStateEnumApi
     /**
      * Total number of check periods in the sliding evaluation window for firing (M in N-of-M).
@@ -190,22 +230,48 @@ export interface LogsAlertConfigurationApi {
      */
     datapoints_to_alarm?: number
     /**
+     * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
      * @minimum 0
-     * @maximum 2147483647
      */
     cooldown_minutes?: number
-    /** @nullable */
+    /**
+     * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
+     * @nullable
+     */
     snooze_until?: string | null
-    /** @nullable */
+    /**
+     * When the next evaluation is scheduled. Server-managed.
+     * @nullable
+     */
     readonly next_check_at: string | null
-    /** @nullable */
+    /**
+     * When the last notification was sent. Server-managed.
+     * @nullable
+     */
     readonly last_notified_at: string | null
-    /** @nullable */
+    /**
+     * When the alert was last evaluated. Server-managed.
+     * @nullable
+     */
     readonly last_checked_at: string | null
+    /** Number of consecutive evaluation failures. Resets on success. Server-managed. */
     readonly consecutive_failures: number
+    /**
+     * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
+     * @nullable
+     */
+    readonly last_error_message: string | null
+    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
+    readonly state_timeline: readonly LogsAlertStateIntervalApi[]
+    /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
+    readonly destination_types: readonly DestinationTypesEnumApi[]
+    /** When the alert was created. */
     readonly created_at: string
     readonly created_by: UserBasicApi
-    /** @nullable */
+    /**
+     * When the alert was last modified.
+     * @nullable
+     */
     readonly updated_at: string | null
 }
 
@@ -219,15 +285,20 @@ export interface PaginatedLogsAlertConfigurationListApi {
 }
 
 export interface PatchedLogsAlertConfigurationApi {
+    /** Unique identifier for this alert. */
     readonly id?: string
-    /** @maxLength 255 */
+    /**
+     * Human-readable name for this alert.
+     * @maxLength 255
+     */
     name?: string
+    /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
     enabled?: boolean
     /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). */
     filters?: unknown
     /**
+     * Number of matching log entries that constitutes a threshold breach within the evaluation window.
      * @minimum 1
-     * @maximum 2147483647
      */
     threshold_count?: number
     /** Whether the alert fires when the count is above or below the threshold.
@@ -235,12 +306,18 @@ export interface PatchedLogsAlertConfigurationApi {
 * `above` - Above
 * `below` - Below */
     threshold_operator?: ThresholdOperatorEnumApi
-    /**
-     * @minimum 0
-     * @maximum 2147483647
-     */
+    /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
     window_minutes?: number
+    /** How often the alert is evaluated, in minutes. Server-managed. */
     readonly check_interval_minutes?: number
+    /** Current alert state: not_firing, firing, pending_resolve, errored, or snoozed. Server-managed.
+
+* `not_firing` - Not firing
+* `firing` - Firing
+* `pending_resolve` - Pending resolve
+* `errored` - Errored
+* `snoozed` - Snoozed
+* `broken` - Broken */
     readonly state?: LogsAlertConfigurationStateEnumApi
     /**
      * Total number of check periods in the sliding evaluation window for firing (M in N-of-M).
@@ -255,22 +332,48 @@ export interface PatchedLogsAlertConfigurationApi {
      */
     datapoints_to_alarm?: number
     /**
+     * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
      * @minimum 0
-     * @maximum 2147483647
      */
     cooldown_minutes?: number
-    /** @nullable */
+    /**
+     * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
+     * @nullable
+     */
     snooze_until?: string | null
-    /** @nullable */
+    /**
+     * When the next evaluation is scheduled. Server-managed.
+     * @nullable
+     */
     readonly next_check_at?: string | null
-    /** @nullable */
+    /**
+     * When the last notification was sent. Server-managed.
+     * @nullable
+     */
     readonly last_notified_at?: string | null
-    /** @nullable */
+    /**
+     * When the alert was last evaluated. Server-managed.
+     * @nullable
+     */
     readonly last_checked_at?: string | null
+    /** Number of consecutive evaluation failures. Resets on success. Server-managed. */
     readonly consecutive_failures?: number
+    /**
+     * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
+     * @nullable
+     */
+    readonly last_error_message?: string | null
+    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
+    readonly state_timeline?: readonly LogsAlertStateIntervalApi[]
+    /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
+    readonly destination_types?: readonly DestinationTypesEnumApi[]
+    /** When the alert was created. */
     readonly created_at?: string
     readonly created_by?: UserBasicApi
-    /** @nullable */
+    /**
+     * When the alert was last modified.
+     * @nullable
+     */
     readonly updated_at?: string | null
 }
 
@@ -278,10 +381,9 @@ export interface PatchedLogsAlertConfigurationApi {
  * * `slack` - slack
  * `webhook` - webhook
  */
-export type LogsAlertCreateDestinationTypeEnumApi =
-    (typeof LogsAlertCreateDestinationTypeEnumApi)[keyof typeof LogsAlertCreateDestinationTypeEnumApi]
+export type TypeC34EnumApi = (typeof TypeC34EnumApi)[keyof typeof TypeC34EnumApi]
 
-export const LogsAlertCreateDestinationTypeEnumApi = {
+export const TypeC34EnumApi = {
     Slack: 'slack',
     Webhook: 'webhook',
 } as const
@@ -291,7 +393,7 @@ export interface LogsAlertCreateDestinationApi {
 
 * `slack` - slack
 * `webhook` - webhook */
-    type: LogsAlertCreateDestinationTypeEnumApi
+    type: TypeC34EnumApi
     /** Integration ID for the Slack workspace. Required when type=slack. */
     slack_workspace_id?: number
     /** Slack channel ID. Required when type=slack. */
@@ -312,6 +414,51 @@ export interface LogsAlertDeleteDestinationApi {
      * @minItems 1
      */
     hog_function_ids: string[]
+}
+
+/**
+ * * `check` - Check
+ * `reset` - Reset
+ * `enable` - Enable
+ * `disable` - Disable
+ * `snooze` - Snooze
+ * `unsnooze` - Unsnooze
+ * `threshold_change` - Threshold change
+ */
+export type LogsAlertEventKindEnumApi = (typeof LogsAlertEventKindEnumApi)[keyof typeof LogsAlertEventKindEnumApi]
+
+export const LogsAlertEventKindEnumApi = {
+    Check: 'check',
+    Reset: 'reset',
+    Enable: 'enable',
+    Disable: 'disable',
+    Snooze: 'snooze',
+    Unsnooze: 'unsnooze',
+    ThresholdChange: 'threshold_change',
+} as const
+
+export interface LogsAlertEventApi {
+    readonly id: string
+    readonly created_at: string
+    readonly kind: LogsAlertEventKindEnumApi
+    readonly state_before: string
+    readonly state_after: string
+    readonly threshold_breached: boolean
+    /** @nullable */
+    readonly result_count: number | null
+    /** @nullable */
+    readonly error_message: string | null
+    /** @nullable */
+    readonly query_duration_ms: number | null
+}
+
+export interface PaginatedLogsAlertEventListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LogsAlertEventApi[]
 }
 
 export interface LogsAlertSimulateRequestApi {
@@ -624,6 +771,17 @@ export type LogsViewsListParams = {
 }
 
 export type LogsAlertsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type LogsAlertsEventsListParams = {
     /**
      * Number of results to return per page.
      */

@@ -1,7 +1,9 @@
 from datetime import UTC, datetime, timedelta
+from functools import cached_property
 from typing import Optional
 
 import structlog
+import posthoganalytics
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
@@ -221,6 +223,10 @@ class ExperimentQueryRunner(QueryRunner):
             placeholders=placeholders,
         )
 
+    @cached_property
+    def _team_experiments_config(self) -> TeamExperimentsConfig:
+        return get_or_create_team_extension(self.team, TeamExperimentsConfig)
+
     def _should_precompute(self) -> bool:
         """Resolve whether to use precomputation: query-level override > team-level default."""
         if self.query.precomputation_mode == PrecomputationMode.PRECOMPUTED:
@@ -228,8 +234,15 @@ class ExperimentQueryRunner(QueryRunner):
         if self.query.precomputation_mode == PrecomputationMode.DIRECT:
             return False
 
-        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
-        return config.experiment_precomputation_enabled
+        return self._team_experiments_config.experiment_precomputation_enabled
+
+    def _resolve_funnel_steps_data_disabled(self) -> bool:
+        """Resolve funnel_steps_data_disabled: experiment parameter > team config."""
+        parameters = self.experiment.parameters or {}
+        if "funnel_steps_data_disabled" in parameters:
+            return bool(parameters["funnel_steps_data_disabled"])
+
+        return self._team_experiments_config.funnel_steps_data_disabled
 
     def _get_experiment_query(self) -> ast.SelectQuery:
         """
@@ -247,7 +260,9 @@ class ExperimentQueryRunner(QueryRunner):
             filter_test_accounts,
         ) = get_exposure_config_params_for_builder(self.experiment.exposure_criteria)
 
-        funnel_steps_data_disabled = (self.experiment.parameters or {}).get("funnel_steps_data_disabled", False)
+        funnel_steps_data_disabled = (
+            self._resolve_funnel_steps_data_disabled() if isinstance(self.metric, ExperimentFunnelMetric) else False
+        )
 
         builder = ExperimentQueryBuilder(
             team=self.team,
@@ -284,7 +299,6 @@ class ExperimentQueryRunner(QueryRunner):
                 isinstance(self.metric, ExperimentFunnelMetric)
                 and (self.metric.funnel_order_type or "ordered") == "ordered"
                 and not self._get_breakdowns_for_builder()
-                and self.query.metric_events_precomputation
             ):
                 try:
                     metric_result = self._ensure_metric_events_precomputed(builder)
@@ -311,6 +325,7 @@ class ExperimentQueryRunner(QueryRunner):
             experiment_is_data_warehouse_query=self.is_data_warehouse_query,
             experiment_metric_uuid=self.metric.uuid,
             experiment_metric_name=metric_name,
+            experiment_metric_type=self.metric.metric_type,
         )
 
         experiment_query_ast = self._get_experiment_query()
@@ -323,17 +338,34 @@ class ExperimentQueryRunner(QueryRunner):
         self.hogql = experiment_query_debug[0]
         self.clickhouse_sql = experiment_query_debug[1]
 
+        modifiers = create_default_modifiers_for_team(self.team)
+        if posthoganalytics.feature_enabled(
+            "hogql-session-id-pushdown",
+            str(self.team.id),
+            groups={"project": str(self.team.id)},
+            group_properties={"project": {"id": str(self.team.id)}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        ):
+            modifiers.sessionIdPushdown = True
+
+        settings = HogQLGlobalSettings(
+            max_execution_time=self.max_execution_time,
+            enable_analyzer=True,
+            max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
+        )
+        # Mean metric queries join exposures with a potentially large metric-events table and
+        # can exceed memory with the default hash join. grace_hash spills to disk when needed.
+        if isinstance(self.metric, ExperimentMeanMetric):
+            settings.join_algorithm = "grace_hash"
+
         response = execute_hogql_query(
             query_type="ExperimentQuery",
             query=experiment_query_ast,
             team=self.team,
             timings=self.timings,
-            modifiers=create_default_modifiers_for_team(self.team),
-            settings=HogQLGlobalSettings(
-                max_execution_time=self.max_execution_time,
-                enable_analyzer=True,
-                max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
-            ),
+            modifiers=modifiers,
+            settings=settings,
             workload=self.workload,
         )
 

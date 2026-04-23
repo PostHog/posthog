@@ -13,7 +13,6 @@ export const manifest: ProductManifest = {
             name: 'Data ops',
             import: () => import('./DataWarehouseScene'),
             projectBased: true,
-            defaultDocsPath: '/docs/data-warehouse',
             activityScope: 'DataWarehouse',
             description:
                 'Manage your data warehouse sources and queries. New source syncs are always free for the first 7 days',
@@ -23,7 +22,6 @@ export const manifest: ProductManifest = {
             name: 'Models',
             import: () => import('../../frontend/src/scenes/models/ModelsScene'),
             projectBased: true,
-            defaultDocsPath: '/docs/data-warehouse',
             description: 'Create and manage views and materialized views for transforming and organizing your data.',
             iconType: 'sql_editor',
         },
@@ -31,12 +29,10 @@ export const manifest: ProductManifest = {
             name: 'Model detail',
             import: () => import('../../frontend/src/scenes/models/NodeDetailScene'),
             projectBased: true,
-            defaultDocsPath: '/docs/data-warehouse',
         },
         SQLEditor: {
             projectBased: true,
             name: 'SQL editor',
-            defaultDocsPath: '/docs/cdp/sources',
             layout: 'app-raw-no-header',
             hideProjectNotice: true,
             description: 'Write and execute SQL queries against your data warehouse',
@@ -48,39 +44,17 @@ export const manifest: ProductManifest = {
             description:
                 'Import data into PostHog from external sources including webhooks, application connectors, and self-managed databases.',
             activityScope: ActivityScope.HOG_FUNCTION,
-            defaultDocsPath: '/docs/data-warehouse',
             iconType: 'data_pipeline',
         },
         DataWarehouseSource: {
             import: () => import('./frontend/scenes/SourceScene/SourceScene'),
             projectBased: true,
             name: 'Data warehouse source',
-            defaultDocsPath: '/docs/cdp/sources',
         },
         DataWarehouseSourceNew: {
             import: () => import('./frontend/scenes/NewSourceScene/NewSourceScene'),
             projectBased: true,
             name: 'New data warehouse source',
-            defaultDocsPath: async () => {
-                try {
-                    const { sourceWizardLogic } =
-                        await import('products/data_warehouse/frontend/scenes/NewSourceScene/sourceWizardLogic')
-                    const logic = sourceWizardLogic.findMounted()
-
-                    if (logic) {
-                        const { selectedConnector } = logic.values
-
-                        if (selectedConnector?.docsUrl) {
-                            const parsedUrl = new URL(selectedConnector.docsUrl)
-                            return parsedUrl.pathname
-                        }
-                    }
-                } catch (error) {
-                    console.error('Failed to get default docs path for new data warehouse source', error)
-                }
-
-                return '/docs/cdp/sources'
-            },
         },
     },
     routes: {
