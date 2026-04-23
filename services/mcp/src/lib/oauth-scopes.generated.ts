@@ -27,6 +27,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'batch_export:write',
     'batch_import:read',
     'batch_import:write',
+    'billing:read',
+    'billing:write',
     'cohort:read',
     'cohort:write',
     'comment:read',
