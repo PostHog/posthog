@@ -929,21 +929,6 @@
             "readOnlyHint": false
         }
     },
-    "external-data-sources-db-schema": {
-        "description": "Validate connection credentials for a data source and return the list of available tables with their schema metadata. Each table entry includes available sync methods (incremental, full_refresh, append, CDC), incremental fields, detected primary keys, column definitions, and row counts. Use this before 'external-data-sources-create' to preview what will be synced and to let the user choose sync options.",
-        "category": "Data warehouse",
-        "feature": "data_warehouse",
-        "summary": "Validate credentials and discover tables",
-        "title": "Validate credentials and discover tables",
-        "required_scopes": ["external_data_source:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "external-data-sources-wizard": {
         "description": "Return the configuration metadata for all supported data warehouse source types. Each entry describes the required fields (host, port, database, credentials, etc.), field types, and OAuth flows. Use this to discover what source types are available and what parameters are needed to create a new source.",
         "category": "Data warehouse",

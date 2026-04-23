@@ -13405,11 +13405,6 @@ export namespace Schemas {
     }
 
     /**
-     * Connection credentials. Keys depend on source_type. Use external-data-sources-wizard to see required fields.
-     */
-    export type DatabaseSchemaRequestPayload = {[key: string]: unknown};
-
-    /**
      * * `Ashby` - Ashby
     * `Supabase` - Supabase
     * `CustomerIO` - CustomerIO
@@ -13703,6 +13698,10 @@ export namespace Schemas {
 
     /**
      * Validate credentials and preview available tables from a remote database.
+
+    The request body contains source_type plus flat source-specific credential fields
+    (e.g. host, port, database, user, password, schema for Postgres). The credential
+    fields vary per source_type and are validated dynamically by the source registry.
      */
     export interface DatabaseSchemaRequest {
       /** The source type to validate against.
@@ -13850,13 +13849,6 @@ export namespace Schemas {
     * `Convex` - Convex
     * `ClickHouse` - ClickHouse */
       source_type: SourceTypeF0aEnum;
-      /** Connection credentials. Keys depend on source_type. Use external-data-sources-wizard to see required fields. */
-      payload: DatabaseSchemaRequestPayload;
-      /** Connection mode: 'warehouse' (import) or 'direct' (live query).
-
-    * `warehouse` - warehouse
-    * `direct` - direct */
-      access_method?: AccessMethodEnum;
     }
 
     export interface Dataset {

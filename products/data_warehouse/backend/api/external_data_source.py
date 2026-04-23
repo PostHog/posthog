@@ -705,20 +705,16 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
 
 
 class DatabaseSchemaRequestSerializer(serializers.Serializer):
-    """Validate credentials and preview available tables from a remote database."""
+    """Validate credentials and preview available tables from a remote database.
+
+    The request body contains source_type plus flat source-specific credential fields
+    (e.g. host, port, database, user, password, schema for Postgres). The credential
+    fields vary per source_type and are validated dynamically by the source registry.
+    """
 
     source_type = serializers.ChoiceField(
         choices=ExternalDataSourceType.choices,
         help_text="The source type to validate against.",
-    )
-    payload = serializers.DictField(
-        help_text="Connection credentials. Keys depend on source_type. Use external-data-sources-wizard to see required fields.",
-    )
-    access_method = serializers.ChoiceField(
-        choices=ExternalDataSource.AccessMethod.choices,
-        required=False,
-        default=ExternalDataSource.AccessMethod.WAREHOUSE,
-        help_text="Connection mode: 'warehouse' (import) or 'direct' (live query).",
     )
 
 
@@ -1434,22 +1430,25 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     @extend_schema(request=DatabaseSchemaRequestSerializer)
     @action(methods=["POST"], detail=False)
     def database_schema(self, request: Request, *arg: Any, **kwargs: Any):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        source_type = request.data.get("source_type", None)
 
-        source_type = serializer.validated_data["source_type"]
-        payload = serializer.validated_data["payload"]
-        access_method = serializer.validated_data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
+        if source_type is None:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Missing required parameter: source_type"},
+            )
 
         source_type_model = ExternalDataSourceType(source_type)
         source = SourceRegistry.get_source(source_type_model)
-        is_valid, errors = source.validate_config(payload)
+        is_valid, errors = source.validate_config(request.data)
         if not is_valid:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": f"Invalid source config: {', '.join(errors)}"},
             )
-        source_config: Config = source.parse_config(payload)
+        source_config: Config = source.parse_config(request.data)
+
+        access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
         if source_type_model == ExternalDataSourceType.POSTGRES and isinstance(source, PostgresSource):
             credentials_valid, credentials_error = source.validate_credentials_for_access_method(
                 cast(Any, source_config), self.team_id, access_method

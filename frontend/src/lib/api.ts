@@ -5288,7 +5288,7 @@ const api = {
             return await new ApiRequest()
                 .externalDataSources()
                 .withAction('database_schema')
-                .create({ data: { source_type, payload } })
+                .create({ data: { source_type, ...payload } })
         },
         async wizard(): Promise<Record<string, SourceConfig>> {
             return await new ApiRequest().externalDataSources().withAction('wizard').get()

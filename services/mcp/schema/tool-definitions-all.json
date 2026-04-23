@@ -434,18 +434,17 @@
         }
     },
     "external-data-sources-db-schema": {
-        "description": "Validate connection credentials for a data source and return the list of available tables with their schema metadata. Each table entry includes available sync methods (incremental, full_refresh, append, CDC), incremental fields, detected primary keys, column definitions, and row counts. Use this before 'external-data-sources-create' to preview what will be synced and to let the user choose sync options.",
+        "description": "Validate source credentials and return the available tables from the remote database. Use this before creating a source to verify connectivity and discover tables. Pass source_type and credential fields in the payload object. The response includes per-table: available sync methods (incremental, full_refresh, append, cdc), available incremental fields with types, detected primary keys, available columns with types and nullability, and row counts. Present all of this to the user so they can configure each table before creation: which tables to sync, sync method, incremental field (and type), and primary key overrides.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
-        "summary": "Validate credentials and discover tables",
-        "title": "Validate credentials and discover tables",
+        "summary": "Preview remote database schema before creating a source.",
+        "title": "Preview remote database schema",
         "required_scopes": ["external_data_source:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
-            "readOnlyHint": true
+            "readOnlyHint": false
         }
     },
     "external-data-sources-jobs": {
