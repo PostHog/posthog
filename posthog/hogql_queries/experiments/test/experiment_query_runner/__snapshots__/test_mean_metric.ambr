@@ -18,7 +18,7 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      LEFT JOIN
        (SELECT person.id AS id,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+               nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                       (SELECT person.id AS id, max(person.version) AS version
@@ -142,7 +142,7 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      LEFT JOIN
        (SELECT person.id AS id,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+               nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                       (SELECT person.id AS id, max(person.version) AS version
@@ -266,7 +266,7 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      LEFT JOIN
        (SELECT person.id AS id,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+               nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                       (SELECT person.id AS id, max(person.version) AS version
@@ -390,7 +390,7 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      LEFT JOIN
        (SELECT person.id AS id,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+               nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                       (SELECT person.id AS id, max(person.version) AS version
@@ -422,8 +422,8 @@
      GROUP BY exposures.entity_id,
               exposures.variant),
        percentiles AS
-    (SELECT quantile(0.1)(entity_metrics.value) AS lower_bound,
-            quantile(0.9)(entity_metrics.value) AS upper_bound
+    (SELECT quantileExact(0.1)(entity_metrics.value) AS lower_bound,
+            quantileExact(0.9)(entity_metrics.value) AS upper_bound
      FROM entity_metrics),
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
@@ -485,8 +485,8 @@
      GROUP BY exposures.entity_id,
               exposures.variant),
        percentiles AS
-    (SELECT quantile(0.1)(entity_metrics.value) AS lower_bound,
-            quantile(0.9)(entity_metrics.value) AS upper_bound
+    (SELECT quantileExact(0.1)(entity_metrics.value) AS lower_bound,
+            quantileExact(0.9)(entity_metrics.value) AS upper_bound
      FROM entity_metrics),
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
@@ -534,7 +534,7 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      LEFT JOIN
        (SELECT person.id AS id,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+               nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                       (SELECT person.id AS id, max(person.version) AS version
@@ -660,7 +660,7 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      LEFT JOIN
        (SELECT person.id AS id,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+               nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                       (SELECT person.id AS id, max(person.version) AS version
@@ -692,8 +692,8 @@
      GROUP BY exposures.entity_id,
               exposures.variant),
        percentiles AS
-    (SELECT quantile(0.1)(entity_metrics.value) AS lower_bound,
-            quantile(0.9)(entity_metrics.value) AS upper_bound
+    (SELECT quantileExact(0.1)(entity_metrics.value) AS lower_bound,
+            quantileExact(0.9)(entity_metrics.value) AS upper_bound
      FROM entity_metrics),
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
@@ -755,8 +755,8 @@
      GROUP BY exposures.entity_id,
               exposures.variant),
        percentiles AS
-    (SELECT quantile(0.1)(entity_metrics.value) AS lower_bound,
-            quantile(0.9)(entity_metrics.value) AS upper_bound
+    (SELECT quantileExact(0.1)(entity_metrics.value) AS lower_bound,
+            quantileExact(0.9)(entity_metrics.value) AS upper_bound
      FROM entity_metrics),
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
@@ -804,7 +804,7 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      LEFT JOIN
        (SELECT person.id AS id,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+               nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                       (SELECT person.id AS id, max(person.version) AS version
@@ -836,8 +836,8 @@
      GROUP BY exposures.entity_id,
               exposures.variant),
        percentiles AS
-    (SELECT quantile(0.1)(entity_metrics.value) AS lower_bound,
-            quantile(0.9)(entity_metrics.value) AS upper_bound
+    (SELECT quantileExact(0.1)(entity_metrics.value) AS lower_bound,
+            quantileExact(0.9)(entity_metrics.value) AS upper_bound
      FROM entity_metrics),
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
@@ -899,8 +899,8 @@
      GROUP BY exposures.entity_id,
               exposures.variant),
        percentiles AS
-    (SELECT quantile(0.1)(entity_metrics.value) AS lower_bound,
-            quantile(0.9)(entity_metrics.value) AS upper_bound
+    (SELECT quantileExact(0.1)(entity_metrics.value) AS lower_bound,
+            quantileExact(0.9)(entity_metrics.value) AS upper_bound
      FROM entity_metrics),
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
@@ -948,7 +948,7 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      LEFT JOIN
        (SELECT person.id AS id,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+               nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                       (SELECT person.id AS id, max(person.version) AS version
@@ -981,7 +981,7 @@
               exposures.variant),
        percentiles AS
     (SELECT min(entity_metrics.value) AS lower_bound,
-            quantile(0.9)(if(ifNull(notEquals(entity_metrics.value, 0), 1), entity_metrics.value, NULL)) AS upper_bound
+            quantileExact(0.9)(if(ifNull(notEquals(entity_metrics.value, 0), 1), entity_metrics.value, NULL)) AS upper_bound
      FROM entity_metrics),
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
@@ -1044,7 +1044,7 @@
               exposures.variant),
        percentiles AS
     (SELECT min(entity_metrics.value) AS lower_bound,
-            quantile(0.9)(if(ifNull(notEquals(entity_metrics.value, 0), 1), entity_metrics.value, NULL)) AS upper_bound
+            quantileExact(0.9)(if(ifNull(notEquals(entity_metrics.value, 0), 1), entity_metrics.value, NULL)) AS upper_bound
      FROM entity_metrics),
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
@@ -1092,7 +1092,7 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      LEFT JOIN
        (SELECT person.id AS id,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+               nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                       (SELECT person.id AS id, max(person.version) AS version
@@ -1216,7 +1216,7 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      LEFT JOIN
        (SELECT person.id AS id,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+               nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                       (SELECT person.id AS id, max(person.version) AS version
@@ -1340,7 +1340,7 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      LEFT JOIN
        (SELECT person.id AS id,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+               nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                       (SELECT person.id AS id, max(person.version) AS version
@@ -1464,7 +1464,7 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      LEFT JOIN
        (SELECT person.id AS id,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+               nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                       (SELECT person.id AS id, max(person.version) AS version
@@ -1588,7 +1588,7 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      LEFT JOIN
        (SELECT person.id AS id,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+               nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                       (SELECT person.id AS id, max(person.version) AS version
