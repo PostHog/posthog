@@ -442,7 +442,7 @@ class TestProvisioningAuthentication(APIBaseTest):
             HTTP_API_VERSION="0.1d",
         )
         # Inactive HMAC partner is filtered out of identification, falls through to legacy
-        # which still works via verify_stripe_signature (same secret in settings)
+        # which still works via verify_provisioning_signature (same secret in settings)
         # But the ProvisioningAuthentication won't return it
         assert res.status_code == 200
 

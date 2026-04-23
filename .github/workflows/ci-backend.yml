@@ -1438,7 +1438,7 @@ jobs:
                   echo "Using $compat_shards shard(s) per compat version"
 
                   # Oldest supported version for main Django tests (for max compatibility, as JSON array for matrix)
-                  oldest_supported=$(jq -r '.versions.oldest_supported' .github/clickhouse-versions.json)
+                  oldest_supported=$(jq -r '.oldest_supported' .github/clickhouse-versions.json)
                   if [ -z "$oldest_supported" ] || [ "$oldest_supported" = "null" ]; then
                     echo "::error::No oldest_supported version found in .github/clickhouse-versions.json"
                     exit 1
@@ -1448,7 +1448,7 @@ jobs:
                   echo "Oldest supported version for Django tests: $oldest_supported"
 
                   # Read all unique versions so we can derive compat coverage.
-                  all=$(jq -c '[.versions[]] | unique' .github/clickhouse-versions.json)
+                  all=$(jq -c '[.[]] | unique' .github/clickhouse-versions.json)
                   if [ "$all" = "[]" ] || [ -z "$all" ]; then
                     echo "::error::No versions found in .github/clickhouse-versions.json"
                     exit 1
@@ -1456,7 +1456,7 @@ jobs:
                   echo "All CH versions found: $all"
 
                   # Compat coverage is only needed for non-oldest versions.
-                  compat_versions=$(jq -c --arg oldest "$oldest_supported" '[.versions[]] | unique | map(select(. != $oldest))' .github/clickhouse-versions.json)
+                  compat_versions=$(jq -c --arg oldest "$oldest_supported" '[.[]] | unique | map(select(. != $oldest))' .github/clickhouse-versions.json)
                   echo "Compat versions (excluding oldest): $compat_versions"
 
                   compat_count=$(jq -r 'length' <<< "$compat_versions")
