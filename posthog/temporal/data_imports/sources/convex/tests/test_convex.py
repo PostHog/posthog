@@ -186,12 +186,42 @@ class TestDocumentDeltasResumable:
 
 
 class TestConvexSource:
+    @parameterized.expand(
+        [
+            (
+                "full_refresh",
+                False,
+                None,
+                {"values": [{"_id": "a", "_creationTime": 1}], "cursor": 100, "snapshot": 500, "hasMore": False},
+                [[{"_id": "a", "_creationTime": 1}]],
+                "/api/list_snapshot",
+                {},
+            ),
+            (
+                "incremental",
+                True,
+                10,
+                {"values": [{"_id": "a"}], "cursor": 50, "hasMore": False},
+                [[{"_id": "a"}]],
+                "/api/document_deltas",
+                {"cursor": 10},
+            ),
+        ]
+    )
     @patch("posthog.temporal.data_imports.sources.convex.convex.requests.get")
-    def test_full_refresh_threads_manager(self, mock_get: Mock) -> None:
+    def test_threads_manager(
+        self,
+        _name: str,
+        should_use_incremental_field: bool,
+        db_incremental_field_last_value: int | None,
+        response_json: dict[str, Any],
+        expected_batches: list[list[dict[str, Any]]],
+        expected_url_fragment: str,
+        expected_first_params: dict[str, Any],
+        mock_get: Mock,
+    ) -> None:
         manager = _make_manager(can_resume=False)
-        mock_get.return_value = _make_response(
-            {"values": [{"_id": "a", "_creationTime": 1}], "cursor": 100, "snapshot": 500, "hasMore": False}
-        )
+        mock_get.return_value = _make_response(response_json)
 
         response = convex_source(
             deploy_url="https://x.convex.cloud",
@@ -199,35 +229,17 @@ class TestConvexSource:
             table_name="t",
             team_id=1,
             job_id="job",
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=db_incremental_field_last_value,
             resumable_source_manager=manager,
         )
 
         batches = list(cast(Iterable[Any], response.items()))
-        assert batches == [[{"_id": "a", "_creationTime": 1}]]
+        assert batches == expected_batches
         assert response.primary_keys == ["_id"]
         manager.can_resume.assert_called_once()
-
-    @patch("posthog.temporal.data_imports.sources.convex.convex.requests.get")
-    def test_incremental_path_threads_manager(self, mock_get: Mock) -> None:
-        manager = _make_manager(can_resume=False)
-        mock_get.return_value = _make_response({"values": [{"_id": "a"}], "cursor": 50, "hasMore": False})
-
-        response = convex_source(
-            deploy_url="https://x.convex.cloud",
-            deploy_key="key",
-            table_name="t",
-            team_id=1,
-            job_id="job",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=10,
-            resumable_source_manager=manager,
-        )
-
-        batches = list(cast(Iterable[Any], response.items()))
-        assert batches == [[{"_id": "a"}]]
-        # document_deltas path must have been used: first call uses cursor=10.
+        called_url = mock_get.call_args_list[0].args[0]
+        assert expected_url_fragment in called_url
         first_params = mock_get.call_args_list[0].kwargs["params"]
-        assert first_params["cursor"] == 10
-        assert "/api/document_deltas" in mock_get.call_args_list[0].args[0]
+        for key, value in expected_first_params.items():
+            assert first_params[key] == value
