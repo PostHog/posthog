@@ -759,7 +759,7 @@ export class CdpApi {
             try {
                 const { status, message } = await this.emailTrackingService.handleSesWebhook(req)
                 return res.status(status).json({ message })
-            } catch (error) {
+            } catch {
                 return res.status(500).json({ error: 'Internal error' })
             }
         }

@@ -16,6 +16,7 @@ import type { IngestionConsumerConfig } from './ingestion/config'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import type { ErrorTrackingConsumerConfig } from './ingestion/error-tracking/config'
 import { KafkaProducerWrapper } from './kafka/producer'
+import type { LlmAnalyticsConfig } from './llm-analytics/config'
 import type { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from './logs-ingestion/config'
 import type { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
 import { PostgresRouter } from './utils/db/postgres'
@@ -32,6 +33,7 @@ type Brand<K, T> = K & { __brand: T }
 
 // Re-export config types from domain-specific files, this is to avoid mass refactors, we can eventually update it
 export { CdpConfig } from './cdp/config'
+export { LlmAnalyticsConfig } from './llm-analytics/config'
 export {
     CommonConfig,
     KafkaSaslMechanism,
@@ -114,6 +116,7 @@ export type PluginServerService = {
 export interface PluginsServerConfig
     extends CommonConfig,
         CdpConfig,
+        LlmAnalyticsConfig,
         IngestionConsumerConfig,
         LogsIngestionConsumerConfig,
         TracesIngestionConsumerConfig,
@@ -271,6 +274,7 @@ export interface EventSchemaEnforcement {
 export interface LogsSettings {
     capture_console_logs?: boolean
     json_parse_logs?: boolean
+    pii_scrub_logs?: boolean
     retention_days?: number
     retention_last_updated?: string
 }
@@ -284,7 +288,6 @@ export interface Team {
     anonymize_ips: boolean
     api_token: string
     secret_api_token: string | null
-    slack_incoming_webhook: string | null
     session_recording_opt_in: boolean
     person_processing_opt_out: boolean | null
     heatmaps_opt_in: boolean | null

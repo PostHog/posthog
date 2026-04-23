@@ -6,7 +6,7 @@ from django.utils import timezone
 from posthog.schema import EmbeddingModelName
 
 from posthog.clickhouse.client import sync_execute
-from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.routing import get_producer
 from posthog.models.team.team import Team
 
 from ee.hogai.llm_traces_summaries.constants import (
@@ -25,7 +25,7 @@ class LLMTracesSummarizerEmbedder:
         self, team: Team, embedding_model_name: EmbeddingModelName = EmbeddingModelName.TEXT_EMBEDDING_3_LARGE_3072
     ):
         self._team = team
-        self._producer = KafkaProducer()
+        self._producer = get_producer(topic=DOCUMENT_EMBEDDINGS_TOPIC)
         self._embedding_model_name = embedding_model_name
 
     def embed_summaries(self, summarized_traces: dict[str, str], summary_type: LLMTraceSummary.LLMTraceSummaryType):

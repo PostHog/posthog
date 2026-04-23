@@ -14,7 +14,7 @@ from django.conf import settings
 from django.contrib.auth import login as auth_login
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.http import HttpResponseRedirect
 from django.http.response import HttpResponseBase
 from django.utils import timezone
@@ -28,6 +28,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.authentication import password_reset_token_generator
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import StripeIntegration
 from posthog.models.oauth import (
@@ -46,6 +47,7 @@ from posthog.models.utils import (
     generate_random_token_personal,
     mask_key_value,
 )
+from posthog.tasks.email import send_provisioning_welcome
 from posthog.utils import get_instance_region
 
 from ee.settings import BILLING_SERVICE_URL
@@ -347,8 +349,35 @@ def account_requests(request: Request) -> Response:
             },
             status=400,
         )
+    if code_challenge and (
+        len(code_challenge) < 43 or len(code_challenge) > 128 or not re.fullmatch(r"[A-Za-z0-9_\-]+", code_challenge)
+    ):
+        return Response(
+            {
+                "type": "error",
+                "error": {
+                    "code": "invalid_request",
+                    "message": "code_challenge must be 43-128 characters using base64url charset",
+                },
+            },
+            status=400,
+        )
 
     region = (configuration.get("region") or "US").upper()
+
+    requested_team_id = configuration.get("team_id")
+    if requested_team_id is not None:
+        try:
+            requested_team_id = int(requested_team_id)
+        except (ValueError, TypeError):
+            return Response(
+                {
+                    "id": request_id,
+                    "type": "error",
+                    "error": {"code": "invalid_request", "message": "configuration.team_id must be an integer"},
+                },
+                status=400,
+            )
 
     existing_user = User.objects.filter(email=email).first()
 
@@ -360,6 +389,7 @@ def account_requests(request: Request) -> Response:
             scopes,
             partner_account_id,
             region,
+            requested_team_id,
             partner,
             code_challenge,
             code_challenge_method,
@@ -377,17 +407,108 @@ def _handle_existing_user(
     scopes: list[str],
     partner_account_id: str = "",
     region: str = "US",
+    team_id: int | None = None,
     partner: OAuthApplication | None = None,
     code_challenge: str = "",
     code_challenge_method: str = "S256",
 ) -> Response:
+    # Only server-to-server partners with shared secrets skip consent.
+    # Everything else (pkce, future methods) requires browser approval.
+    TRUSTED_AUTH_METHODS = ("hmac", "bearer")
+    if partner and partner.provisioning_auth_method not in TRUSTED_AUTH_METHODS:
+        if not code_challenge:
+            return Response(
+                {
+                    "id": request_id,
+                    "type": "error",
+                    "error": {"code": "invalid_request", "message": "code_challenge is required for public clients"},
+                },
+                status=400,
+            )
+        validated_scopes = _validate_scopes(scopes)
+        if validated_scopes is None:
+            return Response(
+                {
+                    "id": request_id,
+                    "type": "error",
+                    "error": {"code": "invalid_scope", "message": "One or more requested scopes are not recognized"},
+                },
+                status=400,
+            )
+        return _require_user_consent(
+            request_id,
+            user,
+            validated_scopes,
+            partner_account_id,
+            region,
+            partner,
+            code_challenge,
+            code_challenge_method,
+        )
+
+    team = _resolve_team_for_existing_user(user, team_id)
+    if team is None:
+        _capture_provisioning_event("account_request", "error", error_code="team_resolution_failed")
+        return Response(
+            {
+                "id": request_id,
+                "type": "error",
+                "error": {"code": "team_resolution_failed", "message": "Could not resolve a project for this user"},
+            },
+            status=400,
+        )
+
+    code = secrets.token_urlsafe(32)
     cache.set(
-        f"{PENDING_AUTH_CACHE_PREFIX}{confirmation_secret}",
+        f"{AUTH_CODE_CACHE_PREFIX}{code}",
+        {
+            "user_id": user.id,
+            "org_id": str(team.organization_id),
+            "team_id": team.id,
+            "stripe_account_id": partner_account_id,
+            "partner_id": str(partner.id) if partner else "",
+            "scopes": scopes,
+            "region": region,
+            "code_challenge": code_challenge,
+            "code_challenge_method": code_challenge_method,
+        },
+        timeout=AUTH_CODE_TTL_SECONDS,
+    )
+
+    _capture_provisioning_event("account_request", "existing_user", region=region, team_id=team.id)
+
+    return Response({"id": request_id, "type": "oauth", "oauth": {"code": code}})
+
+
+def _require_user_consent(
+    request_id: str,
+    user: User,
+    scopes: list[str],
+    partner_account_id: str,
+    region: str,
+    partner: OAuthApplication,
+    code_challenge: str,
+    code_challenge_method: str,
+) -> Response:
+    # Dedup: overwrite any prior pending state for same partner+email so
+    # retries don't leave multiple live consent URLs.
+    dedup_key = f"pending_auth_state:{partner.id}:{user.email}"
+    old_state = cache.get(dedup_key)
+    if old_state:
+        cache.delete(f"{PENDING_AUTH_CACHE_PREFIX}{old_state}")
+
+    state = secrets.token_urlsafe(32)
+    cache.set(dedup_key, state, timeout=PENDING_AUTH_TTL_SECONDS)
+
+    pending_key = f"{PENDING_AUTH_CACHE_PREFIX}{state}"
+    cache.set(
+        pending_key,
         {
             "email": user.email,
             "scopes": scopes,
             "stripe_account_id": partner_account_id,
-            "partner_id": str(partner.id) if partner else "",
+            "partner_id": str(partner.id),
+            "partner_name": partner.name,
             "region": region,
             "code_challenge": code_challenge,
             "code_challenge_method": code_challenge_method,
@@ -395,19 +516,48 @@ def _handle_existing_user(
         timeout=PENDING_AUTH_TTL_SECONDS,
     )
 
-    _capture_provisioning_event("account_request", "existing_user", region=region)
+    auth_url = _build_authorize_url(state, scopes, region=region)
 
-    authorize_url = _build_authorize_url(confirmation_secret, scopes)
+    _capture_provisioning_event("account_request", "requires_auth", region=region)
+
     return Response(
         {
             "id": request_id,
             "type": "requires_auth",
-            "requires_auth": {
-                "type": "redirect",
-                "redirect": {"url": authorize_url},
-            },
+            "requires_auth": {"url": auth_url},
         }
     )
+
+
+def _resolve_team_for_existing_user(user: User, requested_team_id: int | None = None) -> Team | None:
+    """Pick a team for an existing user during email-based account linking.
+
+    If requested_team_id is provided and the user has access, use it.
+    Otherwise auto-select: single non-demo team → use it, only demo teams →
+    create a new project, multiple teams → create a new project in the first org.
+    """
+    memberships = list(user.organization_memberships.select_related("organization").all())
+    if not memberships:
+        return None
+
+    org_ids = [m.organization_id for m in memberships]
+
+    if requested_team_id is not None:
+        try:
+            team = Team.objects.get(id=requested_team_id, is_demo=False)
+        except Team.DoesNotExist:
+            return None
+        if team.organization_id not in org_ids:
+            return None
+        return team
+
+    non_demo_teams = list(Team.objects.filter(organization_id__in=org_ids, is_demo=False))
+
+    if len(non_demo_teams) == 1:
+        return non_demo_teams[0]
+
+    organization = memberships[0].organization
+    return Team.objects.create_with_data(initiating_user=user, organization=organization)
 
 
 def _handle_new_user(
@@ -451,6 +601,7 @@ def _handle_new_user(
                 scopes,
                 partner_account_id,
                 region,
+                None,
                 partner,
                 code_challenge,
                 code_challenge_method,
@@ -466,6 +617,12 @@ def _handle_new_user(
         )
 
     _capture_provisioning_event("account_request", "new_user", region=region)
+
+    try:
+        reset_token = password_reset_token_generator.make_token(user)
+        send_provisioning_welcome.delay(user.id, reset_token, partner_label)
+    except Exception:
+        capture_exception(additional_properties={"user_id": user.id, "step": "provisioning_welcome_email"})
 
     code = secrets.token_urlsafe(32)
     cache_key = f"{AUTH_CODE_CACHE_PREFIX}{code}"
@@ -488,8 +645,8 @@ def _handle_new_user(
     return Response({"id": request_id, "type": "oauth", "oauth": {"code": code}})
 
 
-def _build_authorize_url(confirmation_secret: str, scopes: list[str]) -> str:
-    base = settings.SITE_URL.rstrip("/")
+def _build_authorize_url(confirmation_secret: str, scopes: list[str], region: str = "") -> str:
+    base = _region_to_host(region).rstrip("/") if region else settings.SITE_URL.rstrip("/")
     params = urlencode({"state": confirmation_secret, "scope": " ".join(scopes)})
     return f"{base}/api/agentic/authorize?{params}"
 
@@ -519,8 +676,6 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
         _capture_provisioning_event("authorize", "email_mismatch")
         return HttpResponseRedirect(f"{settings.SITE_URL}?error=email_mismatch")
 
-    scope = " ".join(pending.get("scopes", []))
-
     user = request.user
     memberships = list(user.organization_memberships.select_related("organization").all())
     if not memberships:
@@ -536,9 +691,22 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
         non_demo_teams = [team]
         _capture_provisioning_event("authorize", "auto_created_project", team_id=team.id)
 
-    if len(memberships) == 1 and len(non_demo_teams) == 1:
-        cache.delete(pending_key)
+    # Re-check partner is still active (could have been deactivated since account_requests)
+    TRUSTED_AUTH_METHODS = ("hmac", "bearer")
+    partner_id = pending.get("partner_id", "")
+    is_trusted_partner = not partner_id
+    if partner_id:
+        try:
+            partner_app = OAuthApplication.objects.get(id=partner_id)
+            if not partner_app.provisioning_active:
+                cache.delete(pending_key)
+                _capture_provisioning_event("authorize", "partner_deactivated")
+                return HttpResponseRedirect(f"{settings.SITE_URL}?error=partner_deactivated")
+            is_trusted_partner = partner_app.provisioning_auth_method in TRUSTED_AUTH_METHODS
+        except OAuthApplication.DoesNotExist:
+            pass
 
+    if is_trusted_partner and len(memberships) == 1 and len(non_demo_teams) == 1:
         organization = memberships[0].organization
         team = non_demo_teams[0]
 
@@ -558,6 +726,7 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
             },
             timeout=AUTH_CODE_TTL_SECONDS,
         )
+        cache.delete(pending_key)
 
         _capture_provisioning_event("authorize", "auto_redirect", team_id=team.id)
 
@@ -570,8 +739,36 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
 
     base = settings.SITE_URL.rstrip("/")
     sanitized_state = re.sub(r"[^A-Za-z0-9_\-]", "", state)
-    params = urlencode({"state": sanitized_state, "scope": scope})
+    params = urlencode({"state": sanitized_state})
     return HttpResponseRedirect(f"{base}/agentic/authorize?{params}")
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def agentic_authorize_pending(request: Request) -> Response:
+    """Return server-verified partner name and scopes for a pending auth state.
+
+    The frontend calls this instead of reading from URL params, preventing
+    an attacker from spoofing the partner identity on the consent page.
+    """
+    state = request.query_params.get("state", "")
+    if not state or not _SAFE_STATE_RE.match(state):
+        return Response({"error": "invalid_state"}, status=400)
+
+    pending = cache.get(f"{PENDING_AUTH_CACHE_PREFIX}{state}")
+    if pending is None:
+        return Response({"error": "expired_or_invalid_state"}, status=400)
+
+    user = cast(User, request.user)
+    if user.email != pending["email"]:
+        return Response({"error": "email_mismatch"}, status=403)
+
+    return Response(
+        {
+            "partner_name": pending.get("partner_name", "the requesting app"),
+            "scopes": pending.get("scopes", []),
+        }
+    )
 
 
 @api_view(["POST"])
@@ -606,9 +803,20 @@ def agentic_authorize_confirm(request: Request) -> Response:
         _capture_provisioning_event("authorize_confirm", "team_not_accessible", team_id=team_id)
         return Response({"error": "team_not_accessible"}, status=403)
 
-    cache.delete(pending_key)
+    confirm_partner_id = pending.get("partner_id", "")
+    if confirm_partner_id:
+        try:
+            confirm_partner = OAuthApplication.objects.get(id=confirm_partner_id)
+            if not confirm_partner.provisioning_active:
+                cache.delete(pending_key)
+                _capture_provisioning_event("authorize_confirm", "partner_deactivated")
+                return Response({"error": "partner_deactivated"}, status=403)
+        except OAuthApplication.DoesNotExist:
+            pass
 
     code = secrets.token_urlsafe(32)
+    # Set auth code BEFORE deleting pending state so a cache hiccup
+    # between the two doesn't leave the user with no recovery path.
     cache.set(
         f"{AUTH_CODE_CACHE_PREFIX}{code}",
         {
@@ -624,6 +832,7 @@ def agentic_authorize_confirm(request: Request) -> Response:
         },
         timeout=AUTH_CODE_TTL_SECONDS,
     )
+    cache.delete(pending_key)
 
     callback_url = _get_callback_url(pending.get("partner_id", ""))
     sanitized_state = re.sub(r"[^A-Za-z0-9_\-]", "", state)
@@ -739,6 +948,8 @@ def _exchange_authorization_code(request: Request) -> Response:
 
     account_id = str(code_data.get("org_id", ""))
 
+    available_teams = _get_available_teams_for_user(user)
+
     _capture_provisioning_event("token_exchange", "success", grant_type="authorization_code")
 
     return Response(
@@ -750,6 +961,7 @@ def _exchange_authorization_code(request: Request) -> Response:
             "account": {
                 "id": account_id,
                 "payment_credentials": "orchestrator",
+                "available_teams": available_teams,
             },
         }
     )
@@ -814,23 +1026,50 @@ def _exchange_refresh_token(request: Request) -> Response:
     )
 
 
+def _build_billing_token(team: Team, user: User) -> str | None:
+    from posthog.cloud_utils import get_cached_instance_license
+
+    from ee.billing.billing_manager import build_billing_token
+
+    license = get_cached_instance_license()
+    if not license:
+        return None
+    return build_billing_token(license, team.organization, user)
+
+
+def _team_has_active_billing(team: Team, user: User) -> bool:
+    """Check if the team's organization already has an active billing subscription."""
+    try:
+        billing_token = _build_billing_token(team, user)
+        if not billing_token:
+            return False
+
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/billing",
+            headers={"Authorization": f"Bearer {billing_token}"},
+            timeout=30,
+        )
+
+        if res.status_code != 200:
+            return False
+
+        customer = res.json().get("customer", {})
+        return bool(customer.get("has_active_subscription"))
+    except Exception:
+        capture_exception(additional_properties={"team_id": team.id, "org_id": str(team.organization_id)})
+        return False
+
+
 def _activate_billing_with_spt(team: Team, user: User, spt_token: str) -> bool:
     """Call the billing service to activate a subscription with a Stripe Shared Payment Token.
 
     Returns True if activation succeeded, False otherwise.
     """
     try:
-        from posthog.cloud_utils import get_cached_instance_license
-
-        from ee.billing.billing_manager import build_billing_token
-
-        license = get_cached_instance_license()
-        if not license:
+        billing_token = _build_billing_token(team, user)
+        if not billing_token:
             capture_exception(Exception("No license found for SPT billing activation"))
             return False
-
-        organization = team.organization
-        billing_token = build_billing_token(license, organization, user)
 
         res = requests.post(
             f"{BILLING_SERVICE_URL}/api/activate/authorize",
@@ -842,28 +1081,35 @@ def _activate_billing_with_spt(team: Team, user: User, spt_token: str) -> bool:
         if res.status_code not in (200, 201):
             capture_exception(
                 Exception(f"Billing SPT activation failed: {res.status_code}"),
-                {"team_id": team.id, "org_id": str(organization.id), "status": res.status_code},
+                {"team_id": team.id, "org_id": str(team.organization_id), "status": res.status_code},
             )
             return False
 
-        logger.info("stripe_app.spt_billing_activated", team_id=team.id, org_id=str(organization.id))
+        logger.info("stripe_app.spt_billing_activated", team_id=team.id, org_id=str(team.organization_id))
         return True
     except Exception:
         capture_exception(additional_properties={"team_id": team.id, "org_id": str(team.organization_id)})
         return False
 
 
-def _try_activate_billing_with_spt(request: Request, team: Team, user: User) -> bool | None:
-    """Try to activate billing with an SPT from payment_credentials.
-
-    Returns True if succeeded, False if failed, None if no SPT was present.
-    """
+def _extract_spt(request: Request) -> str | None:
     payment_credentials = request.data.get("payment_credentials")
     if isinstance(payment_credentials, dict) and payment_credentials.get("type") == "stripe_payment_token":
-        spt_token = payment_credentials.get("stripe_payment_token")
-        if spt_token:
-            return _activate_billing_with_spt(team, user, spt_token)
+        return payment_credentials.get("stripe_payment_token") or None
     return None
+
+
+def _try_activate_billing_with_spt(request: Request, team: Team, user: User) -> bool | None:
+    """Activate billing if an SPT is present, skipping if billing is already active.
+
+    Returns True if succeeded or already active, False if failed, None if no SPT was present.
+    """
+    spt_token = _extract_spt(request)
+    if not spt_token:
+        return None
+    if _team_has_active_billing(team, user):
+        return True
+    return _activate_billing_with_spt(team, user, spt_token)
 
 
 def _create_provisioned_pat(user: User, team: Team) -> str | None:
@@ -980,6 +1226,7 @@ def _set_provisioning_service_id(team: Team, service_id: str) -> None:
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
+@stripe_region_proxy(strategy="bearer_lookup")
 def provisioning_resources_create(request: Request) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
@@ -1020,7 +1267,16 @@ def provisioning_resources_create(request: Request) -> Response:
     _set_provisioning_service_id(team, resolved_service_id)
 
     billing_result = _try_activate_billing_with_spt(request, team, user)
+    has_spt = billing_result is not None
     if billing_result is False:
+        _capture_provisioning_event(
+            "resource_created",
+            "error",
+            error_code="requires_payment_credentials",
+            service_id=resolved_service_id,
+            team_id=team.id,
+            has_spt=has_spt,
+        )
         return Response(
             {
                 "status": "error",
@@ -1033,10 +1289,27 @@ def provisioning_resources_create(request: Request) -> Response:
             status=400,
         )
 
+    if resolved_service_id == PAY_AS_YOU_GO_SERVICE_ID and billing_result is None:
+        _capture_provisioning_event(
+            "resource_created",
+            "error",
+            error_code="requires_payment_credentials",
+            service_id=resolved_service_id,
+            team_id=team.id,
+        )
+        return _error_response("requires_payment_credentials", "Payment credentials required for paid plan")
+
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 
-    _capture_provisioning_event("resource_created", "success", service_id=resolved_service_id, team_id=team.id)
+    _capture_provisioning_event(
+        "resource_created",
+        "success",
+        service_id=resolved_service_id,
+        team_id=team.id,
+        has_spt=has_spt,
+        billing_result=str(billing_result),
+    )
 
     access_configuration: dict[str, str] = {
         "api_key": team.api_token,
@@ -1065,6 +1338,7 @@ def provisioning_resources_create(request: Request) -> Response:
 @api_view(["GET"])
 @authentication_classes([])
 @permission_classes([])
+@stripe_region_proxy(strategy="bearer_lookup")
 def provisioning_resource_detail(request: Request, resource_id: str) -> Response:
     return _resolve_resource_response(request, resource_id)
 
@@ -1077,6 +1351,7 @@ def provisioning_resource_detail(request: Request, resource_id: str) -> Response
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
+@stripe_region_proxy(strategy="bearer_lookup")
 def provisioning_rotate_credentials(request: Request, resource_id: str) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
@@ -1146,6 +1421,7 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
+@stripe_region_proxy(strategy="bearer_lookup")
 def provisioning_update_service(request: Request, resource_id: str) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
@@ -1181,11 +1457,28 @@ def provisioning_update_service(request: Request, resource_id: str) -> Response:
         return _error_response("unknown_service", f"Unknown service_id: {service_id}", resource_id=resource_id)
 
     billing_result = _try_activate_billing_with_spt(request, team, user)
+    has_spt = billing_result is not None
     if billing_result is False:
+        _capture_provisioning_event(
+            "update_service",
+            "error",
+            error_code="billing_activation_failed",
+            service_id=service_id,
+            team_id=team_id,
+            has_spt=has_spt,
+        )
         return _error_response(
             "billing_activation_failed",
             "Failed to activate billing with payment credentials",
             resource_id=resource_id,
+        )
+
+    if service_id == PAY_AS_YOU_GO_SERVICE_ID and billing_result is None:
+        _capture_provisioning_event(
+            "update_service", "error", error_code="requires_payment_credentials", service_id=service_id, team_id=team_id
+        )
+        return _error_response(
+            "requires_payment_credentials", "Payment credentials required for paid plan", resource_id=resource_id
         )
 
     _set_provisioning_service_id(team, service_id)
@@ -1193,7 +1486,14 @@ def provisioning_update_service(request: Request, resource_id: str) -> Response:
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 
-    _capture_provisioning_event("update_service", "success", service_id=service_id, team_id=team_id)
+    _capture_provisioning_event(
+        "update_service",
+        "success",
+        service_id=service_id,
+        team_id=team_id,
+        has_spt=has_spt,
+        billing_result=str(billing_result),
+    )
 
     access_configuration: dict[str, str] = {
         "api_key": team.api_token,
@@ -1210,6 +1510,96 @@ def provisioning_update_service(request: Request, resource_id: str) -> Response:
             },
         }
     )
+
+
+# ---------------------------------------------------------------------------
+# POST /provisioning/resources/:id/remove
+# Detaches the resource from the orchestrator: removes it from the token's
+# scope and clears provisioning metadata. Preserves the underlying team and
+# user data so the customer can still access PostHog directly.
+# ---------------------------------------------------------------------------
+
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([])
+@stripe_region_proxy(strategy="bearer_lookup")
+def provisioning_resource_remove(request: Request, resource_id: str) -> Response:
+    auth_error, user, access_token = _authenticate_bearer(request)
+    if auth_error:
+        return auth_error
+
+    if error := _verify_hmac_if_present(request):
+        return error
+    if error := verify_api_version(request):
+        return error
+
+    try:
+        team_id = int(resource_id)
+    except (ValueError, TypeError):
+        return Response(
+            {
+                "status": "error",
+                "id": resource_id,
+                "error": {"code": "invalid_resource_id", "message": "Invalid resource ID"},
+            },
+            status=400,
+        )
+
+    scoped_teams = access_token.scoped_teams or []
+    if team_id not in scoped_teams:
+        return Response(
+            {
+                "status": "error",
+                "id": resource_id,
+                "error": {"code": "forbidden", "message": "Resource not accessible with this token"},
+            },
+            status=403,
+        )
+
+    from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+    try:
+        TeamProvisioningConfig.objects.filter(team_id=team_id).delete()
+    except Exception:
+        capture_exception(additional_properties={"team_id": team_id, "step": "remove_provisioning_config"})
+        _capture_provisioning_event("resource_removed", "error", team_id=team_id, error_code="remove_config_failed")
+        return Response(
+            {
+                "status": "error",
+                "id": resource_id,
+                "error": {"code": "remove_failed", "message": "Failed to remove resource"},
+            },
+            status=500,
+        )
+
+    _remove_team_from_token_scopes(access_token, team_id)
+
+    _capture_provisioning_event("resource_removed", "success", team_id=team_id)
+
+    return Response({"status": "removed", "id": resource_id})
+
+
+def _remove_team_from_token_scopes(access_token: OAuthAccessToken, team_id: int) -> None:
+    remaining = [t for t in (access_token.scoped_teams or []) if t != team_id]
+
+    # Atomic so a refresh token can never be left with the removed team still in
+    # scope while the access token has it stripped — otherwise the orchestrator
+    # could refresh and replay the removed team right back into scope.
+    with transaction.atomic():
+        refresh_tokens = OAuthRefreshToken.objects.filter(access_token=access_token)
+
+        if not remaining:
+            refresh_tokens.update(access_token=None, revoked=timezone.now(), scoped_teams=[])
+            access_token.delete()
+            return
+
+        access_token.scoped_teams = remaining
+        access_token.save(update_fields=["scoped_teams"])
+
+        for rt in refresh_tokens:
+            rt.scoped_teams = [t for t in (rt.scoped_teams or []) if t != team_id]
+            rt.save(update_fields=["scoped_teams"])
 
 
 def _resolve_resource_response(request: Request, resource_id: str) -> Response:
@@ -1281,6 +1671,7 @@ def _resolve_resource_response(request: Request, resource_id: str) -> Response:
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
+@stripe_region_proxy(strategy="bearer_lookup")
 def deep_links(request: Request) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
@@ -1355,6 +1746,35 @@ def _verify_hmac_if_present(request: Request) -> Response | None:
     return None
 
 
+ALLOWED_PROVISIONING_SCOPES = {
+    "customer_journey:read",
+    "query:read",
+    "conversation:read",
+    "conversation:write",
+    "experiment:read",
+    "feature_flag:read",
+    "insight:read",
+    "organization:read",
+    "person:read",
+    "project:read",
+    "ticket:read",
+    "ticket:write",
+    "user:read",
+    "hog_flow:read",
+    "hog_flow:write",
+}
+
+
+def _validate_scopes(scopes: list[str]) -> list[str] | None:
+    """Validate scopes against the allowlist. Returns filtered scopes or None if any are invalid."""
+    if not scopes:
+        return scopes
+    for scope in scopes:
+        if scope not in ALLOWED_PROVISIONING_SCOPES:
+            return None
+    return scopes
+
+
 def _error_response(code: str, message: str, resource_id: str = "", status: int = 400) -> Response:
     logger.warning("stripe_app.error_response", code=code, message=message, resource_id=resource_id, status=status)
     return Response({"status": "error", "id": resource_id, "error": {"code": code, "message": message}}, status=status)
@@ -1425,6 +1845,21 @@ def _get_stripe_oauth_app():
         redirect_uris="https://localhost",
         algorithm="RS256",
     )
+
+
+def _get_available_teams_for_user(user: User) -> list[dict[str, Any]]:
+    """Return the user's non-demo teams for inclusion in the token exchange response."""
+    org_ids = list(user.organization_memberships.values_list("organization_id", flat=True))
+    teams = Team.objects.filter(organization_id__in=org_ids, is_demo=False).select_related("organization")
+    return [
+        {
+            "id": team.id,
+            "name": team.name,
+            "organization_id": str(team.organization_id),
+            "organization_name": team.organization.name if team.organization else "",
+        }
+        for team in teams
+    ]
 
 
 def _get_callback_url(partner_id: str) -> str:

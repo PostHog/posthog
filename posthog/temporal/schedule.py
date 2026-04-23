@@ -26,6 +26,9 @@ from posthog.temporal.ai.sync_vectors import EmbeddingVersion
 from posthog.temporal.ai.video_segment_clustering.schedule import create_video_segment_clustering_coordinator_schedule
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
+from posthog.temporal.data_imports.signals.conversations_schedule import (
+    create_conversations_signals_coordinator_schedule,
+)
 from posthog.temporal.ducklake.compaction_types import DucklakeCompactionInput
 from posthog.temporal.experiments.schedule import (
     create_experiment_regular_metrics_schedules,
@@ -33,6 +36,10 @@ from posthog.temporal.experiments.schedule import (
 )
 from posthog.temporal.health_checks.schedule import create_health_check_schedules
 from posthog.temporal.ingestion_acceptance_test.schedule import create_ingestion_acceptance_test_schedule
+from posthog.temporal.llm_analytics.eval_reports.schedule import (
+    create_count_trigger_schedule,
+    create_eval_reports_schedule,
+)
 from posthog.temporal.llm_analytics.evaluation_clustering.schedule import (
     create_evaluation_clustering_schedule,
     create_evaluation_sampler_schedule,
@@ -516,6 +523,8 @@ schedules = [
     create_batch_generation_summarization_schedule,
     create_trace_clustering_coordinator_schedule,
     create_generation_clustering_coordinator_schedule,
+    create_eval_reports_schedule,
+    create_count_trigger_schedule,
     create_evaluation_sampler_schedule,
     create_evaluation_clustering_schedule,
     create_video_segment_clustering_coordinator_schedule,
@@ -526,6 +535,7 @@ schedules = [
     create_all_realtime_cohort_calculation_schedules,
     create_ingestion_acceptance_test_schedule,
     create_health_check_schedules,
+    create_conversations_signals_coordinator_schedule,
     create_wa_weekly_digest_schedule,
     create_logs_alert_check_schedule,
 ]
