@@ -197,7 +197,7 @@ def _dispatch_gated_notification(
     from django.utils import timezone
 
     from posthog.models.alert import AlertCheck
-    from posthog.tasks.alerts.utils import send_notifications_for_breaches
+    from posthog.tasks.alerts.utils import dispatch_alert_notification, record_alert_delivery
 
     inconclusive_action = alert.investigation_inconclusive_action or "notify"
     suppress = verdict == "false_positive" or (verdict == "inconclusive" and inconclusive_action == "suppress")
@@ -223,7 +223,9 @@ def _dispatch_gated_notification(
             alert_check=check, verdict=verdict, summary=summary, notebook_short_id=notebook_short_id
         )
         try:
-            send_notifications_for_breaches(alert, breaches)
+            targets = dispatch_alert_notification(alert, check, breaches)
+            if targets is not None:
+                record_alert_delivery(alert, check, targets)
         except Exception:
             logger.exception(
                 "anomaly_investigation.gated_notification_failed",
@@ -233,6 +235,8 @@ def _dispatch_gated_notification(
             # Don't swallow — let the safety-net task retry on the next tick.
             raise
 
+        # Keep notification_sent_at updated in lock-step with the delivery so the
+        # safety-net's idempotency check still trips on a successful workflow dispatch.
         check.notification_sent_at = timezone.now()
         check.save(update_fields=["notification_sent_at"])
 

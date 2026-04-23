@@ -1,10 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useState } from 'react'
 
-import { IconCheck, IconPlus, IconServer, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSwitch, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { IconCheck, IconPlus, IconRefresh, IconServer, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonSegmentedButton, LemonSwitch, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -21,10 +20,15 @@ import IconMondayService from 'public/services/monday.svg'
 import IconNotionService from 'public/services/notion.svg'
 
 import { AddCustomServerModal } from './AddCustomServerModal'
-import type { MCPServerInstallationApi, RecommendedServerApi } from './generated/api.schemas'
-import { mcpStoreLogic } from './mcpStoreLogic'
+import type {
+    MCPServerInstallationApi,
+    MCPServerInstallationToolApi,
+    MCPServerTemplateApi,
+} from './generated/api.schemas'
+import { type ToolApprovalState, mcpStoreLogic } from './mcpStoreLogic'
 
 const SERVER_ICONS: Record<string, string> = {
+    PostHog: IconPostHogService,
     'PostHog MCP': IconPostHogService,
     Linear: IconLinearService,
     GitHub: IconGitHubService,
@@ -35,46 +39,95 @@ const SERVER_ICONS: Record<string, string> = {
     Atlassian: IconAtlassianService,
 }
 
-function ConnectOAuthButton({
-    name,
-    url,
-    description,
-    type = 'primary',
-    disabledReason,
-}: {
-    name: string
-    url: string
-    description: string
-    type?: 'primary' | 'secondary'
-    disabledReason?: string | null
-}): JSX.Element {
-    const [loading, setLoading] = useState(false)
+const TOOL_APPROVAL_OPTIONS: { value: ToolApprovalState; label: string }[] = [
+    { value: 'approved', label: 'Approved' },
+    { value: 'needs_approval', label: 'Needs approval' },
+    { value: 'do_not_use', label: 'Do not use' },
+]
+
+function resolveIcon(key: string | undefined | null): string | undefined {
+    if (!key) {
+        return undefined
+    }
+    return SERVER_ICONS[key]
+}
+
+function InstallationToolsPanel({ installationId }: { installationId: string }): JSX.Element {
+    const { installationTools, installationToolsLoading } = useValues(mcpStoreLogic)
+    const { loadInstallationTools, refreshInstallationTools, setToolApprovalState } = useActions(mcpStoreLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Member,
+    })
+
+    useEffect(() => {
+        if (!installationTools[installationId]) {
+            loadInstallationTools({ installationId })
+        }
+    }, [installationId, installationTools, loadInstallationTools])
+
+    const tools = installationTools[installationId] ?? []
+    const visibleTools = tools.filter((t) => !t.removed_at)
 
     return (
-        <LemonButton
-            type={type}
-            size="small"
-            loading={loading}
-            disabledReason={disabledReason}
-            onClick={async () => {
-                setLoading(true)
-                try {
-                    const result = await api.mcpServerInstallations.installCustom({
-                        name,
-                        url,
-                        auth_type: 'oauth',
-                        description,
-                    })
-                    if (result?.redirect_url) {
-                        window.location.href = result.redirect_url
-                    }
-                } catch {
-                    setLoading(false)
-                }
-            }}
-        >
-            Connect
-        </LemonButton>
+        <div className="deprecated-space-y-2 p-2">
+            <div className="flex items-center justify-between">
+                <h4 className="mb-0 text-xs font-semibold uppercase text-secondary">Tools</h4>
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    icon={<IconRefresh />}
+                    onClick={() => refreshInstallationTools({ installationId })}
+                    loading={installationToolsLoading}
+                    disabledReason={restrictedReason}
+                >
+                    Refresh tools
+                </LemonButton>
+            </div>
+            {visibleTools.length === 0 ? (
+                <div className="text-muted text-xs">
+                    {installationToolsLoading
+                        ? 'Loading tools…'
+                        : 'No tools reported yet. Click "Refresh tools" after connecting.'}
+                </div>
+            ) : (
+                <LemonTable
+                    size="small"
+                    embedded
+                    dataSource={visibleTools}
+                    columns={[
+                        {
+                            title: 'Name',
+                            render: (_: any, tool: MCPServerInstallationToolApi) => (
+                                <div>
+                                    <span className="font-semibold">{tool.display_name || tool.tool_name}</span>
+                                    {tool.description && <div className="text-muted text-xs">{tool.description}</div>}
+                                </div>
+                            ),
+                        },
+                        {
+                            title: 'Approval',
+                            width: 0,
+                            render: (_: any, tool: MCPServerInstallationToolApi) => (
+                                <LemonSegmentedButton
+                                    size="xsmall"
+                                    value={(tool.approval_state ?? 'needs_approval') as ToolApprovalState}
+                                    options={TOOL_APPROVAL_OPTIONS}
+                                    onChange={(value) =>
+                                        setToolApprovalState({
+                                            installationId,
+                                            toolName: tool.tool_name,
+                                            approvalState: value,
+                                        })
+                                    }
+                                    disabledReason={restrictedReason ?? undefined}
+                                />
+                            ),
+                        },
+                    ]}
+                />
+            )}
+        </div>
     )
 }
 
@@ -90,6 +143,7 @@ export function McpStoreSettings(): JSX.Element {
         toggleServerEnabled,
         openAddCustomServerModal,
         openAddCustomServerModalWithDefaults,
+        installTemplate,
         loadInstallations,
         loadServers,
     } = useActions(mcpStoreLogic)
@@ -135,11 +189,16 @@ export function McpStoreSettings(): JSX.Element {
                 loading={installationsLoading}
                 dataSource={installations}
                 emptyState="No servers installed yet. Browse recommended servers below or add a custom one."
+                expandable={{
+                    // Only installations that have completed OAuth can meaningfully report tools.
+                    rowExpandable: (installation) => !installation.pending_oauth && !installation.needs_reauth,
+                    expandedRowRender: (installation) => <InstallationToolsPanel installationId={installation.id} />,
+                }}
                 columns={[
                     {
                         width: 0,
                         render: (_: any, installation: MCPServerInstallationApi) => {
-                            const iconSrc = SERVER_ICONS[installation.name]
+                            const iconSrc = resolveIcon(installation.name)
                             return iconSrc ? (
                                 <div className="w-6 h-6 flex items-center justify-center">
                                     <img src={iconSrc} alt="" className="w-6 h-6" />
@@ -167,18 +226,22 @@ export function McpStoreSettings(): JSX.Element {
                         render: (_: any, installation: MCPServerInstallationApi) => (
                             <div className="flex items-center justify-end">
                                 {installation.pending_oauth ? (
-                                    <ConnectOAuthButton
-                                        name={installation.display_name || installation.name}
-                                        url={installation.url ?? ''}
-                                        description={installation.description ?? ''}
-                                        disabledReason={restrictedReason}
-                                    />
-                                ) : installation.needs_reauth && installation.server_id ? (
                                     <LemonButton
                                         type="primary"
                                         size="small"
                                         onClick={() => {
-                                            window.location.href = `/api/environments/${currentTeamId}/mcp_server_installations/authorize/?server_id=${installation.server_id}`
+                                            window.location.href = `/api/environments/${currentTeamId}/mcp_server_installations/authorize/?installation_id=${installation.id}`
+                                        }}
+                                        disabledReason={restrictedReason}
+                                    >
+                                        Connect
+                                    </LemonButton>
+                                ) : installation.needs_reauth ? (
+                                    <LemonButton
+                                        type="primary"
+                                        size="small"
+                                        onClick={() => {
+                                            window.location.href = `/api/environments/${currentTeamId}/mcp_server_installations/authorize/?installation_id=${installation.id}`
                                         }}
                                         disabledReason={restrictedReason}
                                     >
@@ -235,16 +298,16 @@ export function McpStoreSettings(): JSX.Element {
                     <LemonTable
                         loading={serversLoading}
                         dataSource={recommendedServers.filter(
-                            (s: RecommendedServerApi) =>
+                            (s: MCPServerTemplateApi) =>
                                 !searchTerm ||
                                 s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                                s.description.toLowerCase().includes(searchTerm.toLowerCase())
+                                (s.description ?? '').toLowerCase().includes(searchTerm.toLowerCase())
                         )}
                         columns={[
                             {
                                 width: 0,
-                                render: (_: any, server: RecommendedServerApi) => {
-                                    const iconSrc = SERVER_ICONS[server.name]
+                                render: (_: any, server: MCPServerTemplateApi) => {
+                                    const iconSrc = resolveIcon(server.icon_key) ?? resolveIcon(server.name)
                                     return iconSrc ? (
                                         <div className="w-6 h-6 flex items-center justify-center">
                                             <img src={iconSrc} alt="" className="w-6 h-6" />
@@ -259,9 +322,9 @@ export function McpStoreSettings(): JSX.Element {
                             {
                                 title: 'Name',
                                 key: 'name',
-                                sorter: (a: RecommendedServerApi, b: RecommendedServerApi) =>
+                                sorter: (a: MCPServerTemplateApi, b: MCPServerTemplateApi) =>
                                     a.name.localeCompare(b.name),
-                                render: (_: any, server: RecommendedServerApi) => (
+                                render: (_: any, server: MCPServerTemplateApi) => (
                                     <div>
                                         <span className="font-semibold">{server.name}</span>
                                         {server.description && (
@@ -272,7 +335,7 @@ export function McpStoreSettings(): JSX.Element {
                             },
                             {
                                 width: 0,
-                                render: (_: any, server: RecommendedServerApi) => (
+                                render: (_: any, server: MCPServerTemplateApi) => (
                                     <div className="flex items-center justify-end">
                                         {installedServerUrls.has(server.url) ? (
                                             <LemonTag type="success" icon={<IconCheck />}>
@@ -288,6 +351,7 @@ export function McpStoreSettings(): JSX.Element {
                                                         url: server.url,
                                                         description: server.description,
                                                         auth_type: 'api_key',
+                                                        template_id: server.id,
                                                     })
                                                 }
                                                 disabledReason={restrictedReason}
@@ -295,13 +359,14 @@ export function McpStoreSettings(): JSX.Element {
                                                 Connect
                                             </LemonButton>
                                         ) : (
-                                            <ConnectOAuthButton
-                                                name={server.name}
-                                                url={server.url}
-                                                description={server.description}
+                                            <LemonButton
                                                 type="secondary"
+                                                size="small"
+                                                onClick={() => installTemplate({ templateId: server.id })}
                                                 disabledReason={restrictedReason}
-                                            />
+                                            >
+                                                Connect
+                                            </LemonButton>
                                         )}
                                     </div>
                                 ),

@@ -10,15 +10,28 @@ it spends any tool-call budget.
 from __future__ import annotations
 
 import io
+import os
 import base64
 import logging
+from datetime import datetime
 from typing import Any
+
+# Temporal activity workers run headless, so the only viable matplotlib backend
+# is Agg. Set MPLBACKEND via env var before the first matplotlib import so we
+# pick the backend the canonical way and avoid post-import `matplotlib.use(...)`
+# mutations to library-global state. `setdefault` leaves an explicit override
+# from the environment intact.
+os.environ.setdefault("MPLBACKEND", "Agg")
+
+import matplotlib.pyplot as plt  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
 CHART_WIDTH_IN = 8.0
 CHART_HEIGHT_IN = 3.5
 CHART_DPI = 110
+
+_DATE_FORMATS = ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d")
 
 
 def render_series_chart(
@@ -35,16 +48,6 @@ def render_series_chart(
     log and return None so the investigation continues text-only.
     """
     if not dates or not values or len(dates) != len(values):
-        return None
-
-    try:
-        # Non-interactive backend — safe in a Temporal activity worker thread.
-        import matplotlib
-
-        matplotlib.use("Agg", force=True)
-        import matplotlib.pyplot as plt
-    except Exception:
-        logger.exception("anomaly_investigation.chart_import_failed")
         return None
 
     try:
@@ -96,25 +99,12 @@ def png_to_b64(png_bytes: bytes) -> str:
 def _short_date(raw: Any) -> str:
     """Return a short label like 'Apr 1' or '14:00' for x-tick display."""
     s = str(raw)
-    # Drop time-of-day zeros to keep ticks compact (e.g. "2026-04-01 00:00:00" -> "Apr 1").
-    if " " in s:
-        date_part, time_part = s.split(" ", 1)
-        if time_part.startswith("00:00"):
-            return _mmdd(date_part)
-        return time_part[:5]
-    return _mmdd(s)
-
-
-def _mmdd(date_str: str) -> str:
-    parts = date_str.split("-")
-    if len(parts) != 3:
-        return date_str
-    try:
-        month = int(parts[1])
-        day = int(parts[2][:2])
-    except ValueError:
-        return date_str
-    months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-    if 1 <= month <= 12:
-        return f"{months[month - 1]} {day}"
-    return date_str
+    for fmt in _DATE_FORMATS:
+        try:
+            dt = datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+        if fmt == "%Y-%m-%d" or (dt.hour == 0 and dt.minute == 0):
+            return f"{dt:%b} {dt.day}"
+        return f"{dt:%H:%M}"
+    return s

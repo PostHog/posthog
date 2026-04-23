@@ -8,7 +8,7 @@ from django.core.management.base import BaseCommand
 import structlog
 
 from posthog.clickhouse.client import sync_execute
-from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.routing import flush_all_producers
 from posthog.models.group.group import Group
 from posthog.models.group.util import raw_create_group_ch
 from posthog.models.person import PersonDistinctId
@@ -42,7 +42,7 @@ class Command(BaseCommand):
         run(options)
 
 
-def run(options, sync: bool = False):  # sync used for unittests
+def run(options):
     live_run = options["live_run"]
     deletes = options["deletes"]
 
@@ -53,20 +53,20 @@ def run(options, sync: bool = False):  # sync used for unittests
     team_id = options["team_id"]
 
     if options["person"]:
-        run_person_sync(team_id, live_run, deletes, sync)
+        run_person_sync(team_id, live_run, deletes)
 
     if options["person_distinct_id"]:
-        run_distinct_id_sync(team_id, live_run, deletes, sync)
+        run_distinct_id_sync(team_id, live_run, deletes)
 
     if options["group"]:
-        run_group_sync(team_id, live_run, sync)
+        run_group_sync(team_id, live_run)
 
     logger.info("Waiting on Kafka producer flush, for up to 5 minutes")
-    KafkaProducer().flush(5 * 60)
+    flush_all_producers(5 * 60)
     logger.info("Kafka producer queue flushed.")
 
 
-def run_person_sync(team_id: int, live_run: bool, deletes: bool, sync: bool):
+def run_person_sync(team_id: int, live_run: bool, deletes: bool):
     logger.info("Running person table sync")
     # lookup what needs to be updated in ClickHouse and send kafka messages for only those
     persons = Person.objects.filter(team_id=team_id)
@@ -98,7 +98,6 @@ def run_person_sync(team_id: int, live_run: bool, deletes: bool, sync: bool):
                     properties=person.properties,
                     is_identified=person.is_identified,
                     created_at=person.created_at,
-                    sync=sync,
                 )
         elif ch_version > pg_version:
             logger.info(
@@ -119,11 +118,10 @@ def run_person_sync(team_id: int, live_run: bool, deletes: bool, sync: bool):
                         version=int(version or 0)
                         + 100,  # keep in sync with deletePerson in plugin-server/src/utils/db/db.ts
                         is_deleted=True,
-                        sync=sync,
                     )
 
 
-def run_distinct_id_sync(team_id: int, live_run: bool, deletes: bool, sync: bool):
+def run_distinct_id_sync(team_id: int, live_run: bool, deletes: bool):
     logger.info("Running person distinct id table sync")
     # lookup what needs to be updated in ClickHouse and send kafka messages for only those
     person_distinct_ids = PersonDistinctId.objects.filter(team_id=team_id).select_related("person")
@@ -155,7 +153,6 @@ def run_distinct_id_sync(team_id: int, live_run: bool, deletes: bool, sync: bool
                     person_id=str(person_distinct_id.person.uuid),
                     version=pg_version,
                     is_deleted=False,
-                    sync=sync,
                 )
         elif ch_version > pg_version:
             # This could be happening due to person deletions - check out fix_person_distinct_ids_after_delete management cmd.
@@ -172,10 +169,10 @@ def run_distinct_id_sync(team_id: int, live_run: bool, deletes: bool, sync: bool
             if distinct_id not in postgres_distinct_ids:
                 logger.info(f"Deleting distinct ID {distinct_id}")
                 if live_run:
-                    _delete_ch_distinct_id(team_id, UUID(int=0), distinct_id, version, sync=sync)
+                    _delete_ch_distinct_id(team_id, UUID(int=0), distinct_id, version)
 
 
-def run_group_sync(team_id: int, live_run: bool, sync: bool):
+def run_group_sync(team_id: int, live_run: bool):
     logger.info("Running group table sync")
     # lookup what needs to be updated in ClickHouse and send kafka messages for only those
     pg_groups = Group.objects.filter(team_id=team_id).values(
@@ -210,7 +207,6 @@ def run_group_sync(team_id: int, live_run: bool, sync: bool):
                     group_key=pg_group["group_key"],
                     properties=pg_group["group_properties"],
                     created_at=pg_group["created_at"],
-                    sync=sync,
                 )
 
 
