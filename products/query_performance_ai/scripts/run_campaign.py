@@ -1,40 +1,14 @@
 #!/usr/bin/env python3
-"""Drive a query-performance autoresearch campaign inside a PostHog sandbox.
+"""Drive a query-performance autoresearch campaign inside a posthog-sandbox-pi sandbox.
 
-Assumes the sandbox runs ``posthog-sandbox-pi``, which bakes pi-coding-agent
-and pi-autoresearch into the image. Only the local ``pi-clickhouse-autoresearch``
-plugin (shipped with this repo) is installed at runtime.
+pi-coding-agent + pi-autoresearch are baked into the image. At runtime we
+install only the in-repo ``pi-clickhouse-autoresearch`` plugin, apply two
+patches (pi-ai gateway base URL, pi-autoresearch workspace-preservation),
+init the campaign workspace, capture a baseline through the OAuth proxy,
+and then hand control to ``pi /skill::clickhouse-autoresearch-campaign``.
 
-Full loop:
-
-1. Install the local ``pi-clickhouse-autoresearch`` plugin and apply runtime
-   patches (pi-ai gateway base URL, pi-autoresearch workspace-preservation).
-2. Init a campaign workspace for the supplied SQL (defaults to ``SELECT 1``,
-   i.e. a smoke test).
-3. Write an ``adapter.json`` that routes queries through the PostHog
-   OAuth-gated proxy (``/api/query_performance_proxy/execute-test/``).
-4. Capture a baseline through the proxy.
-5. Invoke ``pi /skill::clickhouse-autoresearch-campaign`` to kick off the
-   actual LLM-driven campaign — this is the step that calls Anthropic via the
-   PostHog LLM gateway, proposes candidate variants, and exercises the full
-   orchestration surface.
-6. Print artifacts.
-
-Required arguments (all accept env-var fallbacks for easy injection from
-Task orchestration):
-
-* ``--posthog-url`` / ``POSTHOG_URL`` — base URL the sandbox uses to reach
-  the PostHog app (in docker, typically ``http://host.docker.internal:8000``).
-* ``--posthog-token`` / ``POSTHOG_OAUTH_TOKEN`` — scoped OAuth access token
-  with ``clickhouse_perf:test_read`` scope.
-
-Optional:
-
-* ``--sql`` / ``--sql-file`` — the query under test. Without either, defaults
-  to a ``SELECT 1`` smoke test.
-* ``--query-id`` — campaign identifier, stored in ``campaign.json``.
-
-Exits non-zero on any failure.
+Args accept env-var fallbacks so Task orchestration can inject them —
+see argparse definitions below. Non-zero exit on failure.
 """
 
 from __future__ import annotations
@@ -55,9 +29,8 @@ AUTORESEARCH_DIR = PRODUCT_DIR / "autoresearch"
 SCRIPTS_DIR = AUTORESEARCH_DIR / "scripts"
 DEFAULT_WORKSPACE = Path("/tmp/autoresearch-campaign")
 
-# Where Dockerfile.sandbox-pi drops the pi-autoresearch extension. The image
-# copies it directly (not via ``pi install``), so the git-clone path under
-# ~/.pi/agent/git/… never exists in this image.
+# Where Dockerfile.sandbox-pi drops the pi-autoresearch extension (manual
+# copy — not via `pi install`, so ~/.pi/agent/git/… doesn't exist).
 BAKED_PI_AUTORESEARCH_EXTENSION = Path("/root/.pi/agent/extensions/pi-autoresearch")
 
 
@@ -78,11 +51,7 @@ def run(cmd: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProce
 
 
 def check_proxy_reachable(posthog_url: str, token: str) -> None:
-    """Round-trip a SELECT 1 through the proxy before doing anything else.
-
-    If the proxy is unreachable or the token is rejected, fail fast with a
-    useful error instead of discovering it partway into a campaign.
-    """
+    """Fail fast if the proxy/token is broken, before the 2-minute campaign kicks off."""
     endpoint = posthog_url.rstrip("/") + "/api/query_performance_proxy/execute-test/"
     body = json.dumps({"sql": "SELECT 1"}).encode("utf-8")
     req = urllib.request.Request(
@@ -105,10 +74,8 @@ def check_proxy_reachable(posthog_url: str, token: str) -> None:
         raise CampaignError(f"proxy unreachable at {endpoint}: {e}") from e
 
     if not raw.strip():
-        # A 2xx with no body almost always means the request went to a reverse
-        # proxy that ate it — e.g. the PostHog dev Caddy on port 8010 is known
-        # to return empty bodies for Docker-originated requests. Flag it loudly
-        # rather than choking on json.loads a line later.
+        # 2xx with empty body typically means Caddy (:8010) ate the request —
+        # flag it here instead of choking on json.loads below.
         raise CampaignError(
             f"proxy preflight got status={status} with an empty body from {endpoint}. "
             "If --posthog-url points at Caddy (:8010), switch to the Django dev server "
@@ -125,13 +92,7 @@ def check_proxy_reachable(posthog_url: str, token: str) -> None:
 
 
 def prepare_pi_runtime() -> None:
-    """Runtime prep on top of the baked posthog-sandbox-pi image.
-
-    pi-coding-agent and pi-autoresearch are installed at image-build time, so
-    this only does the runtime-scoped bits: patch pi-ai's hardcoded Anthropic
-    baseUrl to our LLM gateway, patch pi-autoresearch to preserve campaign
-    artifacts across experiments, and install the in-repo plugin.
-    """
+    """Patch baked pi-ai / pi-autoresearch state and install the in-repo plugin."""
     _patch_pi_ai_anthropic_baseurl()
     _patch_pi_autoresearch_index_ts()
 
@@ -144,14 +105,9 @@ def prepare_pi_runtime() -> None:
 
 
 def _patch_pi_autoresearch_index_ts() -> None:
-    """Keep workspace artifacts across experiments.
-
-    ``log_experiment`` calls ``git clean -fd`` between experiments, which
-    wipes untracked files — including the lane / hypothesis / review
-    markdown the agent has just produced. Adding ``-e`` excludes preserves
-    them. The replace is idempotent: re-applying on an already-patched
-    file is a no-op because the pre-patch string is gone.
-    """
+    """Stop pi-autoresearch's between-experiment ``git clean -fd`` from
+    wiping the lane/hypothesis/review markdown the agent just wrote.
+    Idempotent — re-applying is a no-op because the marker is gone."""
     index_ts = BAKED_PI_AUTORESEARCH_EXTENSION / "index.ts"
     if not index_ts.is_file():
         log(f"pi-autoresearch index.ts not found at {index_ts}; skipping workspace-preservation patch")
@@ -174,24 +130,17 @@ def _patch_pi_autoresearch_index_ts() -> None:
 
 
 def _patch_pi_ai_anthropic_baseurl() -> None:
-    """Rewrite pi-ai's hardcoded Anthropic baseUrl to point at our gateway.
+    """Rewrite pi-ai's hardcoded `"https://api.anthropic.com"` to our gateway.
 
-    pi-coding-agent pulls in @mariozechner/pi-ai, which ships a static
-    ``models.generated.js`` where every Anthropic model entry has
-    ``baseUrl: "https://api.anthropic.com"``. ``ANTHROPIC_BASE_URL`` is
-    ignored — the SDK reads ``model.baseUrl`` directly. So the only way
-    to route pi through the PostHog LLM gateway is to rewrite that file
-    after install.
-
-    No-op if the file is missing (different pi version) or the env var is
-    unset — we leave pi to use its default in those cases.
+    pi-ai reads `model.baseUrl` directly from its bundled `models.generated.js`
+    and ignores `ANTHROPIC_BASE_URL`, so routing through the PostHog LLM
+    gateway means patching that file. No-op if the file or env var is missing.
     """
     gateway_base = os.environ.get("ANTHROPIC_BASE_URL", "").rstrip("/")
     if not gateway_base:
         return
 
-    # Locate the bundled pi-ai models file. npm's global install path is
-    # platform-dependent; try the common locations.
+    # npm's global install path is platform-dependent.
     candidates = [
         Path(
             "/usr/lib/node_modules/@mariozechner/pi-coding-agent/node_modules/@mariozechner/pi-ai/dist/models.generated.js"
@@ -208,8 +157,7 @@ def _patch_pi_ai_anthropic_baseurl() -> None:
     contents = models_file.read_text()
     marker = '"https://api.anthropic.com"'
     if marker not in contents:
-        # Already patched, or version shape changed. Check for our gateway URL
-        # to disambiguate; if neither is present, log a warning.
+        # Either already patched (our URL is present) or the file shape changed.
         if gateway_base in contents:
             log(f"pi-ai models.generated.js already points at {gateway_base}")
         else:
@@ -273,18 +221,12 @@ def capture_baseline(workspace: Path) -> None:
 
 
 def run_pi_campaign(workspace: Path) -> None:
-    """Invoke the LLM-driven autoresearch campaign.
+    """Run the LLM-driven campaign.
 
-    ``pi`` picks up ``autoresearch.config.json`` from ``cwd``. We run it from
-    the directory above the workspace because that's where campaign init
-    dropped the config (matching pi-autoresearch's reference layout).
-
-    Before invoking pi, we print the Anthropic env vars pi will inherit —
-    the whole chain (gateway routing, token auth) depends on pi's Anthropic
-    SDK picking up ``ANTHROPIC_BASE_URL``. If a 401 from Anthropic lands
-    before these lines print, you know env inheritance broke. If the env
-    vars print correctly but pi still ends up hitting ``api.anthropic.com``,
-    pi is overriding the baseURL in its own SDK client construction.
+    ``cwd`` is the workspace's parent — that's where campaign init dropped
+    ``autoresearch.config.json`` that pi reads. We log the inherited
+    Anthropic env vars first so a 401 post-invocation is easy to triage:
+    wrong env vs pi ignoring them.
     """
     cwd = workspace.parent
     config_path = cwd / "autoresearch.config.json"
@@ -293,20 +235,13 @@ def run_pi_campaign(workspace: Path) -> None:
 
     anthropic_base = os.environ.get("ANTHROPIC_BASE_URL", "<unset>")
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY") or ""
-    # Log only a boolean presence marker — CodeQL flags even a short prefix
-    # of an API key as clear-text credential logging, and the presence bit
-    # is enough to diagnose env inheritance failures.
+    # Bool-only — CodeQL flags even a short API-key prefix as clear-text logging.
     anthropic_key_state = "set" if anthropic_key else "<unset>"
     log(f"pi env: ANTHROPIC_BASE_URL={anthropic_base}")
     log(f"pi env: ANTHROPIC_API_KEY={anthropic_key_state}")
 
-    # Preflight the gateway's Anthropic-compat endpoint with the exact same
-    # headers pi's Anthropic SDK will use. Three-way diagnostic:
-    #   success → pi's auth path works; if pi still fails, pi is overriding
-    #             the baseURL or passing different headers.
-    #   401/403 → gateway is reachable but rejecting our OAuth token; check
-    #             scopes (need llm_gateway:read) or gateway's auth config.
-    #   connection refused / timeout → gateway isn't reachable at that URL.
+    # Preflight with pi's exact headers — isolates gateway-reject vs
+    # pi-overrides-baseURL when pi later fails to talk to Anthropic.
     if anthropic_base != "<unset>" and anthropic_key:
         _preflight_anthropic_gateway(anthropic_base, anthropic_key)
 
@@ -317,18 +252,11 @@ def run_pi_campaign(workspace: Path) -> None:
 
 
 def _run_pi_with_streaming_events(cmd: list[str], cwd: Path) -> None:
-    """Run ``pi --mode json`` and pretty-print each JSON event as it arrives.
+    """Stream and pretty-print pi's JSON event lines as they arrive.
 
-    Without --mode json, pi's human-format output only lands at turn
-    boundaries — the operator sees a long silence between "invoking pi"
-    and the final summary. --mode json emits every agent event (tool
-    invocations, assistant messages, results) as a JSON line to stdout,
-    so we can print them live.
-
-    We don't try to parse the exact event schema — pi's is upstream and
-    may change. We just label each event with its ``type``/``event`` key
-    and dump a truncated JSON body. Non-JSON lines (e.g. subprocess
-    output pi's Bash tool spawned) pass through verbatim.
+    Without --mode json pi only emits human output at turn boundaries, so
+    the operator sees long silences. The schema is pi's, not ours — we
+    label events by ``type`` and tolerate unknown shapes.
     """
     process = subprocess.Popen(
         cmd,
@@ -349,26 +277,17 @@ def _run_pi_with_streaming_events(cmd: list[str], cwd: Path) -> None:
 
 
 def _print_pi_event(line: str) -> None:
-    """Format one JSON event from ``pi --mode json`` for a human operator.
+    """Pretty-print one pi event for the operator.
 
-    Pi emits a verbose event stream: session/turn framing, then for every
-    assistant turn a series of ``message_update`` events carrying deltas,
-    then outer ``message_end`` and tool execution frames. Printing every
-    event verbatim floods the terminal (each delta echoes the accumulated
-    partial message including ``thinkingSignature`` base64 blobs).
-
-    Strategy: only print on terminal events (``thinking_end``, ``text_end``,
-    ``toolcall_end``, ``tool_execution_end``) plus per-turn headers and
-    token/cost summaries. Skip deltas and start markers — they duplicate
-    content the ``_end`` event will surface cleanly.
+    Only emits on terminal events (``*_end``, turn headers, token/cost) —
+    deltas and ``*_start`` duplicate what the matching ``*_end`` carries.
     """
     if not line:
         return
     try:
         event = json.loads(line)
     except json.JSONDecodeError:
-        # Non-JSON line (pi startup banner, subprocess output from a
-        # tool pi invoked, etc.). Pass through so operators still see it.
+        # pi startup banner, or stdout from a tool pi shelled out to.
         print(line, flush=True)  # noqa: T201
         return
     if not isinstance(event, dict):
@@ -424,8 +343,7 @@ def _print_pi_event(line: str) -> None:
             args_str = json.dumps(args, separators=(",", ":"))[:500]
             print(f"[pi:tool] {name}({args_str})", flush=True)  # noqa: T201
             return
-        # thinking_start / toolcall_start / *_delta — skip, the _end event
-        # will carry the complete content.
+        # *_start / *_delta events — the matching *_end carries the full content.
         return
 
     if kind == "tool_execution_end":

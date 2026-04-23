@@ -526,11 +526,9 @@ class APIScopePermission(ScopeBasePermission):
             raise ValueError("Unexpected authentication type")
 
         if scoped_teams and not getattr(view, "skip_scoped_team_enforcement", False):
-            # Default: the view must be project-nested and the URL's team must be
-            # in the token's scoped_teams. Views that are intentionally not
-            # project-nested but still need to accept scoped_teams tokens can
-            # opt out by setting `skip_scoped_team_enforcement = True` — they
-            # are responsible for enforcing their own per-team access.
+            # Views that aren't project-nested but still need to accept
+            # scoped_teams tokens can set `skip_scoped_team_enforcement = True`
+            # and take on responsibility for their own per-team access.
             try:
                 team = view.team
                 if team.id not in scoped_teams:

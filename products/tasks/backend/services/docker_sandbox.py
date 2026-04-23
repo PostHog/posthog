@@ -234,9 +234,8 @@ class DockerSandbox(SandboxBase):
             return NOTEBOOK_IMAGE_NAME
 
         if template == SandboxTemplate.PI_BASE:
-            # The pi image is layered on top of the base via BASE_IMAGE arg. Build
-            # the base first (honouring LOCAL_POSTHOG_CODE_MONOREPO_ROOT), then
-            # build pi on top of that local tag.
+            # pi is layered on top of base via BASE_IMAGE — build base first
+            # so LOCAL_POSTHOG_CODE_MONOREPO_ROOT is honoured.
             base_image = DockerSandbox._ensure_image_exists(SandboxTemplate.DEFAULT_BASE)
             dockerfile_path = os.path.join(
                 settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-pi"

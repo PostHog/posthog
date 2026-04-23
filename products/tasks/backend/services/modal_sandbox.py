@@ -164,9 +164,8 @@ def _get_template_image(template: SandboxTemplate) -> modal.Image:
     if registry_image is None:
         raise ValueError(f"Unknown template: {template}")
 
-    # PI_BASE is always pulled from the registry — the image layers on top of
-    # sandbox-base via a BASE_IMAGE build arg that the local-dockerfile path
-    # doesn't plumb through, so DEBUG-mode local builds aren't supported here.
+    # PI_BASE always comes from the registry — _prepare_local_modal_build_context
+    # doesn't plumb through the BASE_IMAGE build arg the pi Dockerfile needs.
     if settings.DEBUG and template != SandboxTemplate.PI_BASE:
         dockerfile_path, context_dir = _prepare_local_modal_build_context(template)
         image = modal.Image.from_dockerfile(dockerfile_path, context_dir=context_dir, ignore=[])

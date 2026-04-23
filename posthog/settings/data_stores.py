@@ -306,14 +306,9 @@ QUERYSERVICE_VERIFY: bool = get_from_env("QUERYSERVICE_VERIFY", CLICKHOUSE_VERIF
 CLICKHOUSE_CONN_POOL_MIN: int = get_from_env("CLICKHOUSE_CONN_POOL_MIN", 20, type_cast=int)
 CLICKHOUSE_CONN_POOL_MAX: int = get_from_env("CLICKHOUSE_CONN_POOL_MAX", 1000, type_cast=int)
 
-# Query-performance autoresearch proxy endpoint: connection parameters for the
-# ClickHouse cluster a sandbox is allowed to reach. The cluster behind this
-# host must be team-scoped at the ClickHouse layer (row policies, or a
-# dedicated test cluster containing only data the caller is authorized to
-# see). These vars are fail-closed: unset leaves the proxy endpoint disabled
-# (503). ``bin/start`` sets sensible local-dev defaults so operators running
-# the autoresearch smoke don't need to configure anything by hand; production
-# never sets them.
+# Connection to the autoresearch test cluster (see query_performance_proxy).
+# Fail-closed: unset disables the proxy endpoint with a 503. Local dev values
+# are set in bin/start.
 CLICKHOUSE_TEST_CLUSTER_HOST: str = os.getenv("CLICKHOUSE_TEST_CLUSTER_HOST", "")
 CLICKHOUSE_TEST_CLUSTER_DATABASE: str = os.getenv("CLICKHOUSE_TEST_CLUSTER_DATABASE", "")
 CLICKHOUSE_TEST_CLUSTER_USER: str = os.getenv("CLICKHOUSE_TEST_CLUSTER_USER", "")

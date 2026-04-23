@@ -43,12 +43,8 @@ from products.tasks.backend.services.sandbox import SandboxConfig, SandboxTempla
 from products.tasks.backend.temporal.process_task.utils import get_github_token
 
 _DEFAULT_POSTHOG_URL = "http://host.docker.internal:8000"
-# Default SQL file, relative to the repo root. Checked into the repo so the
-# query under test travels with the code — iterating the smoke means editing
-# this file (or passing ``--sql-file`` with a throwaway path).
 _DEFAULT_SMOKE_SQL_RELPATH = "products/query_performance_ai/data/smoke_test.sql"
-# Where to dump harvested artifacts after a successful run. git-ignored
-# (via a checked-in .gitignore) so runs don't pollute the working tree.
+# Git-ignored so runs don't pollute the working tree.
 _SMOKE_OUTPUT_RELPATH = "products/query_performance_ai/data/smoke_output"
 # 45 minutes: matches the prod activity's CAMPAIGN_SCRIPT_TIMEOUT_S.
 _CAMPAIGN_TIMEOUT_S = 45 * 60
@@ -120,12 +116,9 @@ class Command(BaseCommand):
 
         scope = "clickhouse_perf:test_read"
         self.stdout.write(f"Minting OAuth token for user={user.id} team={team.id} scope={scope}")
-        # The sandbox token is used for two things: the ClickHouse proxy
-        # (needs `clickhouse_perf:test_read`) and the Anthropic-compat LLM
-        # gateway pi calls via ANTHROPIC_API_KEY (needs `llm_gateway:read`).
-        # Those are the only scopes required — explicitly drop the auto-union
-        # so `task:write` does NOT end up on a token handed to an
-        # LLM-controlled agent.
+        # The sandbox uses this token for the proxy and for pi's Anthropic
+        # calls against the LLM gateway — those two scopes are all it needs.
+        # Drop the auto-union so `task:write` doesn't land on an LLM-held token.
         token = create_oauth_access_token_for_user(
             user,
             team.id,
@@ -161,11 +154,7 @@ class Command(BaseCommand):
         def write(msg: str) -> None:
             self.stdout.write(f"[+{time.monotonic() - start:6.1f}s] {msg}")
 
-        # The smoke always uses the local Docker backend — it's a dev tool,
-        # and routing through Modal would require Modal auth + push a real
-        # image. If you have a reason to override, set SANDBOX_PROVIDER=docker
-        # in your .env and the default resolver would pick it up, but this
-        # explicit call means the smoke works regardless of env.
+        # Always local Docker — Modal would need auth + a real image push.
         sandbox_cls = get_sandbox_class_for_backend("docker")
 
         write("Provisioning sandbox…")
@@ -177,10 +166,8 @@ class Command(BaseCommand):
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
             org_path = f"/tmp/workspace/repos/{org}"
             repo_url = f"https://x-access-token:{github_token}@github.com/{org}/{repo}.git"
-            # Single round trip: --depth 1 --single-branch --branch <name> fetches
-            # exactly the one commit on the target branch, skipping master entirely.
-            # The shared sandbox.clone_repository helper always clones the default
-            # branch first, which wastes a network round trip for our use case.
+            # `sandbox.clone_repository` always clones the default branch first;
+            # we only need the target branch, so skip that round trip.
             clone_cmd = (
                 f"rm -rf {shlex.quote(repo_path)} && "
                 f"mkdir -p {shlex.quote(org_path)} && "
@@ -206,10 +193,8 @@ class Command(BaseCommand):
                 env_values["ANTHROPIC_API_KEY"] = token
 
             env_assignments = " ".join(f"{name}={shlex.quote(value)}" for name, value in env_values.items())
-            # 2>&1 merges stderr into stdout so execute_stream (which only iterates
-            # stdout) picks up both. run_campaign.py writes its progress markers to
-            # stderr; without merging, the operator sees only child-process stdout
-            # and nothing between "baseline captured" and pi's final summary.
+            # execute_stream only iterates stdout; merge stderr so the operator
+            # sees run_campaign.py's progress markers alongside pi's output.
             command = (
                 f"cd {shlex.quote(repo_path)} && "
                 f"env {env_assignments} "
@@ -219,9 +204,6 @@ class Command(BaseCommand):
             write("Running run_campaign.py (live stdout below)…")
             self.stdout.write("-" * 60)
             stream = sandbox.execute_stream(command, timeout_seconds=_CAMPAIGN_TIMEOUT_S)
-            # Stream each line as it arrives — no batching, no agent mediation.
-            # Pi's internal reasoning still only flushes at its own cadence
-            # (whenever it writes to stdout) but now we see those writes in real time.
             for line in stream.iter_stdout():
                 sys.stdout.write(line)
                 sys.stdout.flush()
@@ -430,8 +412,7 @@ def _write_artifacts_to_disk(output: RunAutoresearchCampaignOutput, dest: Path) 
     _write_markdown_dir(dest / "hypotheses", output.hypotheses)
     _write_markdown_dir(dest / "reviews", output.reviews)
 
-    # Dump the structured output too so downstream tooling / future PR-writing
-    # Task has a canonical JSON view without re-parsing the filesystem.
+    # Canonical JSON for downstream tooling — saves re-parsing the filesystem.
     summary = {
         "query_id": output.query_id,
         "original_sql": output.original_sql,

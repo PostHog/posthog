@@ -1,11 +1,7 @@
 """Harvest pi-autoresearch campaign artifacts out of a sandbox.
 
-Pure helpers used by the smoke command to pull ``best.sql``, baseline /
-best-run metrics, lane / hypothesis / review notes, and operator hunches
-out of ``/tmp/autoresearch-campaign/`` inside a sandbox. Keeping this as
-a separate module (rather than a Temporal activity) means the smoke
-doesn't need to go through Temporal + Task machinery; a sandbox +
-``sandbox.execute`` is enough.
+Pure helpers the smoke command uses to pull workspace artifacts back to the
+host via ``sandbox.execute`` — no Temporal/Task machinery needed.
 """
 
 from __future__ import annotations
@@ -18,25 +14,17 @@ from django.conf import settings
 
 from products.tasks.backend.services.sandbox import Sandbox
 
-# Where run_campaign.py initializes the campaign workspace inside the sandbox.
-# Keeping it at a stable path makes the "cat this file back" harvesting step
-# straightforward.
+# Must match run_campaign.py's DEFAULT_WORKSPACE.
 WORKSPACE_PATH = "/tmp/autoresearch-campaign"
 
-# Which gateway product slug to route LLM calls under. "background_agents"
-# already exists in posthog/llm/gateway_client.py's Product literal, so no
-# gateway-side registration is needed.
+# Re-used from posthog/llm/gateway_client.py's Product literal.
 LLM_GATEWAY_PRODUCT_SLUG = "background_agents"
 
 
 def resolve_anthropic_base_url() -> str | None:
-    """Build the Anthropic-compatible gateway URL for pi-coding-agent.
+    """Gateway URL to hand pi's Anthropic SDK as `ANTHROPIC_BASE_URL`.
 
-    The gateway exposes native Anthropic-format ``/v1/messages`` under the
-    product-scoped path ``/{product}/v1/messages`` (see
-    ``services/llm-gateway/src/llm_gateway/api/anthropic.py``), so the
-    ANTHROPIC_BASE_URL we hand the SDK is just
-    ``<gateway>/{product}`` — the SDK itself appends ``/v1/messages``.
+    Returns `<gateway>/<product-slug>`; the SDK appends `/v1/messages`.
     """
     gateway_url = getattr(settings, "SANDBOX_LLM_GATEWAY_URL", None)
     if not gateway_url:
@@ -46,12 +34,8 @@ def resolve_anthropic_base_url() -> str | None:
 
 @dataclass
 class RunAutoresearchCampaignOutput:
-    """Structured snapshot of a campaign's workspace after pi exits.
-
-    Any field can be empty if the campaign didn't produce it; a campaign
-    with zero lane wins is still a successful run from the harvester's
-    perspective.
-    """
+    """Workspace snapshot after pi exits. Any field may be empty —
+    a campaign with zero wins is still a successful harvest."""
 
     original_sql: str
     query_id: str
@@ -68,11 +52,7 @@ class RunAutoresearchCampaignOutput:
 
 
 def _read_sandbox_file(sandbox: Sandbox, path: str) -> str:
-    """Return file contents or empty string when missing.
-
-    We don't have a ``sandbox.read_file`` primitive today, so we ``cat``
-    the path and rely on exit code 0 for presence. Paths are shell-quoted.
-    """
+    """Return file contents, or empty string when missing."""
     result = sandbox.execute(f"cat {shlex.quote(path)} 2>/dev/null || true", timeout_seconds=30)
     return result.stdout or ""
 
@@ -96,12 +76,7 @@ def _collect_markdown_dir(sandbox: Sandbox, dir_path: str) -> list[tuple[str, st
 
 
 def _best_run_metrics(sandbox: Sandbox) -> str:
-    """Return ``runs/<best>/metrics.json`` contents, best == lowest primary value.
-
-    pi tracks the best variant via ``query/best.sql``; this function
-    surfaces the matching numeric metrics by scanning every run directory
-    and picking the lowest ``primary.value``.
-    """
+    """Return metrics.json for the run with the lowest ``primary.value``."""
     cmd = f'for m in {WORKSPACE_PATH}/runs/*/metrics.json; do   [ -f "$m" ] && echo "$m"; done'
     result = sandbox.execute(cmd, timeout_seconds=15)
     metric_paths = [p for p in (result.stdout or "").splitlines() if p]

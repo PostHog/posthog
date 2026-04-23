@@ -75,15 +75,8 @@ MCP_SCOPE_PRESETS = ("read_only", "full")
 
 
 def resolve_scopes(scopes: PosthogMcpScopes = "read_only", *, include_internal_scopes: bool = True) -> list[str]:
-    """Expand the caller's scope request into the full list written on the token.
-
-    The default (``include_internal_scopes=True``) preserves historical MCP
-    behavior — every token issued through this helper gets the MCP
-    ``INTERNAL_SCOPES`` (``task:write``, ``llm_gateway:read``) appended. Callers
-    that need a strictly narrow token (e.g. ``clickhouse_perf:test_read``
-    only, for the autoresearch proxy) should pass
-    ``include_internal_scopes=False`` so the union does not happen.
-    """
+    # MCP callers rely on INTERNAL_SCOPES being auto-unioned; narrow-scope
+    # callers (e.g. the autoresearch proxy) must pass include_internal_scopes=False.
     internal = list(INTERNAL_SCOPES) if include_internal_scopes else []
     if isinstance(scopes, str):
         if scopes == "full":
