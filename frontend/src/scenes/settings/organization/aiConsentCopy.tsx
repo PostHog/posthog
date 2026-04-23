@@ -1,4 +1,4 @@
-import { LemonDialog } from '@posthog/lemon-ui'
+import { LemonDialog, LemonDialogProps } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
@@ -17,8 +17,8 @@ export function AIHipaaDisclaimer(): JSX.Element {
     )
 }
 
-export function openAIConsentLegalDialog({ onConfirm }: { onConfirm: () => void }): void {
-    LemonDialog.open({
+export function aiConsentLegalDialogProps({ onConfirm }: { onConfirm: () => void }): LemonDialogProps {
+    return {
         title: 'The legal bits',
         content: (
             <div className="flex flex-col gap-2">
@@ -42,5 +42,9 @@ export function openAIConsentLegalDialog({ onConfirm }: { onConfirm: () => void 
             children: 'Cancel',
             'data-attr': 'ai-consent-legal-cancel',
         },
-    })
+    }
+}
+
+export function openAIConsentLegalDialog(args: { onConfirm: () => void }): void {
+    LemonDialog.open(aiConsentLegalDialogProps(args))
 }
