@@ -7089,6 +7089,24 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly last_used_at: string | null;
+    }
+
+    /**
+     * Create-response variant that includes the plaintext token.
+
+    Only emitted from the create endpoint - storage-side we only persist the
+    hash, so subsequent reads use the base serializer.
+     */
+    export interface CIMDVerificationTokenWithValue {
+      readonly id: string;
+      /** @maxLength 40 */
+      label: string;
+      /** @nullable */
+      readonly mask_value: string | null;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /** @nullable */
+      readonly last_used_at: string | null;
       /** Plaintext token, only returned on creation */
       readonly value: string;
     }
@@ -39124,17 +39142,6 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type CimdVerificationTokensListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
     export type BatchExportsLogsRetrieveParams = {
     /**
      * Only return entries after this ISO 8601 timestamp.
@@ -39165,6 +39172,17 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    };
+
+    export type CimdVerificationTokensListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type DomainsListParams = {

@@ -789,3 +789,15 @@ tools:
     legal-documents-download-retrieve:
         operation: legal_documents_download_retrieve
         enabled: false
+    cimd-verification-tokens-list:
+        operation: cimd_verification_tokens_list
+        enabled: false
+    cimd-verification-tokens-create:
+        operation: cimd_verification_tokens_create
+        enabled: false
+    cimd-verification-tokens-retrieve:
+        operation: cimd_verification_tokens_retrieve
+        enabled: false
+    cimd-verification-tokens-destroy:
+        operation: cimd_verification_tokens_destroy
+        enabled: false
