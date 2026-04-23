@@ -1177,7 +1177,6 @@ export const ScheduledChangesCreateBody = /* @__PURE__ */ zod.object({
     scheduled_at: zod.iso
         .datetime({})
         .describe("ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z')."),
-    executed_at: zod.iso.datetime({}).nullish(),
     is_recurring: zod
         .boolean()
         .default(scheduledChangesCreateBodyIsRecurringDefault)
@@ -1227,7 +1226,6 @@ export const ScheduledChangesUpdateBody = /* @__PURE__ */ zod.object({
     scheduled_at: zod.iso
         .datetime({})
         .describe("ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z')."),
-    executed_at: zod.iso.datetime({}).nullish(),
     is_recurring: zod
         .boolean()
         .default(scheduledChangesUpdateBodyIsRecurringDefault)
@@ -1281,7 +1279,6 @@ export const ScheduledChangesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .datetime({})
         .optional()
         .describe("ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z')."),
-    executed_at: zod.iso.datetime({}).nullish(),
     is_recurring: zod
         .boolean()
         .default(scheduledChangesPartialUpdateBodyIsRecurringDefault)

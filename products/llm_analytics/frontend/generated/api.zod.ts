@@ -279,7 +279,9 @@ export const llmAnalyticsClusteringJobsCreateBodyNameMax = 100
 
 export const LlmAnalyticsClusteringJobsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(llmAnalyticsClusteringJobsCreateBodyNameMax),
-    analysis_level: zod.enum(['trace', 'generation']).describe('* `trace` - trace\n* `generation` - generation'),
+    analysis_level: zod
+        .enum(['trace', 'generation', 'evaluation'])
+        .describe('* `trace` - trace\n* `generation` - generation\n* `evaluation` - evaluation'),
     event_filters: zod.unknown().optional(),
     enabled: zod.boolean().optional(),
 })
@@ -291,7 +293,9 @@ export const llmAnalyticsClusteringJobsUpdateBodyNameMax = 100
 
 export const LlmAnalyticsClusteringJobsUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(llmAnalyticsClusteringJobsUpdateBodyNameMax),
-    analysis_level: zod.enum(['trace', 'generation']).describe('* `trace` - trace\n* `generation` - generation'),
+    analysis_level: zod
+        .enum(['trace', 'generation', 'evaluation'])
+        .describe('* `trace` - trace\n* `generation` - generation\n* `evaluation` - evaluation'),
     event_filters: zod.unknown().optional(),
     enabled: zod.boolean().optional(),
 })
@@ -304,9 +308,9 @@ export const llmAnalyticsClusteringJobsPartialUpdateBodyNameMax = 100
 export const LlmAnalyticsClusteringJobsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(llmAnalyticsClusteringJobsPartialUpdateBodyNameMax).optional(),
     analysis_level: zod
-        .enum(['trace', 'generation'])
+        .enum(['trace', 'generation', 'evaluation'])
         .optional()
-        .describe('* `trace` - trace\n* `generation` - generation'),
+        .describe('* `trace` - trace\n* `generation` - generation\n* `evaluation` - evaluation'),
     event_filters: zod.unknown().optional(),
     enabled: zod.boolean().optional(),
 })
@@ -1380,6 +1384,8 @@ export const llmSkillsNamePartialUpdateBodyFilesItemPathMax = 500
 export const llmSkillsNamePartialUpdateBodyFilesItemContentTypeDefault = `text/plain`
 export const llmSkillsNamePartialUpdateBodyFilesItemContentTypeMax = 100
 
+export const llmSkillsNamePartialUpdateBodyFileEditsItemPathMax = 500
+
 export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
     body: zod
         .string()
@@ -1390,7 +1396,7 @@ export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
     edits: zod
         .array(
             zod.object({
-                old: zod.string().describe('Text to find in the current skill body. Must match exactly once.'),
+                old: zod.string().describe('Text to find in the target content. Must match exactly once.'),
                 new: zod.string().describe('Replacement text.'),
             })
         )
@@ -1431,7 +1437,32 @@ export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
             })
         )
         .optional()
-        .describe('Bundled files to include with this version. Replaces all files from the previous version.'),
+        .describe(
+            'Bundled files to include with this version. Replaces all files from the previous version. Mutually exclusive with file_edits.'
+        ),
+    file_edits: zod
+        .array(
+            zod.object({
+                path: zod
+                    .string()
+                    .max(llmSkillsNamePartialUpdateBodyFileEditsItemPathMax)
+                    .describe(
+                        'Path of the bundled file to edit. Must match an existing file on the current skill version.'
+                    ),
+                edits: zod
+                    .array(
+                        zod.object({
+                            old: zod.string().describe('Text to find in the target content. Must match exactly once.'),
+                            new: zod.string().describe('Replacement text.'),
+                        })
+                    )
+                    .describe("Sequential find/replace operations to apply to this file's content."),
+            })
+        )
+        .optional()
+        .describe(
+            "Per-file find/replace updates. Each entry targets one existing file by path and applies sequential edits to its content. Non-targeted files carry forward unchanged. Cannot add, remove, or rename files — use 'files' for that. Mutually exclusive with files."
+        ),
     base_version: zod
         .number()
         .min(1)
