@@ -1,0 +1,115 @@
+# Stage 1 retrieval evaluation fixture.
+#
+# Each scenario seeds a knowledge source with `text`, then asserts that the
+# ILIKE-based search recipe (the one we teach the agent in the knowledge
+# prompt) retrieves a chunk containing `expected_substring` using at least
+# one of `keywords`.
+#
+# Grow this list as real support cases reveal retrieval gaps. Deterministic
+# and LLM-free so it runs on every CI build.
+scenarios:
+    - id: refund-policy
+      source_name: Refund policy
+      text: |
+          Standard refund policy
+
+          Customers can request a refund within 30 days of purchase. To start a
+          refund, email billing@posthog.com from the email on file with the invoice
+          number in the subject line. Refunds are issued to the original payment
+          method within 7 business days.
+
+          Annual contracts are pro-rated by unused months.
+      question: 'A customer is asking how to get a refund'
+      keywords: ['refund']
+      expected_substring: '30 days'
+
+    - id: sso-setup
+      source_name: SSO setup
+      text: |
+          How to enable SAML SSO
+
+          PostHog supports SAML 2.0 SSO on Teams and Enterprise plans. To enable:
+          1. Go to Organization settings > Authentication.
+          2. Paste your IdP metadata XML or the metadata URL.
+          3. Map at minimum the 'email' attribute from the IdP.
+          4. Turn on 'Require SSO for this organization'.
+
+          Google Workspace, Okta, Azure AD, and JumpCloud are known-good providers.
+      question: 'How do I turn on SSO?'
+      keywords: ['SSO', 'SAML']
+      expected_substring: 'Organization settings'
+
+    - id: data-retention
+      source_name: Data retention defaults
+      text: |
+          Event data retention
+
+          Free tier retains events for 1 year. Paid plans default to 7 years but
+          can be shortened per project in Project settings > Data management.
+          Session recordings are retained for 1 month by default on all plans.
+      question: 'How long are session recordings kept?'
+      keywords: ['session', 'recording', 'retention']
+      expected_substring: '1 month'
+
+    - id: invoice-address
+      source_name: Billing details
+      text: |
+          Invoice addresses
+
+          To add your VAT ID, company legal name, or billing address to invoices,
+          open Organization billing > Billing details and fill in the Billing
+          contact and Company tax info sections. Past invoices can be reissued
+          with the updated details by emailing billing@posthog.com.
+      question: 'Where do I add a VAT number to invoices?'
+      keywords: ['VAT', 'invoice']
+      expected_substring: 'Billing details'
+
+    - id: feature-flag-evaluation
+      source_name: Feature flag evaluation
+      text: |
+          How feature flags are evaluated
+
+          Flags are evaluated client-side when posthog-js is initialized with
+          bootstrap values, and server-side when you call posthog.isFeatureEnabled
+          from a backend SDK. Server-side evaluation requires a personal API key
+          with feature_flag:read scope.
+      question: 'Why is my feature flag flickering in the client app?'
+      keywords: ['flag', 'bootstrap', 'client-side']
+      expected_substring: 'bootstrap'
+
+    - id: team-limits
+      source_name: Project limits
+      text: |
+          Organization and project limits
+
+          Each organization can have up to 100 projects on Teams plan. Each
+          project can have up to 50 members invited. Reach out to support if you
+          need these raised.
+      question: "What's the max number of projects per org?"
+      keywords: ['project', 'limit', 'org']
+      expected_substring: '100 projects'
+
+    - id: api-rate-limits
+      source_name: API rate limits
+      text: |
+          Public API rate limits
+
+          GET endpoints are limited to 240 requests per minute per token. POST
+          endpoints for event ingestion have a higher limit of 2,000/min. If you
+          need more, contact support and we'll look at dedicated capacity.
+      question: "What's the POST rate limit?"
+      keywords: ['rate', 'limit', 'POST']
+      expected_substring: '2,000'
+
+    - id: two-factor
+      source_name: Two-factor auth
+      text: |
+          Enabling two-factor authentication
+
+          Members can enable 2FA from Account settings > Security. Organization
+          owners can require 2FA for every member in Organization settings >
+          Authentication. Recovery codes are shown once at setup time — store
+          them securely.
+      question: 'A user says they lost their 2FA device.'
+      keywords: ['2FA', 'two-factor', 'recovery']
+      expected_substring: 'Recovery codes'

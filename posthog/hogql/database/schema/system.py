@@ -782,6 +782,60 @@ early_access_features: PostgresTable = PostgresTable(
     },
 )
 
+# business_knowledge: customer-uploaded support knowledge. Three related
+# tables so agents can LIKE-search chunks, then fetch parent document/source
+# for citations. team_id is denormalized onto every row so the ClickHouse
+# printer's team_id_guard_for_table predicate works independently per table
+# without forcing a join for isolation.
+business_knowledge_sources: PostgresTable = PostgresTable(
+    name="business_knowledge_sources",
+    postgres_table_name="posthog_business_knowledge_knowledgesource",
+    access_scope="business_knowledge",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "source_type": StringDatabaseField(name="source_type"),
+        "status": StringDatabaseField(name="status"),
+        "error_message": StringDatabaseField(name="error_message"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at", nullable=True),
+    },
+)
+
+business_knowledge_documents: PostgresTable = PostgresTable(
+    name="business_knowledge_documents",
+    postgres_table_name="posthog_business_knowledge_knowledgedocument",
+    access_scope="business_knowledge",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "source_id": StringDatabaseField(name="source_id"),
+        "stable_id": StringDatabaseField(name="stable_id"),
+        "title": StringDatabaseField(name="title"),
+        "content": StringDatabaseField(name="content"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
+business_knowledge_chunks: PostgresTable = PostgresTable(
+    name="business_knowledge_chunks",
+    postgres_table_name="posthog_business_knowledge_knowledgechunk",
+    access_scope="business_knowledge",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "source_id": StringDatabaseField(name="source_id"),
+        "document_id": StringDatabaseField(name="document_id"),
+        "heading_path": StringDatabaseField(name="heading_path"),
+        "ordinal": IntegerDatabaseField(name="ordinal"),
+        "content": StringDatabaseField(name="content"),
+        "char_count": IntegerDatabaseField(name="char_count"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+    },
+)
+
 
 class SystemTables(TableNode):
     name: str = "system"
@@ -792,6 +846,11 @@ class SystemTables(TableNode):
         "annotations": TableNode(name="annotations", table=annotations),
         "batch_export_backfills": TableNode(name="batch_export_backfills", table=batch_export_backfills),
         "batch_exports": TableNode(name="batch_exports", table=batch_exports),
+        "business_knowledge_chunks": TableNode(name="business_knowledge_chunks", table=business_knowledge_chunks),
+        "business_knowledge_documents": TableNode(
+            name="business_knowledge_documents", table=business_knowledge_documents
+        ),
+        "business_knowledge_sources": TableNode(name="business_knowledge_sources", table=business_knowledge_sources),
         "cohort_calculation_history": TableNode(name="cohort_calculation_history", table=cohort_calculation_history),
         "cohorts": TableNode(name="cohorts", table=cohorts),
         "dashboards": TableNode(name="dashboards", table=dashboards),

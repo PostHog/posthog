@@ -79,6 +79,7 @@ export enum Scene {
     IntegrationsRedirect = 'IntegrationsRedirect',
     IngestionWarnings = 'IngestionWarnings',
     InviteSignup = 'InviteSignup',
+    BusinessKnowledge = 'BusinessKnowledge',
     LegacyPlugin = 'LegacyPlugin',
     LegalDocuments = 'LegalDocuments',
     LegalDocumentNew = 'LegalDocumentNew',

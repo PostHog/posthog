@@ -28,6 +28,7 @@ import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.mcp_store.backend.presentation.views as mcp_store
 import products.legal_documents.backend.presentation.views as legal_documents
+import products.business_knowledge.backend.presentation.views as business_knowledge
 from products.dashboards.backend.api import dashboard, dashboard_templates
 from products.data_modeling.backend.api import DAGViewSet, EdgeViewSet, NodeViewSet
 from products.data_warehouse.backend.api import (
@@ -1021,6 +1022,13 @@ environments_router.register(
     r"signals",
     SignalViewSet,
     "environment_signals",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"business_knowledge/sources",
+    business_knowledge.KnowledgeSourceViewSet,
+    "environment_business_knowledge_sources",
     ["team_id"],
 )
 signal_reports_router = projects_router.register(

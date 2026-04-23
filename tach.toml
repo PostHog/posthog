@@ -68,6 +68,7 @@ depends_on = [
     "ee",
     "products.analytics_platform",
     "products.batch_exports",
+    "products.business_knowledge",
     "products.conversations",
     "products.customer_analytics",
     "products.dashboards",
@@ -143,6 +144,7 @@ path = "products.conversations"
 depends_on = [
     "ee",
     "posthog",
+    "products.business_knowledge",
 ]
 layer = "modules"
 
@@ -528,3 +530,15 @@ depends_on = [
     "posthog",
 ]
 layer = "modules"
+
+[[modules]]
+path = "products.business_knowledge"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "modules"
+interfaces = [
+    "products.business_knowledge.backend.facade",
+    "products.business_knowledge.backend.presentation.views",
+]
