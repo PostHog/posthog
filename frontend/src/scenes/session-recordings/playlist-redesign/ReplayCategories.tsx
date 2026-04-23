@@ -125,8 +125,8 @@ const REPLAY_CATEGORIES: ReplayCategory[] = [
     },
 ]
 
-export function ReplayCategories({ logicKey }: SessionRecordingPlaylistLogicProps): JSX.Element {
-    const logic = sessionRecordingsPlaylistLogic({ logicKey })
+export function ReplayCategories(props: SessionRecordingPlaylistLogicProps): JSX.Element {
+    const logic = sessionRecordingsPlaylistLogic(props)
     const { setFilters, resetFilters } = useActions(logic)
     const { activeCategory } = useValues(playlistFiltersLogic)
     const { setActiveCategory, setIsFiltersExpanded, setActiveFilterTab } = useActions(playlistFiltersLogic)
