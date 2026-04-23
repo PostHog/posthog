@@ -1,25 +1,130 @@
-import { useCallback, useRef } from 'react'
+import { ReactNode, useCallback, useRef } from 'react'
 import { Root, createRoot } from 'react-dom/client'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
-type TooltipInstance = {
-    root: Root
-    element: HTMLElement
-    isMouseOver: boolean
-    isPinned: boolean
-    onUnpin: (() => void) | null
-    hideTimeout: NodeJS.Timeout | null
-    interactiveTimeout: NodeJS.Timeout | null
-    mouseEnterHandler: () => void
-    mouseLeaveHandler: () => void
+const INTERACTIVE_DELAY = 500
+const HIDE_DELAY = 100
+
+let hoverElement: HTMLElement | null = null
+let hoverRoot: Root | null = null
+let hoverOwner: string | null = null
+let hoverIsMouseOver = false
+let hoverHideTimeout: ReturnType<typeof setTimeout> | null = null
+let hoverInteractiveTimeout: ReturnType<typeof setTimeout> | null = null
+let lastRenderedHoverElement: ReactNode = null
+
+let pinnedElement: HTMLElement | null = null
+let pinnedRoot: Root | null = null
+let pinnedOwner: string | null = null
+let pinnedOnUnpin: (() => void) | null = null
+
+let activeRenderId: string | null = null
+
+const wrappedHoverRoot: Root = {
+    render: (children: ReactNode): void => {
+        if (activeRenderId === null || hoverOwner !== activeRenderId) {
+            return
+        }
+        lastRenderedHoverElement = children
+        hoverRoot?.render(children)
+    },
+    unmount: (): void => {
+        hoverRoot?.unmount()
+    },
 }
 
-const tooltipInstances = new Map<string, TooltipInstance>()
+function clearHoverHideTimeout(): void {
+    if (hoverHideTimeout) {
+        clearTimeout(hoverHideTimeout)
+        hoverHideTimeout = null
+    }
+}
+
+function clearHoverInteractiveTimeout(): void {
+    if (hoverInteractiveTimeout) {
+        clearTimeout(hoverInteractiveTimeout)
+        hoverInteractiveTimeout = null
+    }
+}
+
+function disableHoverInteractivity(): void {
+    if (hoverElement) {
+        hoverElement.style.pointerEvents = 'none'
+    }
+    clearHoverInteractiveTimeout()
+}
+
+function scheduleHoverInteractivity(): void {
+    clearHoverInteractiveTimeout()
+    hoverInteractiveTimeout = setTimeout(() => {
+        if (hoverElement) {
+            hoverElement.style.pointerEvents = 'auto'
+        }
+        hoverInteractiveTimeout = null
+    }, INTERACTIVE_DELAY)
+}
+
+function hideHoverNow(): void {
+    if (hoverElement) {
+        hoverElement.style.opacity = '0'
+    }
+    disableHoverInteractivity()
+}
+
+function onHoverMouseEnter(): void {
+    hoverIsMouseOver = true
+    clearHoverHideTimeout()
+}
+
+function onHoverMouseLeave(): void {
+    hoverIsMouseOver = false
+    disableHoverInteractivity()
+    clearHoverHideTimeout()
+    hoverHideTimeout = setTimeout(() => {
+        if (!hoverIsMouseOver) {
+            hideHoverNow()
+        }
+    }, HIDE_DELAY)
+}
+
+function ensureHoverDom(): void {
+    if (hoverElement) {
+        return
+    }
+    const el = document.createElement('div')
+    el.id = 'InsightTooltipWrapper-hover'
+    el.classList.add('InsightTooltipWrapper', 'ph-no-capture')
+    el.setAttribute('data-attr', 'insight-tooltip-wrapper')
+    el.style.pointerEvents = 'none'
+    el.style.opacity = '0'
+    el.style.position = 'absolute'
+    document.body.appendChild(el)
+    el.addEventListener('mouseenter', onHoverMouseEnter, { passive: true })
+    el.addEventListener('mouseleave', onHoverMouseLeave, { passive: true })
+    hoverElement = el
+    hoverRoot = createRoot(el)
+}
+
+function ensurePinnedDom(): void {
+    if (pinnedElement) {
+        return
+    }
+    const el = document.createElement('div')
+    el.id = 'InsightTooltipWrapper-pinned'
+    el.classList.add('InsightTooltipWrapper', 'InsightTooltipWrapper--pinned', 'ph-no-capture')
+    el.setAttribute('data-attr', 'insight-tooltip-wrapper-pinned')
+    el.style.pointerEvents = 'auto'
+    el.style.opacity = '0'
+    el.style.position = 'absolute'
+    document.body.appendChild(el)
+    pinnedElement = el
+    pinnedRoot = createRoot(el)
+}
 
 let globalScrollEndListenerActive = false
 
-function initGlobalScrollEndListener(onScrollEnd: (tooltipId: string) => void): void {
+function initGlobalScrollEndListener(onScrollEnd: (id: string) => void): void {
     if (globalScrollEndListenerActive) {
         return
     }
@@ -27,13 +132,13 @@ function initGlobalScrollEndListener(onScrollEnd: (tooltipId: string) => void): 
     document.addEventListener(
         'scrollend',
         (e) => {
-            for (const [id, instance] of tooltipInstances.entries()) {
-                if (e.target instanceof Node && instance.element.contains(e.target as Node)) {
-                    continue
-                }
-
-                onScrollEnd(id)
+            if (!pinnedOwner || !pinnedElement) {
+                return
             }
+            if (e.target instanceof Node && pinnedElement.contains(e.target as Node)) {
+                return
+            }
+            onScrollEnd(pinnedOwner)
         },
         { capture: true, passive: true }
     )
@@ -49,16 +154,13 @@ function initGlobalUnpinListeners(): void {
     document.addEventListener(
         'click',
         (e) => {
-            for (const [id, instance] of tooltipInstances.entries()) {
-                if (!instance.isPinned) {
-                    continue
-                }
-                if (e.target instanceof Node && instance.element.contains(e.target as Node)) {
-                    continue
-                }
-
-                unpinTooltip(id)
+            if (!pinnedOwner || !pinnedElement) {
+                return
             }
+            if (e.target instanceof Node && pinnedElement.contains(e.target as Node)) {
+                return
+            }
+            unpinTooltip(pinnedOwner)
         },
         { passive: true }
     )
@@ -66,191 +168,117 @@ function initGlobalUnpinListeners(): void {
     document.addEventListener(
         'keydown',
         (e) => {
-            if (e.key === 'Escape') {
-                for (const [id, instance] of tooltipInstances.entries()) {
-                    if (instance.isPinned) {
-                        unpinTooltip(id)
-                    }
-                }
+            if (e.key === 'Escape' && pinnedOwner) {
+                unpinTooltip(pinnedOwner)
             }
         },
         { passive: true }
     )
 }
 
-/** Time the tooltip must be stationary before it becomes interactive (ms) */
-const INTERACTIVE_DELAY = 500
-
-function disableInteractivity(instance: TooltipInstance): void {
-    instance.element.style.pointerEvents = 'none'
-    if (instance.interactiveTimeout) {
-        clearTimeout(instance.interactiveTimeout)
-        instance.interactiveTimeout = null
-    }
-}
-
-function scheduleInteractivity(instance: TooltipInstance): void {
-    if (instance.interactiveTimeout) {
-        clearTimeout(instance.interactiveTimeout)
-    }
-    instance.interactiveTimeout = setTimeout(() => {
-        instance.element.style.pointerEvents = 'auto'
-        instance.interactiveTimeout = null
-    }, INTERACTIVE_DELAY)
-}
-
 export function ensureTooltip(id: string): [Root, HTMLElement] {
-    let instance = tooltipInstances.get(id)
-
-    if (!instance) {
-        const tooltipEl = document.createElement('div')
-        tooltipEl.id = `InsightTooltipWrapper-${id}`
-        tooltipEl.classList.add('InsightTooltipWrapper', 'ph-no-capture')
-        tooltipEl.setAttribute('data-attr', 'insight-tooltip-wrapper')
-        tooltipEl.style.pointerEvents = 'none'
-        document.body.appendChild(tooltipEl)
-
-        const root = createRoot(tooltipEl)
-
-        const mouseEnterHandler = (): void => {
-            const inst = tooltipInstances.get(id)
-            if (inst) {
-                inst.isMouseOver = true
-                if (inst.hideTimeout) {
-                    clearTimeout(inst.hideTimeout)
-                    inst.hideTimeout = null
-                }
-            }
-        }
-
-        const mouseLeaveHandler = (): void => {
-            const inst = tooltipInstances.get(id)
-            if (inst) {
-                inst.isMouseOver = false
-                if (inst.isPinned) {
-                    return
-                }
-                disableInteractivity(inst)
-                inst.hideTimeout = setTimeout(() => {
-                    if (!inst.isMouseOver && !inst.isPinned) {
-                        inst.element.style.opacity = '0'
-                    }
-                }, 100)
-            }
-        }
-
-        instance = {
-            root,
-            element: tooltipEl,
-            isMouseOver: false,
-            isPinned: false,
-            onUnpin: null,
-            hideTimeout: null,
-            interactiveTimeout: null,
-            mouseEnterHandler,
-            mouseLeaveHandler,
-        }
-
-        tooltipInstances.set(id, instance)
-
-        tooltipEl.addEventListener('mouseenter', mouseEnterHandler, { passive: true })
-        tooltipEl.addEventListener('mouseleave', mouseLeaveHandler, { passive: true })
+    ensureHoverDom()
+    if (pinnedOwner === id) {
+        hideHoverNow()
+        activeRenderId = null
+        return [wrappedHoverRoot, hoverElement!]
     }
-
-    return [instance.root, instance.element]
+    hoverOwner = id
+    activeRenderId = id
+    return [wrappedHoverRoot, hoverElement!]
 }
 
 export function showTooltip(id: string): void {
-    const instance = tooltipInstances.get(id)
-    if (!instance) {
+    if (activeRenderId !== id || !hoverElement) {
         return
     }
-
-    // Cancel any pending hide so a returning mouse doesn't get hidden
-    if (instance.hideTimeout) {
-        clearTimeout(instance.hideTimeout)
-        instance.hideTimeout = null
-    }
-
-    instance.element.style.opacity = '1'
+    clearHoverHideTimeout()
+    hoverElement.style.opacity = '1'
 }
 
 export function hideTooltip(id?: string): void {
-    if (!id) {
-        // Fallback to old behavior - hide all tooltips
-        tooltipInstances.forEach((instance) => {
-            instance.element.style.opacity = '0'
-            disableInteractivity(instance)
-        })
+    if (id && activeRenderId !== id) {
         return
     }
-
-    const instance = tooltipInstances.get(id)
-    if (!instance) {
+    if (!hoverElement) {
         return
     }
-
-    if (instance.hideTimeout) {
-        clearTimeout(instance.hideTimeout)
-        instance.hideTimeout = null
-    }
-
-    if (instance.isMouseOver) {
+    clearHoverHideTimeout()
+    if (hoverIsMouseOver) {
         return
     }
-
-    instance.hideTimeout = setTimeout(() => {
-        if (!instance.isMouseOver) {
-            instance.element.style.opacity = '0'
-            disableInteractivity(instance)
+    hoverHideTimeout = setTimeout(() => {
+        if (!hoverIsMouseOver) {
+            hideHoverNow()
         }
-    }, 100)
-}
-
-export function unpinTooltip(id: string): void {
-    const instance = tooltipInstances.get(id)
-    if (!instance) {
-        return
-    }
-
-    instance.isPinned = false
-    instance.element.classList.remove('InsightTooltipWrapper--pinned')
-    disableInteractivity(instance)
-
-    const onUnpinCallback = instance.onUnpin
-    instance.onUnpin = null
-
-    instance.element.style.opacity = '0'
-
-    onUnpinCallback?.()
+    }, HIDE_DELAY)
 }
 
 export function pinTooltip(id: string, onUnpin?: () => void): void {
-    const instance = tooltipInstances.get(id)
-    if (!instance) {
+    if (!hoverElement) {
         return
     }
+    ensurePinnedDom()
+    if (pinnedOwner && pinnedOwner !== id) {
+        const previousOnUnpin = pinnedOnUnpin
+        pinnedOnUnpin = null
+        previousOnUnpin?.()
+    }
+    pinnedRoot?.render(lastRenderedHoverElement)
+    if (pinnedElement) {
+        pinnedElement.style.left = hoverElement.style.left
+        pinnedElement.style.top = hoverElement.style.top
+        pinnedElement.style.opacity = '1'
+        pinnedElement.style.pointerEvents = 'auto'
+    }
+    pinnedOwner = id
+    pinnedOnUnpin = onUnpin ?? null
 
-    instance.isPinned = true
-    instance.onUnpin = onUnpin ?? null
-    instance.element.style.pointerEvents = 'auto'
-    instance.element.classList.add('InsightTooltipWrapper--pinned')
+    hideHoverNow()
+    if (hoverOwner === id) {
+        hoverOwner = null
+    }
+    activeRenderId = null
+}
+
+export function unpinTooltip(id: string): void {
+    if (pinnedOwner !== id) {
+        return
+    }
+    const callback = pinnedOnUnpin
+    pinnedOnUnpin = null
+    pinnedOwner = null
+    pinnedRoot?.render(null)
+    if (pinnedElement) {
+        pinnedElement.style.opacity = '0'
+        pinnedElement.style.pointerEvents = 'none'
+    }
+    callback?.()
 }
 
 export function cleanupTooltip(id: string): void {
-    const instance = tooltipInstances.get(id)
-    if (instance) {
-        if (instance.hideTimeout) {
-            clearTimeout(instance.hideTimeout)
+    if (hoverOwner !== id && pinnedOwner !== id) {
+        return
+    }
+    if (hoverOwner === id) {
+        hoverOwner = null
+        if (activeRenderId === id) {
+            activeRenderId = null
         }
-        disableInteractivity(instance)
-        instance.element.removeEventListener('mouseenter', instance.mouseEnterHandler)
-        instance.element.removeEventListener('mouseleave', instance.mouseLeaveHandler)
-        tooltipInstances.delete(id)
-        queueMicrotask(() => {
-            instance.root.unmount()
-            instance.element.remove()
-        })
+        lastRenderedHoverElement = null
+        hoverRoot?.render(null)
+        hideHoverNow()
+    }
+    if (pinnedOwner === id) {
+        const callback = pinnedOnUnpin
+        pinnedOnUnpin = null
+        pinnedOwner = null
+        pinnedRoot?.render(null)
+        if (pinnedElement) {
+            pinnedElement.style.opacity = '0'
+            pinnedElement.style.pointerEvents = 'none'
+        }
+        callback?.()
     }
 }
 
@@ -290,27 +318,23 @@ export function positionTooltip(
     caretY: number,
     centerVertically = false
 ): void {
+    if (tooltipEl !== hoverElement) {
+        return
+    }
+    if (activeRenderId === null) {
+        return
+    }
+    const id = activeRenderId
     tooltipEl.style.position = 'absolute'
     tooltipEl.style.maxWidth = ''
-
-    // Each reposition means the mouse is still moving — reset interactivity timer
-    const id = tooltipEl.id.replace('InsightTooltipWrapper-', '')
-    const instance = tooltipInstances.get(id)
-    if (instance) {
-        // Don't reposition or reset interactivity while pinned
-        if (instance.isPinned) {
-            return
-        }
-        disableInteractivity(instance)
-        scheduleInteractivity(instance)
-    }
-
+    disableHoverInteractivity()
+    scheduleHoverInteractivity()
     applyPosition(tooltipEl, canvasBounds, caretX, caretY, centerVertically)
-
-    // On first render offsetWidth may be 0 since content hasn't painted yet.
-    // Re-run positioning after paint so boundary clamping uses real dimensions.
     if (tooltipEl.offsetWidth === 0) {
         requestAnimationFrame(() => {
+            if (activeRenderId !== id) {
+                return
+            }
             applyPosition(tooltipEl, canvasBounds, caretX, caretY, centerVertically)
         })
     }
@@ -337,7 +361,7 @@ export function useInsightTooltip(options?: { isPinnable?: boolean }): {
             initGlobalScrollEndListener((id) => unpinTooltip(id))
             initGlobalUnpinListeners()
         } else {
-            initGlobalScrollEndListener((id) => hideTooltip(id))
+            initGlobalScrollEndListener((id) => unpinTooltip(id))
         }
 
         return () => {
