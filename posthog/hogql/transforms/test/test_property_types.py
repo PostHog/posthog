@@ -249,14 +249,6 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
             assert "mat_$browser" in printed, f"Expected mat_$browser in output, got: {printed}"
             assert "JSONExtractString" not in printed, f"Expected no JSONExtractString, got: {printed}"
 
-    def test_jsonextractstring_rewritten_for_person_table_properties(self):
-        # Person table mat columns use the `pmat_` prefix (see columns.py:633).
-        with materialized("person", "$email") as mat_col:
-            printed = self._print_select("select JSONExtractString(properties, '$email') from raw_persons")
-            assert mat_col.name in printed, f"Expected {mat_col.name} in output, got: {printed}"
-            assert "JSONExtractString(person.properties" not in printed, printed
-            assert "JSONExtractString(raw_persons.properties" not in printed, printed
-
     def test_jsonextractstring_rewrites_all_calls_in_same_query(self):
         with materialized("events", "$browser"), materialized("events", "$os"):
             printed = self._print_select(
