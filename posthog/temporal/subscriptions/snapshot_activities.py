@@ -254,10 +254,9 @@ async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> Snap
     try:
         return await _run_snapshot_subscription_insights(inputs)
     except Exception:
-        # Temporal's workflow-level logger swallows activity failures on pods
-        # where `configure_logger` raised at startup (e.g. Kafka log producer
-        # init failure). Emit the traceback via structlog so operators can see
-        # why the activity died instead of finding a bare `starting` log.
+        # The metric survives Kafka log producer init failure in `configure_logger`;
+        # the log emission may not, so both are deliberate.
+        SUBSCRIPTION_SUMMARY_FAILURE.labels(reason="activity_error").inc()
         await LOGGER.aexception(
             "snapshot_subscription_insights.failed",
             subscription_id=inputs.subscription_id,

@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+import structlog
 from asgiref.sync import sync_to_async
 from temporalio.testing import ActivityEnvironment
 
@@ -140,11 +141,18 @@ async def test_unhandled_exception_is_logged_and_reraised(team, user, monkeypatc
         boom,
     )
 
-    with pytest.raises(RuntimeError, match="boom while building states"):
-        await _run(
-            SnapshotInsightsInputs(
-                subscription_id=subscription.id,
-                team_id=subscription.team_id,
-                delivery_id=str(delivery.id),
+    with structlog.testing.capture_logs() as captured_logs:
+        with pytest.raises(RuntimeError, match="boom while building states"):
+            await _run(
+                SnapshotInsightsInputs(
+                    subscription_id=subscription.id,
+                    team_id=subscription.team_id,
+                    delivery_id=str(delivery.id),
+                )
             )
-        )
+
+    failed_events = [log for log in captured_logs if log.get("event") == "snapshot_subscription_insights.failed"]
+    assert len(failed_events) == 1, f"expected one .failed log, got {failed_events}"
+    assert failed_events[0]["subscription_id"] == subscription.id
+    assert failed_events[0]["delivery_id"] == str(delivery.id)
+    assert failed_events[0]["log_level"] == "error"
