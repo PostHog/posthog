@@ -11,8 +11,11 @@ import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration, percentage } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
 
+import { cohortsModel } from '~/models/cohortsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { ChartParams, FunnelStepReference, StepOrderValue } from '~/types'
 
 import { funnelDataLogic } from '../funnelDataLogic'
@@ -48,6 +51,8 @@ export function FunnelBarHorizontal({
 
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForStep, openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
+    const { allCohorts } = useValues(cohortsModel)
+    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const steps = visibleStepsWithConversionMetrics
     const stepReference = funnelsFilter?.funnelStepReference || FunnelStepReference.total
@@ -77,10 +82,8 @@ export function FunnelBarHorizontal({
                         step.nested_breakdown?.reduce((sum, item) => sum + item.count, 0)) ||
                     0
 
-                const isBreakdown =
-                    Array.isArray(step.nested_breakdown) &&
-                    step.nested_breakdown?.length !== undefined &&
-                    !(step.nested_breakdown.length === 1)
+                const hasBreakdown = Array.isArray(step.nested_breakdown) && step.nested_breakdown?.length !== undefined
+                const isBreakdown = hasBreakdown && (step.nested_breakdown?.length ?? 0) > 1
 
                 // For single-visible-breakdown steps, use the series' counts / rates for display
                 // and scope clicks through openPersonsModalForSeries. Null otherwise.
@@ -93,6 +96,18 @@ export function FunnelBarHorizontal({
                         openPersonsModalForStep({ step, converted })
                     }
                 }
+
+                // A breakdown is configured but returned a single value — show the value inline
+                // so the chart doesn't look like a non-broken-down funnel.
+                const singleBreakdownValue =
+                    !isBreakdown && hasBreakdown && breakdownFilter?.breakdown
+                        ? formatBreakdownLabel(
+                              step.nested_breakdown?.[0]?.breakdown_value,
+                              breakdownFilter,
+                              allCohorts.results,
+                              formatPropertyValueForDisplay
+                          )
+                        : null
 
                 return (
                     <section
@@ -121,6 +136,14 @@ export function FunnelBarHorizontal({
                                     )}
                                 </div>
                                 {isOptionalStep ? <div className="ml-1 text-xs">(optional)</div> : null}
+                                {singleBreakdownValue && (
+                                    <div
+                                        className="ml-2 text-xs text-secondary"
+                                        data-attr="funnel-step-single-breakdown"
+                                    >
+                                        • Breakdown: {singleBreakdownValue}
+                                    </div>
+                                )}
                                 {funnelsFilter?.funnelOrderType !== StepOrderValue.UNORDERED &&
                                     stepIndex > 0 &&
                                     step.action_id === steps[stepIndex - 1].action_id && <DuplicateStepIndicator />}

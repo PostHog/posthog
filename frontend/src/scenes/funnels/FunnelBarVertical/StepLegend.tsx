@@ -9,9 +9,12 @@ import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
 import { userLogic } from 'scenes/userLogic'
 
+import { cohortsModel } from '~/models/cohortsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { AvailableFeature, ChartParams, FunnelStepWithConversionMetrics } from '~/types'
 
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
@@ -35,17 +38,30 @@ type StepLegendProps = {
 
 export function StepLegend({ step, stepIndex, showTime, showPersonsModal, inCardView }: StepLegendProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { aggregationTargetLabel, funnelsFilter, isStepOptional } = useValues(funnelDataLogic(insightProps))
+    const { aggregationTargetLabel, funnelsFilter, breakdownFilter, isStepOptional } = useValues(
+        funnelDataLogic(insightProps)
+    )
     const { canOpenPersonModal, isInExperimentContext } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForStep } = useActions(funnelPersonsModalLogic(insightProps))
     const { hasAvailableFeature } = useValues(userLogic)
+    const { allCohorts } = useValues(cohortsModel)
+    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const isOptionalStep = isStepOptional(stepIndex + 1)
     const isFirstStep = stepIndex === 0
-    const isBreakdown =
-        Array.isArray(step.nested_breakdown) &&
-        step.nested_breakdown?.length !== undefined &&
-        !(step.nested_breakdown.length === 1)
+    const hasBreakdown = Array.isArray(step.nested_breakdown) && step.nested_breakdown.length !== undefined
+    const isMultiBreakdown = hasBreakdown && (step.nested_breakdown?.length ?? 0) > 1
+    // A breakdown is configured and returned a single value. Surface the value so the user
+    // doesn't mistake the chart for a non-broken-down funnel.
+    const singleBreakdownValue =
+        !isMultiBreakdown && hasBreakdown && breakdownFilter?.breakdown
+            ? formatBreakdownLabel(
+                  step.nested_breakdown?.[0]?.breakdown_value,
+                  breakdownFilter,
+                  allCohorts.results,
+                  formatPropertyValueForDisplay
+              )
+            : null
 
     const convertedCountPresentationWithPercentage = (
         <>
@@ -78,6 +94,11 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal, inCard
             >
                 <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} allowWrap />
                 {isOptionalStep ? <div className="ml-1 text-xs font-normal">(optional)</div> : null}
+                {singleBreakdownValue && (
+                    <div className="ml-1 text-xs font-normal text-secondary" data-attr="funnel-step-single-breakdown">
+                        • Breakdown: {singleBreakdownValue}
+                    </div>
+                )}
             </LemonRow>
 
             {/* Conversions */}
@@ -129,7 +150,7 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal, inCard
             )}
 
             {/* Median conversion time */}
-            {!isFirstStep && !isBreakdown && showTime && (
+            {!isFirstStep && !isMultiBreakdown && showTime && (
                 <LemonRow icon={<IconClock />} title="Median time of conversion from previous step">
                     {formatMedianConversionTime(step)}
                 </LemonRow>

@@ -673,6 +673,61 @@ describe('funnelDataLogic', () => {
                     },
                 }
 
+                // With Firefox hidden, step.count and the Baseline row are recomputed from
+                // the visible real breakdowns so the displayed totals match the sum of the
+                // rows shown in the legend (136 + 12 = 148 at step 0, 66 + 6 = 72 at step 1).
+                await expectLogic(logic, () => {
+                    logic.actions.updateQuerySource(query)
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
+                }).toMatchValues({
+                    visibleStepsWithConversionMetrics: [
+                        expect.objectContaining({
+                            name: '$pageview',
+                            count: 148,
+                            conversionRates: { fromPrevious: 1, total: 1, fromBasisStep: 1 },
+                        }),
+                        expect.objectContaining({
+                            name: '$pageview',
+                            count: 72,
+                            conversionRates: {
+                                fromPrevious: 72 / 148,
+                                total: 72 / 148,
+                                fromBasisStep: 72 / 148,
+                            },
+                            nested_breakdown: [
+                                expect.objectContaining({
+                                    breakdown_value: 'Baseline',
+                                    count: 72,
+                                }),
+                                expect.objectContaining({
+                                    breakdown_value: ['Chrome'],
+                                    count: 66,
+                                }),
+                                expect.objectContaining({
+                                    breakdown_value: ['Safari'],
+                                    count: 6,
+                                }),
+                            ],
+                        }),
+                    ],
+                })
+            })
+
+            it('preserves original counts when no real breakdown is hidden', async () => {
+                const insight: Partial<InsightModel> = {
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                    },
+                    result: funnelResultWithBreakdown.result,
+                }
+                const query: FunnelsQuery = {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [],
+                    funnelsFilter: {
+                        hiddenLegendBreakdowns: ['Baseline'],
+                    },
+                }
+
                 await expectLogic(logic, () => {
                     logic.actions.updateQuerySource(query)
                     builtDataNodeLogic.actions.loadDataSuccess(insight)
@@ -691,20 +746,6 @@ describe('funnelDataLogic', () => {
                                 total: 0.4925373134328358,
                                 fromBasisStep: 0.4925373134328358,
                             },
-                            nested_breakdown: [
-                                expect.objectContaining({
-                                    breakdown_value: 'Baseline',
-                                    count: 99,
-                                }),
-                                expect.objectContaining({
-                                    breakdown_value: ['Chrome'],
-                                    count: 66,
-                                }),
-                                expect.objectContaining({
-                                    breakdown_value: ['Safari'],
-                                    count: 6,
-                                }),
-                            ],
                         }),
                     ],
                 })
@@ -725,6 +766,9 @@ describe('funnelDataLogic', () => {
                     },
                 }
 
+                // With (Chrome, Mac OS X) hidden, step.count and Baseline are recomputed so
+                // the step total stays internally consistent with the remaining rows.
+                // Step 0: 15 + 5 = 20. Step 1: 8 + 3 = 11.
                 await expectLogic(logic, () => {
                     logic.actions.updateQuerySource(query)
 
@@ -733,21 +777,21 @@ describe('funnelDataLogic', () => {
                     visibleStepsWithConversionMetrics: [
                         expect.objectContaining({
                             name: '$pageview',
-                            count: 69,
+                            count: 20,
                             conversionRates: { fromPrevious: 1, total: 1, fromBasisStep: 1 },
                         }),
                         expect.objectContaining({
                             name: '$pageview',
-                            count: 37,
+                            count: 11,
                             conversionRates: {
-                                fromPrevious: 0.5362318840579711,
-                                total: 0.5362318840579711,
-                                fromBasisStep: 0.5362318840579711,
+                                fromPrevious: 11 / 20,
+                                total: 11 / 20,
+                                fromBasisStep: 11 / 20,
                             },
                             nested_breakdown: [
                                 expect.objectContaining({
                                     breakdown_value: 'Baseline',
-                                    count: 37,
+                                    count: 11,
                                 }),
                                 expect.objectContaining({
                                     breakdown_value: ['Chrome', 'Linux'],

@@ -425,22 +425,28 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         ],
         resultCustomizations: [(s) => [s.funnelsFilter], (funnelsFilter) => funnelsFilter?.resultCustomizations],
         visibleStepsWithConversionMetrics: [
-            (s) => [s.stepsWithConversionMetrics, s.flattenedBreakdowns, s.hiddenLegendBreakdowns],
+            (s) => [s.stepsWithConversionMetrics, s.flattenedBreakdowns, s.hiddenLegendBreakdowns, s.funnelsFilter],
             (
                 steps: FunnelStepWithConversionMetrics[],
                 flattenedBreakdowns: FlattenedFunnelStepByBreakdown[],
-                hiddenLegendBreakdowns: string[] | undefined
+                hiddenLegendBreakdowns: string[] | undefined,
+                funnelsFilter: FunnelsFilter | null | undefined
             ): FunnelStepWithConversionMetrics[] => {
                 const isOnlySeries = flattenedBreakdowns.length <= 1
                 const baseLineSteps = flattenedBreakdowns.find((b) => b.isBaseline)
+                const stepReference = funnelsFilter?.funnelStepReference ?? FunnelStepReference.total
 
                 // Build a breakdown order lookup from flattenedBreakdowns (already sorted
                 // by breakdownSorting) so the graph matches the table order.
                 const breakdownOrder = new Map<string, number>()
                 flattenedBreakdowns.forEach((b, i) => breakdownOrder.set(getVisibilityKey(b.breakdown_value), i))
 
-                return steps.map((step, stepIndex) => {
-                    const nested = (
+                const BASELINE_KEY = getVisibilityKey('Baseline')
+                const isBaselineRow = (value: unknown): boolean =>
+                    getVisibilityKey(value as Parameters<typeof getVisibilityKey>[0]) === BASELINE_KEY
+
+                const nestedPerStep = steps.map((step, stepIndex) => {
+                    return (
                         baseLineSteps?.steps
                             ? [baseLineSteps.steps[stepIndex], ...(step?.nested_breakdown ?? [])]
                             : step?.nested_breakdown
@@ -458,9 +464,54 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                             const bIdx = breakdownOrder.get(getVisibilityKey(b.breakdown_value)) ?? Infinity
                             return aIdx - bIdx
                         })
+                })
+
+                // When a real breakdown row is hidden in the legend, the step's original
+                // count no longer matches the sum of the visible breakdown rows. Recompute
+                // step.count (and the Baseline row, which represents the same total) from
+                // the visible rows so the displayed totals stay internally consistent.
+                const hasRealBreakdowns = (steps[0]?.nested_breakdown?.length ?? 0) > 0
+                const visibleRealAt = (i: number): number =>
+                    (nestedPerStep[i] ?? []).filter((b) => !isBaselineRow(b.breakdown_value)).length
+                const anyRealHidden =
+                    hasRealBreakdowns && steps.some((s, i) => visibleRealAt(i) !== (s?.nested_breakdown?.length ?? 0))
+
+                if (!anyRealHidden) {
+                    return steps.map((step, stepIndex) => ({
+                        ...step,
+                        nested_breakdown: nestedPerStep[stepIndex],
+                    }))
+                }
+
+                const newCounts = steps.map((_, i) =>
+                    (nestedPerStep[i] ?? [])
+                        .filter((b) => !isBaselineRow(b.breakdown_value))
+                        .reduce((acc, b) => acc + (b.count ?? 0), 0)
+                )
+
+                return steps.map((step, stepIndex) => {
+                    const newCount = newCounts[stepIndex]
+                    const firstCount = newCounts[0] || 0
+                    const prevCount = stepIndex > 0 ? newCounts[stepIndex - 1] : newCount
+                    const droppedOffFromPrevious = Math.max(prevCount - newCount, 0)
+                    const total = firstCount === 0 ? 0 : newCount / firstCount
+                    const fromPrevious = stepIndex === 0 ? 1 : prevCount === 0 ? 0 : newCount / prevCount
+                    const fromBasisStep =
+                        stepIndex === 0 ? total : stepReference === FunnelStepReference.total ? total : fromPrevious
+                    const conversionRates = { fromPrevious, total, fromBasisStep }
+
+                    const adjustedNested = (nestedPerStep[stepIndex] ?? []).map((b) =>
+                        isBaselineRow(b.breakdown_value)
+                            ? { ...b, count: newCount, droppedOffFromPrevious, conversionRates }
+                            : b
+                    )
+
                     return {
                         ...step,
-                        nested_breakdown: nested,
+                        count: newCount,
+                        droppedOffFromPrevious,
+                        conversionRates,
+                        nested_breakdown: adjustedNested,
                     }
                 })
             },
