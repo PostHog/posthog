@@ -484,6 +484,11 @@ class SalesforceEndpointPaginator(BasePaginator):
         # when it prepares the next request.
         if self._model_name is None or self._last_record_id is None:
             raise ValueError("Cannot advance paginator: model_name or last_record_id is not set")
+        if self.should_use_incremental_field and self._date_filter is None:
+            # Guards against stale/corrupted resume state that omits the date filter —
+            # without it we would silently drop the SystemModstamp predicate and
+            # over-fetch records.
+            raise ValueError("Cannot advance paginator: date_filter is required for incremental mode")
         date_filter = self._date_filter if self.should_use_incremental_field else None
         if request.params is None:
             request.params = {}

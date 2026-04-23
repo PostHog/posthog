@@ -180,6 +180,18 @@ class TestSalesforceEndpointPaginator:
             "date_filter": "2024-01-01T00:00:00.000+0000",
         }
 
+    def test_init_request_raises_when_resumed_incremental_state_lacks_date_filter(self) -> None:
+        # Guards against stale resume state written by an older version that omits
+        # ``date_filter`` — resuming without it would silently drop the
+        # ``SystemModstamp`` predicate and over-fetch records.
+        paginator = SalesforceEndpointPaginator(should_use_incremental_field=True)
+        paginator.set_resume_state({"model_name": "Lead", "last_record_id": "00QXYZ"})
+
+        request = Request(method="GET", url=f"{INSTANCE_URL}{QUERY_PATH}", params={"q": "initial"})
+
+        with pytest.raises(ValueError, match="date_filter is required"):
+            paginator.init_request(request)
+
     def test_set_resume_state_ignores_incomplete(self) -> None:
         paginator = SalesforceEndpointPaginator(should_use_incremental_field=False)
         paginator.set_resume_state({"model_name": "Lead"})
