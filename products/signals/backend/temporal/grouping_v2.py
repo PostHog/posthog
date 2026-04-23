@@ -18,6 +18,7 @@ from products.signals.backend.temporal.grouping import (
     FetchSignalTypeExamplesOutput,
     _process_signal_batch,
 )
+from products.signals.backend.temporal.metrics import team_meter_attrs
 from products.signals.backend.temporal.types import (
     EmitSignalInputs,
     ReadSignalsFromS3Input,
@@ -29,14 +30,10 @@ PAUSE_SLEEP_SECONDS = 30
 PAUSE_MAX_RUN_DURATION = timedelta(minutes=30)
 
 
-def _team_meter_attrs(team_id: int) -> dict[str, str]:
-    return {"team_id": str(team_id)}
-
-
 def _pending_batches_gauge(team_id: int) -> MetricGauge:
     return (
         workflow.metric_meter()
-        .with_additional_attributes(_team_meter_attrs(team_id))
+        .with_additional_attributes(team_meter_attrs(team_id))
         .create_gauge(
             "signals_grouping_v2_pending_batches",
             "Number of signal batches currently buffered in the grouping v2 workflow, awaiting processing.",
@@ -47,7 +44,7 @@ def _pending_batches_gauge(team_id: int) -> MetricGauge:
 def _batches_received_counter(team_id: int) -> MetricCounter:
     return (
         workflow.metric_meter()
-        .with_additional_attributes(_team_meter_attrs(team_id))
+        .with_additional_attributes(team_meter_attrs(team_id))
         .create_counter(
             "signals_grouping_v2_batches_received",
             "Number of signal batches received by the grouping v2 workflow via submit_batch.",
@@ -58,7 +55,7 @@ def _batches_received_counter(team_id: int) -> MetricCounter:
 def _batches_processed_counter(team_id: int) -> MetricCounter:
     return (
         workflow.metric_meter()
-        .with_additional_attributes(_team_meter_attrs(team_id))
+        .with_additional_attributes(team_meter_attrs(team_id))
         .create_counter(
             "signals_grouping_v2_batches_processed",
             "Number of signal batches successfully processed by the grouping v2 workflow.",
@@ -69,7 +66,7 @@ def _batches_processed_counter(team_id: int) -> MetricCounter:
 def _batch_errors_counter(team_id: int) -> MetricCounter:
     return (
         workflow.metric_meter()
-        .with_additional_attributes(_team_meter_attrs(team_id))
+        .with_additional_attributes(team_meter_attrs(team_id))
         .create_counter(
             "signals_grouping_v2_batch_errors",
             "Number of signal batches that failed to be processed by the grouping v2 workflow.",
@@ -115,7 +112,10 @@ class TeamSignalGroupingV2Workflow:
     async def submit_batch(self, object_key: str) -> None:
         """Receive an S3 object key containing a batch of signals."""
         self._batch_key_buffer.append(object_key)
-        # team_id is set in run(); signals are only dispatched once run() is active.
+        # Temporal dispatches signal handlers only after `run()` has reached an await,
+        # and `run()` sets `_team_id` before its first await — so in practice this is
+        # always set. The guard protects against edge cases (replay during worker
+        # restart, future signature changes) without regressing to an unlabeled metric.
         if self._team_id is not None:
             _batches_received_counter(self._team_id).add(1)
             _pending_batches_gauge(self._team_id).set(len(self._batch_key_buffer))
@@ -151,6 +151,14 @@ class TeamSignalGroupingV2Workflow:
     async def run(self, input: TeamSignalGroupingV2Input) -> None:
         # Restore state carried over from continue_as_new
         self._team_id = input.team_id
+        # Back-fill the received counter for any batches that arrived via
+        # signal-with-start before this workflow began executing. `pending_batch_keys`
+        # is populated by continue_as_new and was already counted in the prior
+        # instance, so only items already present in `_batch_key_buffer` from
+        # signal handlers need to be counted here.
+        pre_run_batches = len(self._batch_key_buffer)
+        if pre_run_batches > 0:
+            _batches_received_counter(input.team_id).add(pre_run_batches)
         self._batch_key_buffer.extend(input.pending_batch_keys)
         self._paused_until = input.paused_until
         start_time = workflow.now()
@@ -198,7 +206,10 @@ class TeamSignalGroupingV2Workflow:
                 cached = None
 
             try:
-                dropped, type_examples = await _process_signal_batch(signals, cached_type_examples=cached)
+                # Per-signal drops are already tracked via the labeled
+                # `signals_grouping_signals_batch_dropped` counter inside
+                # `_process_signal_batch`, so we discard the aggregate count here.
+                _dropped, type_examples = await _process_signal_batch(signals, cached_type_examples=cached)
                 self._cached_type_examples = type_examples
                 self._type_examples_fetched_at = self._type_examples_fetched_at if cached is not None else now
                 _batches_processed_counter(input.team_id).add(1)

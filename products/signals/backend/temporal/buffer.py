@@ -17,28 +17,17 @@ from posthog.storage import object_storage
 from posthog.temporal.common.client import async_connect
 
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
+from products.signals.backend.temporal.metrics import source_meter_attrs, team_meter_attrs
 from products.signals.backend.temporal.safety_filter import SafetyFilterInput, safety_filter_activity
 from products.signals.backend.temporal.types import BufferSignalsInput, EmitSignalInputs, TeamSignalGroupingV2Input
 
 logger = structlog.get_logger(__name__)
 
 
-def _team_meter_attrs(team_id: int) -> dict[str, str]:
-    return {"team_id": str(team_id)}
-
-
-def _source_meter_attrs(team_id: int, source_product: str, source_type: str) -> dict[str, str]:
-    return {
-        "team_id": str(team_id),
-        "source_product": source_product,
-        "source_type": source_type,
-    }
-
-
 def _buffer_size_gauge(team_id: int) -> MetricGauge:
     return (
         workflow.metric_meter()
-        .with_additional_attributes(_team_meter_attrs(team_id))
+        .with_additional_attributes(team_meter_attrs(team_id))
         .create_gauge(
             "signals_buffer_current_size",
             "Number of signals currently buffered in the buffer workflow, awaiting flush.",
@@ -49,7 +38,7 @@ def _buffer_size_gauge(team_id: int) -> MetricGauge:
 def _signals_received_counter(team_id: int, source_product: str, source_type: str) -> MetricCounter:
     return (
         workflow.metric_meter()
-        .with_additional_attributes(_source_meter_attrs(team_id, source_product, source_type))
+        .with_additional_attributes(source_meter_attrs(team_id, source_product, source_type))
         .create_counter(
             "signals_buffer_signals_received",
             "Number of signals received by the buffer workflow via submit_signal.",
@@ -60,7 +49,7 @@ def _signals_received_counter(team_id: int, source_product: str, source_type: st
 def _signals_safety_dropped_counter(team_id: int, source_product: str, source_type: str) -> MetricCounter:
     return (
         workflow.metric_meter()
-        .with_additional_attributes(_source_meter_attrs(team_id, source_product, source_type))
+        .with_additional_attributes(source_meter_attrs(team_id, source_product, source_type))
         .create_counter(
             "signals_buffer_signals_safety_dropped",
             "Number of signals dropped by the safety filter before flushing to object storage.",
@@ -71,7 +60,7 @@ def _signals_safety_dropped_counter(team_id: int, source_product: str, source_ty
 def _signals_flushed_counter(team_id: int) -> MetricCounter:
     return (
         workflow.metric_meter()
-        .with_additional_attributes(_team_meter_attrs(team_id))
+        .with_additional_attributes(team_meter_attrs(team_id))
         .create_counter(
             "signals_buffer_signals_flushed",
             "Number of safe signals flushed to object storage from the buffer workflow.",
@@ -82,7 +71,7 @@ def _signals_flushed_counter(team_id: int) -> MetricCounter:
 def _batches_flushed_counter(team_id: int) -> MetricCounter:
     return (
         workflow.metric_meter()
-        .with_additional_attributes(_team_meter_attrs(team_id))
+        .with_additional_attributes(team_meter_attrs(team_id))
         .create_counter(
             "signals_buffer_batches_flushed",
             "Number of signal batches flushed from the buffer workflow to the grouping v2 workflow.",
@@ -198,7 +187,10 @@ class BufferSignalsWorkflow:
     @temporalio.workflow.signal
     async def submit_signal(self, signal: EmitSignalInputs) -> None:
         self._signal_buffer.append(signal)
-        # team_id is set in run(); signals are only dispatched once run() is active.
+        # Temporal dispatches signal handlers only after `run()` has reached an await,
+        # and `run()` sets `_team_id` before its first await — so in practice this is
+        # always set. The guard protects against edge cases (replay during worker
+        # restart, future signature changes) without regressing to an unlabeled metric.
         if self._team_id is not None:
             _signals_received_counter(self._team_id, signal.source_product, signal.source_type).add(1)
             _buffer_size_gauge(self._team_id).set(len(self._signal_buffer))
@@ -206,6 +198,13 @@ class BufferSignalsWorkflow:
     @temporalio.workflow.run
     async def run(self, input: BufferSignalsInput) -> None:
         self._team_id = input.team_id
+        # Back-fill the received counter for any signals that arrived via
+        # signal-with-start before this workflow began executing. `pending_signals`
+        # is populated by continue_as_new and was already counted in the prior
+        # instance, so only items already present in `_signal_buffer` from
+        # signal handlers need to be counted here.
+        for pre_run_signal in self._signal_buffer:
+            _signals_received_counter(input.team_id, pre_run_signal.source_product, pre_run_signal.source_type).add(1)
         self._signal_buffer.extend(input.pending_signals)
         _buffer_size_gauge(input.team_id).set(len(self._signal_buffer))
 

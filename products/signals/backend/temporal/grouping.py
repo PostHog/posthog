@@ -27,6 +27,7 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalReport
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
+from products.signals.backend.temporal.metrics import source_meter_attrs
 from products.signals.backend.temporal.signal_queries import (
     EMBEDDING_MODEL,
     FetchSignalsForReportInput,
@@ -69,13 +70,7 @@ MAX_QUERIES = 3
 def _signal_emitted_counter(team_id: int, source_product: str, source_type: str) -> MetricCounter:
     return (
         workflow.metric_meter()
-        .with_additional_attributes(
-            {
-                "team_id": str(team_id),
-                "source_product": source_product,
-                "source_type": source_type,
-            }
-        )
+        .with_additional_attributes(source_meter_attrs(team_id, source_product, source_type))
         .create_counter(
             "signals_grouping_signals_emitted",
             "Number of signals successfully assigned to a report and emitted to ClickHouse.",
@@ -86,13 +81,7 @@ def _signal_emitted_counter(team_id: int, source_product: str, source_type: str)
 def _signal_batch_dropped_counter(team_id: int, source_product: str, source_type: str) -> MetricCounter:
     return (
         workflow.metric_meter()
-        .with_additional_attributes(
-            {
-                "team_id": str(team_id),
-                "source_product": source_product,
-                "source_type": source_type,
-            }
-        )
+        .with_additional_attributes(source_meter_attrs(team_id, source_product, source_type))
         .create_counter(
             "signals_grouping_signals_batch_dropped",
             "Number of signals dropped during per-signal batch processing (matching/assignment/emission failed).",
