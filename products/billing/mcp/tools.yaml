@@ -26,7 +26,7 @@ tools:
             time-series breakdowns of usage call billing-usage-retrieve; for cost (spend)
             breakdowns call billing-spend-retrieve. To check whether the customer has access
             to a specific feature (e.g. group analytics, white-labelling), inspect
-            `available_features` in the response.
+            `available_product_features` in the response.
         url_prefix: /organization/billing/overview
         exclude_params:
             - limit
