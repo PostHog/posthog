@@ -1,6 +1,11 @@
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+// Imported from the source module rather than the `@posthog/lemon-ui` barrel so that the
+// spy below replaces `.error` on the same `lemonToast` singleton that `paymentEntryLogic`
+// calls at runtime. `jest.mock('@posthog/lemon-ui', ...)` did not propagate through the
+// barrel's re-export chain — spying on the shared object avoids that issue.
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
@@ -10,12 +15,7 @@ import { initKeaTests } from '~/test/init'
 import { BillingType } from '~/types'
 
 const seedBilling = async (billing: Partial<BillingType> | null): Promise<void> => {
-    useMocks({
-        get: {
-            '/api/billing/': () => [200, billing ?? {}],
-            '/api/billing': () => [200, billing ?? {}],
-        },
-    })
+    useMocks({ get: { '/api/billing': () => [200, billing ?? {}] } })
     billingLogic.mount()
     await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
 }
@@ -64,7 +64,8 @@ describe('paymentEntryLogic', () => {
         })
 
         it('surfaces a toast when activate throws', async () => {
-            setupActivate([500, { detail: 'boom' }])
+            // 500 body is unused — api.create rejects on non-2xx before reading JSON.
+            setupActivate([500])
 
             await expectLogic(logic, () => logic.actions.startPaymentEntryFlow()).toFinishAllListeners()
 
@@ -83,6 +84,22 @@ describe('paymentEntryLogic', () => {
             expect(logic.values.paymentEntryModalOpen).toBe(true)
             expect(logic.values.redirectPath).toBe('/replay/home')
             expect(toastErrorSpy).not.toHaveBeenCalled()
+        })
+
+        it('redirects with upgraded=true when activate succeeds', async () => {
+            setupActivate([200, { success: true }])
+            const pushSpy = jest.spyOn(router.actions, 'push')
+
+            await expectLogic(logic, () =>
+                logic.actions.startPaymentEntryFlow(null, '/project/1/replay/home?foo=bar')
+            ).toFinishAllListeners()
+
+            expect(pushSpy).toHaveBeenCalledWith(
+                '/project/1/replay/home',
+                expect.objectContaining({ foo: 'bar', upgraded: 'true' })
+            )
+            expect(toastErrorSpy).not.toHaveBeenCalled()
+            expect(logic.values.paymentEntryModalOpen).toBe(false)
         })
     })
 
