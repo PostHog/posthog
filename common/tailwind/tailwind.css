@@ -12,6 +12,16 @@
 /* Scan Quill's compiled JS for Tailwind class strings */
 @import '@posthog/quill/tailwind.css';
 
+/* Undo quill's font-family overrides — PostHog owns its own font stack.
+ * Quill's @theme inline registers --font-sans and --font-mono globally
+ * which would replace PostHog's fonts. Reset to Tailwind v4 defaults. */
+@theme inline {
+    --font-sans:
+        ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
+        'Noto Color Emoji';
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+}
+
 /* if this shows a warning, change the type of file in vscode to 'tailwind CSS' */
 @config "./tailwind.config.js";
 
