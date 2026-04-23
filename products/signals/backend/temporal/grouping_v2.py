@@ -29,6 +29,7 @@ PAUSE_SLEEP_SECONDS = 30
 PAUSE_MAX_RUN_DURATION = timedelta(minutes=30)
 BATCH_COLLECT_MAX_SIGNALS = 20
 BATCH_COLLECT_TIMEOUT = timedelta(seconds=30)
+RETRY_BACKOFF = timedelta(seconds=10)
 
 
 @dataclass
@@ -107,9 +108,10 @@ class TeamSignalGroupingV2Workflow:
         deadline = workflow.now() + BATCH_COLLECT_TIMEOUT
 
         while len(collected.signals) < BATCH_COLLECT_MAX_SIGNALS:
+            if workflow.now() >= deadline:
+                break
+
             if not self._batch_key_buffer:
-                if workflow.now() >= deadline:
-                    break
                 try:
                     await workflow.wait_condition(
                         lambda: len(self._batch_key_buffer) > 0 or self._is_paused(),
@@ -180,8 +182,10 @@ class TeamSignalGroupingV2Workflow:
                     batch_size=len(collected.signals),
                     batch_keys=collected.object_keys,
                 )
-                # Stash keys back so they're retried after continue_as_new
+                # Stash keys back so they're retried after continue_as_new.
+                # Sleep first to avoid hot-looping on deterministic failures.
                 self._batch_key_buffer = collected.object_keys + self._batch_key_buffer
+                await workflow.sleep(RETRY_BACKOFF)
 
             # continue_as_new after each processing round to keep history bounded.
             # Carry over any pending keys that arrived while we were processing.
