@@ -9,6 +9,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { updatedAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { urls } from '~/scenes/urls'
 
+import { LLMAnalyticsReviewsExport } from './LLMAnalyticsReviewsExport'
 import { llmAnalyticsReviewsLogic, TRACE_REVIEWS_PER_PAGE } from './llmAnalyticsReviewsLogic'
 import { TraceReviewValue } from './TraceReviewValue'
 import type { TraceReview } from './types'
@@ -125,7 +126,10 @@ export function LLMAnalyticsReviews({ tabId }: { tabId?: string }): JSX.Element 
                         data-attr="llma-trace-reviews-definition-filter"
                     />
                 </div>
-                <div className="text-muted-alt">{reviewCountLabel}</div>
+                <div className="flex gap-x-4 items-center flex-wrap">
+                    <div className="text-muted-alt">{reviewCountLabel}</div>
+                    <LLMAnalyticsReviewsExport tabId={tabId} />
+                </div>
             </div>
 
             <LemonTable
