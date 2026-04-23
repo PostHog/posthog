@@ -71,7 +71,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     serializer_class = ErrorTrackingSymbolSetSerializer
     parser_classes = [MultiPartParser, FileUploadParser]
     throttle_classes = [SymbolSetUploadBurstRateThrottle, SymbolSetUploadSustainedRateThrottle]
-    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_read_actions = ["list", "retrieve", "download"]
     scope_object_write_actions = [
         "bulk_start_upload",
         "bulk_finish_upload",
@@ -85,8 +85,12 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     def safely_get_queryset(self, queryset):
         queryset = queryset.filter(team_id=self.team.id).select_related("release")
         params = self.request.GET.dict()
+        ref = params.get("ref")
         status = params.get("status")
         order_by = params.get("order_by")
+
+        if ref:
+            queryset = queryset.filter(ref=ref)
 
         if status == "valid":
             queryset = queryset.filter(storage_ptr__isnull=False)
@@ -115,6 +119,34 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         symbol_sets = ErrorTrackingSymbolSet.objects.filter(team=self.team, id__in=ids)
         deleted_count, _ = symbol_sets.delete()
         return Response({"deleted": deleted_count}, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        responses={200: serializers.DictField(help_text="Presigned URL to download the source map file")},
+    )
+    @action(methods=["GET"], detail=True, parser_classes=[JSONParser])
+    def download(self, request, **kwargs) -> Response:
+        """Return a presigned URL for downloading the symbol set's source map."""
+        return self._download_symbol_set(self.get_object())
+
+    def _download_symbol_set(self, symbol_set: ErrorTrackingSymbolSet) -> Response:
+        if not symbol_set.storage_ptr:
+            return Response(
+                {"detail": "Symbol set has no uploaded file."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        presigned_url = object_storage.get_presigned_url(
+            file_key=symbol_set.storage_ptr,
+            expiration=3600,
+        )
+
+        if not presigned_url:
+            return Response(
+                {"detail": "Could not generate download URL."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        return Response({"url": presigned_url}, status=status.HTTP_200_OK)
 
     def list(self, request, *args, **kwargs) -> Response:
         queryset = self.filter_queryset(self.get_queryset())
