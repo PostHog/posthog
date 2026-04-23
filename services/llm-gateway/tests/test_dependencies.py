@@ -1,4 +1,5 @@
 import json
+from collections.abc import Generator
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -210,7 +211,7 @@ class TestEnforceThrottles:
 
 class TestResolveBillingTeam:
     @pytest.fixture(autouse=True)
-    def reset_request_context(self) -> None:
+    def reset_request_context(self) -> Generator[None, None, None]:
         set_request_context(RequestContext(request_id="req-1"))
         yield
         request_context_var.set(None)
