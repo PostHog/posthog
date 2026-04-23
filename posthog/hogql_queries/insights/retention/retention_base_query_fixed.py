@@ -151,7 +151,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                         """
                     ),
                 ),
-                date_range_expr,
+                self._date_range_alias(),
                 ast.Alias(
                     alias="return_event_timestamps",
                     expr=parse_expr(
@@ -487,25 +487,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             # when TARGET_FIRST_TIME, also adds filter for start (target) event performed for first time
             ast.Alias(alias="start_event_timestamps", expr=start_event_timestamps),
             # get all intervals between date_from and date_to (represented by start of interval)
-            ast.Alias(
-                alias="date_range",
-                expr=parse_expr(
-                    """
-                        arrayMap(
-                            x -> {date_from_start_of_interval} + {to_interval_function},
-                            range(0, {intervals_between})
-                        )
-                    """,
-                    {
-                        "intervals_between": ast.Constant(value=self.query_date_range.intervals_between),
-                        "date_from_start_of_interval": self.query_date_range.date_from_to_start_of_interval_hogql(),
-                        "to_interval_function": ast.Call(
-                            name=f"toInterval{self.query_date_range.interval_name.capitalize()}",
-                            args=[ast.Field(chain=["x"])],
-                        ),
-                    },
-                ),
-            ),
+            self._date_range_alias(),
             *minimum_occurrences_aliases,
         ]
 
@@ -626,6 +608,27 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             ),
         )
         return [return_event_timestamps_with_dupes, return_event_counts_by_interval]
+
+    def _date_range_alias(self) -> ast.Alias:
+        return ast.Alias(
+            alias="date_range",
+            expr=parse_expr(
+                """
+                    arrayMap(
+                        x -> {date_from_start_of_interval} + {to_interval_function},
+                        range(0, {intervals_between})
+                    )
+                """,
+                {
+                    "intervals_between": ast.Constant(value=self.query_date_range.intervals_between),
+                    "date_from_start_of_interval": self.query_date_range.date_from_to_start_of_interval_hogql(),
+                    "to_interval_function": ast.Call(
+                        name=f"toInterval{self.query_date_range.interval_name.capitalize()}",
+                        args=[ast.Field(chain=["x"])],
+                    ),
+                },
+            ),
+        )
 
     def _get_return_event_timestamps_expr(
         self, minimum_occurrences: int, start_of_interval_sql: ast.Expr, return_entity_expr: ast.Expr
