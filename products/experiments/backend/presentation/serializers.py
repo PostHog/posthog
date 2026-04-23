@@ -79,6 +79,11 @@ class CreateFeatureFlagInputSerializer(serializers.Serializer):
         if len(variant_keys) != len(set(variant_keys)):
             raise serializers.ValidationError("Feature flag variant keys must be unique")
 
+        # Validate rollout percentages sum to 100
+        total_percentage = sum(variant.get("rollout_percentage", 0) for variant in value)
+        if total_percentage != 100:
+            raise serializers.ValidationError(f"Variant rollout percentages must sum to 100, got {total_percentage}")
+
         return value
 
     def to_dto(self) -> CreateFeatureFlagInput:
@@ -171,6 +176,13 @@ class ExperimentCreateSerializer(serializers.Serializer):
             if len(variant_keys) != len(set(variant_keys)):
                 raise serializers.ValidationError("Feature flag variant keys must be unique")
 
+            # Validate rollout percentages sum to 100
+            total_percentage = sum(variant.get("rollout_percentage", 0) for variant in variants)
+            if total_percentage != 100:
+                raise serializers.ValidationError(
+                    f"Variant rollout percentages must sum to 100, got {total_percentage}"
+                )
+
         return value
 
     def validate(self, attrs):
@@ -178,11 +190,16 @@ class ExperimentCreateSerializer(serializers.Serializer):
         has_parameters = attrs.get("parameters") is not None and "feature_flag_variants" in attrs.get("parameters", {})
         has_feature_flag_filters = attrs.get("feature_flag_filters") is not None
 
+        # Cannot provide both formats
         if has_parameters and has_feature_flag_filters:
             raise serializers.ValidationError(
                 "Cannot provide both 'parameters.feature_flag_variants' and 'feature_flag_filters'. "
                 "Please use only one format."
             )
+
+        # Must provide at least one format (for experiments that create new flags)
+        # Note: If neither is provided, the facade will use default variants
+        # This is intentionally permissive to allow minimal experiment creation
 
         return attrs
 

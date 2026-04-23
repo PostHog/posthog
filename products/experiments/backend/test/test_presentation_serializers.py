@@ -376,6 +376,43 @@ class TestExperimentCreateSerializer:
         assert dto.feature_flag_filters.variants[1].key == "test_a"
         assert dto.feature_flag_filters.rollout_percentage == 80
 
+    def test_validate_rollout_percentages_sum_to_100(self):
+        """Test that rollout percentages must sum to 100."""
+        data = {
+            "name": "Invalid Percentages",
+            "feature_flag_key": "invalid-flag",
+            "feature_flag_filters": {
+                "key": "invalid-flag",
+                "variants": [
+                    {"key": "control", "rollout_percentage": 40},
+                    {"key": "test", "rollout_percentage": 40},  # Sum = 80, not 100
+                ],
+            },
+        }
+
+        serializer = ExperimentCreateSerializer(data=data, context={"get_team": lambda: self.team})
+        assert not serializer.is_valid()
+        assert "feature_flag_filters" in serializer.errors
+        assert "sum to 100" in str(serializer.errors).lower()
+
+    def test_validate_rollout_percentages_old_format(self):
+        """Test that rollout percentages must sum to 100 in old format too."""
+        data = {
+            "name": "Invalid Old Format",
+            "feature_flag_key": "invalid-old-flag",
+            "parameters": {
+                "feature_flag_variants": [
+                    {"key": "control", "rollout_percentage": 60},
+                    {"key": "test", "rollout_percentage": 60},  # Sum = 120, not 100
+                ],
+            },
+        }
+
+        serializer = ExperimentCreateSerializer(data=data, context={"get_team": lambda: self.team})
+        assert not serializer.is_valid()
+        assert "parameters" in serializer.errors
+        assert "sum to 100" in str(serializer.errors).lower()
+
     def test_validate_control_variant_required(self):
         """Test that control variant is required in new format."""
         data = {
