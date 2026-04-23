@@ -170,6 +170,20 @@ def list_chunks_for_source(source_id: UUID, team_id: int, limit: int = 50) -> li
     )
 
 
+def get_source_text_for_team(source_id: UUID, team_id: int) -> str | None:
+    """
+    Returns the raw text of a text-type source. Stage 1 has exactly one
+    document per source, so this is a single row fetch. For future URL/file
+    sources with many documents, this concatenates in stable order — not a
+    real "view" affordance but good enough to round-trip into the edit modal.
+    """
+
+    if not KnowledgeSource.objects.filter(id=source_id, team_id=team_id).exists():
+        return None
+    documents = KnowledgeDocument.objects.filter(team_id=team_id, source_id=source_id).order_by("created_at")
+    return "\n\n".join(d.content for d in documents)
+
+
 # --- Mutations ---------------------------------------------------------------
 
 
@@ -237,6 +251,86 @@ def create_text_source(
     source.status = SourceStatus.READY
     source.save(update_fields=["status", "updated_at"])
     # Refresh annotations so the returned instance has accurate counts.
+    return get_for_team(source.id, team_id) or source
+
+
+@transaction.atomic
+def update_text_source(
+    *,
+    source_id: UUID,
+    team_id: int,
+    name: str | None,
+    text: str | None,
+) -> KnowledgeSource | None:
+    """
+    Stage 1 edit path.
+
+    - name-only edit: single UPDATE, no re-chunk.
+    - text edit: delete documents+chunks for this source and rebuild from the
+      new content. We keep the source row (and its id) so agents' in-flight
+      prompts don't go stale on re-lookup. Same byte/chunk quota rules apply
+      to the new text.
+
+    Returns the refreshed source (with annotated counts) or None if the
+    source doesn't belong to this team.
+    """
+
+    try:
+        source = KnowledgeSource.objects.get(id=source_id, team_id=team_id)
+    except KnowledgeSource.DoesNotExist:
+        return None
+
+    if text is not None:
+        if len(text.encode("utf-8")) > MAX_TEXT_SIZE_BYTES:
+            raise TextTooLargeError(f"Text exceeds {MAX_TEXT_SIZE_BYTES} bytes.")
+        chunks = chunk_text(text)
+        # Post-chunk budget check. Existing chunks for this source are about to
+        # be deleted, so subtract them before comparing to the cap.
+        existing_chunks_for_source = KnowledgeChunk.objects.filter(team_id=team_id, source_id=source_id).count()
+        if _count_chunks(team_id) - existing_chunks_for_source + len(chunks) > MAX_CHUNKS_PER_TEAM:
+            raise QuotaExceededError(f"Team already near the {MAX_CHUNKS_PER_TEAM} chunk cap.")
+
+        source.status = SourceStatus.PROCESSING
+        update_fields = ["status", "updated_at"]
+        if name is not None:
+            source.name = name
+            update_fields.append("name")
+        source.save(update_fields=update_fields)
+
+        KnowledgeChunk.objects.filter(team_id=team_id, source_id=source_id).delete()
+        KnowledgeDocument.objects.filter(team_id=team_id, source_id=source_id).delete()
+
+        document_id = uuid.uuid4()
+        document = KnowledgeDocument.objects.create(
+            id=document_id,
+            team_id=team_id,
+            source=source,
+            stable_id=str(document_id),
+            title=name if name is not None else source.name,
+            content=text,
+            metadata={"source_type": SourceType.TEXT},
+        )
+        KnowledgeChunk.objects.bulk_create(
+            [
+                KnowledgeChunk(
+                    id=_chunk_id(document.stable_id, c.heading_path, c.ordinal),
+                    team_id=team_id,
+                    source=source,
+                    document=document,
+                    heading_path=c.heading_path,
+                    ordinal=c.ordinal,
+                    content=c.content,
+                    char_count=len(c.content),
+                )
+                for c in chunks
+            ]
+        )
+        source.status = SourceStatus.READY
+        source.save(update_fields=["status", "updated_at"])
+    elif name is not None:
+        source.name = name
+        source.save(update_fields=["name", "updated_at"])
+
     return get_for_team(source.id, team_id) or source
 
 

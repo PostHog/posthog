@@ -38,6 +38,19 @@ class CreateTextSourceInput:
 
 
 @dataclass(frozen=True)
+class UpdateTextSourceInput:
+    """
+    Input for updating a text-type knowledge source. Either field may be None
+    to leave it untouched; when `text` is provided the source is re-chunked.
+    """
+
+    source_id: UUID
+    team_id: int
+    name: str | None
+    text: str | None
+
+
+@dataclass(frozen=True)
 class KnowledgeChunkPreviewDTO:
     """Slim projection returned on chunk previews (settings UI, debug)."""
 

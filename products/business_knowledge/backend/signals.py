@@ -1,11 +1,19 @@
 """Activity-log hook for KnowledgeSource create/update/delete."""
 
 import dataclasses
+from typing import Any
 
 import structlog
 
-from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import (
+    ActivityContextBase,
+    ActivityScope,
+    Detail,
+    changes_between,
+    log_activity,
+)
 from posthog.models.signals import model_activity_signal, mutable_receiver
+from posthog.models.user import User
 
 from .models import KnowledgeSource
 
@@ -21,8 +29,15 @@ class KnowledgeSourceContext(ActivityContextBase):
 
 @mutable_receiver(model_activity_signal, sender=KnowledgeSource)
 def handle_knowledge_source_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
+    sender: type[KnowledgeSource],
+    scope: ActivityScope,
+    before_update: KnowledgeSource | None,
+    after_update: KnowledgeSource | None,
+    activity: str,
+    user: User | None,
+    was_impersonated: bool = False,
+    **kwargs: Any,
+) -> None:
     instance: KnowledgeSource | None = after_update or before_update
     if instance is None:
         return

@@ -14,6 +14,7 @@ from django.db.models import QuerySet
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -25,7 +26,7 @@ from posthog.permissions import APIScopePermission
 from ..facade import api, contracts
 from ..logic import QuotaExceededError, TextTooLargeError
 from ..models import KnowledgeSource
-from .serializers import CreateTextSourceSerializer, KnowledgeSourceSerializer
+from .serializers import CreateTextSourceSerializer, KnowledgeSourceSerializer, UpdateTextSourceSerializer
 
 
 @extend_schema(tags=["business_knowledge"])
@@ -84,6 +85,46 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if dto is None:
             raise exceptions.NotFound()
         return Response(KnowledgeSourceSerializer(instance=dto).data)
+
+    @extend_schema(
+        request=UpdateTextSourceSerializer,
+        responses={200: KnowledgeSourceSerializer},
+    )
+    def partial_update(self, request: Request, pk: str, **kwargs) -> Response:
+        try:
+            source_id = UUID(pk)
+        except (ValueError, DjangoValidationError):
+            raise exceptions.NotFound()
+        serializer = UpdateTextSourceSerializer(data=request.data, context=self.get_serializer_context())
+        serializer.is_valid(raise_exception=True)
+        try:
+            dto = api.update_text_source(
+                contracts.UpdateTextSourceInput(
+                    source_id=source_id,
+                    team_id=self.team_id,
+                    name=serializer.validated_data.get("name"),
+                    text=serializer.validated_data.get("text"),
+                )
+            )
+        except TextTooLargeError:
+            raise exceptions.ValidationError({"text": "Text exceeds the maximum allowed size."})
+        except QuotaExceededError:
+            raise exceptions.Throttled(detail="Knowledge source quota exceeded for this project.")
+        if dto is None:
+            raise exceptions.NotFound()
+        return Response(KnowledgeSourceSerializer(instance=dto).data)
+
+    @extend_schema(responses={200: {"type": "object", "properties": {"text": {"type": "string"}}}})
+    @action(detail=True, methods=["get"], url_path="text")
+    def text(self, request: Request, pk: str, **kwargs) -> Response:
+        try:
+            source_id = UUID(pk)
+        except (ValueError, DjangoValidationError):
+            raise exceptions.NotFound()
+        content = api.get_source_text(source_id, self.team_id)
+        if content is None:
+            raise exceptions.NotFound()
+        return Response({"text": content})
 
     @extend_schema(responses={204: None})
     def destroy(self, request: Request, pk: str, **kwargs) -> Response:

@@ -24,7 +24,7 @@ export interface KnowledgeSource {
     updated_at: string | null
 }
 
-export interface CreateTextFormValues {
+export interface TextSourceFormValues {
     name: string
     text: string
 }
@@ -35,11 +35,27 @@ function apiUrl(): string {
     return `api/environments/${getCurrentTeamId()}/business_knowledge/sources`
 }
 
+function validateText({ name, text }: TextSourceFormValues): {
+    name: string | undefined
+    text: string | undefined
+} {
+    return {
+        name: !name.trim() ? 'Give the source a short name' : undefined,
+        text: !text.trim()
+            ? 'Paste some content'
+            : new Blob([text]).size > MAX_TEXT_BYTES
+              ? 'Text exceeds the 1 MB cap — split it into smaller sources'
+              : undefined,
+    }
+}
+
 export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
     path(['products', 'business_knowledge', 'businessKnowledgeLogic']),
     actions({
         openCreateModal: true,
         closeCreateModal: true,
+        openEditModal: (source: KnowledgeSource) => ({ source }),
+        closeEditModal: true,
         deleteSource: (id: string) => ({ id }),
     }),
     reducers({
@@ -48,6 +64,13 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
             {
                 openCreateModal: () => true,
                 closeCreateModal: () => false,
+            },
+        ],
+        editingSource: [
+            null as KnowledgeSource | null,
+            {
+                openEditModal: (_, { source }) => source,
+                closeEditModal: () => null,
             },
         ],
     }),
@@ -60,21 +83,26 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                     return (response.results ?? response ?? []) as KnowledgeSource[]
                 },
                 removeSourceFromList: ({ id }: { id: string }) => values.sources.filter((s) => s.id !== id),
+                replaceSourceInList: ({ source }: { source: KnowledgeSource }) =>
+                    values.sources.map((s) => (s.id === source.id ? source : s)),
+            },
+        ],
+        editingSourceText: [
+            '' as string,
+            {
+                loadEditingSourceText: async ({ id }: { id: string }) => {
+                    const response = await api.get<{ text: string }>(`${apiUrl()}/${id}/text`)
+                    return response.text ?? ''
+                },
+                resetEditingSourceText: () => '',
             },
         ],
     })),
-    forms(({ actions }) => ({
+    forms(({ actions, values }) => ({
         textSource: {
-            defaults: { name: '', text: '' } as CreateTextFormValues,
-            errors: ({ name, text }: CreateTextFormValues) => ({
-                name: !name.trim() ? 'Give the source a short name' : undefined,
-                text: !text.trim()
-                    ? 'Paste some content'
-                    : new Blob([text]).size > MAX_TEXT_BYTES
-                      ? 'Text exceeds the 1 MB cap — split it into smaller sources'
-                      : undefined,
-            }),
-            submit: async ({ name, text }: CreateTextFormValues) => {
+            defaults: { name: '', text: '' } as TextSourceFormValues,
+            errors: validateText,
+            submit: async ({ name, text }: TextSourceFormValues) => {
                 try {
                     const created = await api.create<KnowledgeSource>(apiUrl(), { name, text })
                     lemonToast.success(`"${created.name}" indexed into ${created.chunk_count} chunks`)
@@ -91,8 +119,33 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                 }
             },
         },
+        editSource: {
+            defaults: { name: '', text: '' } as TextSourceFormValues,
+            errors: validateText,
+            submit: async ({ name, text }: TextSourceFormValues) => {
+                const current = values.editingSource
+                if (!current) {
+                    return
+                }
+                try {
+                    const updated = await api.update<KnowledgeSource>(`${apiUrl()}/${current.id}`, { name, text })
+                    lemonToast.success(`"${updated.name}" re-indexed into ${updated.chunk_count} chunks`)
+                    actions.replaceSourceInList({ source: updated })
+                    actions.closeEditModal()
+                    actions.resetEditSource()
+                    actions.resetEditingSourceText()
+                } catch (error: any) {
+                    lemonToast.error(
+                        error?.detail ||
+                            error?.data?.detail ||
+                            'Could not save the changes. Check the error and try again.'
+                    )
+                    throw error
+                }
+            },
+        },
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         deleteSource: async ({ id }) => {
             try {
                 await api.delete(`${apiUrl()}/${id}`)
@@ -101,6 +154,19 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
             } catch (error: any) {
                 lemonToast.error(error?.detail || 'Could not delete the source.')
             }
+        },
+        openEditModal: ({ source }) => {
+            actions.setEditSourceValues({ name: source.name, text: '' })
+            actions.loadEditingSourceText({ id: source.id })
+        },
+        loadEditingSourceTextSuccess: ({ editingSourceText }) => {
+            if (values.editingSource) {
+                actions.setEditSourceValue('text', editingSourceText)
+            }
+        },
+        closeEditModal: () => {
+            actions.resetEditSource()
+            actions.resetEditingSourceText()
         },
     })),
     selectors({
@@ -112,6 +178,7 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
             (s) => [s.sources],
             (sources: KnowledgeSource[]) => sources.reduce((sum, s) => sum + (s.chunk_count || 0), 0),
         ],
+        isEditModalOpen: [(s) => [s.editingSource], (editingSource: KnowledgeSource | null) => editingSource !== null],
     }),
     afterMount(({ actions }) => {
         actions.loadSources()

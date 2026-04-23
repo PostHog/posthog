@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconBook, IconPlusSmall, IconTrash } from '@posthog/icons'
+import { IconBook, IconPencil, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -9,6 +9,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -30,9 +31,27 @@ function StatusTag({ status }: { status: KnowledgeSource['status'] }): JSX.Eleme
 
 export function BusinessKnowledgeScene(): JSX.Element {
     const isEnabled = useFeatureFlag('PRODUCT_BUSINESS_KNOWLEDGE')
-    const { sources, sourcesLoading, isCreateModalOpen, readyCount, totalChunks, isTextSourceSubmitting } =
-        useValues(businessKnowledgeLogic)
-    const { openCreateModal, closeCreateModal, deleteSource, submitTextSource } = useActions(businessKnowledgeLogic)
+    const {
+        sources,
+        sourcesLoading,
+        isCreateModalOpen,
+        isEditModalOpen,
+        editingSource,
+        editingSourceTextLoading,
+        readyCount,
+        totalChunks,
+        isTextSourceSubmitting,
+        isEditSourceSubmitting,
+    } = useValues(businessKnowledgeLogic)
+    const {
+        openCreateModal,
+        closeCreateModal,
+        openEditModal,
+        closeEditModal,
+        deleteSource,
+        submitTextSource,
+        submitEditSource,
+    } = useActions(businessKnowledgeLogic)
 
     if (!isEnabled) {
         return <NotFound object="Business knowledge" caption="This feature is not enabled for your project." />
@@ -61,6 +80,10 @@ export function BusinessKnowledgeScene(): JSX.Element {
                 dataSource={sources}
                 loading={sourcesLoading}
                 rowKey={(row) => row.id}
+                onRow={(row) => ({
+                    onClick: () => openEditModal(row),
+                    style: { cursor: 'pointer' },
+                })}
                 columns={[
                     {
                         title: 'Name',
@@ -92,16 +115,27 @@ export function BusinessKnowledgeScene(): JSX.Element {
                         key: 'actions',
                         width: 0,
                         render: (_, row) => (
-                            <LemonButton
-                                icon={<IconTrash />}
-                                status="danger"
-                                size="small"
-                                onClick={() => {
-                                    if (window.confirm(`Delete "${row.name}"? Chunks will be removed.`)) {
-                                        deleteSource(row.id)
-                                    }
-                                }}
-                            />
+                            <div className="flex gap-1">
+                                <LemonButton
+                                    icon={<IconPencil />}
+                                    size="small"
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        openEditModal(row)
+                                    }}
+                                />
+                                <LemonButton
+                                    icon={<IconTrash />}
+                                    status="danger"
+                                    size="small"
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        if (window.confirm(`Delete "${row.name}"? Chunks will be removed.`)) {
+                                            deleteSource(row.id)
+                                        }
+                                    }}
+                                />
+                            </div>
                         ),
                     },
                 ]}
@@ -136,6 +170,45 @@ export function BusinessKnowledgeScene(): JSX.Element {
                         SQL — no embeddings or vector DB in this stage.
                     </p>
                 </Form>
+            </LemonModal>
+
+            <LemonModal
+                isOpen={isEditModalOpen}
+                onClose={closeEditModal}
+                title={editingSource ? `Edit "${editingSource.name}"` : 'Edit knowledge source'}
+                footer={
+                    <>
+                        <LemonButton onClick={closeEditModal}>Cancel</LemonButton>
+                        <LemonButton
+                            type="primary"
+                            loading={isEditSourceSubmitting}
+                            disabled={editingSourceTextLoading}
+                            onClick={submitEditSource}
+                        >
+                            Save
+                        </LemonButton>
+                    </>
+                }
+            >
+                {editingSourceTextLoading ? (
+                    <div className="flex flex-col gap-2">
+                        <LemonSkeleton className="h-10" />
+                        <LemonSkeleton className="h-60" />
+                    </div>
+                ) : (
+                    <Form logic={businessKnowledgeLogic} formKey="editSource" className="flex flex-col gap-2">
+                        <LemonField name="name" label="Name">
+                            <LemonInput />
+                        </LemonField>
+                        <LemonField name="text" label="Content">
+                            <LemonTextArea minRows={12} />
+                        </LemonField>
+                        <p className="text-xs text-muted">
+                            Saving rewrites the chunks for this source. Agents won't see the change mid-conversation
+                            until they refresh their prompt.
+                        </p>
+                    </Form>
+                )}
             </LemonModal>
         </SceneContent>
     )

@@ -14,11 +14,12 @@ Exposes two stable entry points to the rest of the codebase:
 from uuid import UUID
 
 from .. import logic
+from ..models import KnowledgeSource
 from . import contracts
 from .prompts import KNOWLEDGE_AGENT_PROMPT, NO_KNOWLEDGE_PROMPT
 
 
-def _to_dto(source) -> contracts.KnowledgeSourceDTO:
+def _to_dto(source: KnowledgeSource) -> contracts.KnowledgeSourceDTO:
     # The counts are attached by list_for_team/get_for_team via annotate().
     # If someone passes a raw instance (e.g. freshly created inside a txn),
     # fall back to 0 instead of triggering a query.
@@ -59,6 +60,20 @@ def create_text_source(data: contracts.CreateTextSourceInput) -> contracts.Knowl
 
 def delete_source(source_id: UUID, team_id: int) -> bool:
     return logic.delete_source(source_id, team_id)
+
+
+def get_source_text(source_id: UUID, team_id: int) -> str | None:
+    return logic.get_source_text_for_team(source_id, team_id)
+
+
+def update_text_source(data: contracts.UpdateTextSourceInput) -> contracts.KnowledgeSourceDTO | None:
+    source = logic.update_text_source(
+        source_id=data.source_id,
+        team_id=data.team_id,
+        name=data.name,
+        text=data.text,
+    )
+    return _to_dto(source) if source is not None else None
 
 
 def format_knowledge_prompt(team_id: int) -> contracts.KnowledgePromptSection:
