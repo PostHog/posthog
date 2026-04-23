@@ -6739,6 +6739,14 @@ class ExperimentParameters(BaseModel):
             " but catch smaller changes. Suggest 20–30% for most experiments."
         ),
     )
+    rollout_percentage: float | None = Field(
+        default=None,
+        description=(
+            "Overall rollout percentage (0-100). Controls what fraction of all users"
+            " enter the experiment. Users outside the rollout never see any variant and"
+            " are excluded from analysis. Default: 100."
+        ),
+    )
 
 
 class ExperimentStatsBase(BaseModel):
@@ -8655,6 +8663,14 @@ class UsageMetric(BaseModel):
     interval: int
     name: str
     previous: float
+    timeseries: list[float] | None = Field(
+        default=None,
+        description=("Daily values over the current interval period. Only populated when display is 'sparkline'."),
+    )
+    timeseries_labels: list[str] | None = Field(
+        default=None,
+        description=("ISO date strings for sparkline tooltip labels. Only populated when display is 'sparkline'."),
+    )
     value: float
 
 

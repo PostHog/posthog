@@ -17236,6 +17236,10 @@
                 "minimum_detectable_effect": {
                     "description": "Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments.",
                     "type": "number"
+                },
+                "rollout_percentage": {
+                    "description": "Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100.",
+                    "type": "number"
                 }
             },
             "type": "object"
@@ -37409,6 +37413,20 @@
                 },
                 "previous": {
                     "type": "number"
+                },
+                "timeseries": {
+                    "description": "Daily values over the current interval period. Only populated when display is 'sparkline'.",
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                },
+                "timeseries_labels": {
+                    "description": "ISO date strings for sparkline tooltip labels. Only populated when display is 'sparkline'.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "value": {
                     "type": "number"
