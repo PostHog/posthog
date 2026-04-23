@@ -8,7 +8,7 @@ from urllib.parse import urlencode, urlparse
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Count, Q, QuerySet
 from django.http import HttpResponse, StreamingHttpResponse
 from django.utils import timezone
 
@@ -130,7 +130,7 @@ def _get_oauth_redirect_uri() -> str:
 class MCPServerTemplateSerializer(serializers.ModelSerializer):
     class Meta:
         model = MCPServerTemplate
-        fields = ["id", "name", "url", "description", "auth_type", "icon_key"]
+        fields = ["id", "name", "url", "docs_url", "description", "auth_type", "icon_key", "category"]
 
 
 @extend_schema(tags=["mcp_store"])
@@ -160,6 +160,9 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
     pending_oauth = serializers.SerializerMethodField()
     name = serializers.SerializerMethodField()
     proxy_url = serializers.SerializerMethodField()
+    tool_count = serializers.SerializerMethodField(
+        help_text="Number of live (non-removed) tools exposed by this installation."
+    )
 
     class Meta:
         model = MCPServerInstallation
@@ -175,10 +178,19 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
             "needs_reauth",
             "pending_oauth",
             "proxy_url",
+            "tool_count",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "template_id", "created_at", "updated_at"]
+        read_only_fields = ["id", "template_id", "created_at", "updated_at", "tool_count"]
+
+    def get_tool_count(self, obj: MCPServerInstallation) -> int:
+        # Prefer the annotation to avoid N+1 on list; fall back to a direct
+        # query for single-object endpoints (install/get_or_create paths).
+        annotated = getattr(obj, "tool_count_annotated", None)
+        if annotated is not None:
+            return annotated
+        return obj.tools.filter(removed_at__isnull=True).count()
 
     def get_name(self, obj: MCPServerInstallation) -> str:
         if obj.display_name:
@@ -341,6 +353,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         return (
             queryset.filter(team_id=self.team_id, user=self.request.user)
             .select_related("template")
+            .annotate(tool_count_annotated=Count("tools", filter=Q(tools__removed_at__isnull=True)))
             .order_by("-created_at")
         )
 
