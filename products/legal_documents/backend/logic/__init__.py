@@ -16,6 +16,7 @@ from posthog.cloud_utils import get_cached_instance_license
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization
+from posthog.storage import object_storage
 
 from ee.billing.billing_manager import BillingManager
 
@@ -116,11 +117,88 @@ def create_document(
     )
 
 
-def mark_document_signed(document: LegalDocument, signed_document_url: str) -> LegalDocument:
-    document.signed_document_url = signed_document_url
+def mark_document_signed(document: LegalDocument) -> LegalDocument:
     document.status = LegalDocument.Status.SIGNED
-    document.save(update_fields=["signed_document_url", "status", "updated_at"])
+    document.save(update_fields=["status", "updated_at"])
     return document
+
+
+def signed_pdf_storage_key(document: LegalDocument) -> str:
+    """
+    Canonical key under which the signed PDF lives in object storage. The
+    document uuid is the natural identifier and never changes, so admins
+    regenerating the envelope for the same row just overwrite the old object.
+    """
+    return f"{settings.OBJECT_STORAGE_LEGAL_DOCUMENTS_FOLDER}/{document.id}.pdf"
+
+
+# Short-enough that leaked URLs stop working on a human timescale, long enough
+# that slow network conditions or a distracted user can still complete the
+# download without the presigned URL expiring mid-stream.
+_SIGNED_PDF_PRESIGNED_URL_EXPIRATION_SECONDS = 60
+
+
+def get_signed_pdf_presigned_url(document: LegalDocument) -> str | None:
+    """
+    Presigned GET URL for the signed PDF. The proxy endpoint redirects to this
+    rather than streaming the bytes itself — S3 does the heavy lifting and our
+    Django process doesn't have to hold the PDF in memory.
+    """
+    if not settings.OBJECT_STORAGE_ENABLED:
+        return None
+    key = signed_pdf_storage_key(document)
+    return object_storage.get_presigned_url(
+        key,
+        expiration=_SIGNED_PDF_PRESIGNED_URL_EXPIRATION_SECONDS,
+        content_type="application/pdf",
+        content_disposition=f'attachment; filename="PostHog-{document.document_type}-{document.id}.pdf"',
+    )
+
+
+def download_and_store_signed_pdf(document: LegalDocument) -> bool:
+    """
+    Stream the signed PDF from PandaDoc straight into object storage.
+
+    PandaDoc's `document.completed` webhook doesn't include a download URL, so
+    we pull the PDF via the public API and persist it ourselves. The download
+    is streamed — bytes flow from the PandaDoc socket directly into the S3
+    multipart upload, so peak memory stays flat regardless of PDF size.
+    Returns True on success. On any failure (PandaDoc unreachable, S3
+    unavailable) we log + report and return False; the caller leaves the row
+    unsigned so a replayed webhook (or manual re-trigger) can retry.
+    """
+    if not document.pandadoc_document_id:
+        logger.warning("legal_document_pdf_download_missing_envelope_id", document_id=str(document.id))
+        return False
+    if not settings.OBJECT_STORAGE_ENABLED:
+        logger.warning("legal_document_pdf_download_object_storage_disabled", document_id=str(document.id))
+        return False
+    client = pandadoc_client.PandaDocClient()
+    try:
+        with client.stream_document(document_id=document.pandadoc_document_id) as pdf_stream:
+            object_storage.write_stream(
+                signed_pdf_storage_key(document),
+                pdf_stream,
+                extras={"ContentType": "application/pdf"},
+            )
+    except pandadoc_client.PandaDocError as exc:
+        logger.exception(
+            "legal_document_pandadoc_download_failed",
+            document_id=str(document.id),
+            pandadoc_document_id=document.pandadoc_document_id,
+            error=str(exc),
+        )
+        capture_exception(exc, additional_properties={"legal_document_id": str(document.id)})
+        return False
+    except Exception as exc:
+        logger.exception(
+            "legal_document_signed_pdf_upload_failed",
+            document_id=str(document.id),
+            error=str(exc),
+        )
+        capture_exception(exc, additional_properties={"legal_document_id": str(document.id)})
+        return False
+    return True
 
 
 def set_pandadoc_document_id(document: LegalDocument, pandadoc_document_id: str) -> LegalDocument:

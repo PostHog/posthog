@@ -48,11 +48,13 @@ _PANDADOC_COMPLETED_STATUS = "document.completed"
         "PandaDoc webhook receiver. Authenticates via HMAC-SHA256 over the raw "
         "body. Handles two `document_state_changed` events: `document.draft` "
         "dispatches the signing email + Slack ping, and `document.completed` "
-        "flips the row to signed. Returns 200 when an event applied, 204 when "
-        "the request is valid but the document doesn't live on this cloud "
-        "instance (PandaDoc fans the webhook out to every instance, only one "
-        "of which owns the row), 404 on a bad signature, 400 on an "
-        "unparseable body."
+        "pulls the signed PDF and stores it in object storage. Returns 200 "
+        "when an event applied, 204 when the request is valid but the "
+        "document doesn't live on this cloud instance (PandaDoc fans the "
+        "webhook out to every instance, only one of which owns the row), "
+        "404 on a bad signature, 400 on an unparseable body. A transient "
+        "failure fetching/storing the signed PDF surfaces as 5xx so PandaDoc "
+        "retries."
     ),
 )
 @api_view(["POST"])
@@ -86,6 +88,14 @@ def legal_document_pandadoc_webhook(request: Request) -> Response:
         events = [events]
 
     processed_any = False
+    # Set when a completed event raises a retriable failure. We finish
+    # iterating the rest of the batch first — every facade method is
+    # idempotent, so whatever else applies now is a no-op on the replay —
+    # and surface the 503 at the end. Short-circuiting mid-batch would
+    # silently drop trailing events until PandaDoc's retry replayed the
+    # whole payload.
+    deferred_retry = False
+
     for event in events:
         if not isinstance(event, dict):
             continue
@@ -118,22 +128,23 @@ def legal_document_pandadoc_webhook(request: Request) -> Response:
             continue
 
         if event_status == _PANDADOC_COMPLETED_STATUS:
-            # PandaDoc's completed payload carries the signed-PDF link under
-            # `download_link`. Fall back to the hosted `public_url` so the
-            # customer always has somewhere to click.
-            signed_url = data.get("download_link") or data.get("public_url") or ""
-            if not signed_url:
-                logger.warning(
-                    "pandadoc_webhook_event_missing_fields",
-                    has_id=bool(pandadoc_document_id),
-                    has_signed_url=False,
+            # PandaDoc's completed payload does not carry a signed-PDF URL;
+            # the facade pulls the PDF via the public API and stashes it in
+            # object storage. A transient download/upload failure surfaces as
+            # 503 so PandaDoc retries the delivery.
+            try:
+                dto = api.mark_signed_by_pandadoc_document_id(
+                    pandadoc_document_id=pandadoc_document_id,
+                    template_id=template_id or "",
                 )
+            except api.LegalDocumentDownloadFailed as exc:
+                logger.warning(
+                    "pandadoc_webhook_signed_pdf_unavailable",
+                    pandadoc_document_id=pandadoc_document_id,
+                    error=str(exc),
+                )
+                deferred_retry = True
                 continue
-            dto = api.mark_signed_by_pandadoc_document_id(
-                pandadoc_document_id=pandadoc_document_id,
-                signed_document_url=signed_url,
-                template_id=template_id or "",
-            )
             if dto is None:
                 logger.info("pandadoc_webhook_no_matching_document", pandadoc_document_id=pandadoc_document_id)
                 continue
@@ -142,8 +153,15 @@ def legal_document_pandadoc_webhook(request: Request) -> Response:
 
         # Other states (document.sent, document.viewed, …) — nothing to do.
 
+    if deferred_retry:
+        return Response(
+            {"detail": "Signed document unavailable; please retry."},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
     if processed_any:
         return Response({"status": "ok"}, status=status.HTTP_200_OK)
+
     # Nothing applied to this instance — 2xx so PandaDoc doesn't retry, since
     # the sibling instance that owns the row will handle its own copy.
     return Response(status=status.HTTP_204_NO_CONTENT)
