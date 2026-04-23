@@ -2,25 +2,21 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-    """Phase 2 of the MCPServer -> MCPServerTemplate + per-installation DCR cutover.
+    """Phase 2 of the MCPServer -> MCPServerTemplate + per-installation DCR cutover, state-only.
 
-    Migration 0007 removed the ``server`` FK from Django's state on both
-    ``MCPServerInstallation`` and ``MCPOAuthState`` but left the underlying
-    columns in place so the previous deploy (still holding the field in its
-    ORM) could continue to write to them during the rolling deploy.
+    0007 state-removed the ``server`` FK on ``MCPServerInstallation`` and
+    ``MCPOAuthState`` while leaving the physical ``server_id`` columns in
+    place so the previous deploy could continue writing during the rollout.
+    This migration removes the ``MCPServer`` model from Django state so the
+    ORM, admin, and application code no longer see it — but leaves the
+    underlying ``mcp_store_mcpserver`` table and both ``server_id`` columns
+    in the database.
 
-    By the time this migration runs the old code is drained — no writer
-    touches ``server_id`` anymore — so it is safe to:
-
-      1. Drop the now-orphan ``server_id`` columns (which also drops the FK
-         constraints that would otherwise pin the mcp_store_mcpserver table
-         in place).
-      2. Drop the legacy ``mcp_store_mcpserver`` table.
-      3. Remove the ``MCPServer`` model from Django state.
-
-    Column drops carry the ``-- drop-column-ignore`` hint so the backend
-    migration safety check permits them; the hint is the project convention
-    for post-rollout column removals.
+    Rationale: at PostHog's scale, physical ``DROP COLUMN`` / ``DROP TABLE``
+    briefly hold an ``ACCESS EXCLUSIVE`` lock, which can queue traffic on
+    hot tables. These objects are already orphaned — nothing reads or writes
+    them — so leaving them in place is harmless. A separate PR can reclaim
+    the storage during a maintenance window if desired.
     """
 
     dependencies = [
@@ -32,22 +28,6 @@ class Migration(migrations.Migration):
             state_operations=[
                 migrations.DeleteModel(name="MCPServer"),
             ],
-            database_operations=[
-                migrations.RunSQL(
-                    sql=(
-                        "ALTER TABLE mcp_store_mcpserverinstallation "
-                        "DROP COLUMN IF EXISTS server_id; -- drop-column-ignore"
-                    ),
-                    reverse_sql=migrations.RunSQL.noop,
-                ),
-                migrations.RunSQL(
-                    sql=("ALTER TABLE mcp_store_mcpoauthstate DROP COLUMN IF EXISTS server_id; -- drop-column-ignore"),
-                    reverse_sql=migrations.RunSQL.noop,
-                ),
-                migrations.RunSQL(
-                    sql="DROP TABLE IF EXISTS mcp_store_mcpserver;",
-                    reverse_sql=migrations.RunSQL.noop,
-                ),
-            ],
+            database_operations=[],
         ),
     ]
