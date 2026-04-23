@@ -3,33 +3,57 @@ import { useValues } from 'kea'
 import { IconInfo } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
-import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
+import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
+import { FEATURE_FLAGS, NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
+import { BoxPlotOutliersFilter } from 'scenes/insights/EditorFilters/BoxPlotOutliersFilter'
+import { CompareEditorFilter } from 'scenes/insights/EditorFilters/CompareEditorFilter'
+import { ConfidenceIntervalsEditorFilter } from 'scenes/insights/EditorFilters/ConfidenceIntervalsEditorFilter'
+import { DecimalPlacesEditorFilter } from 'scenes/insights/EditorFilters/DecimalPlacesEditorFilter'
 import { FunnelsAdvanced } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
 import { FunnelsQuerySteps } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
 import { FunnelStepConfiguration } from 'scenes/insights/EditorFilters/FunnelStepConfiguration'
 import { GoalLines } from 'scenes/insights/EditorFilters/GoalLines'
+import { HideWeekendsFilter } from 'scenes/insights/EditorFilters/HideWeekendsFilter'
+import { LifecycleStackingFilter } from 'scenes/insights/EditorFilters/LifecycleStackingFilter'
+import { MovingAverageEditorFilter } from 'scenes/insights/EditorFilters/MovingAverageEditorFilter'
 import { PathsAdvanced } from 'scenes/insights/EditorFilters/PathsAdvanced'
 import { PathsEventsTypes } from 'scenes/insights/EditorFilters/PathsEventTypes'
 import { PathsExclusions } from 'scenes/insights/EditorFilters/PathsExclusions'
 import { PathsHogQL } from 'scenes/insights/EditorFilters/PathsHogQL'
 import { PathsTargetEnd, PathsTargetStart } from 'scenes/insights/EditorFilters/PathsTarget'
 import { PathsWildcardGroups } from 'scenes/insights/EditorFilters/PathsWildcardGroups'
+import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
 import { PoeFilter } from 'scenes/insights/EditorFilters/PoeFilter'
+import { ResultCustomizationByPicker } from 'scenes/insights/EditorFilters/ResultCustomizationByPicker'
 import { RetentionCondition } from 'scenes/insights/EditorFilters/RetentionCondition'
+import { RetentionDashboardEditorFilter } from 'scenes/insights/EditorFilters/RetentionDashboardEditorFilter'
 import { RetentionOptions } from 'scenes/insights/EditorFilters/RetentionOptions'
 import { SamplingDeprecationNotice } from 'scenes/insights/EditorFilters/SamplingDeprecationNotice'
+import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
+import { ShowAlertAnomalyPointsFilter } from 'scenes/insights/EditorFilters/ShowAlertAnomalyPointsFilter'
+import { ShowAlertThresholdLinesFilter } from 'scenes/insights/EditorFilters/ShowAlertThresholdLinesFilter'
+import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
+import { ShowMultipleYAxesFilter } from 'scenes/insights/EditorFilters/ShowMultipleYAxesFilter'
+import { ShowPieTotalFilter } from 'scenes/insights/EditorFilters/ShowPieTotalFilter'
+import { ShowTrendLinesFilter } from 'scenes/insights/EditorFilters/ShowTrendLinesFilter'
+import { SmoothingEditorFilter } from 'scenes/insights/EditorFilters/SmoothingEditorFilter'
+import { UnitPickerEditorFilter } from 'scenes/insights/EditorFilters/UnitPickerEditorFilter'
+import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
 import { WebAnalyticsEditorFilters } from 'scenes/insights/EditorFilters/WebAnalyticsEditorFilters'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { FunnelVizType } from 'scenes/insights/views/Funnels/FunnelVizType'
+import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { StickinessCriteria } from '~/queries/nodes/InsightViz/StickinessCriteria'
 import { FunnelsQuery, InsightQueryNode, WebOverviewQuery, WebStatsTableQuery } from '~/queries/schema/schema-general'
-import { isWebAnalyticsInsightQuery } from '~/queries/utils'
+import { hasBreakdownFilter, isWebAnalyticsInsightQuery } from '~/queries/utils'
 import {
     AvailableFeature,
     ChartDisplayType,
@@ -72,9 +96,18 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         series,
         breakdownFilter,
         properties,
+        isNonTimeSeriesDisplay,
+        supportsValueOnSeries,
+        supportsPercentStackView,
+        hasLegend,
+        supportsResultCustomizationBy,
+        showPercentStackView,
+        interval,
     } = useValues(insightVizDataLogic(insightProps))
 
     const { isStepsFunnel, isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
+    const { mightContainFractionalNumbers } = useValues(trendsDataLogic(insightProps))
+    const { featureFlags } = useValues(featureFlagLogic)
 
     if (!querySource) {
         return null
@@ -90,6 +123,8 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             />
         )
     }
+
+    const hideWeekendsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS]
 
     const hasBreakdown =
         (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)) ||
@@ -113,6 +148,26 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsBar].includes(
                 display || ChartDisplayType.ActionsLineGraph
             ))
+
+    const showCompare =
+        (isTrends &&
+            display !== ChartDisplayType.ActionsAreaGraph &&
+            display !== ChartDisplayType.CalendarHeatmap &&
+            display !== ChartDisplayType.BoxPlot) ||
+        isStickiness ||
+        isWebAnalyticsInsightQuery(querySource)
+
+    const showSmoothing =
+        isTrends &&
+        !hasBreakdownFilter(breakdownFilter) &&
+        (!display || display === ChartDisplayType.ActionsLineGraph || display === ChartDisplayType.ActionsAreaGraph) &&
+        (smoothingOptions[interval ?? 'day']?.length ?? 0) > 0
+
+    const isNonTimeSeries = isNonTimeSeriesDisplay
+    const showYAxisOptions = isTrends && display !== ChartDisplayType.CalendarHeatmap && !isNonTimeSeries
+    const showStatisticalAnalysis = showYAxisOptions && display !== ChartDisplayType.BoxPlot
+    const showDecimalPlaces = mightContainFractionalNumbers && isTrends && display !== ChartDisplayType.CalendarHeatmap
+    const isBoxPlot = display === ChartDisplayType.BoxPlot
 
     const seriesSummary = getSeriesSummary(series)
     const filtersSummary = getFiltersSummary(properties)
@@ -346,12 +401,98 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                 },
             ]),
         },
+        {
+            title: 'Compare',
+            defaultExpanded: false,
+            show: showCompare,
+            editorFilters: [{ key: 'compare', component: CompareEditorFilter }],
+        },
+        {
+            title: 'Visualization',
+            defaultExpanded: false,
+            show:
+                (isTrends && display !== ChartDisplayType.CalendarHeatmap) ||
+                isRetention ||
+                isTrendsFunnel ||
+                isStickiness ||
+                isLifecycle,
+            editorFilters: visibleFilters([
+                { key: 'lifecycle-stacking', component: LifecycleStackingFilter, show: isLifecycle },
+                { key: 'value-on-series', component: ValueOnSeriesFilter, show: !!supportsValueOnSeries },
+                { key: 'percent-stack-view', component: PercentStackViewFilter, show: !!supportsPercentStackView },
+                { key: 'show-legend', component: ShowLegendFilter, show: !!hasLegend },
+                { key: 'pie-total', component: ShowPieTotalFilter, show: display === ChartDisplayType.ActionsPie },
+                {
+                    key: 'alert-threshold-lines',
+                    component: ShowAlertThresholdLinesFilter,
+                    show: isTrends && !isNonTimeSeriesDisplay,
+                },
+                {
+                    key: 'alert-anomaly-points',
+                    component: ShowAlertAnomalyPointsFilter,
+                    show: isTrends && !isNonTimeSeriesDisplay,
+                },
+                {
+                    key: 'multiple-y-axes',
+                    component: ShowMultipleYAxesFilter,
+                    show: (isTrends || isStickiness) && !isNonTimeSeriesDisplay,
+                },
+                {
+                    key: 'trend-lines',
+                    component: ShowTrendLinesFilter,
+                    show: (isTrends || isRetention || isTrendsFunnel) && !isNonTimeSeriesDisplay,
+                },
+                {
+                    key: 'hide-weekends',
+                    component: HideWeekendsFilter,
+                    show: isTrends && !isNonTimeSeriesDisplay && hideWeekendsEnabled,
+                },
+                { key: 'box-plot-outliers', component: BoxPlotOutliersFilter, show: isBoxPlot },
+                {
+                    key: 'result-customization-by',
+                    component: ResultCustomizationByPicker,
+                    show: !!supportsResultCustomizationBy,
+                },
+            ]),
+        },
         // Hide advanced options for calendar heatmap
         {
             title: 'Advanced options',
             defaultExpanded: false,
             show: display !== ChartDisplayType.CalendarHeatmap,
             editorFilters: visibleFilters([
+                { key: 'smoothing', label: 'Smoothing', component: SmoothingEditorFilter, show: showSmoothing },
+                {
+                    key: 'y-axis-unit',
+                    label: axisLabel(display || ChartDisplayType.ActionsLineGraph),
+                    component: UnitPickerEditorFilter,
+                    show: !showPercentStackView && isTrends && display !== ChartDisplayType.CalendarHeatmap,
+                },
+                { key: 'y-axis-scale', label: 'Y-axis scale', component: ScalePicker, show: showYAxisOptions },
+                {
+                    key: 'confidence-intervals',
+                    label: 'Confidence intervals',
+                    component: ConfidenceIntervalsEditorFilter,
+                    show: showStatisticalAnalysis,
+                },
+                {
+                    key: 'moving-average',
+                    label: 'Moving average',
+                    component: MovingAverageEditorFilter,
+                    show: showStatisticalAnalysis,
+                },
+                {
+                    key: 'decimal-places',
+                    label: 'Decimal places',
+                    component: DecimalPlacesEditorFilter,
+                    show: showDecimalPlaces,
+                },
+                {
+                    key: 'retention-dashboard',
+                    label: 'On dashboards',
+                    component: RetentionDashboardEditorFilter,
+                    show: isRetention,
+                },
                 { key: 'poe', component: PoeFilter },
                 {
                     key: 'goal-lines',
