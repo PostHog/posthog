@@ -49,15 +49,22 @@ from posthog.temporal.subscriptions.types import (
 # Step 1 of the two-step `patched()` -> `deprecate_patch()` -> deletion dance.
 # `workflow.deprecate_patch()` records a "deprecated" marker at the same
 # command-sequence position the original `workflow.patched()` guard occupied,
-# so stragglers replaying either path stay deterministic. The old legacy-replay
-# helper and its if-gate are gone — by the time we deploy this, all pre-rollout
-# workflows have drained, so the branch is dead code.
+# so workflows whose history already carries the `patched` marker replay
+# cleanly. The if-gate and legacy-replay helper are gone because pre-rollout
+# workflows (no marker in history) have drained by deploy time of this PR.
 #
-# Grep `subscriptions-patched-cleanup` to find every site. Second cleanup PR
-# (after another full drain past this deploy) deletes: the `deprecate_patch()`
-# call, `_PATCH_ID_CONTENT_SNAPSHOT_DIRECT_WRITE`,
-# `CreateExportAssetsResult.insight_snapshots`, and
-# `UpdateDeliveryRecordInputs.content_snapshot`.
+# Deploy-ordering precondition: `ProcessSubscriptionWorkflow.execution_timeout`
+# is 2h, so in theory any pre-rollout workflow completes 2h after #55943 deploys.
+# In practice, wait ≥24h after #55943's prod deploy before merging this PR —
+# the same buffer the predecessor comment prescribed. The same rule applies
+# from this PR's deploy to the step-2 cleanup below.
+#
+# Grep `subscriptions-patched-cleanup` to find every site. Step 2 (after
+# another ≥24h drain past this deploy) deletes: the `deprecate_patch()` call,
+# `_PATCH_ID_CONTENT_SNAPSHOT_DIRECT_WRITE`,
+# `CreateExportAssetsResult.insight_snapshots`,
+# `UpdateDeliveryRecordInputs.content_snapshot`, and the shallow-merge branch
+# in `update_delivery_record` that the deprecated field fed.
 _PATCH_ID_CONTENT_SNAPSHOT_DIRECT_WRITE = "subscriptions-content-snapshot-direct-write"
 
 
@@ -288,9 +295,9 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             temporalio.workflow.deprecate_patch(_PATCH_ID_CONTENT_SNAPSHOT_DIRECT_WRITE)
 
             # Generate LLM change summary (best-effort, skip if not enabled).
-            # Reads content_snapshot back from Postgres — it was persisted
-            # inline by create_export_assets above, or by the legacy-replay
-            # helper on pre-patch workflows.
+            # Reads content_snapshot back from Postgres — persisted inline by
+            # create_export_assets above (via delivery_id, or via the
+            # workflow_id fallback lookup when replaying pre-rollout workflows).
             change_summary: str | None = None
             if delivery_id is not None:
                 try:
