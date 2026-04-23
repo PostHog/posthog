@@ -347,6 +347,7 @@ export const ReasoningEffortEnumApi = {
  * `acceptEdits` - acceptEdits
  * `plan` - plan
  * `bypassPermissions` - bypassPermissions
+ * `auto` - auto
  */
 export type ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi =
     (typeof ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi)[keyof typeof ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi]
@@ -356,6 +357,7 @@ export const ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi = {
     AcceptEdits: 'acceptEdits',
     Plan: 'plan',
     BypassPermissions: 'bypassPermissions',
+    Auto: 'auto',
 } as const
 
 /**
@@ -413,7 +415,8 @@ export interface ClaudeTaskRunCreateSchemaApi {
 * `default` - default
 * `acceptEdits` - acceptEdits
 * `plan` - plan
-* `bypassPermissions` - bypassPermissions */
+* `bypassPermissions` - bypassPermissions
+* `auto` - auto */
     initial_permission_mode?: ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi
 }
 
@@ -723,17 +726,21 @@ export const TaskRunDetailStatusEnumApi = {
  * * `local` - Local
  * `cloud` - Cloud
  */
-export type EnvironmentEnumApi = (typeof EnvironmentEnumApi)[keyof typeof EnvironmentEnumApi]
+export type TaskRunDetailEnvironmentEnumApi =
+    (typeof TaskRunDetailEnvironmentEnumApi)[keyof typeof TaskRunDetailEnvironmentEnumApi]
 
-export const EnvironmentEnumApi = {
+export const TaskRunDetailEnvironmentEnumApi = {
     Local: 'local',
     Cloud: 'cloud',
 } as const
 
-export type TaskRunDetailRuntimeAdapterEnumApi =
-    (typeof TaskRunDetailRuntimeAdapterEnumApi)[keyof typeof TaskRunDetailRuntimeAdapterEnumApi]
+/**
+ * * `claude` - claude
+ * `codex` - codex
+ */
+export type RuntimeAdapterB33EnumApi = (typeof RuntimeAdapterB33EnumApi)[keyof typeof RuntimeAdapterB33EnumApi]
 
-export const TaskRunDetailRuntimeAdapterEnumApi = {
+export const RuntimeAdapterB33EnumApi = {
     Claude: 'claude',
     Codex: 'codex',
 } as const
@@ -766,9 +773,9 @@ export interface TaskRunDetailApi {
 
 * `local` - Local
 * `cloud` - Cloud */
-    environment?: EnvironmentEnumApi
+    environment?: TaskRunDetailEnvironmentEnumApi
     /** Configured runtime adapter for this run, such as 'claude' or 'codex'. */
-    readonly runtime_adapter: TaskRunDetailRuntimeAdapterEnumApi | NullEnumApi | null
+    readonly runtime_adapter: RuntimeAdapterB33EnumApi | NullEnumApi | null
     /** Configured LLM provider for this run, such as 'anthropic' or 'openai'. */
     readonly provider: TaskRunDetailProviderEnumApi | NullEnumApi | null
     /**
@@ -809,6 +816,102 @@ export interface PaginatedTaskRunDetailListApi {
 }
 
 /**
+ * * `local` - local
+ * `cloud` - cloud
+ */
+export type TaskRunBootstrapCreateRequestEnvironmentEnumApi =
+    (typeof TaskRunBootstrapCreateRequestEnvironmentEnumApi)[keyof typeof TaskRunBootstrapCreateRequestEnvironmentEnumApi]
+
+export const TaskRunBootstrapCreateRequestEnvironmentEnumApi = {
+    Local: 'local',
+    Cloud: 'cloud',
+} as const
+
+/**
+ * * `default` - default
+ * `acceptEdits` - acceptEdits
+ * `plan` - plan
+ * `bypassPermissions` - bypassPermissions
+ * `auto` - auto
+ * `read-only` - read-only
+ * `full-access` - full-access
+ */
+export type TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi =
+    (typeof TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi)[keyof typeof TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi]
+
+export const TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi = {
+    Default: 'default',
+    AcceptEdits: 'acceptEdits',
+    Plan: 'plan',
+    BypassPermissions: 'bypassPermissions',
+    Auto: 'auto',
+    ReadOnly: 'read-only',
+    FullAccess: 'full-access',
+} as const
+
+/**
+ * Request body for creating a task run without starting execution yet.
+ */
+export interface TaskRunBootstrapCreateRequestApi {
+    /** Execution environment for the new run. Use 'cloud' for remote sandbox runs and 'local' for desktop sessions.
+
+* `local` - local
+* `cloud` - cloud */
+    environment?: TaskRunBootstrapCreateRequestEnvironmentEnumApi
+    /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
+
+* `interactive` - interactive
+* `background` - background */
+    mode?: Mode051EnumApi
+    /**
+     * Git branch to checkout in the sandbox
+     * @maxLength 255
+     * @nullable
+     */
+    branch?: string | null
+    /** Optional sandbox environment to apply for this cloud run. */
+    sandbox_environment_id?: string
+    /** Whether pull requests for this run should be authored by the user or the bot.
+
+* `user` - user
+* `bot` - bot */
+    pr_authorship_mode?: PrAuthorshipModeEnumApi
+    /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
+
+* `manual` - manual
+* `signal_report` - signal_report */
+    run_source?: RunSourceEnumApi
+    /** Optional signal report identifier when this run was started from Inbox. */
+    signal_report_id?: string
+    /** Agent runtime adapter to launch for this run. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime.
+
+* `claude` - claude
+* `codex` - codex */
+    runtime_adapter?: RuntimeAdapterB33EnumApi
+    /** LLM model identifier to run in the selected runtime. */
+    model?: string
+    /** Reasoning effort to request for models that expose an effort control.
+
+* `low` - low
+* `medium` - medium
+* `high` - high
+* `max` - max */
+    reasoning_effort?: ReasoningEffortEnumApi
+    /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
+    github_user_token?: string
+    /** Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'auto' and 'read-only'.
+
+* `default` - default
+* `acceptEdits` - acceptEdits
+* `plan` - plan
+* `bypassPermissions` - bypassPermissions
+* `auto` - auto
+* `read-only` - read-only
+* `full-access` - full-access */
+    initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi
+}
+
+/**
  * * `not_started` - not_started
  * `queued` - queued
  * `in_progress` - in_progress
@@ -825,6 +928,16 @@ export const TaskRunUpdateStatusEnumApi = {
     Completed: 'completed',
     Failed: 'failed',
     Cancelled: 'cancelled',
+} as const
+
+/**
+ * * `local` - local
+ */
+export type TaskRunUpdateEnvironmentEnumApi =
+    (typeof TaskRunUpdateEnvironmentEnumApi)[keyof typeof TaskRunUpdateEnvironmentEnumApi]
+
+export const TaskRunUpdateEnvironmentEnumApi = {
+    Local: 'local',
 } as const
 
 export interface PatchedTaskRunUpdateApi {
@@ -858,6 +971,10 @@ export interface PatchedTaskRunUpdateApi {
      * @nullable
      */
     error_message?: string | null
+    /** Transition a cloud run to local. Use the resume_in_cloud action to move a run into cloud.
+
+* `local` - local */
+    environment?: TaskRunUpdateEnvironmentEnumApi
 }
 
 export type TaskRunAppendLogRequestApiEntriesItem = { [key: string]: unknown }
@@ -1148,6 +1265,13 @@ export interface TaskRunRelayMessageResponseApi {
 export interface PatchedTaskRunSetOutputRequestApi {
     /** Output data from the run. Validated against the task's json_schema if one is set. */
     output?: unknown
+}
+
+export interface TaskRunStartRequestApi {
+    /** Initial or follow-up user message to include in the run prompt. */
+    pending_user_message?: string
+    /** Identifiers for run artifacts that should be attached to the next user message delivered to the sandbox. */
+    pending_user_artifact_ids?: string[]
 }
 
 /**
