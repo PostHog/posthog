@@ -17,6 +17,10 @@ export default defineWorkersProject({
     test: {
         name: 'workers',
         include: ['tests/workers/**/*.test.ts'],
+        // The first test in each file pays workerd + DurableObject cold-start
+        // overhead that can push it past the 5s default. Bump the ceiling so
+        // these tests don't flake on slower CI runners.
+        testTimeout: 15000,
         poolOptions: {
             workers: {
                 singleWorker: true,
