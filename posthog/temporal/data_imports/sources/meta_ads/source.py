@@ -111,7 +111,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
                     ),
                 ],
             ),
-            betaSource=True,
+            releaseStatus="beta",
             suggestedTables=[
                 SuggestedTable(
                     table="campaigns",

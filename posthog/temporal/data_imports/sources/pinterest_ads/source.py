@@ -50,7 +50,7 @@ class PinterestAdsSource(ResumableSource[PinterestAdsSourceConfig, PinterestAdsR
             name=SchemaExternalDataSourceType.PINTEREST_ADS,
             label="Pinterest Ads",
             caption="Collect campaign data, ad performance, and advertising metrics from Pinterest Ads. Ensure you have granted PostHog access to your Pinterest Ads account, learn how to do this in [the documentation](https://posthog.com/docs/cdp/sources/pinterest-ads).",
-            betaSource=True,
+            releaseStatus="beta",
             iconPath="/static/services/pinterest_ads.png",
             docsUrl="https://posthog.com/docs/cdp/sources/pinterest-ads",
             fields=cast(
