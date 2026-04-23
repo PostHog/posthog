@@ -1,0 +1,25 @@
+#!/bin/sh
+
+DIR_NAME=$(dirname "$0")
+
+# Create a temporary directory in /tmp 
+TEMP_DIR=$(mktemp -d -p /tmp "aggregate_funnel_XXXXXXXXXX")
+
+# Trap to clean up the temporary directory on exit
+trap 'rm -rf "$TEMP_DIR"; exit' 0
+
+# Determine which executable to use based on architecture
+case $( uname -m ) in
+aarch64) 
+    EXECUTABLE_NAME="aggregate_funnel_aarch64"
+    ;;
+*) 
+    EXECUTABLE_NAME="aggregate_funnel_x86_64"
+    ;;
+esac
+
+# Copy the executable to a temporary location
+cp "$DIR_NAME/$EXECUTABLE_NAME" "$TEMP_DIR/$EXECUTABLE_NAME"
+chmod +x "$TEMP_DIR/$EXECUTABLE_NAME"
+"$TEMP_DIR/$EXECUTABLE_NAME" "$@"
+

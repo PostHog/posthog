@@ -249,6 +249,11 @@ export interface ExperimentParametersApi {
      * @nullable
      */
     minimum_detectable_effect?: number | null
+    /**
+     * Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100.
+     * @nullable
+     */
+    rollout_percentage?: number | null
 }
 
 export interface ExperimentToSavedMetricApi {
@@ -527,7 +532,7 @@ export interface ExperimentApi {
     holdout_id?: number | null
     /** @nullable */
     readonly exposure_cohort: number | null
-    /** Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
+    /** Variant definitions and rollout configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set rollout_percentage (0-100, default 100) to limit what fraction of users enter the experiment. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
     parameters?: ExperimentParametersApi | null
     secondary_metrics?: unknown | null
     readonly saved_metrics: readonly ExperimentToSavedMetricApi[]
@@ -625,7 +630,7 @@ export interface PatchedExperimentApi {
     holdout_id?: number | null
     /** @nullable */
     readonly exposure_cohort?: number | null
-    /** Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
+    /** Variant definitions and rollout configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set rollout_percentage (0-100, default 100) to limit what fraction of users enter the experiment. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
     parameters?: ExperimentParametersApi | null
     secondary_metrics?: unknown | null
     readonly saved_metrics?: readonly ExperimentToSavedMetricApi[]

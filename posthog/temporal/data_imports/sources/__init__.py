@@ -96,6 +96,7 @@ from .pendo.source import PendoSource
 from .pinterest_ads.source import PinterestAdsSource
 from .pipedrive.source import PipedriveSource
 from .plaid.source import PlaidSource
+from .plain.source import PlainSource
 from .polar.source import PolarSource
 from .postgres.source import PostgresSource
 from .postmark.source import PostmarkSource
@@ -240,6 +241,7 @@ __all__ = [
     "PinterestAdsSource",
     "PipedriveSource",
     "PlaidSource",
+    "PlainSource",
     "PolarSource",
     "PostmarkSource",
     "PostgresSource",

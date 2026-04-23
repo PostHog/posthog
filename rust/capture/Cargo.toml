@@ -70,6 +70,7 @@ httparse = "1.8"
 metrics-util = { workspace = true }
 once_cell = { workspace = true }
 rand = { workspace = true }
+rstest = "0.26"
 rdkafka = { workspace = true }
 reqwest = { workspace = true, features = ["multipart"] }
 serde_json = { workspace = true }

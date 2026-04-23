@@ -21,6 +21,7 @@ import { logsAlertNotificationLogic } from 'products/logs/frontend/components/Lo
 import { LogsAlertNotifications } from 'products/logs/frontend/components/LogsAlerting/LogsAlertNotifications'
 import { LogsAlertSimulation } from 'products/logs/frontend/components/LogsAlerting/LogsAlertSimulation'
 import { LogsAlertStateIndicator } from 'products/logs/frontend/components/LogsAlerting/LogsAlertStateIndicator'
+import { LogsAlertStateTimeline } from 'products/logs/frontend/components/LogsAlerting/LogsAlertStateTimeline'
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
 import {
     LogsAlertConfigurationApi,
@@ -64,6 +65,9 @@ export function LogsAlertDetailScene(): JSX.Element {
                     <AlertHeader />
                     <div className="flex flex-col gap-4 p-4">
                         {alert && <AlertStatusBand />}
+                        {alert && (
+                            <LogsAlertStateTimeline timeline={alert.state_timeline} className="h-8 w-full" showAxis />
+                        )}
                         <LemonTabs
                             activeKey={activeTab}
                             onChange={(key) => setActiveTab(key as LogsAlertDetailTab)}

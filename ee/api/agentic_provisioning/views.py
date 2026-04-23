@@ -68,6 +68,13 @@ DEEP_LINK_RATE_LIMIT_PREFIX = "agentic_login_rate:"
 DEEP_LINK_RATE_LIMIT_MAX_ATTEMPTS = 10
 DEEP_LINK_RATE_LIMIT_WINDOW_SECONDS = 300
 
+ACCOUNT_REQUEST_PARTNER_RATE_LIMIT_PREFIX = "agentic_provisioning_account_requests_partner_rate:"
+ACCOUNT_REQUEST_PARTNER_RATE_LIMIT_WINDOW_SECONDS = 3600
+
+CIMD_DOMAIN_RATE_LIMIT_PREFIX = "cimd_registration_domain_rate:"
+CIMD_DOMAIN_RATE_LIMIT_MAX = 5
+CIMD_DOMAIN_RATE_LIMIT_WINDOW_SECONDS = 3600
+
 _SAFE_STATE_RE = re.compile(r"^[A-Za-z0-9_\-]{1,256}$")
 
 STRIPE_APP_NAME = "PostHog Stripe App"
@@ -261,6 +268,9 @@ def account_requests(request: Request) -> Response:
     if error := verify_api_version(request):
         return error
 
+    if error := _enforce_cimd_registration_throttle(request):
+        return error
+
     # --- Identify partner ---
     auth = ProvisioningAuthentication()
     partner = None
@@ -273,6 +283,15 @@ def account_requests(request: Request) -> Response:
             {"type": "error", "error": {"code": "unauthorized", "message": "Authentication failed"}},
             status=401,
         )
+
+    if partner is None and auth.cimd_registration_pending:
+        return Response(
+            {"type": "registering", "retry_after": 5},
+            status=202,
+        )
+
+    if partner and (error := _enforce_partner_account_request_rate_limit(partner)):
+        return error
 
     # --- Parse request ---
     data = request.data
@@ -578,9 +597,7 @@ def _handle_new_user(
     if not isinstance(configuration, dict):
         configuration = {}
 
-    partner_label = (
-        partner.provisioning_partner_type.capitalize() if partner and partner.provisioning_partner_type else "Stripe"
-    )
+    partner_label = _partner_label(partner)
     org_name = configuration.get("organization_name") or f"{partner_label} ({email})"
 
     try:
@@ -1733,6 +1750,115 @@ def deep_links(request: Request) -> Response:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _partner_label(partner: OAuthApplication | None) -> str:
+    if not partner:
+        return "Stripe"
+    if partner.provisioning_partner_type:
+        return partner.provisioning_partner_type.capitalize()
+    if partner.name:
+        return partner.name
+    return "Stripe"
+
+
+def _enforce_partner_account_request_rate_limit(partner: OAuthApplication) -> Response | None:
+    """Enforce the partner's per-hour account_requests limit if one is configured.
+
+    Uses a fixed-window counter keyed on partner id + hour-of-epoch. Self-serve
+    CIMD partners get a low default on first registration; admins can raise it.
+    """
+    limit = partner.provisioning_rate_limit_account_requests
+    if not limit or limit <= 0:
+        return None
+
+    window_index = int(time.time()) // ACCOUNT_REQUEST_PARTNER_RATE_LIMIT_WINDOW_SECONDS
+    key = f"{ACCOUNT_REQUEST_PARTNER_RATE_LIMIT_PREFIX}{partner.id}:{window_index}"
+    try:
+        count = cache.incr(key)
+    except ValueError:
+        # cache.add is atomic set-if-not-exists; safe under concurrent initialization.
+        cache.add(key, 0, timeout=ACCOUNT_REQUEST_PARTNER_RATE_LIMIT_WINDOW_SECONDS)
+        count = cache.incr(key)
+
+    if count > limit:
+        _capture_provisioning_event(
+            "account_request", "rate_limited", partner_id=str(partner.id), limit=limit, count=count
+        )
+        return Response(
+            {
+                "type": "error",
+                "error": {
+                    "code": "rate_limited",
+                    "message": "Account request rate limit exceeded for this partner. Try again later.",
+                },
+            },
+            status=429,
+        )
+    return None
+
+
+def _enforce_cimd_registration_throttle(request: Request) -> Response | None:
+    """Rate-limit first-time CIMD app registration by IP and domain to match /authorize protections."""
+    from posthog.api.oauth.cimd import CIMD_THROTTLE_CLASSES, is_cimd_client_id
+
+    client_id = request.data.get("client_id") or request.query_params.get("client_id")
+    if not is_cimd_client_id(client_id):
+        return None
+    if OAuthApplication.objects.filter(cimd_metadata_url=client_id).exists():
+        return None
+
+    for throttle_cls in CIMD_THROTTLE_CLASSES:
+        throttle = throttle_cls()
+        if not throttle.allow_request(request, view=None):  # type: ignore[arg-type]
+            logger.warning("cimd_rate_limited", client_id=client_id, scope=throttle.scope, wait=throttle.wait())
+            return Response(
+                {
+                    "type": "error",
+                    "error": {
+                        "code": "rate_limited",
+                        "message": "Too many new client registrations. Try again later.",
+                    },
+                },
+                status=429,
+            )
+
+    if error := _enforce_cimd_domain_rate_limit(cast(str, client_id)):
+        return error
+
+    return None
+
+
+def _enforce_cimd_domain_rate_limit(client_id: str) -> Response | None:
+    """Prevent a single domain from registering unlimited CIMD apps via different URL paths."""
+    from urllib.parse import urlparse
+
+    domain = urlparse(client_id).hostname
+    if not domain:
+        return None
+
+    window_index = int(time.time()) // CIMD_DOMAIN_RATE_LIMIT_WINDOW_SECONDS
+    key = f"{CIMD_DOMAIN_RATE_LIMIT_PREFIX}{domain}:{window_index}"
+    try:
+        count = cache.incr(key)
+    except ValueError:
+        cache.add(key, 0, timeout=CIMD_DOMAIN_RATE_LIMIT_WINDOW_SECONDS)
+        count = cache.incr(key)
+
+    if count > CIMD_DOMAIN_RATE_LIMIT_MAX:
+        logger.warning("cimd_domain_rate_limited", client_id=client_id, domain=domain, count=count)
+        _capture_provisioning_event("account_request", "cimd_domain_rate_limited", domain=domain, count=count)
+        return Response(
+            {
+                "type": "error",
+                "error": {
+                    "code": "rate_limited",
+                    "message": "Too many new client registrations from this domain. Try again later.",
+                },
+            },
+            status=429,
+        )
+    return None
 
 
 def _verify_hmac_if_present(request: Request) -> Response | None:

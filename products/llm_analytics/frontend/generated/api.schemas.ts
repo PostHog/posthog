@@ -1819,6 +1819,44 @@ export interface LLMSkillDuplicateApi {
     new_name: string
 }
 
+export interface LLMSkillFileCreateApi {
+    /**
+     * File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.
+     * @maxLength 500
+     */
+    path: string
+    /** Text content of the file. */
+    content: string
+    /**
+     * MIME type of the file content.
+     * @maxLength 100
+     */
+    content_type?: string
+    /**
+     * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
+     * @minimum 1
+     */
+    base_version?: number
+}
+
+export interface LLMSkillFileRenameApi {
+    /**
+     * Current file path to rename.
+     * @maxLength 500
+     */
+    old_path: string
+    /**
+     * New file path. Must not already exist in the skill.
+     * @maxLength 500
+     */
+    new_path: string
+    /**
+     * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
+     * @minimum 1
+     */
+    base_version?: number
+}
+
 export interface LLMSkillFileApi {
     /** @maxLength 500 */
     path: string
@@ -2283,6 +2321,14 @@ export type LlmSkillsNameFilesRetrieveParams = {
      * @minimum 1
      */
     version?: number
+}
+
+export type LlmSkillsNameFilesDestroyParams = {
+    /**
+     * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
+     * @minimum 1
+     */
+    base_version?: number
 }
 
 export type LlmSkillsResolveNameRetrieveParams = {

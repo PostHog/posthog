@@ -659,6 +659,11 @@ export interface ConversationsSettings {
     slack_bot_icon_url?: string | null
     slack_bot_display_name?: string | null
     email_enabled?: boolean
+    teams_enabled?: boolean
+    teams_team_id?: string | null
+    teams_team_name?: string | null
+    teams_channel_id?: string | null
+    teams_channel_name?: string | null
 }
 
 export interface LogsSettings {
@@ -2359,6 +2364,7 @@ export interface EndpointType extends WithAccessControl {
     cache_age_seconds: number | null
     is_materialized: boolean
     current_version: number
+    current_version_id: string
     versions_count: number
     /** Purely local value to determine whether the query endpoint should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
@@ -2385,6 +2391,7 @@ export interface EndpointVersionMaterializationType {
     error?: string
     last_materialized_at?: string
     sync_frequency?: DataModelingSyncInterval
+    saved_query_id?: string
 }
 
 export interface DashboardBasicType extends WithAccessControl {
@@ -2998,6 +3005,12 @@ export interface RetentionEntity {
     custom_name?: string
     /** filters on the event */
     properties?: AnyPropertyFilter[]
+    /** Data warehouse table name */
+    table_name?: string
+    /** Data warehouse timestamp field */
+    timestamp_field?: string
+    /** Data warehouse field used as the actor identifier */
+    aggregation_target_field?: string
 }
 
 export enum RetentionDashboardDisplayType {
@@ -6564,6 +6577,8 @@ export type HogFunctionTemplateType = Pick<
     flag?: string
     /** Whether this is a featured/recommended source */
     featured?: boolean
+    /** Release status, only populated for `type: 'source'` templates */
+    releaseStatus?: 'alpha' | 'beta' | 'ga'
 }
 
 export type HogFunctionTemplateWithSubTemplateType = HogFunctionTemplateType & {
