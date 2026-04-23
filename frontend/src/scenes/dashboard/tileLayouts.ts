@@ -123,9 +123,7 @@ export const calculateLayouts = (
 
         let sortedDashboardTiles: DashboardTile<QueryBasedInsightModel>[] | undefined
         if (referenceOrder === undefined) {
-            // First pass: calculate sm layout and establish order
             sortedDashboardTiles = sortTilesByLayout(tiles, 'sm')
-            referenceOrder = sortedDashboardTiles.map((tile) => tile.id)
         } else {
             // Subsequent passes: follow the reference order from sm layout
             sortedDashboardTiles = tiles.sort((a, b) => {
@@ -234,6 +232,12 @@ export const calculateLayouts = (
             for (let k = lowestIndex; k <= lowestIndex + w - 1; k++) {
                 lowestPoints[k] = Math.max(lowestPoints[k], lowestDepth + h)
             }
+        }
+
+        if (breakpoint === 'sm') {
+            referenceOrder = [...cleanLayouts]
+                .sort((a, b) => (a.y === b.y ? a.x - b.x : a.y - b.y))
+                .map((l) => parseInt(l.i))
         }
 
         allLayouts[breakpoint] = cleanLayouts

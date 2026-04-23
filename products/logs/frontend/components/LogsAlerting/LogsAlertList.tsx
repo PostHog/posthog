@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { IconBell } from '@posthog/icons'
 import {
     LemonButton,
     LemonDialog,
@@ -10,13 +11,11 @@ import {
     SpinnerOverlay,
 } from '@posthog/lemon-ui'
 
-import { Sparkline, SparklineTimeSeries } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
-import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { shortTimeZone } from 'lib/utils'
+import { urls } from 'scenes/urls'
 
 import IconSlack from 'public/services/slack.png'
 import IconWebhook from 'public/services/webhook.svg'
@@ -25,72 +24,23 @@ import {
     DestinationTypesEnumApi,
     LogsAlertConfigurationApi,
     LogsAlertConfigurationStateEnumApi,
-    LogsAlertSparklineBucketApi,
     ThresholdOperatorEnumApi,
 } from 'products/logs/frontend/generated/api.schemas'
 
 import { logsAlertingLogic } from './logsAlertingLogic'
 import { LogsAlertStateIndicator } from './LogsAlertStateIndicator'
+import { LogsAlertStateTimeline } from './LogsAlertStateTimeline'
+import { SNOOZE_DURATIONS } from './logsAlertUtils'
 
 function formatThreshold(alert: LogsAlertConfigurationApi): string {
     const operator = alert.threshold_operator === ThresholdOperatorEnumApi.Below ? '<' : '>'
     return `${operator} ${alert.threshold_count} in ${alert.window_minutes}m`
 }
 
-const SNOOZE_DURATIONS = [
-    { label: '30 minutes', minutes: 30 },
-    { label: '1 hour', minutes: 60 },
-    { label: '4 hours', minutes: 240 },
-    { label: '24 hours', minutes: 1440 },
-]
-
-function alertSparklineData(sparkline: readonly LogsAlertSparklineBucketApi[] | undefined): SparklineTimeSeries[] {
-    if (!sparkline || sparkline.length === 0) {
-        return []
-    }
-    return [
-        {
-            name: 'Breached',
-            values: sparkline.map((b) => b.breached),
-            color: 'danger',
-        },
-        {
-            name: 'Errored',
-            values: sparkline.map((b) => b.errored),
-            color: 'warning',
-        },
-        {
-            name: 'Resolved',
-            values: sparkline.map((b) => b.resolved),
-            color: 'success',
-        },
-        {
-            name: 'Quiet',
-            values: sparkline.map((b) => (b.breached === 0 && b.errored === 0 && b.resolved === 0 ? 1 : 0)),
-            color: 'border',
-        },
-    ]
-}
-
-function alertSparklineLabels(sparkline: readonly LogsAlertSparklineBucketApi[] | undefined): string[] {
-    if (!sparkline) {
-        return []
-    }
-    const tz = shortTimeZone()
-    const tzSuffix = tz ? ` ${tz}` : ''
-    return sparkline.map((b) => {
-        const startUtc = dayjs.utc(b.timestamp)
-        const start = startUtc.local()
-        const end = startUtc.add(1, 'hour').local()
-        return `${start.format('MMM D, HH:mm')} – ${end.format('HH:mm')}${tzSuffix}`
-    })
-}
-
 export function LogsAlertList(): JSX.Element {
     const { alerts, alertsLoading, resettingAlertIds } = useValues(logsAlertingLogic)
     const {
         setEditingAlert,
-        setIsCreating,
         deleteAlert,
         toggleAlertEnabled,
         resetAlert,
@@ -104,7 +54,7 @@ export function LogsAlertList(): JSX.Element {
             title: 'Name',
             dataIndex: 'name',
             render: (_, alert) => (
-                <LemonButton type="tertiary" size="small" onClick={() => setEditingAlert(alert)}>
+                <LemonButton type="tertiary" size="small" to={urls.logsAlertDetail(alert.id)}>
                     {alert.name}
                 </LemonButton>
             ),
@@ -115,6 +65,7 @@ export function LogsAlertList(): JSX.Element {
             render: (_, alert) => (
                 <LogsAlertStateIndicator
                     state={alert.state}
+                    enabled={alert.enabled ?? true}
                     lastErrorMessage={alert.last_error_message}
                     snoozeUntil={alert.snooze_until}
                 />
@@ -136,43 +87,62 @@ export function LogsAlertList(): JSX.Element {
         },
         {
             title: (
-                <Tooltip title="Breached (red), errored (yellow), and resolved (green) checks over the last 24 hours. Grey bars mark quiet hours.">
+                <Tooltip title="Alert state over the last 24 hours. Green = OK, red = firing, orange = resolving/errored, grey = snoozed or disabled. Hover to see the state at a point in time.">
                     <span className="cursor-help">Last 24h</span>
                 </Tooltip>
             ),
-            render: (_, alert) => (
-                <Sparkline
-                    data={alertSparklineData(alert.sparkline)}
-                    labels={alertSparklineLabels(alert.sparkline)}
-                    className="h-6 w-20"
-                    type="bar"
-                    maximumIndicator={false}
-                    hideZerosInTooltip
-                />
-            ),
+            render: (_, alert) => <LogsAlertStateTimeline timeline={alert.state_timeline} className="h-6 w-72" />,
         },
         {
-            title: 'Notification destinations',
+            title: 'Notifications',
             dataIndex: 'destination_types',
             render: (_, alert) => {
                 const types = alert.destination_types ?? []
+                const notifUrl = urls.logsAlertDetail(alert.id, 'notifications')
                 if (types.length === 0) {
-                    return <LemonTag type="warning">None</LemonTag>
+                    return (
+                        <div className="flex items-center gap-1">
+                            <LemonTag type="warning">None</LemonTag>
+                            <LemonButton
+                                size="small"
+                                type="tertiary"
+                                icon={
+                                    <span className="relative inline-flex text-danger">
+                                        <IconBell />
+                                        <span aria-hidden className="absolute inset-0 flex items-center justify-center">
+                                            <span className="block h-px w-[140%] rotate-45 bg-danger" />
+                                        </span>
+                                    </span>
+                                }
+                                to={notifUrl}
+                                tooltip="No notification destinations configured — click to configure"
+                            />
+                        </div>
+                    )
                 }
                 return (
-                    <div className="flex gap-1">
-                        {types.includes(DestinationTypesEnumApi.Slack) && (
-                            <LemonTag>
-                                <img src={IconSlack} alt="" className="h-3 w-3 object-contain" />
-                                Slack
-                            </LemonTag>
-                        )}
-                        {types.includes(DestinationTypesEnumApi.Webhook) && (
-                            <LemonTag>
-                                <img src={IconWebhook} alt="" className="h-3 w-3 object-contain" />
-                                Webhook
-                            </LemonTag>
-                        )}
+                    <div className="flex items-center gap-1">
+                        <div className="flex gap-1">
+                            {types.includes(DestinationTypesEnumApi.Slack) && (
+                                <LemonTag>
+                                    <img src={IconSlack} alt="" className="h-3 w-3 object-contain" />
+                                    Slack
+                                </LemonTag>
+                            )}
+                            {types.includes(DestinationTypesEnumApi.Webhook) && (
+                                <LemonTag>
+                                    <img src={IconWebhook} alt="" className="h-3 w-3 object-contain" />
+                                    Webhook
+                                </LemonTag>
+                            )}
+                        </div>
+                        <LemonButton
+                            size="small"
+                            type="tertiary"
+                            icon={<IconBell />}
+                            to={notifUrl}
+                            tooltip="Configure notifications"
+                        />
                     </div>
                 )
             },
@@ -274,7 +244,7 @@ export function LogsAlertList(): JSX.Element {
     return (
         <div className="space-y-2">
             <div className="flex justify-end">
-                <LemonButton type="primary" size="small" onClick={() => setIsCreating(true)}>
+                <LemonButton type="primary" size="small" to={urls.logsAlertNew()}>
                     New alert
                 </LemonButton>
             </div>

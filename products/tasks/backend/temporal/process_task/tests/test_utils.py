@@ -19,12 +19,13 @@ class TestGetSandboxMcpConfigs(TestCase):
     TOKEN = "phx_test_token"
     PROJECT_ID = 42
 
-    def _expected_headers(self, *, read_only: bool = True) -> list[dict[str, str]]:
+    def _expected_headers(self, *, read_only: bool = True, consumer: str = "posthog-code") -> list[dict[str, str]]:
         return [
             {"name": "Authorization", "value": f"Bearer {self.TOKEN}"},
             {"name": "x-posthog-project-id", "value": str(self.PROJECT_ID)},
             {"name": "x-posthog-mcp-version", "value": "2"},
             {"name": "x-posthog-read-only", "value": str(read_only).lower()},
+            {"name": "x-posthog-mcp-consumer", "value": consumer},
         ]
 
     @parameterized.expand(
@@ -125,6 +126,31 @@ class TestGetSandboxMcpConfigs(TestCase):
             mock_settings.SANDBOX_MCP_URL = None
             mock_settings.SITE_URL = ""
             assert get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID) == []
+
+    @parameterized.expand(
+        [
+            (None, "posthog-code"),
+            ("", "posthog-code"),
+            ("posthog-code", "posthog-code"),
+            ("some-other-origin", "posthog-code"),
+            ("slack", "slack"),
+        ]
+    )
+    def test_consumer_header_reflects_interaction_origin(
+        self, interaction_origin: str | None, expected_consumer: str
+    ) -> None:
+        with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
+            mock_settings.SANDBOX_MCP_URL = None
+            mock_settings.SITE_URL = "https://app.posthog.com"
+            configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID, interaction_origin=interaction_origin)
+            assert configs == [
+                McpServerConfig(
+                    type="http",
+                    name="posthog",
+                    url="https://mcp.posthog.com/mcp",
+                    headers=self._expected_headers(consumer=expected_consumer),
+                )
+            ]
 
 
 class TestMcpServerConfigToDict(TestCase):

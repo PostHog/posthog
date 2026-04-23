@@ -666,39 +666,111 @@ class TestSendEmailReplyMultiConfig(BaseTest):
             email_from="customer@test.com",
         )
 
-    @patch("products.conversations.backend.tasks.get_smtp_connection")
-    @patch("products.conversations.backend.tasks.get_instance_setting", return_value="mg.posthog.com")
-    def test_send_email_reply_uses_ticket_config(self, _mock_setting: MagicMock, mock_smtp: MagicMock):
+    def _run_reply(self, ticket: Ticket, content: str = "Reply from agent") -> Comment:
         from products.conversations.backend.tasks import send_email_reply
-
-        config1 = self._create_config("support@example.com", "aaa111")
-        self._create_config("billing@example.com", "bbb222")
-        ticket = self._create_ticket(config1)
-
-        mock_conn = MagicMock()
-        mock_smtp.return_value = mock_conn
-
-        from posthog.models.comment import Comment
 
         comment = Comment.objects.create(
             team=self.team,
             scope="conversations_ticket",
             item_id=str(ticket.id),
-            content="Reply from agent",
+            content=content,
         )
 
         send_email_reply(
             ticket_id=str(ticket.id),
             team_id=self.team.id,
             comment_id=str(comment.id),
-            content="Reply from agent",
+            content=content,
             rich_content=None,
             author_name="Agent",
         )
+        return comment
 
-        mock_conn.send_messages.assert_called_once()
-        sent_msg = mock_conn.send_messages.call_args[0][0][0]
-        assert "support@example.com" in sent_msg.from_email
+    @patch("products.conversations.backend.tasks.send_mime")
+    @patch("products.conversations.backend.tasks.get_instance_setting", return_value="mg.posthog.com")
+    def test_send_email_reply_uses_ticket_config(self, _mock_setting: MagicMock, mock_send_mime: MagicMock):
+        config1 = self._create_config("support@example.com", "aaa111")
+        self._create_config("billing@example.com", "bbb222")
+        ticket = self._create_ticket(config1)
+        ticket.cc_participants = ["cc1@example.com", "cc2@example.com"]
+        ticket.save(update_fields=["cc_participants"])
+
+        self._run_reply(ticket)
+
+        mock_send_mime.assert_called_once()
+        args, kwargs = mock_send_mime.call_args
+
+        # Regression guard: must use the ticket's domain, not a shared/global one.
+        assert args[0] == "example.com"
+
+        # Recipients include the customer and every CC participant.
+        assert kwargs["recipients"] == ["customer@test.com", "cc1@example.com", "cc2@example.com"]
+
+        # MIME body carries the From header with the config's from_email.
+        # Separate substring checks avoid formataddr quoting flakes.
+        mime_bytes = args[1]
+        assert b"From: " in mime_bytes
+        assert b"support@example.com" in mime_bytes
+
+        # Guard against someone dropping linesep="\r\n" from the as_bytes() call.
+        # RFC 5322 wants CRLF; Django's default is LF-only.
+        assert b"\r\n" in mime_bytes
+
+    @patch("products.conversations.backend.tasks.send_mime")
+    @patch("products.conversations.backend.tasks.get_instance_setting", return_value="mg.posthog.com")
+    def test_send_email_reply_permanent_error_does_not_retry(self, _mock_setting: MagicMock, mock_send_mime: MagicMock):
+        from products.conversations.backend.mailgun import MailgunPermanentError
+
+        config = self._create_config("support@example.com", "aaa111")
+        ticket = self._create_ticket(config)
+
+        mock_send_mime.side_effect = MailgunPermanentError("bad recipient")
+
+        self._run_reply(ticket)
+
+        # One attempt, no Celery retry.
+        assert mock_send_mime.call_count == 1
+
+    @patch("products.conversations.backend.tasks.send_mime")
+    @patch("products.conversations.backend.tasks.get_instance_setting", return_value="mg.posthog.com")
+    def test_send_email_reply_domain_not_registered_flips_verified(
+        self, _mock_setting: MagicMock, mock_send_mime: MagicMock
+    ):
+        from products.conversations.backend.mailgun import MailgunDomainNotRegistered
+
+        config = self._create_config("support@example.com", "aaa111")
+        ticket = self._create_ticket(config)
+
+        mock_send_mime.side_effect = MailgunDomainNotRegistered("gone from mailgun")
+
+        self._run_reply(ticket)
+
+        config.refresh_from_db()
+        assert config.domain_verified is False
+
+    @patch("products.conversations.backend.tasks.send_mime")
+    @patch("products.conversations.backend.tasks.get_instance_setting", return_value="mg.posthog.com")
+    def test_send_email_reply_transient_error_is_not_swallowed(
+        self, _mock_setting: MagicMock, mock_send_mime: MagicMock
+    ):
+        """Contrast with the permanent-error path: transient errors must NOT be
+        silently swallowed — they need to propagate so Celery can retry them.
+        In eager test mode the exception bubbles up directly; in production the
+        @shared_task wrapper converts it into a Celery Retry signal."""
+        from products.conversations.backend.mailgun import MailgunTransientError
+
+        config = self._create_config("support@example.com", "aaa111")
+        ticket = self._create_ticket(config)
+
+        mock_send_mime.side_effect = MailgunTransientError("mailgun 503")
+
+        # In eager mode, .retry(exc=e) re-raises e directly without re-executing
+        # the task, so call_count stays at 1 — we can't assert the retry loop ran.
+        # What we CAN assert: the exception type propagates (vs permanent errors,
+        # which are swallowed). That's the behavioral contract the production
+        # worker depends on to trigger its real retry loop.
+        with self.assertRaises(MailgunTransientError):
+            self._run_reply(ticket, content="Reply")
 
     def test_send_email_reply_skips_when_no_config(self):
         from products.conversations.backend.tasks import send_email_reply
@@ -944,3 +1016,84 @@ class TestEmailInboundAttachments(BaseTest):
         assert comment.content == "See attached"
         assert comment.rich_content is None
         assert comment.item_context.get("email_attachments") is None
+
+
+class TestEmailSendTestView(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.user)
+        self.config = EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="send11test22",
+            from_email="support@example.com",
+            from_name="Support",
+            domain="example.com",
+            domain_verified=True,
+        )
+
+    def _post(self) -> dict:
+        return {"config_id": str(self.config.id)}
+
+    @patch(
+        "products.conversations.backend.api.email_settings.get_instance_setting",
+        return_value="mg.posthog.com",
+    )
+    @patch("products.conversations.backend.api.email_settings.send_mime")
+    def test_success(self, mock_send_mime: MagicMock, _mock_setting: MagicMock):
+        mock_send_mime.return_value = "<mg-id@example.com>"
+
+        response = self.client.post(
+            "/api/conversations/v1/email/send-test", self._post(), content_type="application/json"
+        )
+
+        assert response.status_code == 200
+        mock_send_mime.assert_called_once()
+        args, kwargs = mock_send_mime.call_args
+        assert args[0] == "example.com"
+        assert kwargs["recipients"] == [self.user.email]
+
+    @parameterized.expand(
+        [
+            ("not_configured", "MailgunNotConfigured", "no api key", 500),
+            ("domain_not_registered", "MailgunDomainNotRegistered", "gone", 502),
+            ("permanent_error", "MailgunPermanentError", "bad recipient", 502),
+        ]
+    )
+    @patch(
+        "products.conversations.backend.api.email_settings.get_instance_setting",
+        return_value="mg.posthog.com",
+    )
+    @patch("products.conversations.backend.api.email_settings.send_mime")
+    def test_mailgun_error_maps_to_status(
+        self,
+        _name: str,
+        exc_name: str,
+        exc_arg: str,
+        expected_status: int,
+        mock_send_mime: MagicMock,
+        _mock_setting: MagicMock,
+    ):
+        import products.conversations.backend.mailgun as mailgun_mod
+
+        mock_send_mime.side_effect = getattr(mailgun_mod, exc_name)(exc_arg)
+
+        response = self.client.post(
+            "/api/conversations/v1/email/send-test", self._post(), content_type="application/json"
+        )
+
+        assert response.status_code == expected_status
+
+    @patch(
+        "products.conversations.backend.api.email_settings.get_instance_setting",
+        return_value="mg.posthog.com",
+    )
+    @patch("products.conversations.backend.api.email_settings.send_mime")
+    def test_domain_not_registered_flips_verified(self, mock_send_mime: MagicMock, _mock_setting: MagicMock):
+        from products.conversations.backend.mailgun import MailgunDomainNotRegistered
+
+        mock_send_mime.side_effect = MailgunDomainNotRegistered("gone")
+
+        self.client.post("/api/conversations/v1/email/send-test", self._post(), content_type="application/json")
+
+        self.config.refresh_from_db()
+        assert self.config.domain_verified is False
