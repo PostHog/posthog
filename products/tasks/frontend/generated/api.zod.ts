@@ -228,13 +228,13 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .optional()
                 .describe('Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests.'),
             initial_permission_mode: zod
-                .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions'])
+                .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto'])
                 .describe(
-                    '* `default` - default\n* `acceptEdits` - acceptEdits\n* `plan` - plan\n* `bypassPermissions` - bypassPermissions'
+                    '* `default` - default\n* `acceptEdits` - acceptEdits\n* `plan` - plan\n* `bypassPermissions` - bypassPermissions\n* `auto` - auto'
                 )
                 .optional()
                 .describe(
-                    'Initial permission mode for Claude runtimes.\n\n* `default` - default\n* `acceptEdits` - acceptEdits\n* `plan` - plan\n* `bypassPermissions` - bypassPermissions'
+                    'Initial permission mode for Claude runtimes.\n\n* `default` - default\n* `acceptEdits` - acceptEdits\n* `plan` - plan\n* `bypassPermissions` - bypassPermissions\n* `auto` - auto'
                 ),
         })
         .describe('Request body for creating a new task run'),
