@@ -572,7 +572,7 @@ function SkillFileViewer({
                 <span className="text-muted-alt text-xs">{file.content_type}</span>
             </button>
             {expanded && (
-                <div className="border-t px-3 py-2">
+                <div className="border-t bg-bg-light px-3 py-2">
                     {loading ? (
                         <div className="space-y-2">
                             <LemonSkeleton active className="h-3 w-full" />
@@ -580,7 +580,9 @@ function SkillFileViewer({
                             <LemonSkeleton active className="h-3 w-1/2" />
                         </div>
                     ) : content === null ? null : isMarkdown ? (
-                        <LemonMarkdown className="text-sm">{content}</LemonMarkdown>
+                        <LemonMarkdown className="text-sm" generateHeadingIds>
+                            {content}
+                        </LemonMarkdown>
                     ) : codeLanguage !== null ? (
                         <CodeSnippet language={codeLanguage} compact thing={file.path} maxLinesWithoutExpansion={20}>
                             {content}
