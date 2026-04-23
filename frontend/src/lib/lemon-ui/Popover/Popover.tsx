@@ -346,7 +346,12 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                                     <div
                                         className="Popover__box"
                                         // eslint-disable-next-line react/forbid-dom-props
-                                        style={{ maxWidth }}
+                                        // floating-ui sets an imperative maxWidth on the outer .Popover to keep it
+                                        // inside the viewport; this cap on .Popover__box shapes the content width
+                                        // (prose / wide / extra-wide) without fighting the viewport clamp. When the
+                                        // popover matches the reference width we skip the cap so the dropdown can
+                                        // line up with a wider trigger.
+                                        style={matchWidth ? undefined : { maxWidth }}
                                     >
                                         {showArrow && isAttached && (
                                             // Arrow is outside of .Popover__content to avoid affecting :nth-child for content

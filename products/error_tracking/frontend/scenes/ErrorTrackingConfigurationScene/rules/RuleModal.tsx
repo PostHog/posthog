@@ -18,6 +18,7 @@ interface RuleModalProps {
     description: string
     pageKey: string
     width?: number
+    maxWidth?: number | string
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     saveDisabledReason?: string
     suffix: (issuesLink: JSX.Element, dateRangeLabel: string) => JSX.Element
@@ -33,7 +34,8 @@ export function RuleModal({
     ruleLabel,
     description,
     pageKey,
-    width = 700,
+    width,
+    maxWidth,
     taxonomicGroupTypes,
     saveDisabledReason,
     suffix,
@@ -89,6 +91,7 @@ export function RuleModal({
             isOpen={isOpen}
             onClose={closeModal}
             width={width}
+            maxWidth={maxWidth}
             overlayClassName="pt-20"
             footer={
                 <div className="flex justify-between w-full">
