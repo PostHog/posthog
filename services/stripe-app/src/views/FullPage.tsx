@@ -10,7 +10,6 @@ import EventsTab from '../fullPage/EventsTab'
 import ExperimentsTab from '../fullPage/ExperimentsTab'
 import FeatureFlagsTab from '../fullPage/FeatureFlagsTab'
 import OverviewTab from '../fullPage/OverviewTab'
-import SupportTab from '../fullPage/SupportTab'
 import { logger } from '../logger'
 import { getBaseUrlForRegion, loadCredentials } from '../posthog/auth'
 import { PostHogClient } from '../posthog/client'
@@ -118,11 +117,14 @@ const FullPage = ({ environment }: ExtensionContextValue): JSX.Element => {
                     label="Feature flags"
                     content={<FeatureFlagsTab client={client} projectId={projectId} />}
                 />
-                <FullPageTab
-                    id="support"
-                    label="Support"
-                    content={<SupportTab client={client} projectId={projectId} />}
-                />
+                {/*
+                 * Support tab is hidden from the UI for now but kept around so we can re-enable it easily.
+                 * <FullPageTab
+                 *     id="support"
+                 *     label="Support"
+                 *     content={<SupportTab client={client} projectId={projectId} />}
+                 * />
+                 */}
             </FullPageTabs>
         </FullPageView>
     )
