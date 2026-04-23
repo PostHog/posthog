@@ -407,7 +407,7 @@ docker:
         hidden: true
     docker:server:
         bin_script: docker-server
-        description: Run dual-mode server (Granian/Unit) with Prometheus metrics support
+        description: Run NGINX Unit application server
         hidden: true
     docker:server-unit:
         bin_script: docker-server-unit
@@ -627,9 +627,6 @@ tools:
         cmd: python manage.py print_hog_stl_table
         description: Print HogSQL standard library definitions for reference
         hidden: true
-    clickhouse:ai:init:
-        bin_script: clickhouse-ai-events-init
-        description: Create ai_events ClickHouse tables for local development
     clickhouse:logs:init:
         bin_script: clickhouse-logs-init
         description: 'TODO: add description for clickhouse-logs-init'
@@ -637,10 +634,6 @@ tools:
     create:notebook:node:
         bin_script: create-notebook-node.sh
         description: Create a new NotebookNode file and update types and editor references
-        hidden: true
-    tool:granian-metrics:
-        bin_script: granian_metrics.py
-        description: HTTP server that aggregates Prometheus metrics from Granian workers
         hidden: true
     sync:storage:
         bin_script: sync-storage

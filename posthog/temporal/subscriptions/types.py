@@ -56,18 +56,34 @@ class CreateExportAssetsInputs:
     subscription_id: int
     max_asset_count: int = DEFAULT_MAX_ASSET_COUNT
     previous_value: typing.Optional[str] = None
+    # When set, the activity persists the per-insight snapshot directly onto
+    # SubscriptionDelivery.content_snapshot. Keeps multi-MB query_results off
+    # the Temporal payload wire (~2 MiB gRPC cap). When unset (standalone
+    # callers or pre-rollout workflow retries replaying old input shape), the
+    # activity falls back to looking up the delivery row by workflow_id.
+    delivery_id: typing.Optional[uuid.UUID] = None
 
 
 @dataclasses.dataclass
 class CreateExportAssetsResult:
-    """Export batch metadata plus per-insight snapshots aligned with exported_asset_ids order."""
+    """Small metadata envelope for create_export_assets.
+
+    Multi-MB snapshot data is written to Postgres from inside the activity via
+    `delivery_id`, not returned here — the activity return payload crosses
+    Temporal's ~2 MiB gRPC boundary and must stay size-bounded by construction.
+    """
 
     exported_asset_ids: list[int]
     total_insight_count: int
     team_id: int = 0
     distinct_id: str = ""
     target_type: str = ""
-    insight_snapshots: list[dict[str, typing.Any]] = dataclasses.field(default_factory=list)
+    # Deprecated (TODO slug: subscriptions-patched-cleanup) — kept only so
+    # that in-flight Temporal workflows (whose history contains an old-format
+    # result) still deserialize on new workers during a rolling deploy. New
+    # code does not populate this field. Remove in the second cleanup PR per
+    # the sequence in workflows.py.
+    insight_snapshots: typing.Optional[list[dict[str, typing.Any]]] = None
 
 
 @dataclasses.dataclass
@@ -139,15 +155,26 @@ class CreateDeliveryRecordInputs:
 
 @dataclasses.dataclass
 class UpdateDeliveryRecordInputs:
-    """Patch a SubscriptionDelivery row. None on optional collections means leave the column unchanged."""
+    """Patch a SubscriptionDelivery row. None on optional collections means leave the column unchanged.
+
+    New code writes per-insight query results directly to Postgres from
+    `create_export_assets` rather than shipping them back through this input
+    (they can easily exceed Temporal's ~2 MiB payload cap). `content_snapshot`
+    remains here only so that in-flight workflows from before the rollout can
+    still replay successfully — their history carries a populated
+    content_snapshot, and dropping the field would break deserialization.
+    """
 
     delivery_id: uuid.UUID
     status: str
     exported_asset_ids: typing.Optional[list[int]] = None
-    content_snapshot: typing.Optional[dict[str, typing.Any]] = None
     recipient_results: typing.Optional[list[dict[str, typing.Any]]] = None
     error: typing.Optional[dict[str, typing.Any]] = None
     finished: bool = False
+    # Deprecated (TODO slug: subscriptions-patched-cleanup) — see docstring
+    # above and cleanup sequence at top of workflows.py. Remove in the second
+    # cleanup PR after task queue drain.
+    content_snapshot: typing.Optional[dict[str, typing.Any]] = None
 
 
 @dataclasses.dataclass

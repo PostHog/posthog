@@ -33,7 +33,7 @@ class ConvexSource(SimpleSource[ConvexSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.CONVEX,
             label="Convex",
-            betaSource=True,
+            releaseStatus="beta",
             caption="""Enter your Convex deployment URL and deploy key to sync your Convex tables into PostHog.
 
 You can find your deployment URL and deploy key in your [Convex Dashboard](https://dashboard.convex.dev/) under **Settings** > **URL & Deploy Key**.

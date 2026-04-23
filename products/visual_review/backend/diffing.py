@@ -143,6 +143,7 @@ def _diff_snapshot(snapshot: RunSnapshot) -> None:
             "team_id": snapshot.team_id,
             "reason": ToleratedReason.AUTO_THRESHOLD,
             "source_run": snapshot.run,
+            "diff_percentage": result.diff_percentage,
         },
     )
 

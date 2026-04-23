@@ -27,14 +27,24 @@ import type {
     TaskRunAppendLogRequestApi,
     TaskRunArtifactPresignRequestApi,
     TaskRunArtifactPresignResponseApi,
+    TaskRunArtifactsFinalizeUploadRequestApi,
+    TaskRunArtifactsFinalizeUploadResponseApi,
+    TaskRunArtifactsPrepareUploadRequestApi,
+    TaskRunArtifactsPrepareUploadResponseApi,
     TaskRunArtifactsUploadRequestApi,
     TaskRunArtifactsUploadResponseApi,
+    TaskRunBootstrapCreateRequestApi,
     TaskRunCommandRequestApi,
     TaskRunCommandResponseApi,
     TaskRunCreateRequestSchemaApi,
     TaskRunDetailApi,
     TaskRunRelayMessageRequestApi,
     TaskRunRelayMessageResponseApi,
+    TaskRunStartRequestApi,
+    TaskStagedArtifactsFinalizeUploadRequestApi,
+    TaskStagedArtifactsFinalizeUploadResponseApi,
+    TaskStagedArtifactsPrepareUploadRequestApi,
+    TaskStagedArtifactsPrepareUploadResponseApi,
     TasksListParams,
     TasksRepositoryReadinessRetrieveParams,
     TasksRunsListParams,
@@ -327,6 +337,56 @@ export const tasksRunCreate = async (
 }
 
 /**
+ * Verify staged S3 uploads and cache their metadata so they can be attached to the next run created for this task.
+ * @summary Finalize staged direct uploads for task attachments
+ */
+export const getTasksStagedArtifactsFinalizeUploadCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/staged_artifacts/finalize_upload/`
+}
+
+export const tasksStagedArtifactsFinalizeUploadCreate = async (
+    projectId: string,
+    id: string,
+    taskStagedArtifactsFinalizeUploadRequestApi: TaskStagedArtifactsFinalizeUploadRequestApi,
+    options?: RequestInit
+): Promise<TaskStagedArtifactsFinalizeUploadResponseApi> => {
+    return apiMutator<TaskStagedArtifactsFinalizeUploadResponseApi>(
+        getTasksStagedArtifactsFinalizeUploadCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskStagedArtifactsFinalizeUploadRequestApi),
+        }
+    )
+}
+
+/**
+ * Reserve S3 object keys for task attachments before creating a new run and return presigned POST forms for direct uploads.
+ * @summary Prepare staged direct uploads for task attachments
+ */
+export const getTasksStagedArtifactsPrepareUploadCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/staged_artifacts/prepare_upload/`
+}
+
+export const tasksStagedArtifactsPrepareUploadCreate = async (
+    projectId: string,
+    id: string,
+    taskStagedArtifactsPrepareUploadRequestApi: TaskStagedArtifactsPrepareUploadRequestApi,
+    options?: RequestInit
+): Promise<TaskStagedArtifactsPrepareUploadResponseApi> => {
+    return apiMutator<TaskStagedArtifactsPrepareUploadResponseApi>(
+        getTasksStagedArtifactsPrepareUploadCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskStagedArtifactsPrepareUploadRequestApi),
+        }
+    )
+}
+
+/**
  * Get a list of runs for a specific task.
  * @summary List task runs
  */
@@ -359,7 +419,7 @@ export const tasksRunsList = async (
 }
 
 /**
- * Create a new run for a specific task.
+ * Create a new run for a specific task without starting execution.
  * @summary Create task run
  */
 export const getTasksRunsCreateUrl = (projectId: string, taskId: string) => {
@@ -369,11 +429,14 @@ export const getTasksRunsCreateUrl = (projectId: string, taskId: string) => {
 export const tasksRunsCreate = async (
     projectId: string,
     taskId: string,
+    taskRunBootstrapCreateRequestApi: TaskRunBootstrapCreateRequestApi,
     options?: RequestInit
 ): Promise<TaskRunDetailApi> => {
     return apiMutator<TaskRunDetailApi>(getTasksRunsCreateUrl(projectId, taskId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunBootstrapCreateRequestApi),
     })
 }
 
@@ -463,6 +526,81 @@ export const tasksRunsArtifactsCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(taskRunArtifactsUploadRequestApi),
     })
+}
+
+/**
+ * Streams artifact content for a task run artifact after validating that it belongs to the run.
+ * @summary Download an artifact through the backend
+ */
+export const getTasksRunsArtifactsDownloadCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/download/`
+}
+
+export const tasksRunsArtifactsDownloadCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunArtifactPresignRequestApi: TaskRunArtifactPresignRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTasksRunsArtifactsDownloadCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunArtifactPresignRequestApi),
+    })
+}
+
+/**
+ * Verify directly uploaded S3 objects and attach them to the run artifact manifest.
+ * @summary Finalize direct uploads for task run artifacts
+ */
+export const getTasksRunsArtifactsFinalizeUploadCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/finalize_upload/`
+}
+
+export const tasksRunsArtifactsFinalizeUploadCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunArtifactsFinalizeUploadRequestApi: TaskRunArtifactsFinalizeUploadRequestApi,
+    options?: RequestInit
+): Promise<TaskRunArtifactsFinalizeUploadResponseApi> => {
+    return apiMutator<TaskRunArtifactsFinalizeUploadResponseApi>(
+        getTasksRunsArtifactsFinalizeUploadCreateUrl(projectId, taskId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskRunArtifactsFinalizeUploadRequestApi),
+        }
+    )
+}
+
+/**
+ * Reserve S3 object keys for task artifacts and return presigned POST forms for direct uploads.
+ * @summary Prepare direct uploads for task run artifacts
+ */
+export const getTasksRunsArtifactsPrepareUploadCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/prepare_upload/`
+}
+
+export const tasksRunsArtifactsPrepareUploadCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunArtifactsPrepareUploadRequestApi: TaskRunArtifactsPrepareUploadRequestApi,
+    options?: RequestInit
+): Promise<TaskRunArtifactsPrepareUploadResponseApi> => {
+    return apiMutator<TaskRunArtifactsPrepareUploadResponseApi>(
+        getTasksRunsArtifactsPrepareUploadCreateUrl(projectId, taskId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskRunArtifactsPrepareUploadRequestApi),
+        }
+    )
 }
 
 /**
@@ -612,6 +750,29 @@ export const tasksRunsSetOutputPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedTaskRunSetOutputRequestApi),
+    })
+}
+
+/**
+ * Start an existing cloud run after any initial run-scoped attachments have been uploaded.
+ * @summary Start task run
+ */
+export const getTasksRunsStartCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/start/`
+}
+
+export const tasksRunsStartCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunStartRequestApi: TaskRunStartRequestApi,
+    options?: RequestInit
+): Promise<TaskApi> => {
+    return apiMutator<TaskApi>(getTasksRunsStartCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunStartRequestApi),
     })
 }
 

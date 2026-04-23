@@ -1421,9 +1421,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                             },
                             {
                                 "type": "FeatureFlag",
-                                "action": "created",
+                                "action": "changed",
                                 "field": "filters",
-                                "before": None,
+                                "before": {"groups": []},
                                 "after": {
                                     "groups": [
                                         {
@@ -2169,9 +2169,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                             },
                             {
                                 "type": "FeatureFlag",
-                                "action": "created",
+                                "action": "changed",
                                 "field": "filters",
-                                "before": None,
+                                "before": {"groups": []},
                                 "after": {
                                     "groups": [
                                         {
@@ -2572,9 +2572,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                         "changes": [
                             {
                                 "type": "FeatureFlag",
-                                "action": "created",
+                                "action": "changed",
                                 "field": "filters",
-                                "before": None,
+                                "before": {"groups": []},
                                 "after": {
                                     "groups": [
                                         {
@@ -2693,9 +2693,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                         "changes": [
                             {
                                 "type": "FeatureFlag",
-                                "action": "created",
+                                "action": "changed",
                                 "field": "filters",
-                                "before": None,
+                                "before": {"groups": []},
                                 "after": {
                                     "groups": [
                                         {
@@ -3062,6 +3062,30 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         flag.refresh_from_db()
         assert flag.deleted is False
         assert flag.key == "held-flag-2"
+
+    def test_rename_flag_to_key_held_by_soft_deleted_flag(self):
+        # Create a flag, soft-delete it, then create another flag and rename it
+        # to the key held by the soft-deleted flag.
+        first = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="56397-delete-flag")
+        other = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="56397-delete-flag-v2")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{first.id}/",
+            {"deleted": True},
+        )
+        assert response.status_code == 200
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{other.id}/",
+            {"key": "56397-delete-flag"},
+        )
+        assert response.status_code == 200, response.content
+        other.refresh_from_db()
+        assert other.key == "56397-delete-flag"
+        # The soft-deleted flag should have been hard-deleted to free up the key.
+        assert not FeatureFlag.objects_including_soft_deleted.filter(
+            team=self.team, key="56397-delete-flag", deleted=True
+        ).exists()
 
     def test_soft_delete_flag_blocked_with_active_experiment(self):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="flag2")
@@ -3907,7 +3931,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.client.logout()
 
-        with self.assertNumQueries(FuzzyInt(12, 17)):
+        with self.assertNumQueries(FuzzyInt(12, 18)):
             # 1-10: Auth, team, project, membership, and access control queries
             # 11. SELECT surveys (for survey exclusion)
             # 12. SELECT all feature flags (with evaluation tags via ArrayAgg)
@@ -5531,6 +5555,16 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "attr": "filters",
             },
         )
+
+    def test_create_without_filters_persists_groups_invariant(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"name": "No filters flag", "key": "no-filters-flag"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        instance = FeatureFlag.objects.get(id=response.json()["id"])
+        self.assertEqual(instance.filters, {"groups": []})
 
     def test_validation_groups_with_empty_properties_allowed(self):
         """Test that creating a flag with groups having empty properties but valid rollout is allowed"""

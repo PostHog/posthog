@@ -130,6 +130,7 @@ MIDDLEWARE = [
     "posthog.api.query_coalescer.QueryCoalescingMiddleware",
     "posthog.middleware.SocialAuthExceptionMiddleware",
     "posthog.middleware.SessionAgeMiddleware",
+    "posthog.middleware.KnownLoginDeviceCookieMiddleware",
     "posthog.middleware.ActivityLoggingMiddleware",
     "posthog.middleware.user_logging_context_middleware",
     "django_otp.middleware.OTPMiddleware",
@@ -382,6 +383,9 @@ SPECTACULAR_SETTINGS = {
         "SurveyType": "products.surveys.backend.models.Survey.SurveyType",
         "ConversationStatus": "ee.models.assistant.Conversation.Status",
         "ConversationType": "ee.models.assistant.Conversation.Type",
+        # Shared by LogsAlertConfigurationSerializer.state and LogsAlertStateIntervalSerializer.state
+        # — without this override drf-spectacular collapses the two usages to an auto-named enum.
+        "LogsAlertConfigurationStateEnum": "products.logs.backend.models.LogsAlertConfiguration.State",
     },
 }
 
