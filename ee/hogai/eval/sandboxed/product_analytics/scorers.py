@@ -258,8 +258,6 @@ def _parse_exec_command(command: str) -> tuple[str, dict[str, Any]] | None:
     ``None`` so the caller can fall back to emitting the raw ``exec`` call —
     those commands aren't load-bearing for the ordering checks.
     """
-    if not isinstance(command, str):
-        return None
     stripped = command.strip()
     if not stripped:
         return None
