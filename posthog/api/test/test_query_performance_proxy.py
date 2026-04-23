@@ -103,16 +103,16 @@ class TestQueryPerformanceProxyViewSet(APIBaseTest):
 
     # --- settings are the real guardrail -----------------------------------
     #
-    # The proxy forces `readonly = 2`, `max_execution_time`, `max_memory_usage`,
-    # `max_result_rows`, `max_result_bytes`, and `result_overflow_mode = "throw"`
-    # on every submission. Server-side enforcement (the ClickHouse user's
-    # profile pinning `readonly = 2` + row policies) is what will ultimately
-    # keep writes out — the proxy's job is to make sure those caps always
-    # travel with the query. Tests below verify the caps are set and that
-    # write-shaped queries are forwarded rather than filtered at the Django
-    # layer (so the server can reject them).
+    # The proxy forces `readonly = 2` and `max_execution_time` on every
+    # submission. Server-side enforcement (the ClickHouse user's profile
+    # pinning `readonly = 2` + row policies) is what will ultimately keep
+    # writes out — the proxy's job is to make sure the duration cap and
+    # readonly bit always travel with the query. Memory / result-size caps
+    # are intentionally not imposed: the cluster is single-purpose, so a cap
+    # low enough to matter would just slow the campaign by aborting
+    # legitimate exploration.
 
-    def test_passes_resource_caps_on_every_request(self):
+    def test_passes_duration_cap_and_readonly_on_every_request(self):
         token = self._make_token(["clickhouse_perf:test_read"])
 
         with patch("posthog.api.query_performance_proxy.sync_execute") as mocked:
@@ -125,14 +125,8 @@ class TestQueryPerformanceProxyViewSet(APIBaseTest):
 
         assert resp.status_code == 200, resp.content
         passed_settings = mocked.call_args.kwargs["settings"]
-        # Writes are blocked via readonly; overflow is hard-fail so the agent
-        # must narrow the query rather than silently truncate.
         assert passed_settings["readonly"] == 2
-        assert passed_settings["max_execution_time"] == 10 * 60
-        assert passed_settings["max_memory_usage"] == 256 * 1024**3
-        assert passed_settings["max_result_rows"] == 100_000_000
-        assert passed_settings["max_result_bytes"] == 100 * 1024**3
-        assert passed_settings["result_overflow_mode"] == "throw"
+        assert passed_settings["max_execution_time"] == 5 * 60
         # sync_execute is called in read-only elevation mode (for workload routing).
         assert mocked.call_args.kwargs.get("readonly") is True
         # And against a SyncClient pointed at the configured host.

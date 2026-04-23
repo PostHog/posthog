@@ -89,7 +89,7 @@ export SESSION_RECORDING_API_REDIS_HOST=${SESSION_RECORDING_API_REDIS_HOST:-redi
 export COOKIELESS_REDIS_HOST=${COOKIELESS_REDIS_HOST:-redis7}
 export TEMPORAL_HOST=${TEMPORAL_HOST:-temporal}
 
-# Query-performance autoresearch proxy points at the main local ClickHouse for dev
+# For the test cluster, in local dev we can just use the regular clickhouse
 export CLICKHOUSE_TEST_CLUSTER_HOST=${CLICKHOUSE_TEST_CLUSTER_HOST:-clickhouse}
 export CLICKHOUSE_TEST_CLUSTER_DATABASE=${CLICKHOUSE_TEST_CLUSTER_DATABASE:-default}
 export CLICKHOUSE_TEST_CLUSTER_USER=${CLICKHOUSE_TEST_CLUSTER_USER:-default}

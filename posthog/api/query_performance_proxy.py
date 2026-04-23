@@ -38,17 +38,15 @@ from posthog.permissions import APIScopePermission
 logger = logging.getLogger(__name__)
 
 
-# Resource caps pushed to ClickHouse on every submission. When a query trips
-# one of these the caller gets a 502 with the ClickHouse error code (e.g. 241
-# "memory limit exceeded", 158 "too many rows", 307 "too many bytes") and can
-# narrow the query. These are sized for the dedicated autoresearch test
-# cluster — no shared tenants, plenty of RAM — so they're deliberately
-# generous. The floor below which the agent should self-correct is still
-# enforced by ClickHouse returning an error.
-MAX_EXECUTION_TIME_SECONDS = 10 * 60  # 10 minutes
-MAX_MEMORY_USAGE_BYTES = 256 * 1024**3  # 256 GiB
-MAX_RESULT_ROWS = 100_000_000  # 100M rows
-MAX_RESULT_BYTES = 100 * 1024**3  # 100 GiB
+# The test cluster is dedicated to autoresearch — no shared tenants, no
+# customer queries — so capping memory / rows / bytes has no tenant-isolation
+# value, and any cap low enough to matter would just slow the experiment by
+# aborting a legitimately-expensive exploration query. The only cap that
+# matters is wall-clock duration: it caps how long a single iteration can
+# stall the campaign loop before pi moves on to the next candidate. When the
+# cap is tripped the caller gets a 502 with the ClickHouse error code (159
+# "query timeout") and narrows the query.
+MAX_EXECUTION_TIME_SECONDS = 5 * 60  # 5 minutes
 
 
 class ExecuteRequestSerializer(serializers.Serializer):
@@ -61,13 +59,6 @@ _ACTION_SCOPES: dict[str, list[str]] = {
 
 _QUERY_SETTINGS: dict[str, object] = {
     "max_execution_time": MAX_EXECUTION_TIME_SECONDS,
-    "max_memory_usage": MAX_MEMORY_USAGE_BYTES,
-    "max_result_rows": MAX_RESULT_ROWS,
-    "max_result_bytes": MAX_RESULT_BYTES,
-    # "throw" so the caller sees an error code on overflow and can narrow the
-    # query, rather than silently truncating (which would corrupt the
-    # autoresearch baseline/candidate comparison).
-    "result_overflow_mode": "throw",
     "readonly": 2,
     "log_comment": json.dumps({"kind": "query_performance_autoresearch_proxy"}),
 }
