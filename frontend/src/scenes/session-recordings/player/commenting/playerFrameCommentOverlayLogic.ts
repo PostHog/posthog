@@ -143,7 +143,11 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                     },
                     slug: `/replay/${props.recordingId}#panel=discussion`,
                 })
-                playerCommentModel.actions.commentEdited(props.recordingId)
+                // the player (and its listener on playerCommentModel) may have unmounted during the await,
+                // e.g. on navigation. guard the dispatch so we don't crash reading .actions on an unmounted logic.
+                if (playerCommentModel.isMounted()) {
+                    playerCommentModel.actions.commentEdited(props.recordingId)
+                }
             } finally {
                 if (loadingTimeout) {
                     clearTimeout(loadingTimeout)
@@ -195,7 +199,11 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                     await api.comments.create(apiPayload)
                 }
 
-                playerCommentModel.actions.commentEdited(props.recordingId)
+                // the player (and its listener on playerCommentModel) may have unmounted during the await,
+                // e.g. on navigation. guard the dispatch so we don't crash reading .actions on an unmounted logic.
+                if (playerCommentModel.isMounted()) {
+                    playerCommentModel.actions.commentEdited(props.recordingId)
+                }
                 actions.resetRecordingComment()
                 actions.setIsCommenting(false)
             },
