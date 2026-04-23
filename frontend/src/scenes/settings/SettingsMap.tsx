@@ -1457,6 +1457,8 @@ export const SETTINGS_MAP: SettingSection[] = [
                         below.
                         <br />
                         <strong>Your data will not be used for training models.</strong>
+                        <br />
+                        <br />
                         <AIHipaaDisclaimer />
                     </>
                 ),
