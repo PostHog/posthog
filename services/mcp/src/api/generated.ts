@@ -17833,6 +17833,11 @@ export namespace Schemas {
     }
 
     /**
+     * HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list.
+     */
+    export type GroupUsageMetricFilters = {[key: string]: unknown};
+
+    /**
      * * `numeric` - numeric
     * `currency` - currency
      */
@@ -17870,19 +17875,32 @@ export namespace Schemas {
 
     export interface GroupUsageMetric {
       readonly id: string;
-      /** @maxLength 255 */
-      name: string;
-      format?: GroupUsageMetricFormatEnum;
       /**
-       * In days
-       * @minimum -2147483648
-       * @maximum 2147483647
+       * Name of the usage metric. Must be unique per group type within the project.
+       * @maxLength 255
        */
+      name: string;
+      /** How the metric value is formatted in the UI. One of `numeric` or `currency`.
+
+    * `numeric` - numeric
+    * `currency` - currency */
+      format?: GroupUsageMetricFormatEnum;
+      /** Rolling time window in days used to compute the metric. Defaults to 7. */
       interval?: number;
+      /** Visual representation in the UI. One of `number` or `sparkline`.
+
+    * `number` - number
+    * `sparkline` - sparkline */
       display?: GroupUsageMetricDisplayEnum;
-      filters: unknown;
+      /** HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list. */
+      filters: GroupUsageMetricFilters;
+      /** Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.
+
+    * `count` - count
+    * `sum` - sum */
       math?: MathEnum;
       /**
+       * Event property to sum. Required when `math` is `sum` and forbidden when `math` is `count`.
        * @maxLength 255
        * @nullable
        */
@@ -27137,21 +27155,39 @@ export namespace Schemas {
       created_at?: string | null;
     }
 
+    /**
+     * HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list.
+     */
+    export type PatchedGroupUsageMetricFilters = {[key: string]: unknown};
+
     export interface PatchedGroupUsageMetric {
       readonly id?: string;
-      /** @maxLength 255 */
-      name?: string;
-      format?: GroupUsageMetricFormatEnum;
       /**
-       * In days
-       * @minimum -2147483648
-       * @maximum 2147483647
+       * Name of the usage metric. Must be unique per group type within the project.
+       * @maxLength 255
        */
+      name?: string;
+      /** How the metric value is formatted in the UI. One of `numeric` or `currency`.
+
+    * `numeric` - numeric
+    * `currency` - currency */
+      format?: GroupUsageMetricFormatEnum;
+      /** Rolling time window in days used to compute the metric. Defaults to 7. */
       interval?: number;
+      /** Visual representation in the UI. One of `number` or `sparkline`.
+
+    * `number` - number
+    * `sparkline` - sparkline */
       display?: GroupUsageMetricDisplayEnum;
-      filters?: unknown;
+      /** HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list. */
+      filters?: PatchedGroupUsageMetricFilters;
+      /** Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.
+
+    * `count` - count
+    * `sum` - sum */
       math?: MathEnum;
       /**
+       * Event property to sum. Required when `math` is `sum` and forbidden when `math` is `count`.
        * @maxLength 255
        * @nullable
        */
