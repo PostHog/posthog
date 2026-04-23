@@ -57,6 +57,7 @@ def _sample_state() -> dict:
     }
     contents: dict[str, EvalContent] = {
         "e1": EvalContent(
+            evaluation_id="eval-accuracy",
             evaluation_name="Accuracy",
             verdict="pass",
             reasoning="Answer was correct",
@@ -64,8 +65,10 @@ def _sample_state() -> dict:
             generation_model="gpt-4o",
             is_error=False,
             judge_cost_usd=0.001,
+            target_generation_id="gen-1",
         ),
         "e2": EvalContent(
+            evaluation_id="eval-accuracy",
             evaluation_name="Accuracy",
             verdict="fail",
             reasoning="Missed the detail",
@@ -73,8 +76,10 @@ def _sample_state() -> dict:
             generation_model="gpt-4o",
             is_error=False,
             judge_cost_usd=0.002,
+            target_generation_id="gen-2",
         ),
         "e3": EvalContent(
+            evaluation_id="eval-tone",
             evaluation_name="Tone",
             verdict="n/a",
             reasoning="Out of scope",
@@ -82,6 +87,7 @@ def _sample_state() -> dict:
             generation_model=None,
             is_error=None,
             judge_cost_usd=None,
+            target_generation_id=None,
         ),
     }
     return {
