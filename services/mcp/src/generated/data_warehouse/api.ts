@@ -161,6 +161,13 @@ export const externalDataSourcesPartialUpdateBodyDescriptionMax = 400
 
 export const ExternalDataSourcesPartialUpdateBody = /* @__PURE__ */ zod
     .object({
+        created_via: zod
+            .enum(['web', 'api', 'mcp'])
+            .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
+            .optional()
+            .describe(
+                'How this source was created. Required on create. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
+            ),
         client_secret: zod.string().optional(),
         account_id: zod.string().optional(),
         prefix: zod.string().max(externalDataSourcesPartialUpdateBodyPrefixMax).nullish(),
@@ -194,7 +201,15 @@ export const ExternalDataSourcesRefreshSchemasCreateParams = /* @__PURE__ */ zod
 })
 
 export const ExternalDataSourcesRefreshSchemasCreateBody = /* @__PURE__ */ zod
-    .object({})
+    .object({
+        created_via: zod
+            .enum(['web', 'api', 'mcp'])
+            .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
+            .optional()
+            .describe(
+                'How this source was created. Required on create. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
+            ),
+    })
     .describe('Mixin for serializers to add user access control fields')
 
 /**
@@ -210,7 +225,15 @@ export const ExternalDataSourcesReloadCreateParams = /* @__PURE__ */ zod.object(
 })
 
 export const ExternalDataSourcesReloadCreateBody = /* @__PURE__ */ zod
-    .object({})
+    .object({
+        created_via: zod
+            .enum(['web', 'api', 'mcp'])
+            .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
+            .optional()
+            .describe(
+                'How this source was created. Required on create. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
+            ),
+    })
     .describe('Mixin for serializers to add user access control fields')
 
 /**
