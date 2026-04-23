@@ -1197,10 +1197,10 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                     max(intervals_from_base) as max_interval,
                     start_interval_index,
                     breakdown_value
-                FROM {base_quey}
+                FROM {base_query}
                 GROUP BY actor_id, start_interval_index, breakdown_value
                 """,
-                {"base_quey": base_query},
+                {"base_query": base_query},
             )
         else:
             return parse_select(
@@ -1209,10 +1209,10 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                     actor_id,
                     max(intervals_from_base) as max_interval,
                     start_interval_index
-                FROM {base_quey}
+                FROM {base_query}
                 GROUP BY actor_id, start_interval_index
                 """,
-                {"base_quey": base_query},
+                {"base_query": base_query},
             )
 
     def _explode_cumulative_actors(
