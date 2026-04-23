@@ -1206,19 +1206,22 @@ def _ensure_team_in_token_scopes(
 
 
 def _add_team_to_token_scopes(access_token: OAuthAccessToken, team_id: int) -> None:
-    teams = list(access_token.scoped_teams or [])
-    if team_id not in teams:
-        teams.append(team_id)
-        access_token.scoped_teams = teams
-        access_token.save(update_fields=["scoped_teams"])
+    with transaction.atomic():
+        locked_access_token = OAuthAccessToken.objects.select_for_update().get(pk=access_token.pk)
+        teams = list(locked_access_token.scoped_teams or [])
+        if team_id not in teams:
+            teams.append(team_id)
+            locked_access_token.scoped_teams = teams
+            locked_access_token.save(update_fields=["scoped_teams"])
+            access_token.scoped_teams = teams
 
-    refresh_tokens = OAuthRefreshToken.objects.filter(access_token=access_token)
-    for rt in refresh_tokens:
-        rt_teams = list(rt.scoped_teams or [])
-        if team_id not in rt_teams:
-            rt_teams.append(team_id)
-            rt.scoped_teams = rt_teams
-            rt.save(update_fields=["scoped_teams"])
+        refresh_tokens = OAuthRefreshToken.objects.select_for_update().filter(access_token=locked_access_token)
+        for rt in refresh_tokens:
+            rt_teams = list(rt.scoped_teams or [])
+            if team_id not in rt_teams:
+                rt_teams.append(team_id)
+                rt.scoped_teams = rt_teams
+                rt.save(update_fields=["scoped_teams"])
 
 
 def _get_provisioning_service_id(team: Team) -> str:
