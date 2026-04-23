@@ -81,19 +81,20 @@ describe('MCP org/project resolution inside the real Workers runtime', () => {
     })
 
     it('header-pinned projectId overrides a previously cached value (header wins)', async () => {
-        const setDefaultSpy = vi.spyOn(StateManager.prototype, 'setDefaultOrganizationAndProject')
         const stub = env.MCP_OBJECT.get(env.MCP_OBJECT.idFromName('session-header-overrides-cache'))
 
         await runInDurableObject(stub, async (mcp: MCP) => {
             ;(mcp as any).props = propsFor()
+            // Simulate a prior session that cached an org + project.
+            await mcp.cache.set('orgId', 'cached-org')
             await mcp.cache.set('projectId', 'old-cached-project')
             ;(mcp as any).props = propsFor({ projectId: 'new-header-project' })
 
             await mcp.init()
 
-            // Header overwrites cache; with a project pinned, setDefault is also skipped.
+            // Header wins on projectId; orgId is left as-is.
             expect(await mcp.cache.get('projectId')).toBe('new-header-project')
-            expect(setDefaultSpy).not.toHaveBeenCalled()
+            expect(await mcp.cache.get('orgId')).toBe('cached-org')
         })
     })
 
