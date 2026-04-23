@@ -49,6 +49,7 @@ export function InsightsNav(): JSX.Element {
                         <ComputationTimeWithRefresh />
                     </div>
                 }
+                rightSlotClassName="pr-0"
             />
         </>
     )

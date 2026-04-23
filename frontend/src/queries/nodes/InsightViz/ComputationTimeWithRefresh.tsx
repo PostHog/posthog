@@ -17,11 +17,10 @@ import { insightVizDataNodeKey } from './InsightViz'
 
 export function ComputationTimeWithRefresh({ disableRefresh }: { disableRefresh?: boolean }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { lastRefresh, response, query } = useValues(
+    const { lastRefresh, response, query, getInsightRefreshButtonDisabledReason } = useValues(
         dataNodeLogic({ key: insightVizDataNodeKey(insightProps) } as DataNodeLogicProps)
     )
 
-    const { getInsightRefreshButtonDisabledReason } = useValues(insightDataLogic(insightProps))
     const { loadData } = useActions(insightDataLogic(insightProps))
     const disabledReason = getInsightRefreshButtonDisabledReason()
 
@@ -54,6 +53,7 @@ export function ComputationTimeWithRefresh({ disableRefresh }: { disableRefresh?
                         icon={<IconRefresh />}
                         onClick={() => loadData(shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')}
                         disabledReason={canBypassRefreshDisabled ? '' : disabledReason}
+                        className={canBypassRefreshDisabled && disabledReason ? 'opacity-50' : undefined}
                         data-attr="insight-refresh-button"
                     >
                         Refresh
