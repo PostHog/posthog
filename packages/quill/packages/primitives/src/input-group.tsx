@@ -29,8 +29,8 @@ const inputGroupAddonVariants = cva(
             align: {
                 'inline-start': 'quill-input-group__addon--align-inline-start',
                 'inline-end': 'quill-input-group__addon--align-inline-end',
-                'block-start': 'quill-input-group__addon--align-block-start',
-                'block-end': 'quill-input-group__addon--align-block-end',
+                'block-start': 'quill-input-group__addon--align-block-start justify-start',
+                'block-end': 'quill-input-group__addon--align-block-end justify-start',
             },
         },
         defaultVariants: {
