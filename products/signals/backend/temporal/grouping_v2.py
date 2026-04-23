@@ -110,10 +110,13 @@ class TeamSignalGroupingV2Workflow:
             if not self._batch_key_buffer:
                 if workflow.now() >= deadline:
                     break
-                await workflow.wait_condition(
-                    lambda: len(self._batch_key_buffer) > 0 or self._is_paused(),
-                    timeout=deadline - workflow.now(),
-                )
+                try:
+                    await workflow.wait_condition(
+                        lambda: len(self._batch_key_buffer) > 0 or self._is_paused(),
+                        timeout=deadline - workflow.now(),
+                    )
+                except TimeoutError:
+                    break
                 if self._is_paused() or not self._batch_key_buffer:
                     break
 
