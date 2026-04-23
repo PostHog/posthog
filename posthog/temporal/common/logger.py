@@ -533,9 +533,7 @@ def configure_logger(
         ]
     else:
         try:
-            log_producer = KafkaLogProducerFromQueueAsync(
-                queue=log_queue, topic=KAFKA_LOG_ENTRIES, producer=producer, loop=loop
-            )
+            log_producer = KafkaLogProducerFromQueueAsync(queue=log_queue, topic=KAFKA_LOG_ENTRIES, producer=producer)
         except Exception as e:
             # Skip putting logs in queue if we don't have a producer that can consume the queue.
             # We save the error to log it later as the logger hasn't yet been configured at this time.
@@ -567,12 +565,13 @@ def configure_logger(
     )
 
     if log_producer is None:
-        # Always surface producer init failures — if we only log when a loop is
-        # available, regressions here fall back to write-only without a trace in
-        # ClickHouse `log_entries`, which hides the fault from dashboards that
-        # consume those logs.
-        logger = structlog.get_logger()
-        logger.error("Failed to initialize log producer", exc_info=log_producer_error)
+        # In test/TTY mode we deliberately skip building a Kafka producer, so
+        # `log_producer_error` stays None. Only log when we actually tried and
+        # failed — the old `if loop is not None` guard hid real regressions
+        # (KafkaLogProducerFromQueueAsync init raising silently).
+        if log_producer_error is not None:
+            logger = structlog.get_logger()
+            logger.error("Failed to initialize log producer", exc_info=log_producer_error)
         return
 
     listen_task = create_background_task(
@@ -650,7 +649,6 @@ class KafkaLogProducerFromQueueAsync:
         topic: str = KAFKA_LOG_ENTRIES,
         key: str | None = None,
         producer: "_AsyncKafkaProducer | None" = None,
-        loop: None | asyncio.AbstractEventLoop = None,
     ):
         self.queue = queue
         self.topic = topic
@@ -690,7 +688,8 @@ class KafkaLogProducerFromQueueAsync:
         We catch any exceptions so as to continue processing the queue even if the broker is unavailable
         or we fail to produce for whatever other reason. We log the failure to not fail silently.
         """
-        assert self.producer is not None, "producer must be initialized by listen() before produce()"
+        if self.producer is None:
+            raise RuntimeError("producer must be initialized by listen() before produce()")
         fut = await self.producer.produce(
             topic=self.topic,
             data=msg,
