@@ -327,6 +327,18 @@ see the [`improving-drf-endpoints` skill](https://github.com/PostHog/posthog/blo
   and the generated tool gets an empty schema with zero parameters.
   `ModelViewSet` with `serializer_class` works automatically.
 
+### Root-router viewsets
+
+Viewsets mounted at root URLs (no `team_id`/`project_id` in the path) set
+`param_derived_from_user_current_team` and are excluded from the OpenAPI schema by default,
+which means they are invisible to frontend type generation and MCP tool scaffolding.
+If your viewset is one of these and you want to expose it,
+set `force_include_in_api_docs = True` on the class. See `ee/api/billing.py` for an example.
+The opt-in works alongside `scope_object = "INTERNAL"` plus per-action overrides via
+`@action(required_scopes=...)` or `dangerously_get_required_scopes` —
+a viewset can stay default-deny for PAT/OAuth at runtime
+while still surfacing its endpoints in the schema.
+
 ## HogQL query schemas (WIP)
 
 [`frontend/src/queries/schema/schema-assistant-queries.ts`](https://github.com/PostHog/posthog/blob/master/frontend/src/queries/schema/schema-assistant-queries.ts) defines structured query types

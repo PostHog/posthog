@@ -635,10 +635,8 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
         force_include = getattr(callback.cls, "force_include_in_api_docs", False)
 
         if getattr(callback.cls, "param_derived_from_user_current_team", None) and not force_include:
-            # Root-router endpoints (no team_id/project_id in URL) are excluded by default because
-            # they don't fit the standard /api/projects/{team_id}/... pattern that frontend type
-            # generation and MCP tool scaffolding expect. Viewsets that explicitly want to be
-            # discoverable set `force_include_in_api_docs = True`.
+            # Root-router viewsets don't fit the /api/projects/{team_id}/... pattern; opt in via
+            # `force_include_in_api_docs = True` to surface in type-gen and MCP scaffolding.
             continue
         if not hasattr(callback.cls, "scope_object") or getattr(callback.cls, "hide_api_docs", False):
             continue
