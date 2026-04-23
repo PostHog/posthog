@@ -36,7 +36,6 @@ def create_default_evaluation_jobs(apps, schema_editor):
                 )
                 for tid in batch
             ],
-            batch_size=BATCH_SIZE,
             ignore_conflicts=True,
         )
 
