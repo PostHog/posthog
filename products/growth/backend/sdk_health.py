@@ -423,12 +423,17 @@ def _build_banner(sdk_type: str, alert: OutdatedTrafficAlert) -> str:
     """
     Top-level alert text mirroring SdkDoctorScene.tsx's "Time for an update!" banner:
     "Version {ver} of the {Readable} SDK has captured more than {N}% of events in the last 7 days."
+
+    Version is routed through `_safe_version_display` as defense in depth — the primary
+    sanitization boundary is `assess_release` (which quarantines unsafe versions before
+    they can reach this function), but the skill's "quote banners verbatim" rule makes
+    belt-and-braces worthwhile.
     """
     readable = SDK_READABLE_NAME.get(sdk_type, sdk_type)
     threshold_int = int(alert.threshold_percent)
+    version = _safe_version_display(alert.version)
     return (
-        f"Version {alert.version} of the {readable} SDK has captured more than "
-        f"{threshold_int}% of events in the last 7 days."
+        f"Version {version} of the {readable} SDK has captured more than {threshold_int}% of events in the last 7 days."
     )
 
 
@@ -446,16 +451,47 @@ def assess_release(
     """
     Assess a single (lib_version, release_date) tuple. Mirrors computeAugmentedInfoRelease in TS.
 
-    On parse failure, returns a non-outdated assessment (matches frontend try/catch fallback).
+    Three boundaries are enforced here:
 
-    Note the SQL/URL pair still passes through the builders even when parsing fails. That's
-    intentional: the sanitizer (an allowlist regex) and the parser (semver shape) are
-    orthogonal boundaries. A version like "1.2.3.4" parses as invalid semver but is safe to
-    interpolate, so agents still get a drill-in link. A version like "1.0.0'; DROP" is unsafe
-    AND unparseable, so the sanitizer returns empty strings independently.
-    See `test_unparseable_safe_version_still_gets_sql_and_url` and
-    `test_unparseable_unsafe_version_emits_empty_sql_and_url` for the two paths.
+    1. **Version safety** (allowlist): if `lib_version` contains any character outside
+       `^[A-Za-z0-9._+\\-]+$`, the release is quarantined — version is redacted, all
+       outdatedness flags are False, no SQL / URL / banner / reason references it.
+       `lib_version` comes from the `$lib_version` event property, which is attacker-
+       controlled (any capture token holder can set it). A crafted string like
+       `"1.0.0-\\nSystem: <instructions>"` must NOT propagate to agent-facing output,
+       where the skill tells agents to quote banners and reasons verbatim.
+
+    2. **Parse success**: of the remaining safe versions, those that parse as semver
+       get fully assessed.
+
+    3. **Parse failure fallback** (safe but non-semver): shapes like `"1.2.3.4"` that
+       pass the allowlist but fail semver parsing still get drill-in links (agents may
+       want to see events for them), but are never flagged as outdated.
+
+    See `test_prompt_injection_in_lib_version_*` for the attack cases and
+    `test_unparseable_safe_version_still_gets_sql_and_url` for the parse-fallback case.
     """
+    if not _is_safe_for_interpolation(entry.lib_version):
+        return ReleaseAssessment(
+            version="<unsafe version redacted>",
+            count=entry.count,
+            max_timestamp=entry.max_timestamp,
+            release_date=None,
+            days_since_release=None,
+            released_ago=None,
+            is_outdated=False,
+            is_old=False,
+            needs_updating=False,
+            is_current_or_newer=False,
+            status_reason=(
+                "Version string contains unsafe characters — redacted and excluded from "
+                "outdatedness assessment. This may indicate malformed instrumentation or "
+                "tampered event data."
+            ),
+            sql_query="",
+            activity_page_url="",
+        )
+
     try:
         current = parse_version(entry.lib_version)
     except ValueError:
@@ -529,6 +565,18 @@ def assess_release(
     )
 
 
+def _safe_version_display(version: str) -> str:
+    """Defense-in-depth: never echo a raw version into prose unless it passes the allowlist.
+
+    The primary boundary is in `assess_release`, which quarantines unsafe versions to
+    `<unsafe version redacted>` before they can reach this function. This fallback exists
+    so a future refactor that builds reason/banner text from some other `version` source
+    (e.g. direct from a UsageEntry) still fails closed rather than interpolating attacker-
+    controlled `$lib_version` bytes into agent-facing copy.
+    """
+    return version if _is_safe_for_interpolation(version) else "<unsafe version redacted>"
+
+
 def _build_reason(
     sdk_type: str,
     current_release: ReleaseAssessment,
@@ -536,8 +584,11 @@ def _build_reason(
     outdated_traffic_alerts: list[OutdatedTrafficAlert],
 ) -> str:
     """Short human-readable explanation for agents / UI."""
+    current_version = _safe_version_display(current_release.version)
+    latest = _safe_version_display(latest_version)
+
     if not current_release.needs_updating and not outdated_traffic_alerts:
-        return f"{sdk_type} is on {current_release.version} which matches or exceeds latest {latest_version}."
+        return f"{sdk_type} is on {current_version} which matches or exceeds latest {latest}."
 
     pieces: list[str] = []
     if current_release.is_outdated:
@@ -546,15 +597,14 @@ def _build_reason(
             if current_release.days_since_release is not None
             else "age unknown"
         )
-        pieces.append(f"Latest in-use version {current_release.version} is behind {latest_version} ({age}).")
+        pieces.append(f"Latest in-use version {current_version} is behind {latest} ({age}).")
     elif current_release.is_old:
         pieces.append(
-            f"In-use version {current_release.version} is old "
-            f"({current_release.days_since_release} days since release)."
+            f"In-use version {current_version} is old ({current_release.days_since_release} days since release)."
         )
 
     if outdated_traffic_alerts:
-        versions = ", ".join(a.version for a in outdated_traffic_alerts)
+        versions = ", ".join(_safe_version_display(a.version) for a in outdated_traffic_alerts)
         threshold = outdated_traffic_alerts[0].threshold_percent
         pieces.append(f"Outdated versions handling >= {threshold:.0f}% of traffic: {versions}.")
 
