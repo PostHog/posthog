@@ -76,7 +76,7 @@ Follow this order. Each step maps to TODOs in `source.template`.
 10. **Add icon.** Place at `frontend/public/services/{source}.svg` (prefer SVG). If the logo isn't already committed, fetch from [Logo.dev](https://docs.logo.dev/introduction) — **ask the user for the Logo.dev API key**; do not hardcode one. Keep file size reasonable.
 11. **Run migrations.** `DEBUG=1 python manage.py makemigrations && DEBUG=1 ./bin/migrate` (only needed if a new enum value triggers a Django migration).
 12. **Rebuild schema types**: `pnpm run schema:build`. This updates `posthog/schema.py` from `schema-general.ts` and makes the source appear in frontend dropdowns. Re-run whenever `schema-general.ts` changes.
-13. **Release flag.** For unfinished work, set `unreleasedSource=True`. For beta, set `betaSource=True`. For controlled rollout, set `featureFlag="dwh-{source_name}"` (kebab-case). When fully releasing, remove `unreleasedSource` and optionally the feature flag.
+13. **Release status.** For unfinished work, set `unreleasedSource=True`. Set `releaseStatus="alpha"` for new sources that haven't been extensively tested, `releaseStatus="beta"` once most rough edges are ironed out, and leave `releaseStatus` unset for general availability. For controlled rollout, set `featureFlag="dwh-{source_name}"` (kebab-case). When fully releasing, remove `unreleasedSource`, set `releaseStatus` to the appropriate stage (or omit for GA), and optionally drop the feature flag.
 14. **Delete the template TODO comments** before PR.
 
 ## Source architecture contract
@@ -347,9 +347,11 @@ Tooling & assets:
 - [ ] Run `pnpm run schema:build`
 - [ ] Django migrations run if enum value requires it
 
-Release flag:
+Release status:
 - [ ] unreleasedSource=True while WIP
-- [ ] betaSource=True when releasing as beta
+- [ ] releaseStatus="alpha" for new sources not yet extensively tested
+- [ ] releaseStatus="beta" when most rough edges have been ironed out
+- [ ] Omit releaseStatus (or set to "ga") on full release
 - [ ] featureFlag="dwh-{source_name}" for controlled rollout
 - [ ] Flag removed / unreleasedSource removed on full release
 
