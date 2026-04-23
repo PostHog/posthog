@@ -456,7 +456,28 @@ export const hogFlowsMetricsTotalsRetrieve = async (
 }
 
 /**
- * Replay a workflow run that was blocked by the dedup bug, starting from the blocked action.
+ * Replay all blocked runs in a single bulk call to Node.
+ */
+export const getHogFlowsReplayAllBlockedRunsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/replay_all_blocked_runs/`
+}
+
+export const hogFlowsReplayAllBlockedRunsCreate = async (
+    projectId: string,
+    id: string,
+    hogFlowApi: NonReadonly<HogFlowApi>,
+    options?: RequestInit
+): Promise<HogFlowApi> => {
+    return apiMutator<HogFlowApi>(getHogFlowsReplayAllBlockedRunsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogFlowApi),
+    })
+}
+
+/**
+ * Replay a single blocked run. Django fetches the event, Node creates the invocation and writes the log.
  */
 export const getHogFlowsReplayBlockedRunCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flows/${id}/replay_blocked_run/`
