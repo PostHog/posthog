@@ -51,40 +51,40 @@ export interface BillingLineGraphProps {
 
 const defaultFormatter = (value: number): string => value.toLocaleString()
 
+let sharedBillingTooltipElement: HTMLElement | null = null
+let sharedBillingTooltipRoot: Root | null = null
+
+function ensureSharedBillingTooltip(): [Root, HTMLElement] {
+    if (!sharedBillingTooltipElement || !sharedBillingTooltipRoot) {
+        const element = document.createElement('div')
+        element.id = 'BillingTooltipWrapper'
+        element.className =
+            'BillingTooltipWrapper hidden absolute z-10 p-2 bg-bg-light rounded shadow-md text-xs pointer-events-none border border-border'
+        document.body.appendChild(element)
+        sharedBillingTooltipElement = element
+        sharedBillingTooltipRoot = createRoot(element)
+    }
+    return [sharedBillingTooltipRoot, sharedBillingTooltipElement]
+}
+
+function hideSharedBillingTooltip(): void {
+    if (sharedBillingTooltipElement) {
+        sharedBillingTooltipElement.classList.add('hidden')
+        sharedBillingTooltipElement.classList.remove('block')
+    }
+}
+
 function useBillingTooltip(): {
     ensureBillingTooltip: () => [Root, HTMLElement]
     hideBillingTooltip: () => void
 } {
-    const tooltipElRef = useRef<HTMLElement | null>(null)
-    const tooltipRootRef = useRef<Root | null>(null)
-
-    const ensureBillingTooltip = useCallback((): [Root, HTMLElement] => {
-        if (!tooltipElRef.current) {
-            tooltipElRef.current = document.createElement('div')
-            tooltipElRef.current.id = 'BillingTooltipWrapper'
-            tooltipElRef.current.className =
-                'BillingTooltipWrapper hidden absolute z-10 p-2 bg-bg-light rounded shadow-md text-xs pointer-events-none border border-border'
-            document.body.appendChild(tooltipElRef.current)
-        }
-        if (!tooltipRootRef.current) {
-            tooltipRootRef.current = createRoot(tooltipElRef.current)
-        }
-        return [tooltipRootRef.current, tooltipElRef.current]
-    }, [])
-
-    const hideBillingTooltip = useCallback((): void => {
-        if (tooltipElRef.current) {
-            tooltipElRef.current.classList.add('hidden')
-            tooltipElRef.current.classList.remove('block')
-        }
-    }, [])
+    const ensureBillingTooltip = useCallback((): [Root, HTMLElement] => ensureSharedBillingTooltip(), [])
+    const hideBillingTooltip = useCallback((): void => hideSharedBillingTooltip(), [])
 
     useOnMountEffect(() => {
         return () => {
-            if (tooltipRootRef.current) {
-                tooltipRootRef.current.unmount()
-            }
-            tooltipElRef.current?.remove()
+            hideSharedBillingTooltip()
+            sharedBillingTooltipRoot?.render(null)
         }
     })
 
