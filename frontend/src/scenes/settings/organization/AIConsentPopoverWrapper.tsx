@@ -36,6 +36,7 @@ export function AIConsentPopoverWrapper({
 
     return (
         <Popover
+            maxContentWidth
             // Note: Sync the copy below with organization-ai-consent in SettingsMap.tsx
             overlay={
                 <div className="flex flex-col m-1.5">
