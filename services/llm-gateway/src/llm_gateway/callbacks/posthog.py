@@ -120,6 +120,8 @@ class PostHogCallback(InstrumentedCallback):
             "$ai_trace_id": trace_id,
             "$ai_span_id": str(uuid4()),
             "ai_product": product,
+            # Always tag with team_id (may be None) so billing can reliably attribute every generation event.
+            "team_id": team_id,
         }
 
         posthog_properties = get_posthog_properties() or {}
@@ -131,9 +133,6 @@ class PostHogCallback(InstrumentedCallback):
         if isinstance(posthog_flags, dict):
             for flag_key, variant in posthog_flags.items():
                 properties[f"$feature/{flag_key}"] = variant
-
-        if team_id:
-            properties["team_id"] = team_id
 
         response_cost = standard_logging_object.get("response_cost")
         if response_cost is not None:
@@ -199,6 +198,8 @@ class PostHogCallback(InstrumentedCallback):
             "$ai_is_error": True,
             "$ai_error": standard_logging_object.get("error_str", ""),
             "ai_product": product,
+            # Always tag with team_id (may be None) so billing can reliably attribute every generation event.
+            "team_id": team_id,
         }
 
         posthog_properties = get_posthog_properties() or {}
@@ -210,9 +211,6 @@ class PostHogCallback(InstrumentedCallback):
         if isinstance(posthog_flags, dict):
             for flag_key, variant in posthog_flags.items():
                 properties[f"$feature/{flag_key}"] = variant
-
-        if team_id:
-            properties["team_id"] = team_id
 
         capture_kwargs: dict[str, Any] = {
             "distinct_id": distinct_id,

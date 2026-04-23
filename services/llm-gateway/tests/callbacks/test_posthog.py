@@ -114,6 +114,96 @@ class TestPostHogCallback:
             call_kwargs = mock_client.capture.call_args.kwargs
             # distinct_id should be a UUID string since no auth user
             assert "groups" not in call_kwargs  # No team_id means no groups
+            # team_id is still tagged (as None) so billing can consistently look for it
+            assert "team_id" in call_kwargs["properties"]
+            assert call_kwargs["properties"]["team_id"] is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("method_name", ["_on_success", "_on_failure"])
+    async def test_team_id_always_tagged_when_auth_user_has_team(
+        self,
+        callback: PostHogCallback,
+        auth_user: AuthenticatedUser,
+        standard_logging_object: dict,
+        mock_posthog_client: tuple,
+        method_name: str,
+    ) -> None:
+        """Every generation event must carry the team_id property for billing attribution."""
+        _, mock_client = mock_posthog_client
+        kwargs = {
+            "standard_logging_object": {**standard_logging_object, "error_str": "boom"},
+            "litellm_params": {},
+        }
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="llm_gateway"),
+        ):
+            method = getattr(callback, method_name)
+            await method(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+            props = mock_client.capture.call_args.kwargs["properties"]
+            assert props["team_id"] == 456
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("method_name", ["_on_success", "_on_failure"])
+    async def test_team_id_tagged_as_none_when_auth_user_missing_team(
+        self,
+        callback: PostHogCallback,
+        standard_logging_object: dict,
+        mock_posthog_client: tuple,
+        method_name: str,
+    ) -> None:
+        """Events still get a team_id property (set to None) even when the auth user has no team."""
+        _, mock_client = mock_posthog_client
+        user_without_team = AuthenticatedUser(
+            user_id=123,
+            team_id=None,
+            auth_method="personal_api_key",
+            distinct_id="user-distinct-id-123",
+        )
+        kwargs = {
+            "standard_logging_object": {**standard_logging_object, "error_str": "boom"},
+            "litellm_params": {},
+        }
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=user_without_team),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="llm_gateway"),
+        ):
+            method = getattr(callback, method_name)
+            await method(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+            call_kwargs = mock_client.capture.call_args.kwargs
+            assert "team_id" in call_kwargs["properties"]
+            assert call_kwargs["properties"]["team_id"] is None
+            # groups are still omitted when there's no team to attach to
+            assert "groups" not in call_kwargs
+
+    @pytest.mark.asyncio
+    async def test_on_failure_tags_team_id_as_none_when_no_auth_user(
+        self, callback: PostHogCallback, mock_posthog_client: tuple
+    ) -> None:
+        _, mock_client = mock_posthog_client
+        kwargs = {
+            "standard_logging_object": {
+                "model": "claude-3-opus",
+                "custom_llm_provider": "anthropic",
+                "error_str": "Rate limit exceeded",
+            },
+            "litellm_params": {},
+        }
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=None),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="llm_gateway"),
+        ):
+            await callback._on_failure(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+            call_kwargs = mock_client.capture.call_args.kwargs
+            assert "team_id" in call_kwargs["properties"]
+            assert call_kwargs["properties"]["team_id"] is None
+            assert "groups" not in call_kwargs
 
     @pytest.mark.asyncio
     async def test_on_success_uses_end_user_id_for_distinct_id(
