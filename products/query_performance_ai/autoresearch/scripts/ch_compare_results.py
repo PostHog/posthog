@@ -80,9 +80,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"comparison: match ({rows_candidate} rows)")
         return 0
 
-    # Build a diff sample.
-    extra_in_candidate = [ln for ln in candidate_lines if ln not in set(baseline_lines)][:10]
-    missing_in_candidate = [ln for ln in baseline_lines if ln not in set(candidate_lines)][:10]
+    # Build a diff sample. Hoist the sets out of the comprehensions so the
+    # mismatch path stays O(N) instead of rebuilding the set every iteration.
+    baseline_set = set(baseline_lines)
+    candidate_set = set(candidate_lines)
+    extra_in_candidate = [ln for ln in candidate_lines if ln not in baseline_set][:10]
+    missing_in_candidate = [ln for ln in baseline_lines if ln not in candidate_set][:10]
     diff_lines = len(extra_in_candidate) + len(missing_in_candidate)
 
     output_file.write_text(

@@ -165,10 +165,21 @@ class Command(BaseCommand):
             org, repo = repository.lower().split("/")
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
             org_path = f"/tmp/workspace/repos/{org}"
-            repo_url = f"https://x-access-token:{github_token}@github.com/{org}/{repo}.git"
+            repo_url = f"https://github.com/{org}/{repo}.git"
+
+            # Hand git the token via `.netrc` rather than embedding it in the
+            # clone URL — the URL form would leave the token in the shell
+            # command's argv (readable from /proc/<pid>/cmdline by anything
+            # else running in the sandbox). `write_file` pipes the bytes via
+            # stdin so the token never lands in argv, and the trap deletes the
+            # credential on exit (clone success or failure).
+            netrc_contents = f"machine github.com\nlogin x-access-token\npassword {github_token}\n"
+            sandbox.write_file("/root/.netrc", netrc_contents.encode())
             # `sandbox.clone_repository` always clones the default branch first;
             # we only need the target branch, so skip that round trip.
             clone_cmd = (
+                "trap 'rm -f /root/.netrc' EXIT && "
+                "chmod 600 /root/.netrc && "
                 f"rm -rf {shlex.quote(repo_path)} && "
                 f"mkdir -p {shlex.quote(org_path)} && "
                 f"cd {shlex.quote(org_path)} && "
@@ -318,8 +329,9 @@ def _check_branch_on_remote(branch: str, log) -> None:
         remote_sha = result.stdout.split()[0]
         if local.returncode == 0 and local.stdout.strip() != remote_sha:
             log(
-                f"warning: local '{branch}' is ahead/behind origin/{branch} — the sandbox "
-                "will clone origin's snapshot. `git push` if you want your latest changes."
+                f"warning: local '{branch}' differs from origin/{branch} — the sandbox will "
+                "clone origin's snapshot. `git push` to publish local commits, or `git pull` "
+                "if origin is ahead."
             )
     except Exception:
         pass

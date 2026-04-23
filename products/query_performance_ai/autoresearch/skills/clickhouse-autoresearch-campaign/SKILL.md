@@ -23,7 +23,7 @@ This skill assumes:
 - `pi-autoresearch` is installed and its tools are available
 - the current directory is a git repository
 - you have a target query or enough context to identify one
-- the operator will provide or help configure `.clickhouse-autoresearch/adapter.env`
+- the operator will provide or help configure `.clickhouse-autoresearch/adapter.json`
 
 ## Branch rule
 
@@ -133,7 +133,7 @@ Reading the source is often the fastest way to resolve questions like "does this
 3. Run:
 
 ```bash
-bash ../../scripts/ch_campaign_init.sh --workspace .clickhouse-autoresearch --query-id <id>
+python3 ../../scripts/ch_campaign_init.py --workspace .clickhouse-autoresearch --query-id <id>
 ```
 
 Add optional flags as needed:
@@ -152,7 +152,7 @@ Add optional flags as needed:
 4. Inspect the generated workspace.
 5. Fill in or update:
 
-- `.clickhouse-autoresearch/adapter.env`
+- `.clickhouse-autoresearch/adapter.json`
 - `.clickhouse-autoresearch/operator-hunches.md`
 - `.clickhouse-autoresearch/state.json`
 - `.clickhouse-autoresearch/autoresearch.md`
@@ -160,30 +160,29 @@ Add optional flags as needed:
 6. Capture the baseline:
 
 ```bash
-bash ../../scripts/ch_capture_baseline.sh --workspace .clickhouse-autoresearch
+python3 ../../scripts/ch_capture_baseline.py --workspace .clickhouse-autoresearch
 ```
 
 If the baseline times out, enter range narrowing (see `orchestration.md` § Timeout queries):
 
 1. Copy `query/original.sql` to `query/narrowed.sql`
-2. Halve the time range in `narrowed.sql`
-3. Retry: `bash ../../scripts/ch_capture_baseline.sh --workspace .clickhouse-autoresearch` (after updating `query/original.sql` in the workspace to the narrowed version)
-4. Repeat until the query completes in 1–10s
+2. Halve the time range in `narrowed.sql` (leave `query/original.sql` untouched — it is the full-range reference used by the escalation check)
+3. Retry against the narrowed file: `python3 ../../scripts/ch_capture_baseline.py --workspace .clickhouse-autoresearch --query-file query/narrowed.sql`
+4. Repeat halving until the query completes in 1–10s
 5. Record narrowing state in `state.json`: `{ "narrowed": true, "original_range": "...", "working_range": "..." }`
-6. Keep `query/original.sql` in the repo root as the full-range reference
 
 7. Read the baseline artifacts and seed the first lanes and hypotheses.
 8. Initialize the autoresearch session against the configured primary metric.
 9. Start the experiment loop using:
 
 ```bash
-./.clickhouse-autoresearch/autoresearch.sh
+./.clickhouse-autoresearch/autoresearch.py
 ```
 
 with correctness backpressure through:
 
 ```bash
-./.clickhouse-autoresearch/autoresearch.checks.sh
+./.clickhouse-autoresearch/autoresearch_checks.py
 ```
 
 ## Runtime responsibilities
@@ -209,7 +208,7 @@ During the campaign, you must:
 The scripts do deterministic work:
 
 - create the workspace
-- invoke environment-specific commands from `adapter.env`
+- invoke environment-specific commands from `adapter.json`
 - capture baseline artifacts
 - run candidate queries
 - compare candidate results to the saved baseline result set

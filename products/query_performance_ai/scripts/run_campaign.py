@@ -107,11 +107,14 @@ def prepare_pi_runtime() -> None:
 def _patch_pi_autoresearch_index_ts() -> None:
     """Stop pi-autoresearch's between-experiment ``git clean -fd`` from
     wiping the lane/hypothesis/review markdown the agent just wrote.
-    Idempotent — re-applying is a no-op because the marker is gone."""
+    Idempotent — re-applying is a no-op because the marker is gone.
+
+    Raises ``CampaignError`` if the upstream shape changes so we fail loudly
+    on image rebuild rather than silently losing campaign state mid-run.
+    """
     index_ts = BAKED_PI_AUTORESEARCH_EXTENSION / "index.ts"
     if not index_ts.is_file():
-        log(f"pi-autoresearch index.ts not found at {index_ts}; skipping workspace-preservation patch")
-        return
+        raise CampaignError(f"pi-autoresearch index.ts not found at {index_ts} — image is broken")
     preserve = " ".join(
         f"-e {name}"
         for name in (
@@ -119,14 +122,21 @@ def _patch_pi_autoresearch_index_ts() -> None:
             "campaign.json operator-hunches.md adapter.json suggestions.md"
         ).split()
     )
+    pre_marker = "git clean -fd 2>/dev/null"
+    post_marker = f"git clean -fd {preserve} 2>/dev/null"
+
     contents = index_ts.read_text()
-    patched = contents.replace(
-        "git clean -fd 2>/dev/null",
-        f"git clean -fd {preserve} 2>/dev/null",
-    )
-    if patched != contents:
+    if pre_marker in contents:
+        index_ts.write_text(contents.replace(pre_marker, post_marker))
         log(f"patched {index_ts.name} to preserve workspace dirs")
-        index_ts.write_text(patched)
+    elif post_marker in contents:
+        # Already patched (e.g. image bakes it, or a previous run).
+        pass
+    else:
+        raise CampaignError(
+            f"pi-autoresearch {index_ts.name}: neither the pre- nor post-patch marker is "
+            f"present — upstream shape changed, workspace-preservation patch needs updating"
+        )
 
 
 def _patch_pi_ai_anthropic_baseurl() -> None:
@@ -134,7 +144,9 @@ def _patch_pi_ai_anthropic_baseurl() -> None:
 
     pi-ai reads `model.baseUrl` directly from its bundled `models.generated.js`
     and ignores `ANTHROPIC_BASE_URL`, so routing through the PostHog LLM
-    gateway means patching that file. No-op if the file or env var is missing.
+    gateway means patching that file. Raises ``CampaignError`` if the upstream
+    shape changes so the image rebuild fails loudly — otherwise pi would
+    silently talk to the real Anthropic API with our OAuth token and 401.
     """
     gateway_base = os.environ.get("ANTHROPIC_BASE_URL", "").rstrip("/")
     if not gateway_base:
@@ -151,25 +163,29 @@ def _patch_pi_ai_anthropic_baseurl() -> None:
     ]
     models_file = next((p for p in candidates if p.is_file()), None)
     if models_file is None:
-        log("pi-ai models.generated.js not found; skipping baseUrl patch")
-        return
+        raise CampaignError("pi-ai models.generated.js not found in any known location — image is broken")
 
     contents = models_file.read_text()
     marker = '"https://api.anthropic.com"'
     if marker not in contents:
-        # Either already patched (our URL is present) or the file shape changed.
         if gateway_base in contents:
             log(f"pi-ai models.generated.js already points at {gateway_base}")
-        else:
-            log("pi-ai models.generated.js has unexpected shape; skipping patch")
-        return
+            return
+        raise CampaignError(
+            "pi-ai models.generated.js: neither the Anthropic baseUrl marker nor our gateway URL "
+            "is present — pi-ai's bundle shape changed, baseUrl patch needs updating"
+        )
 
-    patched = contents.replace(marker, f'"{gateway_base}"')
+    # json.dumps produces a properly-escaped JS string literal — don't
+    # f-string the URL directly or a value containing `"` / `\n` would
+    # inject arbitrary JS into the vendored file.
+    replacement = json.dumps(gateway_base)
+    patched = contents.replace(marker, replacement)
     occurrences = contents.count(marker)
     models_file.write_text(patched)
     log(
         f"patched pi-ai models.generated.js: {occurrences} Anthropic baseUrl occurrence(s) "
-        f'rewritten to "{gateway_base}"'
+        f"rewritten to {replacement}"
     )
 
 

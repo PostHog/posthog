@@ -358,7 +358,7 @@ This package assumes a campaign workspace like:
 .clickhouse-autoresearch/
   campaign.json
   state.json
-  adapter.env
+  adapter.json
   query/
     original.sql
     current.sql
@@ -371,8 +371,8 @@ This package assumes a campaign workspace like:
   reviews/
   suggestions.md
   autoresearch.md
-  autoresearch.sh
-  autoresearch.checks.sh
+  autoresearch.py
+  autoresearch_checks.py
 ```
 
 See `docs/interface.md` for the deterministic interface between the agent and the scripts.

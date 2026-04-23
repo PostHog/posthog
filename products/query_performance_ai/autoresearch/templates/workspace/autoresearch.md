@@ -8,8 +8,8 @@ Optimize the target ClickHouse query on this branch while preserving semantics r
 - **Secondary**: rows_read, bytes_read, peak_memory_mb
 
 ## How to Run
-- Benchmark: `./autoresearch.sh`
-- Checks: `./autoresearch.checks.sh`
+- Benchmark: `./autoresearch.py`
+- Checks: `./autoresearch_checks.py`
 
 ## Files in Scope
 - `query/original.sql` — original query snapshot
@@ -27,16 +27,10 @@ Optimize the target ClickHouse query on this branch while preserving semantics r
 ## Running Queries
 
 Do NOT connect to ClickHouse directly (no `clickhouse-client`, no `curl localhost:8123`).
-All queries must go through `run_query.py` in `$AUTORESEARCH_TOOLS_DIR`:
+Every query goes through the adapter in `adapter.json`.
 
-```bash
-python3 "$AUTORESEARCH_TOOLS_DIR/run_query.py" --test-cluster --file <path>          # run + timing
-python3 "$AUTORESEARCH_TOOLS_DIR/run_query.py" --test-cluster --file <path> --plan    # EXPLAIN PLAN
-python3 "$AUTORESEARCH_TOOLS_DIR/run_query.py" --test-cluster --file <path> --query-log  # system.query_log
-python3 "$AUTORESEARCH_TOOLS_DIR/run_query.py" --test-cluster --file <path> --settings key=val
-```
-
-For benchmarking during the experiment loop, use `run_experiment` with `./autoresearch.sh` — never call `run_query.py` directly for benchmarks.
+- **Benchmark a candidate** (the experiment-loop path): write the SQL to `query/current.sql`, then run `./autoresearch.py`. This captures timing, result rows, and a comparison against the baseline.
+- **Ad-hoc probes** (EXPLAIN, SHOW, system.query_log, schema inspection): run `ch_run_candidate.py` with a distinct label, e.g. `python3 <package-root>/scripts/ch_run_candidate.py --workspace . --label explain-plan`. The result lands in `runs/<run-id>-explain-plan/` and won't disturb the experiment cadence.
 
 ## Optimization Priority
 
@@ -55,11 +49,7 @@ If the target query times out during baseline capture:
 1. **Narrow the range**: halve the time filter repeatedly (30d → 14d → 7d → 3d → 1d) until the query completes in 1–10s
 2. **Save both versions**: keep `query/original.sql` untouched, save narrowed version as `query/narrowed.sql`
 3. **Work on the narrowed query**: use it as your baseline and candidate starting point
-4. **Escalation checks**: after every `keep`, apply the winning optimizations to the original time range and test:
-   ```bash
-   python3 "$AUTORESEARCH_TOOLS_DIR/run_query.py" --test-cluster --file <optimized-full-range.sql> --settings max_execution_time=60
-   ```
-   Log whether it completed or timed out in `state.json` under `escalation`.
+4. **Escalation checks**: after every `keep`, apply the winning optimizations to the full range by writing the full-range variant to `query/current.sql` and running `./autoresearch.py`. Log whether it completed or timed out in `state.json` under `escalation`.
 5. **Graduate**: when the original range completes, re-capture the baseline with the full range and continue optimizing from there
 
 ## Constraints

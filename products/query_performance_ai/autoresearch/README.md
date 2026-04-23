@@ -26,7 +26,7 @@ Reusable pi package for orchestrating ClickHouse query optimization campaigns on
 2. Install this package
 3. Start a new branch for the query campaign
 4. Run the init helper to scaffold `.clickhouse-autoresearch/`
-5. Fill in `.clickhouse-autoresearch/adapter.env`
+5. Fill in `.clickhouse-autoresearch/adapter.json`
 6. Capture the baseline
 7. Run the skill
 
@@ -35,11 +35,11 @@ Example:
 ```bash
 git checkout -b autoresearch/query-abc123
 pi install /path/to/pi-clickhouse-autoresearch
-bash /path/to/pi-clickhouse-autoresearch/scripts/ch_campaign_init.sh \
+python3 /path/to/pi-clickhouse-autoresearch/scripts/ch_campaign_init.py \
   --workspace .clickhouse-autoresearch \
   --query-id query-abc123 \
   --query-file /tmp/slow-query.sql
-bash /path/to/pi-clickhouse-autoresearch/scripts/ch_capture_baseline.sh \
+python3 /path/to/pi-clickhouse-autoresearch/scripts/ch_capture_baseline.py \
   --workspace .clickhouse-autoresearch
 ```
 
@@ -61,11 +61,12 @@ pi-clickhouse-autoresearch/
     lane-review.md
     campaign-review.md
   scripts/
-    ch_campaign_init.sh
-    ch_capture_baseline.sh
-    ch_run_candidate.sh
-    ch_compare_results.sh
-    lib/common.sh
+    ch_campaign_init.py
+    ch_capture_baseline.py
+    ch_run_candidate.py
+    ch_compare_results.py
+    _common.py
+    transports.py
   skills/
     clickhouse-autoresearch-campaign/
       SKILL.md
@@ -85,7 +86,7 @@ pi-clickhouse-autoresearch/
 
 - **The scripts** do deterministic work:
   - create campaign files
-  - invoke environment-specific ClickHouse commands via `adapter.env`
+  - invoke environment-specific ClickHouse commands via `adapter.json`
   - capture baseline artifacts
   - run candidate queries
   - emit `METRIC ...` lines for `pi-autoresearch`
@@ -96,7 +97,7 @@ pi-clickhouse-autoresearch/
 This package is intentionally generic. The shipped workflow scripts are scaffolds with comments and file contracts, not finished ClickHouse integrations. You provide the real ClickHouse commands and logic in:
 
 ```text
-.clickhouse-autoresearch/adapter.env
+.clickhouse-autoresearch/adapter.json
 ```
 
 The helper scripts expand placeholders like:
