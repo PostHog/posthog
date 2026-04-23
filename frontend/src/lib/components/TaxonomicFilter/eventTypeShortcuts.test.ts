@@ -1,64 +1,94 @@
-import { AUTOCAPTURE_INTERACTIONS, buildEventTypeShortcuts } from './eventTypeShortcuts'
+import { eventTypeToVerb } from 'lib/utils'
 
-describe('buildEventTypeShortcuts', () => {
-    it('returns no shortcuts for an empty query', () => {
-        expect(buildEventTypeShortcuts({ searchQuery: '', includeEventName: true })).toEqual([])
-        expect(buildEventTypeShortcuts({ searchQuery: '   ', includeEventName: false })).toEqual([])
-    })
+import {
+    AUTOCAPTURE_INTERACTIONS,
+    MIN_SHORTCUT_QUERY_LENGTH,
+    buildAutocaptureSeriesShortcuts,
+    buildEventTypeFilterShortcuts,
+} from './eventTypeShortcuts'
 
-    it('returns no shortcuts when the query does not match any keyword', () => {
-        expect(buildEventTypeShortcuts({ searchQuery: 'xyz', includeEventName: true })).toEqual([])
-    })
-
-    it.each([
-        { searchQuery: 'click', matches: ['click'] },
-        { searchQuery: 'clicked', matches: ['click'] },
-        { searchQuery: 'tap', matches: ['click'] },
-        { searchQuery: 'submit', matches: ['submit'] },
-        { searchQuery: 'form', matches: ['submit'] },
-        { searchQuery: 'chan', matches: ['change'] },
-        { searchQuery: 'scr', matches: ['scroll'] },
-        { searchQuery: 'long', matches: ['long_press'] },
-    ])('maps "$searchQuery" to shortcut(s) for $matches', ({ searchQuery, matches }) => {
-        const shortcuts = buildEventTypeShortcuts({ searchQuery, includeEventName: true })
-        expect(shortcuts.map((s) => s.filterValue)).toEqual(matches)
-    })
-
-    it('matching is case-insensitive', () => {
-        const upper = buildEventTypeShortcuts({ searchQuery: 'CLICK', includeEventName: true })
-        const lower = buildEventTypeShortcuts({ searchQuery: 'click', includeEventName: true })
-        expect(upper).toEqual(lower)
-    })
-
-    it('event-series shortcuts include eventName and label with "(autocapture)"', () => {
-        const [clickShortcut] = buildEventTypeShortcuts({ searchQuery: 'click', includeEventName: true })
-        expect(clickShortcut).toMatchObject({
-            _type: 'quick_filter',
-            name: 'Click (autocapture)',
-            filterValue: 'click',
-            propertyKey: '$event_type',
-            eventName: '$autocapture',
+describe('event type shortcuts', () => {
+    describe('buildAutocaptureSeriesShortcuts', () => {
+        it.each([
+            ['empty', ''],
+            ['whitespace only', '   '],
+            ['one char', 'c'],
+            ['two chars', 'cl'],
+        ])('returns no shortcuts for %s queries', (_, searchQuery) => {
+            expect(buildAutocaptureSeriesShortcuts(searchQuery)).toEqual([])
         })
-    })
 
-    it('property-filter shortcuts omit eventName and label with "(event type)"', () => {
-        const [clickShortcut] = buildEventTypeShortcuts({ searchQuery: 'click', includeEventName: false })
-        expect(clickShortcut).toMatchObject({
-            _type: 'quick_filter',
-            name: 'Click (event type)',
-            filterValue: 'click',
-            propertyKey: '$event_type',
+        it('returns no shortcuts when the query does not match any keyword', () => {
+            expect(buildAutocaptureSeriesShortcuts('xyzabc')).toEqual([])
         })
-        expect(clickShortcut.eventName).toBeUndefined()
-    })
 
-    it('covers every documented autocapture interaction with at least one keyword match', () => {
-        for (const interaction of AUTOCAPTURE_INTERACTIONS) {
-            const match = buildEventTypeShortcuts({
-                searchQuery: interaction.keywords[0],
-                includeEventName: true,
+        it.each([
+            { searchQuery: 'click', matches: ['click'] },
+            { searchQuery: 'clicked', matches: ['click'] },
+            { searchQuery: 'tap', matches: ['click'] },
+            { searchQuery: 'submit', matches: ['submit'] },
+            { searchQuery: 'form', matches: ['submit'] },
+            { searchQuery: 'chan', matches: ['change'] },
+            { searchQuery: 'scr', matches: ['scroll'] },
+            { searchQuery: 'long', matches: ['long_press'] },
+        ])('maps "$searchQuery" to shortcut(s) for $matches', ({ searchQuery, matches }) => {
+            expect(buildAutocaptureSeriesShortcuts(searchQuery).map((s) => s.filterValue)).toEqual(matches)
+        })
+
+        it('matching is case-insensitive', () => {
+            expect(buildAutocaptureSeriesShortcuts('CLICK')).toEqual(buildAutocaptureSeriesShortcuts('click'))
+        })
+
+        it('includes $autocapture as eventName and labels with "(autocapture)"', () => {
+            const [clickShortcut] = buildAutocaptureSeriesShortcuts('click')
+            expect(clickShortcut).toMatchObject({
+                _type: 'quick_filter',
+                name: 'Click (autocapture)',
+                filterValue: 'click',
+                propertyKey: '$event_type',
+                eventName: '$autocapture',
             })
-            expect(match.some((s) => s.filterValue === interaction.eventType)).toBe(true)
-        }
+        })
+    })
+
+    describe('buildEventTypeFilterShortcuts', () => {
+        it('omits eventName and labels with "(event type)"', () => {
+            const [clickShortcut] = buildEventTypeFilterShortcuts('click')
+            expect(clickShortcut).toMatchObject({
+                _type: 'quick_filter',
+                name: 'Click (event type)',
+                filterValue: 'click',
+                propertyKey: '$event_type',
+            })
+            expect(clickShortcut.eventName).toBeUndefined()
+        })
+
+        it('honours the same min-length guard as the series variant', () => {
+            expect(buildEventTypeFilterShortcuts('c')).toEqual([])
+            expect(buildEventTypeFilterShortcuts('cl')).toEqual([])
+            expect(buildEventTypeFilterShortcuts('cli').length).toBeGreaterThan(0)
+        })
+    })
+
+    describe('keyword coverage', () => {
+        it('every keyword of every interaction surfaces its shortcut (via both builders)', () => {
+            for (const interaction of AUTOCAPTURE_INTERACTIONS) {
+                for (const keyword of interaction.keywords) {
+                    if (keyword.length < MIN_SHORTCUT_QUERY_LENGTH) {
+                        continue
+                    }
+                    const series = buildAutocaptureSeriesShortcuts(keyword)
+                    expect(series.some((s) => s.filterValue === interaction.eventType)).toBe(true)
+                    const filter = buildEventTypeFilterShortcuts(keyword)
+                    expect(filter.some((s) => s.filterValue === interaction.eventType)).toBe(true)
+                }
+            }
+        })
+
+        it('AUTOCAPTURE_INTERACTIONS eventTypes match the canonical eventTypeToVerb keys', () => {
+            const shortcutKeys = AUTOCAPTURE_INTERACTIONS.map((i) => i.eventType).sort()
+            const canonicalKeys = Object.keys(eventTypeToVerb).sort()
+            expect(shortcutKeys).toEqual(canonicalKeys)
+        })
     })
 })

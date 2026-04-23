@@ -132,15 +132,20 @@ const renderItemContents = ({
         const icon = itemGroup.getIcon ? (
             <div className="taxonomic-list-row-contents-icon">{itemGroup.getIcon(item)}</div>
         ) : null
+        // Tag before the name so it survives truncation in narrow popovers — users should still
+        // see "Shortcut" even if "Click (autocapture)" collapses to "Click (aut...".
         return (
-            <div className="taxonomic-list-row-contents min-w-0 flex items-center gap-2">
+            <div
+                className="taxonomic-list-row-contents min-w-0 flex items-center gap-2"
+                data-attr={`taxonomic-shortcut-${item.filterValue}${item.eventName ? '-series' : '-property'}`}
+            >
                 {icon}
-                <span className="truncate" title={item.name}>
-                    {item.name}
-                </span>
                 <LemonTag type="primary" size="small">
                     Shortcut
                 </LemonTag>
+                <span className="truncate" title={item.name}>
+                    {item.name}
+                </span>
             </div>
         )
     }

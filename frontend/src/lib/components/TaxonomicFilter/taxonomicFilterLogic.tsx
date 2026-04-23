@@ -5,7 +5,10 @@ import posthog from 'posthog-js'
 
 import { IconCursor, IconFlag, IconServer } from '@posthog/icons'
 
-import { buildEventTypeShortcuts } from 'lib/components/TaxonomicFilter/eventTypeShortcuts'
+import {
+    buildAutocaptureSeriesShortcuts,
+    buildEventTypeFilterShortcuts,
+} from 'lib/components/TaxonomicFilter/eventTypeShortcuts'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import {
@@ -223,24 +226,47 @@ export const propertyTaxonomicGroupProps = (
 })
 
 function keywordShortcutValue(item: QuickFilterItem): string {
-    return `quick:${item.propertyKey}:${item.filterValue}${item.eventName ? `:${item.eventName}` : ''}`
+    // Synthetic identity string used only as a React/selection key. Never parsed by consumers.
+    return JSON.stringify({
+        q: item.propertyKey,
+        v: item.filterValue,
+        e: item.eventName ?? null,
+    })
 }
 
-function withQuickFilterBranches(
-    base: Pick<TaxonomicFilterGroup, 'getName' | 'getValue' | 'getIcon' | 'getPopoverHeader'>
-): Pick<TaxonomicFilterGroup, 'getName' | 'getValue' | 'getIcon' | 'getPopoverHeader'> {
-    const wrapped: Pick<TaxonomicFilterGroup, 'getName' | 'getValue' | 'getIcon' | 'getPopoverHeader'> = {
-        getName: (item: any) => (isQuickFilterItem(item) ? item.name : (base.getName?.(item) ?? '')),
-        getValue: (item: any) =>
-            isQuickFilterItem(item) ? keywordShortcutValue(item) : (base.getValue?.(item) ?? null),
-        getPopoverHeader: (item: any) =>
-            isQuickFilterItem(item) ? 'Autocapture shortcut' : base.getPopoverHeader(item),
+type BaseGroupFns<T> = {
+    getName: (instance: T) => string
+    getValue: (instance: T) => TaxonomicFilterValue
+    getIcon?: (instance: T) => JSX.Element
+    getPopoverHeader: (instance: T) => string
+}
+
+/** Extend a group's presentation methods so they also handle `QuickFilterItem`s (keyword
+ *  shortcuts), and attach a `keywordShortcuts` builder. `popoverHeader` lets each group label
+ *  its own shortcut kind (e.g. "Autocapture shortcut" for series, "Event type shortcut" for
+ *  property filters). */
+function withKeywordShortcuts<T>(
+    base: BaseGroupFns<T>,
+    {
+        popoverHeader,
+        buildShortcuts,
+    }: {
+        popoverHeader: string
+        buildShortcuts: (searchQuery: string) => QuickFilterItem[]
     }
-    if (base.getIcon) {
-        const baseGetIcon = base.getIcon
-        wrapped.getIcon = (item: any) => (isQuickFilterItem(item) ? <IconCursor /> : baseGetIcon(item))
+): Pick<TaxonomicFilterGroup, 'getName' | 'getValue' | 'getIcon' | 'getPopoverHeader' | 'keywordShortcuts'> {
+    const baseGetIcon = base.getIcon
+    return {
+        getName: (item: T | QuickFilterItem) => (isQuickFilterItem(item) ? item.name : base.getName(item)),
+        getValue: (item: T | QuickFilterItem) =>
+            isQuickFilterItem(item) ? keywordShortcutValue(item) : base.getValue(item),
+        getIcon: baseGetIcon
+            ? (item: T | QuickFilterItem) => (isQuickFilterItem(item) ? <IconCursor /> : baseGetIcon(item))
+            : undefined,
+        getPopoverHeader: (item: T | QuickFilterItem) =>
+            isQuickFilterItem(item) ? popoverHeader : base.getPopoverHeader(item),
+        keywordShortcuts: buildShortcuts,
     }
-    return wrapped
 }
 
 // Stable reference for CohortsWithAllUsers options to prevent cascading re-renders.
@@ -481,14 +507,19 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         }).url,
                         excludedProperties:
                             excludedProperties?.[TaxonomicFilterGroupType.Events]?.filter(isString) ?? [],
-                        ...withQuickFilterBranches({
-                            getName: (eventDefinition: Record<string, any>) => eventDefinition.name,
-                            getValue: (eventDefinition: Record<string, any>) =>
-                                'id' in eventDefinition ? eventDefinition.name : eventDefinition.value,
-                            ...eventTaxonomicGroupProps,
-                        }),
-                        keywordShortcuts: (searchQuery: string): QuickFilterItem[] =>
-                            buildEventTypeShortcuts({ searchQuery, includeEventName: true }),
+                        ...withKeywordShortcuts<Record<string, any>>(
+                            {
+                                getName: (eventDefinition) => eventDefinition.name,
+                                getValue: (eventDefinition) =>
+                                    'id' in eventDefinition ? eventDefinition.name : eventDefinition.value,
+                                getIcon: eventTaxonomicGroupProps.getIcon,
+                                getPopoverHeader: eventTaxonomicGroupProps.getPopoverHeader,
+                            },
+                            {
+                                popoverHeader: 'Autocapture shortcut',
+                                buildShortcuts: buildAutocaptureSeriesShortcuts,
+                            }
+                        ),
                     },
                     {
                         name: 'Internal Events',
@@ -633,13 +664,17 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         ],
                         propertyAllowList:
                             propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]?.filter(isString),
-                        ...withQuickFilterBranches({
-                            getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
-                            getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
-                            ...propertyTaxonomicGroupProps(),
-                        }),
-                        keywordShortcuts: (searchQuery: string): QuickFilterItem[] =>
-                            buildEventTypeShortcuts({ searchQuery, includeEventName: false }),
+                        ...withKeywordShortcuts<PropertyDefinition>(
+                            {
+                                getName: (propertyDefinition) => propertyDefinition.name,
+                                getValue: (propertyDefinition) => propertyDefinition.name,
+                                ...propertyTaxonomicGroupProps(),
+                            },
+                            {
+                                popoverHeader: 'Event type shortcut',
+                                buildShortcuts: buildEventTypeFilterShortcuts,
+                            }
+                        ),
                     },
                     {
                         name: 'Internal event properties',
@@ -1576,6 +1611,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         filterValue: item.filterValue,
                         propertyFilterType: item.propertyFilterType,
                         eventName: item.eventName,
+                        // Distinguish shortcuts surfaced inline in Events/EventProperties (via a
+                        // group's keywordShortcuts builder) from the dedicated SuggestedFilters tab.
+                        source:
+                            group.type === TaxonomicFilterGroupType.SuggestedFilters
+                                ? 'suggested_filters_tab'
+                                : 'keyword_shortcut',
                     })
                 }
 

@@ -734,9 +734,13 @@ describe('infiniteListLogic', () => {
     })
 
     describe('keyword shortcuts', () => {
+        let keySuffix = 0
         const mountEventsLogic = (enableKeywordShortcuts: boolean): ReturnType<typeof infiniteListLogic.build> => {
+            // Unique key per test so kea doesn't hand us a logic instance that was already mounted
+            // with a previous test's mock data.
+            keySuffix += 1
             const listLogic = infiniteListLogic({
-                taxonomicFilterLogicKey: `keywordShortcutsTest-${enableKeywordShortcuts}`,
+                taxonomicFilterLogicKey: `keywordShortcutsTest-${enableKeywordShortcuts}-${keySuffix}`,
                 listGroupType: TaxonomicFilterGroupType.Events,
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
                 showNumericalPropsOnly: false,
@@ -746,7 +750,7 @@ describe('infiniteListLogic', () => {
             return listLogic
         }
 
-        it('prepends matching shortcut items when enableKeywordShortcuts is true', async () => {
+        it('surfaces matching shortcut items when enableKeywordShortcuts is true', async () => {
             const listLogic = mountEventsLogic(true)
 
             await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('click'))
@@ -762,11 +766,27 @@ describe('infiniteListLogic', () => {
                         }),
                     ]),
                 })
+        })
 
-            expect(listLogic.values.items.results[0]).toMatchObject({
-                _type: 'quick_filter',
-                filterValue: 'click',
-            })
+        it('places shortcuts AFTER remote/local results so real events keep default Enter selection', async () => {
+            const listLogic = mountEventsLogic(true)
+            await expectLogic(listLogic).toDispatchActions(['loadRemoteItemsSuccess']).toFinishAllListeners()
+
+            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('click'))
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+
+            // The default mock returns `$click` (and similar) for search=click, so remote has real
+            // results. The shortcut must appear after all of them, not before.
+            const results = listLogic.values.items.results
+            const firstShortcutIndex = results.findIndex((item: any) => item._type === 'quick_filter')
+            const lastNonShortcutIndex = results.reduce(
+                (acc: number, item: any, idx: number) => (item._type === 'quick_filter' ? acc : idx),
+                -1
+            )
+            expect(firstShortcutIndex).toBeGreaterThan(-1)
+            expect(lastNonShortcutIndex).toBeGreaterThan(-1)
+            expect(firstShortcutIndex).toBeGreaterThan(lastNonShortcutIndex)
         })
 
         it('returns no shortcut items when enableKeywordShortcuts is false', async () => {
@@ -780,10 +800,21 @@ describe('infiniteListLogic', () => {
                 })
         })
 
+        it('returns no shortcut items for queries shorter than the min length', async () => {
+            const listLogic = mountEventsLogic(true)
+
+            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('cl'))
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    keywordShortcutItems: [],
+                })
+        })
+
         it('returns no shortcut items when the search query does not match a keyword', async () => {
             const listLogic = mountEventsLogic(true)
 
-            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('xyz'))
+            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('xyzabc'))
                 .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
                 .toFinishAllListeners()
                 .toMatchValues({

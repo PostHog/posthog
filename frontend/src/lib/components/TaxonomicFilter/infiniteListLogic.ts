@@ -17,6 +17,7 @@ import {
     InfiniteListLogicProps,
     QuickFilterItem,
     SkeletonItem,
+    isQuickFilterItem,
     isSkeletonItem,
     ListFuse,
     ListStorage,
@@ -525,13 +526,24 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 searchQuery: string,
                 isLoading: boolean,
                 results: TaxonomicDefinitionTypes[]
-            ): boolean =>
-                allowNonCapturedEvents &&
-                (listGroupType === TaxonomicFilterGroupType.CustomEvents ||
-                    listGroupType === TaxonomicFilterGroupType.Events) &&
-                searchQuery.trim().length > 0 &&
-                !isLoading &&
-                results.length === 0,
+            ): boolean => {
+                if (!allowNonCapturedEvents) {
+                    return false
+                }
+                if (
+                    listGroupType !== TaxonomicFilterGroupType.CustomEvents &&
+                    listGroupType !== TaxonomicFilterGroupType.Events
+                ) {
+                    return false
+                }
+                if (searchQuery.trim().length === 0 || isLoading) {
+                    return false
+                }
+                // Keyword-shortcut QuickFilterItems don't represent captured events — ignore them
+                // when deciding whether to show the "not seen yet" escape hatch.
+                const realResults = results.filter((item) => !isQuickFilterItem(item))
+                return realResults.length === 0
+            },
         ],
         showEmptyState: [
             (s) => [
@@ -746,13 +758,16 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 const topMatches = isSuggested ? topMatchItemsWithSkeletons : []
                 const recentPrefix = isSuggested && !searchQuery ? (contextFilteredRecentItems || []).slice(0, 3) : []
                 const pinnedPrefix = isSuggested && !searchQuery ? (contextFilteredPinnedItems || []).slice(0, 3) : []
+                // Keyword shortcuts render alongside real results but below them, so they don't
+                // steal default selection (Enter key) when the user's query also matches a real
+                // event or property of the same name.
                 const combinedResults = [
-                    ...keywordShortcutItems,
                     ...recentPrefix,
                     ...pinnedPrefix,
                     ...suggestedPinnedMatches,
                     ...localItems.results,
                     ...remoteItems.results,
+                    ...keywordShortcutItems,
                     ...topMatches,
                 ]
                 return {

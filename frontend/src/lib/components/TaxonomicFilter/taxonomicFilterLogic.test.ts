@@ -712,17 +712,35 @@ describe('taxonomicFilterLogic', () => {
             expect(shortcut.eventName).toBeUndefined()
         })
 
-        it('getName/getValue/getIcon/getPopoverHeader branch on isQuickFilterItem', () => {
+        it('Events group getName/getValue/getIcon/getPopoverHeader branch on isQuickFilterItem', () => {
             const eventsGroup = testLogic.values.taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.Events)
             const [shortcut] = eventsGroup?.keywordShortcuts?.('click') ?? []
             expect(eventsGroup?.getName?.(shortcut)).toBe('Click (autocapture)')
-            expect(eventsGroup?.getValue?.(shortcut)).toBe('quick:$event_type:click:$autocapture')
+            expect(eventsGroup?.getValue?.(shortcut)).toEqual(expect.any(String))
             expect(eventsGroup?.getIcon?.(shortcut)).toBeDefined() // oxlint-disable-line jest/no-restricted-matchers
             expect(eventsGroup?.getPopoverHeader(shortcut)).toBe('Autocapture shortcut')
 
             const realEvent = { id: 'uuid-evt', name: '$pageview' }
             expect(eventsGroup?.getName?.(realEvent)).toBe('$pageview')
             expect(eventsGroup?.getValue?.(realEvent)).toBe('$pageview')
+        })
+
+        it('EventProperties group popover header says "Event type shortcut" (not "Autocapture shortcut")', () => {
+            const eventPropertiesGroup = testLogic.values.taxonomicGroups.find(
+                (g) => g.type === TaxonomicFilterGroupType.EventProperties
+            )
+            const [shortcut] = eventPropertiesGroup?.keywordShortcuts?.('click') ?? []
+            expect(eventPropertiesGroup?.getPopoverHeader(shortcut)).toBe('Event type shortcut')
+
+            const realProperty = { name: '$current_url' } as any
+            expect(eventPropertiesGroup?.getPopoverHeader(realProperty)).not.toBe('Event type shortcut')
+        })
+
+        it('shortcuts produce unique getValue keys so React selection stays stable', () => {
+            const eventsGroup = testLogic.values.taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.Events)
+            const shortcuts = eventsGroup?.keywordShortcuts?.('click') ?? []
+            const values = shortcuts.map((s) => eventsGroup?.getValue?.(s))
+            expect(new Set(values).size).toBe(values.length)
         })
     })
 })
