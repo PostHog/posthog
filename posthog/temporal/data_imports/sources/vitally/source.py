@@ -11,8 +11,9 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import VitallySourceConfig
 from posthog.temporal.data_imports.sources.vitally.settings import (
@@ -20,6 +21,7 @@ from posthog.temporal.data_imports.sources.vitally.settings import (
     INCREMENTAL_FIELDS as VITALLY_INCREMENTAL_FIELDS,
 )
 from posthog.temporal.data_imports.sources.vitally.vitally import (
+    VitallyResumeConfig,
     validate_credentials as validate_vitally_credentials,
     vitally_source,
 )
@@ -28,10 +30,13 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class VitallySource(SimpleSource[VitallySourceConfig]):
+class VitallySource(ResumableSource[VitallySourceConfig, VitallyResumeConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.VITALLY
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[VitallyResumeConfig]:
+        return ResumableSourceManager[VitallyResumeConfig](inputs, VitallyResumeConfig)
 
     def get_schemas(
         self, config: VitallySourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
@@ -62,7 +67,12 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
 
         return False, "Invalid credentials"
 
-    def source_for_pipeline(self, config: VitallySourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def source_for_pipeline(
+        self,
+        config: VitallySourceConfig,
+        resumable_source_manager: ResumableSourceManager[VitallyResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         items = vitally_source(
             secret_token=config.secret_token,
             region=config.region.selection,
@@ -75,6 +85,7 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
             if inputs.should_use_incremental_field
             else None,
             logger=inputs.logger,
+            resumable_source_manager=resumable_source_manager,
         )
 
         return SourceResponse(

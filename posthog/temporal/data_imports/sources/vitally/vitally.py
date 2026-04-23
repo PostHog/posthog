@@ -1,4 +1,5 @@
 import base64
+import dataclasses
 from datetime import datetime
 from typing import Any, Optional
 
@@ -10,6 +11,12 @@ from structlog.types import FilteringBoundLogger
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
 from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+
+
+@dataclasses.dataclass
+class VitallyResumeConfig:
+    cursor: str
 
 
 def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
@@ -317,6 +324,7 @@ def get_messages(
     db_incremental_field_last_value: Optional[Any],
     should_use_incremental_field: bool,
     logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[VitallyResumeConfig],
 ):
     """Messages are a field on conversations which only get returned
     when you request each conversation individually. This queries
@@ -351,10 +359,20 @@ def get_messages(
         headers={"Authorization": f"Basic {basic_token}:"},
     )
 
-    logger.debug("Requesting first page")
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume_config is not None:
+        paginator._cursor = resume_config.cursor
+        logger.debug("Vitally: resuming messages sync from saved cursor")
+    else:
+        logger.debug("Requesting first page")
 
     with requests.Session() as session:
         while paginator.has_next_page:
+            # Save the cursor for this page *before* fetching so a restart re-runs it.
+            # Duplicates on resume are safe because SourceResponse sets primary_keys=["id"].
+            if paginator._cursor is not None:
+                resumable_source_manager.save_state(VitallyResumeConfig(cursor=paginator._cursor))
+
             paginator.update_request(request)
             prepared_request = session.prepare_request(request)
             response = session.send(prepared_request)
@@ -409,13 +427,22 @@ def vitally_source(
     job_id: str,
     logger: FilteringBoundLogger,
     db_incremental_field_last_value: Optional[Any],
+    resumable_source_manager: ResumableSourceManager[VitallyResumeConfig],
     should_use_incremental_field: bool = False,
 ):
     if endpoint == "Messages":
         yield from get_messages(
-            secret_token, region, subdomain, db_incremental_field_last_value, should_use_incremental_field, logger
+            secret_token,
+            region,
+            subdomain,
+            db_incremental_field_last_value,
+            should_use_incremental_field,
+            logger,
+            resumable_source_manager,
         )
         return
+    # Non-Messages endpoints still flow through the shared rest_api_resource framework,
+    # which does not yet expose resume hooks, so they restart from scratch on retry.
 
     config: RESTAPIConfig = {
         "client": {
