@@ -78,17 +78,12 @@ CI_FOLLOW_UP_DELAY = timedelta(minutes=15)
 PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS = 180
 MAX_CI_REPETITIONS = 3
 DEFAULT_CI_MESSAGE = """
-Before proceeding, send a message to the user that you are checking the pull request for comments and CI changes.
-Make sure the message is short and concise. For example:
-"Checking the pull request for comments and CI results, will update you shortly!"
-Inspect the created pull request. Read all logs from any failed checks,
-read all comments from the PR and implement fixes for the checks.
+Inspect the created pull request. Make sure to always refresh your knowledge of the pull request.
+Read all logs from any failed checks,read all comments from the PR and implement fixes for the checks.
 mypy and typechecks should be addressed with high priority.
 After implementing the fixes, make sure to commit and push any changes up for review.
-If there are no fixes to be made or the PR has not been updated since last check,
-send a short concise message to the user stating that there are no changes to be made.
-Make sure not to renotify the user about failing checks if no updates have been made.
-Example: "Checked the pull request, no updates from last check."
+Respond to the user that you have inspected the PR and implemented fixes, and that they should check the PR for details.
+If there are no fixes to be made or the PR has not been updated since last check, end the turn without making any changes and wait for the next CI update.
 """.replace("\n", " ").strip()
 
 
