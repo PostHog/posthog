@@ -60,7 +60,7 @@ class RoleExternalReference(UUIDModel):
             ),
             models.UniqueConstraint(
                 Lower("provider_organization_id"),
-                "provider_role_id",
+                Lower("provider_role_id"),
                 "organization",
                 "provider",
                 name="unique_role_ext_ref_id_per_org",
