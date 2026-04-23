@@ -2,14 +2,19 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.rate_limiting.throttles import ThrottleContext
 from llm_gateway.request_context import (
+    InvalidBillingTeamIdError,
     RequestContext,
     apply_posthog_context_from_headers,
+    extract_billing_team_id_from_headers,
+    get_billing_team_id,
     get_posthog_flags,
     get_posthog_properties,
     record_cost,
     request_context_var,
+    set_billing_team_id,
     set_request_context,
     set_throttle_context,
     throttle_context_var,
@@ -169,3 +174,106 @@ class TestApplyPosthogContextFromHeaders:
 
         assert get_posthog_properties() == {"existing": "property"}
         assert get_posthog_flags() == {"experiment": "test"}
+
+
+def _make_user(team_ids: set[int] | None = None) -> AuthenticatedUser:
+    return AuthenticatedUser(
+        user_id=1,
+        team_id=42,
+        auth_method="personal_api_key",
+        distinct_id="distinct-1",
+        team_ids=frozenset(team_ids or set()),
+    )
+
+
+class TestExtractBillingTeamIdFromHeaders:
+    @pytest.fixture(autouse=True)
+    def reset_request_context(self) -> None:
+        request_context_var.set(None)
+
+    def test_returns_none_when_header_absent(self) -> None:
+        request = MagicMock()
+        request.headers = {}
+        user = _make_user({42, 99})
+
+        assert extract_billing_team_id_from_headers(request, user) is None
+
+    def test_returns_team_id_when_header_present_and_user_has_access(self) -> None:
+        request = MagicMock()
+        request.headers = {"x-posthog-team-id": "99"}
+        user = _make_user({42, 99})
+
+        assert extract_billing_team_id_from_headers(request, user) == 99
+
+    def test_raises_403_when_user_not_member_of_team(self) -> None:
+        request = MagicMock()
+        request.headers = {"x-posthog-team-id": "999"}
+        user = _make_user({42, 99})
+
+        with pytest.raises(InvalidBillingTeamIdError) as exc_info:
+            extract_billing_team_id_from_headers(request, user)
+
+        assert exc_info.value.status_code == 403
+
+    def test_raises_403_when_user_has_no_team_ids(self) -> None:
+        request = MagicMock()
+        request.headers = {"x-posthog-team-id": "42"}
+        user = _make_user(set())  # user is not a member of any team (edge case)
+
+        with pytest.raises(InvalidBillingTeamIdError) as exc_info:
+            extract_billing_team_id_from_headers(request, user)
+
+        assert exc_info.value.status_code == 403
+
+    @pytest.mark.parametrize(
+        "header_value",
+        [
+            "not-a-number",
+            "12.5",
+            "",
+            "   ",
+            "-1",
+            "0",
+            "12a",
+        ],
+    )
+    def test_raises_400_on_malformed_header(self, header_value: str) -> None:
+        request = MagicMock()
+        request.headers = {"x-posthog-team-id": header_value}
+        user = _make_user({42, 99})
+
+        with pytest.raises(InvalidBillingTeamIdError) as exc_info:
+            extract_billing_team_id_from_headers(request, user)
+
+        assert exc_info.value.status_code == 400
+
+    def test_strips_whitespace_around_team_id(self) -> None:
+        request = MagicMock()
+        request.headers = {"x-posthog-team-id": "  42  "}
+        user = _make_user({42, 99})
+
+        assert extract_billing_team_id_from_headers(request, user) == 42
+
+
+class TestBillingTeamIdContextVar:
+    @pytest.fixture(autouse=True)
+    def reset_request_context(self) -> None:
+        request_context_var.set(None)
+
+    def test_get_billing_team_id_returns_none_without_context(self) -> None:
+        assert get_billing_team_id() is None
+
+    def test_set_billing_team_id_is_noop_without_context(self) -> None:
+        set_billing_team_id(42)
+        assert get_billing_team_id() is None
+
+    def test_set_and_get_billing_team_id(self) -> None:
+        set_request_context(RequestContext(request_id="req-1"))
+        set_billing_team_id(42)
+        assert get_billing_team_id() == 42
+
+    def test_set_billing_team_id_to_none_clears_value(self) -> None:
+        set_request_context(RequestContext(request_id="req-1", billing_team_id=42))
+        assert get_billing_team_id() == 42
+        set_billing_team_id(None)
+        assert get_billing_team_id() is None

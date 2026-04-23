@@ -12,6 +12,7 @@ from posthoganalytics import Posthog
 from llm_gateway.callbacks.base import InstrumentedCallback
 from llm_gateway.request_context import (
     get_auth_user,
+    get_billing_team_id,
     get_posthog_flags,
     get_posthog_properties,
     get_product,
@@ -121,7 +122,10 @@ class PostHogCallback(InstrumentedCallback):
             distinct_id = auth_user.distinct_id
         else:
             distinct_id = end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
-        team_id = auth_user.team_id if auth_user and auth_user.team_id else None
+        # Use the client-provided billing team id (validated against user.team_ids in the
+        # dependency chain), not auth_user.team_id — the latter is the user's current_team_id
+        # on the server side, which can diverge from the team the client is working in.
+        team_id = get_billing_team_id()
 
         logger.debug(
             "PostHog callback _on_success",
@@ -208,7 +212,8 @@ class PostHogCallback(InstrumentedCallback):
             distinct_id = auth_user.distinct_id
         else:
             distinct_id = end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
-        team_id = auth_user.team_id if auth_user and auth_user.team_id else None
+        # See _on_success for rationale on using billing_team_id rather than auth_user.team_id.
+        team_id = get_billing_team_id()
 
         logger.debug(
             "PostHog callback _on_failure",

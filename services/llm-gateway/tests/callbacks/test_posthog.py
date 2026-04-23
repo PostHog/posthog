@@ -75,6 +75,7 @@ class TestPostHogCallback:
         with (
             patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
             patch("llm_gateway.callbacks.posthog.get_product", return_value="wizard"),
+            patch("llm_gateway.callbacks.posthog.get_billing_team_id", return_value=456),
         ):
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
@@ -126,7 +127,7 @@ class TestPostHogCallback:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("method_name", ["_on_success", "_on_failure"])
-    async def test_team_id_always_tagged_when_auth_user_has_team(
+    async def test_team_id_comes_from_billing_team_id_not_auth_user(
         self,
         callback: PostHogCallback,
         auth_user: AuthenticatedUser,
@@ -134,7 +135,38 @@ class TestPostHogCallback:
         mock_posthog_client: tuple,
         method_name: str,
     ) -> None:
-        """Every generation event must carry the team_id property for billing attribution."""
+        """team_id on the event must come from the validated billing team id (client-provided), not the user's current_team_id."""
+        _, mock_client = mock_posthog_client
+        kwargs = {
+            "standard_logging_object": {**standard_logging_object, "error_str": "boom"},
+            "litellm_params": {},
+        }
+
+        # auth_user.team_id is 456 (the user's server-side current_team_id).
+        # The client chose to bill 789 via the validated billing team id.
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="llm_gateway"),
+            patch("llm_gateway.callbacks.posthog.get_billing_team_id", return_value=789),
+        ):
+            method = getattr(callback, method_name)
+            await method(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+            call_kwargs = mock_client.capture.call_args.kwargs
+            assert call_kwargs["properties"]["team_id"] == 789
+            assert call_kwargs["groups"] == {"project": 789}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("method_name", ["_on_success", "_on_failure"])
+    async def test_team_id_tagged_as_none_when_client_did_not_send_header(
+        self,
+        callback: PostHogCallback,
+        auth_user: AuthenticatedUser,
+        standard_logging_object: dict,
+        mock_posthog_client: tuple,
+        method_name: str,
+    ) -> None:
+        """Events still get a team_id property (set to None) when the client did not send X-PostHog-Team-Id."""
         _, mock_client = mock_posthog_client
         kwargs = {
             "standard_logging_object": {**standard_logging_object, "error_str": "boom"},
@@ -144,38 +176,7 @@ class TestPostHogCallback:
         with (
             patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
             patch("llm_gateway.callbacks.posthog.get_product", return_value="llm_gateway"),
-        ):
-            method = getattr(callback, method_name)
-            await method(kwargs, None, 0.0, 1.0, end_user_id=None)
-
-            props = mock_client.capture.call_args.kwargs["properties"]
-            assert props["team_id"] == 456
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize("method_name", ["_on_success", "_on_failure"])
-    async def test_team_id_tagged_as_none_when_auth_user_missing_team(
-        self,
-        callback: PostHogCallback,
-        standard_logging_object: dict,
-        mock_posthog_client: tuple,
-        method_name: str,
-    ) -> None:
-        """Events still get a team_id property (set to None) even when the auth user has no team."""
-        _, mock_client = mock_posthog_client
-        user_without_team = AuthenticatedUser(
-            user_id=123,
-            team_id=None,
-            auth_method="personal_api_key",
-            distinct_id="user-distinct-id-123",
-        )
-        kwargs = {
-            "standard_logging_object": {**standard_logging_object, "error_str": "boom"},
-            "litellm_params": {},
-        }
-
-        with (
-            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=user_without_team),
-            patch("llm_gateway.callbacks.posthog.get_product", return_value="llm_gateway"),
+            patch("llm_gateway.callbacks.posthog.get_billing_team_id", return_value=None),
         ):
             method = getattr(callback, method_name)
             await method(kwargs, None, 0.0, 1.0, end_user_id=None)
@@ -183,7 +184,7 @@ class TestPostHogCallback:
             call_kwargs = mock_client.capture.call_args.kwargs
             assert "team_id" in call_kwargs["properties"]
             assert call_kwargs["properties"]["team_id"] is None
-            # groups are still omitted when there's no team to attach to
+            # groups are omitted when there's no team to attach to
             assert "groups" not in call_kwargs
 
     @pytest.mark.asyncio
@@ -438,6 +439,7 @@ class TestPostHogCallback:
         with (
             patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
             patch("llm_gateway.callbacks.posthog.get_product", return_value="growth"),
+            patch("llm_gateway.callbacks.posthog.get_billing_team_id", return_value=456),
         ):
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id="openai-end-user-456")
 

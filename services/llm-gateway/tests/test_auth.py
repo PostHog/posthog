@@ -450,3 +450,100 @@ class TestOAuthAccessTokenAuthenticator:
         assert result is not None
         assert result.user_id == 123
         assert result.team_id is None
+
+
+class TestTeamIdsPopulation:
+    """Verify authenticators populate `team_ids` (used to authorize billing team selection)."""
+
+    @pytest.fixture
+    def pak(self) -> PersonalApiKeyAuthenticator:
+        return PersonalApiKeyAuthenticator()
+
+    @pytest.fixture
+    def oat(self) -> OAuthAccessTokenAuthenticator:
+        return OAuthAccessTokenAuthenticator()
+
+    @pytest.mark.asyncio
+    async def test_pak_sets_team_ids_from_org_teams(
+        self, pak: PersonalApiKeyAuthenticator, mock_pool: MagicMock
+    ) -> None:
+        conn = mock_pool.acquire.return_value
+        conn.fetchrow = AsyncMock(
+            return_value={
+                "id": "k1",
+                "user_id": 123,
+                "scopes": ["llm_gateway:read"],
+                "scoped_teams": None,
+                "current_team_id": 1,
+                "distinct_id": "d",
+                "org_team_ids": [1, 2, 3],
+            }
+        )
+
+        result = await pak.authenticate(pak.hash_token("phx_x"), mock_pool)
+        assert result is not None
+        assert result.team_ids == frozenset({1, 2, 3})
+
+    @pytest.mark.asyncio
+    async def test_pak_intersects_scoped_teams_with_org_teams(
+        self, pak: PersonalApiKeyAuthenticator, mock_pool: MagicMock
+    ) -> None:
+        """When scoped_teams is set, team_ids is the intersection — a scoped key can only bill within its scope."""
+        conn = mock_pool.acquire.return_value
+        conn.fetchrow = AsyncMock(
+            return_value={
+                "id": "k1",
+                "user_id": 123,
+                "scopes": ["llm_gateway:read"],
+                "scoped_teams": [2, 99],  # 99 isn't in user's org
+                "current_team_id": 1,
+                "distinct_id": "d",
+                "org_team_ids": [1, 2, 3],
+            }
+        )
+
+        result = await pak.authenticate(pak.hash_token("phx_x"), mock_pool)
+        assert result is not None
+        assert result.team_ids == frozenset({2})
+
+    @pytest.mark.asyncio
+    async def test_pak_empty_team_ids_when_user_has_no_org_memberships(
+        self, pak: PersonalApiKeyAuthenticator, mock_pool: MagicMock
+    ) -> None:
+        conn = mock_pool.acquire.return_value
+        conn.fetchrow = AsyncMock(
+            return_value={
+                "id": "k1",
+                "user_id": 123,
+                "scopes": ["llm_gateway:read"],
+                "scoped_teams": None,
+                "current_team_id": None,
+                "distinct_id": "d",
+                "org_team_ids": [],
+            }
+        )
+
+        result = await pak.authenticate(pak.hash_token("phx_x"), mock_pool)
+        assert result is not None
+        assert result.team_ids == frozenset()
+
+    @pytest.mark.asyncio
+    async def test_oauth_token_sets_team_ids(self, oat: OAuthAccessTokenAuthenticator, mock_pool: MagicMock) -> None:
+        conn = mock_pool.acquire.return_value
+        conn.fetchrow = AsyncMock(
+            return_value={
+                "id": 1,
+                "user_id": 123,
+                "scope": "llm_gateway:read",
+                "expires": datetime.now(UTC) + timedelta(hours=1),
+                "scoped_teams": None,
+                "current_team_id": 1,
+                "application_id": 789,
+                "distinct_id": "d",
+                "org_team_ids": [1, 2],
+            }
+        )
+
+        result = await oat.authenticate(oat.hash_token("pha_x"), mock_pool)
+        assert result is not None
+        assert result.team_ids == frozenset({1, 2})

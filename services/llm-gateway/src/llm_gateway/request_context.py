@@ -19,6 +19,7 @@ POSTHOG_PROPERTY_PREFIX = "x-posthog-property-"
 POSTHOG_FLAG_PREFIX = "x-posthog-flag-"
 POSTHOG_PROVIDER_HEADER = "x-posthog-provider"
 POSTHOG_USE_BEDROCK_FALLBACK_HEADER = "x-posthog-use-bedrock-fallback"
+POSTHOG_TEAM_ID_HEADER = "x-posthog-team-id"
 
 
 @dataclass
@@ -27,6 +28,10 @@ class RequestContext:
     product: str = "llm_gateway"
     posthog_properties: dict[str, str] | None = None
     posthog_flags: dict[str, str] | None = None
+    # Client-selected team_id for billing attribution, validated against the
+    # authenticated user's accessible teams. None when the client did not
+    # send the `X-PostHog-Team-Id` header.
+    billing_team_id: int | None = None
 
 
 request_context_var: ContextVar[RequestContext | None] = ContextVar("request_context", default=None)
@@ -88,6 +93,18 @@ def get_posthog_flags() -> dict[str, str] | None:
     return ctx.posthog_flags if ctx else None
 
 
+def set_billing_team_id(team_id: int | None) -> None:
+    ctx = request_context_var.get()
+    if ctx is None:
+        return
+    request_context_var.set(replace(ctx, billing_team_id=team_id))
+
+
+def get_billing_team_id() -> int | None:
+    ctx = request_context_var.get()
+    return ctx.billing_team_id if ctx else None
+
+
 def _extract_headers_with_prefix(request: Request, prefix: str) -> dict[str, str]:
     result: dict[str, str] = {}
     prefix_lower = prefix.lower()
@@ -144,6 +161,55 @@ def apply_posthog_context_from_headers(request: Request) -> None:
         set_posthog_properties(properties)
     if flags:
         set_posthog_flags(flags)
+
+
+class InvalidBillingTeamIdError(ValueError):
+    """Raised when the client-provided billing team id is malformed or not accessible to the user."""
+
+    def __init__(self, message: str, *, status_code: int) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def extract_billing_team_id_from_headers(request: Request, user: AuthenticatedUser) -> int | None:
+    """Parse and validate the `X-PostHog-Team-Id` header against the user's accessible teams.
+
+    Returns None when the header is absent (the caller has opted out of per-request
+    billing team selection). Raises `InvalidBillingTeamIdError` when the header is
+    malformed (400) or refers to a team the user cannot access (403).
+    """
+    raw = request.headers.get(POSTHOG_TEAM_ID_HEADER)
+    if raw is None:
+        return None
+
+    stripped = raw.strip()
+    if not stripped:
+        raise InvalidBillingTeamIdError(
+            f"Invalid {POSTHOG_TEAM_ID_HEADER} header value: must be a positive integer.",
+            status_code=400,
+        )
+
+    try:
+        team_id = int(stripped)
+    except ValueError as exc:
+        raise InvalidBillingTeamIdError(
+            f"Invalid {POSTHOG_TEAM_ID_HEADER} header value '{raw}': must be a positive integer.",
+            status_code=400,
+        ) from exc
+
+    if team_id <= 0:
+        raise InvalidBillingTeamIdError(
+            f"Invalid {POSTHOG_TEAM_ID_HEADER} header value '{raw}': must be a positive integer.",
+            status_code=400,
+        )
+
+    if team_id not in user.team_ids:
+        raise InvalidBillingTeamIdError(
+            f"User does not have access to team {team_id}.",
+            status_code=403,
+        )
+
+    return team_id
 
 
 def set_throttle_context(runner: ThrottleRunner, context: ThrottleContext) -> None:

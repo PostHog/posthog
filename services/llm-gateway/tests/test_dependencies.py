@@ -6,8 +6,19 @@ from fastapi import HTTPException, Request
 from starlette.datastructures import Headers
 
 from llm_gateway.auth.models import AuthenticatedUser
-from llm_gateway.dependencies import _extract_end_user_id_from_body, enforce_throttles, get_provider_from_request
+from llm_gateway.dependencies import (
+    _extract_end_user_id_from_body,
+    enforce_throttles,
+    get_provider_from_request,
+    resolve_billing_team,
+)
 from llm_gateway.rate_limiting.throttles import ThrottleContext, ThrottleResult
+from llm_gateway.request_context import (
+    RequestContext,
+    get_billing_team_id,
+    request_context_var,
+    set_request_context,
+)
 
 
 def _make_request(body: dict | None = None, headers: dict[str, str] | None = None) -> Request:
@@ -195,3 +206,64 @@ class TestEnforceThrottles:
             auth_method="personal_api_key",
         )
         assert context.end_user_id is None
+
+
+class TestResolveBillingTeam:
+    @pytest.fixture(autouse=True)
+    def reset_request_context(self) -> None:
+        set_request_context(RequestContext(request_id="req-1"))
+        yield
+        request_context_var.set(None)
+
+    def _user(self, team_ids: set[int]) -> AuthenticatedUser:
+        return AuthenticatedUser(
+            user_id=1,
+            team_id=1,
+            auth_method="personal_api_key",
+            distinct_id="test",
+            scopes=["llm_gateway:read"],
+            team_ids=frozenset(team_ids),
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_header_leaves_billing_team_id_unset(self) -> None:
+        request = _make_request()
+        user = self._user({1, 2, 3})
+
+        result = await resolve_billing_team(request=request, user=user)
+
+        assert result is user
+        # Intentionally does NOT fall back to user.team_id — see resolve_billing_team docstring.
+        assert get_billing_team_id() is None
+
+    @pytest.mark.asyncio
+    async def test_valid_header_sets_billing_team_id(self) -> None:
+        request = _make_request(headers={"X-PostHog-Team-Id": "2"})
+        user = self._user({1, 2, 3})
+
+        await resolve_billing_team(request=request, user=user)
+
+        assert get_billing_team_id() == 2
+
+    @pytest.mark.asyncio
+    async def test_unauthorized_team_raises_403(self) -> None:
+        request = _make_request(headers={"X-PostHog-Team-Id": "999"})
+        user = self._user({1, 2, 3})
+
+        with pytest.raises(HTTPException) as exc_info:
+            await resolve_billing_team(request=request, user=user)
+
+        assert exc_info.value.status_code == 403
+        assert exc_info.value.detail["error"]["type"] == "invalid_request_error"
+        assert get_billing_team_id() is None
+
+    @pytest.mark.asyncio
+    async def test_malformed_header_raises_400(self) -> None:
+        request = _make_request(headers={"X-PostHog-Team-Id": "not-a-number"})
+        user = self._user({1, 2, 3})
+
+        with pytest.raises(HTTPException) as exc_info:
+            await resolve_billing_team(request=request, user=user)
+
+        assert exc_info.value.status_code == 400
+        assert get_billing_team_id() is None

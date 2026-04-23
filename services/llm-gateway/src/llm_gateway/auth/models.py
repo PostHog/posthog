@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 
@@ -11,6 +11,11 @@ class AuthenticatedUser:
     scopes: list[str] | None = None
     token_expires_at: datetime | None = None
     application_id: str | None = None
+    # All team ids the user is allowed to bill against — derived from their
+    # organization memberships, intersected with the API key / OAuth token's
+    # `scoped_teams` when set. Used to validate the client-provided
+    # `X-PostHog-Team-Id` header.
+    team_ids: frozenset[int] = field(default_factory=frozenset)
 
 
 def has_required_scope(scopes: list[str], required: str = "llm_gateway:read", *, allow_wildcard: bool = False) -> bool:

@@ -22,6 +22,7 @@ from llm_gateway.metrics.prometheus import (
 from llm_gateway.observability import capture_exception
 from llm_gateway.request_context import (
     RequestContext,
+    get_billing_team_id,
     get_posthog_flags,
     get_posthog_properties,
     get_request_id,
@@ -125,6 +126,7 @@ async def handle_llm_request(
             product=product,
             posthog_properties=get_posthog_properties(),
             posthog_flags=get_posthog_flags(),
+            billing_team_id=get_billing_team_id(),
         )
     )
     set_auth_user(user)

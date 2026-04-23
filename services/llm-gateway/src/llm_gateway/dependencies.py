@@ -14,8 +14,11 @@ from llm_gateway.rate_limiting.cost_refresh import ensure_costs_fresh
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import ThrottleContext
 from llm_gateway.request_context import (
+    InvalidBillingTeamIdError,
+    extract_billing_team_id_from_headers,
     extract_posthog_provider_from_headers,
     get_request_id,
+    set_billing_team_id,
     set_throttle_context,
 )
 from llm_gateway.services.plan_resolver import resolve_plan_info
@@ -40,6 +43,26 @@ async def get_authenticated_user(
     user = await auth_service.authenticate_request(request, db_pool)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+    return user
+
+
+async def resolve_billing_team(
+    request: Request,
+    user: Annotated[AuthenticatedUser, Depends(get_authenticated_user)],
+) -> AuthenticatedUser:
+    """Validate the client-provided `X-PostHog-Team-Id` header and stash it in the request context.
+
+    The billing team id is used to attribute LLM generation events for billing. When the header
+    is absent we leave it unset (None) — callers that want billing attribution must explicitly
+    opt in. This intentionally avoids falling back to the user's `current_team_id`, which is
+    server-side session state and can diverge from the team the client is actually working in.
+    """
+    try:
+        team_id = extract_billing_team_id_from_headers(request, user)
+    except InvalidBillingTeamIdError as exc:
+        detail = {"error": {"message": str(exc), "type": "invalid_request_error"}}
+        raise HTTPException(status_code=exc.status_code, detail=detail) from exc
+    set_billing_team_id(team_id)
     return user
 
 
@@ -95,7 +118,7 @@ async def get_provider_from_request(request: Request) -> str | None:
 
 async def enforce_product_access(
     request: Request,
-    user: Annotated[AuthenticatedUser, Depends(get_authenticated_user)],
+    user: Annotated[AuthenticatedUser, Depends(resolve_billing_team)],
 ) -> AuthenticatedUser:
     """Check if user has access to the product."""
     product = get_product_from_request(request)
