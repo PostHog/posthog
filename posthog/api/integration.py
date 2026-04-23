@@ -36,6 +36,7 @@ from posthog.models.integration import (
     DatabricksIntegrationError,
     EmailIntegration,
     FirebaseIntegration,
+    GitHubInstallationAccess,
     GitHubIntegration,
     GitLabIntegration,
     GoogleAdsIntegration,
@@ -51,6 +52,7 @@ from posthog.models.integration import (
     TwilioIntegration,
     defer_repository_cache_fields,
 )
+from posthog.models.user_integration import user_github_integration_from_installation
 from posthog.permissions import (
     AccessControlPermission,
     APIScopePermission,
@@ -258,36 +260,29 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             # exchange it for the connecting user's identity and user-to-server tokens. We store the
             # login on the team integration (shown on the integration card) and auto-create a
             # UserIntegration so the user immediately has personal GitHub credentials for
-            # PR authorship and identity attribution — no separate "Linked accounts" step needed.
-            # Skip if the user already has a UserIntegration (they set one up via Linked Accounts
-            # independently and we don't want to overwrite their personal installation).
+            # PR authorship and identity attribution - no separate "Linked accounts" step needed
             code = config.get("code")
             if code:
                 authorization = GitHubIntegration.github_user_from_code(code)
                 if authorization is not None:
                     instance.config["connecting_user_github_login"] = authorization.gh_login
                     instance.save(update_fields=["config"])
-
-                    from posthog.models.user_integration import (
-                        UserIntegration,
-                        user_github_integration_from_installation,
-                    )
-
-                    if not UserIntegration.objects.filter(user=request.user, kind="github").exists():
-                        user_github_integration_from_installation(
-                            request.user,
+                    # Auto-create a UserIntegration so the user immediately has personal
+                    # GitHub credentials. create_only=True uses get_or_create atomically —
+                    # an existing personal integration (e.g. set up via Linked Accounts) is
+                    # left untouched even under concurrent requests.
+                    user_github_integration_from_installation(
+                        request.user,
+                        GitHubInstallationAccess(
                             installation_id=installation_id,
                             installation_info=instance.config,
-                            installation_access_token=instance.sensitive_config.get("access_token", ""),
-                            installation_token_expires_at=_installation_token_expires_at(instance),
+                            access_token=instance.sensitive_config.get("access_token", ""),
+                            token_expires_at=_installation_token_expires_at(instance),
                             repository_selection=instance.config.get("repository_selection", "selected"),
-                            gh_id=authorization.gh_id,
-                            gh_login=authorization.gh_login,
-                            user_access_token=authorization.access_token,
-                            user_refresh_token=authorization.refresh_token,
-                            user_access_token_expires_in=authorization.access_token_expires_in,
-                            user_refresh_token_expires_in=authorization.refresh_token_expires_in,
-                        )
+                        ),
+                        authorization,
+                        create_only=True,
+                    )
 
             return instance
 

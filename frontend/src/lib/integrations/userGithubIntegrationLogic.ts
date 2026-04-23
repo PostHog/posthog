@@ -4,14 +4,18 @@ import api from 'lib/api'
 
 import type { GitHubRepoApi } from 'products/integrations/frontend/generated/api.schemas'
 
-import type { githubIntegrationLogicType } from './githubIntegrationLogicType'
+import type { userGithubIntegrationLogicType } from './userGithubIntegrationLogicType'
 
 const PAGE_SIZE = 500
 
-export const githubIntegrationLogic = kea<githubIntegrationLogicType>([
-    props({} as { id: number }),
-    key((props) => props.id),
-    path((key) => ['lib', 'integrations', 'githubIntegrationLogic', key]),
+export interface UserGitHubIntegrationLogicProps {
+    installationId: string
+}
+
+export const userGithubIntegrationLogic = kea<userGithubIntegrationLogicType>([
+    path(['lib', 'integrations', 'userGithubIntegrationLogic']),
+    props({} as UserGitHubIntegrationLogicProps),
+    key((props) => props.installationId),
 
     actions({
         loadRepositories: true,
@@ -52,7 +56,7 @@ export const githubIntegrationLogic = kea<githubIntegrationLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props: logicProps }) => ({
         loadRepositories: () => {
             actions.loadRepositoriesPage(0)
         },
@@ -63,10 +67,9 @@ export const githubIntegrationLogic = kea<githubIntegrationLogicType>([
         },
         loadRepositoriesPage: async ({ offset }, breakpoint) => {
             try {
-                const response = await api.integrations.githubRepositories(props.id, {
-                    limit: PAGE_SIZE,
-                    offset,
-                })
+                const response = await api.get(
+                    `api/users/@me/integrations/github/${logicProps.installationId}/repos/?limit=${PAGE_SIZE}&offset=${offset}`
+                )
                 await breakpoint()
                 actions.loadRepositoriesPageSuccess(response.repositories, response.has_more)
             } catch (e: any) {

@@ -9,7 +9,7 @@ from django.test import override_settings
 from rest_framework import status
 
 from posthog.models import User
-from posthog.models.integration import GitHubUserAuthorization, Integration
+from posthog.models.integration import GitHubInstallationAccess, GitHubUserAuthorization, Integration
 from posthog.models.user_integration import (
     ReauthorizationRequired,
     UserGitHubIntegration,
@@ -33,7 +33,7 @@ def _create_user_integration(user: User, **overrides) -> UserIntegration:
     now = int(time.time())
     defaults = {
         "kind": "github",
-        "integration_id": "12345",
+        "external_id": "12345",
         "config": {
             "installation_id": "12345",
             "expires_in": 3600,
@@ -56,24 +56,42 @@ def _create_user_integration(user: User, **overrides) -> UserIntegration:
 
 
 class TestLinkedAccountsEndpoints(APIBaseTest):
-    def test_list_returns_github_not_connected(self):
-        response = self.client.get("/api/users/@me/linked_accounts/")
+    def test_list_returns_empty_when_no_integrations(self):
+        response = self.client.get("/api/users/@me/integrations/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.json()["results"]
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["kind"], "github")
-        self.assertFalse(results[0]["connected"])
+        self.assertEqual(len(results), 0)
 
-    def test_list_returns_github_connected(self):
+    def test_list_returns_github_integration(self):
         _create_user_integration(self.user)
-        response = self.client.get("/api/users/@me/linked_accounts/")
+        response = self.client.get("/api/users/@me/integrations/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.json()["results"]
         self.assertEqual(len(results), 1)
-        self.assertTrue(results[0]["connected"])
-        self.assertEqual(results[0]["account_identifier"], "octocat")
         self.assertEqual(results[0]["installation_id"], "12345")
         self.assertFalse(results[0]["uses_shared_installation"])
+
+    def test_list_returns_multiple_github_integrations(self):
+        _create_user_integration(self.user, external_id="12345")
+        _create_user_integration(
+            self.user,
+            external_id="67890",
+            config={
+                "installation_id": "67890",
+                "expires_in": 3600,
+                "refreshed_at": int(time.time()),
+                "repository_selection": "all",
+                "account": {"type": "Organization", "name": "PostHog"},
+                "github_user": {"login": "octocat", "id": 99},
+                "user_token_refreshed_at": int(time.time()),
+            },
+        )
+        response = self.client.get("/api/users/@me/integrations/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 2)
+        installation_ids = {r["installation_id"] for r in results}
+        self.assertEqual(installation_ids, {"12345", "67890"})
 
     def test_list_detects_shared_installation(self):
         _create_user_integration(self.user)
@@ -84,7 +102,7 @@ class TestLinkedAccountsEndpoints(APIBaseTest):
             config={"account": {"name": "PostHog"}},
             sensitive_config={},
         )
-        response = self.client.get("/api/users/@me/linked_accounts/")
+        response = self.client.get("/api/users/@me/integrations/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.json()["results"]
         self.assertTrue(results[0]["uses_shared_installation"])
@@ -100,26 +118,22 @@ class TestLinkedAccountsEndpoints(APIBaseTest):
             config={"account": {"name": "PostHog"}},
             sensitive_config={},
         )
-        response = self.client.get("/api/users/@me/linked_accounts/")
+        response = self.client.get("/api/users/@me/integrations/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         team_integrations = response.json()["team_github_integrations"]
         self.assertEqual(len(team_integrations), 1)
         self.assertEqual(team_integrations[0]["installation_id"], "99999")
 
-    def test_delete_removes_integration(self):
-        _create_user_integration(self.user)
-        response = self.client.delete("/api/users/@me/linked_accounts/github/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        results = response.json()["results"]
-        self.assertFalse(results[0]["connected"])
-        self.assertFalse(UserIntegration.objects.filter(user=self.user, kind="github").exists())
+    def test_delete_removes_specific_installation(self):
+        _create_user_integration(self.user, external_id="12345")
+        _create_user_integration(self.user, external_id="67890")
+        response = self.client.delete("/api/users/@me/integrations/github/12345/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(UserIntegration.objects.filter(user=self.user, kind="github", external_id="12345").exists())
+        self.assertTrue(UserIntegration.objects.filter(user=self.user, kind="github", external_id="67890").exists())
 
-    def test_delete_returns_404_when_not_connected(self):
-        response = self.client.delete("/api/users/@me/linked_accounts/github/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_delete_returns_404_for_non_github(self):
-        response = self.client.delete("/api/users/@me/linked_accounts/slack/")
+    def test_delete_returns_404_when_installation_not_found(self):
+        response = self.client.delete("/api/users/@me/integrations/github/99999/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id")
@@ -128,7 +142,7 @@ class TestLinkedAccountsEndpoints(APIBaseTest):
         return_value={"GITHUB_APP_SLUG": "posthog-dev"},
     )
     def test_github_start_returns_install_url(self, _mock_settings):
-        response = self.client.post("/api/users/@me/linked_accounts/github/start/")
+        response = self.client.post("/api/users/@me/integrations/github/start/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertIn("install_url", data)
@@ -139,7 +153,7 @@ class TestLinkedAccountsEndpoints(APIBaseTest):
             "posthog.api.linked_accounts.get_instance_settings",
             return_value={"GITHUB_APP_SLUG": ""},
         ):
-            response = self.client.post("/api/users/@me/linked_accounts/github/start/")
+            response = self.client.post("/api/users/@me/integrations/github/start/")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
@@ -171,7 +185,7 @@ class TestLinkedAccountsEndpoints(APIBaseTest):
         self.assertIn("github_link_success=1", response["Location"])
 
         integration = UserIntegration.objects.get(user=self.user, kind="github")
-        self.assertEqual(integration.integration_id, "12345")
+        self.assertEqual(integration.external_id, "12345")
         self.assertEqual(integration.config["github_user"]["login"], "octocat")
         self.assertEqual(integration.sensitive_config["user_access_token"], "gho_access")
         self.assertEqual(integration.sensitive_config["access_token"], "ghs_install_token")
@@ -253,7 +267,7 @@ class TestUserGitHubIntegration(APIBaseTest):
         integration = UserIntegration.objects.create(
             user=self.user,
             kind="github",
-            integration_id="12345",
+            external_id="12345",
             config=config,
             sensitive_config={
                 "access_token": "ghs_install",
@@ -363,47 +377,73 @@ class TestUserGitHubIntegrationFromInstallation(APIBaseTest):
     def test_creates_integration_with_both_token_sets(self):
         integration = user_github_integration_from_installation(
             self.user,
-            installation_id="12345",
-            installation_info={"account": {"type": "User", "login": "octocat"}},
-            installation_access_token="ghs_install",
-            installation_token_expires_at="2099-01-01T00:00:00Z",
-            repository_selection="selected",
-            gh_id=99,
-            gh_login="octocat",
-            user_access_token="gho_access",
-            user_refresh_token="ghr_refresh",
-            user_access_token_expires_in=28800,
-            user_refresh_token_expires_in=15897600,
+            GitHubInstallationAccess(
+                installation_id="12345",
+                installation_info={"account": {"type": "User", "login": "octocat"}},
+                access_token="ghs_install",
+                token_expires_at="2099-01-01T00:00:00Z",
+                repository_selection="selected",
+            ),
+            _authorization(),
         )
 
         self.assertEqual(integration.user, self.user)
         self.assertEqual(integration.kind, "github")
-        self.assertEqual(integration.integration_id, "12345")
+        self.assertEqual(integration.external_id, "12345")
         self.assertEqual(integration.config["github_user"]["login"], "octocat")
         self.assertEqual(integration.sensitive_config["access_token"], "ghs_install")
         self.assertEqual(integration.sensitive_config["user_access_token"], "gho_access")
         self.assertEqual(integration.sensitive_config["user_refresh_token"], "ghr_refresh")
 
-    def test_updates_existing_integration(self):
+    def test_different_installation_creates_second_integration(self):
         _create_user_integration(self.user)
         integration = user_github_integration_from_installation(
             self.user,
-            installation_id="67890",
-            installation_info={"account": {"type": "Organization", "login": "posthog"}},
-            installation_access_token="ghs_new",
-            installation_token_expires_at="2099-01-01T00:00:00Z",
-            repository_selection="all",
-            gh_id=99,
-            gh_login="octocat",
-            user_access_token="gho_new",
-            user_refresh_token="ghr_new",
-            user_access_token_expires_in=28800,
-            user_refresh_token_expires_in=15897600,
+            GitHubInstallationAccess(
+                installation_id="67890",
+                installation_info={"account": {"type": "Organization", "login": "posthog"}},
+                access_token="ghs_new",
+                token_expires_at="2099-01-01T00:00:00Z",
+                repository_selection="all",
+            ),
+            GitHubUserAuthorization(
+                gh_id=99,
+                gh_login="octocat",
+                access_token="gho_new",
+                refresh_token="ghr_new",
+                access_token_expires_in=28800,
+                refresh_token_expires_in=15897600,
+            ),
+        )
+
+        self.assertEqual(UserIntegration.objects.filter(user=self.user, kind="github").count(), 2)
+        self.assertEqual(integration.external_id, "67890")
+        self.assertEqual(integration.sensitive_config["user_access_token"], "gho_new")
+
+    def test_same_installation_updates_existing_integration(self):
+        _create_user_integration(self.user, external_id="12345")
+        integration = user_github_integration_from_installation(
+            self.user,
+            GitHubInstallationAccess(
+                installation_id="12345",
+                installation_info={"account": {"type": "User", "login": "octocat"}},
+                access_token="ghs_refreshed",
+                token_expires_at="2099-01-01T00:00:00Z",
+                repository_selection="all",
+            ),
+            GitHubUserAuthorization(
+                gh_id=99,
+                gh_login="octocat",
+                access_token="gho_refreshed",
+                refresh_token="ghr_refreshed",
+                access_token_expires_in=28800,
+                refresh_token_expires_in=15897600,
+            ),
         )
 
         self.assertEqual(UserIntegration.objects.filter(user=self.user, kind="github").count(), 1)
-        self.assertEqual(integration.integration_id, "67890")
-        self.assertEqual(integration.sensitive_config["user_access_token"], "gho_new")
+        self.assertEqual(integration.external_id, "12345")
+        self.assertEqual(integration.sensitive_config["user_access_token"], "gho_refreshed")
 
 
 class TestGithubUserFromCode(APIBaseTest):

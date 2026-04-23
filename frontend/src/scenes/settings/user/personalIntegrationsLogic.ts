@@ -1,16 +1,15 @@
-import { actions, events, kea, listeners, path, reducers } from 'kea'
+import { actions, connect, events, kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
-import type { linkedAccountsLogicType } from './linkedAccountsLogicType'
+import type { personalIntegrationsLogicType } from './personalIntegrationsLogicType'
 
-export interface LinkedAccount {
+export interface PersonalGitHubIntegration {
     kind: string
-    connected: boolean
-    account_identifier: string | null
     installation_id: string | null
     repository_selection: string | null
     account: { type: string; name: string } | null
@@ -19,13 +18,8 @@ export interface LinkedAccount {
 }
 
 export interface TeamGitHubIntegration {
-    installation_id: string | null
+    installation_id: string
     account_name: string | null
-}
-
-interface LinkedAccountsResponse {
-    results: LinkedAccount[]
-    team_github_integrations: TeamGitHubIntegration[]
 }
 
 interface GithubStartResponse {
@@ -37,7 +31,7 @@ interface GithubStartResponse {
  * The install flow leaves posthog.com for github.com and comes back, which drops the query
  * string that brought the user here. sessionStorage survives the roundtrip because it's
  * scoped to the tab, not the navigation. */
-const CONNECT_FROM_STORAGE_KEY = 'linked_accounts_connect_from'
+const CONNECT_FROM_STORAGE_KEY = 'personal_integrations_connect_from'
 
 function readConnectFromStorage(): string | null {
     try {
@@ -55,81 +49,78 @@ function writeConnectFromStorage(value: string | null): void {
             sessionStorage.removeItem(CONNECT_FROM_STORAGE_KEY)
         }
     } catch {
-        // No-op: private-browsing or storage-disabled sessions just lose the CTA hint.
+        console.warn('Failed to write connect_from value for account linking redirect, skipping', value)
     }
 }
 
-export const linkedAccountsLogic = kea<linkedAccountsLogicType>([
-    path(['scenes', 'settings', 'user', 'linkedAccountsLogic']),
+export const personalIntegrationsLogic = kea<personalIntegrationsLogicType>([
+    path(['scenes', 'settings', 'user', 'personalIntegrationsLogic']),
+
+    connect(() => ({
+        actions: [integrationsLogic, ['loadIntegrations', 'loadIntegrationsSuccess']],
+    })),
 
     actions({
-        disconnectGitHub: true,
         connectGitHub: true,
-        setTeamGitHubIntegrations: (integrations: TeamGitHubIntegration[]) => ({ integrations }),
+        disconnectGitHub: (installationId: string) => ({ installationId }),
     }),
 
-    reducers({
+    loaders(() => ({
+        githubIntegrations: [
+            [] as PersonalGitHubIntegration[],
+            {
+                loadGitHubIntegrations: async () => {
+                    const response = await api.get<{ results: PersonalGitHubIntegration[] }>(
+                        'api/users/@me/integrations/'
+                    )
+                    return response.results
+                },
+            },
+        ],
         teamGitHubIntegrations: [
             [] as TeamGitHubIntegration[],
             {
-                setTeamGitHubIntegrations: (_, { integrations }) => integrations,
-            },
-        ],
-    }),
-
-    loaders(({ actions }) => ({
-        linkedAccounts: [
-            [] as LinkedAccount[],
-            {
-                loadLinkedAccounts: async () => {
-                    const response = await api.get<LinkedAccountsResponse>('api/users/@me/linked_accounts/')
-                    actions.setTeamGitHubIntegrations(response.team_github_integrations)
-                    return response.results
-                },
-                disconnectGitHub: async () => {
-                    const response: Response = await api.delete('api/users/@me/linked_accounts/github/')
-                    const body = (await response.json()) as LinkedAccountsResponse
-                    actions.setTeamGitHubIntegrations(body.team_github_integrations)
-                    lemonToast.success('Disconnected GitHub')
-                    return body.results
-                },
-            },
-        ],
-        githubRepositories: [
-            [] as string[],
-            {
-                loadGitHubRepositories: async () => {
-                    const response = await api.get<{ repositories: string[] }>(
-                        'api/users/@me/linked_accounts/github/repos/'
+                loadTeamGitHubIntegrations: async () => {
+                    const response = await api.get<{ team_github_integrations: TeamGitHubIntegration[] }>(
+                        'api/users/@me/integrations/'
                     )
-                    return response.repositories
+                    return response.team_github_integrations
                 },
             },
         ],
     })),
 
     listeners(({ actions }) => ({
-        loadLinkedAccountsSuccess: ({ linkedAccounts }) => {
-            if (linkedAccounts.some((a) => a.kind === 'github' && a.connected)) {
-                actions.loadGitHubRepositories()
-            }
+        loadIntegrationsSuccess: () => {
+            // When a project-level integration is added/removed, the backend may
+            // auto-create a user-level integration. Reload to pick it up.
+            actions.loadGitHubIntegrations()
         },
         connectGitHub: async () => {
             try {
-                const response = await api.create<GithubStartResponse>(
-                    'api/users/@me/linked_accounts/github/start/',
-                    {}
-                )
+                const response = await api.create<GithubStartResponse>('api/users/@me/integrations/github/start/', {})
                 window.location.href = response.install_url
-            } catch (error: any) {
-                lemonToast.error(error?.detail || 'Could not start GitHub installation.')
+            } catch (error: unknown) {
+                const message = error instanceof Error && 'detail' in error ? (error as any).detail : undefined
+                lemonToast.error(message || 'Could not start GitHub installation.')
+            }
+        },
+        disconnectGitHub: async ({ installationId }) => {
+            try {
+                await api.delete(`api/users/@me/integrations/github/${installationId}/`)
+                lemonToast.success('Disconnected GitHub installation')
+                actions.loadGitHubIntegrations()
+                actions.loadIntegrations()
+            } catch {
+                lemonToast.error('Could not disconnect GitHub installation.')
             }
         },
     })),
 
     events(({ actions }) => ({
         afterMount: () => {
-            actions.loadLinkedAccounts()
+            actions.loadGitHubIntegrations()
+            actions.loadTeamGitHubIntegrations()
             const params = new URLSearchParams(window.location.search)
 
             // Stash ``connect_from`` so the post-roundtrip success toast can surface a

@@ -143,10 +143,10 @@ import { AllowImpersonation } from './user/AllowImpersonation'
 import { ChangePassword, ChangePasswordTitle } from './user/ChangePassword'
 import { ConnectedApps } from './user/ConnectedApps'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
-import { LinkedAccounts } from './user/LinkedAccounts'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PasskeySettings } from './user/PasskeySettings'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
+import { PersonalIntegrations } from './user/PersonalIntegrations'
 import { SidebarAutoSuggestSetting } from './user/SidebarProductSettings'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
@@ -1754,16 +1754,16 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'user',
-        id: 'user-linked-accounts',
-        title: 'Linked accounts',
+        id: 'user-personal-integrations',
+        title: 'Personal integrations',
         settings: [
             {
-                id: 'linked-accounts',
-                title: 'Linked accounts',
+                id: 'personal-integrations',
+                title: 'Personal integrations',
                 description:
-                    'Your personal GitHub integration for repo access, code attribution, and pull request authorship.',
-                component: <LinkedAccounts />,
-                keywords: ['github', 'integration', 'repos', 'identity', 'link', 'code'],
+                    'Your personal GitHub integrations for repo access, code attribution, and pull request authorship. You can connect multiple GitHub accounts or organizations.',
+                component: <PersonalIntegrations />,
+                keywords: ['github', 'integration', 'repos', 'identity', 'link', 'code', 'personal'],
             },
         ],
     },
