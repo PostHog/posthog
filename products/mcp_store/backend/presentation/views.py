@@ -728,8 +728,8 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
             dcr_is_user_provided = False
 
-        # Cache the (non-secret) discovery metadata and the per-user creds on the
-        # installation itself, keyed by URL rather than a shared MCPServer row.
+        # Cache the (non-secret) discovery metadata and the per-user creds on
+        # the installation itself so refresh + reconnect don't re-run discovery.
         installation.oauth_issuer_url = issuer_url
         installation.oauth_metadata = metadata
 
