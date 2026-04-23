@@ -261,19 +261,78 @@ def _field_mask(paths: list[str]) -> mock.MagicMock:
 
 
 class TestSearchAsArrowTablesResume:
-    def test_fresh_run_saves_next_page_token_after_each_yield(self) -> None:
+    @pytest.mark.parametrize(
+        "can_resume,loaded_state,pages_by_token,response_rows,expected_yielded_tables,expected_saved_tokens,expected_first_call_token",
+        [
+            pytest.param(
+                False,
+                None,
+                {
+                    "": [_FakePage(results=[], next_page_token="TOKEN_2", field_mask=_field_mask([]))],
+                    "TOKEN_2": [_FakePage(results=[], next_page_token="", field_mask=_field_mask([]))],
+                },
+                [[{"id": 1}], [{"id": 2}]],
+                2,
+                ["TOKEN_2"],
+                "",
+                id="fresh_run_saves_next_page_token_after_each_yield",
+            ),
+            pytest.param(
+                True,
+                GoogleAdsResumeConfig(page_token="SAVED_TOKEN"),
+                {
+                    "SAVED_TOKEN": [_FakePage(results=[], next_page_token="", field_mask=_field_mask([]))],
+                },
+                [[{"id": 99}]],
+                1,
+                [],
+                "SAVED_TOKEN",
+                id="resume_path_starts_from_saved_token_and_skips_initial_page",
+            ),
+            pytest.param(
+                False,
+                None,
+                {
+                    "": [_FakePage(results=[], next_page_token="", field_mask=_field_mask([]))],
+                },
+                [[{"id": 1}]],
+                1,
+                [],
+                "",
+                id="final_page_does_not_save_state",
+            ),
+            pytest.param(
+                False,
+                None,
+                {
+                    "": [_FakePage(results=[], next_page_token="", field_mask=_field_mask([]))],
+                },
+                [[]],
+                0,
+                [],
+                "",
+                id="empty_page_does_not_yield_or_save",
+            ),
+        ],
+    )
+    def test_resume_contract(
+        self,
+        can_resume: bool,
+        loaded_state: GoogleAdsResumeConfig | None,
+        pages_by_token: dict[str, list[_FakePage]],
+        response_rows: list[list[dict]],
+        expected_yielded_tables: int,
+        expected_saved_tokens: list[str],
+        expected_first_call_token: str,
+    ) -> None:
         manager = mock.MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        pages_by_token = {
-            "": [_FakePage(results=[], next_page_token="TOKEN_2", field_mask=_field_mask([]))],
-            "TOKEN_2": [_FakePage(results=[], next_page_token="", field_mask=_field_mask([]))],
-        }
+        manager.can_resume.return_value = can_resume
+        manager.load_state.return_value = loaded_state
         service = _make_search_service(pages_by_token)
 
         with mock.patch(
             "posthog.temporal.data_imports.sources.google_ads.google_ads._response_as_dicts",
-            side_effect=[iter([{"id": 1}]), iter([{"id": 2}])],
+            side_effect=[iter(rows) for rows in response_rows],
         ):
             tables = list(
                 _search_as_arrow_tables(
@@ -285,107 +344,40 @@ class TestSearchAsArrowTablesResume:
                 )
             )
 
-        assert len(tables) == 2
-        # Fresh run: first request uses empty page_token
-        first_call_kwargs = service.search.call_args_list[0][1]
-        assert first_call_kwargs["page_token"] == ""
-        # We save state pointing to the token for the *next* page, not the page just yielded
-        manager.save_state.assert_called_once_with(GoogleAdsResumeConfig(page_token="TOKEN_2"))
-
-    def test_resume_path_starts_from_saved_token_and_skips_initial_page(self) -> None:
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = GoogleAdsResumeConfig(page_token="SAVED_TOKEN")
-
-        # Only the saved token is expected to be requested — a resumed run must not
-        # reissue the initial (empty-token) request.
-        pages_by_token = {
-            "SAVED_TOKEN": [_FakePage(results=[], next_page_token="", field_mask=_field_mask([]))],
-        }
-        service = _make_search_service(pages_by_token)
-
-        with mock.patch(
-            "posthog.temporal.data_imports.sources.google_ads.google_ads._response_as_dicts",
-            return_value=iter([{"id": 99}]),
-        ):
-            list(
-                _search_as_arrow_tables(
-                    service=service,
-                    customer_id="1234567890",
-                    query="SELECT id FROM campaign",
-                    table=_make_table(),
-                    resumable_source_manager=manager,
-                )
-            )
-
-        service.search.assert_called_once()
-        assert service.search.call_args[1]["page_token"] == "SAVED_TOKEN"
-        # Final page reached — nothing to save.
-        manager.save_state.assert_not_called()
-
-    def test_final_page_does_not_save_state(self) -> None:
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        pages_by_token = {
-            "": [_FakePage(results=[], next_page_token="", field_mask=_field_mask([]))],
-        }
-        service = _make_search_service(pages_by_token)
-
-        with mock.patch(
-            "posthog.temporal.data_imports.sources.google_ads.google_ads._response_as_dicts",
-            return_value=iter([{"id": 1}]),
-        ):
-            tables = list(
-                _search_as_arrow_tables(
-                    service=service,
-                    customer_id="1234567890",
-                    query="SELECT id FROM campaign",
-                    table=_make_table(),
-                    resumable_source_manager=manager,
-                )
-            )
-
-        assert len(tables) == 1
-        manager.save_state.assert_not_called()
-
-    def test_empty_page_does_not_yield_or_save(self) -> None:
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        pages_by_token = {
-            "": [_FakePage(results=[], next_page_token="", field_mask=_field_mask([]))],
-        }
-        service = _make_search_service(pages_by_token)
-
-        with mock.patch(
-            "posthog.temporal.data_imports.sources.google_ads.google_ads._response_as_dicts",
-            return_value=iter([]),
-        ):
-            tables = list(
-                _search_as_arrow_tables(
-                    service=service,
-                    customer_id="1234567890",
-                    query="SELECT id FROM campaign",
-                    table=_make_table(),
-                    resumable_source_manager=manager,
-                )
-            )
-
-        assert tables == []
-        manager.save_state.assert_not_called()
+        assert len(tables) == expected_yielded_tables
+        assert service.search.call_args_list[0][1]["page_token"] == expected_first_call_token
+        saved_tokens = [call.args[0].page_token for call in manager.save_state.call_args_list]
+        assert saved_tokens == expected_saved_tokens
 
 
 class TestGoogleAdsSourceResumableBinding:
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
+    def test_get_resumable_source_manager_round_trips_resume_config(self) -> None:
         source = GoogleAdsSource()
         fake_inputs = mock.MagicMock()
+        fake_inputs.team_id = 1
+        fake_inputs.job_id = "test-google-ads-job"
         fake_inputs.logger = mock.MagicMock()
 
         manager = source.get_resumable_source_manager(fake_inputs)
 
         assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is GoogleAdsResumeConfig
+
+        store: dict[str, bytes] = {}
+        fake_redis = mock.MagicMock()
+        fake_redis.set.side_effect = lambda key, value, ex=None: store.__setitem__(key, value)
+        fake_redis.get.side_effect = lambda key: store.get(key)
+        fake_redis.exists.side_effect = lambda key: 1 if key in store else 0
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.common.resumable.get_client",
+            return_value=fake_redis,
+        ):
+            original = GoogleAdsResumeConfig(page_token="TEST_TOKEN")
+            manager.save_state(original)
+            loaded = manager.load_state()
+
+        assert isinstance(loaded, GoogleAdsResumeConfig)
+        assert loaded == original
 
 
 class TestGoogleAdsSourceValidation:

@@ -491,7 +491,7 @@ def _search_as_arrow_tables(
 
 
 def _response_as_dicts(
-    response: ga_services.SearchGoogleAdsStreamResponse | ga_services.SearchGoogleAdsResponse,
+    response: ga_services.SearchGoogleAdsResponse,
     table: Table[GoogleAdsColumn],
 ) -> collections.abc.Iterable[dict[str, typing.Any]]:
     """Convert a Google Ads search response page into row dicts.
