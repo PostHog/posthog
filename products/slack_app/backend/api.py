@@ -475,6 +475,7 @@ def _post_repo_picker_message(
     guidance: str,
     action_id: str,
     workflow_id: str | None = None,
+    allow_no_repo: bool = False,
 ) -> None:
     context_data = {
         "integration_id": integration.id,
@@ -489,23 +490,42 @@ def _post_repo_picker_message(
     context_token = uuid.uuid4().hex
     cache.set(_picker_context_cache_key(context_token), context_data, timeout=PICKER_TOKEN_MAX_AGE_SECONDS)
 
+    blocks: list[dict[str, Any]] = [
+        {
+            "type": "section",
+            "block_id": f"posthog_code_repo_picker_v2:{integration.id}:{slack_user_id}:{context_token}",
+            "text": {"type": "mrkdwn", "text": guidance},
+            "accessory": {
+                "type": "external_select",
+                "action_id": action_id,
+                "placeholder": {"type": "plain_text", "text": "Search GitHub repositories..."},
+                "min_query_length": 0,
+            },
+        }
+    ]
+
+    if allow_no_repo:
+        blocks.append(
+            {
+                "type": "actions",
+                "block_id": f"posthog_code_repo_picker_v2:{integration.id}:{slack_user_id}:{context_token}:actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "action_id": "posthog_code_repo_none",
+                        "text": {"type": "plain_text", "text": "No repo needed"},
+                        "style": "primary",
+                        "value": "no_repo_needed",
+                    }
+                ],
+            }
+        )
+
     response = slack.client.chat_postMessage(
         channel=channel,
         thread_ts=thread_ts,
         text=guidance,
-        blocks=[
-            {
-                "type": "section",
-                "block_id": f"posthog_code_repo_picker_v2:{integration.id}:{slack_user_id}:{context_token}",
-                "text": {"type": "mrkdwn", "text": guidance},
-                "accessory": {
-                    "type": "external_select",
-                    "action_id": action_id,
-                    "placeholder": {"type": "plain_text", "text": "Search GitHub repositories..."},
-                    "min_query_length": 0,
-                },
-            },
-        ],
+        blocks=blocks,
         metadata={
             "event_type": "posthog_code_repo_picker",
             "event_payload": {"context_token": context_token, "workflow_id": workflow_id},
@@ -705,6 +725,40 @@ def _replace_repo_picker_message_with_selection(
         )
 
 
+def _replace_repo_picker_message_with_no_repo(
+    *,
+    integration_id: int,
+    slack_team_id: str,
+    channel: str,
+    message_ts: str,
+) -> None:
+    try:
+        # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
+        integration = Integration.objects.get(
+            id=integration_id, kind="slack-posthog-code", integration_id=slack_team_id
+        )
+        slack = SlackIntegration(integration)
+        text = "Continuing without a repository."
+        slack.client.chat_update(
+            channel=channel,
+            ts=message_ts,
+            text=text,
+            blocks=[
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": "*Continuing without a repository.*"},
+                }
+            ],
+        )
+    except Exception:
+        logger.warning(
+            "posthog_code_repo_none_picker_update_failed",
+            integration_id=integration_id,
+            channel=channel,
+            message_ts=message_ts,
+        )
+
+
 def _resolve_pending_repo_picker_from_followup(event: dict[str, Any], integration: Integration) -> bool:
     channel = event.get("channel")
     thread_ts = event.get("thread_ts") or event.get("ts")
@@ -874,11 +928,61 @@ def classify_task_needs_repo(
     Defaults to True on error (conservative — falls back to picker).
     """
     conversation = "\n".join(f"{msg['user']}: {msg['text']}" for msg in thread_messages)
+    normalized = f"{conversation}\nLatest message: {event_text}".lower()
+
+    product_debug_terms = (
+        "automation",
+        "destination",
+        "slack destination",
+        "posthog ai feedback",
+        "feature flag",
+        "experiment",
+        "survey",
+        "dashboard",
+        "insight",
+        "session replay",
+        "recording",
+        "trace",
+        "mcp",
+        "webhook",
+    )
+    explicit_code_patterns = (
+        r"\brepository\b",
+        r"\brepo\b",
+        r"\bpull request\b",
+        r"\bopen a pr\b",
+        r"\bcreate a pr\b",
+        r"\bcommit\b",
+        r"\bbranch\b",
+        r"\bmodify code\b",
+        r"\bchange code\b",
+        r"\bwrite code\b",
+        r"\bimplement\b",
+        r"\.py\b",
+        r"\.ts\b",
+        r"\.tsx\b",
+        r"\.js\b",
+        r"\bserializer\b",
+        r"\bviewset\b",
+        r"\bmigration\b",
+    )
+
+    if any(term in normalized for term in product_debug_terms) and not any(
+        re.search(pattern, normalized) for pattern in explicit_code_patterns
+    ):
+        logger.info("classify_task_needs_repo_heuristic_non_repo", event_text=event_text)
+        return False
+
     prompt = (
         "You are a task classifier. Given a Slack conversation, determine whether the task "
         "requires access to a code repository (e.g. writing code, fixing bugs, creating PRs, "
         "reviewing code, modifying files) or NOT (e.g. answering questions about analytics, "
-        "querying data, PostHog configuration, general knowledge questions, planning).\n\n"
+        "querying data, PostHog configuration, general knowledge questions, planning, or "
+        "investigating product behavior in a PostHog workspace using MCP/tools).\n\n"
+        "Return needs_repo=false for tasks that are primarily about debugging or investigating "
+        "automations, destinations, feature flags, experiments, surveys, dashboards, insights, "
+        "recordings, traces, or Slack integrations inside PostHog, unless the user explicitly "
+        "asks to change code, open a PR, edit files, or work in a specific repository.\n\n"
         f"Conversation:\n{conversation}\n\n"
         f"Latest message: {event_text}\n\n"
         'Respond with ONLY a JSON object: {{"needs_repo": true}} or {{"needs_repo": false}}'
@@ -1109,8 +1213,8 @@ def _extract_context_token(payload: dict) -> str:
         if not raw_block_id:
             return ""
         if raw_block_id.startswith("posthog_code_repo_picker_v2:"):
-            parts = raw_block_id.split(":", 3)
-            return parts[3] if len(parts) == 4 else ""
+            parts = raw_block_id.split(":")
+            return parts[3] if len(parts) >= 4 else ""
         if ":" in raw_block_id:
             return raw_block_id.split(":", 1)[1]
         return ""
@@ -1143,8 +1247,8 @@ def _extract_picker_hints(payload: dict) -> tuple[int | None, str | None]:
     if not block_id.startswith("posthog_code_repo_picker_v2:"):
         return None, None
 
-    parts = block_id.split(":", 3)
-    if len(parts) != 4:
+    parts = block_id.split(":")
+    if len(parts) < 4:
         return None, None
 
     try:
@@ -1382,6 +1486,46 @@ def _replace_repo_picker_with_selection(payload: dict, context: dict | None, sel
     )
 
 
+def _handle_no_repo_needed_submit(payload: dict) -> HttpResponse:
+    context_token = _extract_context_token(payload)
+    context = _decode_picker_context(context_token) if context_token else None
+    pending_picker_user_id = context.get("mentioning_slack_user_id") if context else None
+    workflow_id = None
+    if context and isinstance(context.get("workflow_id"), str):
+        workflow_id = context.get("workflow_id")
+    if not workflow_id:
+        workflow_id = payload.get("message", {}).get("metadata", {}).get("event_payload", {}).get("workflow_id")
+
+    if not workflow_id or not context:
+        logger.info("posthog_code_repo_none_missing_workflow_id")
+        return HttpResponse(status=200)
+
+    try:
+        client = sync_connect()
+        handle = client.get_workflow_handle(workflow_id)
+        asyncio.run(handle.signal(PostHogCodeSlackMentionWorkflow.no_repo_needed))
+        if pending_picker_user_id:
+            _clear_pending_repo_picker(
+                integration_id=context["integration_id"],
+                channel=context["channel"],
+                thread_ts=context["thread_ts"],
+                slack_user_id=pending_picker_user_id,
+            )
+        message_ts = payload.get("message", {}).get("ts")
+        slack_team_id = payload.get("team", {}).get("id")
+        if message_ts and slack_team_id:
+            _replace_repo_picker_message_with_no_repo(
+                integration_id=context["integration_id"],
+                slack_team_id=slack_team_id,
+                channel=context["channel"],
+                message_ts=message_ts,
+            )
+        return HttpResponse(status=200)
+    except Exception as e:
+        logger.warning("posthog_code_repo_none_signal_failed", workflow_id=workflow_id, error=str(e))
+        return HttpResponse(status=200)
+
+
 def _handle_terminate_task_submit(payload: dict) -> HttpResponse:
     """Start Temporal workflow for task termination and return 200 immediately."""
     action = next((a for a in payload.get("actions", []) if a.get("action_id") == "posthog_code_terminate_task"), None)
@@ -1505,6 +1649,8 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         for action in actions:
             if action.get("action_id") == "posthog_code_repo_select":
                 return _handle_repo_picker_submit(payload)
+            if action.get("action_id") == "posthog_code_repo_none":
+                return _handle_no_repo_needed_submit(payload)
             if action.get("action_id") == "posthog_code_terminate_task":
                 return _handle_terminate_task_submit(payload)
 

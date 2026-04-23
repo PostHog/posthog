@@ -26,6 +26,7 @@ _RESUME_ERROR_MSG = "Sorry, I ran into an internal error restarting the agent. P
 POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES = 15
 POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE = (
     "Please select the repository for this task. "
+    "Or click *No repo needed* to continue without one. "
     "Or @mention me again and include the exact repository as `org/repo`. "
     'You can also add routing rules with `@PostHog rules add "description" [org/repo]`.'
 )
@@ -57,11 +58,19 @@ class PostHogCodeRulesCommandResult:
 class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
     def __init__(self) -> None:
         self._selected_repo: str | None = None
+        self._repo_selection_resolved = False
 
     @workflow.signal
     async def repo_selected(self, repository: str) -> None:
-        if not self._selected_repo:
+        if not self._repo_selection_resolved:
+            self._repo_selection_resolved = True
             self._selected_repo = repository
+
+    @workflow.signal
+    async def no_repo_needed(self) -> None:
+        if not self._repo_selection_resolved:
+            self._repo_selection_resolved = True
+            self._selected_repo = None
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> PostHogCodeSlackMentionWorkflowInputs:
@@ -117,10 +126,11 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                     event,
                     workflow.info().workflow_id,
                     POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE,
+                    False,
                 )
                 try:
                     await workflow.wait_condition(
-                        lambda: self._selected_repo is not None,
+                        lambda: self._repo_selection_resolved,
                         timeout=timedelta(minutes=POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES),
                     )
                 except TimeoutError:
@@ -207,19 +217,17 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                     event,
                     workflow.info().workflow_id,
                     POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE,
+                    True,
                 )
                 try:
                     await workflow.wait_condition(
-                        lambda: self._selected_repo is not None,
+                        lambda: self._repo_selection_resolved,
                         timeout=timedelta(minutes=POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES),
                     )
                 except TimeoutError:
                     await _execute_posthog_code_activity(
                         post_posthog_code_picker_timeout_activity, inputs, channel, thread_ts
                     )
-                    return
-
-                if not self._selected_repo:
                     return
 
                 await _execute_posthog_code_activity(
@@ -666,6 +674,7 @@ def post_posthog_code_repo_picker_activity(
     event: dict[str, Any],
     workflow_id: str,
     guidance: str,
+    allow_no_repo: bool,
 ) -> None:
     from posthog.models.integration import Integration, SlackIntegration
 
@@ -689,6 +698,7 @@ def post_posthog_code_repo_picker_activity(
         guidance=guidance,
         action_id="posthog_code_repo_select",
         workflow_id=workflow_id,
+        allow_no_repo=allow_no_repo,
     )
 
 

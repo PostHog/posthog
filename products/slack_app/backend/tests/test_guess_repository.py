@@ -22,6 +22,7 @@ from products.slack_app.backend.api import (
     _match_repo_rule,
     _parse_rules_command,
     _repo_list_cache_key,
+    classify_task_needs_repo,
     select_repository,
 )
 
@@ -971,3 +972,33 @@ class TestRepoRoutingRuleModel:
         team_a_rules = list(RepoRoutingRule.objects.filter(team=self.team_a))
         assert len(team_a_rules) == 1
         assert team_a_rules[0].rule_text == "Team A rule"
+
+
+class TestClassifyTaskNeedsRepo:
+    @parameterized.expand(
+        [
+            (
+                "product_debug_automation",
+                "debug why the automation that sends PostHog AI Feedback always gives a thumbs down",
+                False,
+            ),
+            (
+                "product_debug_destination",
+                "investigate the slack destination configuration for this automation",
+                False,
+            ),
+            (
+                "product_debug_report_not_repo",
+                "debug why this dashboard report always shows a thumbs down",
+                False,
+            ),
+            (
+                "explicit_repo_request",
+                "open a PR in posthog/posthog to fix this serializer",
+                True,
+            ),
+        ]
+    )
+    def test_heuristic_classification(self, _name, text, expected):
+        result = classify_task_needs_repo(text, [{"user": "Alessandro", "text": text}])
+        assert result is expected
