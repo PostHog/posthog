@@ -850,7 +850,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             )
 
         has_data_warehouse_series = (
-            self.start_event.kind == EntityType.DATA_WAREHOUSE or self.return_event.kind == EntityType.DATA_WAREHOUSE
+            self.start_event.type == EntityType.DATA_WAREHOUSE or self.return_event.type == EntityType.DATA_WAREHOUSE
         )
         if not has_data_warehouse_series:
             minimum_occurrences_aliases = self._get_minimum_occurrences_aliases(
@@ -961,7 +961,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 ),
             )
         else:
-            start_entity_is_dwh = self.start_event.kind == EntityType.DATA_WAREHOUSE
+            start_entity_is_dwh = self.start_event.type == EntityType.DATA_WAREHOUSE
 
             start_actor_column_name = self.start_event.distinct_id_field if start_entity_is_dwh else self.target_field
             start_actor_field = ast.Field(chain=[start_actor_column_name])
@@ -1005,7 +1005,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 group_by=[ast.Field(chain=["actor_id"])],
             )
 
-            return_entity_is_dwh = self.return_event.kind == EntityType.DATA_WAREHOUSE
+            return_entity_is_dwh = self.return_event.type == EntityType.DATA_WAREHOUSE
 
             return_actor_column_name = (
                 self.return_event.distinct_id_field if return_entity_is_dwh else self.target_field
