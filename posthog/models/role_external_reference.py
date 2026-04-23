@@ -1,14 +1,9 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from django.db import models
 from django.db.models.functions import Lower
 
 from posthog.models.utils import UUIDModel
-
-if TYPE_CHECKING:
-    pass
 
 
 class RoleExternalReference(UUIDModel):
