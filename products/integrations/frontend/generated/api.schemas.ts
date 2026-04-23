@@ -147,9 +147,9 @@ export interface PatchedOrganizationIntegrationApi {
  * `customerio-webhook` - Customerio Webhook
  * `customerio-track` - Customerio Track
  */
-export type KindEc9EnumApi = (typeof KindEc9EnumApi)[keyof typeof KindEc9EnumApi]
+export type KindE4eEnumApi = (typeof KindE4eEnumApi)[keyof typeof KindE4eEnumApi]
 
-export const KindEc9EnumApi = {
+export const KindE4eEnumApi = {
     Slack: 'slack',
     SlackPosthogCode: 'slack-posthog-code',
     Salesforce: 'salesforce',
@@ -189,7 +189,7 @@ export const KindEc9EnumApi = {
  */
 export interface IntegrationApi {
     readonly id: number
-    kind: KindEc9EnumApi
+    kind: KindE4eEnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -211,7 +211,7 @@ export interface PaginatedIntegrationListApi {
  */
 export interface PatchedIntegrationApi {
     readonly id?: number
-    kind?: KindEc9EnumApi
+    kind?: KindE4eEnumApi
     config?: unknown
     readonly created_at?: string
     readonly created_by?: UserBasicApi

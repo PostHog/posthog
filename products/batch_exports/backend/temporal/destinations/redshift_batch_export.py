@@ -718,7 +718,7 @@ def _get_table_schemas(
         use_super = False
 
     if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
-        table_schema: Fields = [
+        table_schema: Fields = [  # ty: ignore[invalid-assignment]
             ("uuid", "VARCHAR(200)"),
             ("event", "VARCHAR(200)"),
             ("properties", properties_type),

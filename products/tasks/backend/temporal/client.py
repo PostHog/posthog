@@ -251,7 +251,6 @@ def execute_video_segment_clustering_workflow(team_id: int, skip_priming: bool =
     """
     from datetime import datetime
 
-    from posthog.temporal.ai.video_segment_clustering import constants
     from posthog.temporal.ai.video_segment_clustering.models import ClusteringWorkflowInputs
 
     try:
@@ -259,7 +258,6 @@ def execute_video_segment_clustering_workflow(team_id: int, skip_priming: bool =
 
         workflow_input = ClusteringWorkflowInputs(
             team_id=team_id,
-            min_segments=constants.MIN_SEGMENTS_FOR_CLUSTERING,
             skip_priming=skip_priming,
         )
 

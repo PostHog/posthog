@@ -182,6 +182,7 @@ pub enum MockRedisValue {
     StringWithFormat(String, RedisValueFormat),
     StringWithTTLAndFormat(String, u64, RedisValueFormat),
     Bytes(Vec<u8>, Option<u64>),
+    MemberScore(String, i64),
 }
 
 #[derive(Debug, Clone)]
@@ -211,6 +212,16 @@ impl Client for MockRedisClient {
             Some(val) => Ok(val.clone()),
             None => Err(CustomRedisError::NotFound),
         }
+    }
+
+    async fn zadd(&self, key: String, member: String, score: i64) -> Result<(), CustomRedisError> {
+        let mut calls = self.lock_calls();
+        calls.push(MockRedisCall {
+            op: "zadd".to_string(),
+            key,
+            value: MockRedisValue::MemberScore(member, score),
+        });
+        Ok(())
     }
 
     async fn hincrby(

@@ -143,9 +143,22 @@ tools:
       include: [id, key, name] # keep only these fields (dot-path wildcards supported)
       exclude: [filters.groups.*.properties] # remove these fields
       # include and exclude are mutually exclusive
+    feature_flag: my-flag-key # gate this tool behind a PostHog feature flag
+    feature_flag_behavior: enable # 'enable' (default) or 'disable'
 ```
 
 Unknown keys are rejected at build time (Zod `.strict()`).
+
+### Gating tools with feature flags
+
+Add `feature_flag` to any tool (standard or query wrapper) to gate its exposure on a PostHog feature flag evaluated at MCP init time for the current user.
+
+- `feature_flag_behavior: enable` (default) — tool is shown **only when the flag is on**. Use for rolling out new tools.
+- `feature_flag_behavior: disable` — tool is hidden **when the flag is on**. Use for sunsetting old tools.
+
+Reusing the same flag key with both behaviors performs an atomic swap: flag on → new tool visible, old tool hidden; flag off → old tool visible, new tool hidden. Useful for A/B testing tool variations.
+
+Flags are evaluated in parallel at init via `evaluateFeatureFlags`. If a flag can't be evaluated (service error, missing flag), `enable`-gated tools are excluded and `disable`-gated tools are included — fail-closed for new tools, fail-open for existing ones.
 
 ### Syncing after endpoint changes
 

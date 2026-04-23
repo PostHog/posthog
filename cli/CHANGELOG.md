@@ -1,5 +1,9 @@
 # posthog-cli
 
+# 0.7.9
+
+- feat: warn and skip empty sourcemaps (no mappings/sources/names) during upload to surface bundler misconfigurations instead of silently uploading useless symbol sets
+
 # 0.7.8
 
 - feat: add `--build` flag to all upload commands (hermes, dsym, proguard, sourcemap) via shared ReleaseArgs

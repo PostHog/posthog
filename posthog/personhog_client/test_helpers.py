@@ -97,10 +97,14 @@ class PersonhogTestMixin:
             )
         return person
 
-    def _assert_personhog_called(self, method: str, *, times: int | None = None) -> None:
-        """Assert a personhog method was called.  No-op on the ORM path."""
+    def _assert_personhog_called(self, method: str, *, times: int | None = None) -> list[Any]:
+        """Assert a personhog method was called.  No-op on the ORM path.
+
+        Returns the matched calls so tests can inspect request arguments.
+        """
         if self._fake_client is not None:
-            self._fake_client.assert_called(method, times=times)
+            return self._fake_client.assert_called(method, times=times)
+        return []
 
     def _assert_personhog_not_called(self, method: str) -> None:
         """Assert a personhog method was NOT called.  No-op on the ORM path."""

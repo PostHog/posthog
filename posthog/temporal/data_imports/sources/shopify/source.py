@@ -8,14 +8,16 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import ShopifySourceConfig
 from posthog.temporal.data_imports.sources.shopify.constants import SHOPIFY_GRAPHQL_OBJECTS
 from posthog.temporal.data_imports.sources.shopify.settings import ENDPOINT_CONFIGS
 from posthog.temporal.data_imports.sources.shopify.shopify import (
     ShopifyPermissionError,
+    ShopifyResumeConfig,
     shopify_source,
     validate_credentials as validate_shopify_credentials,
 )
@@ -24,7 +26,7 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class ShopifySource(SimpleSource[ShopifySourceConfig]):
+class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SHOPIFY
@@ -101,7 +103,15 @@ class ShopifySource(SimpleSource[ShopifySourceConfig]):
             schemas = [s for s in schemas if s.name in names_set]
         return schemas
 
-    def source_for_pipeline(self, config: ShopifySourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ShopifyResumeConfig]:
+        return ResumableSourceManager[ShopifyResumeConfig](inputs, ShopifyResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: ShopifySourceConfig,
+        resumable_source_manager: ResumableSourceManager[ShopifyResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         return shopify_source(
             shopify_store_id=config.shopify_store_id,
             shopify_client_id=config.shopify_client_id,
@@ -111,4 +121,5 @@ class ShopifySource(SimpleSource[ShopifySourceConfig]):
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
             db_incremental_field_earliest_value=inputs.db_incremental_field_earliest_value,
             logger=inputs.logger,
+            resumable_source_manager=resumable_source_manager,
         )

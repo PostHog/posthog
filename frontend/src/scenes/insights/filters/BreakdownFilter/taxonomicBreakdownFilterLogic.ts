@@ -45,7 +45,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
     connect((props: TaxonomicBreakdownFilterLogicProps) => ({
         values: [
             insightVizDataLogic(props.insightProps),
-            ['currentDataWarehouseSchemaColumns', 'hasDataWarehouseSeries'],
+            ['currentDataWarehouseSchemaColumns', 'hasDataWarehouseSeries', 'isSingleSeriesDefinition'],
             propertyDefinitionsModel,
             ['getPropertyDefinition'],
             featureFlagLogic,
@@ -152,12 +152,21 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
         breakdownFilter: [(_, p) => [p.breakdownFilter], (breakdownFilter) => breakdownFilter],
         includeSessions: [(_, p) => [p.isTrends], (isTrends) => isTrends],
         addBreakdownDisabledReason: [
-            (s, p) => [s.breakdownFilter, s.isMultipleBreakdownsEnabled, s.hasDataWarehouseSeries, p.isFunnels],
+            (s, p) => [
+                s.breakdownFilter,
+                s.isMultipleBreakdownsEnabled,
+                s.hasDataWarehouseSeries,
+                p.isFunnels,
+                p.isTrends,
+                s.isSingleSeriesDefinition,
+            ],
             (
                 { breakdown, breakdowns, breakdown_type },
                 isMultipleBreakdownsEnabled,
                 hasDataWarehouseSeries,
-                isFunnels
+                isFunnels,
+                isTrends,
+                isSingleSeriesDefinition
             ): string | null => {
                 // Multiple breakdowns don't yet support the data warehouse, so it fallbacks to a single breakdown.
                 if (
@@ -176,6 +185,10 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                     isFunnels && breakdown_type === 'cohort' && Array.isArray(breakdown) && breakdown.length >= 1
                 if (hasFunnelCohortBreakdown) {
                     return 'Funnels support a single cohort breakdown. Remove the existing one to change it.'
+                }
+
+                if (isTrends && !isSingleSeriesDefinition && hasDataWarehouseSeries) {
+                    return 'Breakdowns are not supported for multiple series types when at least one of them is a data warehouse series.'
                 }
 
                 if (!Array.isArray(breakdown) && breakdown != null) {

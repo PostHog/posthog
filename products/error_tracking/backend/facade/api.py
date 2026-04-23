@@ -7,10 +7,15 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+import posthoganalytics
+
+from posthog.event_usage import groups
+
 from .. import logic, weekly_digest
 from . import types as contracts
 
 IssueNotFoundError = logic.ErrorTrackingIssueNotFoundError
+ExternalReferenceValidationError = logic.ErrorTrackingExternalReferenceValidationError
 
 
 def _to_issue_assignee(assignment) -> contracts.ErrorTrackingIssueAssignee | None:
@@ -33,6 +38,15 @@ def _to_external_reference(reference) -> contracts.ErrorTrackingExternalReferenc
             display_name=integration.display_name,
         ),
         external_url=logic.build_external_issue_url(reference),
+    )
+
+
+def _to_fingerprint(fingerprint) -> contracts.ErrorTrackingFingerprint:
+    return contracts.ErrorTrackingFingerprint(
+        id=fingerprint.id,
+        fingerprint=fingerprint.fingerprint,
+        issue_id=fingerprint.issue_id,
+        created_at=fingerprint.created_at,
     )
 
 
@@ -106,6 +120,60 @@ def issue_exists(team_id: int) -> bool:
 
 def get_issue_id_for_fingerprint(team_id: int, fingerprint: str) -> UUID | None:
     return logic.get_issue_id_for_fingerprint(team_id=team_id, fingerprint=fingerprint)
+
+
+def list_fingerprints(team_id: int, issue_id: UUID | None = None) -> list[contracts.ErrorTrackingFingerprint]:
+    fingerprints = logic.list_fingerprints(team_id=team_id, issue_id=issue_id)
+    return [_to_fingerprint(fingerprint) for fingerprint in fingerprints]
+
+
+def get_fingerprint(team_id: int, fingerprint_id: UUID) -> contracts.ErrorTrackingFingerprint | None:
+    fingerprint = logic.get_fingerprint(team_id=team_id, fingerprint_id=fingerprint_id)
+    if fingerprint is None:
+        return None
+    return _to_fingerprint(fingerprint)
+
+
+def list_external_references(team_id: int) -> list[contracts.ErrorTrackingExternalReference]:
+    references = logic.list_external_references(team_id=team_id)
+    return [_to_external_reference(reference) for reference in references]
+
+
+def get_external_reference(reference_id: UUID, team_id: int) -> contracts.ErrorTrackingExternalReference | None:
+    reference = logic.get_external_reference(reference_id=reference_id, team_id=team_id)
+    if reference is None:
+        return None
+    return _to_external_reference(reference)
+
+
+def create_external_reference(
+    *,
+    team_id: int,
+    issue_id: UUID,
+    integration_id: int,
+    config: dict[str, Any],
+) -> contracts.ErrorTrackingExternalReference:
+    reference = logic.create_external_reference(
+        team_id=team_id,
+        issue_id=issue_id,
+        integration_id=integration_id,
+        config=config,
+    )
+
+    posthoganalytics.capture(
+        "error_tracking_external_issue_created",
+        groups=groups(reference.issue.team.organization, reference.issue.team),
+        properties={
+            "issue_id": reference.issue_id,
+            "integration_kind": reference.integration.kind,
+        },
+    )
+
+    return _to_external_reference(reference)
+
+
+def is_supported_external_issue_provider(kind: str) -> bool:
+    return logic.is_supported_external_issue_provider(kind=kind)
 
 
 def get_issue_values(team_id: int, key: str | None, value: str | None) -> list[str]:

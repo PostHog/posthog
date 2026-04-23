@@ -5,9 +5,12 @@ ORM queries, validation, calculations, business rules.
 Called by api/api.py facade. Do not call from outside this module.
 """
 
+from __future__ import annotations
+
+from datetime import datetime
+from typing import TYPE_CHECKING
 from uuid import UUID
 
-from django.conf import settings
 from django.db import (
     models as db_models,
     transaction,
@@ -17,26 +20,17 @@ from django.utils import timezone
 
 import structlog
 
-from .facade.enums import (
-    ClassificationReason,
-    ReviewDecision,
-    ReviewState,
-    RunPurpose,
-    RunStatus,
-    SnapshotResult,
-    ToleratedReason,
-)
-from .models import Artifact, Repo, Run, RunSnapshot, ToleratedHash
+if TYPE_CHECKING:
+    from posthog.models.integration import GitHubIntegration
+
+from .classifier import SnapshotClassifier
+from .db import WRITER_DB
+from .facade.enums import ReviewDecision, ReviewState, RunPurpose, RunStatus, SnapshotResult, ToleratedReason
+from .models import Artifact, QuarantinedIdentifier, Repo, Run, RunSnapshot, ToleratedHash
 from .signing import sign_snapshot_hash, verify_signed_hash
 from .storage import ArtifactStorage
 
 logger = structlog.get_logger(__name__)
-
-# Derive the writer alias from the app label — must match db_routing.yaml.
-# Falls back to "default" when the product database isn't configured.
-_APP_LABEL = "visual_review"
-_WRITER_ALIAS = f"{_APP_LABEL}_db_writer"
-WRITER_DB = _WRITER_ALIAS if _WRITER_ALIAS in settings.DATABASES else "default"
 
 
 class RepoNotFoundError(Exception):
@@ -231,7 +225,7 @@ REVIEW_STATE_FILTERS: dict[str, Q] = {
     & _ON_PR
     & Q(purpose=RunPurpose.REVIEW),
     "clean": (Q(status=RunStatus.COMPLETED) & ~_HAS_CHANGES) | Q(approved=True),
-    "processing": Q(status__in=[RunStatus.PENDING, RunStatus.PROCESSING]) & _CURRENT,
+    "processing": Q(status=RunStatus.PROCESSING) & _CURRENT,
     "stale": Q(superseded_by__isnull=False) & Q(approved=False) & _HAS_CHANGES,
 }
 
@@ -256,6 +250,17 @@ def get_review_state_counts(team_id: int) -> dict[str, int]:
 def get_run(run_id: UUID, team_id: int | None = None) -> Run:
     try:
         qs = Run.objects.select_related("repo")
+        if team_id is not None:
+            qs = qs.filter(team_id=team_id)
+        return qs.get(id=run_id)
+    except Run.DoesNotExist as e:
+        raise RunNotFoundError(f"Run {run_id} not found") from e
+
+
+def _get_run_for_update(run_id: UUID, team_id: int | None = None) -> Run:
+    """Get a run with a row-level lock on the writer DB. Must be called inside a transaction."""
+    try:
+        qs = Run.objects.using(WRITER_DB).select_for_update().select_related("repo")
         if team_id is not None:
             qs = qs.filter(team_id=team_id)
         return qs.get(id=run_id)
@@ -312,31 +317,16 @@ def _verify_baseline_hashes(repo: Repo, raw_hashes: dict[str, str]) -> dict[str,
     return verified
 
 
-def _resolve_baselines(repo, run_type: str, branch: str) -> dict[str, str]:
-    """Fetch baseline content hashes from GitHub for snapshot comparison.
+def _resolve_baselines_at_ref(repo: Repo, github: GitHubIntegration, run_type: str, ref: str) -> dict[str, str]:
+    """Fetch baseline content hashes from GitHub at a specific ref (branch name or SHA).
 
     Returns a dict of identifier → content_hash (plain, not signed).
-    The baseline YAML in the repo is the source of truth.
-    Returns empty dict when baseline file doesn't exist (first run).
-    Raises on network/auth errors — silent failure would misclassify all
-    snapshots as NEW and risk baseline data loss on auto-approve.
-
-
+    Returns empty dict when baseline file doesn't exist.
     """
-    try:
-        github = get_github_integration_for_repo(repo)
-        if github.access_token_expired():
-            github.refresh_access_token()
-    except Exception:
-        # No GitHub integration configured — treat as no baseline (first run / local dev)
-        logger.info("visual_review.no_github_integration", repo_id=str(repo.id))
-        return {}
-
     baseline_paths = repo.baseline_file_paths or {}
     baseline_path = baseline_paths.get(run_type) or baseline_paths.get("default", ".snapshots.yml")
 
-    # _fetch_baseline_file returns ({}, None) on 404 — no exception for missing files
-    baselines_signed, _sha = _fetch_baseline_file(github, repo.repo_full_name, baseline_path, branch)
+    baselines_signed, _sha = _fetch_baseline_file(github, repo.repo_full_name, baseline_path, ref)
 
     return _verify_baseline_hashes(
         repo,
@@ -346,6 +336,153 @@ def _resolve_baselines(repo, run_type: str, branch: str) -> dict[str, str]:
             if isinstance(entry, dict) and "hash" in entry
         },
     )
+
+
+def _get_merge_base_sha(github: GitHubIntegration, repo_full_name: str, base: str, head: str) -> str | None:
+    """Get the merge-base SHA between two refs via the GitHub Compare API."""
+    from urllib.parse import quote
+
+    import requests
+
+    access_token = github.integration.sensitive_config["access_token"]
+    try:
+        response = requests.get(
+            f"https://api.github.com/repos/{repo_full_name}/compare/{quote(base, safe='')}...{quote(head, safe='')}",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            timeout=10,
+        )
+    except requests.RequestException:
+        logger.warning("visual_review.merge_base_fetch_failed", repo=repo_full_name, base=base, head=head)
+        return None
+
+    if response.status_code != 200:
+        logger.warning(
+            "visual_review.merge_base_fetch_failed",
+            repo=repo_full_name,
+            base=base,
+            head=head,
+            status=response.status_code,
+        )
+        return None
+
+    sha = response.json().get("merge_base_commit", {}).get("sha")
+    if sha is None:
+        logger.warning(
+            "visual_review.merge_base_sha_missing_from_response",
+            repo=repo_full_name,
+            base=base,
+            head=head,
+        )
+    return sha
+
+
+def _get_default_branch(github: GitHubIntegration, repo_full_name: str) -> str:
+    """Get the repo's default branch name via the GitHub API. Falls back to 'master'."""
+    import requests
+
+    access_token = github.integration.sensitive_config["access_token"]
+    try:
+        response = requests.get(
+            f"https://api.github.com/repos/{repo_full_name}",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            timeout=10,
+        )
+    except requests.RequestException:
+        logger.warning("visual_review.default_branch_fetch_failed", repo=repo_full_name)
+        return "master"
+
+    if response.status_code == 200:
+        return response.json().get("default_branch", "master")
+    logger.warning(
+        "visual_review.default_branch_fetch_failed",
+        repo=repo_full_name,
+        status=response.status_code,
+    )
+    return "master"
+
+
+def _resolve_baselines(repo, run_type: str, branch: str) -> dict[str, str]:
+    """Fetch baseline content hashes from GitHub for snapshot comparison.
+
+    Returns a dict of identifier → content_hash (plain, not signed).
+    Returns empty dict when no GitHub integration exists or the baseline
+    file is missing (first run).
+    """
+    try:
+        github = get_github_integration_for_repo(repo)
+        if github.access_token_expired():
+            github.refresh_access_token()
+    except Exception:
+        logger.info("visual_review.no_github_integration", repo_id=str(repo.id))
+        return {}
+
+    return _resolve_baselines_at_ref(repo, github, run_type, branch)
+
+
+def _resolve_baselines_with_merge_base(repo: Repo, run_type: str, branch: str) -> tuple[dict[str, str], int]:
+    """Fetch branch baseline merged with merge-base baseline.
+
+    The branch baseline tracks approvals. The merge-base baseline
+    fills in entries that were lost during a rebase (the bot commit
+    rewrites the full file, and git rebase replays it destructively).
+
+    Branch entries win on conflict so approvals are preserved.
+    Returns (merged_baseline, healed_count).
+    """
+    try:
+        github = get_github_integration_for_repo(repo)
+        if github.access_token_expired():
+            github.refresh_access_token()
+    except Exception:
+        logger.info("visual_review.no_github_integration", repo_id=str(repo.id))
+        return {}, 0
+
+    branch_baseline = _resolve_baselines_at_ref(repo, github, run_type, branch)
+
+    default_branch = _get_default_branch(github, repo.repo_full_name)
+    if branch == default_branch:
+        return branch_baseline, 0
+
+    merge_base_sha = _get_merge_base_sha(github, repo.repo_full_name, default_branch, branch)
+    if not merge_base_sha:
+        return branch_baseline, 0
+
+    try:
+        merge_base_baseline = _resolve_baselines_at_ref(repo, github, run_type, merge_base_sha)
+    except Exception:
+        logger.warning(
+            "visual_review.merge_base_baseline_fetch_failed",
+            repo_id=str(repo.id),
+            branch=branch,
+            merge_base_sha=merge_base_sha,
+        )
+        return branch_baseline, 0
+    if not merge_base_baseline:
+        return branch_baseline, 0
+
+    healed = set(merge_base_baseline) - set(branch_baseline)
+    merged = {**merge_base_baseline, **branch_baseline}
+
+    if healed:
+        logger.info(
+            "visual_review.baseline_healed",
+            repo_id=str(repo.id),
+            branch=branch,
+            healed_count=len(healed),
+            branch_count=len(branch_baseline),
+            merge_base_count=len(merge_base_baseline),
+            merged_count=len(merged),
+        )
+
+    return merged, len(healed)
 
 
 def create_run(
@@ -578,89 +715,29 @@ def complete_run(run_id: UUID) -> Run:
 
     repo = run.repo
 
-    # Fetch baseline once — used for classification and removal detection
-    baseline = _resolve_baselines(repo, run.run_type, run.branch)
+    # Fetch baseline merged with merge-base to heal rebase-induced drift.
+    # Branch baseline tracks approvals; merge-base fills entries lost when
+    # git rebase replays a full-file bot commit destructively.
+    baseline, healed_count = _resolve_baselines_with_merge_base(repo, run.run_type, run.branch)
+    if healed_count:
+        run.metadata["baseline_healed_from_merge_base"] = healed_count
+        run.save(using=WRITER_DB, update_fields=["metadata"])
 
     # Pre-load tolerated hashes scoped to this run's identifiers and baseline hashes
     run_identifiers = set(run.snapshots.using(WRITER_DB).values_list("identifier", flat=True))
     baseline_hashes_in_use = set(baseline.values())
     tolerated_lookup: dict[tuple[str, str, str], ToleratedHash] = {}
     if run_identifiers and baseline_hashes_in_use:
+        now = timezone.now()
         for t in ToleratedHash.objects.filter(
             repo=repo,
             identifier__in=run_identifiers,
             baseline_hash__in=baseline_hashes_in_use,
-        ):
+        ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now)):
             tolerated_lookup[(t.identifier, t.baseline_hash, t.alternate_hash)] = t
 
-    # Classify existing snapshots against baseline
-    for snapshot in run.snapshots.using(WRITER_DB).all():
-        baseline_hash = baseline.get(snapshot.identifier)
-        baseline_artifact = get_artifact(repo.id, baseline_hash) if baseline_hash else None
-        classification_reason = ""
-        tolerated_match = None
-
-        if baseline_hash is None:
-            result = SnapshotResult.NEW
-        elif snapshot.current_hash == baseline_hash:
-            result = SnapshotResult.UNCHANGED
-            classification_reason = ClassificationReason.EXACT
-        else:
-            match = tolerated_lookup.get((snapshot.identifier, baseline_hash, snapshot.current_hash))
-            if match is not None:
-                result = SnapshotResult.UNCHANGED
-                classification_reason = ClassificationReason.TOLERATED_HASH
-                tolerated_match = match
-            else:
-                result = SnapshotResult.CHANGED
-
-        # review_state is only set on actionable snapshots
-        review_state = (
-            ReviewState.PENDING
-            if result in (SnapshotResult.CHANGED, SnapshotResult.NEW, SnapshotResult.REMOVED)
-            else ""
-        )
-
-        snapshot.result = result
-        snapshot.classification_reason = classification_reason
-        snapshot.review_state = review_state
-        snapshot.tolerated_hash_match = tolerated_match
-        snapshot.baseline_hash = baseline_hash or ""
-        snapshot.baseline_artifact = baseline_artifact
-        snapshot.current_artifact = get_artifact(repo.id, snapshot.current_hash)
-        snapshot.save(
-            using=WRITER_DB,
-            update_fields=[
-                "result",
-                "classification_reason",
-                "review_state",
-                "tolerated_hash_match",
-                "baseline_hash",
-                "baseline_artifact",
-                "current_artifact",
-            ],
-        )
-
-    # Detect removed: baseline identifiers with no RunSnapshot row
-    if baseline:
-        produced = set(run.snapshots.using(WRITER_DB).values_list("identifier", flat=True))
-        for identifier in baseline:
-            if identifier not in produced:
-                b_hash = baseline[identifier]
-                b_artifact = get_artifact(repo.id, b_hash) if b_hash else None
-                RunSnapshot.objects.using(WRITER_DB).get_or_create(
-                    run=run,
-                    team_id=repo.team_id,
-                    identifier=identifier,
-                    defaults={
-                        "current_hash": "",
-                        "baseline_hash": b_hash or "",
-                        "baseline_artifact": b_artifact,
-                        "result": SnapshotResult.REMOVED,
-                        "review_state": ReviewState.PENDING,
-                        "metadata": {},
-                    },
-                )
+    classifier = SnapshotClassifier(run, baseline, tolerated_lookup)
+    classifier.classify()
 
     # Update total and counts from actual RunSnapshot rows
     run.total_snapshots = run.snapshots.using(WRITER_DB).count()
@@ -673,7 +750,7 @@ def complete_run(run_id: UUID) -> Run:
 
     # Optimization: if no changes, skip diff processing entirely
     if run.changed_count == 0 and run.new_count == 0:
-        mark_run_completed(run_id)
+        finalize_run(run_id)
         return get_run(run_id)
 
     # Mark as processing and trigger diff task
@@ -739,15 +816,42 @@ def verify_uploads_and_create_artifacts(run_id: UUID) -> int:
     return created_count
 
 
-def mark_run_completed(run_id: UUID, error_message: str = "") -> Run:
+def _stamp_quarantine(run: Run) -> None:
+    """Evaluate quarantine policy and freeze it on each snapshot."""
+    now = timezone.now()
+    quarantined_ids = set(
+        QuarantinedIdentifier.objects.using(WRITER_DB)
+        .filter(repo_id=run.repo_id, run_type=run.run_type, team_id=run.team_id)
+        .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
+        .values_list("identifier", flat=True)
+    )
+
+    if not quarantined_ids:
+        run.snapshots.using(WRITER_DB).filter(is_quarantined=True).update(is_quarantined=False)
+        return
+
+    snapshots = run.snapshots.using(WRITER_DB)
+    snapshots.filter(identifier__in=quarantined_ids, is_quarantined=False).update(is_quarantined=True)
+    snapshots.filter(is_quarantined=True).exclude(identifier__in=quarantined_ids).update(is_quarantined=False)
+
+
+def finalize_run(run_id: UUID, error_message: str = "") -> Run:
     run = get_run_with_snapshots(run_id)
 
-    snapshots = list(run.snapshots.all())
+    # Stamp quarantine state — evaluated now and frozen on each snapshot
+    _stamp_quarantine(run)
 
-    changed_count = sum(1 for s in snapshots if s.result == SnapshotResult.CHANGED)
-    new_count = sum(1 for s in snapshots if s.result == SnapshotResult.NEW)
-    removed_count = sum(1 for s in snapshots if s.result == SnapshotResult.REMOVED)
-    tolerated_match_count = sum(1 for s in snapshots if s.tolerated_hash_match_id is not None)
+    snapshots = list(run.snapshots.using(WRITER_DB).select_related("tolerated_hash_match").all())
+
+    # Gating counts exclude quarantined identifiers — they don't block PRs
+    changed_count = sum(1 for s in snapshots if s.result == SnapshotResult.CHANGED and not s.is_quarantined)
+    new_count = sum(1 for s in snapshots if s.result == SnapshotResult.NEW and not s.is_quarantined)
+    removed_count = sum(1 for s in snapshots if s.result == SnapshotResult.REMOVED and not s.is_quarantined)
+    tolerated_match_count = sum(
+        1
+        for s in snapshots
+        if s.tolerated_hash_match is not None and s.tolerated_hash_match.reason == ToleratedReason.HUMAN
+    )
 
     run.status = RunStatus.FAILED if error_message else RunStatus.COMPLETED
     run.error_message = error_message
@@ -781,7 +885,7 @@ def mark_run_completed(run_id: UUID, error_message: str = "") -> Run:
             parts.append(f"{removed_count} removed")
         # During migration VR is observational — always green so drift doesn't block PRs.
         # Flip to "failure" when VR becomes the gate.
-        _post_commit_status(run, repo, "success", f"Visual changes detected: {', '.join(parts)}")
+        _post_commit_status(run, repo, "failure", f"Visual changes detected: {', '.join(parts)}")
         _post_review_prompt_comment(run, repo)
     else:
         _post_commit_status(run, repo, "success", "No visual changes")
@@ -928,6 +1032,7 @@ def _fetch_baseline_file(
             "Authorization": f"Bearer {access_token}",
             "X-GitHub-Api-Version": "2022-11-28",
         },
+        timeout=10,
     )
 
     if response.status_code == 404:
@@ -1102,17 +1207,28 @@ def _commit_baseline_to_github(run: Run, repo: Repo, approved_snapshots: list[di
     # The org comes from github.organization()
     repo_name = repo.repo_full_name.split("/")[-1] if "/" in repo.repo_full_name else repo.repo_full_name
 
+    updated_count = len(updates)
+    removed_count = len(removed_identifiers)
+    parts = [f"{updated_count} updated"]
+    if removed_count:
+        parts.append(f"{removed_count} removed")
+    summary = ", ".join(parts)
+    commit_message = f"chore(visual): update {run.run_type} baselines\n\n{summary}\nRun: {run.id}"
+
     result = github.update_file(
         repository=repo_name,
         file_path=baseline_path,
         content=new_content,
-        commit_message="chore(visual): update visual baselines",
+        commit_message=commit_message,
         branch=pr_info["head_ref"],
         sha=file_sha,
     )
 
     if not result.get("success"):
         raise GitHubCommitError(f"Failed to commit baseline: {result.get('error')}")
+
+    run.metadata["baseline_commit_sha"] = result.get("commit_sha")
+    run.save(update_fields=["metadata"])
 
     return result
 
@@ -1205,9 +1321,11 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
         logger.warning("visual_review.pr_comment_error", run_id=str(run.id), pr_number=run.pr_number, exc_info=True)
 
 
+@transaction.atomic(using=WRITER_DB)
 def approve_all(
     run_id: UUID,
     user_id: int,
+    team_id: int | None = None,
     review_decision: ReviewDecision = ReviewDecision.HUMAN_APPROVED,
     commit_to_github: bool = True,
 ) -> tuple[Run, str]:
@@ -1223,7 +1341,7 @@ def approve_all(
 
     Set commit_to_github=False for CLI (writes baseline locally).
     """
-    run = get_run_with_snapshots(run_id)
+    run = _get_run_for_update(run_id, team_id=team_id)
     repo = run.repo
 
     if run.status != RunStatus.COMPLETED:
@@ -1243,6 +1361,7 @@ def approve_all(
         approve_run(
             run_id=run_id,
             user_id=user_id,
+            team_id=team_id,
             approved_snapshots=needs_approval,
             review_decision=review_decision,
             commit_to_github=commit_to_github,
@@ -1280,13 +1399,13 @@ def approve_all(
 
 
 @transaction.atomic(using=WRITER_DB)
-def approve_snapshots(run_id: UUID, user_id: int, approved_snapshots: list[dict]) -> Run:
+def approve_snapshots(run_id: UUID, user_id: int, approved_snapshots: list[dict], team_id: int | None = None) -> Run:
     """Approve specific snapshots within a run (DB only, no GitHub commit).
 
     Used for per-snapshot "Accept change" in the UI. Does not finalize
-    the run — that happens via finalize_run_approval.
+    the run — that happens via approve_run.
     """
-    run = get_run(run_id)
+    run = _get_run_for_update(run_id, team_id=team_id)
 
     if run.purpose == RunPurpose.OBSERVE:
         raise ValueError("Observational runs cannot be approved")
@@ -1309,10 +1428,12 @@ def approve_snapshots(run_id: UUID, user_id: int, approved_snapshots: list[dict]
     return run
 
 
+@transaction.atomic(using=WRITER_DB)
 def approve_run(
     run_id: UUID,
     user_id: int,
     approved_snapshots: list[dict],
+    team_id: int | None = None,
     review_decision: ReviewDecision = ReviewDecision.HUMAN_APPROVED,
     commit_to_github: bool = True,
 ) -> Run:
@@ -1324,7 +1445,7 @@ def approve_run(
 
     Set commit_to_github=False only for CLI auto-approve (writes locally).
     """
-    run = get_run(run_id)
+    run = _get_run_for_update(run_id, team_id=team_id)
     repo = run.repo
 
     if run.purpose == RunPurpose.OBSERVE:
@@ -1356,6 +1477,9 @@ def approve_run(
         reviewed_at=now,
         reviewed_by_id=user_id,
     )
+
+    # Re-evaluate quarantine at approval time
+    _stamp_quarantine(run)
 
     # Finalize run
     run.approved = True
@@ -1431,13 +1555,14 @@ def get_snapshot_history(repo_id: UUID, identifier: str, limit: int = 15) -> lis
     ]
 
 
+@transaction.atomic(using=WRITER_DB)
 def mark_snapshot_as_tolerated(run_id: UUID, snapshot_id: UUID, user_id: int, team_id: int) -> RunSnapshot:
     """Mark a changed snapshot as a known tolerated alternate (human decision).
 
     Creates a ToleratedHash entry tied to the current baseline, reclassifies the
     snapshot as UNCHANGED, and recalculates run summary counts.
     """
-    run = get_run(run_id, team_id=team_id)
+    run = _get_run_for_update(run_id, team_id=team_id)
     try:
         snapshot = RunSnapshot.objects.get(id=snapshot_id, run=run, team_id=team_id)
     except RunSnapshot.DoesNotExist:
@@ -1459,6 +1584,7 @@ def mark_snapshot_as_tolerated(run_id: UUID, snapshot_id: UUID, user_id: int, te
             "reason": ToleratedReason.HUMAN,
             "source_run": run,
             "created_by_id": user_id,
+            "diff_percentage": snapshot.diff_percentage,
         },
     )
 
@@ -1470,8 +1596,12 @@ def mark_snapshot_as_tolerated(run_id: UUID, snapshot_id: UUID, user_id: int, te
     snapshot.tolerated_hash_match = tolerated
     snapshot.save(update_fields=["review_state", "reviewed_at", "reviewed_by_id", "tolerated_hash_match"])
 
-    # Update tolerated_match_count
-    tolerated_count = RunSnapshot.objects.using(WRITER_DB).filter(run=run, tolerated_hash_match__isnull=False).count()
+    # Update tolerated_match_count (only human-tolerated, not auto-threshold)
+    tolerated_count = (
+        RunSnapshot.objects.using(WRITER_DB)
+        .filter(run=run, tolerated_hash_match__isnull=False, tolerated_hash_match__reason=ToleratedReason.HUMAN)
+        .count()
+    )
     Run.objects.using(WRITER_DB).filter(id=run.id).update(tolerated_match_count=tolerated_count)
 
     return snapshot
@@ -1480,6 +1610,62 @@ def mark_snapshot_as_tolerated(run_id: UUID, snapshot_id: UUID, user_id: int, te
 def get_tolerated_hashes_for_identifier(repo_id: UUID, identifier: str) -> list[ToleratedHash]:
     """List all tolerated hashes for a snapshot identifier, most recent first."""
     return list(ToleratedHash.objects.filter(repo_id=repo_id, identifier=identifier).order_by("-created_at"))
+
+
+# --- Quarantine ---
+
+
+def list_quarantined_identifiers(
+    repo_id: UUID, team_id: int, identifier: str | None = None, run_type: str | None = None
+) -> list[QuarantinedIdentifier]:
+    qs = QuarantinedIdentifier.objects.using(WRITER_DB).filter(repo_id=repo_id, team_id=team_id)
+    if run_type:
+        qs = qs.filter(run_type=run_type)
+    if identifier:
+        qs = qs.filter(identifier=identifier)
+    else:
+        now = timezone.now()
+        qs = qs.filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
+    return list(qs.order_by("-created_at"))
+
+
+@transaction.atomic(using=WRITER_DB)
+def quarantine_identifier(
+    repo_id: UUID,
+    identifier: str,
+    run_type: str,
+    reason: str,
+    user_id: int,
+    team_id: int,
+    expires_at: datetime | None = None,
+) -> QuarantinedIdentifier:
+    get_repo(repo_id, team_id)  # raises RepoNotFoundError if repo not owned by team
+    now = timezone.now()
+    QuarantinedIdentifier.objects.using(WRITER_DB).select_for_update().filter(
+        repo_id=repo_id,
+        identifier=identifier,
+        run_type=run_type,
+        team_id=team_id,
+    ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now)).update(expires_at=now)
+    return QuarantinedIdentifier.objects.using(WRITER_DB).create(
+        repo_id=repo_id,
+        identifier=identifier,
+        run_type=run_type,
+        team_id=team_id,
+        reason=reason,
+        expires_at=expires_at,
+        created_by_id=user_id,
+    )
+
+
+def unquarantine_identifier(repo_id: UUID, identifier: str, run_type: str, team_id: int) -> None:
+    get_repo(repo_id, team_id)  # raises RepoNotFoundError if repo not owned by team
+    QuarantinedIdentifier.objects.using(WRITER_DB).filter(
+        repo_id=repo_id,
+        identifier=identifier,
+        run_type=run_type,
+        team_id=team_id,
+    ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now())).update(expires_at=timezone.now())
 
 
 def update_snapshot_diff(

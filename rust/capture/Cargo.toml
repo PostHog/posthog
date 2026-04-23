@@ -67,6 +67,7 @@ anyhow = { workspace = true }
 axum-test-helper = { git = "https://github.com/posthog/axum-test-helper.git" }
 futures = { workspace = true }
 httparse = "1.8"
+metrics-util = { workspace = true }
 once_cell = { workspace = true }
 rand = { workspace = true }
 rdkafka = { workspace = true }

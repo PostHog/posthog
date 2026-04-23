@@ -82,10 +82,12 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                         zod.object({
                             key: zod.string().describe("Variant key, e.g. 'control', 'test', 'variant_a'."),
                             name: zod.string().nullish().describe('Human-readable variant name.'),
-                            rollout_percentage: zod
+                            rollout_percentage: zod.number().nullish(),
+                            split_percent: zod
                                 .number()
+                                .nullish()
                                 .describe(
-                                    'Percentage of users assigned to this variant (0–100). All variants must sum to 100.'
+                                    'Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided.'
                                 ),
                         })
                     )
@@ -100,7 +102,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             })
             .nullish()
             .describe(
-                'Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and rollout_percentage; percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power.'
+                "Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power."
             ),
         secondary_metrics: zod.unknown().nullish(),
         saved_metrics_ids: zod
@@ -1149,7 +1151,6 @@ export const experimentsPartialUpdateBodyNameMax = 400
 
 export const experimentsPartialUpdateBodyDescriptionMax = 3000
 
-export const experimentsPartialUpdateBodyArchivedDefault = false
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigKindDefault = `ExperimentEventExposureConfig`
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigPropertiesItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventPropertiesItemTypeDefault = `event`
@@ -1166,8 +1167,6 @@ export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorPropert
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesItemPropertiesItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourcePropertiesItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventPropertiesItemTypeDefault = `event`
-export const experimentsPartialUpdateBodyAllowUnknownEventsDefault = false
-export const experimentsPartialUpdateBodyUpdateFeatureFlagParamsDefault = false
 
 export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -1193,10 +1192,12 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                         zod.object({
                             key: zod.string().describe("Variant key, e.g. 'control', 'test', 'variant_a'."),
                             name: zod.string().nullish().describe('Human-readable variant name.'),
-                            rollout_percentage: zod
+                            rollout_percentage: zod.number().nullish(),
+                            split_percent: zod
                                 .number()
+                                .nullish()
                                 .describe(
-                                    'Percentage of users assigned to this variant (0–100). All variants must sum to 100.'
+                                    'Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided.'
                                 ),
                         })
                     )
@@ -1211,7 +1212,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             })
             .nullish()
             .describe(
-                'Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and rollout_percentage; percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power.'
+                "Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power."
             ),
         secondary_metrics: zod.unknown().nullish(),
         saved_metrics_ids: zod
@@ -1221,10 +1222,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                 "IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary)."
             ),
         filters: zod.unknown().optional(),
-        archived: zod
-            .boolean()
-            .default(experimentsPartialUpdateBodyArchivedDefault)
-            .describe('Whether the experiment is archived.'),
+        archived: zod.boolean().optional().describe('Whether the experiment is archived.'),
         deleted: zod.boolean().nullish(),
         type: zod
             .union([zod.enum(['web', 'product']).describe('* `web` - web\n* `product` - product'), zod.literal(null)])
@@ -2206,7 +2204,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             .describe('Secondary metrics for additional measurements. Same format as primary metrics.'),
         stats_config: zod.unknown().nullish(),
         scheduling_config: zod.unknown().nullish(),
-        allow_unknown_events: zod.boolean().default(experimentsPartialUpdateBodyAllowUnknownEventsDefault),
+        allow_unknown_events: zod.boolean().optional(),
         _create_in_folder: zod.string().optional(),
         conclusion: zod
             .union([
@@ -2227,7 +2225,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
         only_count_matured_users: zod.boolean().optional(),
         update_feature_flag_params: zod
             .boolean()
-            .default(experimentsPartialUpdateBodyUpdateFeatureFlagParamsDefault)
+            .optional()
             .describe(
                 'When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts.'
             ),

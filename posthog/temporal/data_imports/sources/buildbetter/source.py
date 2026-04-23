@@ -9,12 +9,14 @@ from posthog.schema import (
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.buildbetter.buildbetter import (
+    BuildBetterResumeConfig,
     buildbetter_source,
     validate_credentials as validate_buildbetter_credentials,
 )
 from posthog.temporal.data_imports.sources.buildbetter.settings import ENDPOINTS, INCREMENTAL_FIELDS
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import BuildBetterSourceConfig
 
@@ -22,7 +24,7 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class BuildBetterSource(SimpleSource[BuildBetterSourceConfig]):
+class BuildBetterSource(ResumableSource[BuildBetterSourceConfig, BuildBetterResumeConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.BUILDBETTER
@@ -56,7 +58,15 @@ class BuildBetterSource(SimpleSource[BuildBetterSourceConfig]):
     ) -> tuple[bool, str | None]:
         return validate_buildbetter_credentials(config.api_key)
 
-    def source_for_pipeline(self, config: BuildBetterSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[BuildBetterResumeConfig]:
+        return ResumableSourceManager[BuildBetterResumeConfig](inputs, BuildBetterResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: BuildBetterSourceConfig,
+        resumable_source_manager: ResumableSourceManager[BuildBetterResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         incremental_field_last_value = None
         if inputs.should_use_incremental_field and inputs.db_incremental_field_last_value is not None:
             incremental_field_last_value = str(inputs.db_incremental_field_last_value)
@@ -65,6 +75,7 @@ class BuildBetterSource(SimpleSource[BuildBetterSourceConfig]):
             api_key=config.api_key,
             endpoint_name=inputs.schema_name,
             logger=inputs.logger,
+            resumable_source_manager=resumable_source_manager,
             incremental_field=inputs.incremental_field if inputs.should_use_incremental_field else None,
             incremental_field_last_value=incremental_field_last_value,
         )

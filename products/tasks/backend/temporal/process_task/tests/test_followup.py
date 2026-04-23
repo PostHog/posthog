@@ -189,7 +189,8 @@ def _mock_get_context_configurable(_input) -> TaskProcessingContext:
 
 @activity.defn(name="send_followup_to_sandbox")
 def _mock_send_followup_records(input: SendFollowupToSandboxInput) -> None:
-    _ci_followup_calls.append(input.message)
+    if input.message is not None:
+        _ci_followup_calls.append(input.message)
 
 
 def _make_worker(env, task_queue: str) -> Worker:
@@ -294,11 +295,15 @@ class TestCIFollowUpLoop:
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     execution_timeout=timedelta(hours=2),
                 )
-                await env.sleep(CI_FOLLOW_UP_DELAY.total_seconds() + 60)
-                await handle.signal(ProcessTaskWorkflow.complete_task, args=["completed", None])
+                # With CI gated off, the inactivity timer stays at its default
+                # 5m and is not extended to cover CI_FOLLOW_UP_DELAY (15m). The
+                # workflow therefore terminates via inactivity well before the
+                # CI deadline — which itself proves no follow-up could fire.
                 await handle.result()
 
         assert _ci_followup_calls == []
+        timeout_updates = [(s, e) for s, e in _status_updates if "timed out" in (e or "")]
+        assert timeout_updates, f"expected an inactivity-timeout completion, got {_status_updates}"
 
     @pytest.mark.timeout(60)
     async def test_completion_signal_wins_over_ready_ci_follow_up(self):
@@ -352,3 +357,18 @@ class TestCIFollowUpLoop:
             "heartbeat(agent_active=True) should have pushed the CI follow-up past the original 15m boundary"
         )
         assert _ci_followup_calls, "follow-up should still fire after the rescheduled deadline"
+
+
+class TestFollowupGuards:
+    @pytest.mark.parametrize(
+        "message,artifact_ids,expected",
+        [
+            (None, [], True),
+            ("", [], True),
+            (None, ["artifact-1"], False),
+            ("message", [], False),
+            ("message", ["artifact-1"], False),
+        ],
+    )
+    def test_should_skip_followup(self, message: str | None, artifact_ids: list[str], expected: bool):
+        assert ProcessTaskWorkflow._should_skip_followup(message, artifact_ids) is expected

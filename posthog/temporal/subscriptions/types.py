@@ -156,6 +156,7 @@ class SnapshotInsightsInputs:
     team_id: int
     delivery_id: typing.Optional[str] = None
     summary_enabled: bool = False
+    exported_asset_ids: typing.Optional[list[int]] = None
 
 
 @dataclasses.dataclass

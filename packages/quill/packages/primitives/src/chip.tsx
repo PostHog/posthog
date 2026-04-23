@@ -16,7 +16,7 @@ const Chip = React.forwardRef<HTMLButtonElement, ChipProps>(
                 data-slot="chip"
                 size={size}
                 variant={variant}
-                className={cn('gap-1 rounded-sm has-data-[slot=chip-close]:pe-0 bg-background max-w-full', className)}
+                className={cn('gap-1 rounded-sm has-data-[slot=chip-close]:pe-0 bg-background max-w-full focus-visible:border-ring/50 focus-visible:ring-3', className)}
                 {...props}
             >
                 {children}

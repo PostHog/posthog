@@ -1,7 +1,5 @@
-import hmac
 import json
 import time
-import hashlib
 from types import SimpleNamespace
 from typing import Any
 
@@ -17,12 +15,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-
-def _sign_request(body: bytes, secret: str) -> tuple[str, str]:
-    ts = str(int(time.time()))
-    sig_basestring = f"v0:{ts}:{body.decode('utf-8')}"
-    signature = "v0=" + hmac.new(secret.encode(), sig_basestring.encode(), hashlib.sha256).hexdigest()
-    return signature, ts
+from products.slack_app.backend.tests.helpers import sign_slack_request
 
 
 class TestPostHogCodeInteractivityHandler(TestCase):
@@ -34,9 +27,9 @@ class TestPostHogCodeInteractivityHandler(TestCase):
         payload = {"team": {"id": "T12345"}, **payload}
         body_str = f"payload={json.dumps(payload)}"
         body = body_str.encode()
-        signature, ts = _sign_request(body, self.signing_secret)
+        signature, ts = sign_slack_request(body, self.signing_secret)
         return self.client.post(
-            "/slack/posthog-code-interactivity-callback/",
+            "/slack/interactivity-callback/",
             data=body_str,
             content_type="application/x-www-form-urlencoded",
             HTTP_X_SLACK_SIGNATURE=signature,
@@ -45,7 +38,7 @@ class TestPostHogCodeInteractivityHandler(TestCase):
         )
 
     def test_get_method_returns_405(self):
-        response = self.client.get("/slack/posthog-code-interactivity-callback/")
+        response = self.client.get("/slack/interactivity-callback/")
         assert response.status_code == 405
 
     @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
@@ -94,9 +87,9 @@ class TestRepoPickerOptions(TestCase):
         payload = {"team": {"id": "T12345"}, **payload}
         body_str = f"payload={json.dumps(payload)}"
         body = body_str.encode()
-        signature, ts = _sign_request(body, self.signing_secret)
+        signature, ts = sign_slack_request(body, self.signing_secret)
         return self.client.post(
-            "/slack/posthog-code-interactivity-callback/",
+            "/slack/interactivity-callback/",
             data=body_str,
             content_type="application/x-www-form-urlencoded",
             HTTP_X_SLACK_SIGNATURE=signature,

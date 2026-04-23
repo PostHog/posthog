@@ -16,7 +16,6 @@ export const manifest: ProductManifest = {
             name: 'Endpoints',
             activityScope: 'Endpoints',
             layout: 'app-container',
-            defaultDocsPath: '/docs/endpoints',
             iconType: 'endpoints',
             description: 'Define queries your application will use via the API and monitor their cost and usage.',
         },

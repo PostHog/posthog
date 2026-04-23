@@ -152,23 +152,8 @@ class StripeSource(
                         name="auth_method",
                         label="Authentication type",
                         required=True,
-                        defaultValue="oauth",
+                        defaultValue="api_key",
                         options=[
-                            SourceFieldSelectConfigOption(
-                                label="OAuth connection",
-                                value="oauth",
-                                fields=cast(
-                                    list[FieldType],
-                                    [
-                                        SourceFieldOauthConfig(
-                                            name="stripe_integration_id",
-                                            label="Stripe account",
-                                            required=False,
-                                            kind="stripe",
-                                        ),
-                                    ],
-                                ),
-                            ),
                             SourceFieldSelectConfigOption(
                                 label="Restricted API key",
                                 value="api_key",
@@ -181,6 +166,22 @@ class StripeSource(
                                             type=SourceFieldInputConfigType.PASSWORD,
                                             required=False,
                                             placeholder="rk_live_...",
+                                            caption=f"Create a [restricted API key]({STRIPE_API_KEYS_URL}) with the pre-defined permissions",
+                                        ),
+                                    ],
+                                ),
+                            ),
+                            SourceFieldSelectConfigOption(
+                                label="OAuth connection",
+                                value="oauth",
+                                fields=cast(
+                                    list[FieldType],
+                                    [
+                                        SourceFieldOauthConfig(
+                                            name="stripe_integration_id",
+                                            label="Stripe account",
+                                            required=False,
+                                            kind="stripe",
                                         ),
                                     ],
                                 ),

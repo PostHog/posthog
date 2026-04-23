@@ -71,6 +71,7 @@
           ExternalDataSourceType.CHARTMOGUL: ChartMogulSourceConfig,
           ExternalDataSourceType.CIRCLECI: CircleCISourceConfig,
           ExternalDataSourceType.CLERK: ClerkSourceConfig,
+          ExternalDataSourceType.CLICKHOUSE: ClickHouseSourceConfig,
           ExternalDataSourceType.CLICKUP: ClickUpSourceConfig,
           ExternalDataSourceType.CLOSE: CloseSourceConfig,
           ExternalDataSourceType.COCKROACHDB: CockroachDBSourceConfig,

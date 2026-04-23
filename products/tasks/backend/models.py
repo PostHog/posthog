@@ -4,6 +4,7 @@ import json
 import uuid
 import string
 import secrets
+from collections.abc import Callable, Iterable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -210,7 +211,9 @@ class Task(DeletedMetaFields, models.Model):
         if extra_state:
             state.update({k: v for k, v in extra_state.items() if k != "mode"})
         is_resume = bool((extra_state or {}).get("resume_from_run_id"))
-        has_pending = bool((extra_state or {}).get("pending_message"))
+        has_pending = bool(
+            (extra_state or {}).get("pending_user_message") or (extra_state or {}).get("pending_user_artifact_ids")
+        )
         task_run = TaskRun.objects.create(
             task=self,
             team=self.team,
@@ -527,6 +530,44 @@ class TaskRun(models.Model):
                 return None
         return env
 
+    @classmethod
+    def mutate_state_atomic(
+        cls,
+        run_id: str | uuid.UUID,
+        mutator: Callable[[dict[str, Any]], None],
+    ) -> dict[str, Any]:
+        """Apply a state mutation while holding a row lock on the task run.
+
+        Task-run state is updated from several independent activities. Using a
+        locked read avoids stale read-modify-write cycles that can resurrect
+        keys another activity has already removed.
+        """
+        with transaction.atomic():
+            locked_task_run = cls.objects.select_for_update().get(id=run_id)
+            state = dict(locked_task_run.state or {})
+            mutator(state)
+            locked_task_run.state = state
+            locked_task_run.save(update_fields=["state", "updated_at"])
+            return state
+
+    @classmethod
+    def update_state_atomic(
+        cls,
+        run_id: str | uuid.UUID,
+        *,
+        updates: dict[str, Any] | None = None,
+        remove_keys: Iterable[str] | None = None,
+    ) -> dict[str, Any]:
+        """Merge state updates against the latest persisted row state."""
+
+        def _mutator(state: dict[str, Any]) -> None:
+            for key in remove_keys or []:
+                state.pop(key, None)
+            if updates:
+                state.update(updates)
+
+        return cls.mutate_state_atomic(run_id, _mutator)
+
     @staticmethod
     def get_workflow_id(task_id: str | uuid.UUID, run_id: str | uuid.UUID) -> str:
         """Get the Temporal workflow ID for a task run."""
@@ -559,12 +600,16 @@ class TaskRun(models.Model):
 
     @property
     def log_url(self) -> str:
-        """Generate S3 path for this run's logs"""
+        """Generate the S3 path for this run's logs."""
+        return f"{self.get_task_s3_prefix()}/run_{self.id}.jsonl"
+
+    def get_task_s3_prefix(self) -> str:
+        """Base prefix for task-scoped objects in S3."""
         tasks_folder = settings.OBJECT_STORAGE_TASKS_FOLDER
-        return f"{tasks_folder}/logs/team_{self.team_id}/task_{self.task_id}/run_{self.id}.jsonl"
+        return f"{tasks_folder}/logs/team_{self.team_id}/task_{self.task_id}"
 
     def get_artifact_s3_prefix(self) -> str:
-        """Base prefix for storing artifacts in S3"""
+        """Base prefix for storing artifacts in S3."""
         tasks_folder = settings.OBJECT_STORAGE_TASKS_FOLDER
         return f"{tasks_folder}/artifacts/team_{self.team_id}/task_{self.task_id}/run_{self.id}"
 
@@ -611,7 +656,7 @@ class TaskRun(models.Model):
                     error=str(e),
                 )
 
-    def capture_event(self, event: str, properties: dict | None = None) -> None:
+    def capture_event(self, event: str, properties: dict | None = None, event_uuid: str | None = None) -> None:
         try:
             distinct_id = (
                 str(self.task.created_by.distinct_id)
@@ -631,12 +676,15 @@ class TaskRun(models.Model):
             }
             if properties:
                 all_properties.update(properties)
-            posthoganalytics.capture(
-                distinct_id=distinct_id,
-                event=event,
-                properties=all_properties,
-                groups=groups(team=self.team),
-            )
+            capture_kwargs: dict = {
+                "distinct_id": distinct_id,
+                "event": event,
+                "properties": all_properties,
+                "groups": groups(team=self.team),
+            }
+            if event_uuid:
+                capture_kwargs["uuid"] = event_uuid
+            posthoganalytics.capture(**capture_kwargs)
         except Exception as e:
             logger.warning("task_run.capture_event_failed", analytics_event=event, error=str(e))
 
@@ -718,6 +766,42 @@ class TaskRun(models.Model):
                     "level": level,
                     "message": message,
                 },
+            },
+        }
+        self.append_log([event])
+        self.publish_stream_event(event)
+
+    def emit_progress_event(
+        self,
+        step: str,
+        status: str,
+        label: str,
+        group: str,
+        detail: Optional[str] = None,
+    ) -> None:
+        """Emit a structured progress notification in ACP format.
+
+        Consumed by the desktop client as `_posthog/progress`. Events sharing a
+        `group` coalesce into a single collapsible card on the client, so the
+        backend decides grouping granularity by picking a phase id (e.g.
+        `"setup"`, `"pr_create"`).
+        """
+        params: dict[str, Any] = {
+            "sessionId": str(self.id),
+            "step": step,
+            "status": status,
+            "label": label,
+            "group": group,
+        }
+        if detail is not None:
+            params["detail"] = detail
+        event = {
+            "type": "notification",
+            "timestamp": django_timezone.now().isoformat(),
+            "notification": {
+                "jsonrpc": "2.0",
+                "method": "_posthog/progress",
+                "params": params,
             },
         }
         self.append_log([event])

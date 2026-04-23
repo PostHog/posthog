@@ -8,7 +8,7 @@ from ee.api.agentic_provisioning.signature import compute_signature
 from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
 
 
-@override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)
+@override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
 class TestProvisioningHealth(StripeProvisioningTestBase):
     def test_valid_request(self):
         res = self._get_signed("/api/agentic/provisioning/health")

@@ -10,7 +10,7 @@ import temporalio
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
-from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_SIGNALS_REPORT_COMPLETED
 from posthog.sync import database_sync_to_async
 
@@ -447,7 +447,7 @@ async def publish_report_completed_activity(input: PublishReportCompletedInput) 
                 for signal in input.signals
             ],
         }
-        producer = KafkaProducer()
+        producer = get_producer(topic=KAFKA_SIGNALS_REPORT_COMPLETED)
         producer.produce(
             topic=KAFKA_SIGNALS_REPORT_COMPLETED,
             data=message,

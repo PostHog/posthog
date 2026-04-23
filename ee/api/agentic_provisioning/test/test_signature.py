@@ -1,5 +1,6 @@
 import io
 import time
+from typing import cast
 
 from django.http import HttpRequest
 from django.test import TestCase, override_settings
@@ -30,7 +31,7 @@ class TestParseSignatureHeader(TestCase):
         assert _parse_signature_header(header) == expected
 
 
-@override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)
+@override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
 class TestComputeSignature(TestCase):
     @parameterized.expand(
         [
@@ -63,7 +64,7 @@ class TestComputeSignature(TestCase):
         assert sig1 != sig2
 
 
-@override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)
+@override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
 class TestVerifySignatureAfterDRFParsing(TestCase):
     def _make_drf_request_with_consumed_stream(self, body: bytes) -> Request:
         django_request = HttpRequest()
@@ -80,7 +81,7 @@ class TestVerifySignatureAfterDRFParsing(TestCase):
         drf_request = Request(django_request, parsers=[JSONParser()])
         _ = drf_request.data
 
-        return drf_request
+        return cast(Request, drf_request)
 
     def test_returns_400_when_stream_consumed(self):
         body = b'{"email":"test@example.com"}'

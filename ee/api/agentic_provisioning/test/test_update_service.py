@@ -7,7 +7,7 @@ from parameterized import parameterized
 from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
 
 
-@override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)
+@override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
 class TestProvisioningUpdateService(StripeProvisioningTestBase):
     @patch("ee.api.agentic_provisioning.views.requests.post")
     @patch("ee.billing.billing_manager.build_billing_token", return_value="test_billing_token")

@@ -97,6 +97,9 @@ export interface TaxonomicFilterProps {
     /** Allow users to select events that haven't been captured yet (default: false) */
     allowNonCapturedEvents?: boolean
     hogQLGlobals?: Record<string, any>
+    /** When true, the SQL expression tab shows a hint about using `AS column_name`
+     * or `-- column_name` to get a readable breakdown label. Only shown for long expressions. */
+    hogQLExpressionShowBreakdownLabelHint?: boolean
     /** Optionally customize definition popover contents for selected items. */
     definitionPopoverRenderer?: DefinitionPopoverRenderer
     /** Override the group-level minSearchQueryLength for all groups in this instance. */

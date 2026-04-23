@@ -55,7 +55,6 @@ async def get_usage(
         product=product,
         end_user_id=str(user.user_id),
         plan_key=plan_info.plan_key,
-        in_trial_period=plan_info.in_trial_period,
         seat_created_at=plan_info.seat_created_at,
     )
 

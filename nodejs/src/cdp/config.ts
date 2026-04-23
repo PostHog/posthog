@@ -68,14 +68,6 @@ export type CdpConfig = {
     SES_SECRET_ACCESS_KEY: string
     SES_REGION: string
 
-    // Temporal (LLM analytics)
-    TEMPORAL_HOST: string
-    TEMPORAL_PORT: string | undefined
-    TEMPORAL_NAMESPACE: string
-    TEMPORAL_CLIENT_ROOT_CA: string | undefined
-    TEMPORAL_CLIENT_CERT: string | undefined
-    TEMPORAL_CLIENT_KEY: string | undefined
-
     // Destination migration diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
 
@@ -168,14 +160,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         SES_ACCESS_KEY_ID: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_SECRET_ACCESS_KEY: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_REGION: isTestEnv() || isDevEnv() ? 'us-east-1' : '',
-
-        // Temporal
-        TEMPORAL_HOST: 'localhost',
-        TEMPORAL_PORT: '7233',
-        TEMPORAL_NAMESPACE: 'default',
-        TEMPORAL_CLIENT_ROOT_CA: undefined,
-        TEMPORAL_CLIENT_CERT: undefined,
-        TEMPORAL_CLIENT_KEY: undefined,
 
         // Destination migration diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,

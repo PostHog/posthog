@@ -113,6 +113,9 @@ def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
     if modifiers.inlineCohortCalculation is None:
         modifiers.inlineCohortCalculation = InlineCohortCalculation.AUTO
 
+    if modifiers.sessionIdPushdown is None:
+        modifiers.sessionIdPushdown = False
+
 
 def set_default_in_cohort_via(modifiers: HogQLQueryModifiers) -> HogQLQueryModifiers:
     if modifiers.inCohortVia is None or modifiers.inCohortVia == InCohortVia.AUTO:

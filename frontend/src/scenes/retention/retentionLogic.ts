@@ -12,7 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { RetentionFilter, RetentionResult } from '~/queries/schema/schema-general'
-import { isRetentionQuery, isValidBreakdown } from '~/queries/utils'
+import { isRetentionQuery, hasBreakdownFilter } from '~/queries/utils'
 import { BreakdownKeyType, CohortType, DateMappingOption, InsightLogicProps, RetentionPeriod } from '~/types'
 
 import type { retentionLogicType } from './retentionLogicType'
@@ -145,7 +145,7 @@ export const retentionLogic = kea<retentionLogicType>([
         ],
     }),
     selectors({
-        hasValidBreakdown: [(s) => [s.breakdownFilter], (breakdownFilter) => isValidBreakdown(breakdownFilter)],
+        hasValidBreakdown: [(s) => [s.breakdownFilter], (breakdownFilter) => hasBreakdownFilter(breakdownFilter)],
         isPropertyValueAggregation: [
             (s) => [s.retentionFilter],
             (retentionFilter: RetentionFilter | undefined) =>

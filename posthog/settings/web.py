@@ -68,6 +68,7 @@ PRODUCTS_APPS = [
     "products.mcp_analytics.backend.apps.McpAnalyticsConfig",
     "products.platform_features.backend.apps.PlatformFeaturesConfig",
     "products.streamlit_apps.backend.apps.StreamlitAppsConfig",
+    "products.legal_documents.backend.apps.LegalDocumentsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -129,6 +130,7 @@ MIDDLEWARE = [
     "posthog.api.query_coalescer.QueryCoalescingMiddleware",
     "posthog.middleware.SocialAuthExceptionMiddleware",
     "posthog.middleware.SessionAgeMiddleware",
+    "posthog.middleware.KnownLoginDeviceCookieMiddleware",
     "posthog.middleware.ActivityLoggingMiddleware",
     "posthog.middleware.user_logging_context_middleware",
     "django_otp.middleware.OTPMiddleware",

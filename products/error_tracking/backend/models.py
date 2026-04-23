@@ -490,7 +490,6 @@ def override_error_tracking_issue_fingerprint(
     issue_id: UUID,
     version=0,
     is_deleted: bool = False,
-    sync: bool = False,
 ) -> None:
     p = ClickhouseProducer()
     p.produce(
@@ -503,7 +502,6 @@ def override_error_tracking_issue_fingerprint(
             "version": version,
             "is_deleted": int(is_deleted),
         },
-        sync=sync,
     )
 
 

@@ -109,8 +109,12 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                         name="schema",
                         label="Schema",
                         type=SourceFieldInputConfigType.TEXT,
-                        required=True,
+                        required=False,
                         placeholder="public",
+                        caption=(
+                            "Required for warehouse imports. Leave blank only for direct Postgres queries "
+                            "to browse tables across all non-system schemas."
+                        ),
                     ),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
                 ],
@@ -192,7 +196,18 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             # quirk on `information_schema` (rare but possible) only disables CDC
             # advertising for this listing instead of breaking schema discovery for
             # everyone — including non-CDC users.
+            pk_columns_by_table: dict[str, list[str]] = {}
             try:
+                table_names_by_schema: dict[str, list[str]] = {}
+                table_names_by_source_location: dict[tuple[str, str], str] = {}
+                for discovered_schema in db_schemas.values():
+                    table_names_by_schema.setdefault(discovered_schema.source_schema, []).append(
+                        discovered_schema.source_table_name
+                    )
+                for table_name, discovered_schema in db_schemas.items():
+                    table_names_by_source_location[
+                        (discovered_schema.source_schema, discovered_schema.source_table_name)
+                    ] = table_name
                 with pg_connection(
                     host=host,
                     port=port,
@@ -200,15 +215,24 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     password=config.password,
                     database=config.database,
                 ) as conn:
-                    pk_columns_by_table = get_primary_key_columns(conn, config.schema, list(db_schemas.keys()))
-                    tables_with_pks = set(pk_columns_by_table.keys())
+                    for source_schema, source_table_names in table_names_by_schema.items():
+                        if not source_table_names:
+                            continue
+
+                        source_pk_columns_by_table = get_primary_key_columns(conn, source_schema, source_table_names)
+                        for source_table_name, pk_columns in source_pk_columns_by_table.items():
+                            display_name = table_names_by_source_location.get((source_schema, source_table_name))
+                            if display_name is not None:
+                                pk_columns_by_table[display_name] = pk_columns
+
+                tables_with_pks = set(pk_columns_by_table.keys())
             except Exception as e:
                 capture_exception(e)
                 pk_columns_by_table = {}
                 tables_with_pks = set()
 
-        for table_name, columns in db_schemas.items():
-            incremental_field_tuples = filter_postgres_incremental_fields(columns)
+        for table_name, discovered_schema in db_schemas.items():
+            incremental_field_tuples = filter_postgres_incremental_fields(discovered_schema.columns)
             incremental_fields: list[IncrementalField] = [
                 {
                     "label": field_name,
@@ -228,10 +252,13 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     supports_cdc=table_name in tables_with_pks,
                     incremental_fields=incremental_fields,
                     row_count=row_counts.get(table_name, None),
-                    columns=columns,
+                    columns=discovered_schema.columns,
                     foreign_keys=db_foreign_keys.get(table_name, []),
+                    source_catalog=discovered_schema.source_catalog,
+                    source_schema=discovered_schema.source_schema,
+                    source_table_name=discovered_schema.source_table_name,
                     detected_primary_keys=pk_columns_by_table.get(table_name)
-                    or (["id"] if any(col[0] == "id" for col in columns) else None),
+                    or (["id"] if any(col[0] == "id" for col in discovered_schema.columns) else None),
                 )
             )
 
@@ -274,6 +301,20 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
 
         return True, None
 
+    def validate_credentials_for_access_method(
+        self,
+        config: PostgresSourceConfig,
+        team_id: int,
+        access_method: str,
+        schema_name: Optional[str] = None,
+    ) -> tuple[bool, str | None]:
+        if access_method != "direct":
+            schema = config.schema.strip() if isinstance(config.schema, str) else ""
+            if not schema and not schema_name:
+                return False, "Schema is required for warehouse imports."
+
+        return self.validate_credentials(config, team_id, schema_name=schema_name)
+
     def get_connection_metadata(
         self, config: PostgresSourceConfig, team_id: int, require_ssl: bool = False
     ) -> dict[str, object]:
@@ -314,11 +355,12 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                 require_ssl=require_ssl,
             )
             try:
+                schema = config.schema.strip() if isinstance(config.schema, str) and config.schema.strip() else "public"
                 return validate_cdc_prerequisites(
                     conn=conn,
                     management_mode=management_mode,  # type: ignore[arg-type]
                     tables=tables,
-                    schema=config.schema,
+                    schema=schema,
                     slot_name=slot_name,
                     publication_name=publication_name,
                 )
@@ -333,6 +375,15 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
         ssh_tunnel = self.make_ssh_tunnel_func(config)
 
         schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
+        schema_metadata = schema.schema_metadata or {}
+        source_schema = (
+            schema_metadata.get("source_schema") if isinstance(schema_metadata.get("source_schema"), str) else None
+        )
+        source_table_name = (
+            schema_metadata.get("source_table_name")
+            if isinstance(schema_metadata.get("source_table_name"), str)
+            else None
+        )
 
         # CDC streaming schemas are handled by CDCExtractionWorkflow, not here
         if schema.is_cdc and schema.cdc_mode == "streaming":
@@ -349,8 +400,8 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             password=config.password,
             database=config.database,
             sslmode="prefer",
-            schema=config.schema,
-            table_names=[inputs.schema_name],
+            schema=source_schema or config.schema or "public",
+            table_names=[source_table_name or inputs.schema_name],
             should_use_incremental_field=inputs.should_use_incremental_field,
             logger=inputs.logger,
             incremental_field=inputs.incremental_field,

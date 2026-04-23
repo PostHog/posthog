@@ -34,8 +34,8 @@
         "format": "oxlint --fix --fix-suggestions --fix-dangerously --quiet && oxfmt \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\""
     },
     "dependencies": {
-        "@modelcontextprotocol/ext-apps": "^1.0.1",
-        "@modelcontextprotocol/sdk": "^1.26.0",
+        "@modelcontextprotocol/ext-apps": "^1.5.0",
+        "@modelcontextprotocol/sdk": "^1.29.0",
         "@posthog/mosaic": "workspace:*",
         "@toon-format/toon": "^2.1.0",
         "agents": "0.10.2",

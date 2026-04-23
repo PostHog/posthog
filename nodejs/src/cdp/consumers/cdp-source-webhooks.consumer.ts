@@ -461,13 +461,13 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         return result
     }
 
-    public async start(): Promise<void> {
+    public override async start(): Promise<void> {
         await super.start()
         // Make sure we are ready to produce to cyclotron first
         await this.cyclotronJobQueue.startAsProducer()
     }
 
-    public async stop(): Promise<void> {
+    public override async stop(): Promise<void> {
         await this.cyclotronJobQueue.stop()
         await this.promiseScheduler.waitForAllSettled()
         // IMPORTANT: super always comes last

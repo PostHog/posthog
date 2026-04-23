@@ -1,0 +1,30 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Web analytics
+feature: web_analytics
+url_prefix: /web
+ui_apps: {}
+tools:
+    web-analytics-weekly-digest:
+        operation: web_analytics_weekly_digest
+        enabled: true
+        scopes:
+            - web_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Summarize web analytics
+        description: >
+            Summarizes a project's web analytics over a lookback window (default 7 days):
+            unique visitors, pageviews, sessions, bounce rate, and average session duration
+            with period-over-period comparisons, plus the top 5 pages, top 5 traffic sources,
+            and goal conversions. Accepts optional `days` (1–90, default 7) and `compare`
+            (bool, default true) query params — pass `days=30` to summarize the last month, or
+            `compare=false` to skip the period-over-period comparison for a faster response.
+            Use this to answer questions like "how are my web analytics?", "how did the site
+            do last week?", or "what's my traffic looking like this month?".

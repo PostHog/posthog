@@ -284,7 +284,7 @@ async fn test_personal_api_key_authentication_without_feature_flag_scopes() {
     let server = common::ServerHandle::for_config(config.clone()).await;
     let client = reqwest::Client::new();
 
-    // Test that the endpoint returns 401 when API key doesn't have feature_flag scopes
+    // Test that the endpoint returns 403 when API key is valid but lacks feature_flag scopes
     let response = client
         .get(format!(
             "http://{}/flags/definitions?token={}",
@@ -295,7 +295,18 @@ async fn test_personal_api_key_authentication_without_feature_flag_scopes() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), 401);
+    let status = response.status();
+    let body_text = response.text().await.unwrap();
+    assert_eq!(status, 403);
+
+    let body: serde_json::Value = serde_json::from_str(&body_text).unwrap();
+    assert_eq!(body["type"], "authentication_error");
+    assert_eq!(body["code"], "permission_denied");
+    assert_eq!(
+        body["detail"],
+        "Personal API key lacks required scopes (feature_flag:read or feature_flag:write)."
+    );
+    assert_eq!(body["attr"], serde_json::Value::Null);
 }
 
 #[tokio::test]

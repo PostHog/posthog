@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { getUserAgent } from '@/lib/constants'
-import { ErrorCode } from '@/lib/errors'
+import { ErrorCode, PostHogPermissionError } from '@/lib/errors'
 import { getSearchParamsFromRecord } from '@/lib/utils.js'
 import type {
     ApiEventDefinition,
@@ -167,7 +167,9 @@ export class ApiClient {
         const result = await this.fetchJson<T>(url, fetchOptions)
 
         if (!result.success) {
-            throw new Error(result.error.message)
+            // Re-throw the original error instance so callers can instanceof-check
+            // typed errors (e.g. PostHogPermissionError) that fetchJson throws.
+            throw result.error
         }
         return result.data as T
     }
@@ -222,6 +224,20 @@ export class ApiClient {
                         errorData = JSON.parse(errorText)
                     } catch {
                         errorData = { detail: errorText }
+                    }
+
+                    if (response.status === 403 && errorData?.code === 'permission_denied') {
+                        const scopeMatch = /required scope ['"]([^'"]+)['"]/.exec(errorData.detail || '')
+                        const missingScope = scopeMatch?.[1]
+                        console.error(
+                            `[API] Permission denied on ${method} ${url}: ${errorData.detail || 'unknown'}${missingScope ? ` (missing scope: ${missingScope})` : ''}`
+                        )
+                        throw new PostHogPermissionError({
+                            detail: errorData.detail || 'permission denied',
+                            missingScope,
+                            url,
+                            method,
+                        })
                     }
 
                     if (errorData.type === 'validation_error') {
@@ -894,10 +910,14 @@ export class ApiClient {
                 hasMore: boolean
                 offset: number
             }> => {
+                const normalized = normalizeQuery(query)
+                const includeRecordings = Boolean(normalized.includeRecordings)
                 const wrappedQuery = {
                     kind: 'ActorsQuery',
-                    source: normalizeQuery(query),
-                    select: ['actor', 'event_count'],
+                    source: normalized,
+                    select: includeRecordings
+                        ? ['actor', 'event_count', 'matched_recordings']
+                        : ['actor', 'event_count'],
                     orderBy: ['event_count DESC', 'actor_id DESC'],
                     limit: 100,
                 }
@@ -912,17 +932,29 @@ export class ApiClient {
                     body: { query: wrappedQuery },
                 })
 
-                const results = (response.results ?? []).map(([actor, count]) => {
+                const baseUrl = this.getProjectBaseUrl(projectId)
+                const results = (response.results ?? []).map((row) => {
+                    const [actor, count] = row
                     const properties = actor.properties ?? {}
                     const distinctId = actor.distinct_ids?.[0] ?? null
-                    return [distinctId, properties.email, properties.name, count]
+                    const base = [distinctId, properties.email, properties.name, count]
+                    if (includeRecordings) {
+                        const recordingLinks = (row[2] ?? [])
+                            .map((r: any) => r.session_id)
+                            .filter(Boolean)
+                            .map((sessionId: string) => `${baseUrl}/replay/home?sessionRecordingId=${sessionId}`)
+                        return [...base, recordingLinks]
+                    }
+                    return base
                 })
 
                 return {
                     query: wrappedQuery,
                     results: {
-                        columns: ['distinct_id', 'email', 'name', 'event_count'],
-                        results: results,
+                        columns: includeRecordings
+                            ? ['distinct_id', 'email', 'name', 'event_count', 'recordings']
+                            : ['distinct_id', 'email', 'name', 'event_count'],
+                        results,
                     },
                     hasMore: response.hasMore ?? false,
                     offset: response.offset ?? 0,

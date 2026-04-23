@@ -1,12 +1,28 @@
+import json
+from typing import Any
+
 import pytest
 from unittest import mock
+from unittest.mock import MagicMock, patch
+
+from requests import Response
 
 from posthog.schema import SourceFieldInputConfig, SourceFieldOauthConfig
 
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import RedditAdsSourceConfig
+from posthog.temporal.data_imports.sources.reddit_ads.reddit_ads import RedditAdsResumeConfig
 from posthog.temporal.data_imports.sources.reddit_ads.source import RedditAdsSource
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
+
+
+def _make_response(json_body: Any, status_code: int = 200) -> Response:
+    resp = Response()
+    resp.status_code = status_code
+    resp._content = json.dumps(json_body).encode()
+    resp.headers["Content-Type"] = "application/json"
+    return resp
 
 
 class TestRedditAdsSource:
@@ -106,6 +122,17 @@ class TestRedditAdsSource:
         for endpoint in expected_endpoints:
             assert endpoint in schema_names
 
+    def test_get_resumable_source_manager(self):
+        """The source must expose a ResumableSourceManager instance."""
+        inputs = mock.MagicMock()
+        inputs.team_id = self.team_id
+        inputs.job_id = "test_job"
+        inputs.logger = mock.MagicMock()
+
+        manager = self.source.get_resumable_source_manager(inputs)
+
+        assert isinstance(manager, ResumableSourceManager)
+
     @mock.patch("posthog.temporal.data_imports.sources.reddit_ads.source.RedditAdsSource.get_oauth_integration")
     def test_source_for_pipeline_success(self, mock_get_oauth_integration):
         """Test source_for_pipeline with valid integration."""
@@ -127,7 +154,8 @@ class TestRedditAdsSource:
             inputs.should_use_incremental_field = False
             inputs.db_incremental_field_last_value = None
 
-            result = self.source.source_for_pipeline(self.config, inputs)
+            manager = mock.MagicMock()
+            result = self.source.source_for_pipeline(self.config, manager, inputs)
 
             assert result == mock_response
             mock_get_oauth_integration.assert_called_once_with(self.config.reddit_integration_id, self.team_id)
@@ -137,6 +165,7 @@ class TestRedditAdsSource:
                 team_id=self.team_id,
                 job_id="test_job",
                 access_token="test_token",
+                resumable_source_manager=manager,
                 should_use_incremental_field=False,
                 db_incremental_field_last_value=None,
             )
@@ -156,7 +185,7 @@ class TestRedditAdsSource:
         inputs.db_incremental_field_last_value = None
 
         with pytest.raises(ValueError, match="Reddit Ads access token not found for job test_job"):
-            self.source.source_for_pipeline(self.config, inputs)
+            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
     @mock.patch("posthog.temporal.data_imports.sources.reddit_ads.source.RedditAdsSource.get_oauth_integration")
     def test_source_for_pipeline_with_incremental(self, mock_get_oauth_integration):
@@ -178,7 +207,8 @@ class TestRedditAdsSource:
             inputs.should_use_incremental_field = True
             inputs.db_incremental_field_last_value = "2024-03-15"
 
-            result = self.source.source_for_pipeline(self.config, inputs)
+            manager = mock.MagicMock()
+            result = self.source.source_for_pipeline(self.config, manager, inputs)
 
             assert result == mock_response
             mock_reddit_ads_source.assert_called_once_with(
@@ -187,6 +217,92 @@ class TestRedditAdsSource:
                 team_id=self.team_id,
                 job_id="test_job",
                 access_token="test_token",
+                resumable_source_manager=manager,
                 should_use_incremental_field=True,
                 db_incremental_field_last_value="2024-03-15",
             )
+
+
+class TestRedditAdsResumeBehavior:
+    """End-to-end resume behavior of reddit_ads_source with a mocked HTTP session."""
+
+    def setup_method(self):
+        self.account_id = "789"
+        self.team_id = 123
+        self.job_id = "test_job"
+
+    def _run_campaigns(self, manager: MagicMock, responses: list[Response]) -> MagicMock:
+        from posthog.temporal.data_imports.sources.reddit_ads.reddit_ads import reddit_ads_source
+
+        with patch(
+            "posthog.temporal.data_imports.sources.common.rest_source.rest_client.requests.Session"
+        ) as MockSession:
+            mock_session = MockSession.return_value
+            mock_session.headers = {}
+            mock_session.prepare_request.side_effect = lambda req: req
+            mock_session.send.side_effect = responses
+
+            response = reddit_ads_source(
+                account_id=self.account_id,
+                endpoint="campaigns",
+                team_id=self.team_id,
+                job_id=self.job_id,
+                access_token="test_token",
+                db_incremental_field_last_value=None,
+                resumable_source_manager=manager,
+                should_use_incremental_field=False,
+            )
+            # Drain the resource to exercise the pagination loop.
+            list(response.items())
+            return mock_session
+
+    def test_fresh_run_saves_state_after_each_non_terminal_page(self):
+        """can_resume=False: first page yields, manager.save_state is called with the next_url."""
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+
+        responses = [
+            _make_response(
+                {
+                    "data": [{"id": "c1", "modified_at": "2024-01-01T00:00:00Z"}],
+                    "pagination": {"next_url": "https://ads-api.reddit.com/api/v3/ad_accounts/789/campaigns?page=2"},
+                }
+            ),
+            _make_response({"data": [{"id": "c2", "modified_at": "2024-01-02T00:00:00Z"}], "pagination": {}}),
+        ]
+        self._run_campaigns(manager, responses)
+
+        # Resume state is persisted only once — after the first (non-terminal) page.
+        save_calls = manager.save_state.call_args_list
+        assert len(save_calls) == 1
+        saved_config = save_calls[0].args[0]
+        assert isinstance(saved_config, RedditAdsResumeConfig)
+        assert saved_config.next_url == "https://ads-api.reddit.com/api/v3/ad_accounts/789/campaigns?page=2"
+
+    def test_resume_uses_saved_cursor(self):
+        """can_resume=True: the first request goes to the saved next_url, not the initial path."""
+        manager = MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = RedditAdsResumeConfig(
+            next_url="https://ads-api.reddit.com/api/v3/ad_accounts/789/campaigns?page=7"
+        )
+
+        responses = [
+            _make_response({"data": [{"id": "c7", "modified_at": "2024-01-07T00:00:00Z"}], "pagination": {}}),
+        ]
+        mock_session = self._run_campaigns(manager, responses)
+
+        sent_request = mock_session.send.call_args_list[0].args[0]
+        assert sent_request.url == "https://ads-api.reddit.com/api/v3/ad_accounts/789/campaigns?page=7"
+
+    def test_terminal_page_does_not_save_state(self):
+        """A single response with no next_url yields no save_state calls."""
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+
+        responses = [
+            _make_response({"data": [{"id": "c1", "modified_at": "2024-01-01T00:00:00Z"}], "pagination": {}}),
+        ]
+        self._run_campaigns(manager, responses)
+
+        manager.save_state.assert_not_called()

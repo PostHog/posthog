@@ -74,8 +74,25 @@ const getStorageKey = (key: string): string => {
 
 const generateTabId = (): string => crypto?.randomUUID?.()?.split('-')?.pop() || `${Date.now()}-${Math.random()}`
 
+/**
+ * Snapshot for JSON / structuredClone. Strips only `sceneParams` (deep/cyclic routing state); everything
+ * else on `SceneTab` is kept so new fields are not forgotten. If a future field holds non-plain data,
+ * omit it here explicitly.
+ */
+const tabToPersistableSnapshot = (tab: SceneTab, overrides: Partial<SceneTab> = {}): SceneTab => {
+    const { sceneParams: _omitSceneParams, ...rest } = tab
+    return {
+        ...rest,
+        id: tab.id || generateTabId(),
+        ...overrides,
+    }
+}
+
+/** Plain tab snapshots for browser history (`structuredClone` in initKea); excludes `sceneParams`. */
+export const getTabsSnapshotForHistory = (tabs: SceneTab[]): SceneTab[] => tabs.map((t) => tabToPersistableSnapshot(t))
+
 const persistSessionTabs = (tabs: SceneTab[]): void => {
-    sessionStorage.setItem(getStorageKey(TAB_STATE_KEY), JSON.stringify(tabs))
+    sessionStorage.setItem(getStorageKey(TAB_STATE_KEY), JSON.stringify(tabs.map((t) => tabToPersistableSnapshot(t))))
 }
 
 const getPersistedSessionTabs = (): SceneTab[] | null => {
@@ -91,13 +108,7 @@ const getPersistedSessionTabs = (): SceneTab[] | null => {
 }
 
 const sanitizeTabForPersistence = (tab: SceneTab): SceneTab => {
-    const { active, ...rest } = tab
-    return {
-        ...rest,
-        id: tab.id || generateTabId(),
-        pinned: true,
-        active: false,
-    }
+    return tabToPersistableSnapshot(tab, { pinned: true, active: false })
 }
 
 const persistPinnedTabs = (tabs: SceneTab[], homepage: SceneTab | null): void => {
@@ -1429,8 +1440,18 @@ export const sceneLogic = kea<sceneLogicType>([
                 if (targetPathname === '/') {
                     targetPathname = urls.projectHomepage()
                 }
-                router.actions.replace(targetPathname, homepage.search || '', homepage.hash || '')
-                return
+                const targetSearch = homepage.search || ''
+                const targetHash = homepage.hash || ''
+                const loc = router.values.currentLocation
+                // Already at homepage: skip replace or replaceState loops (e.g. homepage === project root).
+                const alreadyAtHomepage =
+                    addProjectIdIfMissing(loc.pathname) === addProjectIdIfMissing(targetPathname) &&
+                    (loc.search || '') === targetSearch &&
+                    (loc.hash || '') === targetHash
+                if (!alreadyAtHomepage) {
+                    router.actions.replace(targetPathname, targetSearch, targetHash)
+                    return
+                }
             }
 
             const isAIFirst = posthog.isFeatureEnabled(FEATURE_FLAGS.AI_FIRST)

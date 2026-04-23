@@ -4,6 +4,7 @@ import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
 import { createTestTeam } from '~/tests/helpers/team'
 import { EventHeaders, Person } from '~/types'
 
+import { BLOAT_PROPERTIES } from '../event-processing/strip-bloat-properties'
 import { PipelineResultType, isOkResult } from '../pipelines/results'
 import { createErrorTrackingPrepareEventStep } from './prepare-event-step'
 
@@ -163,6 +164,26 @@ describe('createErrorTrackingPrepareEventStep', () => {
         if (isOkResult(result)) {
             expect(result.value.preparedEvent.properties['$ip']).toBeUndefined()
             expect(result.value.preparedEvent.properties['other']).toBe('kept')
+        }
+    })
+
+    it('should strip bloat properties from $exception events', async () => {
+        const bloat = Object.fromEntries([...BLOAT_PROPERTIES].map((key) => [key, { heavy: 'cache-blob' }]))
+        const event = createTestPluginEvent({
+            event: '$exception',
+            properties: {
+                ...bloat,
+                $exception_list: [{ type: 'Error', value: 'Test' }],
+            },
+        })
+
+        const result = await step({ event, team, person: null, headers: createTestHeaders() })
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        if (isOkResult(result)) {
+            expect(result.value.preparedEvent.properties).toEqual({
+                $exception_list: [{ type: 'Error', value: 'Test' }],
+            })
         }
     })
 

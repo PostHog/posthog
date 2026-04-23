@@ -197,8 +197,8 @@ export interface BatchExportRunApi {
     records_total_count?: number | null
     /**
      * The number of bytes that have been exported in this BatchExportRun.
-     * @minimum -9223372036854776000
-     * @maximum 9223372036854776000
+     * @minimum -2147483648
+     * @maximum 2147483647
      * @nullable
      */
     bytes_exported?: number | null
@@ -411,8 +411,8 @@ export interface BatchExportBackfillApi {
     readonly last_updated_at: string
     /**
      * The total number of records to export. Initially estimated, updated with actual count after completion.
-     * @minimum -9223372036854776000
-     * @maximum 9223372036854776000
+     * @minimum -2147483648
+     * @maximum 2147483647
      * @nullable
      */
     total_records_count?: number | null
@@ -454,6 +454,38 @@ export type BatchExportsListParams = {
     offset?: number
 }
 
+export type BatchExportsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string
+}
+
 export type BatchExportsList2Params = {
     /**
      * Number of results to return per page.
@@ -485,4 +517,68 @@ export type BatchExportsRunsListParams = {
      * Which field to use when ordering the results.
      */
     ordering?: string
+}
+
+export type BatchExportsRunsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string
+}
+
+export type BatchExportsLogsRetrieve2Params = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string
 }

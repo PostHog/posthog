@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+import yaml
 from hogli.devenv.generator import DevenvConfig, MprocsGenerator, load_devenv_config
 from hogli.devenv.registry import ProcessRegistry, create_mprocs_registry
 from hogli.devenv.resolver import Capability, Intent, IntentMap, IntentResolver, load_intent_map
@@ -19,7 +21,9 @@ class MockRegistry(ProcessRegistry):
     def __init__(self, capability_units: dict[str, list[str]], ask_skip: list[str] | None = None):
         self._capability_units = capability_units
         self._ask_skip = ask_skip or []
-        self._processes = {
+        # dict[str, Any] since proc configs are heterogeneous
+        # (shell: str, capability: str, autostart: bool, ...)
+        self._processes: dict[str, dict[str, Any]] = {
             unit: {"shell": f"./bin/start-{unit}", "capability": cap}
             for cap, units in capability_units.items()
             for unit in units
@@ -574,6 +578,110 @@ class TestMprocsGeneratorRegression:
         assert "feature-flags" in config.procs
         assert "property-defs-rs" in config.procs
         assert "docker-compose" in config.procs
+
+
+class TestMprocsGeneratorPreservesCapability:
+    """Generated procs retain `capability:` so phrocs can group by capability.
+
+    phrocs copies ProcConfig.Capability into Groups["capability"] at load
+    time; the generator must therefore pass the field through.
+    """
+
+    def test_capability_preserved_in_generated_procs(self) -> None:
+        intent_map = create_test_intent_map()
+        registry = create_test_registry()
+        resolver = IntentResolver(intent_map, registry)
+        resolved = resolver.resolve(["session_replay"])
+        config = MprocsGenerator(registry).generate(resolved)
+
+        # Spot-check procs from different capabilities
+        assert config.procs["capture"].get("capability") == "event_ingestion"
+        assert config.procs["capture-replay"].get("capability") == "replay_storage"
+        assert config.procs["docker-compose"].get("capability") == "core_infra"
+
+    def test_always_required_without_capability_gets_synthetic_bucket(self) -> None:
+        """Procs in always_required that don't declare a capability get "always_required"."""
+        intent_map = create_test_intent_map()  # always_required = [backend, frontend, docker-compose]
+        registry = create_test_registry()
+        # Register backend/frontend without a capability (they're the app itself)
+        registry._processes["backend"] = {"shell": "./bin/start-backend", "capability": ""}
+        registry._processes["frontend"] = {"shell": "./bin/start-frontend", "capability": ""}
+        resolver = IntentResolver(intent_map, registry)
+        resolved = resolver.resolve(["product_analytics"])
+        config = MprocsGenerator(registry).generate(resolved)
+
+        assert config.procs["backend"].get("capability") == "always_required"
+        assert config.procs["frontend"].get("capability") == "always_required"
+        # docker-compose has a real capability; synthetic bucket must not overwrite it
+        assert config.procs["docker-compose"].get("capability") == "core_infra"
+
+    def test_manual_start_without_capability_gets_tools_bucket(self) -> None:
+        """Procs with autostart: false and no capability get "tools"."""
+        intent_map = create_test_intent_map()
+        registry = create_test_registry()
+        # Manual-start tool: no capability, autostart: false, not in always_required
+        registry._processes["storybook"] = {
+            "shell": "pnpm storybook",
+            "capability": "",
+            "autostart": False,
+        }
+        resolver = IntentResolver(intent_map, registry)
+        resolved = resolver.resolve(["product_analytics"])
+        config = MprocsGenerator(registry).generate(resolved)
+
+        assert "storybook" in config.procs
+        assert config.procs["storybook"].get("capability") == "tools"
+
+    def test_always_required_wins_over_manual_start(self) -> None:
+        """A proc that is both always_required and autostart: false (e.g. typegen)
+        goes to the "always_required" bucket, not "tools"."""
+        intent_map = create_test_intent_map()
+        intent_map.always_required = [*intent_map.always_required, "typegen"]
+        registry = create_test_registry()
+        registry._processes["typegen"] = {
+            "shell": "pnpm typegen:watch",
+            "capability": "",
+            "autostart": False,
+        }
+        resolver = IntentResolver(intent_map, registry)
+        resolved = resolver.resolve(["product_analytics"])
+        config = MprocsGenerator(registry).generate(resolved)
+
+        assert config.procs["typegen"].get("capability") == "always_required"
+
+    def test_capability_survives_yaml_round_trip(self, tmp_path: Path) -> None:
+        """End-to-end check: generator output -> YAML file -> parse.
+
+        phrocs' Go-side inference (inferGroupFromCapability) relies on the
+        `capability:` field being present on each emitted proc. This test
+        catches regressions where the generator, yaml.dump, or MprocsConfig
+        serialization silently drops the field somewhere in the pipeline.
+        The Go side has its own tests that the field, once present in YAML,
+        is copied into Groups["capability"].
+        """
+        # Use the real intent-map and registry so we exercise the live wiring,
+        # including the synthetic always_required/tools buckets.
+        intent_map = load_intent_map()
+        registry = create_mprocs_registry()
+        resolver = IntentResolver(intent_map, registry)
+        resolved = resolver.resolve(["product_analytics"])
+        config = MprocsGenerator(registry).generate(resolved)
+
+        out = tmp_path / "mprocs.yaml"
+        MprocsGenerator(registry).save(config, out)
+
+        with open(out) as f:
+            data = yaml.safe_load(f)
+
+        # Every proc in the output (except info, which is pinned by YAML) must
+        # carry a non-empty capability so the capability dimension has content.
+        missing = [name for name, cfg in data["procs"].items() if name != "info" and not cfg.get("capability")]
+        assert not missing, f"procs missing capability in serialized YAML: {missing}"
+
+        # Spot-check the three flavors: real, always_required, tools.
+        assert data["procs"]["capture"]["capability"] == "event_ingestion"
+        assert data["procs"]["backend"]["capability"] == "always_required"
+        assert data["procs"]["storybook"]["capability"] == "tools"
 
 
 class TestPersonhogEnvInjection:

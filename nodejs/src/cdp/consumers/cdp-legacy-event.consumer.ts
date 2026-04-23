@@ -418,7 +418,7 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
         })
     }
 
-    public async start(): Promise<void> {
+    public override async start(): Promise<void> {
         await super.start()
         await this.legacyWebhookService.start()
         // Start consuming messages
@@ -437,7 +437,7 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
         })
     }
 
-    public async stop(): Promise<void> {
+    public override async stop(): Promise<void> {
         logger.info('💤', 'Stopping consumer...')
         await this.kafkaConsumer.disconnect()
         logger.info('💤', 'Stopping legacy webhook service...')

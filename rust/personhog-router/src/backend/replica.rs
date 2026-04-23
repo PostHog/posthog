@@ -1,10 +1,12 @@
 use async_trait::async_trait;
 use personhog_proto::personhog::replica::v1::person_hog_replica_client::PersonHogReplicaClient;
 use personhog_proto::personhog::types::v1::{
-    CheckCohortMembershipRequest, CohortMembershipResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
-    DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
-    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
+    CheckCohortMembershipRequest, CohortMembershipResponse, CountCohortMembersRequest,
+    CountCohortMembersResponse, DeleteCohortMemberRequest, DeleteCohortMemberResponse,
+    DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
+    DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
+    DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
+    DeletePersonsResponse, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
     GetGroupResponse, GetGroupTypeMappingsByProjectIdRequest,
     GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
@@ -13,8 +15,9 @@ use personhog_proto::personhog::types::v1::{
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
-    PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
+    ListCohortMemberIdsResponse, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
+    PersonsResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use std::time::Duration;
 use tonic::transport::Channel;
@@ -197,6 +200,41 @@ impl PersonHogBackend for ReplicaBackend {
         request: CheckCohortMembershipRequest,
     ) -> Result<CohortMembershipResponse, Status> {
         retry_call!(self, check_cohort_membership, request)
+    }
+
+    async fn count_cohort_members(
+        &self,
+        request: CountCohortMembersRequest,
+    ) -> Result<CountCohortMembersResponse, Status> {
+        retry_call!(self, count_cohort_members, request)
+    }
+
+    async fn delete_cohort_member(
+        &self,
+        request: DeleteCohortMemberRequest,
+    ) -> Result<DeleteCohortMemberResponse, Status> {
+        retry_call!(self, delete_cohort_member, request)
+    }
+
+    async fn delete_cohort_members_bulk(
+        &self,
+        request: DeleteCohortMembersBulkRequest,
+    ) -> Result<DeleteCohortMembersBulkResponse, Status> {
+        retry_call!(self, delete_cohort_members_bulk, request)
+    }
+
+    async fn insert_cohort_members(
+        &self,
+        request: InsertCohortMembersRequest,
+    ) -> Result<InsertCohortMembersResponse, Status> {
+        retry_call!(self, insert_cohort_members, request)
+    }
+
+    async fn list_cohort_member_ids(
+        &self,
+        request: ListCohortMemberIdsRequest,
+    ) -> Result<ListCohortMemberIdsResponse, Status> {
+        retry_call!(self, list_cohort_member_ids, request)
     }
 
     // Groups

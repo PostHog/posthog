@@ -1,0 +1,41 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "description": {
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "payload": {
+            "additionalProperties": {},
+            "description": "Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. Use external-data-sources-wizard to see required fields per source type.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "prefix": {
+            "anyOf": [
+                {
+                    "maxLength": 100,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "source_type": {
+            "description": "The source type name (e.g. \"Postgres\", \"MySQL\", \"Stripe\"). Use external-data-sources-wizard to see available types and their required fields.",
+            "type": "string"
+        }
+    },
+    "required": ["source_type", "payload"],
+    "type": "object"
+}

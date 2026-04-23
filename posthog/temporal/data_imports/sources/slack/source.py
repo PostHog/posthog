@@ -7,13 +7,15 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import SlackSourceConfig
 from posthog.temporal.data_imports.sources.slack.settings import ENDPOINTS, messages_endpoint_config
 from posthog.temporal.data_imports.sources.slack.slack import (
+    SlackResumeConfig,
     get_channels,
     slack_source,
     validate_credentials as validate_slack_credentials,
@@ -23,7 +25,7 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class SlackSource(SimpleSource[SlackSourceConfig], OAuthMixin):
+class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], OAuthMixin):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SLACK
@@ -115,7 +117,15 @@ class SlackSource(SimpleSource[SlackSourceConfig], OAuthMixin):
         except Exception as e:
             return False, f"Failed to validate Slack credentials: {str(e)}"
 
-    def source_for_pipeline(self, config: SlackSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[SlackResumeConfig]:
+        return ResumableSourceManager[SlackResumeConfig](inputs, SlackResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: SlackSourceConfig,
+        resumable_source_manager: ResumableSourceManager[SlackResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         integration = self.get_oauth_integration(config.slack_integration_id, inputs.team_id)
         access_token = integration.access_token
 
@@ -130,6 +140,7 @@ class SlackSource(SimpleSource[SlackSourceConfig], OAuthMixin):
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

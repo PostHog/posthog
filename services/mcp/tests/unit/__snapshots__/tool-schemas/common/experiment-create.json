@@ -2336,11 +2336,28 @@
                                                 "description": "Human-readable variant name."
                                             },
                                             "rollout_percentage": {
-                                                "description": "Percentage of users assigned to this variant (0–100). All variants must sum to 100.",
-                                                "type": "number"
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ]
+                                            },
+                                            "split_percent": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided."
                                             }
                                         },
-                                        "required": ["key", "rollout_percentage"],
+                                        "required": ["key"],
                                         "type": "object"
                                     },
                                     "type": "array"
@@ -2369,7 +2386,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and rollout_percentage; percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power."
+            "description": "Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power."
         },
         "type": {
             "anyOf": [

@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Any, cast
 
 import pytest
+from unittest import mock
 from unittest.mock import patch
 
 from django.db import connection as django_connection
@@ -30,6 +31,9 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _is_read_replica,
     _normalize_function_names,
     filter_postgres_incremental_fields,
+    get_foreign_keys,
+    get_postgres_row_count,
+    get_schemas,
 )
 from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
@@ -97,6 +101,181 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Permanent error should be non-retryable: {error_msg}"
+
+    def test_validate_credentials_for_access_method_requires_schema_for_warehouse_imports(self, source):
+        config = source.parse_config(
+            {
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "",
+            }
+        )
+
+        valid, error = source.validate_credentials_for_access_method(config, team_id=1, access_method="warehouse")
+
+        assert valid is False
+        assert error == "Schema is required for warehouse imports."
+
+    def test_validate_credentials_for_access_method_allows_blank_schema_for_direct_queries(self, source):
+        config = source.parse_config(
+            {
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "",
+            }
+        )
+
+        with mock.patch.object(source, "validate_credentials", return_value=(True, None)) as validate_credentials:
+            valid, error = source.validate_credentials_for_access_method(config, team_id=1, access_method="direct")
+
+        assert valid is True
+        assert error is None
+        validate_credentials.assert_called_once_with(config, 1, schema_name=None)
+
+
+class TestPostgresSchemaDiscovery:
+    def _mock_connection(self, *fetchall_results: list[tuple[object, ...]]):
+        cursor = mock.MagicMock()
+        cursor.fetchall.side_effect = list(fetchall_results)
+        cursor.fetchone.return_value = ("PostgreSQL 15.0",)
+
+        cursor_context = mock.MagicMock()
+        cursor_context.__enter__.return_value = cursor
+        cursor_context.__exit__.return_value = None
+
+        connection = mock.MagicMock()
+        connection.cursor.return_value = cursor_context
+        return connection
+
+    def test_get_schemas_qualifies_table_names_when_schema_is_blank(self):
+        connection = self._mock_connection(
+            [("public", "users"), ("analytics", "events")],
+            [
+                ("analytics", "events", "id", "integer", "NO", 1),
+                ("public", "users", "id", "integer", "NO", 1),
+            ],
+        )
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres._connect_to_postgres",
+            return_value=connection,
+        ):
+            schemas = get_schemas(
+                host="localhost",
+                port=5432,
+                database="postgres",
+                user="postgres",
+                password="postgres",
+                schema="",
+            )
+
+        cursor = connection.cursor.return_value.__enter__.return_value
+        executed_queries = [
+            call.args[0] for call in cursor.execute.call_args_list if "SELECT version()" not in str(call.args[0])
+        ]
+        first_query = executed_queries[0]
+        second_query = executed_queries[1]
+
+        assert "NOT IN" in first_query
+        assert "ALL(" not in first_query
+        assert " IN (" in second_query
+        assert "ANY(" not in second_query
+        assert set(schemas.keys()) == {"public.users", "analytics.events"}
+        assert schemas["public.users"].source_schema == "public"
+        assert schemas["public.users"].source_table_name == "users"
+        assert schemas["analytics.events"].source_schema == "analytics"
+        assert schemas["analytics.events"].source_table_name == "events"
+
+    def test_get_foreign_keys_qualifies_target_table_names_when_schema_is_blank(self):
+        connection = self._mock_connection(
+            [("public", "users"), ("analytics", "events")],
+            [("analytics", "events", "user_id", "public", "users", "id")],
+        )
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres._connect_to_postgres",
+            return_value=connection,
+        ):
+            foreign_keys = get_foreign_keys(
+                host="localhost",
+                port=5432,
+                database="postgres",
+                user="postgres",
+                password="postgres",
+                schema="",
+            )
+
+        cursor = connection.cursor.return_value.__enter__.return_value
+        executed_queries = [
+            call.args[0] for call in cursor.execute.call_args_list if "SELECT version()" not in str(call.args[0])
+        ]
+        first_query = executed_queries[0]
+        second_query = executed_queries[1]
+
+        assert "NOT IN" in first_query
+        assert "ALL(" not in first_query
+        assert " IN (" in second_query
+        assert "ANY(" not in second_query
+        assert foreign_keys == {"analytics.events": [("user_id", "public.users", "id")]}
+
+    def test_get_schemas_for_duckdb_uses_current_catalog_only(self):
+        connection = self._mock_connection(
+            [("ducklake", "system", "query_log")],
+            [
+                ("system", "query_log", "query_id", "varchar", "NO", 1),
+            ],
+        )
+        connection.cursor.return_value.__enter__.return_value.fetchone.side_effect = [
+            ("DuckDB 1.4 (Duckgres)",),
+            ("ducklake",),
+        ]
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres._connect_to_postgres",
+            return_value=connection,
+        ):
+            schemas = get_schemas(
+                host="localhost",
+                port=5432,
+                database="postgres",
+                user="postgres",
+                password="postgres",
+                schema="",
+            )
+
+        cursor = connection.cursor.return_value.__enter__.return_value
+        information_schema_call = next(
+            call for call in cursor.execute.call_args_list if "FROM information_schema.tables" in str(call.args[0])
+        )
+        information_schema_query = str(information_schema_call.args[0])
+        information_schema_params = information_schema_call.args[1]
+
+        assert "table_catalog = %(current_database)s" in information_schema_query
+        assert information_schema_params["current_database"] == "ducklake"
+        assert schemas["system.query_log"].source_catalog == "ducklake"
+        assert "public.ducklake_view" not in schemas
+
+    def test_get_postgres_row_count_skips_blank_schema_browse(self):
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres._connect_to_postgres"
+        ) as patch_connect_to_postgres:
+            row_counts = get_postgres_row_count(
+                host="localhost",
+                port=5432,
+                database="postgres",
+                user="postgres",
+                password="postgres",
+                schema="   ",
+            )
+
+        assert row_counts == {}
+        patch_connect_to_postgres.assert_not_called()
 
 
 class TestGetSslmode:

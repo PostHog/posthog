@@ -93,7 +93,7 @@ const ToastCard = React.forwardRef<HTMLDivElement, ToastCardProps>(
                         {icon && <span className="size-6 shrink-0" />}
                         <button
                             type="button"
-                            className="rounded-md border border-border bg-popover px-2 py-1 text-xs font-medium hover:bg-accent transition-colors"
+                            className="rounded-sm border border-border bg-popover px-2 py-1 text-xs font-medium hover:bg-accent transition-colors"
                             onClick={action.onClick}
                         >
                             {action.label}

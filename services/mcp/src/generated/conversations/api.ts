@@ -51,16 +51,7 @@ export const ConversationsTicketsListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
-        .enum([
-            '-created_at',
-            '-sla_due_at',
-            '-ticket_number',
-            '-updated_at',
-            'created_at',
-            'sla_due_at',
-            'ticket_number',
-            'updated_at',
-        ])
+        .string()
         .optional()
         .describe('Sort order. Prefix with `-` for descending. Defaults to `-updated_at`.'),
     priority: zod

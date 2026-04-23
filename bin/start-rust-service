@@ -186,6 +186,20 @@ case "$RS_SVC" in
     export METRICS_PORT=9101
     ;;
 
+  personhog-router-leader)
+    export RUST_LOG=debug
+    export RUST_BACKTRACE=1
+    export GRPC_ADDRESS=127.0.0.1:50054
+    export REPLICA_URL=http://127.0.0.1:50051
+    export ROUTER_MODE=leader
+    export ETCD_ENDPOINTS=http://localhost:2379
+    export ETCD_PREFIX=/personhog/
+    export BACKEND_TIMEOUT_MS=5000
+    export METRICS_PORT=9104
+    # The router binary is the same as personhog-router
+    export DEV_RUST_SVC_OVERRIDE=personhog-router
+    ;;
+
   personhog-leader)
     export RUST_LOG=debug
     export RUST_BACKTRACE=1
@@ -193,9 +207,25 @@ case "$RS_SVC" in
     export CACHE_MEMORY_CAPACITY=100000
     export ETCD_ENDPOINTS=http://localhost:2379
     export ETCD_PREFIX=/personhog/
+    # Register as 127.0.0.1 so the router can resolve the pod address locally.
+    # In production, pod names resolve via K8s DNS.
+    export POD_NAME=127.0.0.1
     export KAFKA_HOSTS="${KAFKA_HOSTS:-localhost:9092}"
     export KAFKA_PERSON_STATE_TOPIC=personhog_updates
     export METRICS_PORT=9102
+    ;;
+
+  personhog-writer)
+    export RUST_LOG=debug
+    export RUST_BACKTRACE=1
+    export DATABASE_URL="postgres://posthog:posthog@${PGHOST:-localhost}:${PGPORT:-5432}/posthog_persons"
+    export KAFKA_HOSTS="${KAFKA_HOSTS:-localhost:9092}"
+    export KAFKA_TOPIC=personhog_updates
+    export KAFKA_CONSUMER_GROUP=personhog-writer
+    export FLUSH_INTERVAL_MS=5000
+    export FLUSH_BUFFER_SIZE=1000
+    export BUFFER_CAPACITY=50000
+    export METRICS_PORT=9103
     ;;
 
   *)

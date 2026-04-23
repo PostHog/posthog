@@ -48,7 +48,7 @@ function MenubarTrigger({ className, ...props }: React.ComponentProps<typeof Dro
         <DropdownMenuTrigger
             data-slot="menubar-trigger"
             className={cn(
-                'flex items-center rounded-[calc(var(--radius-md)-2px)] px-2 py-[calc(--spacing(0.85))] text-xs/relaxed font-medium outline-hidden select-none hover:bg-muted aria-expanded:bg-muted',
+                'flex items-center rounded-[calc(var(--radius-sm)-2px)] px-2 py-[calc(--spacing(0.85))] text-xs/relaxed font-medium outline-hidden select-none hover:bg-muted aria-expanded:bg-muted',
                 className
             )}
             {...props}
@@ -90,7 +90,7 @@ function MenubarItem({
             data-inset={inset}
             data-variant={variant}
             className={cn(
-                "group/menubar-item min-h-7 gap-2 rounded-md px-2 py-1 text-xs/relaxed focus:bg-accent focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-inset:ps-7.5 data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:focus:text-destructive dark:data-[variant=destructive]:focus:bg-destructive/20 data-disabled:opacity-50 [&_svg:not([class*='size-'])]:size-3.5 data-[variant=destructive]:*:[svg]:text-destructive!",
+                "group/menubar-item min-h-7 gap-2 rounded-sm px-2 py-1 text-xs/relaxed focus:bg-accent focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-inset:ps-7.5 data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:focus:text-destructive dark:data-[variant=destructive]:focus:bg-destructive/20 data-disabled:opacity-50 [&_svg:not([class*='size-'])]:size-3.5 data-[variant=destructive]:*:[svg]:text-destructive!",
                 className
             )}
             {...props}
@@ -112,7 +112,7 @@ function MenubarCheckboxItem({
             data-slot="menubar-checkbox-item"
             data-inset={inset}
             className={cn(
-                'relative flex min-h-7 cursor-default items-center gap-2 rounded-md py-1.5 pe-2 ps-7.5 text-xs outline-hidden select-none focus:bg-accent focus:text-accent-foreground focus:**:text-accent-foreground data-inset:ps-7.5 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0',
+                'relative flex min-h-7 cursor-default items-center gap-2 rounded-sm py-1.5 pe-2 ps-7.5 text-xs outline-hidden select-none focus:bg-accent focus:text-accent-foreground focus:**:text-accent-foreground data-inset:ps-7.5 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0',
                 className
             )}
             checked={checked}
@@ -146,7 +146,7 @@ function MenubarRadioItem({
             data-slot="menubar-radio-item"
             data-inset={inset}
             className={cn(
-                "relative flex min-h-7 cursor-default items-center gap-2 rounded-md py-1.5 pe-2 ps-7.5 text-xs outline-hidden select-none focus:bg-accent focus:text-accent-foreground focus:**:text-accent-foreground data-inset:ps-7.5 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+                "relative flex min-h-7 cursor-default items-center gap-2 rounded-sm py-1.5 pe-2 ps-7.5 text-xs outline-hidden select-none focus:bg-accent focus:text-accent-foreground focus:**:text-accent-foreground data-inset:ps-7.5 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
                 className
             )}
             {...props}
@@ -224,7 +224,7 @@ function MenubarSubTrigger({
             data-slot="menubar-sub-trigger"
             data-inset={inset}
             className={cn(
-                "min-h-7 gap-2 rounded-md px-2 py-1 text-xs focus:bg-accent focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-inset:ps-7.5 data-open:bg-accent data-open:text-accent-foreground [&_svg:not([class*='size-'])]:size-3.5",
+                "min-h-7 gap-2 rounded-sm px-2 py-1 text-xs focus:bg-accent focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-inset:ps-7.5 data-open:bg-accent data-open:text-accent-foreground [&_svg:not([class*='size-'])]:size-3.5",
                 className
             )}
             {...props}

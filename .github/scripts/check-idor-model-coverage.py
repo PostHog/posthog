@@ -106,6 +106,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
         "OAuthGrant",
         "OAuthIDToken",
         "OAuthRefreshToken",
+        "DeviceGrant",
         "StaticDevice",
         "TOTPDevice",
         "UserSocialAuth",

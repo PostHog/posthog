@@ -29,9 +29,11 @@ type keyMap struct {
 	Backspace    key.Binding
 	Hedgehog     key.Binding
 	Sort         key.Binding
+	Group        key.Binding
 	LazyDocker   key.Binding
 	ProcViewer   key.Binding
 	SetupMode    key.Binding
+	ShowAll      key.Binding
 }
 
 func defaultKeyMap() keyMap {
@@ -138,6 +140,10 @@ func defaultKeyMap() keyMap {
 			key.WithKeys("o"),
 			key.WithHelp("o:", "sort"),
 		),
+		Group: key.NewBinding(
+			key.WithKeys("g"),
+			key.WithHelp("g:", "group"),
+		),
 		LazyDocker: key.NewBinding(
 			key.WithKeys("d"),
 			key.WithHelp("d:", "lazydocker"),
@@ -151,6 +157,10 @@ func defaultKeyMap() keyMap {
 		SetupMode: key.NewBinding(
 			key.WithKeys("t"),
 			key.WithHelp("t:", "setup"),
+		),
+		ShowAll: key.NewBinding(
+			key.WithKeys("a"),
+			key.WithHelp("a:", "show all"),
 		),
 	}
 }
@@ -170,11 +180,11 @@ func (k keyMap) FilterModeHelp() []key.Binding {
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.KeyDown, k.KeyUp, k.Sort},
-		{k.ScrollUp, k.ScrollDown},
+		{k.ScrollUp, k.ScrollDown, k.Group},
 		{k.GotoTop, k.GotoBottom, k.ClearLogs},
 		{k.NextPane, k.PrevPane, k.LazyDocker, k.ProcViewer},
 		{k.Start, k.Stop, k.Restart, k.InfoMode},
 		{k.SearchMode, k.CopyMode, k.SetupMode},
-		{k.Quit, k.Help},
+		{k.Quit, k.Help, k.ShowAll},
 	}
 }

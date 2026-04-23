@@ -28,6 +28,7 @@ import {
     isMarketingAnalyticsTableQuery,
     isNonIntegratedConversionsTableQuery,
     isPersonsNode,
+    isSessionsQuery,
 } from '~/queries/utils'
 import { ExportContext, ExporterFormat } from '~/types'
 
@@ -67,7 +68,10 @@ export async function startDownload(
 
     if (onlySelectedColumns) {
         let columns = (
-            (isEventsQuery(query.source) || isActorsQuery(query.source) || isGroupsQuery(query.source)
+            (isEventsQuery(query.source) ||
+            isActorsQuery(query.source) ||
+            isGroupsQuery(query.source) ||
+            isSessionsQuery(query.source)
                 ? query.source.select
                 : null) ??
             query.columns ??

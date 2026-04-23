@@ -64,6 +64,8 @@ You typically run phrocs via `hogli start` rather than directly.
 | `c`    | Enter copy mode                                           |
 | `i`    | Show process info in pager                                |
 | `o`    | Sort processes by <name/CPU/RAM/status>                   |
+| `g`    | Cycle process grouping (from config `groups` field)       |
+| `a`    | Toggle show all registry processes                        |
 | `/`    | Enter search mode (then `enter` to switch to filter mode) |
 | `esc`  | Exit copy, search, and filter modes                       |
 | `?`    | Toggle full help                                          |
@@ -111,6 +113,25 @@ Press `d` to open lazydocker with the relevant compose files.
 
 Press `p` to open a system process viewer filtered to the selected process's PID.
 Prefers `htop` (tree view + PID filter), falls back to `btop` (unfiltered), then `top` (PID filter).
+
+### Grouping
+
+Press `g` to cycle through grouping dimensions defined in the config.
+Each process can declare a `groups` map and an optional top-level `group_order` controls display order.
+See `bin/mprocs.yaml` for the config format.
+
+Processes without a matching group appear under Ungrouped.
+The reserved value `pinned` places a process at the top without a header.
+
+### Show all processes
+
+Press `a` to toggle visibility of all processes from the full registry (`bin/mprocs.yaml`),
+not just those in your current intent config.
+
+Processes not in your intent config appear dimmed with a `·` status icon. They are config-only placeholders that consume no resources until started. Once started (`s`), it behaves like any other process (logs, restart, stop, info).
+
+This is useful for getting a big-picture overview of the full dev environment
+or temporarily starting a process without changing your intent config.
 
 ## Debug logging
 
