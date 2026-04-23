@@ -15,14 +15,14 @@ from rest_framework.test import APIClient
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 
 from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX
-from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
 from ee.api.agentic_provisioning.views import PARTNER_RATE_LIMIT_DEFAULTS
 
 PARTNER_CLIENT_ID = "partner_rate_limit_test"
 
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
-class TestPartnerRateLimits(StripeProvisioningTestBase):
+class TestPartnerRateLimits(ProvisioningTestBase):
     def setUp(self):
         super().setUp()
         self.client = APIClient()
