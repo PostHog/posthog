@@ -7,7 +7,7 @@ import { Provider } from 'kea'
 import { useMocks } from '~/mocks/jest'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { initKeaTests } from '~/test/init'
-import { PropertyFilterType, PropertyOperator } from '~/types'
+import { PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
 
 import { PropertyValue } from './PropertyValue'
 
@@ -120,5 +120,65 @@ describe('PropertyValue', () => {
         // Check that the error container has the danger class
         const errorContainer = screen.getByText('This is a test error').closest('div')
         expect(errorContainer).toHaveClass('text-danger')
+    })
+
+    it('allows regex input for numeric properties', async () => {
+        propertyDefinitionsModel.actions.updatePropertyDefinitions({
+            'event/userId': {
+                id: 'userId',
+                name: 'userId',
+                property_type: PropertyType.Numeric,
+                is_numerical: true,
+                is_seen_on_filtered_events: false,
+            },
+        })
+
+        const onSet = jest.fn()
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="userId"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Regex}
+                    onSet={onSet}
+                    value={[]}
+                />
+            </Provider>
+        )
+
+        const input = screen.getByRole('textbox')
+        await userEvent.type(input, 'user.*7$')
+
+        expect(input).toHaveValue('user.*7$')
+    })
+
+    it('keeps numeric-only input for non-regex numeric properties', async () => {
+        propertyDefinitionsModel.actions.updatePropertyDefinitions({
+            'event/userId': {
+                id: 'userId',
+                name: 'userId',
+                property_type: PropertyType.Numeric,
+                is_numerical: true,
+                is_seen_on_filtered_events: false,
+            },
+        })
+
+        const onSet = jest.fn()
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="userId"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={onSet}
+                    value={[]}
+                />
+            </Provider>
+        )
+
+        const input = screen.getByRole('textbox')
+        await userEvent.type(input, '7a.8$')
+
+        expect(input).toHaveValue('7.8')
     })
 })
