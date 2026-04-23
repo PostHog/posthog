@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -10,7 +10,8 @@ import { EventDetails } from '~/scenes/activity/explore/EventDetails'
 import { EventType } from '~/types'
 
 import { llmGenerationSentimentLazyLoaderLogic } from '../llmGenerationSentimentLazyLoaderLogic'
-import { formatLLMCost } from '../utils'
+import { costContextFromProperties, formatLLMCost, hasCostBreakdown } from '../utils'
+import { CostBreakdownTooltip } from './CostBreakdownTooltip'
 import { SentimentBar } from './SentimentTag'
 
 interface LLMAnalyticsEventCardProps {
@@ -49,7 +50,7 @@ export function LLMAnalyticsEventCard({
 
     // Generation-specific properties
     const model = event.properties.$ai_model || 'Unknown model'
-    const cost = event.properties.$ai_total_cost_usd
+    const costContext = isGeneration || isEmbedding ? costContextFromProperties(event.properties) : undefined
 
     // Span-specific properties
     const spanName = event.properties.$ai_span_name || 'Unnamed span'
@@ -93,10 +94,20 @@ export function LLMAnalyticsEventCard({
                                 )}
                         </LemonTag>
                     )}
-                    {(isGeneration || isEmbedding) && typeof cost === 'number' && (
-                        <LemonTag type="muted" size="small">
-                            {formatLLMCost(cost)}
-                        </LemonTag>
+                    {costContext && (
+                        <Tooltip
+                            title={
+                                hasCostBreakdown(costContext) ? (
+                                    <CostBreakdownTooltip costContext={costContext} />
+                                ) : (
+                                    'Total cost'
+                                )
+                            }
+                        >
+                            <LemonTag type="muted" size="small">
+                                {formatLLMCost(costContext.totalCost)}
+                            </LemonTag>
+                        </Tooltip>
                     )}
                     {isGeneration &&
                         traceId &&

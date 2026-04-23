@@ -8,12 +8,25 @@ import { teamLogic } from 'scenes/teamLogic'
 import { Breadcrumb } from '~/types'
 
 import {
+    visualReviewReposQuarantineCreate,
+    visualReviewReposQuarantineDestroy,
+    visualReviewReposQuarantineList,
+    visualReviewReposRetrieve,
     visualReviewRunsApproveCreate,
+    visualReviewRunsTolerateCreate,
     visualReviewRunsRetrieve,
     visualReviewRunsSnapshotHistoryList,
     visualReviewRunsSnapshotsList,
+    visualReviewRunsToleratedHashesList,
 } from '../generated/api'
-import type { ApproveSnapshotInputApi, RunApi, SnapshotApi, SnapshotHistoryEntryApi } from '../generated/api.schemas'
+import type {
+    QuarantinedIdentifierEntryApi,
+    RepoApi,
+    RunApi,
+    SnapshotApi,
+    SnapshotHistoryEntryApi,
+    ToleratedHashEntryApi,
+} from '../generated/api.schemas'
 import type { visualReviewRunSceneLogicType } from './visualReviewRunSceneLogicType'
 
 export interface VisualReviewRunSceneLogicProps {
@@ -30,13 +43,40 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
     actions({
         setSelectedSnapshotId: (snapshotId: string | null) => ({ snapshotId }),
         approveChanges: true,
+        approveChangesSuccess: true,
+        approveChangesFailure: true,
         approveSnapshot: (snapshot: SnapshotApi) => ({ snapshot }),
+        approveSnapshotSuccess: true,
+        approveSnapshotFailure: true,
+        markAsTolerated: (snapshot: SnapshotApi) => ({ snapshot }),
+        quarantineSnapshot: (reason: string, identifiers: string[], expiresAt: string | null) => ({
+            reason,
+            identifiers,
+            expiresAt,
+        }),
+        unquarantineSnapshot: (snapshot: SnapshotApi) => ({ snapshot }),
     }),
     reducers({
         selectedSnapshotId: [
             null as string | null,
             {
                 setSelectedSnapshotId: (_, { snapshotId }) => snapshotId,
+            },
+        ],
+        isApproving: [
+            false,
+            {
+                approveChanges: () => true,
+                approveChangesSuccess: () => false,
+                approveChangesFailure: () => false,
+            },
+        ],
+        isApprovingSnapshot: [
+            false,
+            {
+                approveSnapshot: () => true,
+                approveSnapshotSuccess: () => false,
+                approveSnapshotFailure: () => false,
             },
         ],
     }),
@@ -58,6 +98,18 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 },
             },
         ],
+        repo: [
+            null as RepoApi | null,
+            {
+                loadRepo: async () => {
+                    const run = values.run
+                    if (!run) {
+                        return null
+                    }
+                    return visualReviewReposRetrieve(String(values.currentProjectId), run.repo_id)
+                },
+            },
+        ],
         snapshotHistory: [
             [] as SnapshotHistoryEntryApi[],
             {
@@ -68,6 +120,36 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                         {
                             identifier,
                         }
+                    )
+                    return response.results
+                },
+            },
+        ],
+        toleratedHashes: [
+            [] as ToleratedHashEntryApi[],
+            {
+                loadToleratedHashes: async (identifier: string) => {
+                    const response = await visualReviewRunsToleratedHashesList(
+                        String(values.currentProjectId),
+                        props.runId,
+                        { identifier }
+                    )
+                    return response.results
+                },
+            },
+        ],
+        quarantinedIdentifiers: [
+            [] as QuarantinedIdentifierEntryApi[],
+            {
+                loadQuarantinedIdentifiers: async () => {
+                    const run = values.run
+                    if (!run) {
+                        return []
+                    }
+                    const response = await visualReviewReposQuarantineList(
+                        String(values.currentProjectId),
+                        run.repo_id,
+                        { run_type: run.run_type }
                     )
                     return response.results
                 },
@@ -88,11 +170,57 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             (s) => [s.snapshots],
             (snapshots): SnapshotApi[] => snapshots.filter((s) => s.result !== 'unchanged'),
         ],
-        hasChanges: [(s) => [s.changedSnapshots], (changedSnapshots): boolean => changedSnapshots.length > 0],
-        unapprovedChangesCount: [
+        sortedChangedSnapshots: [
             (s) => [s.changedSnapshots],
-            (changedSnapshots): number => changedSnapshots.filter((s) => s.review_state !== 'approved').length,
+            (changedSnapshots: SnapshotApi[]): SnapshotApi[] => {
+                // Group by base identifier (strip theme suffix like --dark / --light)
+                const getBaseIdentifier = (identifier: string): string => {
+                    const parts = identifier.split('--')
+                    const last = parts[parts.length - 1]
+                    if (last === 'dark' || last === 'light') {
+                        return parts.slice(0, -1).join('--')
+                    }
+                    return identifier
+                }
+
+                // Group snapshots by base identifier
+                const groups = new Map<string, SnapshotApi[]>()
+                for (const snapshot of changedSnapshots) {
+                    const base = getBaseIdentifier(snapshot.identifier)
+                    const group = groups.get(base) || []
+                    group.push(snapshot)
+                    groups.set(base, group)
+                }
+
+                // Sort groups by max diff% descending
+                const sortedGroups = [...groups.values()].sort((a, b) => {
+                    const maxA = Math.max(...a.map((s) => s.diff_percentage ?? 0))
+                    const maxB = Math.max(...b.map((s) => s.diff_percentage ?? 0))
+                    return maxB - maxA
+                })
+
+                return sortedGroups.flat()
+            },
         ],
+        hasChanges: [(s) => [s.changedSnapshots], (changedSnapshots): boolean => changedSnapshots.length > 0],
+        unreviewedChangesCount: [
+            (s) => [s.changedSnapshots],
+            (changedSnapshots): number =>
+                changedSnapshots.filter((s) => s.review_state !== 'approved' && s.review_state !== 'tolerated').length,
+        ],
+        quarantinedIdentifierSet: [
+            (s) => [s.quarantinedIdentifiers, s.run],
+            (quarantinedIdentifiers: QuarantinedIdentifierEntryApi[], run: RunApi | null): Set<string> =>
+                new Set(
+                    quarantinedIdentifiers
+                        .filter(
+                            (q: QuarantinedIdentifierEntryApi) =>
+                                q.run_type === run?.run_type && (!q.expires_at || new Date(q.expires_at) > new Date())
+                        )
+                        .map((q: QuarantinedIdentifierEntryApi) => q.identifier)
+                ),
+        ],
+        repoFullName: [(s) => [s.repo], (repo): string | null => repo?.repo_full_name || null],
         breadcrumbs: [
             (s) => [s.run],
             (run): Breadcrumb[] => [
@@ -113,48 +241,43 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             const snapshot = values.selectedSnapshot
             if (snapshot) {
                 actions.loadSnapshotHistory(snapshot.identifier)
+                actions.loadToleratedHashes(snapshot.identifier)
             }
+        },
+        loadRunSuccess: () => {
+            actions.loadRepo()
+            actions.loadQuarantinedIdentifiers()
         },
         loadSnapshotsSuccess: () => {
             const snapshot = values.selectedSnapshot
             if (snapshot) {
                 actions.loadSnapshotHistory(snapshot.identifier)
+                actions.loadToleratedHashes(snapshot.identifier)
             }
         },
         approveChanges: async () => {
-            const { changedSnapshots, run } = values
-            if (!run || changedSnapshots.length === 0) {
+            const { run } = values
+            if (!run) {
                 return
-            }
-
-            // Only approve snapshots that have a current artifact with a hash
-            const approvableSnapshots = changedSnapshots.filter((s) => s.current_artifact?.content_hash)
-            if (approvableSnapshots.length === 0) {
-                lemonToast.error('No snapshots with artifacts to approve')
-                return
-            }
-
-            const approvalPayload = {
-                snapshots: approvableSnapshots.map(
-                    (s): ApproveSnapshotInputApi => ({
-                        identifier: s.identifier,
-                        new_hash: s.current_artifact!.content_hash,
-                    })
-                ),
             }
 
             try {
-                await visualReviewRunsApproveCreate(String(values.currentProjectId), props.runId, approvalPayload)
+                await visualReviewRunsApproveCreate(String(values.currentProjectId), props.runId, {
+                    approve_all: true,
+                })
+                actions.approveChangesSuccess()
                 lemonToast.success('Changes approved successfully')
                 actions.loadRun()
                 actions.loadSnapshots()
             } catch (e: any) {
+                actions.approveChangesFailure()
                 lemonToast.error(e?.detail || e?.message || 'Failed to approve changes')
             }
         },
         approveSnapshot: async ({ snapshot }) => {
             if (!snapshot.current_artifact?.content_hash) {
                 lemonToast.error('No artifact to approve')
+                actions.approveSnapshotFailure()
                 return
             }
 
@@ -167,18 +290,80 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 ],
             }
 
+            // Find the next pending snapshot in sorted order before the async call
+            const sorted = values.sortedChangedSnapshots
+            const currentIdx = sorted.findIndex((s) => s.id === snapshot.id)
+            const nextPending = sorted.slice(currentIdx + 1).find((s) => s.review_state === 'pending')
+
             try {
                 await visualReviewRunsApproveCreate(String(values.currentProjectId), props.runId, approvalPayload)
+                actions.approveSnapshotSuccess()
                 lemonToast.success('Snapshot approved')
                 actions.loadRun()
                 actions.loadSnapshots()
+                if (nextPending) {
+                    actions.setSelectedSnapshotId(nextPending.id)
+                }
             } catch (e: any) {
+                actions.approveSnapshotFailure()
                 lemonToast.error(e?.detail || e?.message || 'Failed to approve snapshot')
             }
         },
+        markAsTolerated: async ({ snapshot }) => {
+            try {
+                await visualReviewRunsTolerateCreate(String(values.currentProjectId), props.runId, {
+                    snapshot_id: snapshot.id,
+                })
+                lemonToast.success('Marked as tolerated')
+                actions.loadRun()
+                actions.loadSnapshots()
+            } catch (e: any) {
+                lemonToast.error(e?.detail || e?.message || 'Failed to mark as tolerated')
+            }
+        },
+        quarantineSnapshot: async ({ reason, identifiers, expiresAt }) => {
+            const { run } = values
+            if (!run) {
+                return
+            }
+            try {
+                await Promise.all(
+                    identifiers.map((identifier) =>
+                        visualReviewReposQuarantineCreate(String(values.currentProjectId), run.repo_id, run.run_type, {
+                            identifier,
+                            reason,
+                            expires_at: expiresAt,
+                        })
+                    )
+                )
+                const count = identifiers.length
+                lemonToast.success(`${count} identifier${count > 1 ? 's' : ''} quarantined`)
+                actions.loadQuarantinedIdentifiers()
+            } catch (e: any) {
+                lemonToast.error(e?.detail || e?.message || 'Failed to quarantine')
+            }
+        },
+        unquarantineSnapshot: async ({ snapshot }) => {
+            const { run } = values
+            if (!run) {
+                return
+            }
+            try {
+                await visualReviewReposQuarantineDestroy(String(values.currentProjectId), run.repo_id, run.run_type, {
+                    identifier: snapshot.identifier,
+                })
+                lemonToast.success('Identifier unquarantined — future runs will gate on it again')
+                actions.loadQuarantinedIdentifiers()
+            } catch (e: any) {
+                lemonToast.error(e?.detail || e?.message || 'Failed to unquarantine')
+            }
+        },
     })),
-    urlToAction(({ actions, values }) => ({
-        '/visual_review/runs/:runId': (_params, { snapshot }) => {
+    urlToAction(({ actions, values, props }) => ({
+        '/visual_review/runs/:runId': ({ runId }, _searchParams, { snapshot }) => {
+            if (runId !== props.runId) {
+                return
+            }
             if (snapshot && snapshot !== values.selectedSnapshotId) {
                 actions.setSelectedSnapshotId(snapshot)
             }

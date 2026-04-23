@@ -3,7 +3,7 @@ import typing as t
 from typing import cast
 
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, FuzzyInt
 from unittest.mock import Mock, patch
 
 from django.conf import settings
@@ -30,6 +30,8 @@ from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.bigquery.bigquery import BigQuerySourceConfig
 from posthog.temporal.data_imports.sources.common.base import FieldType
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.postgres.postgres import PostgresDiscoveredSchema
+from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
@@ -59,6 +61,7 @@ from products.data_warehouse.backend.models.external_data_schema import sync_fre
 from products.data_warehouse.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.data_warehouse.backend.types import IncrementalFieldType
 from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
 
 
@@ -172,6 +175,80 @@ class TestExternalDataSource(APIBaseTest):
 
         assert response.status_code == 400
         assert ExternalDataSource.objects.count() == 0
+
+    @patch(
+        "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    )
+    def test_bulk_update_schemas(self, _mock_workflow_exists):
+        source = self._create_external_data_source()
+        schema_one = ExternalDataSchema.objects.create(
+            name="Customers",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+        schema_two = ExternalDataSchema.objects.create(
+            name="Invoices",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+            data={
+                "schemas": [
+                    {"id": str(schema_one.id), "should_sync": False},
+                    {"id": str(schema_two.id), "should_sync": False},
+                ]
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert {schema["id"]: schema["should_sync"] for schema in response.json()} == {
+            str(schema_one.id): False,
+            str(schema_two.id): False,
+        }
+
+        schema_one.refresh_from_db()
+        schema_two.refresh_from_db()
+        assert schema_one.should_sync is False
+        assert schema_two.should_sync is False
+
+    @patch(
+        "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    )
+    def test_bulk_update_schemas_runs_deferred_temporal_updates(self, _mock_workflow_exists):
+        source = self._create_external_data_source()
+        schema = ExternalDataSchema.objects.create(
+            name="Customers",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        with patch(
+            "products.data_warehouse.backend.api.external_data_schema.sync_external_data_job_workflow"
+        ) as mock_sync_external_data_job_workflow:
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                data={"schemas": [{"id": str(schema.id), "sync_frequency": "7day"}]},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+
+        schema.refresh_from_db()
+        assert sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval) == "7day"
+        assert mock_sync_external_data_job_workflow.call_count == 1
+        assert mock_sync_external_data_job_workflow.call_args.kwargs == {"create": False, "should_sync": True}
+        assert mock_sync_external_data_job_workflow.call_args.args[0].id == schema.id
 
     @patch(
         "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
@@ -571,7 +648,8 @@ class TestExternalDataSource(APIBaseTest):
         self._create_external_data_source()
         self._create_external_data_source()
 
-        with self.assertNumQueries(26):
+        # A cached instance setting lookup can shave off one query depending on test order.
+        with self.assertNumQueries(FuzzyInt(24, 25)):
             response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
         payload = response.json()
 
@@ -813,6 +891,7 @@ class TestExternalDataSource(APIBaseTest):
                     "sync_frequency": sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval),
                     "sync_time_of_day": schema.sync_time_of_day,
                     "description": schema.description,
+                    "primary_key_columns": None,
                     "cdc_table_mode": "consolidated",
                 }
             ],
@@ -872,7 +951,16 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_creates_new_schemas_and_returns_counts(self, mock_get_source):
-        mock_get_source.return_value.parse_config.return_value = None
+        parsed_config = Mock()
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": "5432",
+            "database": "database",
+            "user": "user",
+            "password": "password",
+            "schema": "analytics",
+        }
+        mock_get_source.return_value.parse_config.return_value = parsed_config
         mock_get_source.return_value.get_schemas.return_value = [
             SourceSchema(name="table_a", supports_incremental=False, supports_append=False),
             SourceSchema(name="table_b", supports_incremental=False, supports_append=False),
@@ -1644,6 +1732,265 @@ class TestExternalDataSource(APIBaseTest):
             1,
         )
 
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_create_direct_postgres_blank_schema_prefixes_table_names_and_preserves_physical_schema(
+        self, mock_get_source
+    ):
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="public.accounts",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+                source_schema="public",
+                source_table_name="accounts",
+            ),
+            SourceSchema(
+                name="analytics.accounts",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+                source_schema="analytics",
+                source_table_name="accounts",
+            ),
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "access_method": "direct",
+                "prefix": "Primary database",
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "",
+                    "schemas": [
+                        {"name": "public.accounts", "should_sync": True, "sync_type": None},
+                        {"name": "analytics.accounts", "should_sync": True, "sync_type": None},
+                    ],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        source = ExternalDataSource.objects.get(id=response.json()["id"])
+
+        public_schema = ExternalDataSchema.objects.get(
+            team_id=self.team.pk, source_id=source.pk, name="public.accounts"
+        )
+        analytics_schema = ExternalDataSchema.objects.get(
+            team_id=self.team.pk, source_id=source.pk, name="analytics.accounts"
+        )
+        assert public_schema.table is not None
+        assert analytics_schema.table is not None
+
+        self.assertEqual(public_schema.table.name, "public.accounts")
+        self.assertEqual(public_schema.table.options["direct_postgres_schema"], "public")
+        self.assertEqual(public_schema.table.options["direct_postgres_table"], "accounts")
+        self.assertEqual(analytics_schema.table.name, "analytics.accounts")
+        self.assertEqual(analytics_schema.table.options["direct_postgres_schema"], "analytics")
+        self.assertEqual(analytics_schema.table.options["direct_postgres_table"], "accounts")
+        self.assertEqual(public_schema.sync_type_config["schema_metadata"]["source_schema"], "public")
+        self.assertEqual(analytics_schema.sync_type_config["schema_metadata"]["source_schema"], "analytics")
+
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._add_table_to_cdc_publication"
+    )
+    @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_slot")
+    @patch("posthog.temporal.data_imports.sources.postgres.postgres.get_primary_key_columns")
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.slot_manager.cdc_pg_connection")
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_create_postgres_cdc_with_blank_schema_uses_physical_schema_metadata(
+        self,
+        mock_get_source,
+        mock_cdc_pg_connection,
+        mock_get_primary_key_columns,
+        mock_setup_cdc_slot,
+        mock_add_table_to_cdc_publication,
+        _mock_is_cdc_enabled_for_team,
+    ):
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.schema = ""
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="analytics.events",
+                supports_incremental=False,
+                supports_append=False,
+                supports_cdc=True,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+                source_schema="analytics",
+                source_table_name="events",
+            )
+        ]
+
+        mock_cdc_pg_connection.return_value.__enter__.return_value = object()
+        mock_cdc_pg_connection.return_value.__exit__.return_value = None
+        mock_get_primary_key_columns.return_value = {"events": ["id"]}
+
+        def setup_cdc_slot(_source_impl, _source_config, source_model, _payload):
+            source_model.job_inputs = {
+                **(source_model.job_inputs or {}),
+                "cdc_enabled": True,
+                "cdc_management_mode": "posthog",
+                "cdc_slot_name": "test_slot",
+                "cdc_publication_name": "test_pub",
+            }
+            source_model.save(update_fields=["job_inputs", "updated_at"])
+            return None
+
+        mock_setup_cdc_slot.side_effect = setup_cdc_slot
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "",
+                    "cdc_enabled": True,
+                    "schemas": [
+                        {"name": "analytics.events", "should_sync": True, "sync_type": "cdc"},
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        schema = ExternalDataSchema.objects.get(team_id=self.team.pk, name="analytics.events")
+        assert schema.sync_type_config["primary_key_columns"] == ["id"]
+
+        mock_get_primary_key_columns.assert_called_once()
+        assert mock_get_primary_key_columns.call_args.args[1] == "analytics"
+        assert mock_get_primary_key_columns.call_args.args[2] == ["events"]
+
+        mock_add_table_to_cdc_publication.assert_called_once()
+        assert mock_add_table_to_cdc_publication.call_args.args[1:] == ("test_pub", "analytics", "events")
+
+    @parameterized.expand(
+        [
+            # Frontend sends null when the user leaves the PK selector empty — backend falls
+            # back to the source-detected primary key so sync-time detection is not the only
+            # line of defense.
+            ("fallback_to_detected", None, ["id"], ["id"]),
+            # User explicitly overrides — caller value wins, detected is ignored.
+            ("explicit_wins_over_detected", ["custom_pk"], ["id"], ["custom_pk"]),
+            # Nothing detected and nothing provided — key omitted from sync_type_config
+            # entirely (preserves pre-existing behaviour for tables without a PK).
+            ("both_absent_omits_key", None, None, None),
+        ]
+    )
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_create_postgres_incremental_primary_key_fallback(
+        self,
+        _name: str,
+        payload_primary_keys: list[str] | None,
+        detected_primary_keys: list[str] | None,
+        expected_persisted: list[str] | None,
+        mock_get_source,
+    ):
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.schema = "public"
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "public",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="events",
+                supports_incremental=True,
+                supports_append=True,
+                columns=[("id", "integer", False), ("updated_at", "timestamp", False)],
+                foreign_keys=[],
+                incremental_fields=[
+                    {
+                        "label": "updated_at",
+                        "type": IncrementalFieldType.Timestamp,
+                        "field": "updated_at",
+                        "field_type": IncrementalFieldType.Timestamp,
+                        "nullable": False,
+                    }
+                ],
+                detected_primary_keys=detected_primary_keys,
+            ),
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                    "schemas": [
+                        {
+                            "name": "events",
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field": "updated_at",
+                            "incremental_field_type": "timestamp",
+                            "primary_key_columns": payload_primary_keys,
+                        },
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        schema = ExternalDataSchema.objects.get(team_id=self.team.pk, name="events")
+        if expected_persisted is None:
+            assert "primary_key_columns" not in schema.sync_type_config
+        else:
+            assert schema.sync_type_config["primary_key_columns"] == expected_persisted
+
     def test_create_direct_non_postgres_is_rejected(self):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
@@ -1676,6 +2023,66 @@ class TestExternalDataSource(APIBaseTest):
             response.json(),
             {"message": "Direct query mode is currently supported only for Postgres sources."},
         )
+
+    def test_create_postgres_warehouse_source_requires_schema(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "access_method": "warehouse",
+                "payload": {
+                    "host": "db.example.com",
+                    "port": 5432,
+                    "database": "postgres",
+                    "user": "postgres",
+                    "password": "secret",
+                    "schema": "",
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json(), {"message": "Schema is required for warehouse imports."})
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_database_schema_postgres_direct_allows_blank_schema(self, mock_get_source):
+        source = PostgresSource()
+        mock_get_source.return_value = source
+
+        with (
+            patch.object(source, "validate_credentials_for_access_method", return_value=(True, None)) as validate,
+            patch.object(
+                source,
+                "get_schemas",
+                return_value=[
+                    SourceSchema(
+                        name="public.accounts",
+                        supports_incremental=False,
+                        supports_append=False,
+                        columns=[("id", "integer", False)],
+                        foreign_keys=[],
+                    )
+                ],
+            ),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+                data={
+                    "source_type": "Postgres",
+                    "access_method": "direct",
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "",
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()[0]["table"], "public.accounts")
+        validate.assert_called_once()
+        self.assertEqual(validate.call_args.args[2], "direct")
 
     def test_database_schema(self):
         postgres_connection = psycopg.connect(
@@ -1838,24 +2245,57 @@ class TestExternalDataSource(APIBaseTest):
             for table in STRIPE_ENDPOINTS:
                 assert table in table_names
 
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_database_schema_does_not_request_row_counts(self, mock_get_source):
+        parsed_config = Mock()
+        mock_source = mock_get_source.return_value
+        mock_source.validate_config.return_value = (True, [])
+        mock_source.parse_config.return_value = parsed_config
+        mock_source.validate_credentials.return_value = (True, None)
+        mock_source.get_schemas.return_value = [
+            SourceSchema(name="table_1", supports_incremental=False, supports_append=False, row_count=42)
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+            data={
+                "source_type": "Stripe",
+                "api_key": "test",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        mock_source.get_schemas.assert_called_once_with(parsed_config, self.team.pk)
+
     @patch(
         "posthog.temporal.data_imports.sources.postgres.source.get_postgres_schemas",
-        return_value={"table_1": [("id", "integer", True)]},
-    )
-    @patch(
-        "posthog.temporal.data_imports.sources.postgres.source.get_postgres_row_count",
-        return_value={"table_1": 42},
+        return_value={
+            "table_1": PostgresDiscoveredSchema(
+                source_catalog=None,
+                source_schema="public",
+                source_table_name="table_1",
+                columns=[("id", "integer", True)],
+            )
+        },
     )
     @patch(
         "posthog.temporal.data_imports.sources.postgres.source.get_postgres_foreign_keys",
         return_value={},
     )
+    @patch("posthog.temporal.data_imports.sources.postgres.source.get_primary_key_columns", return_value={})
+    @patch("posthog.temporal.data_imports.sources.postgres.source.pg_connection")
+    @patch("posthog.temporal.data_imports.sources.postgres.source.get_postgres_row_count")
     def test_internal_postgres(
         self,
-        patch_get_sql_schemas_for_source_type,
         patch_get_postgres_row_count,
+        patch_pg_connection,
+        _patch_get_primary_key_columns,
         _patch_get_postgres_foreign_keys,
+        patch_get_sql_schemas_for_source_type,
     ):
+        patch_pg_connection.return_value.__enter__.return_value = object()
+        patch_pg_connection.return_value.__exit__.return_value = None
+
         # This test checks handling of project ID 2 in Cloud US and project ID 1 in Cloud EU,
         # so let's make sure there are no projects with these IDs in the test DB
         Project.objects.filter(id__in=[1, 2]).delete()
@@ -1882,7 +2322,7 @@ class TestExternalDataSource(APIBaseTest):
                     "should_sync": False,
                     "should_sync_default": True,
                     "description": None,
-                    "rows": 42,
+                    "rows": None,
                     "incremental_fields": [
                         {"label": "id", "type": "integer", "field": "id", "field_type": "integer", "nullable": True}
                     ],
@@ -1892,6 +2332,10 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental_field": "id",
                     "sync_type": None,
                     "supports_webhooks": False,
+                    "available_columns": [
+                        {"field": "id", "label": "id", "type": "integer", "nullable": True},
+                    ],
+                    "detected_primary_keys": ["id"],
                 }
             ]
 
@@ -1935,7 +2379,7 @@ class TestExternalDataSource(APIBaseTest):
                     "should_sync": False,
                     "should_sync_default": True,
                     "description": None,
-                    "rows": 42,
+                    "rows": None,
                     "incremental_fields": [
                         {"label": "id", "type": "integer", "field": "id", "field_type": "integer", "nullable": True}
                     ],
@@ -1945,6 +2389,10 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental_field": "id",
                     "sync_type": None,
                     "supports_webhooks": False,
+                    "available_columns": [
+                        {"field": "id", "label": "id", "type": "integer", "nullable": True},
+                    ],
+                    "detected_primary_keys": ["id"],
                 }
             ]
 
@@ -1965,6 +2413,8 @@ class TestExternalDataSource(APIBaseTest):
             self.assertEqual(response.status_code, 400)
             self.assertEqual(response.json(), {"message": "Hosts with internal IP addresses are not allowed"})
 
+        patch_get_postgres_row_count.assert_not_called()
+
     @parameterized.expand(
         [
             ("192.168.1.1",),
@@ -1976,7 +2426,14 @@ class TestExternalDataSource(APIBaseTest):
     )
     @patch(
         "posthog.temporal.data_imports.sources.postgres.source.get_postgres_schemas",
-        return_value={"table_1": [("id", "integer", True)]},
+        return_value={
+            "table_1": PostgresDiscoveredSchema(
+                source_catalog=None,
+                source_schema="public",
+                source_table_name="table_1",
+                columns=[("id", "integer", True)],
+            )
+        },
     )
     def test_blocks_internal_host(self, host, _patch_schemas):
         database_schema_url = f"/api/environments/{self.team.pk}/external_data_sources/database_schema/"
@@ -2706,6 +3163,210 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 200, response.content
         source.refresh_from_db()
         assert source.prefix == "Updated name"
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_update_direct_postgres_schema_filter_refreshes_existing_schemas(self, mock_get_source):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            created_by=self.user,
+            prefix="Direct source",
+            job_inputs={
+                "host": "localhost",
+                "port": "5432",
+                "database": "database",
+                "user": "user",
+                "password": "password",
+            },
+        )
+        matching_schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="analytics.events",
+            should_sync=False,
+            sync_type_config={"schema_metadata": {"columns": [], "foreign_keys": []}},
+        )
+        filtered_out_schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="public.users",
+            should_sync=True,
+            sync_type_config={"schema_metadata": {"columns": [], "foreign_keys": []}},
+        )
+
+        parsed_config = Mock()
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": "5432",
+            "database": "database",
+            "user": "user",
+            "password": "password",
+            "schema": "analytics",
+        }
+        mock_get_source.return_value.parse_config.return_value = parsed_config
+        mock_get_source.return_value.validate_config.return_value = (True, [])
+        mock_get_source.return_value.validate_credentials.return_value = (True, None)
+        mock_get_source.return_value.get_connection_metadata.return_value = {"database": "ducklake", "engine": "duckdb"}
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(
+                name="analytics.events",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+                source_schema="analytics",
+                source_table_name="events",
+            )
+        ]
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "schema": "analytics",
+                }
+            },
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        matching_schema.refresh_from_db()
+        filtered_out_schema.refresh_from_db()
+
+        assert source.job_inputs["schema"] == "analytics"
+        assert [schema["name"] for schema in response.json()["schemas"]] == ["analytics.events"]
+        assert matching_schema.deleted is False
+        assert matching_schema.sync_type_config["schema_metadata"]["source_schema"] == "analytics"
+        assert filtered_out_schema.deleted is True
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_update_direct_postgres_schema_filter_preserves_selected_table_for_same_physical_schema(
+        self, mock_get_source
+    ):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            created_by=self.user,
+            prefix="Direct source",
+            job_inputs={
+                "host": "localhost",
+                "port": "5432",
+                "database": "database",
+                "user": "user",
+                "password": "password",
+            },
+        )
+        table = DataWarehouseTable.objects.create(
+            name="posthog.events",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            url_pattern=DIRECT_POSTGRES_URL_PATTERN,
+            external_data_source=source,
+            columns={"id": {"clickhouse": "Int32", "hogql": "integer", "valid": True}},
+            options={
+                "direct_postgres_schema": "posthog",
+                "direct_postgres_table": "events",
+            },
+        )
+        existing_schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="posthog.events",
+            should_sync=True,
+            table=table,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [],
+                    "foreign_keys": [],
+                    "source_schema": "posthog",
+                    "source_table_name": "events",
+                }
+            },
+        )
+        source_join = DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="posthog.events",
+            source_table_key="id",
+            joining_table_name="persons",
+            joining_table_key="id",
+            field_name="persons",
+        )
+        joining_join = DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="persons",
+            source_table_key="id",
+            joining_table_name="posthog.events",
+            joining_table_key="id",
+            field_name="posthog_events",
+        )
+
+        parsed_config = Mock()
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": "5432",
+            "database": "database",
+            "user": "user",
+            "password": "password",
+            "schema": "posthog",
+        }
+        mock_get_source.return_value.parse_config.return_value = parsed_config
+        mock_get_source.return_value.validate_config.return_value = (True, [])
+        mock_get_source.return_value.validate_credentials.return_value = (True, None)
+        mock_get_source.return_value.get_connection_metadata.return_value = {
+            "database": "database",
+            "engine": "postgres",
+        }
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(
+                name="events",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+                source_schema="posthog",
+                source_table_name="events",
+            )
+        ]
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "schema": "posthog",
+                }
+            },
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        existing_schema.refresh_from_db()
+        table.refresh_from_db()
+        source_join.refresh_from_db()
+        joining_join.refresh_from_db()
+
+        assert source.job_inputs["schema"] == "posthog"
+        assert existing_schema.name == "events"
+        assert existing_schema.should_sync is True
+        assert existing_schema.deleted is False
+        assert existing_schema.table_id == table.id
+        assert table.deleted is False
+        assert table.name == "events"
+        assert table.options["direct_postgres_schema"] == "posthog"
+        assert table.options["direct_postgres_table"] == "events"
+        assert [schema["name"] for schema in response.json()["schemas"]] == ["events"]
+        assert ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).count() == 1
+        assert source_join.source_table_name == "events"
+        assert joining_join.joining_table_name == "events"
 
     def test_update_source_cannot_change_access_method(self):
         source = ExternalDataSource.objects.create(
@@ -3514,6 +4175,15 @@ class TestCreateWebhook(APIBaseTest):
             should_sync=True,
         )
 
+    def _create_webhook_schema(self, source: ExternalDataSource, name: str) -> ExternalDataSchema:
+        return ExternalDataSchema.objects.create(
+            name=name,
+            team_id=self.team.pk,
+            source=source,
+            sync_type="webhook",
+            should_sync=True,
+        )
+
     def _create_hog_function_template(self):
         from posthog.models.hog_function_template import HogFunctionTemplate
 
@@ -3570,7 +4240,7 @@ class TestCreateWebhook(APIBaseTest):
 
         self._create_hog_function_template()
         source = self._create_stripe_source()
-        schema = self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        schema = self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
@@ -3619,7 +4289,7 @@ class TestCreateWebhook(APIBaseTest):
 
         self._create_hog_function_template()
         source = self._create_stripe_source()
-        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
@@ -3640,7 +4310,7 @@ class TestCreateWebhook(APIBaseTest):
         mock_create_webhook.return_value = self._webhook_result()
         self._create_hog_function_template()
         source = self._create_stripe_source()
-        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
@@ -3656,7 +4326,7 @@ class TestCreateWebhook(APIBaseTest):
         mock_create_webhook.return_value = self._webhook_result()
         self._create_hog_function_template()
         source = self._create_stripe_source()
-        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
@@ -3674,7 +4344,7 @@ class TestCreateWebhook(APIBaseTest):
 
         self._create_hog_function_template()
         source = self._create_stripe_source()
-        self._create_incremental_schema(source, STRIPE_CHARGE_RESOURCE_NAME)
+        self._create_webhook_schema(source, STRIPE_CHARGE_RESOURCE_NAME)
 
         # First call: creates HogFunction with Charge schema
         response = self.client.post(
@@ -3683,7 +4353,7 @@ class TestCreateWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
 
         # Now add a Customer schema and call again
-        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
         )
@@ -3705,7 +4375,7 @@ class TestCreateWebhook(APIBaseTest):
     @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
     def test_create_webhook_template_not_in_db(self, _mock_flag):
         source = self._create_stripe_source()
-        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
@@ -3723,7 +4393,7 @@ class TestCreateWebhook(APIBaseTest):
 
         self._create_hog_function_template()
         source = self._create_stripe_source()
-        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
@@ -3746,7 +4416,7 @@ class TestCreateWebhook(APIBaseTest):
 
         self._create_hog_function_template()
         source = self._create_stripe_source()
-        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
         # First create the webhook to set up the HogFunction
         self.client.post(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/")
@@ -3768,7 +4438,7 @@ class TestCreateWebhook(APIBaseTest):
     @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
     def test_update_webhook_inputs_rejects_invalid_keys(self, _mock_flag):
         source = self._create_stripe_source()
-        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_webhook_inputs/",
@@ -3782,7 +4452,7 @@ class TestCreateWebhook(APIBaseTest):
     @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
     def test_update_webhook_inputs_no_hog_function(self, _mock_flag):
         source = self._create_stripe_source()
-        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_webhook_inputs/",
@@ -3792,6 +4462,40 @@ class TestCreateWebhook(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "No webhook function found" in response.json()["message"]
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
+    def test_create_webhook_maps_all_webhook_schemas(self, mock_create_webhook, _mock_flag):
+        """Regression: creating a source with multiple webhook tables then hitting the
+        create_webhook endpoint must populate schema_mapping for every webhook schema.
+        Webhook schemas have sync_type='webhook' (not 'incremental')."""
+        mock_create_webhook.return_value = self._webhook_result()
+        from posthog.models.hog_functions.hog_function import HogFunction
+        from posthog.temporal.data_imports.sources.stripe.constants import RESOURCE_TO_STRIPE_OBJECT_TYPE
+
+        self._create_hog_function_template()
+        source = self._create_stripe_source()
+        customer_schema = self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        charge_schema = self._create_webhook_schema(source, STRIPE_CHARGE_RESOURCE_NAME)
+        invoice_schema = self._create_webhook_schema(source, STRIPE_INVOICE_RESOURCE_NAME)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["success"] is True
+
+        hog_function = HogFunction.objects.get(team=self.team, type="warehouse_source_webhook")
+        assert hog_function.inputs is not None
+
+        schema_mapping = hog_function.inputs["schema_mapping"]["value"]
+        assert schema_mapping[RESOURCE_TO_STRIPE_OBJECT_TYPE[STRIPE_CUSTOMER_RESOURCE_NAME]] == str(customer_schema.id)
+        assert schema_mapping[RESOURCE_TO_STRIPE_OBJECT_TYPE[STRIPE_CHARGE_RESOURCE_NAME]] == str(charge_schema.id)
+        assert schema_mapping[RESOURCE_TO_STRIPE_OBJECT_TYPE[STRIPE_INVOICE_RESOURCE_NAME]] == str(invoice_schema.id)
+        assert len(schema_mapping) == 3
+
+        assert hog_function.inputs["source_id"]["value"] == str(source.pk)
 
 
 class TestSensitiveFieldClassification(APIBaseTest):
@@ -4229,6 +4933,15 @@ class TestDeleteWebhook(APIBaseTest):
             should_sync=True,
         )
 
+    def _create_webhook_schema(self, source: ExternalDataSource, name: str) -> ExternalDataSchema:
+        return ExternalDataSchema.objects.create(
+            name=name,
+            team_id=self.team.pk,
+            source=source,
+            sync_type="webhook",
+            should_sync=True,
+        )
+
     def _create_full_refresh_schema(self, source: ExternalDataSource, name: str) -> ExternalDataSchema:
         return ExternalDataSchema.objects.create(
             name=name,
@@ -4264,9 +4977,9 @@ class TestDeleteWebhook(APIBaseTest):
         assert hog_function.enabled is False
 
     @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
-    def test_delete_webhook_blocked_by_incremental_schemas(self, _mock_flag):
+    def test_delete_webhook_blocked_by_webhook_schemas(self, _mock_flag):
         source = self._create_stripe_source()
-        self._create_incremental_schema(source, "Customers")
+        self._create_webhook_schema(source, "Customers")
         self._create_hog_function(source)
 
         response = self.client.post(
@@ -4274,7 +4987,8 @@ class TestDeleteWebhook(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "incremental sync" in response.json()["message"]
+        assert "webhook sync" in response.json()["message"]
+        assert "Customers" in response.json()["message"]
 
     @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook")

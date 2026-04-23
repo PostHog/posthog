@@ -82,22 +82,22 @@ for trace in traces:
     # Errors
     errors = [ev for ev in events if ev.get("properties", {}).get("$ai_is_error")]
     if errors:
-        print(f"\n{'!'*80}")
+        print(f"\n{'!' * 80}")
         print(f"  ERRORS: {len(errors)}")
         for ev in errors:
             p = ev["properties"]
             name = p.get("$ai_span_name", p.get("$ai_model", ev.get("event")))
             print(f"    - {name}: {summarize(p.get('$ai_output_state', p.get('$ai_error', '?')), max_len)}")
-        print(f"{'!'*80}")
+        print(f"{'!' * 80}")
     else:
-        print(f"\n  Errors:    None")
+        print("\n  Errors:    None")
 
     # Tool calls (spans with input/output state)
     spans = [ev for ev in events if ev.get("event") == "$ai_span" and ev.get("properties", {}).get("$ai_input_state")]
     if spans:
-        print(f"\n{'='*80}")
+        print(f"\n{'=' * 80}")
         print(f"TOOL CALLS ({len(spans)} spans with I/O)")
-        print(f"{'='*80}")
+        print(f"{'=' * 80}")
         for ev in spans:
             p = ev["properties"]
             name = p.get("$ai_span_name", "?")

@@ -4,13 +4,15 @@ import uuid
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 import httpx
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Team, User
 
-from products.mcp_store.backend.models import MCPServer, MCPServerInstallation
+from products.mcp_store.backend.models import MCPServerInstallation, MCPServerInstallationTool
 
 
 class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -38,27 +40,26 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         return MCPServerInstallation.objects.create(**defaults)
 
     def _create_oauth_installation(self, **overrides) -> MCPServerInstallation:
-        server = MCPServer.objects.create(
-            name="OAuth Server",
-            url="https://auth.example.com",
-            oauth_client_id="client-123",
-            oauth_metadata={
-                "authorization_endpoint": "https://auth.example.com/authorize",
-                "token_endpoint": "https://auth.example.com/token",
-            },
-            created_by=self.user,
-        )
         sensitive = {
             "access_token": "oauth-token-123",
             "refresh_token": "refresh-token-456",
             "token_retrieved_at": int(time.time()),
             "expires_in": 3600,
+            "dcr_client_id": "client-123",
+            "dcr_is_user_provided": False,
         }
         sensitive.update(overrides.pop("sensitive_configuration", {}))
+        overrides.setdefault(
+            "oauth_metadata",
+            {
+                "authorization_endpoint": "https://auth.example.com/authorize",
+                "token_endpoint": "https://auth.example.com/token",
+            },
+        )
+        overrides.setdefault("oauth_issuer_url", "https://auth.example.com")
         return self._create_installation(
             auth_type="oauth",
             sensitive_configuration=sensitive,
-            server=server,
             **overrides,
         )
 
@@ -394,6 +395,238 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == 413
         assert response.json()["error"] == "Request body too large"
+
+
+class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    """Verify that the proxy gates ``tools/call`` on per-tool approval state."""
+
+    def setUp(self):
+        super().setUp()
+        patcher = patch("products.mcp_store.backend.proxy.is_url_allowed", return_value=(True, None))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _proxy_url(self, installation_id: str) -> str:
+        return f"/api/environments/{self.team.id}/mcp_server_installations/{installation_id}/proxy/"
+
+    def _installation(self) -> MCPServerInstallation:
+        return MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            display_name="Tools",
+            url="https://mcp.example.com/mcp",
+            auth_type="api_key",
+            sensitive_configuration={"api_key": "sk"},
+        )
+
+    def _tool(self, installation, name, approval_state, removed_at=None) -> MCPServerInstallationTool:
+        return MCPServerInstallationTool.objects.create(
+            installation=installation,
+            tool_name=name,
+            approval_state=approval_state,
+            last_seen_at=timezone.now(),
+            removed_at=removed_at,
+        )
+
+    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    def test_approved_tool_call_reaches_upstream(self, mock_client_cls):
+        installation = self._installation()
+        self._tool(installation, "search", "approved")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.content = b'{"jsonrpc":"2.0","id":1,"result":{}}'
+        mock_client = MagicMock()
+        mock_client.build_request.return_value = MagicMock()
+        mock_client.send.return_value = mock_response
+        mock_client_cls.return_value = mock_client
+
+        response = self.client.post(
+            self._proxy_url(installation.id),
+            data={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "search"}},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        mock_client.send.assert_called_once()
+
+    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    def test_needs_approval_tool_call_blocked_with_jsonrpc_error(self, mock_client_cls):
+        installation = self._installation()
+        self._tool(installation, "search", "needs_approval")
+
+        response = self.client.post(
+            self._proxy_url(installation.id),
+            data={"jsonrpc": "2.0", "id": 42, "method": "tools/call", "params": {"name": "search"}},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["id"] == 42
+        assert body["error"]["code"] == -32001
+        assert "approval" in body["error"]["message"].lower()
+        mock_client_cls.assert_not_called()
+
+    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    def test_do_not_use_tool_call_blocked_with_distinct_error_code(self, mock_client_cls):
+        installation = self._installation()
+        self._tool(installation, "delete", "do_not_use")
+
+        response = self.client.post(
+            self._proxy_url(installation.id),
+            data={"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": "delete"}},
+            format="json",
+        )
+
+        body = response.json()
+        assert body["error"]["code"] == -32002
+        mock_client_cls.assert_not_called()
+
+    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    def test_unknown_tool_returns_method_not_found(self, mock_client_cls):
+        installation = self._installation()
+
+        response = self.client.post(
+            self._proxy_url(installation.id),
+            data={"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ghost"}},
+            format="json",
+        )
+
+        body = response.json()
+        assert body["error"]["code"] == -32601
+        mock_client_cls.assert_not_called()
+
+    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    def test_removed_tool_is_not_callable(self, mock_client_cls):
+        installation = self._installation()
+        self._tool(installation, "legacy", "approved", removed_at=timezone.now())
+
+        response = self.client.post(
+            self._proxy_url(installation.id),
+            data={"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "legacy"}},
+            format="json",
+        )
+
+        body = response.json()
+        assert body["error"]["code"] == -32601
+        mock_client_cls.assert_not_called()
+
+    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    def test_non_tools_call_methods_pass_through(self, mock_client_cls):
+        installation = self._installation()
+        # No tools registered — but tools/list must still reach upstream.
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.content = b'{"jsonrpc":"2.0","id":1,"result":{}}'
+        mock_client = MagicMock()
+        mock_client.build_request.return_value = MagicMock()
+        mock_client.send.return_value = mock_response
+        mock_client_cls.return_value = mock_client
+
+        response = self.client.post(
+            self._proxy_url(installation.id),
+            data={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        mock_client.send.assert_called_once()
+
+    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    def test_batch_all_approved_passes_through(self, mock_client_cls):
+        installation = self._installation()
+        self._tool(installation, "a", "approved")
+        self._tool(installation, "b", "approved")
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.content = b"[]"
+        mock_client = MagicMock()
+        mock_client.build_request.return_value = MagicMock()
+        mock_client.send.return_value = mock_response
+        mock_client_cls.return_value = mock_client
+
+        response = self.client.post(
+            self._proxy_url(installation.id),
+            data=[
+                {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "a"}},
+                {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "b"}},
+            ],
+            format="json",
+        )
+
+        assert response.status_code == 200
+        mock_client.send.assert_called_once()
+
+    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    def test_batch_all_blocked_returns_jsonrpc_error_list(self, mock_client_cls):
+        installation = self._installation()
+        self._tool(installation, "a", "needs_approval")
+        self._tool(installation, "b", "do_not_use")
+
+        response = self.client.post(
+            self._proxy_url(installation.id),
+            data=[
+                {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "a"}},
+                {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "b"}},
+            ],
+            format="json",
+        )
+
+        body = response.json()
+        assert isinstance(body, list)
+        assert [entry["error"]["code"] for entry in body] == [-32001, -32002]
+        mock_client_cls.assert_not_called()
+
+    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    def test_mixed_batch_rejects_whole_request_with_batch_code(self, mock_client_cls):
+        """Mixed batches are rejected atomically with a batch-level code, not a per-item code."""
+        installation = self._installation()
+        self._tool(installation, "approved-tool", "approved")
+        self._tool(installation, "unapproved-tool", "needs_approval")
+
+        response = self.client.post(
+            self._proxy_url(installation.id),
+            data=[
+                {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "approved-tool"}},
+                {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "unapproved-tool"}},
+            ],
+            format="json",
+        )
+
+        body = response.json()
+        assert isinstance(body, list)
+        # Every item gets the batch-level code; the per-item -32001/-32002 codes
+        # would wrongly imply the siblings themselves need approval or are disabled.
+        for entry in body:
+            assert entry["error"]["code"] == -32000
+        mock_client_cls.assert_not_called()
+
+    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    def test_mixed_batch_with_tools_list_sibling_uses_batch_code(self, mock_client_cls):
+        """A passthrough sibling like tools/list must not get TOOL_NEEDS_APPROVAL_CODE."""
+        installation = self._installation()
+        self._tool(installation, "unapproved-tool", "needs_approval")
+
+        response = self.client.post(
+            self._proxy_url(installation.id),
+            data=[
+                {"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+                {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "unapproved-tool"}},
+            ],
+            format="json",
+        )
+
+        body = response.json()
+        assert isinstance(body, list)
+        assert [entry["error"]["code"] for entry in body] == [-32000, -32000]
+        # The tools/list sibling specifically must not inherit the approval code.
+        tools_list_entry = next(e for e in body if e["id"] == 1)
+        assert tools_list_entry["error"]["code"] != -32001
+        mock_client_cls.assert_not_called()
 
 
 class TestMCPProxyAccessControl(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):

@@ -21,6 +21,7 @@ const createMockContext = (): Context => ({
         getAiConsentGiven: async () => undefined,
     } as any,
     sessionManager: new SessionManager({} as any),
+    getDistinctId: async () => 'test-distinct-id',
 })
 
 describe('Feature Routing Integration', () => {
@@ -31,8 +32,8 @@ describe('Feature Routing Integration', () => {
             expectedTools: [
                 'feature-flag-get-definition',
                 'dashboard-create',
-                'insights-get-all',
-                'organizations-get',
+                'insights-list',
+                'organizations-list',
                 'query-error-tracking-issues',
             ],
         },
@@ -55,7 +56,6 @@ describe('Feature Routing Integration', () => {
                 'feature-flag-get-definition',
                 'create-feature-flag',
                 'feature-flag-get-all',
-                'organizations-get',
                 'switch-organization',
                 'projects-get',
             ],

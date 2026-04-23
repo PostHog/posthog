@@ -1,7 +1,14 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 import { ApiClient } from '@/api/client'
-import type { CreateInsightInput } from '@/schema/insights'
+/** Type for insight creation payloads used across this test file. */
+interface CreateInsightInput {
+    name: string
+    query: { kind: string; source: unknown }
+    description?: string
+    favorited: boolean
+    tags?: string[]
+}
 
 const API_BASE_URL = process.env.TEST_POSTHOG_API_BASE_URL || 'http://localhost:8010'
 const API_TOKEN = process.env.TEST_POSTHOG_PERSONAL_API_KEY

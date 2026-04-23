@@ -79,6 +79,34 @@ class SandboxConfig(BaseModel):
 
 WORKING_DIR = "/tmp/workspace"
 
+PUBLIC_SANDBOX_REPOS: frozenset[str] = frozenset({"posthog/hedgebox"})
+"""Repos the sandbox is allowed to clone unauthenticated, even when the team has no GitHub integration."""
+
+
+def is_public_sandbox_repo(repository: str | None) -> bool:
+    return repository is not None and repository.lower() in PUBLIC_SANDBOX_REPOS
+
+
+def build_agent_runtime_env_prefix(
+    *,
+    interaction_origin: str | None = None,
+    runtime_adapter: str | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    reasoning_effort: str | None = None,
+) -> str:
+    env_vars = {
+        "POSTHOG_CODE_INTERACTION_ORIGIN": interaction_origin,
+        "POSTHOG_CODE_RUNTIME_ADAPTER": runtime_adapter,
+        "POSTHOG_CODE_PROVIDER": provider,
+        "POSTHOG_CODE_MODEL": model,
+        "POSTHOG_CODE_REASONING_EFFORT": reasoning_effort,
+    }
+    assignments = " ".join(
+        f"{name}={shlex.quote(value)}" for name, value in env_vars.items() if value is not None and value != ""
+    )
+    return f"env {assignments} " if assignments else ""
+
 
 class SandboxBase(ABC):
     id: str
@@ -149,7 +177,11 @@ class SandboxBase(ABC):
 
     @abstractmethod
     def execute_task(
-        self, task_id: str, run_id: str, repository: str | None = None, create_pr: bool = True
+        self,
+        task_id: str,
+        run_id: str,
+        repository: str | None = None,
+        create_pr: bool = True,
     ) -> ExecutionResult: ...
 
     @abstractmethod
@@ -168,8 +200,13 @@ class SandboxBase(ABC):
         task_id: str,
         run_id: str,
         mode: str = "background",
+        create_pr: bool = True,
         interaction_origin: str | None = None,
         branch: str | None = None,
+        runtime_adapter: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        reasoning_effort: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
         allowed_domains: list[str] | None = None,
     ) -> None:
@@ -248,8 +285,15 @@ def wait_for_health_check(
     """
     health_script = (
         f"for i in $(seq 1 {max_attempts}); do "
-        f"  status=$(curl -s -o /dev/null -w '%{{http_code}}' http://localhost:{port}/health); "
-        f'  [ "$status" = "200" ] && echo "ok:$i" && exit 0; '
+        f"  body=$(curl -s http://localhost:{port}/health); "
+        "  status=$?; "
+        '  if [ "$status" = "0" ]; then '
+        "    python3 -c '"
+        "import json, sys; "
+        "payload = json.loads(sys.argv[1]); "
+        'sys.exit(0 if payload.get("status") == "ok" and payload.get("hasSession") is True else 1)'
+        f'\' "$body" && echo "ok:$i" && exit 0; '
+        "  fi; "
         f"  sleep {poll_interval}; "
         f"done; "
         f"exit 1"

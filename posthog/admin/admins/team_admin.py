@@ -130,7 +130,6 @@ class TeamAdmin(admin.ModelAdmin):
                     "timezone",
                     "week_start_day",
                     "base_currency",
-                    "slack_incoming_webhook",
                     "primary_dashboard",
                 ],
             },
@@ -616,7 +615,7 @@ class TeamAdmin(admin.ModelAdmin):
                 "delete-recordings-with-session-ids",
             ]
             type_clauses = " OR ".join(f'WorkflowType = "{wt}"' for wt in workflow_types)
-            query = f"PostHogTeamId = {team_id} AND ({type_clauses}) ORDER BY StartTime DESC"
+            query = f"PostHogTeamId = {team_id} AND ({type_clauses})"
 
             async def fetch_workflows():
                 workflows = []
@@ -755,6 +754,14 @@ class TeamAdmin(admin.ModelAdmin):
 
                 date_from = request.POST.get("date_from", "").strip()
                 date_to = request.POST.get("date_to", "").strip()
+
+                # Relative dates need a "d" suffix (e.g. "-360d") — bare integers
+                # like "-360" get parsed as ints by query_as_params_to_dict and
+                # fail Pydantic validation downstream.
+                if date_from.lstrip("-").isdigit():
+                    date_from = f"{date_from}d"
+                if date_to.lstrip("-").isdigit():
+                    date_to = f"{date_to}d"
                 duration_min = request.POST.get("duration_min", "").strip()
                 duration_max = request.POST.get("duration_max", "").strip()
                 person_uuid = request.POST.get("person_uuid", "").strip()

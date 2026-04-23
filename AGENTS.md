@@ -20,7 +20,6 @@
 - Lint:
   - Python:
     - `ruff check . --fix` and `ruff format .`
-    - Do not run mypy for type checks. It takes too long.
   - Frontend: `pnpm --filter=@posthog/frontend format`
   - TypeScript check: `pnpm --filter=@posthog/frontend typescript:check`
 - Build:
@@ -78,13 +77,9 @@ This repository is public and all commit messages, pull request titles, and pull
 
 Examples:
 
-- ✅ Good: `fix(insights): handle missing series color in trend export`
-- ✅ Good: `chore(ci): reduce flaky backend test retries`
-- ❌ Avoid: `fix: patch issue found in acme-co prod workspace after sales escalation`
-- ❌ Avoid: `chore: workaround for internal k8s outage in us-east-2`
-- ❌ Avoid: `feat: add migration for private enterprise customer contract requirement`
-- ❌ Avoid: `fix: will run fine on our 12 million rows there now`
-- ❌ Avoid: `fix: we were failing there for 300 teams`
+- ✅ `fix(insights): handle missing series color in trend export`
+- ❌ `fix: patch issue found in acme-co prod workspace after sales escalation` — references internal customer
+- ❌ `fix: will run fine on our 12 million rows there now` — leaks private operational scale
 
 ## CI / GitHub Actions
 
@@ -98,17 +93,20 @@ See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep secur
 ## Architecture guidelines
 
 - API views should declare request/response schemas — prefer `@validated_request` from `posthog.api.mixins` or `@extend_schema` from drf-spectacular. Plain `ViewSet` methods that validate manually need `@extend_schema(request=YourSerializer)` — without it, drf-spectacular can't discover the request body and generated code gets empty schemas
-- Django serializers are the source of truth for frontend API types — `hogli build:openapi` generates TypeScript via drf-spectacular + Orval. Generated files (`api.schemas.ts`, `api.ts`) live in `frontend/src/generated/core/` and `products/{product}/frontend/generated/` — don't edit them manually, change serializers and rerun. See [type system guide](docs/published/handbook/engineering/type-system.md) for the full pipeline
+- Django serializers are the source of truth for frontend API types — `hogli build:openapi` generates TypeScript via drf-spectacular + Orval. Generated files (`api.schemas.ts`, `api.ts`, `api.zod.ts`) live in `frontend/src/generated/core/` and `products/{product}/frontend/generated/` — don't edit them manually, change serializers and rerun. See [type system guide](docs/published/handbook/engineering/type-system.md) for the full pipeline
 - MCP tools are generated from the same OpenAPI spec — see [implementing MCP tools](docs/published/handbook/engineering/ai/implementing-mcp-tools.md) for the YAML config and codegen workflow
 - MCP UI apps (interactive visualizations for tool results) are defined in `products/*/mcp/tools.yaml` under `ui_apps` and auto-generated — see [services/mcp/CONTRIBUTING.md](services/mcp/CONTRIBUTING.md) or use the `implementing-mcp-ui-apps` skill
 - When touching a viewset or serializer, ensure schema annotations are present (`@extend_schema` or `@validated_request` on viewset methods, `help_text` on serializer fields) — these flow into generated frontend types and MCP tool schemas
 - New features should live in `products/` — read [products/README.md](products/README.md) for layout and setup. When _creating a new_ product, follow [products/architecture.md](products/architecture.md) (DTOs, facades, isolation)
 - Always filter querysets by `team_id` — in serializers, access the team via `self.context["get_team"]()`
 - **Do not add domain-specific fields to the `Team` model.** Use a Team Extension model instead — see `posthog/models/team/README.md` for the pattern and helpers
+- **PostHog event capture in Celery tasks:** Do not use `posthoganalytics.capture()` in Celery tasks — events are silently lost. Use `ph_scoped_capture` from `posthog.ph_client` instead (see its docstring for why and usage).
+- **Django admin `ForeignKey` fields need explicit widget config.** When adding a `ForeignKey`/`OneToOneField` to a model that's exposed in Django admin (including via inlines attached to a _related_ admin), list the new field in `autocomplete_fields`, `raw_id_fields`, or `readonly_fields` on **every** admin class that renders the model — otherwise the default `<select>` widget loads the entire target table per row on each change-page render. Prefer declaring the config on a shared base inline so per-parent variants (e.g., subclasses differentiated by `fk_name`) inherit it automatically.
+- **Temporal activity payloads have a ~2 MiB hard limit — pass large data by reference, not by value.** Activity inputs and outputs are serialized across a gRPC boundary that Temporal caps at ~2 MiB per payload (the server rejects larger payloads via `blobSizeLimitError`). As a conservative field-level rule, if a field could exceed ~256 KB once serialized (serialized query results, exported file contents, LLM context, rendered HTML, image bytes, unbounded `list[dict[str, Any]]`), write it to Postgres / S3 / object storage from _inside_ the activity and return only the reference (row ID, S3 key). The workflow already has access to any row ID created earlier in the same run; it does not need the content to flow back through. Shuttling large data through the workflow on the way to persistence is a foreseeable failure mode that produces `PayloadSizeError` (`TMPRL1103`) the moment the underlying data crosses the limit.
 
 ## Code Style
 
-- Python: Use type hints (mypy-strict style)
+- Python: Write as if mypy `--strict` is enabled — annotate all function signatures (arguments + return types), avoid `Any`, use `TYPE_CHECKING` imports for type-only references. Do not run mypy locally (too slow); CI runs it on every PR. The config isn't fully strict yet, but new code should be
 - Frontend: TypeScript required, explicit return types
 - Frontend: If there is a kea logic file, write all business logic there, avoid React hooks at all costs.
 - Imports: Use oxfmt import sorting (automatically runs on format), avoid direct dayjs imports (use lib/dayjs)
@@ -136,3 +134,21 @@ When automating a convention, try these in order — only fall back to the next 
 4. **AGENTS.md / CLAUDE.md instructions** — when automated enforcement isn't suitable
 
 Claude Code hooks are reserved for environment bootstrapping (`SessionStart` only) — do not add `PreToolUse`, `PostToolUse`, or `Notification` hooks as they add latency and are fragile. Changes to `.claude/hooks/` trigger a lint-staged warning; changes to `.claude/settings.json` are blocked outright.
+
+### Mandatory skill invocation
+
+ALWAYS invoke the matching skill **before** writing or reviewing code in these areas — do not skip, do not attempt the work without loading the skill first.
+
+**Always invoke:**
+
+- `/improving-drf-endpoints` — any DRF viewset or serializer change
+- `/django-migrations` — any Django migration
+- `/clickhouse-migrations` — any ClickHouse migration
+- `/adopting-generated-api-types` — any frontend file using `lib/api`, `api.get<`, `api.create<`, or handwritten API types
+
+**Invoke when in the area:**
+
+- `/implementing-mcp-tools` — adding/modifying endpoints or `tools.yaml`
+- `/modifying-taxonomic-filter` — any TaxonomicFilter change
+- `/sending-notifications` — adding notification support
+- `/writing-skills` — creating or updating skills in `.agents/skills/`

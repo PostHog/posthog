@@ -3,8 +3,7 @@ import uuid
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from dlt.common.normalizers.naming.snake_case import NamingConvention
-
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.helpers import build_table_name
 from posthog.temporal.data_imports.pipelines.pipeline_sync import merge_columns
 
@@ -35,7 +34,7 @@ def _register_companion_sync(
         return
 
     job = ExternalDataJob.objects.prefetch_related("pipeline").get(pk=run_id)
-    normalized_resource_name = NamingConvention().normalize_identifier(resource_name)
+    normalized_resource_name = NamingConvention.normalize_identifier(resource_name)
     companion_table_name = build_table_name(job.pipeline, resource_name)
     new_url_pattern = job.url_pattern_by_schema(normalized_resource_name)
 

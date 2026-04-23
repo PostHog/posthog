@@ -178,4 +178,25 @@ var (
 		Name: "livestream_redis_publish_queue_use_ratio",
 		Help: "How much of the Redis publish buffer is used",
 	})
+
+	// /notifications handler metrics
+	NotificationSubs = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "livestream_active_notification_subscriptions",
+		Help: "Current number of active SSE connections on /notifications",
+	})
+	NotificationMessagesReceivedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "livestream_notification_messages_received_total",
+		Help: "Total notification messages received from Redis pub/sub by /notifications handlers",
+	})
+	NotificationMessagesDeliveredTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "livestream_notification_messages_delivered_total",
+		Help: "Total notification messages written to an SSE client",
+	})
+	NotificationMessagesDroppedTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "livestream_notification_messages_dropped_total",
+			Help: "Notification messages not delivered, labeled by reason",
+		},
+		[]string{"reason"},
+	)
 )
