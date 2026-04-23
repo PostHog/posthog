@@ -98,6 +98,13 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     scope_object = "INTERNAL"
 
+    def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
+        # Selective opt-in for PAT/OAuth access. Only the listed actions are reachable via API token;
+        # all other billing endpoints stay session-only via the INTERNAL scope_object default.
+        if self.action in ("list", "usage", "spend"):
+            return ["billing:read"]
+        return None
+
     def get_billing_manager(self) -> BillingManager:
         license = get_cached_instance_license()
         user = (
