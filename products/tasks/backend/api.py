@@ -1781,9 +1781,20 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+            prior = {
+                "status": task_run.status,
+                "environment": task_run.environment,
+                "completed_at": task_run.completed_at,
+                "error_message": task_run.error_message,
+                "state": dict(task_run.state or {}),
+            }
             task_run.prepare_for_cloud_handoff()
 
-        self._signal_workflow_completion(task_run, "cancelled", "handoff")
+        # Any prior workflow under this ID gets terminated atomically by
+        # TERMINATE_IF_RUNNING inside resume_task_in_cloud_workflow. We
+        # intentionally don't send a separate cancel signal here: it races
+        # with start, and signals are routed by workflow_id so a late signal
+        # could land on the new execution.
 
         logger.info(
             "Resuming task run in cloud",
@@ -1800,11 +1811,24 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "Failed to trigger handoff workflow",
                 extra={"task_run_id": str(task_run.id), "error": str(e)},
             )
-            TaskRun.objects.filter(pk=task_run.pk).update(
-                status=TaskRun.Status.FAILED,
-                error_message="Failed to start cloud workflow",
-                updated_at=timezone.now(),
-            )
+            with transaction.atomic():
+                task_run = TaskRun.objects.select_for_update().get(pk=task_run.pk)
+                task_run.status = prior["status"]
+                task_run.environment = prior["environment"]
+                task_run.completed_at = prior["completed_at"]
+                task_run.state = prior["state"]
+                task_run.error_message = "Failed to start cloud workflow"
+                task_run.save(
+                    update_fields=[
+                        "status",
+                        "environment",
+                        "completed_at",
+                        "state",
+                        "error_message",
+                        "updated_at",
+                    ]
+                )
+            task_run.publish_stream_state_event()
             return Response(
                 ErrorResponseSerializer({"error": "Failed to start cloud workflow"}).data,
                 status=status.HTTP_502_BAD_GATEWAY,

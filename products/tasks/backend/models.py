@@ -532,9 +532,12 @@ class TaskRun(models.Model):
 
     def prepare_for_cloud_handoff(self) -> None:
         """
-        Sets all state fields needed for the cloud agent server + Temporal
-        workflow to treat this as a resume (not a fresh run).
-        hack: This clears stale fields that would cause the initial task message to be re-sent.
+        Restart this run in the cloud, resuming from its existing log/checkpoints.
+
+        The `handoff_resumed` flag tells the workflow and sandbox provisioning
+        to treat this as a resume of the same run (skip initial prompt, hydrate
+        from the existing log) without overloading `resume_from_run_id`, which
+        means "continue from a different run".
         """
         self.status = self.Status.QUEUED
         self.environment = self.Environment.CLOUD
@@ -542,7 +545,7 @@ class TaskRun(models.Model):
         self.error_message = None
 
         state = self.state or {}
-        state["resume_from_run_id"] = str(self.id)
+        state["handoff_resumed"] = True
         state["mode"] = "interactive"
         state.pop("pending_user_message", None)
         state.pop("pending_user_message_ts", None)
@@ -597,7 +600,6 @@ class TaskRun(models.Model):
                 state.update(updates)
 
         return cls.mutate_state_atomic(run_id, _mutator)
-
 
     @staticmethod
     def get_workflow_id(task_id: str | uuid.UUID, run_id: str | uuid.UUID) -> str:

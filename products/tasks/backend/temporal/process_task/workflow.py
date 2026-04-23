@@ -474,7 +474,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
             await self._emit_progress("clone", "completed", "Cloned repository", "setup")
 
-        is_resume = bool((self.context.state or {}).get("resume_from_run_id"))
+        state = self.context.state or {}
+        is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
         if will_checkout and not is_resume:
             branch_label_active = f"Checking out branch {prepared.branch}"
             branch_label_done = f"Checked out branch {prepared.branch}"
@@ -551,7 +552,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         if not self._context:
             return False
 
-        is_resume = bool((self.context.state or {}).get("resume_from_run_id"))
+        state = self.context.state or {}
+        is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
         return self.context.mode != "interactive" and not is_resume
 
     async def _track_workflow_event(self, event_name: str, properties: dict) -> None:

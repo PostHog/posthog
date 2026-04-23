@@ -246,7 +246,10 @@ def resume_task_in_cloud_workflow(run_id: str, workflow_id: str) -> None:
             "process-task",
             ProcessTaskInput(run_id=run_id),
             id=workflow_id,
-            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            # TERMINATE_IF_RUNNING closes any prior workflow under this ID
+            # atomically before starting the new one, avoiding the async-cancel
+            # race where a best-effort cancel signal hasn't landed yet.
+            id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
             task_queue=settings.TASKS_TASK_QUEUE,
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
