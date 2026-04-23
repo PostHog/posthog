@@ -275,7 +275,7 @@ jobs:
     check-migrations:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true'
-        timeout-minutes: 20
+        timeout-minutes: 60
         name: Validate migrations and OpenAPI types
         runs-on: depot-ubuntu-latest
         steps:
