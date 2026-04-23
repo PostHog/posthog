@@ -470,6 +470,7 @@ mod tests {
         RestrictionScope, RestrictionType,
     };
     use crate::sinks::test_sink::MockSink;
+    use rstest::rstest;
     use std::time::Duration;
 
     #[tokio::test]
@@ -901,31 +902,18 @@ mod tests {
         sink.get_events()
     }
 
+    #[rstest]
+    #[case("$exception", DataType::ExceptionErrorTracking)]
+    #[case("$$heatmap", DataType::HeatmapMain)]
+    #[case("$$client_ingestion_warning", DataType::ClientIngestionWarning)]
     #[tokio::test]
-    async fn test_process_events_exception_bypasses_drop_restriction() {
-        let captured = process_single_with_drop_restriction("$exception").await;
+    async fn test_non_analytics_events_bypass_drop_restriction(
+        #[case] event_name: &str,
+        #[case] expected_data_type: DataType,
+    ) {
+        let captured = process_single_with_drop_restriction(event_name).await;
         assert_eq!(captured.len(), 1);
-        assert_eq!(
-            captured[0].metadata.data_type,
-            DataType::ExceptionErrorTracking
-        );
-    }
-
-    #[tokio::test]
-    async fn test_process_events_heatmap_bypasses_drop_restriction() {
-        let captured = process_single_with_drop_restriction("$$heatmap").await;
-        assert_eq!(captured.len(), 1);
-        assert_eq!(captured[0].metadata.data_type, DataType::HeatmapMain);
-    }
-
-    #[tokio::test]
-    async fn test_process_events_client_ingestion_warning_bypasses_drop_restriction() {
-        let captured = process_single_with_drop_restriction("$$client_ingestion_warning").await;
-        assert_eq!(captured.len(), 1);
-        assert_eq!(
-            captured[0].metadata.data_type,
-            DataType::ClientIngestionWarning
-        );
+        assert_eq!(captured[0].metadata.data_type, expected_data_type);
     }
 
     #[tokio::test]
