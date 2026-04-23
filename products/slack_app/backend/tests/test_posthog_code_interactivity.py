@@ -223,6 +223,7 @@ class TestRepoPickerOptions(TestCase):
         assert response.status_code == 200
         mock_client.chat_postMessage.assert_called_once()
         assert "selection expired" in mock_client.chat_postMessage.call_args.kwargs["text"].lower()
+        assert "posthog again" in mock_client.chat_postMessage.call_args.kwargs["text"].lower()
 
     @patch("posthog.models.integration.WebClient")
     @patch("products.slack_app.backend.api.asyncio.run")
@@ -260,6 +261,7 @@ class TestRepoPickerOptions(TestCase):
         mock_sync_connect.assert_called_once()
         mock_client.chat_postMessage.assert_called_once()
         assert "selection expired" in mock_client.chat_postMessage.call_args.kwargs["text"].lower()
+        assert "posthog again" in mock_client.chat_postMessage.call_args.kwargs["text"].lower()
 
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")

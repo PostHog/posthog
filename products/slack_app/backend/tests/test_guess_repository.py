@@ -785,6 +785,26 @@ class TestHandleRulesCommandActivity:
         assert "No routing rules" in msg.kwargs["text"]
 
     @patch("posthog.models.integration.SlackIntegration")
+    def test_help_uses_posthog_commands(self, mock_slack_cls):
+        mock_slack = MagicMock()
+        mock_slack_cls.return_value = mock_slack
+
+        from posthog.temporal.ai.posthog_code_slack_mention import handle_posthog_code_rules_command_activity
+
+        result = handle_posthog_code_rules_command_activity(
+            self._make_inputs("<@U123> help"),
+            self.channel,
+            self.thread_ts,
+            self.slack_user_id,
+            self.user.id,
+        )
+
+        assert result.status == "handled"
+        msg = mock_slack.client.chat_postMessage.call_args
+        assert "@PostHog <task description>" in msg.kwargs["text"]
+        assert "@PostHog Code" not in msg.kwargs["text"]
+
+    @patch("posthog.models.integration.SlackIntegration")
     def test_list_shows_rules(self, mock_slack_cls):
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack

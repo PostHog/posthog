@@ -27,7 +27,7 @@ POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES = 15
 POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE = (
     "Please select the repository for this task. "
     "Or @mention me again and include the exact repository as `org/repo`. "
-    'You can also add routing rules with `@PostHog Code rules add "description" [org/repo]`.'
+    'You can also add routing rules with `@PostHog rules add "description" [org/repo]`.'
 )
 POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE = "Select the repository for this routing rule."
 
@@ -347,15 +347,15 @@ def _handle_help(slack: Any, channel: str, thread_ts: str) -> None:
         thread_ts=thread_ts,
         text=(
             "*Available commands:*\n\n"
-            "`@PostHog Code <task description>` — Create a task for the agent to work on\n"
-            "`@PostHog Code rules list` — Show all routing rules\n"
-            '`@PostHog Code rules add "description" org/repo` — Add a routing rule\n'
-            '`@PostHog Code rules add "description"` — Add a routing rule (pick repo from list)\n'
-            "`@PostHog Code rules remove <number(s)>` — Remove routing rules by number (e.g. `remove 1` or `remove 1,2`)\n"
-            "`@PostHog Code default repo set org/repo` — Set your default repository for this channel\n"
-            "`@PostHog Code default repo show` — Show your default repository for this channel\n"
-            "`@PostHog Code default repo clear` — Clear your default repository for this channel\n"
-            "`@PostHog Code help` — Show this message\n\n"
+            "`@PostHog <task description>` — Create a task for the agent to work on\n"
+            "`@PostHog rules list` — Show all routing rules\n"
+            '`@PostHog rules add "description" org/repo` — Add a routing rule\n'
+            '`@PostHog rules add "description"` — Add a routing rule (pick repo from list)\n'
+            "`@PostHog rules remove <number(s)>` — Remove routing rules by number (e.g. `remove 1` or `remove 1,2`)\n"
+            "`@PostHog default repo set org/repo` — Set your default repository for this channel\n"
+            "`@PostHog default repo show` — Show your default repository for this channel\n"
+            "`@PostHog default repo clear` — Clear your default repository for this channel\n"
+            "`@PostHog help` — Show this message\n\n"
             "You can also reply in an active thread to send follow-up messages to the agent."
         ),
     )
@@ -369,7 +369,7 @@ def _handle_rules_list(slack: Any, integration: Any, channel: str, thread_ts: st
         slack.client.chat_postMessage(
             channel=channel,
             thread_ts=thread_ts,
-            text='No routing rules configured. Add one with `@PostHog Code rules add "description" [org/repo]`. Omit the repo to pick from a list.',
+            text='No routing rules configured. Add one with `@PostHog rules add "description" [org/repo]`. Omit the repo to pick from a list.',
         )
         return
 
@@ -446,7 +446,7 @@ def _handle_rules_remove(
         slack.client.chat_postMessage(
             channel=channel,
             thread_ts=thread_ts,
-            text="Please provide valid rule number(s). Use `@PostHog Code rules list` to see current rules.",
+            text="Please provide valid rule number(s). Use `@PostHog rules list` to see current rules.",
         )
         return
 
@@ -456,7 +456,7 @@ def _handle_rules_remove(
         slack.client.chat_postMessage(
             channel=channel,
             thread_ts=thread_ts,
-            text=f"Rule {'number' if len(invalid) == 1 else 'numbers'} {', '.join(f'#{n}' for n in invalid)} {'does' if len(invalid) == 1 else 'do'} not exist. There are {len(rules)} rule(s). Use `@PostHog Code rules list` to see them.",
+            text=f"Rule {'number' if len(invalid) == 1 else 'numbers'} {', '.join(f'#{n}' for n in invalid)} {'does' if len(invalid) == 1 else 'do'} not exist. There are {len(rules)} rule(s). Use `@PostHog rules list` to see them.",
         )
         return
 
@@ -537,7 +537,7 @@ def _handle_default_repo_show(
         slack.client.chat_postMessage(
             channel=channel,
             thread_ts=thread_ts,
-            text="No default repository set for this channel. Use `@PostHog Code default repo set org/repo` to set one.",
+            text="No default repository set for this channel. Use `@PostHog default repo set org/repo` to set one.",
         )
 
 
@@ -1332,7 +1332,17 @@ def post_posthog_code_picker_timeout_activity(
 ) -> None:
     from posthog.models.integration import Integration, SlackIntegration
 
+    from products.slack_app.backend.api import _clear_pending_repo_picker
     from products.slack_app.backend.models import SlackThreadTaskMapping
+
+    slack_user_id = inputs.event.get("user")
+    if isinstance(slack_user_id, str) and slack_user_id:
+        _clear_pending_repo_picker(
+            integration_id=inputs.integration_id,
+            channel=channel,
+            thread_ts=thread_ts,
+            slack_user_id=slack_user_id,
+        )
 
     # If another workflow already created a task for this thread (e.g. the user
     # sent a follow-up message instead of using the picker), skip the expired
@@ -1353,7 +1363,7 @@ def post_posthog_code_picker_timeout_activity(
     slack.client.chat_postMessage(
         channel=channel,
         thread_ts=thread_ts,
-        text="Repository selection expired. Please mention PostHog Code again to retry.",
+        text="Repository selection expired. Please mention PostHog again to retry.",
     )
 
 
@@ -1362,6 +1372,17 @@ def post_posthog_code_internal_error_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
 ) -> None:
     from posthog.models.integration import Integration, SlackIntegration
+
+    from products.slack_app.backend.api import _clear_pending_repo_picker
+
+    slack_user_id = inputs.event.get("user")
+    if isinstance(slack_user_id, str) and slack_user_id:
+        _clear_pending_repo_picker(
+            integration_id=inputs.integration_id,
+            channel=channel,
+            thread_ts=thread_ts,
+            slack_user_id=slack_user_id,
+        )
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
