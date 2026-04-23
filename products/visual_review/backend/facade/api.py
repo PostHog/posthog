@@ -288,10 +288,10 @@ def complete_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
     return _to_run(run)
 
 
-def recheck_gate(run_id: UUID, team_id: int | None = None) -> contracts.RecheckGateResult:
-    result = logic.recheck_gate(run_id, team_id=team_id)
+def recompute_run(run_id: UUID, team_id: int | None = None) -> contracts.RecomputeResult:
+    result = logic.recompute_run(run_id, team_id=team_id)
     run = logic.get_run(run_id, team_id=team_id)
-    return contracts.RecheckGateResult(
+    return contracts.RecomputeResult(
         run=_to_run(run),
         counts_changed=result["counts_changed"],
         ci_rerun_triggered=result["ci_rerun_triggered"],

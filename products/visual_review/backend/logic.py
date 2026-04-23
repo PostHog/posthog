@@ -895,7 +895,7 @@ def finish_processing(run_id: UUID, error_message: str = "") -> Run:
     return run
 
 
-def recheck_gate(run_id: UUID, team_id: int | None = None) -> dict:
+def recompute_run(run_id: UUID, team_id: int | None = None) -> dict:
     """Re-evaluate quarantine and counts, update commit status, and optionally rerun the CI job.
 
     Returns a dict with counts_changed, ci_rerun_triggered, and ci_rerun_error.
@@ -903,7 +903,7 @@ def recheck_gate(run_id: UUID, team_id: int | None = None) -> dict:
     run = get_run(run_id, team_id=team_id)
 
     if run.status != RunStatus.COMPLETED:
-        raise ValueError(f"Can only recheck completed runs (current status: {run.status})")
+        raise ValueError(f"Can only recompute completed runs (current status: {run.status})")
 
     if run.approved:
         raise ValueError("Run is already approved")

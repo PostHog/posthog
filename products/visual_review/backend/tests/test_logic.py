@@ -1349,7 +1349,7 @@ class TestQuarantineStamping:
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-class TestRecheckGate:
+class TestRecomputeRun:
     @pytest.fixture
     def repo(self, team):
         return logic.create_repo(team_id=team.id, repo_external_id=77777, repo_full_name="org/test-repo")
@@ -1377,7 +1377,7 @@ class TestRecheckGate:
         run.refresh_from_db()
         return run
 
-    def test_recheck_gate_updates_counts_after_quarantine(self, repo, team, mocker):
+    def test_recompute_run_updates_counts_after_quarantine(self, repo, team, mocker):
         from products.visual_review.backend.models import QuarantinedIdentifier
 
         run = self._create_completed_run(
@@ -1403,13 +1403,13 @@ class TestRecheckGate:
             reason="flaky",
         )
 
-        result = logic.recheck_gate(run.id, team_id=team.id)
+        result = logic.recompute_run(run.id, team_id=team.id)
 
         assert result["counts_changed"] is True
         run.refresh_from_db()
         assert run.changed_count == 0
 
-    def test_recheck_gate_no_change_without_quarantine(self, repo, team, mocker):
+    def test_recompute_run_no_change_without_quarantine(self, repo, team, mocker):
         run = self._create_completed_run(
             repo,
             mocker,
@@ -1417,12 +1417,12 @@ class TestRecheckGate:
             baseline={"Button": "old1"},
         )
 
-        result = logic.recheck_gate(run.id, team_id=team.id)
+        result = logic.recompute_run(run.id, team_id=team.id)
 
         assert result["counts_changed"] is False
         assert result["ci_rerun_error"] == "CI metadata not available (upgrade CLI to enable)"
 
-    def test_recheck_gate_rejects_non_completed_run(self, repo, team, mocker):
+    def test_recompute_run_rejects_non_completed_run(self, repo, team, mocker):
         run, _ = logic.create_run(
             repo_id=repo.id,
             team_id=repo.team_id,
@@ -1433,10 +1433,10 @@ class TestRecheckGate:
             snapshots=[],
         )
 
-        with pytest.raises(ValueError, match="Can only recheck completed runs"):
-            logic.recheck_gate(run.id, team_id=team.id)
+        with pytest.raises(ValueError, match="Can only recompute completed runs"):
+            logic.recompute_run(run.id, team_id=team.id)
 
-    def test_recheck_gate_rejects_approved_run(self, repo, team, user, mocker):
+    def test_recompute_run_rejects_approved_run(self, repo, team, user, mocker):
         logic.get_or_create_artifact(repo_id=repo.id, content_hash="h1", storage_path="p/h1")
         run = self._create_completed_run(
             repo,
@@ -1452,9 +1452,9 @@ class TestRecheckGate:
         )
 
         with pytest.raises(ValueError, match="already approved"):
-            logic.recheck_gate(run.id, team_id=team.id)
+            logic.recompute_run(run.id, team_id=team.id)
 
-    def test_recheck_gate_reports_missing_ci_metadata(self, repo, team, mocker):
+    def test_recompute_run_reports_missing_ci_metadata(self, repo, team, mocker):
         run = self._create_completed_run(
             repo,
             mocker,
@@ -1462,12 +1462,12 @@ class TestRecheckGate:
             baseline={"Button": "old1"},
         )
 
-        result = logic.recheck_gate(run.id, team_id=team.id)
+        result = logic.recompute_run(run.id, team_id=team.id)
 
         assert result["ci_rerun_triggered"] is False
         assert result["ci_rerun_error"] == "CI metadata not available (upgrade CLI to enable)"
 
-    def test_recheck_gate_triggers_ci_rerun(self, repo, team, mocker):
+    def test_recompute_run_triggers_ci_rerun(self, repo, team, mocker):
         run = self._create_completed_run(
             repo,
             mocker,
@@ -1481,12 +1481,12 @@ class TestRecheckGate:
             return_value=(True, None),
         )
 
-        result = logic.recheck_gate(run.id, team_id=team.id)
+        result = logic.recompute_run(run.id, team_id=team.id)
 
         assert result["ci_rerun_triggered"] is True
         assert result["ci_rerun_error"] is None
 
-    def test_recheck_gate_handles_ci_rerun_failure(self, repo, team, mocker):
+    def test_recompute_run_handles_ci_rerun_failure(self, repo, team, mocker):
         run = self._create_completed_run(
             repo,
             mocker,
@@ -1500,7 +1500,7 @@ class TestRecheckGate:
             return_value=(False, "Job 'visual-regression' not found in workflow run 12345"),
         )
 
-        result = logic.recheck_gate(run.id, team_id=team.id)
+        result = logic.recompute_run(run.id, team_id=team.id)
 
         assert result["ci_rerun_triggered"] is False
         assert "not found" in result["ci_rerun_error"]

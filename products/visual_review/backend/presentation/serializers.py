@@ -19,7 +19,7 @@ from ..facade.contracts import (
     CreateRunResult,
     QuarantinedIdentifierEntry,
     QuarantineInput,
-    RecheckGateResult,
+    RecomputeResult,
     Repo,
     Run,
     RunSummary,
@@ -95,9 +95,9 @@ class AutoApproveResultSerializer(DataclassSerializer):
         dataclass = AutoApproveResult
 
 
-class RecheckGateResultSerializer(DataclassSerializer):
+class RecomputeResultSerializer(DataclassSerializer):
     class Meta:
-        dataclass = RecheckGateResult
+        dataclass = RecomputeResult
 
 
 # --- Input Serializers ---

@@ -204,7 +204,7 @@ class AutoApproveResult:
 
 
 @dataclass(frozen=True)
-class RecheckGateResult:
+class RecomputeResult:
     """Result of re-evaluating quarantine/counts and optionally retriggering CI."""
 
     run: Run

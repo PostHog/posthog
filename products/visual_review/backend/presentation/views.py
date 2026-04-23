@@ -45,7 +45,7 @@ from .serializers import (
     MarkToleratedInputSerializer,
     QuarantinedIdentifierEntrySerializer,
     QuarantineInputSerializer,
-    RecheckGateResultSerializer,
+    RecomputeResultSerializer,
     RepoSerializer,
     ReviewStateCountsSerializer,
     RunSerializer,
@@ -380,18 +380,18 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": f"GitHub commit failed: {e}"}, status=status.HTTP_502_BAD_GATEWAY)
 
     @extend_schema(
-        responses={200: RecheckGateResultSerializer},
+        responses={200: RecomputeResultSerializer},
         description="Re-evaluate quarantine and counts, update commit status, and optionally rerun the CI job.",
     )
-    @action(detail=True, methods=["post"], url_path="recheck-gate")
-    def recheck_gate(self, request: Request, pk: str, **kwargs) -> Response:
+    @action(detail=True, methods=["post"], url_path="recompute")
+    def recompute(self, request: Request, pk: str, **kwargs) -> Response:
         try:
-            result = api.recheck_gate(UUID(pk), team_id=self.team_id)
+            result = api.recompute_run(UUID(pk), team_id=self.team_id)
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-        return Response(RecheckGateResultSerializer(instance=result).data)
+        return Response(RecomputeResultSerializer(instance=result).data)
 
     @extend_schema(responses={200: AutoApproveResultSerializer}, deprecated=True)
     @action(detail=True, methods=["post"], url_path="auto-approve")
