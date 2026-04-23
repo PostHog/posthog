@@ -41,16 +41,16 @@ If the data isn't imported yet, call `posthog:external-data-sources-wizard` to s
 
 **Common patterns:**
 
-| User wants                 | Source type                                  | Key tables                                  |
-| -------------------------- | -------------------------------------------- | ------------------------------------------- |
-| Revenue / payment data     | Stripe, PayPal, Chargebee, Recurly, Paddle   | charges, subscriptions, invoices, customers |
-| CRM / sales pipeline       | Hubspot, Salesforce, Pipedrive, Close, Attio | contacts, deals, companies                  |
-| Support tickets            | Zendesk, Intercom, Freshdesk, HelpScout      | tickets, conversations, users               |
-| Product data from their DB | Postgres, MySQL, BigQuery, Snowflake         | user's own tables                           |
-| Marketing / ads            | Google Ads, Meta Ads, LinkedIn Ads           | campaigns, ad_groups, ads                   |
-| Email marketing            | Mailchimp, Klaviyo, SendGrid, Brevo          | campaigns, lists, subscribers               |
-| Project management         | Jira, Linear, Asana, ClickUp                 | issues, projects                            |
-| Feature flags (external)   | LaunchDarkly                                 | feature_flags, environments                 |
+| User wants                 | Source type                                    | Key tables                                  |
+| -------------------------- | ---------------------------------------------- | ------------------------------------------- |
+| Revenue / payment data     | Stripe, Chargebee, Shopify                     | charges, subscriptions, invoices, customers |
+| CRM / sales pipeline       | Hubspot, Salesforce, Attio                     | contacts, deals, companies                  |
+| Support tickets            | Zendesk                                        | tickets, users, organizations               |
+| Product data from their DB | Postgres, MySQL, BigQuery, Snowflake, Redshift | user's own tables                           |
+| Marketing / ads            | Google Ads, Meta Ads, LinkedIn Ads, TikTok Ads | campaigns, ad_groups, ads                   |
+| Email marketing            | Mailchimp, Klaviyo                             | campaigns, lists, subscribers               |
+| Project management         | Linear                                         | issues, projects                            |
+| Error tracking (external)  | Sentry                                         | issues, events                              |
 
 ### 4. Suggest the import
 
