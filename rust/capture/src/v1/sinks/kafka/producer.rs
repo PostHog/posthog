@@ -25,10 +25,7 @@ pub enum ProduceError {
     EventTooBig { message: String },
 
     #[error("kafka error: {code}")]
-    Kafka {
-        code: RDKafkaErrorCode,
-        retriable: bool,
-    },
+    Kafka { code: RDKafkaErrorCode },
 
     #[error("delivery cancelled (timeout in librdkafka)")]
     DeliveryCancelled,
@@ -38,14 +35,14 @@ impl ProduceError {
     pub fn is_retriable(&self) -> bool {
         match self {
             Self::EventTooBig { .. } => false,
-            Self::Kafka { retriable, .. } => *retriable,
+            Self::Kafka { code } => !is_fatal_kafka_error(*code),
             Self::DeliveryCancelled => true,
         }
     }
 
     pub fn error_code(&self) -> Option<RDKafkaErrorCode> {
         match self {
-            Self::Kafka { code, .. } => Some(*code),
+            Self::Kafka { code } => Some(*code),
             _ => None,
         }
     }
@@ -55,7 +52,6 @@ impl ProduceError {
             self,
             Self::Kafka {
                 code: RDKafkaErrorCode::QueueFull,
-                ..
             }
         )
     }
@@ -65,7 +61,7 @@ impl ProduceError {
         match self {
             Self::EventTooBig { .. } => "event_too_big",
             Self::DeliveryCancelled => "delivery_cancelled",
-            Self::Kafka { code, .. } => error_code_tag(*code),
+            Self::Kafka { code } => error_code_tag(*code),
         }
     }
 }
@@ -255,9 +251,6 @@ pub(crate) fn produce_error_from_kafka(e: KafkaError) -> ProduceError {
             message: e.to_string(),
         }
     } else {
-        ProduceError::Kafka {
-            retriable: !is_fatal_kafka_error(code),
-            code,
-        }
+        ProduceError::Kafka { code }
     }
 }
