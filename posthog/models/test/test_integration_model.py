@@ -1054,6 +1054,26 @@ class TestGitHubIntegrationModel(BaseTest):
         assert has_more is True
         mock_list_all.assert_called_once_with()
 
+    @patch("posthog.models.integration.GitHubIntegration.list_all_repositories")
+    def test_list_cached_repositories_filters_search_before_pagination(self, mock_list_all):
+        fetched_repositories = [
+            {"id": 1, "name": "posthog", "full_name": "PostHog/posthog"},
+            {"id": 2, "name": "posthog-js", "full_name": "PostHog/posthog-js"},
+            {"id": 3, "name": "code", "full_name": "PostHog/code"},
+            {"id": 4, "name": "posthog-python", "full_name": "PostHog/posthog-python"},
+        ]
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+        mock_list_all.return_value = fetched_repositories
+
+        repos, has_more = GitHubIntegration(integration).list_cached_repositories(search="posthog", limit=1, offset=1)
+
+        assert repos == [{"id": 2, "name": "posthog-js", "full_name": "PostHog/posthog-js"}]
+        assert has_more is True
+        mock_list_all.assert_called_once_with()
+
     @patch("posthog.models.integration.GitHubIntegration.list_branches")
     @patch("posthog.models.integration.GitHubIntegration.get_default_branch")
     def test_list_cached_branches_uses_cached_data_when_fresh(self, mock_default_branch, mock_list_branches):
