@@ -298,15 +298,9 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             # command at this position has drained; `deprecate_patch()` records a
             # "deprecated" marker so any straggler replay from the original deploy
             # reaches this point without tripping non-determinism. Next cleanup PR
-            # removes the call once the "deprecated"-marker histories have drained.
-            # The log emission below gives step 2 an empirical drain signal — a
-            # zero-count search for "process_subscription.deprecate_patch_reached"
-            # over 24h+ is stronger evidence than wall-clock elapsed time alone.
+            # removes the call once the "deprecated"-marker histories have drained
+            # (verify via the Temporal UI query in the top-of-file comment block).
             temporalio.workflow.deprecate_patch(_PATCH_ID_CONTENT_SNAPSHOT_DIRECT_WRITE)
-            temporalio.workflow.logger.info(
-                "process_subscription.deprecate_patch_reached",
-                extra={"subscription_id": inputs.subscription_id},
-            )
 
             # Generate LLM change summary (best-effort, skip if not enabled).
             # Reads content_snapshot back from Postgres — persisted inline by
