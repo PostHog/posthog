@@ -439,7 +439,7 @@
         "feature": "data_warehouse",
         "summary": "Discover tables and sync methods for a source",
         "title": "Discover tables and sync methods for a source",
-        "required_scopes": ["external_data_source:read"],
+        "required_scopes": ["external_data_source:write"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
@@ -1648,7 +1648,7 @@
         }
     },
     "external-data-sources-create-webhook-create": {
-        "description": "For sources that support real-time webhook ingestion (currently Stripe), create the HogFunction handler and register the webhook URL with the external service using the source's stored credentials. Requires at least one schema on the source with sync_type='webhook' and should_sync=true. Returns the webhook_url, success flag, and any error. For Stripe the signing_secret is auto-captured from the Stripe API response and stored securely; if auto-registration fails (e.g. the API key lacks webhook permissions), the user must create the webhook manually in Stripe and submit the signing_secret via update-webhook-inputs.",
+        "description": "For sources that support real-time webhook ingestion (currently Stripe), create the HogFunction handler and register the webhook URL with the external service using the source's stored credentials. Requires at least one schema on the source with sync_type='webhook' and should_sync=true. Returns the webhook_url, success flag, and any error. NOT idempotent — each successful call registers a new endpoint on the external service, so retrying after a network error or calling twice can create duplicate webhook endpoints (e.g. duplicate Stripe webhook endpoints delivering the same events twice). Always check webhook-info-retrieve first and only re-call if `exists: false`. For Stripe the signing_secret is auto-captured from the Stripe API response and stored securely; if auto-registration fails (e.g. the API key lacks webhook permissions), the user must create the webhook manually in Stripe and submit the signing_secret via update-webhook-inputs.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
         "summary": "Create and register a webhook for a source",
@@ -1657,7 +1657,7 @@
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
-            "idempotentHint": true,
+            "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
         }
@@ -1713,7 +1713,7 @@
         "feature": "data_warehouse",
         "summary": "Check Postgres CDC prerequisites",
         "title": "Check Postgres CDC prerequisites",
-        "required_scopes": ["external_data_source:read"],
+        "required_scopes": ["external_data_source:write"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
@@ -1788,7 +1788,7 @@
         "feature": "data_warehouse",
         "summary": "Refresh candidate incremental fields for a schema",
         "title": "Refresh candidate incremental fields for a schema",
-        "required_scopes": ["external_data_source:read"],
+        "required_scopes": ["external_data_source:write"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
