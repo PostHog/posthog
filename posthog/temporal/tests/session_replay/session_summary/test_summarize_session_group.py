@@ -71,7 +71,7 @@ from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPatternStats,
     RawSessionGroupSummaryPatternsList,
 )
-from ee.models.session_summaries import SessionGroupSummary, SessionSummaryRunMeta, SingleSessionSummary
+from ee.models.session_summaries import SessionGroupSummary, SingleSessionSummary
 
 pytestmark = pytest.mark.django_db
 
@@ -167,93 +167,6 @@ async def test_get_llm_single_session_summary_activity_standalone(
         assert summary_after is not None, "Summary should exist in DB after the activity"
         assert summary_after.session_id == mock_session_id
         assert summary_after.team_id == ateam.id
-
-
-@pytest.mark.asyncio
-async def test_get_llm_single_session_summary_activity_emits_summary_ready_event(
-    mocker: MockerFixture,
-    mock_session_id: str,
-    mock_single_session_summary_llm_inputs: Callable,
-    mock_single_session_summary_inputs: Callable,
-    mock_call_llm: Callable,
-    redis_test_setup: AsyncRedisTestContext,
-    auser: User,
-    ateam: Team,
-):
-    llm_input = mock_single_session_summary_llm_inputs(mock_session_id, auser.id)
-    compressed_llm_input_data = _compress_redis_data(json.dumps(dataclasses.asdict(llm_input)))
-    input_data = mock_single_session_summary_inputs(
-        mock_session_id,
-        ateam.id,
-        auser.id,
-        redis_key_base=f"session-summary:single:{ateam.id}-{auser.id}:{mock_session_id}",
-    )
-    _, redis_input_key, redis_output_key = get_redis_state_client(
-        key_base=input_data.redis_key_base,
-        input_label=StateActivitiesEnum.SESSION_DB_DATA,
-        output_label=StateActivitiesEnum.SESSION_SUMMARY,
-        state_id=input_data.session_id,
-    )
-    assert redis_input_key
-    assert redis_output_key
-    await redis_test_setup.setup_input_data(
-        compressed_llm_input_data,
-        redis_input_key,
-        redis_output_key,
-    )
-
-    capture_session_summary_ready = mocker.patch(
-        "posthog.temporal.session_replay.session_summary.summarize_session.capture_session_summary_ready"
-    )
-
-    with (
-        patch("ee.hogai.session_summaries.llm.consume.call_llm", new=AsyncMock(return_value=mock_call_llm())),
-        patch("temporalio.activity.info") as mock_activity_info,
-    ):
-        mock_activity_info.return_value.workflow_id = "test_workflow_id"
-        await get_llm_single_session_summary_activity(input_data)
-
-    capture_session_summary_ready.assert_called_once()
-    emitted_summary = capture_session_summary_ready.call_args.args[0]
-    assert emitted_summary.session_id == mock_session_id
-    assert emitted_summary.team_id == ateam.id
-    assert capture_session_summary_ready.call_args.kwargs["summary_origin"] == "single"
-
-
-@pytest.mark.asyncio
-async def test_get_llm_single_session_summary_activity_does_not_emit_summary_ready_event_for_existing_summary(
-    mocker: MockerFixture,
-    mock_session_id: str,
-    mock_single_session_summary_inputs: Callable,
-    mock_session_summary_serializer: SessionSummarySerializer,
-    auser: User,
-    ateam: Team,
-):
-    await database_sync_to_async(SingleSessionSummary.objects.add_summary, thread_sensitive=False)(
-        team_id=ateam.id,
-        session_id=mock_session_id,
-        summary=mock_session_summary_serializer,
-        exception_event_ids=[],
-        run_metadata=SessionSummaryRunMeta(model_used="gpt-test", visual_confirmation=False),
-        distinct_id="existing-customer-123",
-        created_by=auser,
-    )
-    input_data = mock_single_session_summary_inputs(
-        mock_session_id,
-        ateam.id,
-        auser.id,
-        redis_key_base=f"session-summary:single:{ateam.id}-{auser.id}:{mock_session_id}",
-    )
-
-    capture_session_summary_ready = mocker.patch(
-        "posthog.temporal.session_replay.session_summary.summarize_session.capture_session_summary_ready"
-    )
-    call_llm = mocker.patch("ee.hogai.session_summaries.llm.consume.call_llm")
-
-    await get_llm_single_session_summary_activity(input_data)
-
-    capture_session_summary_ready.assert_not_called()
-    call_llm.assert_not_called()
 
 
 @pytest.mark.asyncio

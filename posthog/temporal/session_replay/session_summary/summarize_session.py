@@ -58,7 +58,6 @@ from posthog.temporal.session_replay.session_summary.types.video import (
 )
 
 from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_UNDERSTANDING_MODEL, SESSION_SUMMARIES_MODEL
-from ee.hogai.session_summaries.events import capture_session_summary_ready
 from ee.hogai.session_summaries.llm.consume import get_exception_event_ids_from_summary, get_llm_single_session_summary
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.session.summarize_session import (
@@ -94,7 +93,6 @@ VIDEO_PHASE_ORDER: tuple[str, ...] = (
 )
 VIDEO_PHASE_INDEX: dict[str, int] = {name: idx for idx, name in enumerate(VIDEO_PHASE_ORDER)}
 VIDEO_TOTAL_STEPS: int = len(VIDEO_PHASE_ORDER)
-SINGLE_SESSION_SUMMARY_REDIS_KEY_PREFIX = "session-summary:single:"
 
 
 def _set_phase(progress: SingleSessionProgress | None, phase: str) -> None:
@@ -107,10 +105,6 @@ def _set_phase(progress: SingleSessionProgress | None, phase: str) -> None:
     progress["phase"] = phase
     if phase in VIDEO_PHASE_INDEX:
         progress["step"] = VIDEO_PHASE_INDEX[phase]
-
-
-def _is_single_session_summary_key(redis_key_base: str) -> bool:
-    return redis_key_base.startswith(SINGLE_SESSION_SUMMARY_REDIS_KEY_PREFIX)
 
 
 @temporalio.activity.defn
@@ -181,7 +175,7 @@ def _store_final_summary_in_db_from_activity(
     inputs: SingleSessionSummaryInputs,
     session_summary: SessionSummarySerializer,
     llm_input: SingleSessionSummaryLlmInputs,
-) -> SingleSessionSummary:
+) -> None:
     """Store the final summary in the DB from the activity"""
     exception_event_ids = get_exception_event_ids_from_summary(session_summary)
     # Getting the user explicitly from the DB as we can't pass models between activities
@@ -198,7 +192,7 @@ def _store_final_summary_in_db_from_activity(
         )
         raise ValueError(msg)
     # Disable thread-sensitive as the summary could be pretty heavy and it's a write
-    stored_summary = SingleSessionSummary.objects.add_summary(
+    SingleSessionSummary.objects.add_summary(
         session_id=inputs.session_id,
         team_id=inputs.team_id,
         summary=session_summary,
@@ -213,7 +207,6 @@ def _store_final_summary_in_db_from_activity(
         distinct_id=llm_input.distinct_id,
         created_by=user,
     )
-    return stored_summary
 
 
 @temporalio.activity.defn
@@ -282,20 +275,9 @@ async def get_llm_single_session_summary_activity(
         trigger_session_id=llm_input.trigger_session_id,
     )
     # Store the final summary in the DB
-    stored_summary = await database_sync_to_async(_store_final_summary_in_db_from_activity, thread_sensitive=False)(
+    await database_sync_to_async(_store_final_summary_in_db_from_activity, thread_sensitive=False)(
         inputs, session_summary, llm_input
     )
-    if _is_single_session_summary_key(inputs.redis_key_base):
-        team_api_token = await database_sync_to_async(
-            lambda: Team.objects.only("api_token").get(id=inputs.team_id).api_token,
-            thread_sensitive=False,
-        )()
-        await asyncio.to_thread(
-            capture_session_summary_ready,
-            stored_summary,
-            summary_origin="single",
-            team_api_token=team_api_token,
-        )
     # Returning nothing as output is stored in Redis + Postgres
     return None
 
