@@ -29,6 +29,13 @@ export const ToolConfigSchema = z
         description: z.string().optional(),
         /** Path to a file containing the tool description (resolved relative to the YAML file). Mutually exclusive with `description`. */
         description_file: z.string().optional(),
+        /**
+         * One-line selection hint injected into the system prompt catalog.
+         * Describes *when to pick this tool*, not what it does. Currently only
+         * surfaced for `query-*` tools in the query tool catalog.
+         * Example: "Time series, aggregations, formulas, comparisons"
+         */
+        system_prompt_hint: z.string().optional(),
         exclude_params: z.array(z.string()).optional(),
         include_params: z.array(z.string()).optional(),
         param_overrides: z
@@ -313,11 +320,26 @@ export const QueryWrapperToolConfigSchema = z
         description: z.string().optional(),
         /** Path to a file containing the tool description (resolved relative to the YAML file). Mutually exclusive with `description`. */
         description_file: z.string().optional(),
+        /**
+         * One-line selection hint injected into the query tool catalog in the
+         * system prompt. Describes *when to pick this tool*, not what it does.
+         * Example: "Time series, aggregations, formulas, comparisons"
+         */
+        system_prompt_hint: z.string().optional(),
         ui_resource_uri: z.string().optional(),
         /** Properties to exclude from the generated Zod schema */
         exclude_properties: z.array(z.string()).optional(),
-        /** Return JSON instead of TOON-encoded text. */
-        response_format: z.enum(['json']).optional(),
+        /**
+         * Set to `true` when the wrapper's `schema_ref` has a matching formatter in
+         * `ee/hogai/context/insight/format/`. Enabling this:
+         *   - surfaces the formatter's LLM-friendly text output (via the backend's `formatted_results`)
+         *     as the default response text;
+         *   - adds an `output_format: 'optimized' | 'json'` per-call input to the generated tool schema,
+         *     so the caller can opt into raw JSON when they want structured data instead of prose.
+         * Omit (or set to `false`) when the query kind has no formatter; the tool then always returns
+         * JSON-encoded results.
+         */
+        use_optimized_output: z.boolean().optional(),
         /**
          * Default values for properties that are required in the schema but should
          * be optional for the agent. The Zod schema gets `.default(value).optional()`.

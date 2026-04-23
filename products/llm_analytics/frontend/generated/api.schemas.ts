@@ -158,6 +158,33 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
 }
 
+/**
+ * Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.
+ */
+export type EvaluationApiEvaluationConfig =
+    | {
+          /**
+           * Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.
+           * @minLength 1
+           */
+          prompt: string
+      }
+    | {
+          /**
+           * Hog source code. Must return true (pass), false (fail), or null for N/A.
+           * @minLength 1
+           */
+          source: string
+      }
+
+/**
+ * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+ */
+export type EvaluationApiOutputConfig = {
+    /** Whether the evaluation can return N/A for non-applicable generations. */
+    allows_na?: boolean
+}
+
 export interface EvaluationApi {
     readonly id: string
     /**
@@ -176,14 +203,14 @@ export interface EvaluationApi {
 * `llm_judge` - LLM as a judge
 * `hog` - Hog */
     evaluation_type: EvaluationTypeEnumApi
-    /** Configuration dict. For llm_judge: {'prompt': '...'}. For hog: {'source': '...'}. */
-    evaluation_config?: unknown
+    /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
+    evaluation_config?: EvaluationApiEvaluationConfig
     /** Output format. Currently only 'boolean' is supported.
 
 * `boolean` - Boolean (Pass/Fail) */
     output_type: OutputTypeEnumApi
-    /** Optional output config, e.g. {'allows_na': true} to allow N/A results. */
-    output_config?: unknown
+    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
+    output_config?: EvaluationApiOutputConfig
     /** Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each. */
     conditions?: unknown
     model_configuration?: ModelConfigurationApi | null
@@ -201,6 +228,33 @@ export interface PaginatedEvaluationListApi {
     /** @nullable */
     previous?: string | null
     results: EvaluationApi[]
+}
+
+/**
+ * Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.
+ */
+export type PatchedEvaluationApiEvaluationConfig =
+    | {
+          /**
+           * Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.
+           * @minLength 1
+           */
+          prompt: string
+      }
+    | {
+          /**
+           * Hog source code. Must return true (pass), false (fail), or null for N/A.
+           * @minLength 1
+           */
+          source: string
+      }
+
+/**
+ * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+ */
+export type PatchedEvaluationApiOutputConfig = {
+    /** Whether the evaluation can return N/A for non-applicable generations. */
+    allows_na?: boolean
 }
 
 export interface PatchedEvaluationApi {
@@ -221,14 +275,14 @@ export interface PatchedEvaluationApi {
 * `llm_judge` - LLM as a judge
 * `hog` - Hog */
     evaluation_type?: EvaluationTypeEnumApi
-    /** Configuration dict. For llm_judge: {'prompt': '...'}. For hog: {'source': '...'}. */
-    evaluation_config?: unknown
+    /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
+    evaluation_config?: PatchedEvaluationApiEvaluationConfig
     /** Output format. Currently only 'boolean' is supported.
 
 * `boolean` - Boolean (Pass/Fail) */
     output_type?: OutputTypeEnumApi
-    /** Optional output config, e.g. {'allows_na': true} to allow N/A results. */
-    output_config?: unknown
+    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
+    output_config?: PatchedEvaluationApiOutputConfig
     /** Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each. */
     conditions?: unknown
     model_configuration?: ModelConfigurationApi | null
@@ -297,19 +351,22 @@ export interface TestHogResponseApi {
 /**
  * * `trace` - trace
  * `generation` - generation
+ * `evaluation` - evaluation
  */
-export type AnalysisLevelEnumApi = (typeof AnalysisLevelEnumApi)[keyof typeof AnalysisLevelEnumApi]
+export type ClusteringJobAnalysisLevelEnumApi =
+    (typeof ClusteringJobAnalysisLevelEnumApi)[keyof typeof ClusteringJobAnalysisLevelEnumApi]
 
-export const AnalysisLevelEnumApi = {
+export const ClusteringJobAnalysisLevelEnumApi = {
     Trace: 'trace',
     Generation: 'generation',
+    Evaluation: 'evaluation',
 } as const
 
 export interface ClusteringJobApi {
     readonly id: string
     /** @maxLength 100 */
     name: string
-    analysis_level: AnalysisLevelEnumApi
+    analysis_level: ClusteringJobAnalysisLevelEnumApi
     event_filters?: unknown
     enabled?: boolean
     readonly created_at: string
@@ -329,7 +386,7 @@ export interface PatchedClusteringJobApi {
     readonly id?: string
     /** @maxLength 100 */
     name?: string
-    analysis_level?: AnalysisLevelEnumApi
+    analysis_level?: ClusteringJobAnalysisLevelEnumApi
     event_filters?: unknown
     enabled?: boolean
     readonly created_at?: string
@@ -529,7 +586,7 @@ export interface EvaluationReportApi {
      */
     trigger_threshold?: number | null
     /**
-     * Minimum minutes between reports in every_n mode to prevent spam. Min 60.
+     * Minimum minutes between reports in every_n mode to prevent spam. Min 60, max 1440 (24 hours).
      * @minimum -2147483648
      * @maximum 2147483647
      */
@@ -601,7 +658,7 @@ export interface PatchedEvaluationReportApi {
      */
     trigger_threshold?: number | null
     /**
-     * Minimum minutes between reports in every_n mode to prevent spam. Min 60.
+     * Minimum minutes between reports in every_n mode to prevent spam. Min 60, max 1440 (24 hours).
      * @minimum -2147483648
      * @maximum 2147483647
      */
@@ -1022,13 +1079,25 @@ export interface ScoreDefinitionNewVersionApi {
     config: ScoreDefinitionConfigApi
 }
 
+/**
+ * * `trace` - trace
+ * `generation` - generation
+ */
+export type SentimentRequestAnalysisLevelEnumApi =
+    (typeof SentimentRequestAnalysisLevelEnumApi)[keyof typeof SentimentRequestAnalysisLevelEnumApi]
+
+export const SentimentRequestAnalysisLevelEnumApi = {
+    Trace: 'trace',
+    Generation: 'generation',
+} as const
+
 export interface SentimentRequestApi {
     /**
      * @minItems 1
      * @maxItems 5
      */
     ids: string[]
-    analysis_level?: AnalysisLevelEnumApi
+    analysis_level?: SentimentRequestAnalysisLevelEnumApi
     force_refresh?: boolean
     /** @nullable */
     date_from?: string | null
@@ -1690,9 +1759,28 @@ export interface LLMSkillApi {
  */
 export type PatchedLLMSkillPublishApiMetadata = { [key: string]: unknown }
 
+export interface LLMSkillEditOperationApi {
+    /** Text to find in the target content. Must match exactly once. */
+    old: string
+    /** Replacement text. */
+    new: string
+}
+
+export interface LLMSkillFileEditApi {
+    /**
+     * Path of the bundled file to edit. Must match an existing file on the current skill version.
+     * @maxLength 500
+     */
+    path: string
+    /** Sequential find/replace operations to apply to this file's content. */
+    edits: LLMSkillEditOperationApi[]
+}
+
 export interface PatchedLLMSkillPublishApi {
-    /** Full skill body (SKILL.md instruction content) to publish as a new version. */
+    /** Full skill body (SKILL.md instruction content) to publish as a new version. Mutually exclusive with edits. */
     body?: string
+    /** List of find/replace operations to apply to the current skill body. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with body. */
+    edits?: LLMSkillEditOperationApi[]
     /**
      * Updated description for the new version.
      * @maxLength 4096
@@ -1712,8 +1800,10 @@ export interface PatchedLLMSkillPublishApi {
     allowed_tools?: string[]
     /** Arbitrary key-value metadata. */
     metadata?: PatchedLLMSkillPublishApiMetadata
-    /** Bundled files to include with this version. Replaces all files from the previous version. */
+    /** Bundled files to include with this version. Replaces all files from the previous version. Mutually exclusive with file_edits. */
     files?: LLMSkillFileInputApi[]
+    /** Per-file find/replace updates. Each entry targets one existing file by path and applies sequential edits to its content. Non-targeted files carry forward unchanged. Cannot add, remove, or rename files — use 'files' for that. Mutually exclusive with files. */
+    file_edits?: LLMSkillFileEditApi[]
     /**
      * Latest version you are editing from. Used for optimistic concurrency checks.
      * @minimum 1
@@ -1727,6 +1817,44 @@ export interface LLMSkillDuplicateApi {
      * @maxLength 64
      */
     new_name: string
+}
+
+export interface LLMSkillFileCreateApi {
+    /**
+     * File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.
+     * @maxLength 500
+     */
+    path: string
+    /** Text content of the file. */
+    content: string
+    /**
+     * MIME type of the file content.
+     * @maxLength 100
+     */
+    content_type?: string
+    /**
+     * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
+     * @minimum 1
+     */
+    base_version?: number
+}
+
+export interface LLMSkillFileRenameApi {
+    /**
+     * Current file path to rename.
+     * @maxLength 500
+     */
+    old_path: string
+    /**
+     * New file path. Must not already exist in the skill.
+     * @maxLength 500
+     */
+    new_path: string
+    /**
+     * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
+     * @minimum 1
+     */
+    base_version?: number
 }
 
 export interface LLMSkillFileApi {
@@ -2193,6 +2321,14 @@ export type LlmSkillsNameFilesRetrieveParams = {
      * @minimum 1
      */
     version?: number
+}
+
+export type LlmSkillsNameFilesDestroyParams = {
+    /**
+     * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
+     * @minimum 1
+     */
+    base_version?: number
 }
 
 export type LlmSkillsResolveNameRetrieveParams = {

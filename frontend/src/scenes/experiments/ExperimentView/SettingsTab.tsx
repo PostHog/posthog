@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPencil } from '@posthog/icons'
-import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -60,7 +60,11 @@ export function SettingsTab(): JSX.Element {
                     </div>
                     <p className="text-muted text-xs mt-1">
                         Only count participants whose full conversion window has elapsed. Applies to metrics with a
-                        custom time window.
+                        custom time window. Default is set in{' '}
+                        <Link to={urls.settings('environment-experiments', 'environment-experiment-matured-users')}>
+                            environment settings
+                        </Link>
+                        .
                     </p>
                 </div>
             )}
