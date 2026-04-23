@@ -1062,30 +1062,28 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results[1]["data"]) == 12
         assert len(response.results[1]["days"]) == 12
 
-    def test_cohort_breakdown_with_lower_breakdown_limit(self):
+    @parameterized.expand(
+        [
+            ("2_cohorts_limit_1", 2, 1),
+            ("3_cohorts_limit_1", 3, 1),
+            ("5_cohorts_limit_2", 5, 2),
+        ]
+    )
+    def test_cohort_breakdown_with_lower_breakdown_limit(self, _name, cohort_count, breakdown_limit):
         # Regression: a breakdown_limit smaller than the number of selected cohorts
         # used to bucket the surplus cohorts as the "Other" sentinel, which then
         # crashed the label lookup in build_series_response with
         # ValueError: Field 'id' expected a number but got '$$_posthog_breakdown_other_$$'.
         self._create_test_events()
-        cohort1 = Cohort.objects.create(
-            team=self.team,
-            groups=[{"properties": [{"key": "name", "value": "p1", "type": "person"}]}],
-            name="cohort p1",
-        )
-        cohort1.calculate_people_ch(pending_version=0)
-        cohort2 = Cohort.objects.create(
-            team=self.team,
-            groups=[{"properties": [{"key": "name", "value": "p2", "type": "person"}]}],
-            name="cohort p2",
-        )
-        cohort2.calculate_people_ch(pending_version=0)
-        cohort3 = Cohort.objects.create(
-            team=self.team,
-            groups=[{"properties": [{"key": "name", "value": "p3", "type": "person"}]}],
-            name="cohort p3",
-        )
-        cohort3.calculate_people_ch(pending_version=0)
+        cohorts = []
+        for i in range(cohort_count):
+            cohort = Cohort.objects.create(
+                team=self.team,
+                groups=[{"properties": [{"key": "name", "value": f"p{i + 1}", "type": "person"}]}],
+                name=f"cohort p{i + 1}",
+            )
+            cohort.calculate_people_ch(pending_version=0)
+            cohorts.append(cohort)
 
         response = self._run_trends_query(
             "2020-01-09",
@@ -1095,14 +1093,15 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             None,
             BreakdownFilter(
                 breakdown_type=BreakdownType.COHORT,
-                breakdown=[cohort1.pk, cohort2.pk, cohort3.pk],
-                breakdown_limit=1,
+                breakdown=[c.pk for c in cohorts],
+                breakdown_limit=breakdown_limit,
             ),
         )
 
         breakdown_values = {result["breakdown_value"] for result in response.results}
-        assert {cohort1.pk, cohort2.pk, cohort3.pk}.issubset(breakdown_values)
         assert BREAKDOWN_OTHER_STRING_LABEL not in breakdown_values
+        # Every emitted breakdown_value must be one of the selected cohort PKs.
+        assert breakdown_values.issubset({c.pk for c in cohorts})
 
     def test_trends_avg_session_duration_with_event_breakdown(self):
         # Regression test: queries with avg session_duration and event property
