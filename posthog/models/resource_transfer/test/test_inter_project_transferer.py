@@ -113,6 +113,33 @@ class TestBuildResourceDuplicationGraph(BaseTest):
         with self.assertRaises(TypeError):
             list(build_resource_duplication_graph(annotation, set()))
 
+    def test_insight_with_dashboard_export_subscription_does_not_traverse_through_table(self) -> None:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        from posthog.models.subscription import Subscription
+
+        insight = Insight.objects.create(team=self.team, name="Exported insight")
+        dashboard = Dashboard.objects.create(team=self.team, name="Subscribed dashboard")
+        subscription = Subscription.objects.create(
+            team=self.team,
+            title="Weekly digest",
+            dashboard=dashboard,
+            target_type="email",
+            target_value="tests@posthog.com",
+            frequency="weekly",
+            interval=1,
+            start_date=datetime(2022, 1, 1, 0, 0, 0, 0, tzinfo=ZoneInfo("UTC")),
+        )
+        subscription.dashboard_export_insights.add(insight)
+
+        graph = list(build_resource_duplication_graph(insight, set()))
+        model_names = {v.model.__name__ for v in graph}
+
+        assert "Insight" in model_names
+        assert "Subscription" not in model_names
+        assert "Subscription_dashboard_export_insights" not in model_names
+
 
 class TestDagSortDuplicationGraph(BaseTest):
     def test_dag_sorts_vertices_so_dependencies_come_first(self) -> None:
