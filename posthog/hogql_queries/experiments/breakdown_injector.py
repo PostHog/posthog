@@ -19,11 +19,25 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.hogql_queries.insights.trends.utils import get_properties_chain
 
 # Constant for representing NULL breakdown values
 BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"
+
+
+class _WindowFunctionPartitionSetter(TraversingVisitor):
+    """Sets PARTITION BY on every WindowFunction found during traversal."""
+
+    def __init__(self, partition_by: list[ast.Expr]) -> None:
+        self._partition_by = partition_by
+
+    def visit_window_function(self, node: ast.WindowFunction) -> None:
+        super().visit_window_function(node)
+        if node.over_expr is None:
+            node.over_expr = ast.WindowExpr()
+        node.over_expr.partition_by = [*self._partition_by]
 
 
 class BreakdownInjector:
@@ -270,57 +284,22 @@ class BreakdownInjector:
                 for alias in aliases:
                     entity_metrics_cte.expr.group_by.append(ast.Field(chain=["exposures", alias]))
 
-        # Inject into percentiles CTE (only for winsorization queries)
-        if query.ctes and "percentiles" in query.ctes:
-            percentiles_cte = query.ctes["percentiles"]
-            if isinstance(percentiles_cte, ast.CTE) and isinstance(percentiles_cte.expr, ast.SelectQuery):
-                # Add breakdown columns to SELECT
-                for alias in aliases:
-                    percentiles_cte.expr.select.append(
-                        ast.Alias(alias=alias, expr=ast.Field(chain=["entity_metrics", alias]))
-                    )
-                # Initialize and populate GROUP BY for per-breakdown percentiles
-                if percentiles_cte.expr.group_by is None:
-                    percentiles_cte.expr.group_by = []
-                for alias in aliases:
-                    percentiles_cte.expr.group_by.append(ast.Field(chain=["entity_metrics", alias]))
-
         # Inject into winsorized_entity_metrics CTE (only when final_cte_name is winsorized_entity_metrics)
+        # For winsorization, the CTE uses window aggregates (quantile/min/max OVER (...)) to compute
+        # bounds. Adding breakdown columns requires partitioning those windows so bounds are computed
+        # per breakdown group.
         if query.ctes and final_cte_name == "winsorized_entity_metrics":
             winsorized_cte = query.ctes["winsorized_entity_metrics"]
             if isinstance(winsorized_cte, ast.CTE) and isinstance(winsorized_cte.expr, ast.SelectQuery):
-                # Add breakdown columns to SELECT
+                # Add breakdown columns to SELECT (passthrough from entity_metrics)
                 for alias in aliases:
                     winsorized_cte.expr.select.append(
                         ast.Alias(alias=alias, expr=ast.Field(chain=["entity_metrics", alias]))
                     )
-                # Convert CROSS JOIN to proper JOIN with breakdown conditions
-                if winsorized_cte.expr.select_from:
-                    join_expr = winsorized_cte.expr.select_from.next_join
-                    if join_expr and isinstance(join_expr, ast.JoinExpr):
-                        # Change from CROSS JOIN to INNER JOIN
-                        join_expr.join_type = "JOIN"
-                        # Build join condition: percentiles.bd1 = entity_metrics.bd1 AND ...
-                        join_conditions = []
-                        for alias in aliases:
-                            join_conditions.append(
-                                ast.CompareOperation(
-                                    op=ast.CompareOperationOp.Eq,
-                                    left=ast.Field(chain=["percentiles", alias]),
-                                    right=ast.Field(chain=["entity_metrics", alias]),
-                                )
-                            )
-                        # Combine conditions with AND
-                        condition_expr: ast.Expr
-                        if len(join_conditions) == 1:
-                            condition_expr = join_conditions[0]
-                        else:
-                            combined: ast.Expr = join_conditions[0]
-                            for condition in join_conditions[1:]:
-                                combined = ast.And(exprs=[combined, condition])
-                            condition_expr = combined
-                        # Wrap in JoinConstraint with ON clause
-                        join_expr.constraint = ast.JoinConstraint(expr=condition_expr, constraint_type="ON")
+                # Partition all window functions in the SELECT by the breakdown columns so bounds
+                # are computed per breakdown group.
+                partition_exprs: list[ast.Expr] = [ast.Field(chain=["entity_metrics", alias]) for alias in aliases]
+                _WindowFunctionPartitionSetter(partition_exprs).visit(winsorized_cte.expr)
 
         # Inject into final SELECT - breakdown columns must come right after variant
         for i, alias in enumerate(aliases):
