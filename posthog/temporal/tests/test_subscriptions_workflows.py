@@ -655,6 +655,21 @@ async def test_update_delivery_record_patches_status_and_results_without_touchin
     assert merged.content_snapshot["total_insight_count"] == 1  # added
     assert merged.content_snapshot["insights"] == [{"id": 99, "name": "replayed"}]  # overwritten
 
+    # Second replay whose payload omits `insights` must NOT wipe the key — a
+    # plain-assignment regression would clobber it, which is the failure mode
+    # the DO-NOT-change comment warns against.
+    await env.run(
+        update_delivery_record,
+        UpdateDeliveryRecordInputs(
+            delivery_id=delivery_id,
+            status=DeliveryStatus.STARTING,
+            content_snapshot={"total_insight_count": 2},  # no insights key
+        ),
+    )
+    merged2 = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery_id)
+    assert merged2.content_snapshot["insights"] == [{"id": 99, "name": "replayed"}]  # preserved
+    assert merged2.content_snapshot["total_insight_count"] == 2  # updated
+
 
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
