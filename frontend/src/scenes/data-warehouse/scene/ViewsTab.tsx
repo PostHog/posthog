@@ -418,9 +418,14 @@ export function ViewsTab({ getViewUrl }: ViewsTabProps = {}): JSX.Element {
                             Create your first view to transform and organize your data warehouse tables.
                         </p>
                     )}
-                    <LemonButton type="primary" to={urls.sqlEditor()} className="inline-block">
-                        Create view
-                    </LemonButton>
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.WarehouseObjects}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <LemonButton type="primary" to={urls.sqlEditor()} className="inline-block">
+                            Create view
+                        </LemonButton>
+                    </AccessControlAction>
                 </div>
             )}
         </div>
