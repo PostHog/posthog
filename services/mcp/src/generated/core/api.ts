@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 9 enabled ops
+ * PostHog API - MCP 11 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'

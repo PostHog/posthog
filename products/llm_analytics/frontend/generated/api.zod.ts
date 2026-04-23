@@ -1261,6 +1261,23 @@ export const LlmAnalyticsTraceReviewsPartialUpdateBody = /* @__PURE__ */ zod.obj
         ),
 })
 
+/**
+ * Translate text to target language.
+ */
+export const llmAnalyticsTranslateCreateBodyTextMax = 10000
+
+export const llmAnalyticsTranslateCreateBodyTargetLanguageDefault = `en`
+export const llmAnalyticsTranslateCreateBodyTargetLanguageMax = 10
+
+export const LlmAnalyticsTranslateCreateBody = /* @__PURE__ */ zod.object({
+    text: zod.string().max(llmAnalyticsTranslateCreateBodyTextMax).describe('The text to translate'),
+    target_language: zod
+        .string()
+        .max(llmAnalyticsTranslateCreateBodyTargetLanguageMax)
+        .default(llmAnalyticsTranslateCreateBodyTargetLanguageDefault)
+        .describe("Target language code (default: 'en' for English)"),
+})
+
 export const llmPromptsCreateBodyNameMax = 255
 
 export const LlmPromptsCreateBody = /* @__PURE__ */ zod.object({

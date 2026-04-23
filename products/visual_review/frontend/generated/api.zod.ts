@@ -99,6 +99,42 @@ export const VisualReviewRunsApproveCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Complete a run: detect removals, verify uploads, trigger diff processing.
+ */
+export const VisualReviewRunsCompleteCreateBody = /* @__PURE__ */ zod.object({
+    approved_by: zod
+        .object({
+            id: zod.number(),
+            first_name: zod.string(),
+            email: zod.string(),
+        })
+        .nullish(),
+    id: zod.uuid(),
+    repo_id: zod.uuid(),
+    status: zod.string(),
+    run_type: zod.string(),
+    commit_sha: zod.string(),
+    branch: zod.string(),
+    pr_number: zod.number().nullable(),
+    approved: zod.boolean(),
+    approved_at: zod.iso.datetime({}).nullable(),
+    summary: zod.object({
+        total: zod.number(),
+        changed: zod.number(),
+        new: zod.number(),
+        removed: zod.number(),
+        unchanged: zod.number(),
+        tolerated_matched: zod.number().optional(),
+    }),
+    error_message: zod.string().nullable(),
+    created_at: zod.iso.datetime({}),
+    completed_at: zod.iso.datetime({}).nullable(),
+    is_stale: zod.boolean().optional(),
+    superseded_by_id: zod.uuid().nullish(),
+    metadata: zod.record(zod.string(), zod.unknown()).optional(),
+})
+
+/**
  * Mark a changed snapshot as a known tolerated alternate.
  */
 export const VisualReviewRunsTolerateCreateBody = /* @__PURE__ */ zod.object({
