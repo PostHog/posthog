@@ -303,9 +303,6 @@ build:
     build:taxonomy-json:
         bin_script: build-taxonomy-json.py
         description: Generate core filter definitions taxonomy JSON for frontend
-    build:bot-definitions:
-        cmd: python livestream/bot/generate_definitions.py
-        description: Generate livestream bot definitions JSON from bot_definitions.py
     build:schema:
         steps:
             - build:schema-json

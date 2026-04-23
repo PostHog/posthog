@@ -1,7 +1,4 @@
-import { BotCategory, CATEGORY_LABELS } from 'lib/utils/botDetection'
-
 import {
-    BotBreakdownItem,
     BrowserBreakdownItem,
     CountryBreakdownItem,
     ReferrerItem,
@@ -22,9 +19,6 @@ export class LiveMetricsSlidingWindow {
     private _totalPageviews = 0
     private _globalPathCounts = new Map<string, number>()
     private _globalReferrerCounts = new Map<string, number>()
-    private _globalBotCounts = new Map<string, number>()
-    private _globalBotCategoryCounts = new Map<string, number>()
-    private _botNameToCategory = new Map<string, string>()
 
     constructor(windowSizeMinutes: number) {
         this.windowSizeSeconds = windowSizeMinutes * 60
@@ -39,7 +33,6 @@ export class LiveMetricsSlidingWindow {
             referringDomain?: string
             device?: { deviceId: string; deviceType: string }
             browser?: { deviceId: string; browserType: string }
-            bot?: { name: string; category: string }
         }
     ): void {
         const bucket = this.getOrCreateBucket(eventTs)
@@ -70,10 +63,6 @@ export class LiveMetricsSlidingWindow {
 
         if (data.browser) {
             this.addBrowserToBucket(bucket, data.browser.browserType, data.browser.deviceId)
-        }
-
-        if (data.bot) {
-            this.addBotToBucket(bucket, data.bot.name, data.bot.category)
         }
     }
 
@@ -136,12 +125,6 @@ export class LiveMetricsSlidingWindow {
                 }
             }
         }
-
-        if (data.bots) {
-            for (const [botName, entry] of data.bots) {
-                this.addBotToBucketBulk(bucket, botName, entry.category, entry.count)
-            }
-        }
     }
 
     private addUserToBucket(bucket: SlidingWindowBucket, userId: string): void {
@@ -184,22 +167,6 @@ export class LiveMetricsSlidingWindow {
 
     private addBrowserToBucket(bucket: SlidingWindowBucket, browserType: string, deviceId: string): void {
         this.addItemToBucket(bucket.browsers, this.browserBucketCounts, browserType, deviceId)
-    }
-
-    private addBotToBucket(bucket: SlidingWindowBucket, botName: string, category: string): void {
-        this.addBotToBucketBulk(bucket, botName, category, 1)
-    }
-
-    private addBotToBucketBulk(bucket: SlidingWindowBucket, botName: string, category: string, count: number): void {
-        if (!bucket.bots) {
-            bucket.bots = new Map<string, { count: number; category: string }>()
-        }
-        const existing = bucket.bots.get(botName)
-        bucket.bots.set(botName, { count: (existing?.count ?? 0) + count, category })
-
-        this._globalBotCounts.set(botName, (this._globalBotCounts.get(botName) || 0) + count)
-        this._globalBotCategoryCounts.set(category, (this._globalBotCategoryCounts.get(category) || 0) + count)
-        this._botNameToCategory.set(botName, category)
     }
 
     private addCountryToBucket(bucket: SlidingWindowBucket, countryCode: string, distinctId: string): void {
@@ -297,30 +264,8 @@ export class LiveMetricsSlidingWindow {
                 this.removeCountriesFromTracking(bucket)
                 this.decrementGlobalCounts(bucket.paths, this._globalPathCounts)
                 this.decrementGlobalCounts(bucket.referrers, this._globalReferrerCounts)
-                if (bucket.bots) {
-                    this.decrementBotCounts(bucket.bots)
-                }
                 this._totalPageviews -= bucket.pageviews
                 this.buckets.delete(ts)
-            }
-        }
-    }
-
-    private decrementBotCounts(botMap: Map<string, { count: number; category: string }>): void {
-        for (const [botName, { count, category }] of botMap) {
-            const currentCount = this._globalBotCounts.get(botName) || 0
-            if (currentCount <= count) {
-                this._globalBotCounts.delete(botName)
-                this._botNameToCategory.delete(botName)
-            } else {
-                this._globalBotCounts.set(botName, currentCount - count)
-            }
-
-            const currentCategoryCount = this._globalBotCategoryCounts.get(category) || 0
-            if (currentCategoryCount <= count) {
-                this._globalBotCategoryCounts.delete(category)
-            } else {
-                this._globalBotCategoryCounts.set(category, currentCategoryCount - count)
             }
         }
     }
@@ -443,59 +388,6 @@ export class LiveMetricsSlidingWindow {
         return this.userBucketCounts.size
     }
 
-    getBotBreakdown(limit?: number): BotBreakdownItem[] {
-        let total = 0
-        for (const count of this._globalBotCounts.values()) {
-            total += count
-        }
-
-        if (total === 0) {
-            return []
-        }
-
-        const sorted: BotBreakdownItem[] = [...this._globalBotCounts.entries()]
-            .map(([bot, count]) => {
-                const categoryKey = (this._botNameToCategory.get(bot) ?? 'regular') as BotCategory
-                return {
-                    bot,
-                    category: CATEGORY_LABELS[categoryKey] ?? categoryKey,
-                    count,
-                    percentage: (count / total) * 100,
-                }
-            })
-            .sort((a, b) => b.count - a.count)
-
-        if (!limit || sorted.length <= limit) {
-            return sorted
-        }
-
-        const top = sorted.slice(0, limit)
-        const othersCount = sorted.slice(limit).reduce((sum, item) => sum + item.count, 0)
-
-        if (othersCount > 0) {
-            top.push({
-                bot: 'Other',
-                category: '',
-                count: othersCount,
-                percentage: (othersCount / total) * 100,
-            })
-        }
-
-        return top
-    }
-
-    getTotalBotEvents(): number {
-        let total = 0
-        for (const count of this._globalBotCounts.values()) {
-            total += count
-        }
-        return total
-    }
-
-    getBotCategoryCounts(): Map<string, number> {
-        return new Map(this._globalBotCategoryCounts)
-    }
-
     private getOrCreateBucket(eventTs: number): SlidingWindowBucket {
         const bucketTs = Math.floor(eventTs / 60) * 60
 
@@ -512,7 +404,6 @@ export class LiveMetricsSlidingWindow {
                 referrers: new Map<string, number>(),
                 uniqueUsers: new Set<string>(),
                 countries: new Map<string, Set<string>>(),
-                bots: new Map<string, { count: number; category: string }>(),
             }
             this.buckets.set(bucketTs, bucket)
         }

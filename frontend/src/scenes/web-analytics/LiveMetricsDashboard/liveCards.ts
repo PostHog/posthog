@@ -7,8 +7,6 @@ export type LiveContentCardId =
     | 'devices'
     | 'browsers'
     | 'top_countries'
-    | 'bot_events_chart'
-    | 'bot_traffic'
     | 'countries'
     | 'live_events'
 
@@ -21,8 +19,6 @@ export const DEFAULT_CONTENT_ORDER: readonly LiveContentCardId[] = [
     'devices',
     'browsers',
     'top_countries',
-    'bot_events_chart',
-    'bot_traffic',
     'countries',
     'live_events',
 ]
@@ -34,8 +30,6 @@ export const CONTENT_CARD_SPAN: Record<LiveContentCardId, 'full' | 'half'> = {
     devices: 'half',
     browsers: 'half',
     top_countries: 'half',
-    bot_events_chart: 'half',
-    bot_traffic: 'half',
     countries: 'full',
     live_events: 'full',
 }
