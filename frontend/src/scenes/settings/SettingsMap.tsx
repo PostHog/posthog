@@ -15,7 +15,6 @@ import { GoalsConfiguration } from '@posthog/products-revenue-analytics/frontend
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
@@ -123,6 +122,7 @@ import {
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
 import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
 import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
+import { AIHipaaDisclaimer, getExternalAIProvidersTooltipTitle } from './organization/aiConsentCopy'
 import { ApprovalPolicies } from './organization/Approvals/ApprovalPolicies'
 import { ChangeRequestsList } from './organization/Approvals/ChangeRequestsList'
 import { Invites } from './organization/Invites'
@@ -1446,10 +1446,9 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'organization-ai-consent',
                 title: 'PostHog AI data analysis',
                 description: (
-                    // Note: Sync the copy below with AIConsentPopoverWrapper.tsx
                     <>
                         PostHog AI features, such as the PostHog AI chat, use{' '}
-                        <Tooltip title={`As of ${dayjs().format('MMMM YYYY')}: Anthropic and OpenAI`}>
+                        <Tooltip title={getExternalAIProvidersTooltipTitle()}>
                             <dfn>external AI services</dfn>
                         </Tooltip>{' '}
                         for data analysis.
@@ -1460,10 +1459,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                         <strong>Your data will not be used for training models.</strong>
                         <br />
                         <br />
-                        This feature is not HIPAA-compliant and is not intended for the processing of Protected Health
-                        Information ("PHI"). Any Business Associate Agreement ("BAA") you may have entered into with
-                        PostHog does not apply to this functionality. You are responsible for ensuring your use complies
-                        with applicable laws and regulations.
+                        <AIHipaaDisclaimer />
                     </>
                 ),
                 component: <OrganizationAI />,

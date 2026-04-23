@@ -33,6 +33,7 @@ import { billingProductLogic } from './billingProductLogic'
 import { BillingProductPricingTable } from './BillingProductPricingTable'
 import { REALTIME_DESTINATIONS_BILLING_START_DATE } from './constants'
 import { paymentEntryLogic } from './paymentEntryLogic'
+import { PlatformAddonComparison } from './PlatformAddonComparison'
 import { ProductPricingModal } from './ProductPricingModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
@@ -495,7 +496,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                     </div>
                                                 ) : null}
                                             </>
-                                        ) : product.current_amount_usd ? (
+                                        ) : product.current_amount_usd && product.type !== 'platform_and_support' ? (
                                             <div className="mt-8 mb-4 flex justify-end w-full">
                                                 <Tooltip
                                                     title={`The current amount you will be billed for this ${billing?.billing_period?.interval}.`}
@@ -529,22 +530,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     {/* Add-ons (hide for product variants) */}
                     {product.addons?.length > 0 && !isProductWithVariants && (
                         <div className="pb-8">
-                            {/* Legacy teams addon */}
-                            {product.type === 'platform_and_support' &&
-                                product.addons.find((addon) => addon.legacy_product && addon.subscribed) && (
-                                    <LemonBanner type="warning" className="my-4" hideIcon>
-                                        <p>
-                                            You're currently subscribed to our legacy{' '}
-                                            {
-                                                product.addons.find((addon) => addon.legacy_product && addon.subscribed)
-                                                    ?.name
-                                            }{' '}
-                                            add-on. If you'd like to move to one of our new add-ons please subscribe
-                                            below.
-                                        </p>
-                                    </LemonBanner>
-                                )}
-
                             {/* Add-ons title */}
                             <h4 className="my-4">Add-ons</h4>
                             {billing?.subscription_level == 'free' && (
@@ -566,11 +551,15 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     </div>
                                 </LemonBanner>
                             )}
-                            <div className="gap-y-4 flex flex-col">
-                                {visibleAddons.map((addon: BillingProductV2AddonType, i: number) => {
-                                    return <BillingProductAddon key={i} addon={addon} />
-                                })}
-                            </div>
+                            {product.type === 'platform_and_support' ? (
+                                <PlatformAddonComparison product={product} />
+                            ) : (
+                                <div className="flex flex-col gap-y-4">
+                                    {visibleAddons.map((addon: BillingProductV2AddonType, i: number) => (
+                                        <BillingProductAddon key={i} addon={addon} />
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>

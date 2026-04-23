@@ -10,7 +10,6 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils'
 
 import { ExperimentFunnelsQuery, ExperimentTrendsQuery, isExperimentTrendsQuery } from '~/queries/schema/schema-general'
-import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 import {
     legacyCalculateDelta,
     legacyConversionRateForVariant,
@@ -19,6 +18,10 @@ import {
     legacyExposureCountDataForVariant,
     legacyGetHighestProbabilityVariant,
     LegacyVariantTag,
+    getInsightType,
+    getTabularExperimentResults,
+    getExperimentMathAggregationForTrends,
+    legacyExperimentLogic,
 } from '~/scenes/experiments/legacy'
 import { getViewRecordingFiltersLegacy } from '~/scenes/experiments/utils'
 import { FilterLogicalOperator, InsightType, RecordingUniversalFilters, TrendExperimentVariant } from '~/types'
@@ -37,21 +40,23 @@ export function LegacySummaryTable({
     displayOrder?: number
     isSecondary?: boolean
 }): JSX.Element {
-    const {
-        experiment,
-        legacyPrimaryMetricsResults,
-        legacySecondaryMetricsResults,
-        tabularExperimentResults,
-        getInsightType,
-        experimentMathAggregationForTrends,
-    } = useValues(experimentLogic)
-    const insightType = getInsightType(metric)
+    const { experiment, legacyPrimaryMetricsResults, legacySecondaryMetricsResults } = useValues(legacyExperimentLogic)
+
+    const insightType = getInsightType(metric as ExperimentTrendsQuery | ExperimentFunnelsQuery)
     const result = isSecondary
         ? legacySecondaryMetricsResults?.[displayOrder]
         : legacyPrimaryMetricsResults?.[displayOrder]
+
     if (!result) {
         return <></>
     }
+
+    const tabularExperimentResults = getTabularExperimentResults(
+        experiment,
+        legacyPrimaryMetricsResults,
+        legacySecondaryMetricsResults,
+        getInsightType
+    )
 
     const winningVariant = legacyGetHighestProbabilityVariant(result)
 
@@ -77,7 +82,9 @@ export function LegacySummaryTable({
                     {result.insight?.[0] && 'action' in result.insight[0] && (
                         <EntityFilterInfo filter={result.insight[0].action} />
                     )}
-                    <span className="pl-1">{experimentMathAggregationForTrends() ? 'metric' : 'count'}</span>
+                    <span className="pl-1">
+                        {getExperimentMathAggregationForTrends(experiment) ? 'metric' : 'count'}
+                    </span>
                 </div>
             ),
             render: function Key(_, variant): JSX.Element {
