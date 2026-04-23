@@ -352,9 +352,7 @@ async fn test_rate_limit_replenishment() -> Result<()> {
     config.flags_rate_limit_enabled = FlexBool(true);
     config.flags_rate_limit_log_only = FlexBool(false);
     config.flags_bucket_capacity = 1;
-    // Using a slow replenish rate (1 token per 10s) to ensure the second request is reliably
-    // blocked even on systems where QuantaClock (quanta crate) TSC calibration differs.
-    config.flags_bucket_replenish_rate = 0.1;
+    config.flags_bucket_replenish_rate = 1.0; // 1 token per second
 
     let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(redis_client.clone())
@@ -408,8 +406,8 @@ async fn test_rate_limit_replenishment() -> Result<()> {
         "Second request blocked"
     );
 
-    // Wait for token to replenish (10 seconds + buffer)
-    tokio::time::sleep(tokio::time::Duration::from_millis(11_000)).await;
+    // Wait for token to replenish (1 second + buffer)
+    tokio::time::sleep(tokio::time::Duration::from_millis(1100)).await;
 
     // Third request should succeed after replenishment
     let response = client
