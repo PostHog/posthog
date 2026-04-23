@@ -254,6 +254,11 @@ class TaskRunUpdateSerializer(serializers.Serializer):
     error_message = serializers.CharField(
         required=False, allow_null=True, allow_blank=True, help_text="Error message if execution failed"
     )
+    environment = serializers.ChoiceField(
+        choices=["local"],
+        required=False,
+        help_text="Transition a cloud run to local. Use the resume_in_cloud action to move a run into cloud.",
+    )
 
 
 class TaskRunArtifactResponseSerializer(serializers.Serializer):
@@ -889,9 +894,9 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
         required=False,
         default=None,
         help_text=(
-            "Initial permission mode for the agent session. Claude runtimes accept PostHog permission "
-            "presets like 'plan'. Codex runtimes accept native Codex modes like 'auto' and "
-            "'read-only'."
+            "Initial permission mode for the agent session. Claude runtimes accept "
+            "'default', 'acceptEdits', 'plan', 'bypassPermissions', and 'auto'. "
+            "Codex runtimes accept 'auto', 'read-only', and 'full-access'."
         ),
     )
 

@@ -59,7 +59,21 @@ tools:
         enabled: false
     data-warehouse-data-health-issues-retrieve:
         operation: data_warehouse_data_health_issues_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - warehouse_view:read
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List data pipeline health issues
+        description: >
+            Return all failed or degraded items across the data pipeline: materialized saved queries that failed,
+            external data schemas in Failed or BillingLimitReached state, sources in Error state, failed batch exports,
+            and disabled/degraded transformations. Each entry includes id, name, type (materialized_view,
+            external_data_sync, source, destination, transformation), status, error message, failed_at, and url. Use
+            this for a one-shot audit of what's broken in a project's data warehouse.
     data-warehouse-job-stats-retrieve:
         operation: data_warehouse_job_stats_retrieve
         enabled: false
@@ -222,7 +236,23 @@ tools:
         enabled: false
     external-data-sources-db-schema:
         operation: external_data_sources_database_schema_create
-        enabled: false
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Discover tables and sync methods for a source
+        description: >
+            Validate credentials against a remote source and return the list of tables available to sync. Each table
+            entry includes: table name, incremental_available, append_available, cdc_available, supports_webhooks,
+            detected_primary_keys, available_columns (name/type/nullable), rows estimate, and incremental_fields
+            (candidate timestamp/integer columns for incremental sync). Use this BEFORE external-data-sources-create so
+            the user can pick a sync_type per table. Returns 400 with a message if credentials are invalid.
+        param_overrides:
+            source_type:
+                input_schema: ExternalDataSourceTypeSchema
     external-data-sources-source-prefix-create:
         operation: external_data_sources_source_prefix_create
         enabled: false
@@ -565,19 +595,75 @@ tools:
         enabled: false
     external-data-sources-create-webhook-create:
         operation: external_data_sources_create_webhook_create
-        enabled: false
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create and register a webhook for a source
+        description: >
+            For sources that support real-time webhook ingestion (currently Stripe), create the HogFunction handler
+            and register the webhook URL with the external service using the source's stored credentials. Requires at
+            least one schema on the source with sync_type='webhook' and should_sync=true. Returns the webhook_url,
+            success flag, and any error. NOT idempotent — each successful call registers a new endpoint on the
+            external service, so retrying after a network error or calling twice can create duplicate webhook
+            endpoints (e.g. duplicate Stripe webhook endpoints delivering the same events twice). Always check
+            webhook-info-retrieve first and only re-call if `exists: false`. For Stripe the signing_secret is
+            auto-captured from the Stripe API response and stored securely; if auto-registration fails (e.g. the
+            API key lacks webhook permissions), the user must create the webhook manually in Stripe and submit the
+            signing_secret via update-webhook-inputs.
     external-data-sources-update-webhook-inputs-create:
         operation: external_data_sources_update_webhook_inputs_create
-        enabled: false
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update webhook inputs (signing secret, etc.)
+        description: >
+            Update the webhook-specific inputs on an already-created webhook — for example when a signing secret has
+            been rotated on the source side, or when the webhook was registered manually and the signing_secret needs
+            to be supplied. Only accepts keys defined in the source type's webhookFields (e.g. Stripe's
+            signing_secret). Fails if no webhook has been created for this source yet — call create-webhook first.
     external-data-sources-webhook-info-retrieve:
         operation: external_data_sources_webhook_info_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get webhook status for a source
+        description: >
+            Return webhook state for a source: supports_webhooks (is this source type webhook-capable), exists (has a
+            webhook been created), webhook_url (the PostHog endpoint the external service should POST to),
+            schema_mapping (external event type → PostHog schema id), and external_status (what the remote service
+            reports about the webhook — enabled_events, status, created_at, error). Use this to check whether a
+            webhook is healthy and whether the external registration is still valid.
     external-data-sources-connections-list:
         operation: external_data_sources_connections_list
         enabled: false
     external-data-sources-delete-webhook-create:
         operation: external_data_sources_delete_webhook_create
-        enabled: false
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete a source's webhook
+        description: >
+            Unregister the webhook with the external service and delete the PostHog HogFunction that was handling it.
+            Any webhook-type schemas under the source will stop receiving real-time events. The source and its
+            schemas are preserved — only the webhook is removed. After deletion, schemas can be switched to a
+            polling sync_type (incremental/full_refresh) via external-data-schemas-partial-update, or a new webhook
+            can be created with create-webhook.
     data-warehouse-check-database-name-retrieve:
         operation: data_warehouse_check_database_name_retrieve
         enabled: false
@@ -601,7 +687,22 @@ tools:
         enabled: false
     external-data-sources-check-cdc-prerequisites-create:
         operation: external_data_sources_check_cdc_prerequisites_create
-        enabled: false
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Check Postgres CDC prerequisites
+        description: >
+            Validate that a live Postgres database meets Change Data Capture prerequisites — logical replication
+            enabled (wal_level=logical), replication slot available, publication present, and required permissions.
+            Postgres-only. Returns {valid, errors[]}. Use this before configuring a schema with sync_type=cdc, or to
+            diagnose why an existing CDC sync has started failing.
+        param_overrides:
+            source_type:
+                input_schema: ExternalDataSourceTypeSchema
     external-data-sources-bulk-update-schemas-partial-update:
         operation: external_data_sources_bulk_update_schemas_partial_update
         enabled: false
@@ -680,7 +781,20 @@ tools:
             source and can be re-synced. Use this to clear stale or corrupt data before triggering a fresh sync.
     external-data-schemas-incremental-fields-create:
         operation: external_data_schemas_incremental_fields_create
-        enabled: false
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Refresh candidate incremental fields for a schema
+        description: >
+            Re-inspect the source for a single table schema and return the currently available incremental fields,
+            detected primary keys, column list, and which sync methods (incremental/append/cdc/webhook) are available.
+            Use this when the source schema has changed, an incremental field has been dropped, or the user wants to
+            switch to a different incremental_field/sync_type on an existing schema. The operation_id is
+            external_data_schemas_incremental_fields_create but semantically this is a read-only refresh.
     external-data-schemas-reload:
         operation: external_data_schemas_reload_create
         enabled: true

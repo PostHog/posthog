@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 12 enabled ops
+ * PostHog API - MCP 15 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -99,10 +99,16 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                     .describe(
                         'Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments.'
                     ),
+                rollout_percentage: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100.'
+                    ),
             })
             .nullish()
             .describe(
-                "Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power."
+                "Variant definitions and rollout configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set rollout_percentage (0-100, default 100) to limit what fraction of users enter the experiment. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power."
             ),
         secondary_metrics: zod.unknown().nullish(),
         saved_metrics_ids: zod
@@ -1209,10 +1215,16 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                     .describe(
                         'Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments.'
                     ),
+                rollout_percentage: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100.'
+                    ),
             })
             .nullish()
             .describe(
-                "Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power."
+                "Variant definitions and rollout configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set rollout_percentage (0-100, default 100) to limit what fraction of users enter the experiment. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power."
             ),
         secondary_metrics: zod.unknown().nullish(),
         saved_metrics_ids: zod
@@ -2261,6 +2273,1120 @@ export const ExperimentsArchiveCreateParams = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+
+This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+on serializer methods and converts them into proper HTTP 409 Conflict responses with
+change request details.
+ */
+export const ExperimentsDuplicateCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const experimentsDuplicateCreateBodyNameMax = 400
+
+export const experimentsDuplicateCreateBodyDescriptionMax = 3000
+
+export const experimentsDuplicateCreateBodyArchivedDefault = false
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigKindDefault = `ExperimentEventExposureConfig`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigPropertiesItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventPropertiesItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorPropertiesItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsOneItemKindDefault = `ExperimentMetric`
+export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorPropertiesItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsOneItemSeriesItemPropertiesItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsOneItemSourcePropertiesItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsOneItemStartEventPropertiesItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventPropertiesItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorPropertiesItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemKindDefault = `ExperimentMetric`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorPropertiesItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesItemPropertiesItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourcePropertiesItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventPropertiesItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyAllowUnknownEventsDefault = false
+export const experimentsDuplicateCreateBodyUpdateFeatureFlagParamsDefault = false
+
+export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod.string().max(experimentsDuplicateCreateBodyNameMax).describe('Name of the experiment.'),
+        description: zod
+            .string()
+            .max(experimentsDuplicateCreateBodyDescriptionMax)
+            .nullish()
+            .describe('Description of the experiment hypothesis and expected outcomes.'),
+        start_date: zod.iso.datetime({}).nullish(),
+        end_date: zod.iso.datetime({}).nullish(),
+        feature_flag_key: zod
+            .string()
+            .describe(
+                "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible."
+            ),
+        holdout_id: zod.number().nullish().describe('ID of a holdout group to exclude from the experiment.'),
+        parameters: zod
+            .object({
+                feature_flag_variants: zod
+                    .array(
+                        zod.object({
+                            key: zod.string().describe("Variant key, e.g. 'control', 'test', 'variant_a'."),
+                            name: zod.string().nullish().describe('Human-readable variant name.'),
+                            rollout_percentage: zod.number().nullish(),
+                            split_percent: zod
+                                .number()
+                                .nullish()
+                                .describe(
+                                    'Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided.'
+                                ),
+                        })
+                    )
+                    .nullish()
+                    .describe('Experiment variants. If not specified, defaults to a 50/50 control/test split.'),
+                minimum_detectable_effect: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments.'
+                    ),
+                rollout_percentage: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100.'
+                    ),
+            })
+            .nullish()
+            .describe(
+                "Variant definitions and rollout configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set rollout_percentage (0-100, default 100) to limit what fraction of users enter the experiment. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power."
+            ),
+        secondary_metrics: zod.unknown().nullish(),
+        saved_metrics_ids: zod
+            .array(zod.unknown())
+            .nullish()
+            .describe(
+                "IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary)."
+            ),
+        filters: zod.unknown().optional(),
+        archived: zod
+            .boolean()
+            .default(experimentsDuplicateCreateBodyArchivedDefault)
+            .describe('Whether the experiment is archived.'),
+        deleted: zod.boolean().nullish(),
+        type: zod
+            .union([zod.enum(['web', 'product']).describe('* `web` - web\n* `product` - product'), zod.literal(null)])
+            .nullish()
+            .describe(
+                'Experiment type: web for frontend UI changes, product for backend/API changes.\n\n* `web` - web\n* `product` - product'
+            ),
+        exposure_criteria: zod
+            .object({
+                exposure_config: zod
+                    .object({
+                        event: zod.string().describe('Custom exposure event name.'),
+                        kind: zod
+                            .enum(['ExperimentEventExposureConfig'])
+                            .default(experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigKindDefault),
+                        properties: zod
+                            .array(
+                                zod.object({
+                                    key: zod.string(),
+                                    label: zod.string().nullish(),
+                                    operator: zod
+                                        .enum([
+                                            'exact',
+                                            'is_not',
+                                            'icontains',
+                                            'not_icontains',
+                                            'regex',
+                                            'not_regex',
+                                            'gt',
+                                            'gte',
+                                            'lt',
+                                            'lte',
+                                            'is_set',
+                                            'is_not_set',
+                                            'is_date_exact',
+                                            'is_date_before',
+                                            'is_date_after',
+                                            'between',
+                                            'not_between',
+                                            'min',
+                                            'max',
+                                            'in',
+                                            'not_in',
+                                            'is_cleaned_path_exact',
+                                            'flag_evaluates_to',
+                                            'semver_eq',
+                                            'semver_neq',
+                                            'semver_gt',
+                                            'semver_gte',
+                                            'semver_lt',
+                                            'semver_lte',
+                                            'semver_tilde',
+                                            'semver_caret',
+                                            'semver_wildcard',
+                                            'icontains_multi',
+                                            'not_icontains_multi',
+                                        ])
+                                        .nullish(),
+                                    type: zod
+                                        .enum(['event'])
+                                        .default(
+                                            experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigPropertiesItemTypeDefault
+                                        )
+                                        .describe('Event properties'),
+                                    value: zod
+                                        .union([
+                                            zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                            zod.string(),
+                                            zod.number(),
+                                            zod.boolean(),
+                                        ])
+                                        .nullish(),
+                                })
+                            )
+                            .describe('Event property filters. Pass an empty array if no filters needed.'),
+                    })
+                    .nullish(),
+                filterTestAccounts: zod.boolean().nullish(),
+            })
+            .nullish()
+            .describe('Exposure configuration including filter test accounts and custom exposure events.'),
+        metrics: zod
+            .array(
+                zod.object({
+                    completion_event: zod
+                        .object({
+                            event: zod
+                                .string()
+                                .nullish()
+                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                            id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
+                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                            properties: zod
+                                .array(
+                                    zod.object({
+                                        key: zod.string(),
+                                        label: zod.string().nullish(),
+                                        operator: zod
+                                            .enum([
+                                                'exact',
+                                                'is_not',
+                                                'icontains',
+                                                'not_icontains',
+                                                'regex',
+                                                'not_regex',
+                                                'gt',
+                                                'gte',
+                                                'lt',
+                                                'lte',
+                                                'is_set',
+                                                'is_not_set',
+                                                'is_date_exact',
+                                                'is_date_before',
+                                                'is_date_after',
+                                                'between',
+                                                'not_between',
+                                                'min',
+                                                'max',
+                                                'in',
+                                                'not_in',
+                                                'is_cleaned_path_exact',
+                                                'flag_evaluates_to',
+                                                'semver_eq',
+                                                'semver_neq',
+                                                'semver_gt',
+                                                'semver_gte',
+                                                'semver_lt',
+                                                'semver_lte',
+                                                'semver_tilde',
+                                                'semver_caret',
+                                                'semver_wildcard',
+                                                'icontains_multi',
+                                                'not_icontains_multi',
+                                            ])
+                                            .nullish(),
+                                        type: zod
+                                            .enum(['event'])
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsOneItemCompletionEventPropertiesItemTypeDefault
+                                            )
+                                            .describe('Event properties'),
+                                        value: zod
+                                            .union([
+                                                zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                                zod.string(),
+                                                zod.number(),
+                                                zod.boolean(),
+                                            ])
+                                            .nullish(),
+                                    })
+                                )
+                                .nullish()
+                                .describe('Event property filters to narrow which events are counted.'),
+                        })
+                        .nullish(),
+                    conversion_window: zod.number().nullish().describe('Conversion window duration.'),
+                    denominator: zod
+                        .object({
+                            event: zod
+                                .string()
+                                .nullish()
+                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                            id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
+                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                            properties: zod
+                                .array(
+                                    zod.object({
+                                        key: zod.string(),
+                                        label: zod.string().nullish(),
+                                        operator: zod
+                                            .enum([
+                                                'exact',
+                                                'is_not',
+                                                'icontains',
+                                                'not_icontains',
+                                                'regex',
+                                                'not_regex',
+                                                'gt',
+                                                'gte',
+                                                'lt',
+                                                'lte',
+                                                'is_set',
+                                                'is_not_set',
+                                                'is_date_exact',
+                                                'is_date_before',
+                                                'is_date_after',
+                                                'between',
+                                                'not_between',
+                                                'min',
+                                                'max',
+                                                'in',
+                                                'not_in',
+                                                'is_cleaned_path_exact',
+                                                'flag_evaluates_to',
+                                                'semver_eq',
+                                                'semver_neq',
+                                                'semver_gt',
+                                                'semver_gte',
+                                                'semver_lt',
+                                                'semver_lte',
+                                                'semver_tilde',
+                                                'semver_caret',
+                                                'semver_wildcard',
+                                                'icontains_multi',
+                                                'not_icontains_multi',
+                                            ])
+                                            .nullish(),
+                                        type: zod
+                                            .enum(['event'])
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsOneItemDenominatorPropertiesItemTypeDefault
+                                            )
+                                            .describe('Event properties'),
+                                        value: zod
+                                            .union([
+                                                zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                                zod.string(),
+                                                zod.number(),
+                                                zod.boolean(),
+                                            ])
+                                            .nullish(),
+                                    })
+                                )
+                                .nullish()
+                                .describe('Event property filters to narrow which events are counted.'),
+                        })
+                        .nullish(),
+                    goal: zod.enum(['increase', 'decrease']).nullish(),
+                    kind: zod
+                        .enum(['ExperimentMetric'])
+                        .default(experimentsDuplicateCreateBodyMetricsOneItemKindDefault),
+                    metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
+                    name: zod.string().nullish().describe('Human-readable metric name.'),
+                    numerator: zod
+                        .object({
+                            event: zod
+                                .string()
+                                .nullish()
+                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                            id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
+                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                            properties: zod
+                                .array(
+                                    zod.object({
+                                        key: zod.string(),
+                                        label: zod.string().nullish(),
+                                        operator: zod
+                                            .enum([
+                                                'exact',
+                                                'is_not',
+                                                'icontains',
+                                                'not_icontains',
+                                                'regex',
+                                                'not_regex',
+                                                'gt',
+                                                'gte',
+                                                'lt',
+                                                'lte',
+                                                'is_set',
+                                                'is_not_set',
+                                                'is_date_exact',
+                                                'is_date_before',
+                                                'is_date_after',
+                                                'between',
+                                                'not_between',
+                                                'min',
+                                                'max',
+                                                'in',
+                                                'not_in',
+                                                'is_cleaned_path_exact',
+                                                'flag_evaluates_to',
+                                                'semver_eq',
+                                                'semver_neq',
+                                                'semver_gt',
+                                                'semver_gte',
+                                                'semver_lt',
+                                                'semver_lte',
+                                                'semver_tilde',
+                                                'semver_caret',
+                                                'semver_wildcard',
+                                                'icontains_multi',
+                                                'not_icontains_multi',
+                                            ])
+                                            .nullish(),
+                                        type: zod
+                                            .enum(['event'])
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsOneItemNumeratorPropertiesItemTypeDefault
+                                            )
+                                            .describe('Event properties'),
+                                        value: zod
+                                            .union([
+                                                zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                                zod.string(),
+                                                zod.number(),
+                                                zod.boolean(),
+                                            ])
+                                            .nullish(),
+                                    })
+                                )
+                                .nullish()
+                                .describe('Event property filters to narrow which events are counted.'),
+                        })
+                        .nullish(),
+                    retention_window_end: zod.number().nullish(),
+                    retention_window_start: zod.number().nullish(),
+                    retention_window_unit: zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']).nullish(),
+                    series: zod
+                        .array(
+                            zod.object({
+                                event: zod
+                                    .string()
+                                    .nullish()
+                                    .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
+                                kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                properties: zod
+                                    .array(
+                                        zod.object({
+                                            key: zod.string(),
+                                            label: zod.string().nullish(),
+                                            operator: zod
+                                                .enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ])
+                                                .nullish(),
+                                            type: zod
+                                                .enum(['event'])
+                                                .default(
+                                                    experimentsDuplicateCreateBodyMetricsOneItemSeriesItemPropertiesItemTypeDefault
+                                                )
+                                                .describe('Event properties'),
+                                            value: zod
+                                                .union([
+                                                    zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                                    zod.string(),
+                                                    zod.number(),
+                                                    zod.boolean(),
+                                                ])
+                                                .nullish(),
+                                        })
+                                    )
+                                    .nullish()
+                                    .describe('Event property filters to narrow which events are counted.'),
+                            })
+                        )
+                        .nullish()
+                        .describe('For funnel metrics: array of EventsNode/ActionsNode steps.'),
+                    source: zod
+                        .object({
+                            event: zod
+                                .string()
+                                .nullish()
+                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                            id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
+                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                            properties: zod
+                                .array(
+                                    zod.object({
+                                        key: zod.string(),
+                                        label: zod.string().nullish(),
+                                        operator: zod
+                                            .enum([
+                                                'exact',
+                                                'is_not',
+                                                'icontains',
+                                                'not_icontains',
+                                                'regex',
+                                                'not_regex',
+                                                'gt',
+                                                'gte',
+                                                'lt',
+                                                'lte',
+                                                'is_set',
+                                                'is_not_set',
+                                                'is_date_exact',
+                                                'is_date_before',
+                                                'is_date_after',
+                                                'between',
+                                                'not_between',
+                                                'min',
+                                                'max',
+                                                'in',
+                                                'not_in',
+                                                'is_cleaned_path_exact',
+                                                'flag_evaluates_to',
+                                                'semver_eq',
+                                                'semver_neq',
+                                                'semver_gt',
+                                                'semver_gte',
+                                                'semver_lt',
+                                                'semver_lte',
+                                                'semver_tilde',
+                                                'semver_caret',
+                                                'semver_wildcard',
+                                                'icontains_multi',
+                                                'not_icontains_multi',
+                                            ])
+                                            .nullish(),
+                                        type: zod
+                                            .enum(['event'])
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsOneItemSourcePropertiesItemTypeDefault
+                                            )
+                                            .describe('Event properties'),
+                                        value: zod
+                                            .union([
+                                                zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                                zod.string(),
+                                                zod.number(),
+                                                zod.boolean(),
+                                            ])
+                                            .nullish(),
+                                    })
+                                )
+                                .nullish()
+                                .describe('Event property filters to narrow which events are counted.'),
+                        })
+                        .nullish(),
+                    start_event: zod
+                        .object({
+                            event: zod
+                                .string()
+                                .nullish()
+                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                            id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
+                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                            properties: zod
+                                .array(
+                                    zod.object({
+                                        key: zod.string(),
+                                        label: zod.string().nullish(),
+                                        operator: zod
+                                            .enum([
+                                                'exact',
+                                                'is_not',
+                                                'icontains',
+                                                'not_icontains',
+                                                'regex',
+                                                'not_regex',
+                                                'gt',
+                                                'gte',
+                                                'lt',
+                                                'lte',
+                                                'is_set',
+                                                'is_not_set',
+                                                'is_date_exact',
+                                                'is_date_before',
+                                                'is_date_after',
+                                                'between',
+                                                'not_between',
+                                                'min',
+                                                'max',
+                                                'in',
+                                                'not_in',
+                                                'is_cleaned_path_exact',
+                                                'flag_evaluates_to',
+                                                'semver_eq',
+                                                'semver_neq',
+                                                'semver_gt',
+                                                'semver_gte',
+                                                'semver_lt',
+                                                'semver_lte',
+                                                'semver_tilde',
+                                                'semver_caret',
+                                                'semver_wildcard',
+                                                'icontains_multi',
+                                                'not_icontains_multi',
+                                            ])
+                                            .nullish(),
+                                        type: zod
+                                            .enum(['event'])
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsOneItemStartEventPropertiesItemTypeDefault
+                                            )
+                                            .describe('Event properties'),
+                                        value: zod
+                                            .union([
+                                                zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                                zod.string(),
+                                                zod.number(),
+                                                zod.boolean(),
+                                            ])
+                                            .nullish(),
+                                    })
+                                )
+                                .nullish()
+                                .describe('Event property filters to narrow which events are counted.'),
+                        })
+                        .nullish(),
+                    start_handling: zod.enum(['first_seen', 'last_seen']).nullish(),
+                    uuid: zod.string().nullish().describe('Unique identifier. Auto-generated if omitted.'),
+                })
+            )
+            .describe('List wrapper for OpenAPI schema generation — the field stores an array of metrics.')
+            .nullish()
+            .describe(
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the event-definitions-list tool to find available events in the project."
+            ),
+        metrics_secondary: zod
+            .array(
+                zod.object({
+                    completion_event: zod
+                        .object({
+                            event: zod
+                                .string()
+                                .nullish()
+                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                            id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
+                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                            properties: zod
+                                .array(
+                                    zod.object({
+                                        key: zod.string(),
+                                        label: zod.string().nullish(),
+                                        operator: zod
+                                            .enum([
+                                                'exact',
+                                                'is_not',
+                                                'icontains',
+                                                'not_icontains',
+                                                'regex',
+                                                'not_regex',
+                                                'gt',
+                                                'gte',
+                                                'lt',
+                                                'lte',
+                                                'is_set',
+                                                'is_not_set',
+                                                'is_date_exact',
+                                                'is_date_before',
+                                                'is_date_after',
+                                                'between',
+                                                'not_between',
+                                                'min',
+                                                'max',
+                                                'in',
+                                                'not_in',
+                                                'is_cleaned_path_exact',
+                                                'flag_evaluates_to',
+                                                'semver_eq',
+                                                'semver_neq',
+                                                'semver_gt',
+                                                'semver_gte',
+                                                'semver_lt',
+                                                'semver_lte',
+                                                'semver_tilde',
+                                                'semver_caret',
+                                                'semver_wildcard',
+                                                'icontains_multi',
+                                                'not_icontains_multi',
+                                            ])
+                                            .nullish(),
+                                        type: zod
+                                            .enum(['event'])
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventPropertiesItemTypeDefault
+                                            )
+                                            .describe('Event properties'),
+                                        value: zod
+                                            .union([
+                                                zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                                zod.string(),
+                                                zod.number(),
+                                                zod.boolean(),
+                                            ])
+                                            .nullish(),
+                                    })
+                                )
+                                .nullish()
+                                .describe('Event property filters to narrow which events are counted.'),
+                        })
+                        .nullish(),
+                    conversion_window: zod.number().nullish().describe('Conversion window duration.'),
+                    denominator: zod
+                        .object({
+                            event: zod
+                                .string()
+                                .nullish()
+                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                            id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
+                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                            properties: zod
+                                .array(
+                                    zod.object({
+                                        key: zod.string(),
+                                        label: zod.string().nullish(),
+                                        operator: zod
+                                            .enum([
+                                                'exact',
+                                                'is_not',
+                                                'icontains',
+                                                'not_icontains',
+                                                'regex',
+                                                'not_regex',
+                                                'gt',
+                                                'gte',
+                                                'lt',
+                                                'lte',
+                                                'is_set',
+                                                'is_not_set',
+                                                'is_date_exact',
+                                                'is_date_before',
+                                                'is_date_after',
+                                                'between',
+                                                'not_between',
+                                                'min',
+                                                'max',
+                                                'in',
+                                                'not_in',
+                                                'is_cleaned_path_exact',
+                                                'flag_evaluates_to',
+                                                'semver_eq',
+                                                'semver_neq',
+                                                'semver_gt',
+                                                'semver_gte',
+                                                'semver_lt',
+                                                'semver_lte',
+                                                'semver_tilde',
+                                                'semver_caret',
+                                                'semver_wildcard',
+                                                'icontains_multi',
+                                                'not_icontains_multi',
+                                            ])
+                                            .nullish(),
+                                        type: zod
+                                            .enum(['event'])
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorPropertiesItemTypeDefault
+                                            )
+                                            .describe('Event properties'),
+                                        value: zod
+                                            .union([
+                                                zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                                zod.string(),
+                                                zod.number(),
+                                                zod.boolean(),
+                                            ])
+                                            .nullish(),
+                                    })
+                                )
+                                .nullish()
+                                .describe('Event property filters to narrow which events are counted.'),
+                        })
+                        .nullish(),
+                    goal: zod.enum(['increase', 'decrease']).nullish(),
+                    kind: zod
+                        .enum(['ExperimentMetric'])
+                        .default(experimentsDuplicateCreateBodyMetricsSecondaryOneItemKindDefault),
+                    metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
+                    name: zod.string().nullish().describe('Human-readable metric name.'),
+                    numerator: zod
+                        .object({
+                            event: zod
+                                .string()
+                                .nullish()
+                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                            id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
+                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                            properties: zod
+                                .array(
+                                    zod.object({
+                                        key: zod.string(),
+                                        label: zod.string().nullish(),
+                                        operator: zod
+                                            .enum([
+                                                'exact',
+                                                'is_not',
+                                                'icontains',
+                                                'not_icontains',
+                                                'regex',
+                                                'not_regex',
+                                                'gt',
+                                                'gte',
+                                                'lt',
+                                                'lte',
+                                                'is_set',
+                                                'is_not_set',
+                                                'is_date_exact',
+                                                'is_date_before',
+                                                'is_date_after',
+                                                'between',
+                                                'not_between',
+                                                'min',
+                                                'max',
+                                                'in',
+                                                'not_in',
+                                                'is_cleaned_path_exact',
+                                                'flag_evaluates_to',
+                                                'semver_eq',
+                                                'semver_neq',
+                                                'semver_gt',
+                                                'semver_gte',
+                                                'semver_lt',
+                                                'semver_lte',
+                                                'semver_tilde',
+                                                'semver_caret',
+                                                'semver_wildcard',
+                                                'icontains_multi',
+                                                'not_icontains_multi',
+                                            ])
+                                            .nullish(),
+                                        type: zod
+                                            .enum(['event'])
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorPropertiesItemTypeDefault
+                                            )
+                                            .describe('Event properties'),
+                                        value: zod
+                                            .union([
+                                                zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                                zod.string(),
+                                                zod.number(),
+                                                zod.boolean(),
+                                            ])
+                                            .nullish(),
+                                    })
+                                )
+                                .nullish()
+                                .describe('Event property filters to narrow which events are counted.'),
+                        })
+                        .nullish(),
+                    retention_window_end: zod.number().nullish(),
+                    retention_window_start: zod.number().nullish(),
+                    retention_window_unit: zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']).nullish(),
+                    series: zod
+                        .array(
+                            zod.object({
+                                event: zod
+                                    .string()
+                                    .nullish()
+                                    .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
+                                kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                properties: zod
+                                    .array(
+                                        zod.object({
+                                            key: zod.string(),
+                                            label: zod.string().nullish(),
+                                            operator: zod
+                                                .enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ])
+                                                .nullish(),
+                                            type: zod
+                                                .enum(['event'])
+                                                .default(
+                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesItemPropertiesItemTypeDefault
+                                                )
+                                                .describe('Event properties'),
+                                            value: zod
+                                                .union([
+                                                    zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                                    zod.string(),
+                                                    zod.number(),
+                                                    zod.boolean(),
+                                                ])
+                                                .nullish(),
+                                        })
+                                    )
+                                    .nullish()
+                                    .describe('Event property filters to narrow which events are counted.'),
+                            })
+                        )
+                        .nullish()
+                        .describe('For funnel metrics: array of EventsNode/ActionsNode steps.'),
+                    source: zod
+                        .object({
+                            event: zod
+                                .string()
+                                .nullish()
+                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                            id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
+                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                            properties: zod
+                                .array(
+                                    zod.object({
+                                        key: zod.string(),
+                                        label: zod.string().nullish(),
+                                        operator: zod
+                                            .enum([
+                                                'exact',
+                                                'is_not',
+                                                'icontains',
+                                                'not_icontains',
+                                                'regex',
+                                                'not_regex',
+                                                'gt',
+                                                'gte',
+                                                'lt',
+                                                'lte',
+                                                'is_set',
+                                                'is_not_set',
+                                                'is_date_exact',
+                                                'is_date_before',
+                                                'is_date_after',
+                                                'between',
+                                                'not_between',
+                                                'min',
+                                                'max',
+                                                'in',
+                                                'not_in',
+                                                'is_cleaned_path_exact',
+                                                'flag_evaluates_to',
+                                                'semver_eq',
+                                                'semver_neq',
+                                                'semver_gt',
+                                                'semver_gte',
+                                                'semver_lt',
+                                                'semver_lte',
+                                                'semver_tilde',
+                                                'semver_caret',
+                                                'semver_wildcard',
+                                                'icontains_multi',
+                                                'not_icontains_multi',
+                                            ])
+                                            .nullish(),
+                                        type: zod
+                                            .enum(['event'])
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourcePropertiesItemTypeDefault
+                                            )
+                                            .describe('Event properties'),
+                                        value: zod
+                                            .union([
+                                                zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                                zod.string(),
+                                                zod.number(),
+                                                zod.boolean(),
+                                            ])
+                                            .nullish(),
+                                    })
+                                )
+                                .nullish()
+                                .describe('Event property filters to narrow which events are counted.'),
+                        })
+                        .nullish(),
+                    start_event: zod
+                        .object({
+                            event: zod
+                                .string()
+                                .nullish()
+                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                            id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
+                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                            properties: zod
+                                .array(
+                                    zod.object({
+                                        key: zod.string(),
+                                        label: zod.string().nullish(),
+                                        operator: zod
+                                            .enum([
+                                                'exact',
+                                                'is_not',
+                                                'icontains',
+                                                'not_icontains',
+                                                'regex',
+                                                'not_regex',
+                                                'gt',
+                                                'gte',
+                                                'lt',
+                                                'lte',
+                                                'is_set',
+                                                'is_not_set',
+                                                'is_date_exact',
+                                                'is_date_before',
+                                                'is_date_after',
+                                                'between',
+                                                'not_between',
+                                                'min',
+                                                'max',
+                                                'in',
+                                                'not_in',
+                                                'is_cleaned_path_exact',
+                                                'flag_evaluates_to',
+                                                'semver_eq',
+                                                'semver_neq',
+                                                'semver_gt',
+                                                'semver_gte',
+                                                'semver_lt',
+                                                'semver_lte',
+                                                'semver_tilde',
+                                                'semver_caret',
+                                                'semver_wildcard',
+                                                'icontains_multi',
+                                                'not_icontains_multi',
+                                            ])
+                                            .nullish(),
+                                        type: zod
+                                            .enum(['event'])
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventPropertiesItemTypeDefault
+                                            )
+                                            .describe('Event properties'),
+                                        value: zod
+                                            .union([
+                                                zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                                zod.string(),
+                                                zod.number(),
+                                                zod.boolean(),
+                                            ])
+                                            .nullish(),
+                                    })
+                                )
+                                .nullish()
+                                .describe('Event property filters to narrow which events are counted.'),
+                        })
+                        .nullish(),
+                    start_handling: zod.enum(['first_seen', 'last_seen']).nullish(),
+                    uuid: zod.string().nullish().describe('Unique identifier. Auto-generated if omitted.'),
+                })
+            )
+            .describe('List wrapper for OpenAPI schema generation — the field stores an array of metrics.')
+            .nullish()
+            .describe('Secondary metrics for additional measurements. Same format as primary metrics.'),
+        stats_config: zod.unknown().nullish(),
+        scheduling_config: zod.unknown().nullish(),
+        allow_unknown_events: zod.boolean().default(experimentsDuplicateCreateBodyAllowUnknownEventsDefault),
+        _create_in_folder: zod.string().optional(),
+        conclusion: zod
+            .union([
+                zod
+                    .enum(['won', 'lost', 'inconclusive', 'stopped_early', 'invalid'])
+                    .describe(
+                        '* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
+                    ),
+                zod.literal(null),
+            ])
+            .nullish()
+            .describe(
+                'Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
+            ),
+        conclusion_comment: zod.string().nullish().describe('Comment about the experiment conclusion.'),
+        primary_metrics_ordered_uuids: zod.unknown().nullish(),
+        secondary_metrics_ordered_uuids: zod.unknown().nullish(),
+        only_count_matured_users: zod.boolean().optional(),
+        update_feature_flag_params: zod
+            .boolean()
+            .default(experimentsDuplicateCreateBodyUpdateFeatureFlagParamsDefault)
+            .describe(
+                'When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts.'
+            ),
+    })
+    .describe('Mixin for serializers to add user access control fields')
+
+/**
  * End a running experiment without shipping a variant.
 
 Sets end_date to now and marks the experiment as stopped. The feature
@@ -2426,4 +3552,35 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
         ),
     conclusion_comment: zod.string().nullish().describe('Optional comment about the experiment conclusion.'),
     variant_key: zod.string().describe('The key of the variant to ship to 100% of users.'),
+})
+
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+
+This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+on serializer methods and converts them into proper HTTP 409 Conflict responses with
+change request details.
+ */
+export const ExperimentsTimeseriesResultsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+
+This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+on serializer methods and converts them into proper HTTP 409 Conflict responses with
+change request details.
+ */
+export const ExperimentsStatsRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
 })

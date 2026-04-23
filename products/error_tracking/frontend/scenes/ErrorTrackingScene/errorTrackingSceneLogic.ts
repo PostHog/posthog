@@ -19,6 +19,7 @@ import {
 } from '../../components/IssueFilters/issueFiltersLogic'
 import { issueQueryOptionsLogic } from '../../components/IssueQueryOptions/issueQueryOptionsLogic'
 import { bulkSelectLogic } from '../../logics/bulkSelectLogic'
+import { pendingFingerprintIssueStateUpdateLogic } from '../../logics/pendingFingerprintIssueStateUpdateLogic'
 import { errorTrackingQuery } from '../../queries'
 import {
     ERROR_TRACKING_LISTING_RESOLUTION,
@@ -53,6 +54,8 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 settingId: 'error-tracking-alerting',
             }),
             ['selectedSettingId'],
+            pendingFingerprintIssueStateUpdateLogic,
+            ['currentPendingUpdates'],
         ],
         actions: [
             issueActionsLogic,
@@ -93,6 +96,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 s.useQueryV3,
                 s.showQueryV3Switch,
                 s.forceQueryV3,
+                s.currentPendingUpdates,
             ],
             (
                 orderBy,
@@ -105,8 +109,10 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 orderDirection,
                 useQueryV3,
                 showQueryV3Switch,
-                forceQueryV3
+                forceQueryV3,
+                currentPendingUpdates
             ): DataTableNode => {
+                const v3Active = forceQueryV3 || (showQueryV3Switch && useQueryV3)
                 return errorTrackingQuery({
                     orderBy,
                     status,
@@ -118,7 +124,8 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     searchQuery,
                     columns: ['error', 'volume', 'occurrences', 'sessions', 'users'],
                     orderDirection,
-                    useQueryV3: forceQueryV3 || (showQueryV3Switch && useQueryV3),
+                    useQueryV3: v3Active,
+                    pendingFingerprintIssueStateUpdates: v3Active ? currentPendingUpdates : undefined,
                 })
             },
         ],

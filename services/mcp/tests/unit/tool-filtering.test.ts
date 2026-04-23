@@ -63,7 +63,7 @@ describe('Tool Filtering - Features', () => {
         {
             features: ['experiments'],
             description: 'experiment tools',
-            expectedTools: ['experiment-get-all'],
+            expectedTools: ['experiment-list'],
         },
         {
             features: ['llm_analytics'],
