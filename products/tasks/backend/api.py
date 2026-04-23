@@ -1955,13 +1955,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            prior = {
-                "status": task_run.status,
-                "environment": task_run.environment,
-                "completed_at": task_run.completed_at,
-                "error_message": task_run.error_message,
-                "state": dict(task_run.state or {}),
-            }
+            prior_status = task_run.status
+            prior_environment = task_run.environment
+            prior_completed_at = task_run.completed_at
+            prior_state = dict(task_run.state or {})
             task_run.prepare_for_cloud_handoff()
 
         # Any prior workflow under this ID gets terminated atomically by
@@ -1987,10 +1984,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
             with transaction.atomic():
                 task_run = TaskRun.objects.select_for_update().get(pk=task_run.pk)
-                task_run.status = prior["status"]
-                task_run.environment = prior["environment"]
-                task_run.completed_at = prior["completed_at"]
-                task_run.state = prior["state"]
+                task_run.status = prior_status
+                task_run.environment = prior_environment
+                task_run.completed_at = prior_completed_at
+                task_run.state = prior_state
                 task_run.error_message = "Failed to start cloud workflow"
                 task_run.save(
                     update_fields=[
