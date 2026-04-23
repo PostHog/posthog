@@ -347,6 +347,7 @@ export const ReasoningEffortEnumApi = {
  * `acceptEdits` - acceptEdits
  * `plan` - plan
  * `bypassPermissions` - bypassPermissions
+ * `auto` - auto
  */
 export type ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi =
     (typeof ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi)[keyof typeof ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi]
@@ -356,6 +357,7 @@ export const ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi = {
     AcceptEdits: 'acceptEdits',
     Plan: 'plan',
     BypassPermissions: 'bypassPermissions',
+    Auto: 'auto',
 } as const
 
 /**
@@ -413,7 +415,8 @@ export interface ClaudeTaskRunCreateSchemaApi {
 * `default` - default
 * `acceptEdits` - acceptEdits
 * `plan` - plan
-* `bypassPermissions` - bypassPermissions */
+* `bypassPermissions` - bypassPermissions
+* `auto` - auto */
     initial_permission_mode?: ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi
 }
 
