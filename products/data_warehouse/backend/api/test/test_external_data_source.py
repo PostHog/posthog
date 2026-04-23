@@ -2109,12 +2109,14 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
             data={
                 "source_type": "Postgres",
-                "host": settings.PG_HOST,
-                "port": int(settings.PG_PORT),
-                "database": settings.PG_DATABASE,
-                "user": settings.PG_USER,
-                "password": settings.PG_PASSWORD,
-                "schema": "public",
+                "payload": {
+                    "host": settings.PG_HOST,
+                    "port": int(settings.PG_PORT),
+                    "database": settings.PG_DATABASE,
+                    "user": settings.PG_USER,
+                    "password": settings.PG_PASSWORD,
+                    "schema": "public",
+                },
             },
         )
         results = response.json()
@@ -2144,8 +2146,10 @@ class TestExternalDataSource(APIBaseTest):
                 f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Stripe",
-                    "auth_method": {"selection": "api_key", "stripe_secret_key": "blah"},
-                    "stripe_account_id": "blah",
+                    "payload": {
+                        "auth_method": {"selection": "api_key", "stripe_secret_key": "blah"},
+                        "stripe_account_id": "blah",
+                    },
                 },
             )
 
@@ -2161,7 +2165,9 @@ class TestExternalDataSource(APIBaseTest):
                 f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Stripe",
-                    "auth_method": {"selection": "api_key", "stripe_secret_key": "invalid_key"},
+                    "payload": {
+                        "auth_method": {"selection": "api_key", "stripe_secret_key": "invalid_key"},
+                    },
                 },
             )
 
@@ -2181,7 +2187,9 @@ class TestExternalDataSource(APIBaseTest):
                 f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Stripe",
-                    "auth_method": {"selection": "api_key", "stripe_secret_key": "invalid_key"},
+                    "payload": {
+                        "auth_method": {"selection": "api_key", "stripe_secret_key": "invalid_key"},
+                    },
                 },
             )
 
@@ -2198,9 +2206,11 @@ class TestExternalDataSource(APIBaseTest):
                 f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Zendesk",
-                    "subdomain": "blah",
-                    "api_key": "blah",
-                    "email_address": "blah",
+                    "payload": {
+                        "subdomain": "blah",
+                        "api_key": "blah",
+                        "email_address": "blah",
+                    },
                 },
             )
 
@@ -2216,9 +2226,11 @@ class TestExternalDataSource(APIBaseTest):
                 f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Zendesk",
-                    "subdomain": "blah",
-                    "api_key": "blah",
-                    "email_address": "blah",
+                    "payload": {
+                        "subdomain": "blah",
+                        "api_key": "blah",
+                        "email_address": "blah",
+                    },
                 },
             )
 
@@ -2233,8 +2245,10 @@ class TestExternalDataSource(APIBaseTest):
                 f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Stripe",
-                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
-                    "stripe_account_id": "blah",
+                    "payload": {
+                        "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                        "stripe_account_id": "blah",
+                    },
                 },
             )
             results = response.json()
@@ -2260,7 +2274,9 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
             data={
                 "source_type": "Stripe",
-                "api_key": "test",
+                "payload": {
+                    "api_key": "test",
+                },
             },
         )
 
@@ -2307,12 +2323,14 @@ class TestExternalDataSource(APIBaseTest):
                 f"/api/environments/{team_2.id}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Postgres",
-                    "host": "172.16.0.0",
-                    "port": int(settings.PG_PORT),
-                    "database": settings.PG_DATABASE,
-                    "user": settings.PG_USER,
-                    "password": settings.PG_PASSWORD,
-                    "schema": "public",
+                    "payload": {
+                        "host": "172.16.0.0",
+                        "port": int(settings.PG_PORT),
+                        "database": settings.PG_DATABASE,
+                        "user": settings.PG_USER,
+                        "password": settings.PG_PASSWORD,
+                        "schema": "public",
+                    },
                 },
             )
             assert response.status_code == 200
@@ -2345,12 +2363,14 @@ class TestExternalDataSource(APIBaseTest):
                 f"/api/environments/{new_team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Postgres",
-                    "host": "172.16.0.0",
-                    "port": int(settings.PG_PORT),
-                    "database": settings.PG_DATABASE,
-                    "user": settings.PG_USER,
-                    "password": settings.PG_PASSWORD,
-                    "schema": "public",
+                    "payload": {
+                        "host": "172.16.0.0",
+                        "port": int(settings.PG_PORT),
+                        "database": settings.PG_DATABASE,
+                        "user": settings.PG_USER,
+                        "password": settings.PG_PASSWORD,
+                        "schema": "public",
+                    },
                 },
             )
             self.assertEqual(response.status_code, 400)
@@ -2362,13 +2382,15 @@ class TestExternalDataSource(APIBaseTest):
                 f"/api/environments/{team_1.id}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Postgres",
-                    "host": "172.16.0.0",
-                    "rows": 42,
-                    "port": int(settings.PG_PORT),
-                    "database": settings.PG_DATABASE,
-                    "user": settings.PG_USER,
-                    "password": settings.PG_PASSWORD,
-                    "schema": "public",
+                    "payload": {
+                        "host": "172.16.0.0",
+                        "rows": 42,
+                        "port": int(settings.PG_PORT),
+                        "database": settings.PG_DATABASE,
+                        "user": settings.PG_USER,
+                        "password": settings.PG_PASSWORD,
+                        "schema": "public",
+                    },
                 },
             )
 
@@ -2402,12 +2424,14 @@ class TestExternalDataSource(APIBaseTest):
                 f"/api/environments/{new_team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Postgres",
-                    "host": "172.16.0.0",
-                    "port": int(settings.PG_PORT),
-                    "database": settings.PG_DATABASE,
-                    "user": settings.PG_USER,
-                    "password": settings.PG_PASSWORD,
-                    "schema": "public",
+                    "payload": {
+                        "host": "172.16.0.0",
+                        "port": int(settings.PG_PORT),
+                        "database": settings.PG_DATABASE,
+                        "user": settings.PG_USER,
+                        "password": settings.PG_PASSWORD,
+                        "schema": "public",
+                    },
                 },
             )
             self.assertEqual(response.status_code, 400)
@@ -2439,12 +2463,14 @@ class TestExternalDataSource(APIBaseTest):
         database_schema_url = f"/api/environments/{self.team.pk}/external_data_sources/database_schema/"
         database_schema_data = {
             "source_type": "Postgres",
-            "host": host,
-            "port": int(settings.PG_PORT),
-            "database": settings.PG_DATABASE,
-            "user": settings.PG_USER,
-            "password": settings.PG_PASSWORD,
-            "schema": "public",
+            "payload": {
+                "host": host,
+                "port": int(settings.PG_PORT),
+                "database": settings.PG_DATABASE,
+                "user": settings.PG_USER,
+                "password": settings.PG_PASSWORD,
+                "schema": "public",
+            },
         }
         create_url = f"/api/environments/{self.team.pk}/external_data_sources/"
         create_data = {
