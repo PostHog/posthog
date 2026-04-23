@@ -24,6 +24,7 @@ import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
 import type { supportTicketSceneLogicType } from './supportTicketSceneLogicType'
 
 const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
+const MAX_POLL_BACKOFF_MULTIPLIER = 5 // cap polling interval at 6x (30s) after consecutive failures
 
 function regionFromUrl(url?: string): Region | undefined {
     if (url) {
@@ -124,6 +125,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         loadMessages: true,
         setMessages: (messages: CommentType[]) => ({ messages }),
         setMessagesLoading: (loading: boolean) => ({ loading }),
+        incrementMessagePollErrorCount: true,
+        clearMessagePollErrorCount: true,
 
         loadOlderMessages: true,
         setOlderMessages: (olderMessages: CommentType[]) => ({ olderMessages }),
@@ -329,6 +332,14 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 setSuggesting: (_, { suggesting }) => suggesting,
             },
         ],
+        messagePollErrorCount: [
+            0,
+            {
+                incrementMessagePollErrorCount: (state) =>
+                    state >= MAX_POLL_BACKOFF_MULTIPLIER ? MAX_POLL_BACKOFF_MULTIPLIER : state + 1,
+                clearMessagePollErrorCount: () => 0,
+            },
+        ],
     }),
     selectors({
         hasUnsavedChanges: [
@@ -452,14 +463,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 // Refresh the unread count since viewing a ticket marks it as read
                 supportTicketCounterLogic.findMounted()?.actions.refreshCount()
 
-                // Start message polling using disposables pattern
+                // Start self-scheduling poll with backoff on failure (handled in loadMessages)
                 cache.disposables.dispose('messagePolling')
-                cache.disposables.add(() => {
-                    const intervalId = setInterval(() => {
-                        actions.loadMessages()
-                    }, MESSAGE_POLL_INTERVAL)
-                    return () => clearInterval(intervalId)
-                }, 'messagePolling')
             } catch (error) {
                 console.error('Failed to load ticket:', error)
                 lemonToast.error('Failed to load ticket')
@@ -506,16 +511,51 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setMessages([])
                 return
             }
+            // Dedupe: if a load is already running, record that a refresh is wanted and return.
+            // The in-flight call's finally block will fire loadMessages again immediately on completion,
+            // preventing 5s poll ticks from stacking into concurrent in-flight requests during slow responses.
+            if (cache.loadMessagesInFlight) {
+                cache.loadMessagesPending = true
+                return
+            }
+            cache.loadMessagesInFlight = true
+            const ticketId = values.ticket.id
+            let hadError = false
+            const previousErrorCount = values.messagePollErrorCount
             try {
                 const response = await api.comments.list({
                     scope: 'conversations_ticket',
-                    item_id: values.ticket.id,
+                    item_id: ticketId,
                 })
                 // Reverse to show oldest first (bottom = newest)
                 actions.setMessages((response.results || []).reverse())
+                if (previousErrorCount > 0) {
+                    actions.clearMessagePollErrorCount()
+                }
             } catch {
+                hadError = true
                 lemonToast.error('Failed to load messages')
                 actions.setMessagesLoading(false)
+                actions.incrementMessagePollErrorCount()
+            } finally {
+                cache.loadMessagesInFlight = false
+                const ticketStillOpen = props.id !== 'new' && values.ticket?.id === ticketId
+                if (cache.loadMessagesPending && ticketStillOpen) {
+                    // An explicit refresh was requested while we were loading — run it now
+                    cache.loadMessagesPending = false
+                    actions.loadMessages()
+                } else if (ticketStillOpen) {
+                    // Self-schedule next poll with exponential backoff on consecutive failures.
+                    // Use previousErrorCount + 1 to avoid depending on dispatch-order of the increment action.
+                    const effectiveErrorCount = hadError
+                        ? Math.min(previousErrorCount + 1, MAX_POLL_BACKOFF_MULTIPLIER)
+                        : 0
+                    const pollInterval = MESSAGE_POLL_INTERVAL * (effectiveErrorCount + 1)
+                    cache.disposables.add(() => {
+                        const timerId = window.setTimeout(() => actions.loadMessages(), pollInterval)
+                        return () => clearTimeout(timerId)
+                    }, 'messagePolling')
+                }
             }
         },
         loadOlderMessages: async () => {

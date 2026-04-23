@@ -35,6 +35,15 @@ class Comment(UUIDTModel, RootTeamMixin):
                 fields=["team_id", "scope", "item_id", "deleted", "-created_at"],
                 name="posthog_comment_convo_idx",
             ),
+            # Default list path (CommentViewSet with no `scope` param): excludes
+            # conversations_ticket comments and deleted rows, orders by -created_at.
+            # A partial index avoids a sequential scan when the negated-scope predicate
+            # would otherwise disqualify posthog_comment_convo_idx.
+            models.Index(
+                fields=["team_id", "-created_at"],
+                name="posthog_comment_list_dflt_idx",
+                condition=models.Q(deleted=False) & ~models.Q(scope="conversations_ticket"),
+            ),
         ]
 
 
