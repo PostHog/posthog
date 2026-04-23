@@ -128,10 +128,10 @@ class TestQueryPerformanceProxyViewSet(APIBaseTest):
         # Writes are blocked via readonly; overflow is hard-fail so the agent
         # must narrow the query rather than silently truncate.
         assert passed_settings["readonly"] == 2
-        assert passed_settings["max_execution_time"] == 60
-        assert passed_settings["max_memory_usage"] == 4 * 1024**3
-        assert passed_settings["max_result_rows"] == 100_000
-        assert passed_settings["max_result_bytes"] == 100 * 1024**2
+        assert passed_settings["max_execution_time"] == 10 * 60
+        assert passed_settings["max_memory_usage"] == 256 * 1024**3
+        assert passed_settings["max_result_rows"] == 100_000_000
+        assert passed_settings["max_result_bytes"] == 100 * 1024**3
         assert passed_settings["result_overflow_mode"] == "throw"
         # sync_execute is called in read-only elevation mode (for workload routing).
         assert mocked.call_args.kwargs.get("readonly") is True

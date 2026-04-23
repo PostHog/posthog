@@ -41,12 +41,14 @@ logger = logging.getLogger(__name__)
 # Resource caps pushed to ClickHouse on every submission. When a query trips
 # one of these the caller gets a 502 with the ClickHouse error code (e.g. 241
 # "memory limit exceeded", 158 "too many rows", 307 "too many bytes") and can
-# narrow the query. These are safety nets only — the real cap is the test
-# cluster's own user profile once we ship that.
-MAX_EXECUTION_TIME_SECONDS = 60
-MAX_MEMORY_USAGE_BYTES = 4 * 1024**3  # 4 GiB
-MAX_RESULT_ROWS = 100_000
-MAX_RESULT_BYTES = 100 * 1024**2  # 100 MiB
+# narrow the query. These are sized for the dedicated autoresearch test
+# cluster — no shared tenants, plenty of RAM — so they're deliberately
+# generous. The floor below which the agent should self-correct is still
+# enforced by ClickHouse returning an error.
+MAX_EXECUTION_TIME_SECONDS = 10 * 60  # 10 minutes
+MAX_MEMORY_USAGE_BYTES = 256 * 1024**3  # 256 GiB
+MAX_RESULT_ROWS = 100_000_000  # 100M rows
+MAX_RESULT_BYTES = 100 * 1024**3  # 100 GiB
 
 
 class ExecuteRequestSerializer(serializers.Serializer):
