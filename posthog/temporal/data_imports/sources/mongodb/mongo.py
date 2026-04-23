@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import math
+import uuid
+import base64
 import contextlib
 import collections
 from collections.abc import Callable, Iterator
@@ -8,7 +10,8 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
 
 import certifi
-from bson import ObjectId
+from bson import Binary, DatetimeMS, ObjectId
+from bson.codec_options import DatetimeConversion
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.server_description import ServerDescription
@@ -30,10 +33,83 @@ SCHEMA_INFERENCE_LIMIT = 10_000  # First 10k documents
 SCHEMA_INFERENCE_TIMEOUT_MS = 45_000  # 45 seconds
 
 
+def _convert_binary(value: Binary) -> str:
+    """Convert a bson.Binary to a safe string representation.
+
+    Subtype 4 (standard UUID) is decoded to uuid.UUID by PyMongo's
+    uuidRepresentation=standard codec option before documents reach this helper,
+    so only legacy subtype 3 (16-byte UUIDs from older drivers) is handled here
+    as a UUID. Byte ordering may differ from the application's encoding but a
+    canonical string is preferable to a Python bytes repr, which is ambiguous
+    and unparseable in SQL. Any other subtype falls back to base64 so the raw
+    bytes round-trip safely.
+    """
+    if len(value) == 16 and value.subtype == 3:
+        return str(uuid.UUID(bytes=bytes(value)))
+    return base64.b64encode(bytes(value)).decode("ascii")
+
+
+def _convert_datetime_ms(value: DatetimeMS) -> Any:
+    """Convert a bson.DatetimeMS (used for out-of-range BSON datetimes under
+    DATETIME_AUTO) to a native datetime when possible, else None.
+
+    DATETIME_AUTO returns DatetimeMS only when the value cannot be represented
+    as a Python datetime (year <1 or >9999). In-range values arrive as
+    datetime directly and never enter this branch. Returning None for the
+    unrepresentable cases means a single malformed row does not fail the sync
+    and preserves nullability on downstream date columns.
+    """
+    # as_datetime uses the default codec (non-AUTO) and raises bson.errors.InvalidBSON
+    # on out-of-range values. We intentionally swallow any conversion failure —
+    # the helper's job is "represent as datetime or null" and we never want a
+    # malformed date to abort a sync.
+    try:
+        return value.as_datetime()
+    except Exception:
+        return None
+
+
+def _safe_doc_id_repr(doc: Any) -> str:
+    """Best-effort stringification of _id for logging purposes only. Must never raise."""
+    try:
+        return str(doc.get("_id"))
+    except Exception:
+        return "<unavailable>"
+
+
+def _process_doc_with_field_logging(
+    doc: dict[str, Any], collection_name: str, logger: FilteringBoundLogger
+) -> dict[str, Any]:
+    """Apply _process_nested_value to each top-level field. If conversion fails for
+    any field, log the collection, document _id, and field name to give the error a
+    precise location, then re-raise so the sync fails fast. We do NOT substitute
+    failed fields with None — silently nulling would hide data loss.
+    """
+    processed: dict[str, Any] = {}
+    for key, value in doc.items():
+        try:
+            processed[key] = _process_nested_value(value)
+        except Exception as e:
+            logger.exception(
+                f"MongoDB sync: failed to process field '{key}' in collection={collection_name} "
+                f"_id={_safe_doc_id_repr(doc)}: {type(e).__name__}: {e}",
+            )
+            raise
+    return processed
+
+
 def _process_nested_value(value: Any) -> Any:
-    """Process a nested value, converting ObjectIds to strings."""
+    """Process a nested value, converting ObjectIds/UUIDs/Binary to strings
+    and normalising out-of-range BSON datetimes to None."""
     if isinstance(value, ObjectId):
         return str(value)
+    # Binary must be checked before bytes — bson.Binary subclasses bytes.
+    elif isinstance(value, Binary):
+        return _convert_binary(value)
+    elif isinstance(value, uuid.UUID):
+        return str(value)
+    elif isinstance(value, DatetimeMS):
+        return _convert_datetime_ms(value)
     elif isinstance(value, dict):
         return {key: _process_nested_value(val) for key, val in value.items()}
     elif isinstance(value, list):
@@ -126,6 +202,17 @@ def mongo_client(connection_string: str, team_id: int) -> Iterator[MongoClient]:
         "tls": True,
         "tlsCAFile": certifi.where(),
         "server_selector": _make_safe_server_selector(team_id),
+        # Decode BSON Binary subtype 4 as native uuid.UUID instead of bson.Binary,
+        # so UUID primary keys don't leak as Python bytes repr downstream.
+        # Subtype 3 stays as Binary under STANDARD and is handled in _convert_binary.
+        # MongoClient's uuidRepresentation kwarg rejects the UuidRepresentation enum
+        # and only accepts the lowercase string form, unlike datetime_conversion which
+        # accepts the DatetimeConversion enum directly.
+        "uuidRepresentation": "standard",
+        # Out-of-range dates (e.g. year 0, year > 9999) become DatetimeMS instead
+        # of raising InvalidBSON during cursor iteration. We then convert DatetimeMS
+        # to None in _process_nested_value so a single bad row doesn't fail the sync.
+        "datetime_conversion": DatetimeConversion.DATETIME_AUTO,
     }
     client: MongoClient = MongoClient(connection_string, **kwargs)
     try:
@@ -400,21 +487,16 @@ def mongo_source(
             cursor = read_collection.find(query, batch_size=DEFAULT_CHUNK_SIZE)
 
             for doc in cursor:
-                # Convert ObjectId to string and handle nested objects
-                processed_doc = {}
+                # Convert BSON types (ObjectId, Binary, UUID, DatetimeMS) to SQL-safe
+                # values. _process_doc_with_field_logging logs the offending field name
+                # before re-raising, so any exception here fails the sync with precise
+                # diagnostic context rather than silently dropping rows.
+                processed_doc = _process_doc_with_field_logging(doc, collection_name, logger)
 
-                # Process the document to handle ObjectIds and nested structures
-                for key, value in doc.items():
-                    if isinstance(value, ObjectId):
-                        processed_doc[key] = str(value)
-                    elif isinstance(value, dict) or isinstance(value, list):
-                        # Keep nested objects as they are, but convert ObjectIds within them
-                        processed_doc[key] = _process_nested_value(value)
-                    else:
-                        processed_doc[key] = value
-
+                # Stringify _id so it's always a scalar string downstream,
+                # regardless of BSON type (ObjectId, UUID Binary, numeric, etc.).
                 result: dict[str, Any] = {
-                    "_id": str(doc["_id"]),
+                    "_id": str(processed_doc["_id"]),
                 }
                 # extract incremental field from the document if it exists
                 if incremental_field:
