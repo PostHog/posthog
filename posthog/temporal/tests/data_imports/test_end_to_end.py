@@ -2774,45 +2774,24 @@ async def test_append_only_table(team, mock_stripe_client):
     assert res.results[0][0] == res.results[1][0]
 
 
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_worker_shutdown_desc_sort_order(team, stripe_balance_transaction, mock_stripe_client):
-    """Testing that a descending sort ordered, non-resumable source will not trigger the rescheduling"""
+def test_should_check_shutdown_desc_sort_order_non_resumable():
+    """A descending sort ordered, non-resumable incremental source should not raise on shutdown
+    (so it can finish the job before the next scheduled run)."""
+    from posthog.temporal.data_imports.pipelines.common.extract import should_check_shutdown
+    from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 
-    def mock_raise_if_is_worker_shutdown(self):
-        raise WorkerShuttingDownError("test_id", "test_type", "test_queue", 1, "test_workflow", "test_workflow_type")
+    schema = mock.MagicMock()
+    schema.should_use_incremental_field = True
+    resource = mock.MagicMock(spec=SourceResponse)
+    resource.sort_mode = "desc"
 
-    with (
-        mock.patch.object(ShutdownMonitor, "raise_if_is_worker_shutdown", mock_raise_if_is_worker_shutdown),
-        mock.patch(
-            "posthog.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
-        ) as mock_trigger_schedule_buffer_one,
-        mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1),
-    ):
-        _, inputs = await _run(
-            team=team,
-            schema_name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
-            table_name="stripe_balancetransaction",
-            source_type="Stripe",
-            job_inputs={
-                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-                "stripe_account_id": "acct_id",
-            },
-            mock_data_response=stripe_balance_transaction["data"],
-            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
-            sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
-            ignore_assertions=True,
-        )
-
-    # assert that the running job was completed successfully and that the new workflow was NOT triggered
-    mock_trigger_schedule_buffer_one.assert_not_called()
-
-    run: ExternalDataJob | None = await get_latest_run_if_exists(
-        team_id=inputs.team_id, pipeline_id=inputs.external_data_source_id
-    )
-
-    assert run is not None
-    assert run.status == ExternalDataJob.Status.COMPLETED
+    assert should_check_shutdown(schema, resource, reset_pipeline=False, source_is_resumable=False) is False
+    # Non-desc incremental sources still raise so the scheduler can retry.
+    resource.sort_mode = "asc"
+    assert should_check_shutdown(schema, resource, reset_pipeline=False, source_is_resumable=False) is True
+    # Resumable sources always raise regardless of sort order, since they can pick up from the saved cursor.
+    resource.sort_mode = "desc"
+    assert should_check_shutdown(schema, resource, reset_pipeline=False, source_is_resumable=True) is True
 
 
 @pytest.mark.django_db(transaction=True)
