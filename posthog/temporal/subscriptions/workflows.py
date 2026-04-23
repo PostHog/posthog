@@ -199,12 +199,6 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             # onto SubscriptionDelivery.content_snapshot (written from within the
             # activity to avoid shipping multi-MB query_results across Temporal's
             # ~2 MiB payload boundary).
-            #
-            # Adding the new `delivery_id` input field is a safe, non-breaking
-            # change per Temporal's schema evolution guidance — activity inputs
-            # are not part of the workflow command state machine, so this does
-            # not need a workflow.patched() gate (unlike the Phase 2.5 removal
-            # below, which is a command-sequence change).
             prepare_result = await temporalio.workflow.execute_activity(
                 create_export_assets,
                 CreateExportAssetsInputs(
@@ -266,8 +260,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
 
             # Generate LLM change summary (best-effort, skip if not enabled).
             # Reads content_snapshot back from Postgres — persisted inline by
-            # create_export_assets above (via delivery_id, or via the
-            # workflow_id fallback lookup).
+            # create_export_assets above via delivery_id.
             change_summary: str | None = None
             if delivery_id is not None:
                 try:

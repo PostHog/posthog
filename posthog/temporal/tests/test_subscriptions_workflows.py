@@ -585,12 +585,9 @@ async def test_create_delivery_record_persists_row_and_idempotency_key_dedupes(t
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
 async def test_update_delivery_record_patches_status_and_results_without_touching_content(team, user):
-    # When the new workflow calls update_delivery_record without content_snapshot
-    # — which is the production path, since create_export_assets owns the
-    # snapshot write — the delivery row's existing content_snapshot is preserved.
-    # The field still exists on the dataclass for rolling-deploy replay compat
-    # (old in-flight workflows may populate it), but it's no longer part of the
-    # steady-state call path.
+    # update_delivery_record is the observability finalizer; create_export_assets
+    # owns the content_snapshot write. This pins that update_delivery_record does
+    # not touch the snapshot column — it only patches status/asset_ids/recipient_results.
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id="upd01", name="Update delivery")
     subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
 
