@@ -6922,6 +6922,12 @@ export namespace Schemas {
       explicit_datetime?: string | null;
     }
 
+    export interface Billing {
+      /** @maxLength 100 */
+      plan: string;
+      billing_limit: number;
+    }
+
     export interface BlastRadius {
       /** Number of users matching the filters */
       affected: number;
@@ -21786,6 +21792,15 @@ export namespace Schemas {
       results: BatchImport[];
     }
 
+    export interface PaginatedBillingList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Billing[];
+    }
+
     export interface PaginatedChangeRequestList {
       count: number;
       /** @nullable */
@@ -24973,6 +24988,12 @@ export namespace Schemas {
       /** @nullable */
       readonly display_status_message?: string | null;
       import_config?: unknown;
+    }
+
+    export interface PatchedBilling {
+      /** @maxLength 100 */
+      plan?: string;
+      billing_limit?: number;
     }
 
     export interface PatchedClusteringJob {
@@ -35978,6 +35999,17 @@ export namespace Schemas {
       /** Always false — reserved for future cached-value refresh signalling. */
       refreshing: boolean;
     }
+
+    export type BillingListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type EnvironmentsAlertsListParams = {
     /**
