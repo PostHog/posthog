@@ -40,7 +40,7 @@ describe('Experiments', { concurrent: false }, () => {
 
     const createTool = GENERATED_TOOLS['experiment-create']!()
     const getTool = GENERATED_TOOLS['experiment-get']!()
-    const getAllTool = GENERATED_TOOLS['experiment-get-all']!()
+    const listTool = GENERATED_TOOLS['experiment-list']!()
     const updateTool = GENERATED_TOOLS['experiment-update']!()
     const deleteTool = GENERATED_TOOLS['experiment-delete']!()
     const launchTool = GENERATED_TOOLS['experiment-launch']!()
@@ -373,7 +373,7 @@ describe('Experiments', { concurrent: false }, () => {
             }
 
             // Get all experiments
-            const result = await getAllTool.handler(context, {})
+            const result = await listTool.handler(context, {})
             const allExperiments = parseToolResponse(result)
             expect(allExperiments.results.length).toBeGreaterThanOrEqual(3)
 
@@ -385,7 +385,7 @@ describe('Experiments', { concurrent: false }, () => {
         })
 
         it('should return experiments with proper structure', async () => {
-            const result = await getAllTool.handler(context, {})
+            const result = await listTool.handler(context, {})
             const experiments = parseToolResponse(result)
 
             if (experiments.results.length > 0) {
@@ -397,17 +397,17 @@ describe('Experiments', { concurrent: false }, () => {
         })
 
         it('should respect limit parameter', async () => {
-            const result = await getAllTool.handler(context, { limit: 2 })
+            const result = await listTool.handler(context, { limit: 2 })
             const experiments = parseToolResponse(result)
             expect(experiments.results.length).toBeLessThanOrEqual(2)
         })
 
         it('should respect offset parameter', async () => {
-            const allResult = await getAllTool.handler(context, { limit: 10 })
+            const allResult = await listTool.handler(context, { limit: 10 })
             const allExperiments = parseToolResponse(allResult)
 
             if (allExperiments.results.length > 1) {
-                const offsetResult = await getAllTool.handler(context, { limit: 10, offset: 1 })
+                const offsetResult = await listTool.handler(context, { limit: 10, offset: 1 })
                 const offsetExperiments = parseToolResponse(offsetResult)
                 // Verify offset is working by checking first result is different from original first result
                 expect(offsetExperiments.results[0].id).not.toBe(allExperiments.results[0].id)
@@ -415,7 +415,7 @@ describe('Experiments', { concurrent: false }, () => {
         })
 
         it('should use default limit when not specified', async () => {
-            const result = await getAllTool.handler(context, {})
+            const result = await listTool.handler(context, {})
             const experiments = parseToolResponse(result)
             expect(experiments.results.length).toBeLessThanOrEqual(50)
         })
@@ -596,7 +596,7 @@ describe('Experiments', { concurrent: false }, () => {
             expect(retrievedExperiment.id).toBe(createdExperiment.id)
 
             // Verify it appears in list
-            const listResult = await getAllTool.handler(context, {})
+            const listResult = await listTool.handler(context, {})
             const allExperiments = parseToolResponse(listResult)
             const found = allExperiments.results.find((e: any) => e.id === createdExperiment.id)
             expect(found).toBeTruthy()

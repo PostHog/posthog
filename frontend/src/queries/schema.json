@@ -17236,6 +17236,10 @@
                 "minimum_detectable_effect": {
                     "description": "Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments.",
                     "type": "number"
+                },
+                "rollout_percentage": {
+                    "description": "Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100.",
+                    "type": "number"
                 }
             },
             "type": "object"
