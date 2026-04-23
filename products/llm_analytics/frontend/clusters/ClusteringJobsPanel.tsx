@@ -135,14 +135,17 @@ export function ClusteringJobsPanel(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const evaluationsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_CLUSTERING]
 
-    // Hide eval-level jobs from the admin list when the FF is off so the
-    // auto-seeded "Default - evaluations" row (from the migration + post_save
-    // signal) doesn't surface for teams that aren't on the feature yet. The
-    // create dropdown's "Evaluations" option is already FF-gated below, so
-    // mirroring the gate on the list keeps the two surfaces consistent.
+    // Hide only the auto-seeded "Default - evaluations" row from the admin
+    // list when the FF is off, so teams that aren't on the feature yet don't
+    // see a mystery default row they didn't create. Any custom evaluation
+    // jobs (rename of the default, or created explicitly when the FF was on
+    // and later toggled off) stay visible — otherwise we'd leave hidden-but-
+    // still-scheduled jobs with no UI surface to manage them.
     const visibleJobs = evaluationsEnabled
         ? jobs
-        : jobs.filter((job: ClusteringJob) => job.analysis_level !== 'evaluation')
+        : jobs.filter(
+              (job: ClusteringJob) => !(job.analysis_level === 'evaluation' && job.name === 'Default - evaluations')
+          )
 
     return (
         <LemonModal
