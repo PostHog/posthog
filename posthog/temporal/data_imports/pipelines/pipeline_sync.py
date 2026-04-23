@@ -16,11 +16,11 @@ import dlt.common.libs.pyarrow
 import dlt.extract.incremental
 import dlt.extract.incremental.transform
 from clickhouse_driver.errors import ServerException
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.helpers import build_table_name
 
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
@@ -35,9 +35,14 @@ def merge_columns(
     db_columns: dict[str, str],
     table_schema_dict: dict[str, str],
     existing_columns: dict[str, Any],
-) -> dict[str, dict[str, str]]:
-    """Build column metadata, preserving StringJSONDatabaseField from prior runs"""
-    columns: dict[str, dict[str, str]] = {}
+) -> dict[str, Any]:
+    """Build column metadata, preserving StringJSONDatabaseField from prior runs.
+
+    Columns present in existing_columns but absent from db_columns are preserved
+    to avoid losing schema information when get_columns() returns incomplete
+    results during a sync (e.g., transient S3/ClickHouse introspection failures).
+    """
+    columns: dict[str, Any] = {}
     for column_name, db_column_type in db_columns.items():
         hogql_type = table_schema_dict.get(column_name)
 
@@ -54,6 +59,21 @@ def merge_columns(
             "clickhouse": db_column_type,
             "hogql": hogql_type,
         }
+
+    # Preserve columns from prior syncs that are missing from the current introspection.
+    # This prevents column loss when get_columns() returns partial results mid-sync.
+    for column_name, column_meta in existing_columns.items():
+        if column_name in columns:
+            continue
+
+        if isinstance(column_meta, dict):
+            columns[column_name] = column_meta
+        elif isinstance(column_meta, str):
+            columns[column_name] = {
+                "clickhouse": column_meta,
+                "hogql": table_schema_dict.get(column_name, "StringDatabaseField"),
+            }
+
     return columns
 
 
@@ -68,8 +88,8 @@ def _from_arrow_scalar(arrow_value: pyarrow.Scalar) -> Any:
     return row_value
 
 
-dlt.common.libs.pyarrow.from_arrow_scalar = _from_arrow_scalar
-dlt.extract.incremental.transform.from_arrow_scalar = _from_arrow_scalar
+dlt.common.libs.pyarrow.from_arrow_scalar = _from_arrow_scalar  # ty: ignore[invalid-assignment]
+dlt.extract.incremental.transform.from_arrow_scalar = _from_arrow_scalar  # ty: ignore[invalid-assignment]
 
 
 @dataclass
@@ -157,7 +177,7 @@ async def validate_schema_and_update_table(
         incremental_or_append = external_data_schema.should_use_incremental_field
 
         table_name = build_table_name(job.pipeline, _schema_name)
-        normalized_schema_name = NamingConvention().normalize_identifier(_schema_name)
+        normalized_schema_name = NamingConvention.normalize_identifier(_schema_name)
         new_url_pattern = job.url_pattern_by_schema(normalized_schema_name)
 
         # Check
@@ -209,10 +229,18 @@ async def validate_schema_and_update_table(
                 raw_db_columns = table_created.get_columns()
                 db_columns = {key: str(column.get("clickhouse", "")) for key, column in raw_db_columns.items()}
 
-                existing_columns = table_created.columns or {}
+                # select_for_update prevents two concurrent sync operations from
+                # causing a lost-update: both would read the current columns,
+                # merge independently, and one write would overwrite the other.
+                # Use raw_objects to skip the default manager's select_related —
+                # its nullable LEFT JOINs are rejected by Postgres under FOR UPDATE.
+                table_for_update = DataWarehouseTable.raw_objects.select_for_update().get(id=table_created.id)
+                existing_columns = table_for_update.columns or {}
                 columns = merge_columns(db_columns, table_schema_dict or {}, existing_columns)
+                table_for_update.columns = columns
+                table_for_update.save(update_fields=["columns"])
+                # Keep local reference in sync
                 table_created.columns = columns
-                table_created.save()
 
                 # schema could have been deleted by this point
                 schema_model = (
@@ -275,7 +303,7 @@ async def register_cdc_companion_table(
     def _register():
         job = ExternalDataJob.objects.prefetch_related("pipeline").get(pk=run_id)
 
-        normalized_resource_name = NamingConvention().normalize_identifier(resource_name)
+        normalized_resource_name = NamingConvention.normalize_identifier(resource_name)
         companion_table_name = build_table_name(job.pipeline, resource_name)
         new_url_pattern = job.url_pattern_by_schema(normalized_resource_name)
 

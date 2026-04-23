@@ -344,8 +344,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         with snapshot_postgres_queries_context(
             self,
-            custom_query_matcher=lambda query: f"DELETE FROM posthog_person WHERE team_id = {self.team.pk} AND id = {person.pk}"
-            in query,
+            custom_query_matcher=lambda query: (
+                f"DELETE FROM posthog_person WHERE team_id = {self.team.pk} AND id = {person.pk}" in query
+            ),
         ):
             response = self.client.delete(f"/api/person/{person.uuid}/")
 
@@ -489,7 +490,12 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED, response.content)
-        self.assertEqual(response.content, b"")  # Empty response
+        data = response.json()
+        self.assertEqual(data["persons_found"], 2)
+        self.assertEqual(data["persons_deleted"], 2)
+        self.assertTrue(data["events_queued_for_deletion"])
+        self.assertFalse(data["recordings_queued_for_deletion"])
+        self.assertEqual(data["deletion_errors"], [])
         self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
 
         response = self.client.delete(f"/api/person/{person.uuid}/")
@@ -528,7 +534,12 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.post(f"/api/person/bulk_delete/", {"distinct_ids": ["anonymous_id", "person_2"]})
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED, response.content)
-        self.assertEqual(response.content, b"")  # Empty response
+        data = response.json()
+        self.assertEqual(data["persons_found"], 2)
+        self.assertEqual(data["persons_deleted"], 2)
+        self.assertFalse(data["events_queued_for_deletion"])
+        self.assertFalse(data["recordings_queued_for_deletion"])
+        self.assertEqual(data["deletion_errors"], [])
         self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
 
         response = self.client.delete(f"/api/person/{person.uuid}/")
@@ -564,6 +575,11 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        data = response.json()
+        self.assertEqual(data["persons_found"], 1)
+        self.assertEqual(data["persons_deleted"], 0)
+        self.assertTrue(data["events_queued_for_deletion"])
+        self.assertEqual(data["deletion_errors"], [])
         # Person should still exist
         self.assertEqual(Person.objects.filter(team=self.team, uuid=person.uuid).count(), 1)
         # But async deletion for events should be scheduled
@@ -588,6 +604,12 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        data = response.json()
+        self.assertEqual(data["persons_found"], 1)
+        self.assertEqual(data["persons_deleted"], 1)
+        self.assertFalse(data["events_queued_for_deletion"])
+        self.assertTrue(data["recordings_queued_for_deletion"])
+        self.assertEqual(data["deletion_errors"], [])
 
     def test_bulk_delete_validation_too_many_ids(self):
         """Test that bulk_delete rejects more than 1000 IDs"""
@@ -615,6 +637,173 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("distinct_ids or ids", str(response.content))
+
+    def test_bulk_delete_no_matching_persons(self):
+        response = self.client.post(
+            f"/api/person/bulk_delete/",
+            {"ids": [str(uuid4()), str(uuid4())], "delete_events": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        data = response.json()
+        self.assertEqual(data["persons_found"], 0)
+        self.assertEqual(data["persons_deleted"], 0)
+        self.assertFalse(data["events_queued_for_deletion"])
+        self.assertEqual(data["deletion_errors"], [])
+        self.assertEqual(AsyncDeletion.objects.filter(team_id=self.team.id).count(), 0)
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_deletion_status_lists_pending_deletions(self):
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["person_1"],
+            properties={"$os": "Chrome"},
+            immediate=True,
+        )
+
+        self.client.post(
+            f"/api/person/bulk_delete/",
+            {"ids": [person.uuid], "delete_events": True},
+        )
+
+        response = self.client.get(f"/api/person/deletion_status/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["results"][0]["person_uuid"], str(person.uuid))
+        self.assertEqual(data["results"][0]["status"], "pending")
+        self.assertIsNone(data["results"][0]["delete_verified_at"])
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_deletion_status_filters_by_status(self):
+        person1 = _create_person(
+            team=self.team,
+            distinct_ids=["person_1"],
+            immediate=True,
+        )
+        person2 = _create_person(
+            team=self.team,
+            distinct_ids=["person_2"],
+            immediate=True,
+        )
+
+        # Create one pending and one completed deletion
+        AsyncDeletion.objects.create(
+            deletion_type=DeletionType.Person,
+            team_id=self.team.id,
+            key=str(person1.uuid),
+        )
+        AsyncDeletion.objects.create(
+            deletion_type=DeletionType.Person,
+            team_id=self.team.id,
+            key=str(person2.uuid),
+            delete_verified_at="2021-08-25T23:00:00Z",
+        )
+
+        # Filter pending
+        response = self.client.get(f"/api/person/deletion_status/?status=pending")
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["results"][0]["person_uuid"], str(person1.uuid))
+        self.assertEqual(data["results"][0]["status"], "pending")
+
+        # Filter completed
+        response = self.client.get(f"/api/person/deletion_status/?status=completed")
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["results"][0]["person_uuid"], str(person2.uuid))
+        self.assertEqual(data["results"][0]["status"], "completed")
+
+        # All
+        response = self.client.get(f"/api/person/deletion_status/")
+        data = response.json()
+        self.assertEqual(data["count"], 2)
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_deletion_status_filters_by_person_uuid(self):
+        person1 = _create_person(
+            team=self.team,
+            distinct_ids=["person_1"],
+            immediate=True,
+        )
+        person2 = _create_person(
+            team=self.team,
+            distinct_ids=["person_2"],
+            immediate=True,
+        )
+
+        AsyncDeletion.objects.create(
+            deletion_type=DeletionType.Person,
+            team_id=self.team.id,
+            key=str(person1.uuid),
+        )
+        AsyncDeletion.objects.create(
+            deletion_type=DeletionType.Person,
+            team_id=self.team.id,
+            key=str(person2.uuid),
+        )
+
+        response = self.client.get(f"/api/person/deletion_status/?person_uuid={person1.uuid}")
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["results"][0]["person_uuid"], str(person1.uuid))
+
+    @mock.patch("posthog.api.person.delete_person")
+    def test_bulk_delete_partial_failure(self, mock_delete_person):
+        """Test that bulk_delete continues when a single person fails to delete and reports errors"""
+        person1 = _create_person(
+            team=self.team,
+            distinct_ids=["person_1"],
+            immediate=True,
+        )
+        person2 = _create_person(
+            team=self.team,
+            distinct_ids=["person_2"],
+            immediate=True,
+        )
+
+        # Make delete_person fail on the first person, succeed on the second
+        mock_delete_person.side_effect = [Exception("DB connection lost"), None]
+
+        response = self.client.post(
+            f"/api/person/bulk_delete/",
+            {"ids": [person1.uuid, person2.uuid]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        data = response.json()
+        self.assertEqual(data["persons_found"], 2)
+        self.assertEqual(data["persons_deleted"], 1)
+        self.assertEqual(len(data["deletion_errors"]), 1)
+        self.assertEqual(data["deletion_errors"][0]["person_uuid"], str(person1.uuid))
+        self.assertNotIn("detail", data["deletion_errors"][0])
+
+    def test_deletion_status_rejects_invalid_status(self):
+        """Test that deletion_status returns 400 for invalid status filter"""
+        response = self.client.get(f"/api/person/deletion_status/?status=invalid")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_deletion_status_rejects_invalid_person_uuid(self):
+        """Test that deletion_status returns 400 for non-UUID person_uuid"""
+        response = self.client.get(f"/api/person/deletion_status/?person_uuid=not-a-uuid")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_deletion_status_excludes_other_teams(self):
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+
+        AsyncDeletion.objects.create(
+            deletion_type=DeletionType.Person,
+            team_id=other_team.id,
+            key=str(uuid4()),
+        )
+        AsyncDeletion.objects.create(
+            deletion_type=DeletionType.Person,
+            team_id=self.team.id,
+            key=str(uuid4()),
+        )
+
+        response = self.client.get(f"/api/person/deletion_status/")
+        data = response.json()
+        self.assertEqual(data["count"], 1)
 
     def test_destroy_with_keep_person_param(self):
         """Test that destroy endpoint respects keep_person parameter"""
@@ -804,6 +993,68 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             },
             process_person_profile=True,
         )
+
+    @mock.patch("posthog.api.person.capture_internal")
+    def test_update_person_property_with_null_value(self, mock_capture) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["some_distinct_id"],
+            properties={"$browser": "whatever", "$os": "Mac OS X"},
+            immediate=True,
+        )
+
+        response = self.client.post(
+            f"/api/person/{person.uuid}/update_property",
+            {"key": "foo", "value": None},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 202)
+        mock_capture.assert_called_once_with(
+            token=self.team.api_token,
+            event_name="$set",
+            event_source="person_viewset",
+            distinct_id="some_distinct_id",
+            timestamp=mock.ANY,
+            properties={
+                "$set": {"foo": None},
+            },
+            process_person_profile=True,
+        )
+
+    def test_update_person_property_missing_value_returns_400(self) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["some_distinct_id"],
+            properties={"$browser": "whatever"},
+            immediate=True,
+        )
+
+        response = self.client.post(
+            f"/api/person/{person.uuid}/update_property",
+            {"key": "foo"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["attr"], "value")
+
+    def test_update_person_property_missing_key_returns_400(self) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["some_distinct_id"],
+            properties={"$browser": "whatever"},
+            immediate=True,
+        )
+
+        response = self.client.post(
+            f"/api/person/{person.uuid}/update_property",
+            {"value": "bar"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["attr"], "key")
 
     def test_return_non_anonymous_name(self) -> None:
         _create_person(
@@ -1083,18 +1334,16 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             team_id=self.team.pk,
             uuid=str(person_a.uuid),
             version=0,
-            sync=True,
         )
         create_person_distinct_id(
             team_id=self.team.pk,
             distinct_id="deleted_user",
             person_id=str(person_a.uuid),
             version=0,
-            sync=True,
         )
 
         # Delete person A (this creates a delete event with version 100 = 0 + 100)
-        delete_person(person_a, sync=True)
+        delete_person(person_a)
         person_a.delete()
 
         # Create person B with a different distinct_id (will also have version 0 by default)
@@ -1117,7 +1366,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             distinct_id="deleted_user",
             person_id=str(person_b.uuid),
             version=2,
-            sync=True,
         )
 
         # Now person_b has both "active_user" and "deleted_user"
@@ -1378,7 +1626,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             team_id=self.team.pk,
             is_deleted=True,
             version=105,
-            sync=True,
         )
         create_person_distinct_id(
             team_id=self.team.pk,
@@ -1386,7 +1633,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             person_id=shared_uuid,
             is_deleted=True,
             version=107,
-            sync=True,
         )
 
         # Phase 2: New event reuses the distinct_id, creating a new person in PG

@@ -160,7 +160,6 @@ mod tests {
                 kafka_overflow_topic: "events_plugin_ingestion_overflow".to_string(),
                 kafka_historical_topic: "events_plugin_ingestion_historical".to_string(),
                 kafka_client_ingestion_warning_topic: "events_plugin_ingestion".to_string(),
-                kafka_exceptions_topic: "events_plugin_ingestion".to_string(),
                 kafka_error_tracking_topic: "error_tracking_events".to_string(),
                 kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
                 kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
@@ -177,6 +176,13 @@ mod tests {
                 kafka_producer_max_in_flight_requests: 1000000,
                 kafka_producer_sticky_partitioning_linger_ms: 10,
                 kafka_producer_enable_idempotence: false,
+                kafka_producer_partitioner: "murmur2_random".to_string(),
+                kafka_broker_address_family: String::new(),
+                kafka_log_connection_close: true,
+                kafka_producer_queue_buffering_max_messages: 100000,
+                kafka_retry_backoff_max_ms: 1000,
+                kafka_socket_send_buffer_bytes: 0,
+                kafka_socket_receive_buffer_bytes: 0,
             },
             otel_url: None,
             otel_sampling_rate: 0.0,
@@ -200,8 +206,6 @@ mod tests {
             http1_header_read_timeout_ms: Some(5000),
             body_chunk_read_timeout_ms: None,
             body_read_chunk_size_kb: 256,
-            error_tracking_node_rollout_enabled: false,
-            error_tracking_node_rollout_rate: 0.0,
             continuous_profiling: ContinuousProfilingConfig {
                 continuous_profiling_enabled: false,
                 pyroscope_server_address: String::new(),
@@ -351,7 +355,7 @@ mod tests {
     async fn global_limit_preserves_all_event_states() {
         let limiter = build_limiter("tok", true, &[]).await;
         let bad = make_event("bad_event", None);
-        let bad_uuid = Uuid::parse_str(&bad.event.uuid).unwrap();
+        let bad_uuid = Uuid::parse_str(bad.event.uuid()).unwrap();
         let mut events = events_map(vec![make_event("$pageview", None), bad]);
         // Pre-mark one event as Drop (e.g. from validation)
         let bad_ev = events.get_mut(&bad_uuid).unwrap();
@@ -459,7 +463,7 @@ mod tests {
     async fn survey_limit_excludes_product_tour_events() {
         let limiter = build_limiter("tok", false, &[QuotaResource::Surveys]).await;
         let tour_ev = make_event("survey sent", Some("tour-123"));
-        let tour_uuid = Uuid::parse_str(&tour_ev.event.uuid).unwrap();
+        let tour_uuid = Uuid::parse_str(tour_ev.event.uuid()).unwrap();
         let mut events = events_map(vec![make_event("survey sent", None), tour_ev]);
 
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
@@ -609,7 +613,7 @@ mod tests {
         // No global limit, but exceptions limited
         let limiter = build_limiter("tok", false, &[QuotaResource::Exceptions]).await;
         let pv = make_event("$pageview", None);
-        let pv_uuid = Uuid::parse_str(&pv.event.uuid).unwrap();
+        let pv_uuid = Uuid::parse_str(pv.event.uuid()).unwrap();
         let mut events = events_map(vec![make_event("$exception", None), pv]);
         // Pre-mark pageview as Drop from a prior validation step
         let pv_ev = events.get_mut(&pv_uuid).unwrap();
@@ -625,7 +629,7 @@ mod tests {
     async fn mixed_pre_existing_and_scoped_still_ok_if_some_remain() {
         let limiter = build_limiter("tok", false, &[QuotaResource::Exceptions]).await;
         let pv = make_event("$pageview", None);
-        let pv_uuid = Uuid::parse_str(&pv.event.uuid).unwrap();
+        let pv_uuid = Uuid::parse_str(pv.event.uuid()).unwrap();
         let mut events = events_map(vec![
             make_event("$exception", None),
             pv,

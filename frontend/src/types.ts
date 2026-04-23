@@ -63,6 +63,7 @@ import type {
     MarketingAnalyticsConfig,
     Node,
     NodeKind,
+    ProductItemCategory,
     ProductKey,
     QuerySchema,
     QueryStatus,
@@ -349,6 +350,16 @@ export interface UserType extends UserBaseType {
     allow_sidebar_suggestions?: boolean
     role_at_organization?: UserRole | null
     passkeys_enabled_for_2fa?: boolean
+    is_organization_first_user?: boolean
+    pending_invites?: PendingInviteForCurrentUser[]
+}
+
+export interface PendingInviteForCurrentUser {
+    id: string
+    target_email: string
+    organization_id: string
+    organization_name: string
+    created_at: string
 }
 
 export type HedgehogColorOptions =
@@ -389,6 +400,8 @@ export interface NotificationSettings {
     data_pipeline_error_threshold?: number
     project_api_key_exposed?: boolean
     materialized_view_sync_failed?: boolean
+    web_analytics_weekly_digest: boolean
+    web_analytics_weekly_digest_project_enabled?: Record<string, boolean>
     organization_member_join_email_disabled?: Record<string, boolean>
 }
 
@@ -440,6 +453,7 @@ export interface OrganizationBasicType {
     allow_publicly_shared_resources: boolean
     is_active: boolean | null
     is_not_active_reason: string | null
+    is_pending_deletion: boolean
 }
 
 interface OrganizationMetadata {
@@ -640,6 +654,7 @@ export interface ConversationsSettings {
     slack_team_id?: string | null
     slack_channel_id?: string | null
     slack_channel_name?: string | null
+    slack_channel_ids?: string[] | null
     slack_ticket_emoji?: string | null
     slack_bot_icon_url?: string | null
     slack_bot_display_name?: string | null
@@ -649,6 +664,7 @@ export interface ConversationsSettings {
 export interface LogsSettings {
     capture_console_logs?: boolean
     json_parse_logs?: boolean
+    pii_scrub_logs?: boolean
     retention_days?: number
     retention_last_updated?: string
 }
@@ -659,7 +675,6 @@ export interface TeamType extends TeamBasicType {
     anonymize_ips: boolean
     app_urls: string[]
     recording_domains: string[]
-    slack_incoming_webhook: string
     autocapture_opt_out: boolean
     session_recording_opt_in: boolean
     // These fields in the database accept null values and were previously set to NULL by default
@@ -1244,7 +1259,6 @@ export enum SessionRecordingUsageType {
 
 export enum SessionRecordingSidebarTab {
     OVERVIEW = 'overview',
-    SESSION_SUMMARY = 'ai-summary',
     INSPECTOR = 'inspector',
     NETWORK_WATERFALL = 'network-waterfall',
     LINKED_ISSUES = 'linked-issues',
@@ -4037,6 +4051,7 @@ export interface OrganizationFeatureFlag {
     created_at: string | null
     filters: FeatureFlagFilters
     active: boolean
+    evaluations_7d?: number | null
 }
 
 export interface OrganizationFeatureFlagsCopyBody {
@@ -4526,7 +4541,6 @@ export interface Experiment {
     scheduling_config?: {
         timeseries?: boolean
     }
-    exposure_preaggregation_enabled?: boolean
     only_count_matured_users?: boolean
     _create_in_folder?: string | null
     conclusion?: ExperimentConclusion | null
@@ -4973,6 +4987,8 @@ export interface SubscriptionType {
     created_by?: UserBasicType | null
     created_at: string
     deleted?: boolean
+    summary_enabled?: boolean
+    summary_prompt_guide?: string
 }
 
 export type SmallTimeUnit = 'hours' | 'minutes' | 'seconds'
@@ -5018,6 +5034,9 @@ export const INTEGRATION_KINDS = [
     'firebase',
     'jira',
     'pinterest-ads',
+    'customerio-app',
+    'customerio-webhook',
+    'customerio-track',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -5134,6 +5153,7 @@ export interface HeatmapExportContext {
     heatmap_color_palette?: string | null
     heatmap_fixed_position_mode?: HeatmapFixedPositionMode
     common_filters?: CommonFilters
+    width?: number
 }
 
 export type ExportContext = (
@@ -5229,11 +5249,13 @@ export type APIScopeObject =
     | 'insight'
     | 'insight_variable'
     | 'integration'
+    | 'legal_document'
     | 'live_debugger'
     | 'llm_analytics'
     | 'llm_gateway'
     | 'llm_prompt'
     | 'llm_provider_key'
+    | 'llm_skill'
     | 'logs'
     | 'notebook'
     | 'organization'
@@ -5432,6 +5454,7 @@ export enum ActivityScope {
     ORGANIZATION_MEMBERSHIP = 'OrganizationMembership',
     ORGANIZATION_INVITE = 'OrganizationInvite',
     ORGANIZATION_DOMAIN = 'OrganizationDomain',
+    LEGAL_DOCUMENT = 'LegalDocument',
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
     DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
     USER_INTERVIEW = 'UserInterview',
@@ -5715,12 +5738,21 @@ export interface SimpleExternalDataSourceSchema {
     sync_type?: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | null
 }
 
+export interface AvailableColumn {
+    label: string
+    field: string
+    type: string
+    nullable: boolean
+}
+
 export type SchemaIncrementalFieldsResponse = {
     incremental_fields: IncrementalField[]
     incremental_available: boolean
     append_available: boolean
     full_refresh_available: boolean
     supports_webhooks: boolean
+    available_columns: AvailableColumn[]
+    detected_primary_keys: string[] | null
     cdc_available?: boolean
 }
 
@@ -5751,6 +5783,9 @@ export interface ExternalDataSourceSyncSchema {
     supports_webhooks: boolean
     description?: string | null
     should_sync_default: boolean
+    primary_key_columns: string[] | null
+    available_columns: AvailableColumn[]
+    detected_primary_keys: string[] | null
 }
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
@@ -5765,6 +5800,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     sync_frequency: DataWarehouseSyncInterval
     description?: string | null
     should_sync_default?: boolean
+    primary_key_columns: string[] | null
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
 }
 
@@ -6036,7 +6072,9 @@ export type RawBatchExportRun = {
     data_interval_end: string
     last_updated_at?: string
     records_completed?: number
+    records_failed?: number
     bytes_exported?: number
+    latest_error?: string | null
 }
 
 export type BatchExportRun = {
@@ -6056,7 +6094,9 @@ export type BatchExportRun = {
     data_interval_end: Dayjs
     last_updated_at?: Dayjs
     records_completed?: number
+    records_failed?: number
     bytes_exported?: number
+    latest_error?: string | null
 }
 
 export type GroupedBatchExportRuns = {
@@ -6141,10 +6181,12 @@ export enum SDKKey {
     API = 'api',
     BUBBLE = 'bubble',
     CEREBRAS = 'cerebras',
+    CLOUDFLARE_AI_GATEWAY = 'cloudflare_ai_gateway',
     COHERE = 'cohere',
     CONVEX = 'convex',
     CREWAI = 'crewai',
     DJANGO = 'django',
+    DEDALUS = 'dedalus',
     DEEPSEEK = 'deepseek',
     DOCUSAURUS = 'docusaurus',
     DOTNET = 'dotnet',
@@ -6184,6 +6226,7 @@ export enum SDKKey {
     OPENAI = 'openai',
     OPENAI_AGENTS = 'openai_agents',
     OPENROUTER = 'openrouter',
+    OPENTELEMETRY = 'opentelemetry',
     PERPLEXITY = 'perplexity',
     PHP = 'php',
     PORTKEY = 'portkey',
@@ -6251,22 +6294,15 @@ export enum AppMetricsTab {
     History = 'history',
 }
 
-/*
-    WARNING: Everything below 'Notebooks' is to be removed in future releases
-*/
 export enum SidePanelTab {
     Max = 'max',
     Notebooks = 'notebook',
     Support = 'support',
-    Docs = 'docs',
-    Changelog = 'changelog',
     Settings = 'settings',
     Activity = 'activity',
     Discussion = 'discussion',
-    Status = 'status',
     Exports = 'exports',
     AccessControl = 'access-control',
-    Health = 'health',
     Info = 'info',
 }
 
@@ -6346,6 +6382,7 @@ export type CyclotronJobInputSchemaType = {
         | 'native_email'
         | 'posthog_assignee'
         | 'posthog_ticket_tags'
+        | 'posthog_business_hours'
     key: string
     label: string
     choices?: { value: string; label: string }[]
@@ -6488,6 +6525,8 @@ export type HogFunctionSubTemplateIdType =
     | 'experiment-significant'
     | 'logs-alert-firing'
     | 'logs-alert-resolved'
+    | 'logs-alert-auto-disabled'
+    | 'logs-alert-errored'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,
@@ -6767,7 +6806,8 @@ export interface Conversation {
 }
 
 export interface ConversationDetail extends Conversation {
-    messages: RootAssistantMessage[]
+    /** undefined = not yet fetched, [] = fetched but empty, [...] = fetched with content */
+    messages?: RootAssistantMessage[]
 }
 
 export enum UserRole {
@@ -6802,6 +6842,13 @@ export interface FileSystemType {
     iconColor?: FileSystemIconColor
 }
 
+export interface FeaturePreviewGateConfig {
+    flag: string
+    title: string
+    description: string
+    docsURL?: string
+}
+
 export interface ProductManifest {
     name: string
     scenes?: Record<string, SceneConfig>
@@ -6810,7 +6857,7 @@ export interface ProductManifest {
     urls?: Record<string, string | ((...args: any[]) => string)>
     fileSystemTypes?: Record<string, FileSystemType>
     treeItemsNew?: FileSystemImport[]
-    treeItemsProducts?: (FileSystemImport & { intents: ProductKey[] })[] // Require `intents` to be set for products
+    treeItemsProducts?: (FileSystemImport & { intents: ProductKey[]; category: ProductItemCategory })[] // Require `intents` and `category to be set for products
     treeItemsGames?: FileSystemImport[]
     treeItemsMetadata?: FileSystemImport[]
 }

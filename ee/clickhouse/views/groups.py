@@ -9,7 +9,7 @@ from django.utils import timezone
 import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter
+from drf_spectacular.utils import OpenApiParameter, extend_schema_view
 from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from requests import HTTPError
@@ -21,6 +21,7 @@ from posthog.schema import ProductKey
 
 from posthog.api.capture import capture_internal
 from posthog.api.documentation import extend_schema
+from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.client import sync_execute
@@ -723,7 +724,10 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
 
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def property_values(self, request: request.Request, **kw):
-        with tracer.start_as_current_span("groups_api_property_values") as span:
+        with (
+            PROPERTY_VALUES_DURATION.labels(endpoint_type="group").time(),
+            tracer.start_as_current_span("groups_api_property_values") as span,
+        ):
             value_filter = request.GET.get("value")
             group_type_index = request.GET.get("group_type_index")
             if not group_type_index:
@@ -738,17 +742,17 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             span.set_attribute("has_value_filter", value_filter is not None)
 
             query = f"""
-                SELECT {trim_quotes_expr("tupleElement(keysAndValues, 2)")} as value, count(*) as count
-                FROM groups
-                ARRAY JOIN JSONExtractKeysAndValuesRaw(group_properties) as keysAndValues
-                WHERE team_id = %(team_id)s
-                  AND group_type_index = %(group_type_index)s
-                  AND tupleElement(keysAndValues, 1) = %(key)s
-                  {f"AND {trim_quotes_expr('tupleElement(keysAndValues, 2)')} ILIKE %(value_filter)s" if value_filter else ""}
-                GROUP BY value
-                ORDER BY count DESC, value ASC
-                LIMIT 20
-            """
+                    SELECT {trim_quotes_expr("tupleElement(keysAndValues, 2)")} as value, count(*) as count
+                    FROM groups
+                    ARRAY JOIN JSONExtractKeysAndValuesRaw(group_properties) as keysAndValues
+                    WHERE team_id = %(team_id)s
+                      AND group_type_index = %(group_type_index)s
+                      AND tupleElement(keysAndValues, 1) = %(key)s
+                      {f"AND {trim_quotes_expr('tupleElement(keysAndValues, 2)')} ILIKE %(value_filter)s" if value_filter else ""}
+                    GROUP BY value
+                    ORDER BY count DESC, value ASC
+                    LIMIT 20
+                """
 
             params = {
                 "team_id": self.team.pk,
@@ -806,9 +810,30 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
 class GroupUsageMetricSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     class Meta:
         model = GroupUsageMetric
-        fields = ("id", "name", "format", "interval", "display", "filters")
+        fields = ("id", "name", "format", "interval", "display", "filters", "math", "math_property")
+
+    def validate(self, data):
+        data = super().validate(data)
+
+        math = data.get("math", self.instance.math if self.instance else GroupUsageMetric.Math.COUNT)
+        math_property = data.get("math_property", self.instance.math_property if self.instance else None)
+
+        if math == GroupUsageMetric.Math.SUM and not math_property:
+            raise serializers.ValidationError({"math_property": "math_property is required when math is 'sum'."})
+        if math == GroupUsageMetric.Math.COUNT and math_property:
+            raise serializers.ValidationError({"math_property": "math_property must be empty when math is 'count'."})
+
+        return data
 
 
+@extend_schema_view(
+    list=extend_schema(tags=["customer_analytics"]),
+    create=extend_schema(tags=["customer_analytics"]),
+    retrieve=extend_schema(tags=["customer_analytics"]),
+    update=extend_schema(tags=["customer_analytics"]),
+    partial_update=extend_schema(tags=["customer_analytics"]),
+    destroy=extend_schema(tags=["customer_analytics"]),
+)
 class GroupUsageMetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "group"
     queryset = GroupUsageMetric.objects.all()

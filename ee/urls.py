@@ -77,8 +77,14 @@ def extend_api_router() -> None:
         ["project_id", "dashboard_id"],
     )
 
-    register_grandfathered_environment_nested_viewset(
+    env_subscriptions_router, _ = register_grandfathered_environment_nested_viewset(
         r"subscriptions", subscription.SubscriptionViewSet, "environment_subscriptions", ["team_id"]
+    )
+    env_subscriptions_router.register(
+        r"deliveries",
+        subscription.SubscriptionDeliveryViewSet,
+        "environment_subscription_deliveries",
+        ["team_id", "subscription_id"],
     )
 
     environments_router.register(
@@ -275,6 +281,11 @@ urlpatterns: list[Any] = [
         name="agentic_authorize",
     ),
     path(
+        "api/agentic/authorize/pending/",
+        agentic_provisioning_views.agentic_authorize_pending,
+        name="agentic_authorize_pending",
+    ),
+    path(
         "api/agentic/authorize/confirm/",
         agentic_provisioning_views.agentic_authorize_confirm,
         name="agentic_authorize_confirm",
@@ -298,6 +309,11 @@ urlpatterns: list[Any] = [
         "api/agentic/provisioning/resources/<str:resource_id>/update_service",
         csrf_exempt(agentic_provisioning_views.provisioning_update_service),
         name="agentic_provisioning_update_service",
+    ),
+    path(
+        "api/agentic/provisioning/resources/<str:resource_id>/remove",
+        csrf_exempt(agentic_provisioning_views.provisioning_resource_remove),
+        name="agentic_provisioning_resource_remove",
     ),
     path(
         "api/agentic/provisioning/resources/<str:resource_id>",

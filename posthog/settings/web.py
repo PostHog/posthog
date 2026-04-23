@@ -67,6 +67,8 @@ PRODUCTS_APPS = [
     "products.messaging.backend.apps.MessagingConfig",
     "products.mcp_analytics.backend.apps.McpAnalyticsConfig",
     "products.platform_features.backend.apps.PlatformFeaturesConfig",
+    "products.streamlit_apps.backend.apps.StreamlitAppsConfig",
+    "products.legal_documents.backend.apps.LegalDocumentsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -128,6 +130,7 @@ MIDDLEWARE = [
     "posthog.api.query_coalescer.QueryCoalescingMiddleware",
     "posthog.middleware.SocialAuthExceptionMiddleware",
     "posthog.middleware.SessionAgeMiddleware",
+    "posthog.middleware.KnownLoginDeviceCookieMiddleware",
     "posthog.middleware.ActivityLoggingMiddleware",
     "posthog.middleware.user_logging_context_middleware",
     "django_otp.middleware.OTPMiddleware",
@@ -378,6 +381,8 @@ SPECTACULAR_SETTINGS = {
         "OrganizationMembershipLevel": "posthog.models.organization.OrganizationMembership.Level",
         "SetupTaskId": "posthog.models.team.setup_tasks.SetupTaskId",
         "SurveyType": "products.surveys.backend.models.Survey.SurveyType",
+        "ConversationStatus": "ee.models.assistant.Conversation.Status",
+        "ConversationType": "ee.models.assistant.Conversation.Type",
     },
 }
 
@@ -619,6 +624,7 @@ TOOLBAR_OAUTH_SCOPES = [
     "heatmap:read",
     "element:read",
     "uploaded_media:write",
+    "survey:read",
 ]
 
 ELEMENT_STATS_DEFAULT_LIMIT = get_from_env("ELEMENT_STATS_DEFAULT_LIMIT", 50_000, type_cast=int)

@@ -1,7 +1,7 @@
 import os
 import re
 import json
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -13,6 +13,7 @@ from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import ValidationError
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -24,6 +25,8 @@ from posthog.domain_connect import discover_domain_connect, extract_root_domain_
 from posthog.exceptions_capture import capture_exception
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import (
+    ERROR_TOKEN_REFRESH_FAILED,
+    GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
     AzureBlobIntegration,
     AzureBlobIntegrationError,
     ClickUpIntegration,
@@ -44,9 +47,42 @@ from posthog.models.integration import (
     SlackIntegration,
     StripeIntegration,
     TwilioIntegration,
+    defer_repository_cache_fields,
 )
-from posthog.permissions import TeamMemberStrictManagementPermission
+from posthog.permissions import (
+    AccessControlPermission,
+    APIScopePermission,
+    TeamMemberAccessPermission,
+    TeamMemberLightManagementPermission,
+    TeamMemberStrictManagementPermission,
+)
+from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+
+
+def _ensure_oauth_token_valid(instance: Integration) -> None:
+    """Check that an OAuth integration's token is usable, attempting refresh if needed.
+
+    Raises ValidationError with a clear message instead of letting stale tokens
+    cause unhandled 500s from external API calls.
+    """
+    if instance.kind not in OauthIntegration.supported_kinds:
+        return
+
+    if instance.errors == ERROR_TOKEN_REFRESH_FAILED:
+        raise ValidationError(
+            "This integration's authentication token could not be refreshed. "
+            "Please reconnect or disconnect this integration and connect a different account."
+        )
+
+    oauth = OauthIntegration(instance)
+    if oauth.access_token_expired():
+        oauth.refresh_access_token()
+        if instance.errors == ERROR_TOKEN_REFRESH_FAILED:
+            raise ValidationError(
+                "This integration's authentication token could not be refreshed. "
+                "Please reconnect or disconnect this integration and connect a different account."
+            )
 
 
 class NativeEmailIntegrationSerializer(serializers.Serializer):
@@ -62,12 +98,43 @@ class GitHubRepoSerializer(serializers.Serializer):
     full_name = serializers.CharField()
 
 
+class GitHubReposQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        max_value=500,
+        help_text="Maximum number of repositories to return per request (max 500).",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Number of repositories to skip before returning results.",
+    )
+
+
 class GitHubReposResponseSerializer(serializers.Serializer):
     repositories = GitHubRepoSerializer(many=True)
+    has_more = serializers.BooleanField(help_text="Whether more repositories are available beyond this page.")
+
+
+class GitHubReposRefreshResponseSerializer(serializers.Serializer):
+    repositories = GitHubRepoSerializer(many=True, help_text="The refreshed repository cache.")
 
 
 class GitHubBranchesQuerySerializer(serializers.Serializer):
     repo = serializers.CharField(help_text="Repository in owner/repo format")
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Optional case-insensitive branch name search query.",
+    )
+    limit = serializers.IntegerField(
+        required=False, default=100, min_value=1, max_value=1000, help_text="Maximum number of branches to return"
+    )
+    offset = serializers.IntegerField(required=False, default=0, min_value=0, help_text="Number of branches to skip")
 
 
 class GitHubBranchesResponseSerializer(serializers.Serializer):
@@ -75,6 +142,7 @@ class GitHubBranchesResponseSerializer(serializers.Serializer):
     default_branch = serializers.CharField(
         help_text="The default branch of the repository", required=False, allow_null=True
     )
+    has_more = serializers.BooleanField(help_text="Whether more branches exist beyond the returned page")
 
 
 class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
@@ -146,6 +214,16 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             cache.delete(cache_key)
 
             instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, request.user)
+
+            # If the frontend forwarded an OAuth code from "Request user authorization during installation",
+            # exchange it for the connecting user's GitHub login and store it on the integration.
+            code = config.get("code")
+            if code:
+                github_login = GitHubIntegration.github_login_from_code(code)
+                if github_login:
+                    instance.config["connecting_user_github_login"] = github_login
+                    instance.save(update_fields=["config"])
+
             return instance
 
         elif validated_data["kind"] == "gitlab":
@@ -285,10 +363,32 @@ class IntegrationViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "integration"
-    scope_object_read_actions = ["list", "retrieve", "github_repos", "github_branches"]
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "github_repos",
+        "github_branches",
+    ]
+    scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "refresh_github_repos"]
     permission_classes = [TeamMemberStrictManagementPermission]
-    queryset = Integration.objects.all()
+    queryset = defer_repository_cache_fields(Integration.objects.all())
     serializer_class = IntegrationSerializer
+
+    def dangerously_get_permissions(self):
+        if self.action == "refresh_github_repos":
+            return [
+                IsAuthenticated(),
+                APIScopePermission(),
+                AccessControlPermission(),
+                TeamMemberAccessPermission(),
+                TeamMemberLightManagementPermission(),
+            ]
+        raise NotImplementedError()
+
+    def get_throttles(self):
+        if self.action == "refresh_github_repos":
+            return [GitHubRepositoryRefreshThrottle(), *super().get_throttles()]
+        return super().get_throttles()
 
     def perform_destroy(self, instance) -> None:
         if instance.kind == "stripe":
@@ -304,7 +404,7 @@ class IntegrationViewSet(
         if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication) or isinstance(
             self.request.successful_authenticator, OAuthAccessTokenAuthentication
         ):
-            return queryset.filter(kind="github")
+            return defer_repository_cache_fields(queryset.filter(kind="github"))
         return queryset
 
     @action(methods=["GET"], detail=False)
@@ -344,7 +444,7 @@ class IntegrationViewSet(
         slack = SlackIntegration(instance)
         should_include_private_channels: bool = instance.created_by_id == request.user.id
         force_refresh: bool = request.query_params.get("force_refresh", "false").lower() == "true"
-        authed_user: str = instance.config.get("authed_user", {}).get("id") if instance.config else None
+        authed_user = cast(str | None, instance.config.get("authed_user", {}).get("id")) if instance.config else None
         if not authed_user:
             raise ValidationError("SlackIntegration: Missing authed_user_id in integration config")
 
@@ -423,6 +523,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="google_conversion_actions")
     def conversion_actions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        _ensure_oauth_token_valid(instance)
         google_ads = GoogleAdsIntegration(instance)
         customer_id = request.query_params.get("customerId")
         parent_id = request.query_params.get("parentId")
@@ -446,6 +547,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="google_accessible_accounts")
     def accessible_accounts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        _ensure_oauth_token_valid(instance)
         google_ads = GoogleAdsIntegration(instance)
 
         key = f"google_ads/{google_ads.integration.integration_id}/accessible_accounts"
@@ -461,6 +563,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="linkedin_ads_conversion_rules")
     def linkedin_ad_conversion_rules(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        _ensure_oauth_token_valid(instance)
         linkedin_ads = LinkedInAdsIntegration(instance)
         account_id = request.query_params.get("accountId")
 
@@ -478,6 +581,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="linkedin_ads_accounts")
     def linkedin_ad_accounts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        _ensure_oauth_token_valid(instance)
         linkedin_ads = LinkedInAdsIntegration(instance)
 
         accounts = [
@@ -494,6 +598,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="clickup_spaces")
     def clickup_spaces(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        _ensure_oauth_token_valid(instance)
         clickup = ClickUpIntegration(instance)
         workspace_id = request.query_params.get("workspaceId")
 
@@ -510,6 +615,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="clickup_lists")
     def clickup_lists(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        _ensure_oauth_token_valid(instance)
         clickup = ClickUpIntegration(instance)
         space_id = request.query_params.get("spaceId")
 
@@ -541,6 +647,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="clickup_workspaces")
     def clickup_workspaces(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        _ensure_oauth_token_valid(instance)
         clickup = ClickUpIntegration(instance)
 
         workspaces = [
@@ -555,13 +662,36 @@ class IntegrationViewSet(
 
     @action(methods=["GET"], detail=True, url_path="linear_teams")
     def linear_teams(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        linear = LinearIntegration(self.get_object())
+        instance = self.get_object()
+        _ensure_oauth_token_valid(instance)
+        linear = LinearIntegration(instance)
         return Response({"teams": linear.list_teams()})
 
-    @action(methods=["GET"], detail=True, url_path="github_repos", responses=GitHubReposResponseSerializer)
+    @extend_schema(
+        parameters=[GitHubReposQuerySerializer],
+        responses={200: GitHubReposResponseSerializer},
+    )
+    @action(methods=["GET"], detail=True, url_path="github_repos")
     def github_repos(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query_serializer = GitHubReposQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+        limit = query_serializer.validated_data["limit"]
+        offset = query_serializer.validated_data["offset"]
+
         github = GitHubIntegration(self.get_object())
-        return Response({"repositories": github.list_repositories()})
+        repositories, has_more = github.list_cached_repositories(limit=limit, offset=offset)
+
+        return Response({"repositories": repositories, "has_more": has_more})
+
+    @extend_schema(request=None, responses={200: GitHubReposRefreshResponseSerializer})
+    @action(methods=["POST"], detail=True, url_path="github_repos/refresh")
+    def refresh_github_repos(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        github = GitHubIntegration(self.get_object())
+        repositories = github.sync_repository_cache(
+            min_refresh_interval_seconds=GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS
+        )
+
+        return Response({"repositories": repositories})
 
     @extend_schema(
         parameters=[GitHubBranchesQuerySerializer],
@@ -569,9 +699,14 @@ class IntegrationViewSet(
     )
     @action(methods=["GET"], detail=True, url_path="github_branches")
     def github_branches(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        repo = request.query_params.get("repo")
-        if not repo:
-            raise ValidationError("repo query parameter is required")
+        params = GitHubBranchesQuerySerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+
+        repo: str = params.validated_data["repo"]
+        search: str = params.validated_data["search"]
+        limit: int = params.validated_data["limit"]
+        offset: int = params.validated_data["offset"]
+
         parts = repo.split("/")
         if (
             len(parts) != 2
@@ -581,23 +716,22 @@ class IntegrationViewSet(
             or parts[1] in (".", "..")
         ):
             raise ValidationError("repo must be in owner/repo format")
+
         github = GitHubIntegration(self.get_object())
-        branches = github.list_branches(repo)
-        try:
-            default_branch = github.get_default_branch(repo)
-        except Exception:
-            default_branch = None
+        branches, default_branch, has_more = github.list_cached_branches(
+            repo,
+            search=search,
+            limit=limit,
+            offset=offset,
+        )
 
-        # Default branch first
-        if default_branch and default_branch in branches:
-            branches.remove(default_branch)
-            branches.insert(0, default_branch)
-
-        return Response({"branches": branches, "default_branch": default_branch})
+        return Response({"branches": branches, "default_branch": default_branch, "has_more": has_more})
 
     @action(methods=["GET"], detail=True, url_path="jira_projects")
     def jira_projects(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        jira = JiraIntegration(self.get_object())
+        instance = self.get_object()
+        _ensure_oauth_token_valid(instance)
+        jira = JiraIntegration(instance)
         return Response({"projects": jira.list_projects()})
 
     @action(methods=["POST"], detail=True, url_path="email/verify")

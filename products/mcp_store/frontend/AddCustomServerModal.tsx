@@ -52,6 +52,24 @@ export function AddCustomServerModal(): JSX.Element {
                                 <LemonInput placeholder="Enter API key" type="password" fullWidth />
                             </LemonField>
                         )}
+                        {customServerForm.auth_type === 'oauth' && !customServerFormPrefilled && (
+                            <>
+                                <LemonField
+                                    name="client_id"
+                                    label="OAuth client ID (optional)"
+                                    help="Leave blank to let PostHog register a client for you via Dynamic Client Registration."
+                                >
+                                    <LemonInput placeholder="Optional" fullWidth />
+                                </LemonField>
+                                <LemonField
+                                    name="client_secret"
+                                    label="OAuth client secret (optional)"
+                                    help="Only needed for confidential clients. Ignored unless a client ID is set."
+                                >
+                                    <LemonInput placeholder="Optional" type="password" fullWidth />
+                                </LemonField>
+                            </>
+                        )}
                     </div>
                 </LemonModal.Content>
                 <LemonModal.Footer>

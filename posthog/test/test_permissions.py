@@ -2,7 +2,7 @@ import json
 from datetime import timedelta
 
 from posthog.test.base import BaseTest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from django.conf import settings
 from django.test import override_settings
@@ -16,7 +16,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
-from posthog.permissions import AccessControlPermission
+from posthog.permissions import AccessControlPermission, PostHogFeatureFlagPermission
 from posthog.rbac.user_access_control import UserAccessControl
 
 from products.error_tracking.backend.models import ErrorTrackingIssue
@@ -1002,3 +1002,78 @@ class TestOAuthAccessTokenUserMembership(BaseTest):
             headers={"authorization": f"Bearer {other_team_token.token}"},
         )
         self.assertEqual(response.status_code, 403)  # Forbidden - user not in org
+
+
+class TestPostHogFeatureFlagPermission(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.permission = PostHogFeatureFlagPermission()
+        self.factory = APIRequestFactory()
+
+    def _create_mock_request(self):
+        request = self.factory.get("/")
+        request.user = self.user
+        return request
+
+    def _create_mock_view(self, flag="test-flag", action="list"):
+        view = Mock()
+        view.posthog_feature_flag = flag
+        view.action = action
+        view.organization = self.organization
+        view.team = self.team
+        # get_organization_from_view looks for these attributes
+        view.organization_id = str(self.organization.id)
+        return view
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_delegates_to_posthoganalytics_by_default(self, mock_ff):
+        request = self._create_mock_request()
+        view = self._create_mock_view(flag="my-flag")
+
+        result = self.permission.has_permission(request, view)
+
+        self.assertTrue(result)
+        mock_ff.assert_called_once()
+        self.assertEqual(mock_ff.call_args[0][0], "my-flag")
+
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_denies_when_flag_disabled(self, mock_ff):
+        request = self._create_mock_request()
+        view = self._create_mock_view(flag="my-flag")
+
+        result = self.permission.has_permission(request, view)
+
+        self.assertFalse(result)
+
+    @patch("posthog.permissions._FORCE_ENABLED_FLAGS", frozenset({"my-flag"}))
+    @patch("posthoganalytics.feature_enabled")
+    def test_force_enabled_bypasses_posthoganalytics(self, mock_ff):
+        request = self._create_mock_request()
+        view = self._create_mock_view(flag="my-flag")
+
+        result = self.permission.has_permission(request, view)
+
+        self.assertTrue(result)
+        mock_ff.assert_not_called()
+
+    @patch("posthog.permissions._FORCE_ENABLED_FLAGS", frozenset({"flag-a", "flag-b", "flag-c"}))
+    @patch("posthoganalytics.feature_enabled")
+    def test_force_enabled_supports_multiple_flags(self, mock_ff):
+        request = self._create_mock_request()
+        view = self._create_mock_view(flag="flag-b")
+
+        result = self.permission.has_permission(request, view)
+
+        self.assertTrue(result)
+        mock_ff.assert_not_called()
+
+    @patch("posthog.permissions._FORCE_ENABLED_FLAGS", frozenset({"other-flag"}))
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_force_enabled_does_not_affect_unlisted_flags(self, mock_ff):
+        request = self._create_mock_request()
+        view = self._create_mock_view(flag="my-flag")
+
+        result = self.permission.has_permission(request, view)
+
+        self.assertFalse(result)
+        mock_ff.assert_called_once()

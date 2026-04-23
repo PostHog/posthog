@@ -14,6 +14,16 @@ from posthog.personhog_client.interceptor import ClientNameInterceptor, MetricsI
 from posthog.personhog_client.proto import (
     CheckCohortMembershipRequest,
     CohortMembershipResponse,
+    CountCohortMembersRequest,
+    CountCohortMembersResponse,
+    DeleteCohortMemberRequest,
+    DeleteCohortMemberResponse,
+    DeleteCohortMembersBulkRequest,
+    DeleteCohortMembersBulkResponse,
+    DeletePersonsBatchForTeamRequest,
+    DeletePersonsBatchForTeamResponse,
+    DeletePersonsRequest,
+    DeletePersonsResponse,
     GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest,
@@ -37,6 +47,10 @@ from posthog.personhog_client.proto import (
     GroupsResponse,
     GroupTypeMappingsBatchResponse,
     GroupTypeMappingsResponse,
+    InsertCohortMembersRequest,
+    InsertCohortMembersResponse,
+    ListCohortMemberIdsRequest,
+    ListCohortMemberIdsResponse,
     PersonHogServiceStub,
     PersonsByDistinctIdsInTeamResponse,
     PersonsResponse,
@@ -148,6 +162,16 @@ class PersonHogClient:
         self._state_monitor.close()
         self._channel.close()
 
+    # -- Person deletes --
+
+    def delete_persons(self, request: DeletePersonsRequest, timeout: float | None = None) -> DeletePersonsResponse:
+        return self._stub.DeletePersons(request, timeout=timeout or self._timeout)
+
+    def delete_persons_batch_for_team(
+        self, request: DeletePersonsBatchForTeamRequest, timeout: float | None = None
+    ) -> DeletePersonsBatchForTeamResponse:
+        return self._stub.DeletePersonsBatchForTeam(request, timeout=timeout or self._timeout)
+
     # -- Person lookups --
 
     def get_person(self, request: GetPersonRequest) -> GetPersonResponse:
@@ -186,6 +210,27 @@ class PersonHogClient:
 
     def check_cohort_membership(self, request: CheckCohortMembershipRequest) -> CohortMembershipResponse:
         return self._stub.CheckCohortMembership(request, timeout=self._timeout)
+
+    def count_cohort_members(self, request: CountCohortMembersRequest) -> CountCohortMembersResponse:
+        return self._stub.CountCohortMembers(request, timeout=self._timeout)
+
+    def delete_cohort_member(
+        self, request: DeleteCohortMemberRequest, timeout: float | None = None
+    ) -> DeleteCohortMemberResponse:
+        return self._stub.DeleteCohortMember(request, timeout=timeout or self._timeout)
+
+    def delete_cohort_members_bulk(
+        self, request: DeleteCohortMembersBulkRequest, timeout: float | None = None
+    ) -> DeleteCohortMembersBulkResponse:
+        return self._stub.DeleteCohortMembersBulk(request, timeout=timeout or self._timeout)
+
+    def insert_cohort_members(
+        self, request: InsertCohortMembersRequest, timeout: float | None = None
+    ) -> InsertCohortMembersResponse:
+        return self._stub.InsertCohortMembers(request, timeout=timeout or self._timeout)
+
+    def list_cohort_member_ids(self, request: ListCohortMemberIdsRequest) -> ListCohortMemberIdsResponse:
+        return self._stub.ListCohortMemberIds(request, timeout=self._timeout)
 
     # -- Groups --
 

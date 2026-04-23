@@ -172,13 +172,14 @@ fn get_linked_flag_value(linked_flag_config: Option<Value>) -> Option<Value> {
     }
 }
 
+// TODO: this silently drops wildcard domains like `https://*.example.com` because
+// url::Url::parse rejects `*` per the WHATWG spec. Django's urlparse is lenient.
+// See hypercache-server/src/sanitize.rs for the fixed version.
 fn parse_domain(url: Option<&str>) -> Option<String> {
     url.and_then(|u| {
-        // Try to parse as URL. If it starts with http:// or https://, this will work
         if let Ok(parsed) = url::Url::parse(u) {
             parsed.host_str().map(|h| h.to_string())
         } else {
-            // If parsing fails (e.g., bare domain without protocol), return None to match Python
             None
         }
     })

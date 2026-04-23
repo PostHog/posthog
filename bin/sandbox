@@ -20,9 +20,10 @@ import time
 import fcntl
 import shutil
 import argparse
-import subprocess
+import platform
 import textwrap
-import webbrowser
+import functools
+import subprocess
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -42,7 +43,9 @@ except ImportError:
 REPO_ROOT = Path(__file__).resolve().parent.parent
 COMPOSE_FILE = REPO_ROOT / "docker-compose.sandbox.yml"
 PROFILES_FILE = REPO_ROOT / "docker-compose.profiles.yml"
-WORKTREE_CMD = REPO_ROOT / "bin" / "posthog-worktree"
+HOST_GIT_DIR = REPO_ROOT / ".git"
+GIT_HELPER_IMAGE = "alpine/git:latest"
+SANDBOX_ORIGIN_URL = "git@github.com:PostHog/posthog.git"
 
 REGISTRY_DIR = Path.home() / ".posthog-sandboxes"
 REGISTRY_FILE = REGISTRY_DIR / "registry.json"
@@ -80,6 +83,7 @@ WORLD_WRITABLE_VOLUMES = [
 ]
 
 INTENT_MAP_FILE = REPO_ROOT / "devenv" / "intent-map.yaml"
+
 
 def _all_sandbox_profiles() -> frozenset[str]:
     """Extract all profile names from the sandbox compose file.
@@ -184,19 +188,6 @@ def fatal(msg: str) -> NoReturn:
     sys.exit(1)
 
 
-def dump_container_logs(container: str, *, tail: int = 200) -> None:
-    """Print the last N lines of a container's logs (both stdout and stderr)."""
-    logs = run(
-        ["docker", "logs", "--tail", str(tail), container],
-        check=False,
-        capture=True,
-    )
-    for line in (logs.stdout or "").strip().splitlines():
-        print(f"  {line}")
-    for line in (logs.stderr or "").strip().splitlines():
-        print(f"  {line}")
-
-
 # ---------------------------------------------------------------------------
 # Registry — persistent JSON store at ~/.posthog-sandboxes/registry.json
 # ---------------------------------------------------------------------------
@@ -206,7 +197,6 @@ def dump_container_logs(container: str, *, tail: int = 200) -> None:
 class SandboxEntry:
     slug: str
     port: int
-    worktree: str
     intents: str = "product_analytics"
 
 
@@ -258,7 +248,7 @@ class Registry:
         entry = self._read().get(branch)
         return self._make_entry(entry) if entry else None
 
-    def allocate(self, branch: str, slug: str, worktree: str, intents: str = "product_analytics") -> SandboxEntry:
+    def allocate(self, branch: str, slug: str, intents: str = "product_analytics") -> SandboxEntry:
         """Atomically allocate a port and save the entry under the file lock."""
         with self._locked() as f:
             data = json.loads(f.read() or "{}")
@@ -266,7 +256,7 @@ class Registry:
             port = PORT_BASE
             while port in used:
                 port += 1
-            entry = SandboxEntry(slug=slug, port=port, worktree=worktree, intents=intents)
+            entry = SandboxEntry(slug=slug, port=port, intents=intents)
             data[branch] = asdict(entry)
             self._write(f, data)
             return entry
@@ -289,6 +279,9 @@ class Registry:
 # ---------------------------------------------------------------------------
 
 
+# --- Shell runner ---
+
+
 def run(
     cmd: list[str],
     *,
@@ -307,12 +300,18 @@ def run(
     )
 
 
+# --- Naming ---
+
+
 def slugify(branch: str) -> str:
     return re.sub(r"[^a-z0-9-]", "-", branch.lower().replace("/", "-"))
 
 
 def project_name(slug: str) -> str:
     return f"sandbox-{slug}"
+
+
+# --- Host auth paths ---
 
 
 def _claude_auth_dir() -> str:
@@ -354,6 +353,9 @@ def _ssh_authorized_keys_path() -> str:
     return str(keys_file)
 
 
+# --- User config ---
+
+
 def _load_config() -> dict:
     """Load persistent user preferences from ~/.posthog-sandboxes/config.json."""
     try:
@@ -364,6 +366,9 @@ def _load_config() -> dict:
 
 def _save_config(config: dict) -> None:
     CONFIG_FILE.write_text(json.dumps(config, indent=2) + "\n")
+
+
+# --- JetBrains setup ---
 
 
 JETBRAINS_PRODUCTS = {
@@ -459,31 +464,207 @@ def _ensure_jetbrains() -> None:
     _setup_jetbrains(wanted)
 
 
-def _compose_env(port: int, worktree_path: str) -> dict[str, str]:
-    """Env vars threaded through every docker compose invocation."""
+# --- Host git signing ---
+
+
+def _host_git_config_file(key: str) -> str:
+    """Resolve a git config path to a real file, or /dev/null for compose mounts."""
+    result = run(
+        ["git", "config", "--global", "--get", key],
+        check=False,
+        capture=True,
+    )
+    val = result.stdout.strip() if result.returncode == 0 else ""
+    if not val:
+        return "/dev/null"
+    path = Path(val).expanduser()
+    return str(path) if path.is_file() else "/dev/null"
+
+
+def _check_host_git_signing() -> None:
+    """Warn if signing config references missing files (opaque git error otherwise).
+
+    Literal key strings in user.signingkey (ssh-*, ecdsa-*, key::) are fine.
+    """
+    checks = (
+        ("user.signingkey", True),  # allow literal key strings
+        ("gpg.ssh.allowedSignersFile", False),
+    )
+    for key, allow_literal in checks:
+        result = run(
+            ["git", "config", "--global", "--get", key],
+            check=False,
+            capture=True,
+        )
+        val = result.stdout.strip() if result.returncode == 0 else ""
+        if not val:
+            continue
+        if allow_literal and val.startswith(("ssh-", "ecdsa-", "sk-", "key::")):
+            continue
+        if not Path(val).expanduser().is_file():
+            warn(f"Host git config {key}={val!r} — file not found; signing inside the sandbox will fail.")
+
+
+# --- Host SSH forwarding ---
+
+
+def _host_ssh_auth_sock() -> str:
+    """Host-side path for the /ssh-agent bind mount.
+
+    On macOS, OrbStack/Docker Desktop expose the host agent at a magic path;
+    the real launchd socket can't be mounted into the Linux VM directly.
+    """
+    if platform.system() == "Darwin":
+        return "/run/host-services/ssh-auth.sock"
+    return os.environ.get("SSH_AUTH_SOCK", "")
+
+
+def _check_macos_ssh_agent_launchd() -> None:
+    """Warn if launchd's SSH_AUTH_SOCK differs from the login shell's.
+
+    OrbStack inherits from launchd, so if 1Password/Secretive is only set in
+    the shell profile, the sandbox talks to the wrong agent. Offers an
+    interactive fix (launchctl setenv + LaunchAgent plist).
+    """
+    if platform.system() != "Darwin":
+        return
+
+    shell = os.environ.get("SHELL", "/bin/bash")
+    probe = run(
+        [shell, "-lc", "echo $SSH_AUTH_SOCK"],
+        check=False,
+        capture=True,
+    )
+    # Last non-empty line: rc files may echo banners above our probe.
+    shell_lines = [ln for ln in probe.stdout.splitlines() if ln.strip()]
+    shell_val = shell_lines[-1].strip() if shell_lines else ""
+    if not shell_val:
+        return  # Nothing to compare against; can't tell if anything is wrong.
+
+    launchd_val = run(
+        ["launchctl", "getenv", "SSH_AUTH_SOCK"],
+        check=False,
+        capture=True,
+    ).stdout.strip()
+
+    if shell_val == launchd_val:
+        return
+
+    warn("Your login shell and launchd disagree about SSH_AUTH_SOCK.")
+    print(f"  Shell ({shell}): {shell_val}")
+    print(f"  launchd:         {launchd_val or '(unset — defaults to stock macOS ssh-agent)'}")
+    print()
+    print("OrbStack inherits SSH_AUTH_SOCK from launchd when launched from the")
+    print("dock, so the sandbox will talk to a different SSH agent than your")
+    print("terminal does. If you use Secretive or 1Password for commit signing,")
+    print("signed commits inside the sandbox will fail.")
+    print()
+    answer = input("Fix this now (launchctl setenv + LaunchAgent plist)? [y/N] ").strip().lower()
+    if answer not in ("y", "yes"):
+        return
+
+    _install_ssh_agent_launchagent(shell_val)
+
+
+def _check_ssh_agent_has_keys() -> None:
+    """Warn if the SSH agent is running but empty (sandbox forwards the agent, not key files).
+
+    Only warns on exit code 1 (empty agent), not 2 (no agent).
+    """
+    result = run(["ssh-add", "-l"], check=False, capture=True)
+    if result.returncode != 1:
+        return
+
+    warn("Your SSH agent is running but has no keys loaded.")
+    print("  git push inside the sandbox will fail with 'Permission denied (publickey)'")
+    print("  because we forward the agent, not your ~/.ssh key files.")
+    print()
+    if platform.system() == "Darwin":
+        print("  Fix: ssh-add --apple-use-keychain ~/.ssh/id_ed25519")
+        print("  (adjust filename if your GitHub key is named differently)")
+    else:
+        print("  Fix: ssh-add ~/.ssh/id_ed25519")
+        print("  (adjust filename if your GitHub key is named differently)")
+    print()
+
+
+def _install_ssh_agent_launchagent(socket_path: str) -> None:
+    """Set SSH_AUTH_SOCK in launchd now and persist via LaunchAgent plist."""
+    plist_path = Path.home() / "Library/LaunchAgents/com.posthog.sandbox.ssh-auth-sock.plist"
+    plist_path.parent.mkdir(parents=True, exist_ok=True)
+    plist_path.write_text(
+        textwrap.dedent(f"""\
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0">
+            <dict>
+                <key>Label</key>
+                <string>com.posthog.sandbox.ssh-auth-sock</string>
+                <key>ProgramArguments</key>
+                <array>
+                    <string>/bin/launchctl</string>
+                    <string>setenv</string>
+                    <string>SSH_AUTH_SOCK</string>
+                    <string>{socket_path}</string>
+                </array>
+                <key>RunAtLoad</key>
+                <true/>
+            </dict>
+            </plist>
+            """)
+    )
+
+    # Apply immediately so a relaunched OrbStack picks it up.
+    run(["launchctl", "setenv", "SSH_AUTH_SOCK", socket_path])
+
+    # Register for next login. Unload first for idempotency (fails on fresh install, hence check=False).
+    run(["launchctl", "unload", str(plist_path)], check=False, capture=True)
+    run(["launchctl", "load", "-w", str(plist_path)])
+
+    success(f"Wrote {plist_path} and updated launchd session.")
+    warn("Quit and relaunch OrbStack for this to take effect inside the sandbox.")
+
+
+# --- Compose runner ---
+
+
+@functools.cache
+def _host_compose_env() -> dict[str, str]:
+    """Env vars from host state, cached to avoid re-probing per sandbox in cmd_list."""
     config = _load_config()
     ide = config.get("jetbrains")
+    claude_json = Path.home() / ".claude.json"
+    host_gitconfig = Path.home() / ".gitconfig"
+    env = {
+        "SANDBOX_SSH_AUTHORIZED_KEYS": _ssh_authorized_keys_path(),
+        "SANDBOX_CLAUDE_AUTH": _claude_auth_dir(),
+        "SANDBOX_UID": str(os.getuid()),
+        "SANDBOX_GID": str(os.getgid()),
+        "SANDBOX_CLAUDE_JSON": str(claude_json) if claude_json.is_file() else "/dev/null",
+        "SANDBOX_HOST_GITCONFIG": str(host_gitconfig) if host_gitconfig.is_file() else "/dev/null",
+        # Signing paths — entrypoint rewrites the copied gitconfig to point here.
+        "SANDBOX_HOST_GIT_SIGNINGKEY": _host_git_config_file("user.signingkey"),
+        "SANDBOX_HOST_ALLOWED_SIGNERS": _host_git_config_file("gpg.ssh.allowedSignersFile"),
+        "SSH_AUTH_SOCK": _host_ssh_auth_sock(),
+    }
+    if ide:
+        env["SANDBOX_IDE_VOLUME"] = f"sandbox-{ide}"
+    return env
+
+
+def _compose_env(port: int) -> dict[str, str]:
+    """Env vars threaded through every docker compose invocation."""
     return {
+        **_host_compose_env(),
         "SANDBOX_PORT": str(port),
         "SANDBOX_VITE_PORT": str(port + 1000),
         "SANDBOX_SSH_PORT": str(port + 2000),
-        "SANDBOX_SSH_AUTHORIZED_KEYS": _ssh_authorized_keys_path(),
-        "SANDBOX_CLAUDE_AUTH": _claude_auth_dir(),
-        "SANDBOX_IDE_VOLUME": f"sandbox-{ide}" if ide else "sandbox-intellij",
-        "SANDBOX_CODE": worktree_path,
-        "SANDBOX_UID": str(os.getuid()),
-        "SANDBOX_GID": str(os.getgid()),
-        "SANDBOX_GIT_DIR": str(REPO_ROOT / ".git"),
-        "SANDBOX_CLAUDE_JSON": str(_claude_json)
-        if (_claude_json := Path.home() / ".claude.json").is_file()
-        else "/dev/null",
     }
 
 
 def compose(
     project: str,
     port: int,
-    worktree_path: str,
     *args: str,
     check: bool = True,
     capture: bool = False,
@@ -494,11 +675,31 @@ def compose(
     for p in profiles or []:
         profile_flags.extend(["--profile", p])
     return run(
-        ["docker", "compose", "--progress=quiet", "-p", project, "-f", str(COMPOSE_FILE), "-f", str(PROFILES_FILE), *profile_flags, *args],
+        [
+            "docker",
+            "compose",
+            "--progress=quiet",
+            "-p",
+            project,
+            "-f",
+            str(COMPOSE_FILE),
+            "-f",
+            str(PROFILES_FILE),
+            *profile_flags,
+            *args,
+        ],
         check=check,
         capture=capture,
-        env_extra=_compose_env(port, worktree_path),
+        env_extra=_compose_env(port),
     )
+
+
+# --- Volumes ---
+
+
+def workspace_volume_name(project: str) -> str:
+    """Docker Compose prefixes declared volumes with the project name."""
+    return f"{project}_workspace"
 
 
 def docker_volume_run(volume: str, shell_cmd: str) -> None:
@@ -511,107 +712,225 @@ def clear_volume(volume: str) -> None:
     docker_volume_run(volume, "find /data -mindepth 1 -delete")
 
 
-def wait_for_health(
-    url: str,
-    container: str,
-    *,
-    timeout: int = 1800,
-    interval: int = 2,
-) -> bool:
-    """Poll a URL until HTTP 200, showing entrypoint progress and detecting crash loops."""
-    elapsed = 0
-    prev_restart_count: int | None = None
-    seen_steps: set[str] = set()
+def _populate_workspace_volume(
+    volume_name: str,
+    branch: str,
+    branch_sha: str,
+    base_branch: str,
+    base_sha: str | None,
+    origin_branch_sha: str | None = None,
+    branch_ref: str = "",
+) -> None:
+    """Populate volume with a shallow clone checked out to branch_sha.
 
-    while elapsed < timeout:
-        result = run(["curl", "-sf", url], check=False, capture=True)
-        if result.returncode == 0:
-            return True
+    Fetches by ref name (not bare SHA) because --depth only works with named
+    refs over file:// transport. Runs as sandbox user so files have correct ownership.
+    """
+    uid = os.getuid()
+    gid = os.getgid()
 
-        # Detect crash loops via restart count
-        inspect = run(
-            ["docker", "inspect", "--format", "{{.RestartCount}}", container],
-            check=False,
-            capture=True,
-        )
-        restart_count = int(inspect.stdout.strip() or "0") if inspect.returncode == 0 else 0
-        if prev_restart_count is not None and restart_count > prev_restart_count:
-            print()
-            error(f"App container is crash-looping (restart #{restart_count}). Last logs:")
-            dump_container_logs(container)
-            return False
-        prev_restart_count = restart_count
+    run(["docker", "volume", "create", volume_name], capture=True)
 
-        # Read entrypoint progress from a dedicated file (not docker logs,
-        # which contains the raw PTY stream including phrocs TUI output).
-        progress = run(
-            ["docker", "exec", container, "cat", "/tmp/sandbox-progress"],
-            check=False,
-            capture=True,
-        )
-        for line in (progress.stdout or "").splitlines():
-            step = line.strip()
-            if step and step not in seen_steps:
-                seen_steps.add(step)
-                print(f"  {step}")
+    # Chown so the non-root clone can write.
+    run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "-v",
+            f"{volume_name}:/workspace",
+            "alpine",
+            "chown",
+            f"{uid}:{gid}",
+            "/workspace",
+        ],
+        capture=True,
+    )
 
-        time.sleep(interval)
-        elapsed += interval
+    # file:// transport avoids CVE-2022-39253 symlink following.
+    script = r"""
+        set -e
+        git init -q -b "$BRANCH" /workspace
+        cd /workspace
+        GIT="git -c safe.directory=/host-git -c protocol.file.allow=always"
 
-    print()
-    error(f"Container {container} did not become healthy within {timeout}s. Last logs:")
-    dump_container_logs(container)
-    return False
+        $GIT fetch --depth=50 --no-tags file:///host-git "$BRANCH_REF"
+        git update-ref "refs/heads/$BRANCH" "$BRANCH_SHA"
+        git update-ref refs/sandbox/start "$BRANCH_SHA"
+        git reset --hard
+
+        if [ -n "$BASE_SHA" ]; then
+            $GIT fetch --depth=1 --no-tags file:///host-git "$BASE_SHA"
+            git update-ref "refs/remotes/origin/$BASE_BRANCH" "$BASE_SHA"
+        fi
+        # Set origin/<branch> so `sandbox destroy` can detect unpushed commits.
+        if [ -n "$ORIGIN_BRANCH_SHA" ]; then
+            # Skip fetch if same as branch tip (already local); a redundant
+            # --depth=1 fetch would clobber the depth=50 shallow history.
+            if [ "$ORIGIN_BRANCH_SHA" != "$BRANCH_SHA" ]; then
+                $GIT fetch --depth=1 --no-tags file:///host-git "$ORIGIN_BRANCH_SHA"
+            fi
+            git update-ref "refs/remotes/origin/$BRANCH" "$ORIGIN_BRANCH_SHA"
+        fi
+        git remote add origin "$ORIGIN_URL"
+    """
+
+    run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--user",
+            f"{uid}:{gid}",
+            "--entrypoint",
+            "sh",
+            # LFS pointers from host .git aren't reachable here; skip smudge.
+            "-e",
+            "HOME=/tmp",
+            "-e",
+            "GIT_LFS_SKIP_SMUDGE=1",
+            "-v",
+            f"{HOST_GIT_DIR}:/host-git:ro",
+            "-v",
+            f"{volume_name}:/workspace",
+            "-e",
+            f"BRANCH={branch}",
+            "-e",
+            f"BRANCH_SHA={branch_sha}",
+            "-e",
+            f"BASE_BRANCH={base_branch}",
+            "-e",
+            f"BASE_SHA={base_sha or ''}",
+            "-e",
+            f"BRANCH_REF={branch_ref}",
+            "-e",
+            f"ORIGIN_BRANCH_SHA={origin_branch_sha or ''}",
+            "-e",
+            f"ORIGIN_URL={SANDBOX_ORIGIN_URL}",
+            GIT_HELPER_IMAGE,
+            "-c",
+            script,
+        ],
+    )
 
 
-# ---------------------------------------------------------------------------
-# Git worktree helpers
-# ---------------------------------------------------------------------------
+# --- Git ref helpers ---
 
 
-def find_worktree(branch: str) -> str | None:
-    """Return the filesystem path of an existing worktree for *branch*, or None."""
-    result = run(["git", "worktree", "list", "--porcelain"], capture=True, check=False)
-    # Porcelain format: blocks separated by blank lines, each block has
-    # "worktree <path>", "branch refs/heads/<name>", etc.
-    current_path: str | None = None
-    for line in result.stdout.splitlines():
-        if line.startswith("worktree "):
-            current_path = line[len("worktree ") :]
-        elif line == f"branch refs/heads/{branch}":
-            return current_path
+def _fetch_origin() -> None:
+    """Fetch + prune origin. Non-fatal — branch resolution fails loudly if the
+    resulting refs don't cover what the user asked for.
+    """
+    info("Fetching origin...")
+    result = run(["git", "fetch", "origin", "--quiet", "--prune"], check=False, capture=True)
+    if result.returncode:
+        warn("git fetch origin failed — continuing with stale remote refs:")
+        for line in (result.stderr or "").strip().splitlines():
+            print(f"  {line}")
+
+
+def _rev_parse(ref: str) -> str | None:
+    """Resolve ref to a SHA on the host, or None if it doesn't exist."""
+    result = run(
+        ["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
+        check=False,
+        capture=True,
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def _is_ancestor(maybe_ancestor: str, of_descendant: str) -> bool:
+    """True if *maybe_ancestor* is reachable from *of_descendant* on the host."""
+    return run(
+        ["git", "merge-base", "--is-ancestor", maybe_ancestor, of_descendant],
+        check=False,
+    ).returncode == 0
+
+
+def _first_existing_ref(*refs: str) -> tuple[str, str] | None:
+    """Return (sha, ref) for the first ref that resolves, or None."""
+    for ref in refs:
+        sha = _rev_parse(ref)
+        if sha:
+            return sha, ref
     return None
 
 
-def ensure_worktree(branch: str, base_branch: str) -> str:
-    """Create or find a git worktree. Returns its absolute path."""
-    existing = find_worktree(branch)
-    if existing:
-        info(f"Reusing existing worktree at {existing}")
-        return existing
+def _resolve_base_branch(base_branch: str) -> tuple[str, str]:
+    """Resolve base_branch to (sha, ref), preferring the local head over origin."""
+    resolved = _first_existing_ref(f"refs/heads/{base_branch}", f"refs/remotes/origin/{base_branch}")
+    if resolved is None:
+        fatal(f"Base branch '{base_branch}' not found locally or on origin.")
+    return resolved
 
-    run(["git", "fetch", "origin", "--quiet"])
-    run(
-        ["git", "update-ref", f"refs/heads/{base_branch}", f"origin/{base_branch}"],
-        check=False,
-    )
 
-    has_branch = any(
-        run(["git", "show-ref", "--verify", "--quiet", ref], check=False).returncode == 0
-        for ref in [f"refs/heads/{branch}", f"refs/remotes/origin/{branch}"]
-    )
+def _prompt_branch_choice(branch: str, local_sha: str, origin_sha: str) -> str:
+    """Ask the user which SHA the sandbox should start at. Returns the chosen SHA."""
+    state = "diverged from" if not _is_ancestor(local_sha, origin_sha) else "behind"
+    warn(f"Local '{branch}' is {state} origin/{branch}.")
+    print(f"  local:  {local_sha[:12]}")
+    print(f"  origin: {origin_sha[:12]}")
+    print("\n  [l] Use local state\n  [o] Use origin state\n  [a] Abort")
+    options = {"l": local_sha, "o": origin_sha}
+    while True:
+        choice = input("Choice [l/o/a]: ").strip().lower()
+        if choice in options:
+            return options[choice]
+        if choice == "a":
+            fatal("Aborted.")
+        print("Please enter l, o, or a.")
 
-    if has_branch:
-        info(f"Checking out existing branch {branch}...")
-        run([str(WORKTREE_CMD), "checkout", branch])
+
+def _resolve_branch_for_sandbox(branch: str, base_branch: str) -> tuple[str, str | None, str | None, str]:
+    """Decide which commit the sandbox should start at. Never mutates host refs.
+
+    Returns (branch_sha, base_sha, origin_branch_sha, branch_ref).
+    """
+    local_sha = _rev_parse(f"refs/heads/{branch}")
+    origin_sha = _rev_parse(f"refs/remotes/origin/{branch}")
+    local_ref = f"refs/heads/{branch}"
+    origin_ref = f"refs/remotes/origin/{branch}"
+
+    if local_sha and origin_sha:
+        if local_sha == origin_sha or _is_ancestor(origin_sha, local_sha):
+            branch_sha, branch_ref = local_sha, local_ref
+        else:
+            chosen = _prompt_branch_choice(branch, local_sha, origin_sha)
+            branch_ref = local_ref if chosen == local_sha else origin_ref
+            branch_sha = chosen
+    elif local_sha:
+        branch_sha, branch_ref = local_sha, local_ref
+    elif origin_sha:
+        info(f"Branch '{branch}' exists only on origin — using origin/{branch}.")
+        branch_sha, branch_ref = origin_sha, origin_ref
     else:
-        info(f"Creating new branch {branch} from {base_branch}...")
-        run([str(WORKTREE_CMD), "create", branch, base_branch])
+        info(f"Creating new branch '{branch}' from '{base_branch}' in the sandbox.")
+        branch_sha, branch_ref = _resolve_base_branch(base_branch)
 
-    path = find_worktree(branch)
-    if not path:
-        fatal(f"Worktree not found for branch '{branch}'")
-    return path
+    base_sha = None if branch == base_branch else _resolve_base_branch(base_branch)[0]
+    return branch_sha, base_sha, origin_sha, branch_ref
+
+
+def _warn_if_host_dirty(branch: str) -> None:
+    """If the host is on *branch* with uncommitted changes, warn + y/N."""
+    head = run(["git", "rev-parse", "--abbrev-ref", "HEAD"], capture=True).stdout.strip()
+    if head != branch:
+        return
+    # Only warn on modified/staged tracked files, not untracked.
+    status = run(["git", "status", "--porcelain"], capture=True).stdout
+    dirty_lines = [line for line in status.splitlines() if line.strip() and not line.startswith("??")]
+    if not dirty_lines:
+        return
+    warn(f"Host has uncommitted changes on '{branch}' that WILL NOT be in the sandbox:")
+    for line in dirty_lines[:15]:
+        print(f"  {line}")
+    if len(dirty_lines) > 15:
+        print(f"  ... and {len(dirty_lines) - 15} more")
+    print("\nCommit or stash them first if you want them in the sandbox.")
+    if input("Continue anyway? [y/N] ").strip().lower() not in ("y", "yes"):
+        fatal("Aborted.")
 
 
 # ---------------------------------------------------------------------------
@@ -646,10 +965,9 @@ def _ensure_cache_volumes() -> None:
         docker_volume_run(vol, "chmod 777 /data")
 
 
-def _init_cache_cleanup(port: int, worktree: str) -> None:
+def _init_cache_cleanup(project: str, port: int) -> None:
     info("Cleaning up cache init containers...")
-    compose("sandbox-cache-init", port, worktree, "down", "-v", "-t", "0", check=False, capture=True)
-    _remove_worktree(worktree)
+    compose(project, port, "down", "-v", "-t", "0", check=False, capture=True)
 
 
 def init_cache_from_master() -> None:
@@ -658,38 +976,34 @@ def init_cache_from_master() -> None:
 
     init_project = "sandbox-cache-init"
     init_port = 47999
-    init_worktree = "/tmp/sandbox-cache-init"
+    init_volume = workspace_volume_name(init_project)
 
-    # Tear down any leftover containers/volumes from a previous interrupted run
-    _init_cache_cleanup(init_port, init_worktree)
-
-    run(["git", "fetch", "origin", "--quiet"], capture=True)
-    cache_branch = "origin/master"
-    if (
-        run(
-            ["git", "worktree", "add", "--force", "--detach", init_worktree, cache_branch], check=False, capture=True
-        ).returncode
-        != 0
-    ):
-        fatal("Could not check out cache branch for cache init.")
+    _init_cache_cleanup(init_project, init_port)
 
     try:
-        # Run the entrypoint in cache-init mode. `compose run` handles building
-        # the image, starting + health-checking dependencies (via `depends_on`),
-        # invoking the entrypoint, and removing the container on exit. The
-        # entrypoint's cache_init_phase warms uv/pnpm/cargo caches, runs
-        # migrations, and generates demo data, then exits.
+        run(["git", "fetch", "origin", "master", "--quiet"], capture=True)
+        resolved = _first_existing_ref("refs/remotes/origin/master", "refs/heads/master")
+        if resolved is None:
+            fatal("Cannot find master locally or on origin — nothing to build cache from.")
+        master_sha, master_ref = resolved
+
+        info("Populating cache-init workspace with master...")
+        _populate_workspace_volume(init_volume, "master", master_sha, "master", None, branch_ref=master_ref)
+
         info("Running cache-init entrypoint...")
         compose(
-            init_project, init_port, init_worktree,
-            "run", "--rm", "--build",
-            "-e", "SANDBOX_MODE=cache-init",
+            init_project,
+            init_port,
+            "run",
+            "--rm",
+            "--build",
+            "-e",
+            "SANDBOX_MODE=cache-init",
             "app",
         )
 
-        # Snapshot postgres (stop first for consistency)
         info("Snapshotting databases...")
-        compose(init_project, init_port, init_worktree, "stop", "db", capture=True)
+        compose(init_project, init_port, "stop", "db", capture=True)
         run(
             [
                 "docker",
@@ -707,33 +1021,26 @@ def init_cache_from_master() -> None:
             capture=True,
         )
 
-        # Snapshot ClickHouse
         ch = f"{init_project}-clickhouse-1"
-        if (
-            run(
-                [
-                    "docker",
-                    "exec",
-                    ch,
-                    "clickhouse-client",
-                    "--query",
-                    "BACKUP DATABASE posthog TO Disk('sandbox_cache', 'posthog/')",
-                ],
-                check=False,
-                capture=True,
-            ).returncode
-            != 0
-        ):
-            fatal("ClickHouse backup failed during cache init.")
+        run(
+            [
+                "docker",
+                "exec",
+                ch,
+                "clickhouse-client",
+                "--query",
+                "BACKUP DATABASE posthog TO Disk('sandbox_cache', 'posthog/')",
+            ],
+            capture=True,
+        )
 
-        # Record migration versions for staleness detection
         run(
             [
                 "docker",
                 "run",
                 "--rm",
                 "-v",
-                f"{init_worktree}:/src:ro",
+                f"{init_volume}:/src:ro",
                 "-v",
                 f"{DB_CACHE_VOLUME}:/dst",
                 "alpine",
@@ -746,20 +1053,32 @@ def init_cache_from_master() -> None:
                     cp "$f" "/dst/migrations/${key}"
                 done
                 touch /dst/.cache-ready
-            """,
+                """,
             ],
             capture=True,
         )
     finally:
-        _init_cache_cleanup(init_port, init_worktree)
+        _init_cache_cleanup(init_project, init_port)
 
     success("Database cache built from master.")
 
 
-def check_migration_staleness(worktree_path: str) -> str | None:
-    """Compare cached migration versions against the branch.
+def check_migration_staleness(branch_sha: str) -> str | None:
+    """Compare cached migration versions against the branch's max_migration files.
 
-    Returns a human-readable description of stale migrations, or None if fresh.
+    Returns a summary string of apps where the cache is ahead, or None.
+    """
+    script = r"""
+        set -e
+        for f in /cache/migrations/*; do
+            key=$(basename "$f")
+            cached=$(grep -oE "^[0-9]+" "$f" 2>/dev/null || echo 0)
+            rel_path="$(echo "$key" | sed 's|__|/|g')/max_migration.txt"
+            content=$(git -c safe.directory=/host-git --git-dir=/host-git \
+                show "${BRANCH_SHA}:${rel_path}" 2>/dev/null || true)
+            branch_num=$(printf '%s' "$content" | grep -oE "^[0-9]+" || echo 0)
+            printf '%s\t%s\t%s\n' "$key" "$cached" "$branch_num"
+        done
     """
     result = run(
         [
@@ -768,14 +1087,15 @@ def check_migration_staleness(worktree_path: str) -> str | None:
             "--rm",
             "-v",
             f"{DB_CACHE_VOLUME}:/cache:ro",
-            "alpine",
+            "-v",
+            f"{HOST_GIT_DIR}:/host-git:ro",
+            "-e",
+            f"BRANCH_SHA={branch_sha}",
+            "--entrypoint",
             "sh",
+            GIT_HELPER_IMAGE,
             "-c",
-            "for f in /cache/migrations/*; do "
-            '  key=$(basename "$f"); '
-            '  num=$(grep -oE "^[0-9]+" "$f" 2>/dev/null || echo 0); '
-            '  printf "%s\\t%s\\n" "$key" "$num"; '
-            "done",
+            script,
         ],
         capture=True,
         check=False,
@@ -783,18 +1103,15 @@ def check_migration_staleness(worktree_path: str) -> str | None:
 
     behind: list[str] = []
     for line in result.stdout.strip().splitlines():
-        if "\t" not in line:
+        parts = line.split("\t")
+        if len(parts) != 3:
             continue
-        key, cached_num_str = line.split("\t", 1)
-        cached_num = int(cached_num_str)
-
-        branch_file = Path(worktree_path) / key.replace("__", "/") / "max_migration.txt"
-        branch_num = 0
-        if branch_file.exists():
-            match = re.match(r"^(\d+)", branch_file.read_text())
-            if match:
-                branch_num = int(match.group(1))
-
+        key, cached_str, branch_str = parts
+        try:
+            cached_num = int(cached_str)
+            branch_num = int(branch_str)
+        except ValueError:
+            continue
         if cached_num > branch_num:
             label = key.replace("__", "/")
             behind.append(f"  {label}: cache={cached_num} branch={branch_num}")
@@ -857,22 +1174,19 @@ def _wait_for_clickhouse(project: str, timeout: int = 120) -> None:
         capture=True,
     )
     if result.returncode != 0:
-        warn("ClickHouse did not become ready within timeout -- continuing anyway.")
+        fatal(f"ClickHouse did not become ready within {timeout}s. Container logs may reveal the cause.")
 
 
 def _restore_and_start(
     project: str,
     port: int,
-    worktree_path: str,
     use_cache: bool,
     profiles: list[str] | None = None,
 ) -> None:
     """Restore databases from cache (if available) and bring up the stack."""
-    vite_port = port + 1000
-
     if not use_cache:
         info("Building and starting containers...")
-        compose(project, port, worktree_path, "up", "-d", "--build", capture=True, profiles=profiles)
+        compose(project, port, "up", "-d", "--build", capture=True, profiles=profiles)
         return
 
     # Restore postgres from volume snapshot
@@ -897,7 +1211,7 @@ def _restore_and_start(
     # Start infra first — we need ClickHouse up before restoring its backup,
     # and both must finish before the app runs migrations.
     info("Starting infrastructure...")
-    compose(project, port, worktree_path, "up", "-d", *INFRA_SERVICES, capture=True, profiles=profiles)
+    compose(project, port, "up", "-d", *INFRA_SERVICES, capture=True, profiles=profiles)
 
     _wait_for_clickhouse(project)
 
@@ -915,10 +1229,12 @@ def _restore_and_start(
         check=False,
         capture=True,
     )
-    if result.returncode == 0:
-        info("ClickHouse restored.")
-    else:
-        warn("ClickHouse restore failed — migrations will recreate tables.")
+    if result.returncode != 0:
+        error("ClickHouse restore failed:")
+        for line in (result.stderr or "").strip().splitlines():
+            print(f"  {line}")
+        fatal("Run `sandbox rebuild-cache` if the cache is corrupt, or retry with `sandbox create`.")
+    info("ClickHouse restored.")
 
     # Drop the cached DuckLake catalog — the extension version in the cache
     # may not match the branch's extension, causing check_ducklake_up to
@@ -932,7 +1248,7 @@ def _restore_and_start(
 
     # Now start the app + proxy on top of restored infra
     info("Building and starting app...")
-    compose(project, port, worktree_path, "up", "-d", "--build", capture=True, profiles=profiles)
+    compose(project, port, "up", "-d", "--build", capture=True, profiles=profiles)
 
 
 # ---------------------------------------------------------------------------
@@ -948,51 +1264,58 @@ def cmd_create(branch: str, base_branch: str = "master") -> None:
     existing = registry.get(branch)
     if existing:
         error(f"Sandbox already exists for branch '{branch}' on port {existing.port}")
-        print(f"Use 'sandbox start {branch}' to start it, or 'sandbox rm {branch}' first.")
+        existing_container = f"{project_name(existing.slug)}-app-1"
+        if _container_running(existing_container):
+            print(f"It's already running — use 'sandbox shell {branch}' to attach, or 'sandbox rm {branch}' first.")
+        else:
+            print(f"Use 'sandbox start {branch}' to start it, or 'sandbox rm {branch}' first.")
         sys.exit(1)
 
-    worktree_path = ensure_worktree(branch, base_branch)
+    # Everything up to registry.allocate() is side-effect-free on the sandbox
+    # side — abort here costs nothing to clean up.
+    _fetch_origin()
+    branch_sha, base_sha, origin_branch_sha, branch_ref = _resolve_branch_for_sandbox(branch, base_branch)
+    _warn_if_host_dirty(branch)
+    _check_macos_ssh_agent_launchd()
+    _check_ssh_agent_has_keys()
+    _check_host_git_signing()
 
-    if Path(worktree_path).resolve() == REPO_ROOT.resolve():
-        fatal(
-            f"Cannot create a sandbox on the branch currently checked out in the main repo.\n"
-            f"  Either check out a different branch first, or create the sandbox on a new branch:\n"
-            f"  sandbox create my-feature-branch"
-        )
-
-    if not (Path(worktree_path) / "manage.py").exists():
-        fatal(f"Worktree at {worktree_path} does not contain PostHog code")
-
-    # Atomically allocate a port and register — prevents races between
-    # concurrent `sandbox create` calls.
-    intents = os.environ.get("SANDBOX_INTENTS", "product_analytics")
-    entry = registry.allocate(branch, slug, worktree_path, intents=intents)
-    port = entry.port
     _ensure_cache_volumes()
     _ensure_jetbrains()
-
-    # Build or verify the database cache
-    cache_ready = _is_cache_ready()
-    if not cache_ready:
+    if not _is_cache_ready():
         init_cache_from_master()
-        cache_ready = True
 
-    # Let the user decide if the cache is stale relative to their branch
-    use_cache = cache_ready
-    if cache_ready:
-        stale = check_migration_staleness(worktree_path)
-        if stale:
-            choice = _prompt_migration_choice(stale)
-            if choice == "q":
-                registry.remove(branch)
-                sys.exit(0)
-            if choice == "f":
-                use_cache = False
+    # Staleness check reads the already-built cache; if the user picks 'q' we
+    # can bail cleanly before allocating any per-sandbox state.
+    use_cache = True
+    stale = check_migration_staleness(branch_sha)
+    if stale:
+        choice = _prompt_migration_choice(stale)
+        if choice == "q":
+            info("Aborted.")
+            return
+        if choice == "f":
+            use_cache = False
 
-    profiles = resolve_docker_profiles(intents)
-    if profiles:
-        info(f"Docker profiles: {', '.join(profiles)}")
-    _restore_and_start(project, port, worktree_path, use_cache, profiles=profiles)
+    intents = os.environ.get("SANDBOX_INTENTS", "product_analytics")
+    entry = registry.allocate(branch, slug, intents=intents)
+    port = entry.port
+
+    # From here down anything that fails leaves partial state (workspace
+    # volume, compose project, registry entry), so wrap in rollback.
+    try:
+        volume = workspace_volume_name(project)
+        info(f"Populating workspace volume {volume} with branch {branch}...")
+        _populate_workspace_volume(volume, branch, branch_sha, base_branch, base_sha, origin_branch_sha, branch_ref)
+
+        profiles = resolve_docker_profiles(intents)
+        if profiles:
+            info(f"Docker profiles: {', '.join(profiles)}")
+        _restore_and_start(project, port, use_cache, profiles=profiles)
+    except BaseException:
+        error(f"Sandbox create failed — tearing down '{project}'.")
+        cmd_destroy(branch, force=True)
+        raise
 
     container = f"{project}-app-1"
     health_url = f"http://localhost:{port}/_health"
@@ -1009,12 +1332,9 @@ def cmd_start(branch: str) -> None:
     info(f"Starting sandbox '{project}' on port {entry.port} (Vite: {vite_port})...")
     if profiles:
         info(f"Docker profiles: {', '.join(profiles)}")
-    compose(project, entry.port, entry.worktree, "up", "-d", capture=True, profiles=profiles)
+    compose(project, entry.port, "up", "-d", capture=True, profiles=profiles)
 
-    # Clear stale progress from the previous boot
     container = f"{project}-app-1"
-    run(["docker", "exec", container, "rm", "-f", "/tmp/sandbox-progress"], check=False, capture=True)
-
     health_url = f"http://localhost:{entry.port}/_health"
     _attach_with_health_poll(container, health_url)
 
@@ -1026,62 +1346,97 @@ def cmd_stop(branch: str) -> None:
     profiles = resolve_docker_profiles(entry.intents)
 
     info(f"Stopping sandbox '{project}'...")
-    compose(project, entry.port, entry.worktree, "stop", capture=True, profiles=profiles)
+    compose(project, entry.port, "stop", capture=True, profiles=profiles)
     success("Sandbox stopped. Volumes preserved.")
 
 
-def _remove_worktree(worktree_path: str) -> None:
-    """Delete a worktree directory.
-
-    Containers may have created root-owned files, so we use a container
-    to delete contents, then rmdir the empty directory.
-    NEVER delete the main repo.
-    """
-    path = Path(worktree_path)
-    if not path.is_dir():
-        return
-    if path.resolve() == REPO_ROOT.resolve():
-        info("Worktree is the main repo — skipping directory cleanup.")
-        return
-
-    run(
-        ["docker", "run", "--rm", "-v", f"{worktree_path}:/cleanup",
-         "alpine", "sh", "-c", "find /cleanup -mindepth 1 -delete"],
-        check=False, capture=True,
+def _container_running(container: str) -> bool:
+    result = run(
+        ["docker", "inspect", "-f", "{{.State.Running}}", container],
+        check=False,
+        capture=True,
     )
-    try:
-        path.rmdir()
-    except OSError:
-        pass
-    run(["git", "worktree", "prune"], check=False)
+    return result.returncode == 0 and result.stdout.strip() == "true"
 
 
-def cmd_destroy(branch: str, clean: bool = False) -> None:
+def _sandbox_local_work(project: str) -> tuple[str, str] | None:
+    """Return (commits_summary, dirty_summary) of unpushed work, or None.
+
+    Works whether the sandbox is running or stopped (uses a throwaway container).
+    Uses refs/sandbox/start to exclude pre-existing history on new branches.
+    """
+    volume = workspace_volume_name(project)
+    if run(["docker", "volume", "inspect", volume], check=False, capture=True).returncode != 0:
+        return None
+
+    git_exec = [
+        "docker",
+        "run",
+        "--rm",
+        "--user",
+        f"{os.getuid()}:{os.getgid()}",
+        "-v",
+        f"{volume}:/workspace",
+        "-e",
+        "HOME=/tmp",
+        "--entrypoint",
+        "git",
+        GIT_HELPER_IMAGE,
+        "-C",
+        "/workspace",
+    ]
+
+    log_args = ["log", "--oneline", "-n", "20", "--branches", "--not", "--remotes"]
+    has_start_ref = (
+        run([*git_exec, "rev-parse", "--verify", "--quiet", "refs/sandbox/start"], check=False, capture=True).returncode
+        == 0
+    )
+    if has_start_ref:
+        log_args.append("refs/sandbox/start")
+
+    commits = run([*git_exec, *log_args], check=False, capture=True).stdout.strip()
+    dirty = run([*git_exec, "status", "--porcelain"], check=False, capture=True).stdout.strip()
+    if not commits and not dirty:
+        return None
+    return commits, dirty
+
+
+def cmd_destroy(branch: str, *, force: bool = False) -> None:
     registry = Registry()
     entry = registry.get(branch)
     slug = entry.slug if entry else slugify(branch)
     project = project_name(slug)
     port = entry.port if entry else 0
-    worktree = entry.worktree if entry else "."
+
+    if not force:
+        work = _sandbox_local_work(project)
+        if work is not None:
+            commits, dirty = work
+            warn(f"Sandbox '{project}' has local work that is not on origin:")
+            if commits:
+                print("  Unpushed commits:")
+                for line in commits.splitlines():
+                    print(f"    {line}")
+            if dirty:
+                print("  Uncommitted changes:")
+                for line in dirty.splitlines():
+                    print(f"    {line}")
+            print()
+            answer = input("Destroy anyway? [y/N] ").strip().lower()
+            if answer not in ("y", "yes"):
+                info("Aborted.")
+                return
 
     warn(f"Destroying sandbox '{project}'...")
 
-    # Tear down containers and per-sandbox volumes — pass all possible profiles
-    # so profile-gated services are included in the teardown. When the registry
-    # entry is missing, derive profiles from the compose file to ensure nothing
-    # is orphaned.
+    # When the registry entry is missing, derive profiles from the compose
+    # file so profile-gated services don't get orphaned.
     profiles = resolve_docker_profiles(entry.intents) if entry else sorted(_all_sandbox_profiles())
-    result = compose(project, port, worktree, "down", "-v", "-t", "0", check=False, capture=True, profiles=profiles)
+    result = compose(project, port, "down", "-v", "-t", "0", check=False, capture=True, profiles=profiles)
 
     if result.returncode != 0:
         error(f"Docker teardown failed for '{project}' (is Docker running?). Registry entry preserved for retry.")
         return
-
-    if clean and entry and entry.worktree:
-        _remove_worktree(entry.worktree)
-    elif entry and entry.worktree and Path(entry.worktree).is_dir():
-        info(f"Worktree preserved at: {entry.worktree}")
-        info(f"  To remove: git worktree remove {entry.worktree}")
 
     registry.remove(branch)
     success("Sandbox destroyed.")
@@ -1104,7 +1459,6 @@ def cmd_list() -> None:
         result = compose(
             project,
             entry.port,
-            entry.worktree,
             "ps",
             "--status",
             "running",
@@ -1167,8 +1521,8 @@ def cmd_idea(branch: str) -> None:
     info(f"  Project: /workspace")
 
 
-def _attach_tmux(container: str) -> None:
-    """Exec into the tmux session — replaces the current process."""
+def _attach_tmux(container: str, target: str = "posthog:claude") -> None:
+    """Exec into the tmux session (replaces current process)."""
     os.execvp(
         "docker",
         [
@@ -1183,7 +1537,7 @@ def _attach_tmux(container: str) -> None:
             "sandbox",
             "attach-session",
             "-t",
-            "posthog",
+            target,
         ],
     )
 
@@ -1213,17 +1567,27 @@ def _attach_with_health_poll(container: str, health_url: str) -> None:
     )
 
     # Wait for tmux then attach (replaces this process).
-    # The entrypoint installs deps before starting tmux, so there's a
-    # brief window where the container is running but tmux isn't ready.
-    # Show entrypoint progress while waiting so the user knows what's happening.
-    info("Waiting for phrocs... (showing entrypoint progress)")
+    # Tmux starts within seconds of boot; this loop is usually very short.
+    info("Waiting for tmux... (showing entrypoint progress)")
     seen_steps: set[str] = set()
     deadline = time.monotonic() + 300
     while time.monotonic() < deadline:
         result = run(
-            ["docker", "exec", "-u", f"{os.getuid()}:{os.getgid()}", container,
-             "tmux", "-L", "sandbox", "has-session", "-t", "posthog"],
-            check=False, capture=True,
+            [
+                "docker",
+                "exec",
+                "-u",
+                f"{os.getuid()}:{os.getgid()}",
+                container,
+                "tmux",
+                "-L",
+                "sandbox",
+                "has-session",
+                "-t",
+                "posthog",
+            ],
+            check=False,
+            capture=True,
         )
         if result.returncode == 0:
             break
@@ -1231,7 +1595,8 @@ def _attach_with_health_poll(container: str, health_url: str) -> None:
         # Show entrypoint progress from the container's progress file.
         progress = run(
             ["docker", "exec", container, "cat", "/tmp/sandbox-progress"],
-            check=False, capture=True,
+            check=False,
+            capture=True,
         )
         for line in (progress.stdout or "").splitlines():
             step = line.strip()
@@ -1241,8 +1606,8 @@ def _attach_with_health_poll(container: str, health_url: str) -> None:
 
         time.sleep(2)
     else:
-        fatal("Timed out waiting for phrocs. Run `sandbox logs <branch>` to investigate.")
-    info("Attaching to phrocs... (detach with Ctrl-b d)")
+        fatal("Timed out waiting for tmux. Run `sandbox logs <branch>` to investigate.")
+    info("Attaching to Claude... (detach with Ctrl-b d, Ctrl-b 1 for setup log, Ctrl-b 2 for phrocs)")
     _attach_tmux(container)
 
 
@@ -1251,8 +1616,42 @@ def cmd_shell(branch: str) -> None:
     entry = _require_registered(registry, branch)
     container = f"sandbox-{entry.slug}-app-1"
 
-    info(f"Attaching to phrocs in {container}... (detach with Ctrl-b d)")
+    info(f"Attaching to Claude in {container}... (detach with Ctrl-b d, Ctrl-b 2 for phrocs)")
     _attach_tmux(container)
+
+
+def cmd_ssh(branch: str) -> None:
+    """Open a login shell in the sandbox (outside tmux, with SSH agent forwarded)."""
+    registry = Registry()
+    entry = _require_registered(registry, branch)
+    container = f"sandbox-{entry.slug}-app-1"
+
+    info(f"Opening shell in {container}...")
+    os.execvp(
+        "docker",
+        [
+            "docker",
+            "exec",
+            "-it",
+            "-u",
+            f"{os.getuid()}:{os.getgid()}",
+            "-w",
+            "/workspace",
+            container,
+            "bash",
+            "-l",
+        ],
+    )
+
+
+def cmd_phrocs(branch: str) -> None:
+    """Attach directly to the phrocs tmux window."""
+    registry = Registry()
+    entry = _require_registered(registry, branch)
+    container = f"sandbox-{entry.slug}-app-1"
+
+    info(f"Attaching to phrocs in {container}... (detach with Ctrl-b d, Ctrl-b 0 for Claude)")
+    _attach_tmux(container, target="posthog:phrocs")
 
 
 def cmd_logs(branch: str) -> None:
@@ -1260,7 +1659,7 @@ def cmd_logs(branch: str) -> None:
     entry = _require_registered(registry, branch)
     project = project_name(entry.slug)
 
-    compose(project, entry.port, entry.worktree, "logs", "-f", "app")
+    compose(project, entry.port, "logs", "-f", "app")
 
 
 def cmd_rebuild_cache() -> None:
@@ -1274,8 +1673,10 @@ def cmd_rebuild_cache() -> None:
 def cmd_nuke() -> None:
     warn("Destroying all sandboxes and clearing cache...")
     registry = Registry()
+    # force=True skips the per-sandbox unpushed-commits prompt — nuke is a
+    # deliberate wipe and ten prompts in a row would defeat the purpose.
     for branch in list(registry.list_all()):
-        cmd_destroy(branch)
+        cmd_destroy(branch, force=True)
     # Don't rebuild the cache here — it will be rebuilt on the next `sandbox create`.
     try:
         clear_volume(DB_CACHE_VOLUME)
@@ -1313,6 +1714,8 @@ examples:
   sandbox create aspicer/bugfix main
   sandbox ls
   sandbox shell aspicer/cool-feature
+  sandbox ssh aspicer/cool-feature
+  sandbox phrocs aspicer/cool-feature
   sandbox stop aspicer/cool-feature
   sandbox start aspicer/cool-feature
   sandbox rm aspicer/cool-feature""",
@@ -1331,7 +1734,9 @@ examples:
     for name, help_text in [
         ("start", "Start a stopped sandbox"),
         ("stop", "Stop a sandbox (preserves state)"),
-        ("shell", "Attach to the phrocs UI"),
+        ("shell", "Attach to the Claude window"),
+        ("ssh", "Open a login shell in the sandbox (SSH agent forwarded)"),
+        ("phrocs", "Attach to the phrocs window"),
         ("code", "Open VSCode attached to the sandbox container"),
         ("idea", "Open JetBrains Gateway for the sandbox"),
         ("logs", "Tail logs from a sandbox"),
@@ -1339,9 +1744,17 @@ examples:
         p = sub.add_parser(name, help=help_text)
         p.add_argument("branch")
 
-    p = sub.add_parser("destroy", aliases=["rm"], help="Destroy a sandbox (preserves worktree)")
+    p = sub.add_parser(
+        "destroy",
+        aliases=["rm"],
+        help="Destroy a sandbox (prompts if there are unpushed commits)",
+    )
     p.add_argument("branch")
-    p.add_argument("--clean", action="store_true", help="Also delete the git worktree")
+    p.add_argument(
+        "--force",
+        action="store_true",
+        help="Skip the unpushed-commits prompt",
+    )
 
     sub.add_parser("list", aliases=["ls"], help="List all sandboxes")
     sub.add_parser("rebuild-cache", help="Rebuild the database cache from master")
@@ -1365,11 +1778,13 @@ def main() -> None:
         "create": lambda: cmd_create(args.branch, args.base_branch),
         "start": lambda: cmd_start(args.branch),
         "stop": lambda: cmd_stop(args.branch),
-        "destroy": lambda: cmd_destroy(args.branch, clean=args.clean),
-        "rm": lambda: cmd_destroy(args.branch, clean=args.clean),
+        "destroy": lambda: cmd_destroy(args.branch, force=args.force),
+        "rm": lambda: cmd_destroy(args.branch, force=args.force),
         "list": cmd_list,
         "ls": cmd_list,
         "shell": lambda: cmd_shell(args.branch),
+        "ssh": lambda: cmd_ssh(args.branch),
+        "phrocs": lambda: cmd_phrocs(args.branch),
         "code": lambda: cmd_code(args.branch),
         "idea": lambda: cmd_idea(args.branch),
         "logs": lambda: cmd_logs(args.branch),
@@ -1379,7 +1794,7 @@ def main() -> None:
 
     try:
         dispatch[args.command]()
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, EOFError):
         print()
         sys.exit(130)
     except subprocess.CalledProcessError as e:

@@ -92,6 +92,7 @@ import {
     buildAggregateQuery,
     buildOpenEndedQuery,
     buildPartialResponsesFilter,
+    buildSurveyOptionalBooleanPropertyFilter,
     buildSurveyTimestampFilter,
     calculateSurveyRates,
     createAnswerFilterHogQLExpression,
@@ -739,7 +740,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     FROM events
                     WHERE team_id = ${teamLogic.values.currentTeamId}
                         AND event IN ('${SurveyEventName.SHOWN}', '${SurveyEventName.DISMISSED}', '${SurveyEventName.SENT}')
-                        AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
+                        AND properties.\`${SurveyEventProperties.SURVEY_ID}\` = '${props.id}'
                         ${values.timestampFilter}
                         ${values.archivedResponsesFilter}
                         AND {filters} -- Apply property filters here to the main query
@@ -747,7 +748,10 @@ export const surveyLogic = kea<surveyLogicType>([
                         AND (
                             event != '${SurveyEventName.DISMISSED}'
                             OR
-                            COALESCE(JSONExtractBool(properties, '${SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}'), False) = False
+                            ${buildSurveyOptionalBooleanPropertyFilter(
+                                SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED,
+                                'true'
+                            )}
                         )
                         AND (
                             -- Include non-'sent' events directly
@@ -794,13 +798,16 @@ export const surveyLogic = kea<surveyLogicType>([
                         FROM events
                         WHERE team_id = ${teamLogic.values.currentTeamId}
                             AND event IN ('${SurveyEventName.DISMISSED}', '${SurveyEventName.SENT}')
-                            AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
+                            AND properties.\`${SurveyEventProperties.SURVEY_ID}\` = '${props.id}'
                             ${values.timestampFilter}
                             ${values.archivedResponsesFilter}
                             AND (
                             event != '${SurveyEventName.DISMISSED}'
                             OR
-                            COALESCE(JSONExtractBool(properties, '${SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}'), False) = False
+                            ${buildSurveyOptionalBooleanPropertyFilter(
+                                SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED,
+                                'true'
+                            )}
                             )
                             AND {filters} -- Apply property filters here to reduce initial events
                         GROUP BY person_id
@@ -1576,10 +1583,10 @@ export const surveyLogic = kea<surveyLogicType>([
                  * So we return all responses that don't have it.
                  * For posthog-js > 1.240, we use the $survey_completed property.
                  */
-                return `AND (
-                            NOT JSONHas(properties, '${SurveyEventProperties.SURVEY_COMPLETED}')
-                            OR JSONExtractBool(properties, '${SurveyEventProperties.SURVEY_COMPLETED}') = true
-                        )`
+                return `AND ${buildSurveyOptionalBooleanPropertyFilter(
+                    SurveyEventProperties.SURVEY_COMPLETED,
+                    'false'
+                )}`
             },
         ],
         archivedResponsesFilter: [
@@ -2359,9 +2366,10 @@ export const surveyLogic = kea<surveyLogicType>([
                         ) {
                             return {
                                 ...questionErrors,
-                                choices: question.choices.some((choice) => !choice.trim())
-                                    ? 'Please ensure all choices are non-empty.'
-                                    : undefined,
+                                choices:
+                                    !question.choices?.length || question.choices.some((choice) => !choice.trim())
+                                        ? 'Please ensure all choices are non-empty.'
+                                        : undefined,
                             }
                         }
 

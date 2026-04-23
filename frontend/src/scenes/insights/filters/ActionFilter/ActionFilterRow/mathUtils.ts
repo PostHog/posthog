@@ -1,6 +1,6 @@
 import { COUNT_PER_ACTOR_MATH_DEFINITIONS, PROPERTY_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 
-import { CountPerActorMathType, PropertyMathType } from '~/types'
+import { CountPerActorMathType, InsightType, PropertyMathType } from '~/types'
 
 // Property math types that can be meaningfully aggregated when rolling up histogram buckets
 // e.g. taking p99 of p99 values doesn't make sense
@@ -31,4 +31,8 @@ export function getDefaultPropertyMathType(
         return (propertyMathTypes[0] as PropertyMathType) || PropertyMathType.Average
     }
     return PropertyMathType.Average
+}
+
+export function getDefaultMathHogQLExpression(insightType?: InsightType): string {
+    return insightType === InsightType.STICKINESS ? 'person_id' : 'count()'
 }

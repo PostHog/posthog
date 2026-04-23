@@ -140,6 +140,8 @@ def _run_single_test(
         test_name=test_case.full_name,
         status=status,
         duration_seconds=round(duration, 1),
+        error_message=error_message,
+        error_details=error_details,
     )
 
     return TestResult(

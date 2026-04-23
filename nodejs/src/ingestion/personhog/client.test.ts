@@ -113,8 +113,14 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
     upsertHashKeyOverrides: () => ({}),
     deleteHashKeyOverridesByTeams: () => ({}),
     checkCohortMembership: () => ({ memberships: [] }),
+    countCohortMembers: () => ({ count: 0n }),
+    deleteCohortMember: () => ({ deleted: false }),
+    deleteCohortMembersBulk: () => ({ deletedCount: 0n }),
+    insertCohortMembers: () => ({ insertedCount: 0n }),
+    listCohortMemberIds: () => ({ personIds: [], nextCursor: 0n }),
     updatePersonProperties: () => ({}),
     deletePersons: () => ({ deletedCount: 0n }),
+    deletePersonsBatchForTeam: () => ({ deletedCount: 0n }),
 }
 
 function createMockClient(overrides: Partial<ServiceImpl<typeof PersonHogService>> = {}): PersonHogClient {

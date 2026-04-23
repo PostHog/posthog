@@ -38,7 +38,6 @@ import {
     getPropertyDefinitionIcon,
     getRevenueAnalyticsDefinitionIcon,
 } from 'scenes/data-management/events/DefinitionHeader'
-import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { COHORT_BEHAVIORAL_LIMITATIONS_URL } from 'scenes/feature-flags/constants'
@@ -63,6 +62,7 @@ import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
     ActionType,
     CohortType,
+    CoreFilterDefinition,
     DashboardType,
     EventDefinition,
     EventDefinitionType,
@@ -79,6 +79,7 @@ import {
     TeamType,
 } from '~/types'
 
+import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 import { HogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/HogFlowTaxonomicFilters'
 
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from '../PropertyFilters/utils'
@@ -207,10 +208,11 @@ export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopoverHea
 }
 
 export const propertyTaxonomicGroupProps = (
-    verified: boolean = false
+    coreDefinitionsGroup?: Record<string, CoreFilterDefinition>
 ): Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> => ({
     getPopoverHeader: (propertyDefinition: PropertyDefinition): string => {
-        if (verified || !!CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties[propertyDefinition.name]) {
+        const coreGroup = coreDefinitionsGroup ?? CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties
+        if (coreGroup[propertyDefinition.name]) {
             return 'PostHog property'
         }
         return 'Property'
@@ -258,7 +260,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['groupTypes', 'aggregationLabel'],
             dataWarehouseSettingsSceneLogic, // This logic needs to be connected to stop the popover from erroring out
             ['dataWarehouseTables'],
-            dataWarehouseJoinsLogic,
+            joinsLogic,
             ['columnsJoinedToPersons'],
             propertyDefinitionsModel,
             ['eventMetadataPropertyDefinitions'],
@@ -333,10 +335,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     state: (TaxonomicDefinitionTypes & { group: TaxonomicFilterGroupType })[],
                     { items }: { items: (TaxonomicDefinitionTypes & { group: TaxonomicFilterGroupType })[] }
                 ) => {
-                    if (items.length === 0) {
+                    const incomingGroup = items[0]?.group
+                    if (!incomingGroup) {
                         return state
                     }
-                    const incomingGroup = items[0].group
                     return [...state.filter((i) => i.group !== incomingGroup), ...items]
                 },
             },
@@ -395,9 +397,15 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.hideBehavioralCohorts],
             (hideBehavioralCohorts: boolean | undefined) => hideBehavioralCohorts ?? false,
         ],
-        hogQLGlobals: [
-            () => [(_, props) => props.hogQLGlobals],
-            (hogQLGlobals: Record<string, any> | undefined) => hogQLGlobals,
+        hogQLExpressionComponentProps: [
+            () => [(_, props) => props.hogQLGlobals, (_, props) => props.hogQLExpressionShowBreakdownLabelHint],
+            (
+                hogQLGlobals: Record<string, any> | undefined,
+                showBreakdownLabelHint: boolean | undefined
+            ): { globals?: Record<string, any>; showBreakdownLabelHint: boolean } => ({
+                globals: hogQLGlobals,
+                showBreakdownLabelHint: showBreakdownLabelHint ?? false,
+            }),
         ],
         endpointFilters: [
             () => [(_, props) => props.endpointFilters],
@@ -419,7 +427,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.maxContextOptions,
                 s.hideBehavioralCohorts,
                 s.endpointFilters,
-                s.hogQLGlobals,
+                s.hogQLExpressionComponentProps,
                 s.featureFlags,
             ],
             (
@@ -437,7 +445,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 maxContextOptions: MaxContextTaxonomicFilterOption[],
                 hideBehavioralCohorts: boolean,
                 endpointFilters: Record<string, any> | undefined,
-                hogQLGlobals: Record<string, any> | undefined,
+                hogQLExpressionComponentProps: {
+                    globals?: Record<string, any>
+                    showBreakdownLabelHint: boolean
+                },
                 featureFlags: Record<string, boolean | string | undefined>
             ): TaxonomicFilterGroup[] => {
                 const { id: teamId } = currentTeam
@@ -538,7 +549,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Extended person properties',
                         searchPlaceholder: 'extended person properties',
                         type: TaxonomicFilterGroupType.DataWarehousePersonProperties,
-                        logic: dataWarehouseJoinsLogic,
+                        logic: joinsLogic,
                         value: 'columnsJoinedToPersons',
                         getName: (personProperty: PersonProperty) => personProperty.name,
                         getValue: (personProperty: PersonProperty) => personProperty.id,
@@ -563,7 +574,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         // this taxonomic group type is used
                         getName: (option: SimpleOption) => option.name,
                         getValue: (option: SimpleOption) => option.name,
-                        ...propertyTaxonomicGroupProps(true),
+                        ...propertyTaxonomicGroupProps(CORE_FILTER_DEFINITIONS_BY_GROUP.metadata),
                     },
                     {
                         name: 'Event properties',
@@ -810,9 +821,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'spans',
                         type: TaxonomicFilterGroupType.Spans,
                         options: [
-                            { key: 'message', name: 'Message', propertyFilterType: 'span' },
                             { key: 'trace_id', name: 'trace_id', propertyFilterType: 'span' },
                             { key: 'span_id', name: 'span_id', propertyFilterType: 'span' },
+                            { key: 'duration', name: 'duration (ms)', propertyFilterType: 'span' },
                         ],
                         localItemsSearch: (items: any[], q: string): any[] => {
                             if (!q) {
@@ -894,7 +905,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getValue: (personProperty: PersonProperty) => personProperty.name,
                         propertyAllowList:
                             propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties]?.filter(isString),
-                        ...propertyTaxonomicGroupProps(true),
+                        ...propertyTaxonomicGroupProps(CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties),
                     },
                     {
                         name: 'Cohorts',
@@ -1149,7 +1160,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.HogQLExpression,
                         render: InlineHogQLEditor,
                         getPopoverHeader: () => 'SQL expression',
-                        componentProps: { metadataSource, globals: hogQLGlobals },
+                        componentProps: { metadataSource, ...hogQLExpressionComponentProps },
                     },
                     {
                         name: 'Replay',
@@ -1658,12 +1669,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         },
 
         infiniteListResultsReceived: ({ groupType, results }) => {
-            if (!values.metaGroupTypes.has(groupType)) {
+            if (groupType && !values.metaGroupTypes.has(groupType)) {
                 const subLogic = values.infiniteListLogics[groupType]
                 if (subLogic?.isMounted()) {
                     const matches = subLogic.values.topMatchesForQuery
+                        .filter(Boolean)
+                        .map((m) => ({ ...m, group: groupType }))
                     if (matches.length > 0) {
-                        actions.appendTopMatches(matches.map((m) => ({ ...m, group: groupType })))
+                        actions.appendTopMatches(matches)
                     }
                 }
             }

@@ -1,5 +1,19 @@
 # posthog-cli
 
+# 0.7.9
+
+- feat: warn and skip empty sourcemaps (no mappings/sources/names) during upload to surface bundler misconfigurations instead of silently uploading useless symbol sets
+
+# 0.7.8
+
+- feat: add `--build` flag to all upload commands (hermes, dsym, proguard, sourcemap) via shared ReleaseArgs
+- feat: build number packed into version string (`"1.0+42"`) for release uniqueness; UI splits on `+` to display version and build separately
+
+# 0.7.7
+
+- fix: align `dsym upload` release flags with other upload commands by using `--release-name` / `--release-version` (with backward-compatible aliases)
+- fix: reuse shared release args in `dsym upload` so release fallback behavior matches other upload commands
+
 # 0.7.5
 
 - fix: stable source bundle for dSYM uploads — CU-anchored prefix filter prevents framework sources from changing the content hash

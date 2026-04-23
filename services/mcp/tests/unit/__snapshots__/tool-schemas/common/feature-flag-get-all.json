@@ -32,7 +32,7 @@
             "type": "number"
         },
         "search": {
-            "description": "Search by feature flag key or name. Case insensitive.",
+            "description": "Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete tools.",
             "type": "string"
         },
         "tags": {

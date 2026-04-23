@@ -1,4 +1,5 @@
 import re
+import time
 import uuid
 import builtins
 import dataclasses
@@ -11,6 +12,7 @@ from django.utils import timezone
 
 import structlog
 import posthoganalytics
+from asgiref.sync import async_to_sync
 from dateutil.parser import isoparse
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiParameter, extend_schema_view
@@ -45,7 +47,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError, QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
-from posthog.hogql.printer.base import HogQLPrinter
+from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.utils import print_prepared_ast
 from posthog.hogql.visitor import CloningVisitor
 
@@ -85,6 +87,10 @@ from products.data_warehouse.backend.models.external_data_schema import (
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
 )
+from products.endpoints.backend.insight_transformers import (
+    MaterializedSeriesMismatchError,
+    transform_materialized_insight_response,
+)
 from products.endpoints.backend.materialization import (
     SUPPORTED_BUCKET_FUNCTIONS,
     VariablePlaceholderFinder,
@@ -94,6 +100,18 @@ from products.endpoints.backend.materialization import (
     get_reaggregation,
     transform_query_for_materialization,
     transform_select_for_materialized_table,
+)
+from products.endpoints.backend.metrics import (
+    ENDPOINT_CACHE_RESULT_TOTAL,
+    ENDPOINT_CONCURRENCY_REJECTED_TOTAL,
+    ENDPOINT_DUCKLAKE_FALLBACK_TOTAL,
+    ENDPOINT_EXECUTION_DURATION_SECONDS,
+    ENDPOINT_EXECUTION_TOTAL,
+    ENDPOINT_HOGQL_RESULT_ROWS,
+    ENDPOINT_MATERIALIZATION_EVENT_TOTAL,
+    ENDPOINT_MATERIALIZED_AGE_SECONDS,
+    ENDPOINT_VALIDATION_ERROR_TOTAL,
+    query_kind_label,
 )
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.openapi import generate_openapi_spec
@@ -121,6 +139,85 @@ ENDPOINT_BREAKDOWN_LIMIT = 10_000
 ENDPOINT_NAME_REGEX = r"^[a-zA-Z][a-zA-Z0-9_-]{0,127}$"
 
 logger = structlog.get_logger(__name__)
+
+
+def _emit_endpoint_failure_signal(
+    team,
+    endpoint: "Endpoint",
+    exc: BaseException,
+    *,
+    materialized: bool,
+    version: int | None = None,
+    saved_query_id: Union[str, uuid.UUID, None] = None,
+    query_kind: str | None = None,
+    executed_sql: str | None = None,
+    saved_query_status: str | None = None,
+    saved_query_last_run_at: str | None = None,
+    saved_query_columns: dict | None = None,
+    endpoint_columns: list | None = None,
+) -> None:
+    """Fire a Signal when an endpoint execution fails, so the AI can reason about it later.
+
+    Fails silently — signal emission must never mask the underlying error.
+    """
+    from products.signals.backend.api import emit_signal
+
+    try:
+        error_class = type(exc).__name__
+        error_msg = str(exc)
+        version_str = f" v{version}" if version else ""
+
+        if materialized:
+            execution_mode = "materialized"
+            context = (
+                f"The materialized table (saved_query_id={saved_query_id}) may be stale, missing, or have a schema mismatch. "
+                f"Check whether the materialization refresh completed successfully and whether the underlying query still produces valid columns."
+            )
+            if saved_query_status:
+                context += f"\nSaved query status: {saved_query_status}"
+            if saved_query_last_run_at:
+                context += f", last materialized at: {saved_query_last_run_at}"
+            if saved_query_columns:
+                context += f"\nMaterialized table columns: {saved_query_columns}"
+            if endpoint_columns:
+                context += f"\nEndpoint version columns: {endpoint_columns}"
+        else:
+            execution_mode = "inline"
+            context = (
+                f"The query is executed on-demand against live data. "
+                f"Common causes: invalid HogQL syntax, missing or renamed properties, query timeout, or incompatible variable overrides."
+            )
+
+        parts = [
+            f"Endpoint '{endpoint.name}'{version_str} failed during {execution_mode} execution.",
+            f"Error: {error_class}: {error_msg}",
+        ]
+        if query_kind:
+            parts.append(f"Query kind: {query_kind}")
+        if executed_sql:
+            parts.append(f"Executed HogQL: {executed_sql}")
+        parts.append(context)
+        parts.append(f"Endpoint path: {endpoint.endpoint_path}")
+        description = "\n".join(parts)
+
+        async_to_sync(emit_signal)(
+            team=team,
+            source_product="endpoints",
+            source_type="endpoint_execution_failed",
+            source_id=f"{team.id}:{endpoint.name}",
+            description=description,
+            weight=0.5,
+            extra={
+                "endpoint_name": endpoint.name,
+                "endpoint_version": version,
+                "materialized": materialized,
+                "saved_query_id": str(saved_query_id) if saved_query_id else None,
+                "error_class": error_class,
+                "error_message": error_msg,
+            },
+        )
+    except Exception:
+        logger.exception("Failed to emit endpoint failure signal", endpoint_name=endpoint.name)
 
 
 def _add_where_condition(select_query: ast.SelectQuery, condition: ast.Expr) -> None:
@@ -1005,9 +1102,12 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         """
         try:
             self._enable_materialization_inner(endpoint, sync_frequency, request, version, bucket_overrides)
+            ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="enable", status="success").inc()
         except ValidationError:
+            ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="enable", status="validation_error").inc()
             raise
         except Exception:
+            ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="enable", status="error").inc()
             raise ValidationError("Failed to enable materialization.")
 
     def _enable_materialization_inner(
@@ -1109,7 +1209,12 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                             "saved_query_id": version.saved_query.id if version and version.saved_query else None,
                         },
                     )
-            version.disable_materialization()
+                try:
+                    version.disable_materialization()
+                except Exception:
+                    ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="disable", status="error").inc()
+                    raise
+                ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="disable", status="success").inc()
         clear_endpoint_materialization_cache(self.team_id, endpoint.name)
 
     def destroy(self, request: Request, name=None, *args, **kwargs) -> Response:
@@ -1274,7 +1379,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             allowed.update(_get_breakdown_properties(breakdown_filter))
 
         if not is_materialized:
-            # Non-materialized insight endpoints expose date_from/date_to as magic variables
+            # Non-materialized also allows date_from/date_to via filters_override
             allowed.update({"date_from", "date_to"})
 
         return allowed
@@ -1524,6 +1629,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         offset: int | None = None,
     ) -> Response:
         """Execute against a materialized table in S3."""
+        materialized_hogql_query = None
+        query_kind = None
         try:
             version = version or endpoint.get_version()
             if not version.saved_query:
@@ -1540,11 +1647,31 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
             pagination: EndpointPagination | None = None
 
-            if limit is not None:
+            # Only paginate flat-row HogQL results. Insight types get transformed
+            # into nested structures where flat-row LIMIT/OFFSET is meaningless.
+            if limit is not None and query_kind == "HogQLQuery":
                 pagination = EndpointPagination(limit=limit, offset=offset or 0, ceiling=original_limit)
                 pagination.apply_to(select_query)
 
-            if data.variables:
+            deprecation_headers: dict[str, str] | None = None
+
+            # For insight endpoints: filters_override takes precedence over variables (backwards compat)
+            if query_kind != "HogQLQuery" and data.filters_override is not None:
+                deprecation_headers = {
+                    "X-PostHog-Warn": "filters_override is deprecated. Use variables instead: https://posthog.com/docs/api/endpoints"
+                }
+                # Extract breakdown filter from properties
+                if data.filters_override.properties:
+                    for prop in data.filters_override.properties:
+                        if hasattr(prop, "key") and hasattr(prop, "value") and prop.value is not None:
+                            # Convert value to string for breakdown filter
+                            value = prop.value[0] if isinstance(prop.value, list) else prop.value
+                            condition = self._build_breakdown_filter_condition(query_kind, str(value))
+                            if condition:
+                                _add_where_condition(select_query, condition)
+                            # filters_override is deprecated — only the first property is used
+                            break
+            elif data.variables:
                 if query_kind == "HogQLQuery":
                     # HogQL: filter by all materialized variable columns
                     materialized_vars = self._get_materialized_variables(version)
@@ -1602,6 +1729,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 request,
                 extra_result_fields=extra_fields,
                 debug=debug,
+                headers=deprecation_headers,
                 pagination=pagination,
             )
 
@@ -1613,8 +1741,34 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     request,
                     extra_result_fields=extra_fields,
                     debug=debug,
+                    headers=deprecation_headers,
                     pagination=pagination,
                 )
+
+            INSIGHT_TRANSFORM_TYPES = {"TrendsQuery", "LifecycleQuery", "RetentionQuery"}
+            if query_kind in INSIGHT_TRANSFORM_TYPES:
+                try:
+                    transform_materialized_insight_response(
+                        result.data,
+                        query,
+                        self.team,
+                        now=saved_query.last_run_at,
+                    )
+                except MaterializedSeriesMismatchError:
+                    # Series drift: query was likely edited after materialization. Trigger a refresh
+                    # so the next request succeeds, but fail this one loudly rather than
+                    # returning wrong-labeled data.
+                    logger.warning(
+                        "Materialized endpoint series mismatch, triggering re-materialization",
+                        endpoint_name=endpoint.name,
+                        saved_query_id=saved_query.id,
+                    )
+                    trigger_saved_query_schedule(saved_query)
+                    raise
+
+            if saved_query.last_run_at:
+                age_seconds = max((timezone.now() - saved_query.last_run_at).total_seconds(), 0.0)
+                ENDPOINT_MATERIALIZED_AGE_SECONDS.observe(age_seconds)
 
             return result
         except Exception as e:
@@ -1633,6 +1787,22 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     "materialized": True,
                     "saved_query_id": saved_query.id if saved_query else None,
                 },
+            )
+            _emit_endpoint_failure_signal(
+                self.team,
+                endpoint,
+                e,
+                materialized=True,
+                version=version.version if version else None,
+                saved_query_id=saved_query.id if saved_query else None,
+                query_kind=query_kind,
+                executed_sql=materialized_hogql_query.query if materialized_hogql_query else None,
+                saved_query_status=saved_query.status if saved_query else None,
+                saved_query_last_run_at=(
+                    saved_query.last_run_at.isoformat() if saved_query and saved_query.last_run_at else None
+                ),
+                saved_query_columns=saved_query.columns if saved_query else None,
+                endpoint_columns=version.columns if version else None,
             )
             raise
 
@@ -1682,7 +1852,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
             ctx = HogQLContext(enable_select_queries=True, limit_top_select=False)
             query = query.copy()
-            query["query"] = _PlaceholderPreservingPrinter(context=ctx, dialect="hogql").visit(parsed)
+            query["query"] = _PlaceholderPreservingPrinter(context=ctx).visit(parsed)
             return query, pagination
 
         raise ValidationError({"limit": f"Limit/offset parameters are only supported for HogQLQuery, not {query_kind}"})
@@ -1884,8 +2054,15 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
             variables_override = None
             filters_override = None
+            deprecation_headers: dict[str, str] | None = None
 
-            if data.variables:
+            # For insight endpoints: filters_override takes precedence over variables (backwards compat)
+            if query_kind != "HogQLQuery" and data.filters_override is not None:
+                filters_override = data.filters_override
+                deprecation_headers = {
+                    "X-PostHog-Warn": "filters_override is deprecated. Use variables instead: https://posthog.com/docs/api/endpoints"
+                }
+            elif data.variables:
                 if query_kind == "HogQLQuery":
                     variables_override = self._parse_variables(query, data.variables)
                 else:
@@ -1911,6 +2088,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 variables_override=variables_override,
                 cache_age_seconds=cache_age,
                 debug=debug,
+                headers=deprecation_headers,
                 pagination=pagination,
             )
 
@@ -1929,6 +2107,16 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     "endpoint_name": endpoint.name,
                 },
             )
+            _emit_endpoint_failure_signal(
+                self.team,
+                endpoint,
+                e,
+                materialized=False,
+                version=version.version if version else None,
+                query_kind=query_kind,
+                executed_sql=query.get("query") if query_kind == "HogQLQuery" else None,
+                endpoint_columns=version.columns if version else None,
+            )
             raise
 
     @extend_schema(
@@ -1940,17 +2128,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     def run(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Execute endpoint with optional parameters."""
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name, is_active=True, deleted=False)
-
-        # Reject the removed filters_override parameter with a clear migration message.
-        # The field is no longer on EndpointRunRequest, so pydantic would otherwise return a
-        # generic "Extra inputs are not permitted" error that doesn't point users to variables.
-        if isinstance(request.data, dict) and "filters_override" in request.data:
-            raise ValidationError(
-                {
-                    "filters_override": "filters_override is no longer supported. Use variables instead: https://posthog.com/docs/api/endpoints"
-                }
-            )
-
         data = self.get_model(request.data, EndpointRunRequest)
 
         # Track endpoint execution for deprecation monitoring
@@ -1960,6 +2137,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             properties={
                 "endpoint_id": str(endpoint.id),
                 "endpoint_name": endpoint.name,
+                "has_filters_override": bool(data.filters_override),
                 "has_variables": bool(data.variables),
                 "has_limit": data.limit is not None,
                 "has_offset": data.offset is not None,
@@ -2012,6 +2190,10 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         use_materialized = self._should_use_materialized_table(endpoint, data, version_obj)
 
         debug = data.debug or False
+        execution_type = "materialized" if use_materialized else "inline"
+        query_kind_metric = query_kind_label(version_obj.query if version_obj else None)
+        execution_status: str | None = None
+        _start_time = time.monotonic()
 
         try:
             if use_materialized:
@@ -2031,11 +2213,14 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 if use_ducklake:
                     try:
                         result = self._execute_ducklake_endpoint(endpoint, query_to_use, debug=debug)
+                        execution_type = "ducklake"
                     except Exception:
                         logger.warning(
                             "DuckLake execution failed, falling back to inline",
                             endpoint_name=endpoint.name,
                         )
+                        ENDPOINT_DUCKLAKE_FALLBACK_TOTAL.inc()
+                        execution_type = "ducklake_fallback"
                         result = self._execute_inline_endpoint(
                             endpoint,
                             data,
@@ -2057,8 +2242,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                         limit=limit,
                         offset=offset,
                     )
-
+            execution_status = "success"
         except (ExposedHogQLError, ExposedCHQueryError) as e:
+            execution_status = "error"
             logger.exception(
                 "Endpoint execution failed",
                 endpoint_name=endpoint.name,
@@ -2066,19 +2252,50 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             )
             raise ValidationError("Query execution failed.", getattr(e, "code_name", None))
         except HogVMException:
+            execution_status = "error"
             logger.exception(
                 "Endpoint execution failed (HogVM)",
                 endpoint_name=endpoint.name,
             )
             raise ValidationError("Query execution failed: HogQL virtual machine error")
         except ResolutionError:
+            execution_status = "error"
             logger.exception(
                 "Endpoint resolution failed",
                 endpoint_name=endpoint.name,
             )
             raise ValidationError("Query resolution failed: unable to resolve table or field references.")
         except ConcurrencyLimitExceeded:
+            ENDPOINT_CONCURRENCY_REJECTED_TOTAL.inc()
             raise Throttled(detail="Too many concurrent requests. Please try again later.")
+        except Exception:
+            execution_status = "error"
+            raise
+        finally:
+            if execution_status is not None:
+                _duration = time.monotonic() - _start_time
+                ENDPOINT_EXECUTION_DURATION_SECONDS.labels(
+                    execution_type=execution_type, query_kind=query_kind_metric
+                ).observe(_duration)
+                ENDPOINT_EXECUTION_TOTAL.labels(
+                    execution_type=execution_type, query_kind=query_kind_metric, status=execution_status
+                ).inc()
+
+        try:
+            if isinstance(result.data, dict):
+                # DuckLake bypasses the query result cache entirely — don't claim hit/miss for it.
+                if execution_type != "ducklake":
+                    cache_outcome = "hit" if bool(result.data.get("is_cached")) else "miss"
+                    ENDPOINT_CACHE_RESULT_TOTAL.labels(
+                        execution_type=execution_type, query_kind=query_kind_metric, outcome=cache_outcome
+                    ).inc()
+
+                if query_kind_metric == "hogql":
+                    results_value = result.data.get("results")
+                    if isinstance(results_value, list):
+                        ENDPOINT_HOGQL_RESULT_ROWS.labels(execution_type=execution_type).observe(len(results_value))
+        except Exception:
+            logger.debug("Failed to record endpoint result metrics", exc_info=True)
 
         if get_query_tag_value("access_method") == "personal_api_key":
             now = timezone.now()
@@ -2098,21 +2315,29 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         self, data: EndpointRunRequest, endpoint: Endpoint, version: EndpointVersion | None = None
     ) -> None:
         version = version or endpoint.get_version()
-        if version is None:
-            raise ValidationError("No active version found for this endpoint.")
 
         query = version.query
         is_materialized = bool(version.is_materialized and version.saved_query)
 
         if version and not version.is_active:
+            ENDPOINT_VALIDATION_ERROR_TOTAL.labels(reason="inactive_version").inc()
             raise ValidationError(f"Version {version.version} is inactive and cannot be executed.")
+
+        query_kind = query.get("kind")
 
         # Reject query_override (always)
         if hasattr(data, "query_override") and data.query_override is not None:
             raise ValidationError({"query_override": "Not allowed. Use variables instead."})
 
+        # Allow filters_override for insight endpoints (deprecated but backwards compatible)
+        # Reject for HogQL endpoints
+        if data.filters_override is not None:
+            if query_kind == "HogQLQuery":
+                raise ValidationError({"filters_override": "Not allowed for HogQL endpoints. Use variables instead."})
+
         # Validate refresh mode
         if data.refresh == EndpointRefreshMode.DIRECT and not is_materialized:
+            ENDPOINT_VALIDATION_ERROR_TOTAL.labels(reason="direct_refresh_not_materialized").inc()
             raise ValidationError(
                 {
                     "refresh": "'direct' refresh mode is only valid for materialized endpoints. "
@@ -2125,16 +2350,19 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             allowed_vars = self._get_allowed_variables(query, is_materialized)
             unknown_vars = set(data.variables.keys()) - allowed_vars
             if unknown_vars:
+                ENDPOINT_VALIDATION_ERROR_TOTAL.labels(reason="unknown_variable").inc()
                 raise ValidationError({"variables": f"Unknown variable(s): {', '.join(sorted(unknown_vars))}"})
 
         # SECURITY: For materialized endpoints with required variables, ALL must be provided.
         # Without this check, omitting variables would return ALL data instead of filtered data.
-        if is_materialized:
+        # Exception: filters_override is the deprecated way to provide filters for insight endpoints
+        if is_materialized and not (data.filters_override and data.filters_override.properties):
             required_vars = self._get_required_variables_for_materialized(query, version)
             if required_vars:
                 provided = set(data.variables.keys()) if data.variables else set()
                 missing = sorted(required_vars - provided)
                 if missing:
+                    ENDPOINT_VALIDATION_ERROR_TOTAL.labels(reason="missing_required_variable").inc()
                     raise ValidationError(
                         {"variables": f"Required variable(s) {', '.join(repr(v) for v in missing)} not provided"}
                     )

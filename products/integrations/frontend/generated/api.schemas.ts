@@ -143,10 +143,13 @@ export interface PatchedOrganizationIntegrationApi {
  * `jira` - Jira
  * `pinterest-ads` - Pinterest Ads
  * `stripe` - Stripe
+ * `customerio-app` - Customerio App
+ * `customerio-webhook` - Customerio Webhook
+ * `customerio-track` - Customerio Track
  */
-export type KindBa9EnumApi = (typeof KindBa9EnumApi)[keyof typeof KindBa9EnumApi]
+export type KindE4eEnumApi = (typeof KindE4eEnumApi)[keyof typeof KindE4eEnumApi]
 
-export const KindBa9EnumApi = {
+export const KindE4eEnumApi = {
     Slack: 'slack',
     SlackPosthogCode: 'slack-posthog-code',
     Salesforce: 'salesforce',
@@ -176,6 +179,9 @@ export const KindBa9EnumApi = {
     Jira: 'jira',
     PinterestAds: 'pinterest-ads',
     Stripe: 'stripe',
+    CustomerioApp: 'customerio-app',
+    CustomerioWebhook: 'customerio-webhook',
+    CustomerioTrack: 'customerio-track',
 } as const
 
 /**
@@ -183,7 +189,7 @@ export const KindBa9EnumApi = {
  */
 export interface IntegrationApi {
     readonly id: number
-    kind: KindBa9EnumApi
+    kind: KindE4eEnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -205,7 +211,7 @@ export interface PaginatedIntegrationListApi {
  */
 export interface PatchedIntegrationApi {
     readonly id?: number
-    kind?: KindBa9EnumApi
+    kind?: KindE4eEnumApi
     config?: unknown
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -221,6 +227,8 @@ export interface GitHubBranchesResponseApi {
      * @nullable
      */
     default_branch?: string | null
+    /** Whether more branches exist beyond the returned page */
+    has_more: boolean
 }
 
 export interface GitHubRepoApi {
@@ -230,6 +238,13 @@ export interface GitHubRepoApi {
 }
 
 export interface GitHubReposResponseApi {
+    repositories: GitHubRepoApi[]
+    /** Whether more repositories are available beyond this page. */
+    has_more: boolean
+}
+
+export interface GitHubReposRefreshResponseApi {
+    /** The refreshed repository cache. */
     repositories: GitHubRepoApi[]
 }
 
@@ -257,8 +272,37 @@ export type IntegrationsList2Params = {
 
 export type IntegrationsGithubBranchesRetrieveParams = {
     /**
+     * Maximum number of branches to return
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * Number of branches to skip
+     * @minimum 0
+     */
+    offset?: number
+    /**
      * Repository in owner/repo format
      * @minLength 1
      */
     repo: string
+    /**
+     * Optional case-insensitive branch name search query.
+     */
+    search?: string
+}
+
+export type IntegrationsGithubReposRetrieveParams = {
+    /**
+     * Maximum number of repositories to return per request (max 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Number of repositories to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number
 }

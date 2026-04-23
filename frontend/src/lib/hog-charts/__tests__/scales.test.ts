@@ -1,4 +1,12 @@
-import { autoFormatYTick, computePercentStackData, computeStackData, createXScale, createYScale } from '../core/scales'
+import {
+    autoFormatYTick,
+    computePercentStackData,
+    computeStackData,
+    createScales,
+    createXScale,
+    createYScale,
+} from '../core/scales'
+import { DEFAULT_Y_AXIS_ID } from '../core/types'
 import { dimensions, makeSeries } from '../test-helpers'
 
 describe('hog-charts scales', () => {
@@ -133,6 +141,74 @@ describe('hog-charts scales', () => {
             const series = [makeSeries({ key: 's1', data: [1] })]
             const scale = createYScale(series, dimensions, { percentStack: true })
             expect(scale(1)).toBeCloseTo(dimensions.plotTop, 0)
+        })
+    })
+
+    describe('createScales — single axis', () => {
+        it('returns no yAxes map when all visible series share the default axis', () => {
+            const series = [makeSeries({ key: 's1', data: [10] }), makeSeries({ key: 's2', data: [20] })]
+            const result = createScales(series, ['a'], dimensions)
+            expect(result.yAxes).toBeUndefined()
+        })
+
+        it('treats all-hidden series as single-axis (no yAxes map)', () => {
+            const series = [
+                makeSeries({ key: 'h1', data: [10], hidden: true, yAxisId: 'y1' }),
+                makeSeries({ key: 'h2', data: [20], hidden: true, yAxisId: 'y2' }),
+            ]
+            const result = createScales(series, ['a'], dimensions)
+            expect(result.yAxes).toBeUndefined()
+        })
+    })
+
+    describe('createScales — multi-axis', () => {
+        it('builds independent per-axis scales with their own domains', () => {
+            const small = makeSeries({ key: 'small', data: [0, 1], yAxisId: DEFAULT_Y_AXIS_ID })
+            const large = makeSeries({ key: 'large', data: [0, 1000], yAxisId: 'y1' })
+            const result = createScales([small, large], ['a', 'b'], dimensions)
+            expect(result.yAxes).not.toBeUndefined()
+            const left = result.yAxes![DEFAULT_Y_AXIS_ID].scale
+            const right = result.yAxes!.y1.scale
+            // 50 is in the middle of left's [0, 1] domain → top of plot; and far below right's [0, 1000]
+            // domain midpoint. Different scales → different pixels.
+            expect(left(1)).not.toBeCloseTo(right(1), 0)
+        })
+
+        it.each([
+            ['DEFAULT_Y_AXIS_ID first', [DEFAULT_Y_AXIS_ID, 'y1']],
+            ['non-default first', ['y1', DEFAULT_Y_AXIS_ID]],
+        ] as const)('assigns left to DEFAULT_Y_AXIS_ID regardless of series order (%s)', (_, [firstId, secondId]) => {
+            const a = makeSeries({ key: 'a', data: [10], yAxisId: firstId })
+            const b = makeSeries({ key: 'b', data: [20], yAxisId: secondId })
+            const result = createScales([a, b], ['x'], dimensions)
+            expect(result.yAxes![DEFAULT_Y_AXIS_ID].position).toBe('left')
+            expect(result.yAxes!.y1.position).toBe('right')
+        })
+
+        it('points scales.y at the default axis for backward compat', () => {
+            const a = makeSeries({ key: 'a', data: [0, 10], yAxisId: DEFAULT_Y_AXIS_ID })
+            const b = makeSeries({ key: 'b', data: [0, 1000], yAxisId: 'y1' })
+            const result = createScales([a, b], ['x', 'y'], dimensions)
+            expect(result.y(10)).toBe(result.yAxes![DEFAULT_Y_AXIS_ID].scale(10))
+        })
+
+        it('falls back scales.y to the first axis when no series uses DEFAULT_Y_AXIS_ID', () => {
+            const a = makeSeries({ key: 'a', data: [0, 10], yAxisId: 'y1' })
+            const b = makeSeries({ key: 'b', data: [0, 1000], yAxisId: 'y2' })
+            const result = createScales([a, b], ['x', 'y'], dimensions)
+            // Without 'left', 'y1' takes the left position; scales.y should mirror it.
+            expect(result.yAxes!.y1.position).toBe('left')
+            expect(result.y(10)).toBe(result.yAxes!.y1.scale(10))
+        })
+
+        it('excludes hidden series from per-axis domain calculation', () => {
+            const visible = makeSeries({ key: 'v', data: [0, 10], yAxisId: DEFAULT_Y_AXIS_ID })
+            const hiddenOnLeft = makeSeries({ key: 'h', data: [0, 9999], hidden: true, yAxisId: DEFAULT_Y_AXIS_ID })
+            const otherAxis = makeSeries({ key: 'o', data: [0, 500], yAxisId: 'y1' })
+            const result = createScales([visible, hiddenOnLeft, otherAxis], ['a', 'b'], dimensions)
+            const [, leftMax] = result.yAxes![DEFAULT_Y_AXIS_ID].scale.domain() as [number, number]
+            // nice() can extend the domain slightly but nowhere near 9999.
+            expect(leftMax).toBeLessThan(100)
         })
     })
 

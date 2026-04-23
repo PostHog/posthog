@@ -35,6 +35,11 @@ LINEAR_APP_CLIENT_SECRET = get_from_env("LINEAR_APP_CLIENT_SECRET", "")
 
 GITHUB_APP_CLIENT_ID = get_from_env("GITHUB_APP_CLIENT_ID", "")
 GITHUB_APP_PRIVATE_KEY = get_from_env("GITHUB_APP_PRIVATE_KEY", "")
+# OAuth *secret* for the same GitHub App as above - generated in the App's settings
+# when "Request user authorization during installation" is enabled.
+# Used with GITHUB_APP_CLIENT_ID to exchange an authorization code for a user access token,
+# which is separate from the private key used for App-as-App JWT signing.
+GITHUB_APP_CLIENT_SECRET = get_from_env("GITHUB_APP_CLIENT_SECRET", "")
 
 ZENDESK_ADMIN_EMAIL = get_from_env("ZENDESK_ADMIN_EMAIL", "")
 ZENDESK_API_TOKEN = get_from_env("ZENDESK_API_TOKEN", "")
@@ -88,3 +93,18 @@ CLOUDFLARE_TURNSTILE_SITE_KEY = get_from_env("CLOUDFLARE_TURNSTILE_SITE_KEY", ""
 # Recall.ai (for desktop recordings product)
 RECALL_AI_API_KEY = get_from_env("RECALL_AI_API_KEY", "")
 RECALL_AI_API_URL = get_from_env("RECALL_AI_API_URL", "https://us-west-2.recall.ai")
+
+# PandaDoc (for legal documents: BAA/DPA). One template per document variant.
+# Each call needs the matching template id, so we keep them as separate env vars —
+# rotating one (e.g., when Legal updates the DPA copy) doesn't touch the others.
+PANDADOC_API_BASE_URL = get_from_env("PANDADOC_API_BASE_URL", "https://api.pandadoc.com")
+PANDADOC_API_KEY = get_from_env("PANDADOC_API_KEY", "")
+PANDADOC_WEBHOOK_SECRET = get_from_env("PANDADOC_WEBHOOK_SECRET", "")
+PANDADOC_BAA_TEMPLATE_ID = get_from_env("PANDADOC_BAA_TEMPLATE_ID", "")
+PANDADOC_DPA_TEMPLATE_ID = get_from_env("PANDADOC_DPA_TEMPLATE_ID", "")
+
+# Slack incoming-webhook URL for internal legal-document notifications. The URL
+# is bound to a single channel at creation time in Slack's app admin, so there's
+# no channel to configure and no bot token to manage. Separate from the per-org
+# Slack integration used in products/slack_app.
+SLACK_LEGAL_DOCUMENTS_WEBHOOK_URL = get_from_env("SLACK_LEGAL_DOCUMENTS_WEBHOOK_URL", "")

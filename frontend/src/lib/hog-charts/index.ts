@@ -16,13 +16,18 @@ export type {
     ChartDrawArgs,
     ChartScales,
     CreateScalesFn,
-    GoalLine,
     LineChartConfig,
     PointClickData,
     ResolveValueFn,
     Series,
     TooltipContext,
+    YAxisScale,
 } from './core/types'
+export { DEFAULT_Y_AXIS_ID } from './core/types'
 
 // Built-in tooltip (for reference or extension)
 export { DefaultTooltip } from './overlays/DefaultTooltip'
+
+// Optional overlays
+export { ValueLabels } from './overlays/ValueLabels'
+export type { ValueLabelsProps } from './overlays/ValueLabels'

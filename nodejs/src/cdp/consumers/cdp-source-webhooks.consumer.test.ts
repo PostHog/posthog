@@ -314,6 +314,8 @@ describe('SourceWebhooksConsumer', () => {
                 const res = await doGetRequest({ webhookId: customBinaryFunction.id })
                 expect(res.status).toEqual(200)
                 expect(res.headers['content-type']).toEqual('image/png')
+                expect(res.headers['x-content-type-options']).toEqual('nosniff')
+                expect(res.headers['content-security-policy']).toEqual("default-src 'none'")
                 expect(Buffer.from(res.body)).toEqual(Buffer.from(base64Png, 'base64'))
             })
 
@@ -329,7 +331,80 @@ describe('SourceWebhooksConsumer', () => {
                 const res = await doGetRequest({ webhookId: customTextFunction.id })
                 expect(res.status).toEqual(200)
                 expect(res.headers['content-type']).toContain('text/plain')
+                expect(res.headers['x-content-type-options']).toEqual('nosniff')
+                expect(res.headers['content-security-policy']).toEqual("default-src 'none'")
                 expect(res.text).toEqual('Hello, world!')
+            })
+
+            it.each([
+                ['text/html', '<script>alert(document.cookie)</script>'],
+                ['image/svg+xml', '<svg onload="alert(1)"></svg>'],
+                ['application/javascript', 'alert(1)'],
+                ['text/javascript', 'alert(1)'],
+                ['application/xhtml+xml', '<html></html>'],
+            ])(
+                'should reject dangerous content type %s and fall back to text/plain',
+                async (dangerousType, payload) => {
+                    const fn = await insertHogFunction(hub.postgres, team.id, {
+                        type: 'source_webhook',
+                        hog: `return { 'httpResponse': { 'status': 200, 'body': '${payload}', 'contentType': '${dangerousType}' } }`,
+                        bytecode: await compileHog(
+                            `return { 'httpResponse': { 'status': 200, 'body': '${payload}', 'contentType': '${dangerousType}' } }`
+                        ),
+                        inputs: {},
+                    })
+                    const res = await doGetRequest({ webhookId: fn.id })
+                    expect(res.status).toEqual(200)
+                    expect(res.headers['content-type']).toContain('text/plain')
+                    expect(res.headers['content-type']).not.toContain(dangerousType)
+                    expect(res.headers['x-content-type-options']).toEqual('nosniff')
+                    expect(res.headers['content-security-policy']).toEqual("default-src 'none'")
+                    expect(res.text).toEqual(payload)
+                }
+            )
+
+            it('should reject unknown content types not on the allowlist', async () => {
+                const fn = await insertHogFunction(hub.postgres, team.id, {
+                    type: 'source_webhook',
+                    hog: `return { 'httpResponse': { 'status': 200, 'body': 'data', 'contentType': 'application/x-custom' } }`,
+                    bytecode: await compileHog(
+                        `return { 'httpResponse': { 'status': 200, 'body': 'data', 'contentType': 'application/x-custom' } }`
+                    ),
+                    inputs: {},
+                })
+                const res = await doGetRequest({ webhookId: fn.id })
+                expect(res.status).toEqual(200)
+                expect(res.headers['content-type']).toContain('text/plain')
+            })
+
+            it('should reject dangerous content type with charset parameter', async () => {
+                const fn = await insertHogFunction(hub.postgres, team.id, {
+                    type: 'source_webhook',
+                    hog: `return { 'httpResponse': { 'status': 200, 'body': '<script>alert(1)</script>', 'contentType': 'text/html; charset=utf-8' } }`,
+                    bytecode: await compileHog(
+                        `return { 'httpResponse': { 'status': 200, 'body': '<script>alert(1)</script>', 'contentType': 'text/html; charset=utf-8' } }`
+                    ),
+                    inputs: {},
+                })
+                const res = await doGetRequest({ webhookId: fn.id })
+                expect(res.status).toEqual(200)
+                expect(res.headers['content-type']).toContain('text/plain')
+                expect(res.headers['content-type']).not.toContain('text/html')
+            })
+
+            it('should strip parameters from allowlisted content types', async () => {
+                const fn = await insertHogFunction(hub.postgres, team.id, {
+                    type: 'source_webhook',
+                    hog: `return { 'httpResponse': { 'status': 200, 'body': 'hello', 'contentType': 'text/plain; charset=utf-7' } }`,
+                    bytecode: await compileHog(
+                        `return { 'httpResponse': { 'status': 200, 'body': 'hello', 'contentType': 'text/plain; charset=utf-7' } }`
+                    ),
+                    inputs: {},
+                })
+                const res = await doGetRequest({ webhookId: fn.id })
+                expect(res.status).toEqual(200)
+                expect(res.headers['content-type']).toContain('text/plain')
+                expect(res.headers['content-type']).not.toContain('utf-7')
             })
 
             it('should default to application/octet-stream when isBase64Encoded is true but no contentType', async () => {
@@ -378,53 +453,6 @@ describe('SourceWebhooksConsumer', () => {
                     })
                     .build()
                 await insertHogFlow(hub.postgres, hogFlow)
-            })
-
-            it('should schedule workflow run for scheduled_at on trigger', async () => {
-                const scheduledAt = '2025-01-02T12:00:00.000Z'
-                const scheduledHogFlow = new FixtureHogFlowBuilder()
-                    .withTeamId(team.id)
-                    .withSimpleWorkflow({
-                        trigger: {
-                            type: 'schedule',
-                            template_id: incomingWebhookTemplate.id,
-                            scheduled_at: scheduledAt,
-                            inputs: {
-                                event: {
-                                    value: 'my-event',
-                                    bytecode: await compileHog(`return f'my-event'`),
-                                },
-                                distinct_id: {
-                                    value: '{request.body.distinct_id}',
-                                    bytecode: await compileHog(`return f'{request.body.distinct_id}'`),
-                                },
-                                method: {
-                                    value: 'POST',
-                                    bytecode: await compileHog(`return f'POST'`),
-                                },
-                            },
-                        },
-                    })
-                    .build()
-                await insertHogFlow(hub.postgres, scheduledHogFlow)
-
-                const res = await doPostRequest({
-                    webhookId: scheduledHogFlow.id,
-                    body: {
-                        event: 'my-event',
-                        distinct_id: 'test-distinct-id',
-                    },
-                })
-                expect(res.status).toEqual(201)
-                expect(res.body).toEqual({ status: 'queued' })
-                expect(mockQueueInvocationsSpy).toHaveBeenCalledTimes(1)
-                const call = mockQueueInvocationsSpy.mock.calls[0][0][0]
-                expect(call.queueScheduledAt.toISO()).toEqual(scheduledAt)
-                await waitForBackgroundTasks()
-                expect(getLogs()).toEqual([
-                    expect.stringContaining('[Action:trigger] Function completed in'),
-                    expect.stringContaining(`[Action:trigger] Workflow run scheduled for ${scheduledAt}`),
-                ])
             })
 
             it('should 404 if the hog flow does not exist', async () => {

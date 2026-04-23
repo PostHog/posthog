@@ -12,7 +12,6 @@ from .generator import (
     DevenvConfig,
     MprocsGenerator,
     build_docker_compose_command,
-    get_effective_docker_profiles,
     get_generated_mprocs_path,
     load_devenv_config,
 )
@@ -323,7 +322,7 @@ def _get_docker_profiles_from_config() -> list[str]:
             include_units=saved_config.include_units,
             exclude_units=saved_config.exclude_units,
         )
-        return get_effective_docker_profiles(sorted(resolved.docker_profiles), resolved.units)
+        return sorted(resolved.docker_profiles)
     except ValueError:
         return []
 

@@ -801,6 +801,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
         setConditionAggregation,
         setOpenConditions,
         setIsMixedTargeting,
+        switchToMixedTargeting,
         setMixedGroupTypeIndex,
         setIsAnyItemDragging,
         setDraggedGroup,
@@ -926,8 +927,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
             }
             onBucketingIdentifierChange?.(null)
         } else if (value === 'mixed') {
-            setIsMixedTargeting(true)
-            setAggregationGroupTypeIndex(null)
+            switchToMixedTargeting()
             onBucketingIdentifierChange?.(null)
         }
     }
@@ -1095,7 +1095,8 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         {option.value === 'group' &&
                                             isSelected &&
                                             releaseFilters.aggregation_group_type_index != null &&
-                                            !isMixedTargeting && (
+                                            !isMixedTargeting &&
+                                            (groupTypeValues.length > 1 ? (
                                                 <div onClick={(e) => e.stopPropagation()}>
                                                     <LemonSelect
                                                         size="xsmall"
@@ -1113,27 +1114,34 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                         }))}
                                                     />
                                                 </div>
-                                            )}
+                                            ) : (
+                                                <span className="text-xs font-medium">
+                                                    {groupTypeValues[0]?.group_type}
+                                                </span>
+                                            ))}
                                         {/* Mixed group type selector */}
-                                        {option.value === 'mixed' && isSelected && isMixedTargeting && (
-                                            <div onClick={(e) => e.stopPropagation()}>
-                                                <LemonSelect
-                                                    size="xsmall"
-                                                    dropdownMatchSelectWidth={false}
-                                                    data-attr="feature-flag-mixed-group-type-select"
-                                                    value={mixedGroupTypeIndex}
-                                                    onChange={(value) => {
-                                                        if (value != null) {
-                                                            setMixedGroupTypeIndex(value)
-                                                        }
-                                                    }}
-                                                    options={groupTypeValues.map((groupType) => ({
-                                                        value: groupType.group_type_index,
-                                                        label: groupType.group_type,
-                                                    }))}
-                                                />
-                                            </div>
-                                        )}
+                                        {option.value === 'mixed' &&
+                                            isSelected &&
+                                            isMixedTargeting &&
+                                            groupTypeValues.length > 1 && (
+                                                <div onClick={(e) => e.stopPropagation()}>
+                                                    <LemonSelect
+                                                        size="xsmall"
+                                                        dropdownMatchSelectWidth={false}
+                                                        data-attr="feature-flag-mixed-group-type-select"
+                                                        value={mixedGroupTypeIndex}
+                                                        onChange={(value) => {
+                                                            if (value != null) {
+                                                                setMixedGroupTypeIndex(value)
+                                                            }
+                                                        }}
+                                                        options={groupTypeValues.map((groupType) => ({
+                                                            value: groupType.group_type_index,
+                                                            label: groupType.group_type,
+                                                        }))}
+                                                    />
+                                                </div>
+                                            )}
                                     </div>
                                 </div>
                             )

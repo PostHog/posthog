@@ -110,9 +110,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -195,9 +193,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -290,9 +286,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         self._save_experiment_with_precomputation(experiment, use_precomputation)
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -395,9 +389,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         self._save_experiment_with_precomputation(experiment, use_precomputation)
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -498,9 +490,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         self._save_experiment_with_precomputation(experiment, use_precomputation)
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -587,9 +577,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         self._save_experiment_with_precomputation(experiment, use_precomputation)
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -676,9 +664,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         self._save_experiment_with_precomputation(experiment, use_precomputation)
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -765,9 +751,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         self._save_experiment_with_precomputation(experiment, use_precomputation)
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -877,9 +861,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -972,9 +954,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         self._save_experiment_with_precomputation(experiment, use_precomputation)
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -1069,9 +1049,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         self._save_experiment_with_precomputation(experiment, use_precomputation)
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -1194,9 +1172,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         # Only mature users should be counted (1 control, 1 test)
@@ -1302,9 +1278,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         self._save_experiment_with_precomputation(experiment, use_precomputation)
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None

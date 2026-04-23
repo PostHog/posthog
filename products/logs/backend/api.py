@@ -3,10 +3,10 @@ import json
 import base64
 import datetime as dt
 
-from django.core.cache import cache
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema
+from opentelemetry import trace
 from pydantic import ValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -25,16 +25,18 @@ from posthog.schema import (
 )
 
 from posthog.api.mixins import PydanticModelMixin
+from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
 from posthog.models import User
 from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks.exporter import export_asset
 
 from products.logs.backend.alerts_api import LogsAlertViewSet
 from products.logs.backend.explain import LogExplainViewSet
-from products.logs.backend.has_logs_query_runner import HasLogsQueryRunner
+from products.logs.backend.has_logs_query_runner import team_has_logs
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
 from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
 from products.logs.backend.logs_query_runner import CachedLogsQueryResponse, LogsQueryResponse, LogsQueryRunner
@@ -44,34 +46,57 @@ from products.logs.backend.views_api import LogsViewViewSet
 
 __all__ = ["LogsViewSet", "LogExplainViewSet", "LogsAlertViewSet", "LogsViewViewSet"]
 
+tracer = trace.get_tracer(__name__)
 LOGS_MAX_EXPORT_ROWS = 10_000
+
+
+class DateRangeSerializer(serializers.Serializer):
+    date_from = serializers.CharField(help_text='Start of date range (ISO 8601 format, e.g., "2024-01-01T00:00:00Z").')
+    date_to = serializers.CharField(help_text='End of date range (ISO 8601 format, e.g., "2024-01-02T00:00:00Z").')
+
+
+class SparklineQuerySerializer(serializers.Serializer):
+    dateRange = DateRangeSerializer(help_text="Date range for the sparkline query.")
+    severityLevels = serializers.ListField(
+        child=serializers.ChoiceField(choices=["trace", "debug", "info", "warn", "error", "fatal"]),
+        required=False,
+        default=list,
+        help_text="Filter by severity levels (trace, debug, info, warn, error, fatal).",
+    )
+    serviceNames = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=list,
+        help_text="Filter by service names.",
+    )
+    searchTerm = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Free text search term to filter log entries.",
+    )
+    filterGroup = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Property filter group object for structured filtering.",
+    )
+    sparklineBreakdownBy = serializers.ChoiceField(
+        choices=["severity", "service"],
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Break down sparkline data by severity level or service name (default: severity).",
+    )
+
+
+class SparklineRequestSerializer(serializers.Serializer):
+    query = SparklineQuerySerializer(help_text="Sparkline query parameters.")
 
 
 # Serializers below are used exclusively for OpenAPI spec generation via
 # drf-spectacular. They are NOT used for request validation — the existing
 # manual parsing in LogsViewSet is unchanged.
-
-
-class _LogsAttributesQuerySerializer(serializers.Serializer):
-    search = serializers.CharField(required=False, help_text="Search filter for attribute names")
-    attribute_type = serializers.ChoiceField(
-        choices=["log", "resource"],
-        required=False,
-        help_text='Type of attributes: "log" for log attributes, "resource" for resource attributes',
-    )
-    limit = serializers.IntegerField(required=False, min_value=1, max_value=100, help_text="Max results (default: 100)")
-    offset = serializers.IntegerField(required=False, min_value=0, help_text="Pagination offset (default: 0)")
-
-
-class _LogsValuesQuerySerializer(serializers.Serializer):
-    key = serializers.CharField(help_text="The attribute key to get values for")
-    attribute_type = serializers.ChoiceField(
-        choices=["log", "resource"],
-        required=False,
-        help_text='Type of attribute: "log" or "resource"',
-    )
-    value = serializers.CharField(required=False, help_text="Search filter for attribute values")
-
 
 _LOG_PROPERTY_TYPE_CHOICES = ["log", "log_attribute", "log_resource_attribute"]
 _LOG_STRING_OPERATORS = ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"]
@@ -120,6 +145,59 @@ class _LogPropertyFilterSerializer(serializers.Serializer):
     )
 
 
+class _LogsAttributesQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(required=False, help_text="Search filter for attribute names")
+    attribute_type = serializers.ChoiceField(
+        choices=["log", "resource"],
+        required=False,
+        help_text='Type of attributes: "log" for log attributes, "resource" for resource attributes. Defaults to "log".',
+    )
+    limit = serializers.IntegerField(required=False, min_value=1, max_value=100, help_text="Max results (default: 100)")
+    offset = serializers.IntegerField(required=False, min_value=0, help_text="Pagination offset (default: 0)")
+    dateRange = _DateRangeSerializer(
+        required=False,
+        help_text="Date range to search within. Defaults to last hour.",
+    )
+    serviceNames = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=[],
+        help_text="Filter attributes to those appearing in logs from these services.",
+    )
+    filterGroup = serializers.ListField(
+        child=_LogPropertyFilterSerializer(),
+        required=False,
+        default=[],
+        help_text="Property filters to narrow which logs are scanned for attributes.",
+    )
+
+
+class _LogsValuesQuerySerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="The attribute key to get values for")
+    attribute_type = serializers.ChoiceField(
+        choices=["log", "resource"],
+        required=False,
+        help_text='Type of attribute: "log" or "resource". Defaults to "log".',
+    )
+    value = serializers.CharField(required=False, help_text="Search filter for attribute values")
+    dateRange = _DateRangeSerializer(
+        required=False,
+        help_text="Date range to search within. Defaults to last hour.",
+    )
+    serviceNames = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=[],
+        help_text="Filter values to those appearing in logs from these services.",
+    )
+    filterGroup = serializers.ListField(
+        child=_LogPropertyFilterSerializer(),
+        required=False,
+        default=[],
+        help_text="Property filters to narrow which logs are scanned for values.",
+    )
+
+
 class _LogsQueryBodySerializer(serializers.Serializer):
     dateRange = _DateRangeSerializer(
         required=False,
@@ -155,6 +233,41 @@ class _LogsQueryBodySerializer(serializers.Serializer):
 
 class _LogsQueryRequestSerializer(serializers.Serializer):
     query = _LogsQueryBodySerializer(help_text="The logs query to execute.")
+
+
+class _LogsSparklineBodySerializer(serializers.Serializer):
+    dateRange = _DateRangeSerializer(
+        required=False,
+        help_text="Date range for the sparkline. Defaults to last hour.",
+    )
+    severityLevels = serializers.ListField(
+        child=serializers.ChoiceField(choices=["trace", "debug", "info", "warn", "error", "fatal"]),
+        required=False,
+        default=[],
+        help_text="Filter by log severity levels.",
+    )
+    serviceNames = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=[],
+        help_text="Filter by service names.",
+    )
+    searchTerm = serializers.CharField(required=False, help_text="Full-text search term to filter log bodies.")
+    filterGroup = serializers.ListField(
+        child=_LogPropertyFilterSerializer(),
+        required=False,
+        default=[],
+        help_text="Property filters for the query.",
+    )
+    sparklineBreakdownBy = serializers.ChoiceField(
+        choices=["severity", "service"],
+        required=False,
+        help_text='Break down sparkline by "severity" (default) or "service".',
+    )
+
+
+class _LogsSparklineRequestSerializer(serializers.Serializer):
+    query = _LogsSparklineBodySerializer(help_text="The sparkline query to execute.")
 
 
 @extend_schema(tags=["logs"])
@@ -227,115 +340,26 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         query = LogsQuery(**logs_query_params)
         analytics_props = get_request_analytics_properties(request)
 
-        def results_generator(query: LogsQuery, logs_query_params: dict):
-            """
-            A generator that yields results by splitting the query into time slices
+        def make_runner(date_range: DateRange) -> LogsQueryRunner:
+            return LogsQueryRunner(LogsQuery(**{**query.model_dump(), "dateRange": date_range}), self.team)
 
-            We fetch the first:
-                - 3 minutes
-                - 1 hour
-                - 6 hours
-
-            Of logs at a time, stopping if we hit the limit first (most queries hit it in the first 3 minutes)
-            """
-            runner = LogsQueryRunner(query, self.team)
-
-            qdr = runner.query_date_range
-            date_range_length = qdr.date_to() - qdr.date_from()
-            limit = logs_query_params["limit"]
-
-            def runner_slice(
-                runner: LogsQueryRunner, slice_length: dt.timedelta, orderBy: LogsOrderBy | None
-            ) -> tuple[LogsQueryRunner, LogsQueryRunner]:
-                """
-                Slices a LogsQueryRunner into two query runners
-                The first one returns just the `slice_length` most recent logs
-                The second one returns the rest of the logs
-                """
-                if orderBy == LogsOrderBy.LATEST or orderBy is None:
-                    slice_query = LogsQuery(
-                        **{
-                            **query.model_dump(),
-                            "dateRange": DateRange(
-                                date_from=(runner.query_date_range.date_to() - slice_length).isoformat(),
-                                date_to=runner.query_date_range.date_to().isoformat(),
-                            ),
-                        }
-                    )
-                    remainder_query = LogsQuery(
-                        **{
-                            **query.model_dump(),
-                            "dateRange": DateRange(
-                                date_from=runner.query_date_range.date_from().isoformat(),
-                                date_to=(runner.query_date_range.date_to() - slice_length).isoformat(),
-                            ),
-                        }
-                    )
-                else:
-                    # invert the logic as we're looking at earliest logs not latest
-                    slice_query = LogsQuery(
-                        **{
-                            **query.model_dump(),
-                            "dateRange": DateRange(
-                                date_from=runner.query_date_range.date_from().isoformat(),
-                                date_to=(runner.query_date_range.date_from() + slice_length).isoformat(),
-                            ),
-                        }
-                    )
-                    remainder_query = LogsQuery(
-                        **{
-                            **query.model_dump(),
-                            "dateRange": DateRange(
-                                date_to=runner.query_date_range.date_to().isoformat(),
-                                date_from=(runner.query_date_range.date_from() + slice_length).isoformat(),
-                            ),
-                        }
-                    )
-
-                return LogsQueryRunner(slice_query, self.team), LogsQueryRunner(remainder_query, self.team)
-
-            # Skip time-slicing for live tailing - we're always only looking at the most recent 1-2 minutes
-            # Note: cursor pagination no longer skips time-slicing because we narrow the date range
-            # to end at the cursor timestamp, allowing time-slicing to work on the remaining range.
-            if live_logs_checkpoint:
-                response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props)
-                yield from response.results
-                return
-
-            # if we're searching more than 20 minutes, first fetch the first 3 minutes of logs and see if that hits the limit
-            if date_range_length > dt.timedelta(minutes=20):
-                recent_runner, runner = runner_slice(runner, dt.timedelta(minutes=3), query.orderBy)
-                response = recent_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props)
-                limit -= len(response.results)
-                yield from response.results
-                if limit <= 0:
-                    return
-                runner.query.limit = limit
-
-            # otherwise if we're searching more than 4 hours search the next hour
-            if date_range_length > dt.timedelta(hours=4):
-                recent_runner, runner = runner_slice(runner, dt.timedelta(minutes=60), query.orderBy)
-                response = recent_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props)
-                limit -= len(response.results)
-                yield from response.results
-                if limit <= 0:
-                    return
-                runner.query.limit = limit
-
-            # otherwise if we're searching more than 24 hours search the next 6 hours
-            if date_range_length > dt.timedelta(hours=24):
-                recent_runner, runner = runner_slice(runner, dt.timedelta(hours=6), query.orderBy)
-                response = recent_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props)
-                limit -= len(response.results)
-                yield from response.results
-                if limit <= 0:
-                    return
-                runner.query.limit = limit
-
-            response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props)
-            yield from response.results
-
-        results = list(results_generator(query, logs_query_params))
+        # Skip time-slicing for live tailing - we're always only looking at the most recent 1-2 minutes
+        # Note: cursor pagination no longer skips time-slicing because we narrow the date range
+        # to end at the cursor timestamp, allowing time-slicing to work on the remaining range.
+        if live_logs_checkpoint:
+            response = LogsQueryRunner(query, self.team).run(
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props
+            )
+            results = list(response.results)
+        else:
+            results = list(
+                time_sliced_results(
+                    runner=LogsQueryRunner(query, self.team),
+                    order_by_earliest=order_by == LogsOrderBy.EARLIEST,
+                    make_runner=make_runner,
+                    analytics_props=analytics_props,
+                )
+            )
         has_more = len(results) > requested_limit
         results = results[:requested_limit]  # Rm the +1 we used to check for another page
 
@@ -377,6 +401,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             status=200,
         )
 
+    @extend_schema(request=_LogsSparklineRequestSerializer)
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def sparkline(self, request: Request, *args, **kwargs) -> Response:
         query_data = request.data.get("query", {})
@@ -510,84 +535,78 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @extend_schema(parameters=[_LogsValuesQuerySerializer])
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def values(self, request: Request, *args, **kwargs) -> Response:
-        search = request.GET.get("value", "")
-        limit = request.GET.get("limit", 100)
-        offset = request.GET.get("offset", 0)
-        attributeKey = request.GET.get("key", "")
+        with (
+            PROPERTY_VALUES_DURATION.labels(endpoint_type="log").time(),
+            tracer.start_as_current_span("logs_api_property_values") as span,
+        ):
+            search = request.GET.get("value", "")
+            limit = request.GET.get("limit", 100)
+            offset = request.GET.get("offset", 0)
+            attributeKey = request.GET.get("key", "")
 
-        if not attributeKey:
-            return Response("key is required", status=status.HTTP_400_BAD_REQUEST)
+            span.set_attribute("team_id", self.team.pk)
+            span.set_attribute("property_key", attributeKey)
+            span.set_attribute("has_value_filter", bool(search))
 
-        try:
-            dateRange = self.get_model(json.loads(request.GET.get("dateRange", "{}")), DateRange)
-        except (json.JSONDecodeError, ValidationError, ValueError):
-            # Default to last hour if dateRange is malformed
-            dateRange = DateRange(date_from="-1h")
+            if not attributeKey:
+                return Response("key is required", status=status.HTTP_400_BAD_REQUEST)
 
-        try:
-            serviceNames = json.loads(request.GET.get("serviceNames", "[]"))
-        except json.JSONDecodeError:
-            serviceNames = []
-        try:
-            filterGroup = self.get_model(json.loads(request.GET.get("filterGroup", "{}")), PropertyGroupFilter)
-        except (json.JSONDecodeError, ValidationError, ValueError, ParseError):
-            filterGroup = None
+            try:
+                dateRange = self.get_model(json.loads(request.GET.get("dateRange", "{}")), DateRange)
+            except (json.JSONDecodeError, ValidationError, ValueError):
+                # Default to last hour if dateRange is malformed
+                dateRange = DateRange(date_from="-1h")
 
-        attributeType = request.GET.get("attribute_type", "log")
-        # I don't know why went with 'log' and 'resource' not 'log_attribute' and 'log_resource_attribute'
-        # like the property type, but annoyingly it's hard to update this in clickhouse so we're stuck with it for now
-        if attributeType not in ["log", "resource"]:
-            attributeType = "log"
+            try:
+                serviceNames = json.loads(request.GET.get("serviceNames", "[]"))
+            except json.JSONDecodeError:
+                serviceNames = []
+            try:
+                filterGroup = self.get_model(json.loads(request.GET.get("filterGroup", "{}")), PropertyGroupFilter)
+            except (json.JSONDecodeError, ValidationError, ValueError, ParseError):
+                filterGroup = None
 
-        try:
-            limit = int(limit)
-        except ValueError:
-            limit = 100
+            attributeType = request.GET.get("attribute_type", "log")
+            # I don't know why went with 'log' and 'resource' not 'log_attribute' and 'log_resource_attribute'
+            # like the property type, but annoyingly it's hard to update this in clickhouse so we're stuck with it for now
+            if attributeType not in ["log", "resource"]:
+                attributeType = "log"
 
-        try:
-            offset = int(offset)
-        except ValueError:
-            offset = 0
+            span.set_attribute("attribute_type", attributeType)
 
-        query = LogValuesQuery(
-            dateRange=dateRange,
-            attributeKey=attributeKey,
-            attributeType=attributeType,
-            search=search,
-            limit=limit,
-            offset=offset,
-            serviceNames=serviceNames,
-            filterGroup=filterGroup,
-        )
+            try:
+                limit = int(limit)
+            except ValueError:
+                limit = 100
 
-        runner = LogValuesQueryRunner(team=self.team, query=query)
+            try:
+                offset = int(offset)
+            except ValueError:
+                offset = 0
 
-        result = runner.calculate()
-        return Response(
-            {"results": [r.model_dump() for r in result.results], "refreshing": False},
-            status=status.HTTP_200_OK,
-        )
+            query = LogValuesQuery(
+                dateRange=dateRange,
+                attributeKey=attributeKey,
+                attributeType=attributeType,
+                search=search,
+                limit=limit,
+                offset=offset,
+                serviceNames=serviceNames,
+                filterGroup=filterGroup,
+            )
+
+            runner = LogValuesQueryRunner(team=self.team, query=query)
+
+            result = runner.calculate()
+            span.set_attribute("result_count", len(result.results))
+            return Response(
+                {"results": [r.model_dump() for r in result.results], "refreshing": False},
+                status=status.HTTP_200_OK,
+            )
 
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def has_logs(self, request: Request, *args, **kwargs) -> Response:
-        cache_key = f"team:{self.team.id}:has_logs"
-        cached = cache.get(cache_key)
-        if cached is True:
-            report_user_action(
-                request.user,
-                "logs has_logs checked",
-                {"has_logs": True},
-                team=self.team,
-                request=request,
-            )
-            return Response({"hasLogs": True}, status=status.HTTP_200_OK)
-
-        runner = HasLogsQueryRunner(self.team)
-        has_logs = runner.run()
-
-        # Only cache positive results (once you have logs, you always have logs)
-        if has_logs:
-            cache.set(cache_key, True, int(dt.timedelta(days=7).total_seconds()))
+        has_logs = team_has_logs(self.team)
 
         report_user_action(
             request.user,

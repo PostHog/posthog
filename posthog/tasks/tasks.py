@@ -297,62 +297,6 @@ def ingestion_lag() -> None:
         )
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.SESSION_REPLAY_GENERAL.value)
-def replay_count_metrics() -> None:
-    try:
-        logger.info("[replay_count_metrics] running task")
-
-        from posthog.clickhouse.client import sync_execute
-
-        # ultimately I want to observe values by team id, but at the moment that would be lots of series, let's reduce the value first
-        query = """
-        select
-            --team_id,
-            count() as all_recordings,
-            countIf(snapshot_source == 'mobile') as mobile_recordings,
-            countIf(snapshot_source == 'web') as web_recordings,
-            countIf(snapshot_source =='web' and first_url is null) as invalid_web_recordings
-        from (
-            select any(team_id) as team_id, argMinMerge(first_url) as first_url, argMinMerge(snapshot_source) as snapshot_source
-            from session_replay_events
-            where min_first_timestamp >= now() - interval 65 minute
-            and min_first_timestamp <= now() - interval 5 minute
-            group by session_id
-        )
-        --group by team_id
-        """
-
-        tag_queries(product=Product.REPLAY, feature=Feature.QUERY, name="replay_count_metrics")
-
-        results = sync_execute(
-            query,
-        )
-
-        metrics = [
-            "all_recordings",
-            "mobile_recordings",
-            "web_recordings",
-            "invalid_web_recordings",
-        ]
-        descriptions = [
-            "All recordings that started in the last hour",
-            "Recordings started in the last hour that are from mobile",
-            "Recordings started in the last hour that are from web",
-            "Acts as a proxy for replay sessions which haven't received a full snapshot",
-        ]
-        with pushed_metrics_registry("celery_replay_tracking") as registry:
-            for i in range(0, 4):
-                gauge = Gauge(
-                    f"replay_tracking_{metrics[i]}",
-                    descriptions[i],
-                    registry=registry,
-                )
-                count = results[0][i]
-                gauge.set(count)
-    except Exception as e:
-        logger.exception("Failed to run invalid web replays task", error=e, inc_exc_info=True)
-
-
 KNOWN_CELERY_TASK_IDENTIFIERS = {
     "pluginJob",
     "runEveryHour",
@@ -812,18 +756,6 @@ def check_flags_to_rollback() -> None:
         pass
 
 
-@shared_task(
-    ignore_result=True,
-    queue=CeleryQueue.SESSION_REPLAY_GENERAL.value,
-)
-def count_items_in_playlists() -> None:
-    from posthog.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
-        enqueue_recordings_that_match_playlist_filters,
-    )
-
-    enqueue_recordings_that_match_playlist_filters()
-
-
 @shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
 def background_delete_model_task(
     model_name: str, team_id: int, batch_size: int = 10000, records_to_delete: int | None = None
@@ -1086,6 +1018,7 @@ def delete_organization_data_and_notify_task(
         project_names: Names of all projects in the organization (for email notification)
     """
     from posthog.email import is_email_available
+    from posthog.event_usage import report_organization_deletion_completed
     from posthog.models.organization import Organization
     from posthog.tasks.email import send_organization_deleted_email
 
@@ -1107,6 +1040,7 @@ def delete_organization_data_and_notify_task(
             Organization.objects.filter(id=organization_id).delete()
 
         logger.info("Organization data deletion completed", team_ids=team_ids, organization_name=organization_name)
+        report_organization_deletion_completed(user_id=user_id, organization_id=organization_id)
         if is_email_available():
             send_organization_deleted_email.delay(
                 user_id=user_id, organization_name=organization_name, project_names=project_names

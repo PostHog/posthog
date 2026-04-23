@@ -1,5 +1,6 @@
 import json
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
@@ -312,14 +313,15 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
 
         # Check that trigger information identifies this as a scheduled change
         self.assertIsNotNone(activity_log.detail)
-        trigger = activity_log.detail.get("trigger")
+        detail = cast(dict[str, Any], activity_log.detail)
+        trigger = detail.get("trigger")
         self.assertIsNotNone(trigger)
-        self.assertEqual(trigger["job_type"], "scheduled_change")
-        self.assertEqual(trigger["job_id"], str(scheduled_change.id))
+        trigger_data = cast(dict[str, Any], trigger)
+        self.assertEqual(trigger_data["job_type"], "scheduled_change")
+        self.assertEqual(trigger_data["job_id"], str(scheduled_change.id))
 
         # Verify the change details are correct
-        self.assertIsNotNone(activity_log.detail)
-        changes = activity_log.detail.get("changes", [])
+        changes = detail.get("changes", [])
         self.assertTrue(len(changes) > 0)
 
         # Find the change for the 'active' field

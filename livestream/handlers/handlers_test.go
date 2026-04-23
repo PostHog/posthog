@@ -249,3 +249,67 @@ func TestStatsHandler_FallsBackToLocal(t *testing.T) {
 	assert.Equal(t, 2, resp.ActiveRecordings)
 	assert.Empty(t, resp.Error)
 }
+
+func TestParsePropertyFilters(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  []string
+		want map[string][]string
+	}{
+		{
+			name: "nil input",
+			raw:  nil,
+			want: nil,
+		},
+		{
+			name: "empty input",
+			raw:  []string{},
+			want: nil,
+		},
+		{
+			name: "single key=value",
+			raw:  []string{"$browser=Chrome"},
+			want: map[string][]string{"$browser": {"Chrome"}},
+		},
+		{
+			name: "multiple keys AND",
+			raw:  []string{"$browser=Chrome", "plan=enterprise"},
+			want: map[string][]string{
+				"$browser": {"Chrome"},
+				"plan":     {"enterprise"},
+			},
+		},
+		{
+			name: "same key OR",
+			raw:  []string{"$browser=Chrome", "$browser=Firefox"},
+			want: map[string][]string{"$browser": {"Chrome", "Firefox"}},
+		},
+		{
+			name: "missing equals skipped",
+			raw:  []string{"$browser", "plan=free"},
+			want: map[string][]string{"plan": {"free"}},
+		},
+		{
+			name: "empty key skipped",
+			raw:  []string{"=Chrome", "plan=free"},
+			want: map[string][]string{"plan": {"free"}},
+		},
+		{
+			name: "all malformed returns nil",
+			raw:  []string{"=foo", "bar"},
+			want: nil,
+		},
+		{
+			name: "empty value allowed",
+			raw:  []string{"plan="},
+			want: map[string][]string{"plan": {""}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parsePropertyFilters(tt.raw)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}

@@ -46,7 +46,17 @@ def extract_text_from_messages(messages: Union[str, list, dict, None]) -> str:
 
 
 def _extract_content_text(content: Union[str, list, dict, None]) -> str:
-    """Extract text from message content, handling nested structures."""
+    """Extract text from message content, handling nested structures.
+
+    Handles multiple provider formats:
+    - Anthropic: [{"type": "text", "text": "..."}]
+    - OpenAI Responses API: [{"text": "...", "annotations": [...]}]
+    - Generic: [{"content": "..."}]
+    - Plain strings
+
+    Always falls back to str() rather than returning empty — an LLM judge
+    can work with messy JSON, but not with an empty string.
+    """
     if not content:
         return ""
 
@@ -54,17 +64,18 @@ def _extract_content_text(content: Union[str, list, dict, None]) -> str:
     if isinstance(content, str):
         return content
 
-    # Array of content blocks (Anthropic format)
+    # Array of content blocks
     if isinstance(content, list):
         text_parts = []
         for block in content:
             if isinstance(block, dict):
-                # Text block: {"type": "text", "text": "..."}
-                if block.get("type") == "text" and "text" in block:
-                    text_parts.append(block["text"])
-                # Generic content field
+                if "text" in block:
+                    text_parts.append(str(block["text"]))
                 elif "content" in block:
                     text_parts.append(str(block["content"]))
+                else:
+                    # Unknown block shape — stringify rather than silently drop
+                    text_parts.append(str(block))
             elif isinstance(block, str):
                 text_parts.append(block)
         return " ".join(text_parts)

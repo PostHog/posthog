@@ -28,6 +28,7 @@ def get_or_create_signals_sandbox_env(
     defaults: dict = {
         "network_access_level": network_access_level,
         "private": False,
+        "internal": True,
     }
     if allowed_domains is not None:
         defaults["allowed_domains"] = allowed_domains

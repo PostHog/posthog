@@ -13,6 +13,7 @@ from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 
+from products.conversations.backend.mailgun import MailgunDomainConflict
 from products.conversations.backend.models import EmailChannel
 from products.conversations.backend.models.ticket import Ticket
 
@@ -313,6 +314,35 @@ class TestEmailMultiConfig(BaseTest):
 
         # Domain NOT deleted from Mailgun since billing@ still uses it
         mock_delete.assert_not_called()
+
+    @patch(
+        "products.conversations.backend.api.email_settings.mailgun_add_domain",
+        side_effect=MailgunDomainConflict("Domain example.com already exists"),
+    )
+    @patch("products.conversations.backend.api.email_settings.mailgun_delete_domain")
+    @patch(
+        "products.conversations.backend.api.email_settings.get_instance_setting",
+        return_value="mg.posthog.com",
+    )
+    def test_connect_rejects_preexisting_mailgun_domain(
+        self,
+        _mock_setting: MagicMock,
+        mock_mailgun_delete: MagicMock,
+        _mock_mailgun_add: MagicMock,
+    ):
+        response = self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "support@example.com", "from_name": "Support"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert EmailChannel.objects.filter(team=self.team).count() == 0
+        mock_mailgun_delete.assert_not_called()
+
+        self.team.refresh_from_db()
+        settings = self.team.conversations_settings or {}
+        assert settings.get("email_enabled") is not True
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
     @patch(
@@ -693,6 +723,65 @@ class TestSendEmailReplyMultiConfig(BaseTest):
             rich_content=None,
             author_name="Agent",
         )
+
+
+class TestEmailInboundCcParticipants(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.client = Client()
+        self.team.conversations_settings = {"email_enabled": True}
+        self.team.save()
+        self.config = EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="cc00ee11ff22",
+            from_email="support@example.com",
+            from_name="Support",
+            domain="example.com",
+            domain_verified=True,
+        )
+
+    def _base_data(self, msg_id: str) -> dict[str, str]:
+        return {
+            "recipient": "team-cc00ee11ff22@mg.posthog.com",
+            "from": "sender@test.com",
+            "Message-Id": msg_id,
+            "subject": "Help",
+            "stripped-text": "Need help",
+        }
+
+    @parameterized.expand(
+        [
+            ("with_display_names", "Dev <dev@company.com>, pm@company.com", ["dev@company.com", "pm@company.com"]),
+            ("self_cc_filtered", "dev@company.com, team-cc00ee11ff22@mg.posthog.com", ["dev@company.com"]),
+            ("no_cc_header", None, []),
+        ]
+    )
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_new_ticket_cc_participants(self, _name, cc_header, expected, _mock_sig):
+        data = self._base_data(f"<cc-{_name}@test.com>")
+        if cc_header:
+            data["Cc"] = cc_header
+        response = self.client.post("/api/conversations/v1/email/inbound", data)
+        assert response.status_code == 200
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.cc_participants == expected
+
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_reply_merges_cc_participants(self, _mock_sig: MagicMock):
+        data1 = self._base_data("<cc2@test.com>")
+        data1["Cc"] = "dev@company.com"
+        self.client.post("/api/conversations/v1/email/inbound", data1)
+
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.cc_participants == ["dev@company.com"]
+
+        data2 = self._base_data("<cc3@test.com>")
+        data2["In-Reply-To"] = "<cc2@test.com>"
+        data2["Cc"] = "dev@company.com, new@company.com"
+        self.client.post("/api/conversations/v1/email/inbound", data2)
+
+        ticket.refresh_from_db()
+        assert ticket.cc_participants == ["dev@company.com", "new@company.com"]
 
 
 class TestEmailInboundAttachments(BaseTest):

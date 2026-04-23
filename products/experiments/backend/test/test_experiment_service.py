@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import timedelta
 from decimal import Decimal
 from typing import Any
@@ -14,9 +15,12 @@ from rest_framework.test import APIRequestFactory
 
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.models import FeatureFlag, Team
+from posthog.models.action.action import Action
+from posthog.models.cohort import Cohort
 from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from posthog.models.team.extensions import get_or_create_team_extension
 
+from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.models.experiment import (
     Experiment,
@@ -28,6 +32,8 @@ from products.experiments.backend.models.experiment import (
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 
+# Note that we use allow_unknown_events here since allowing it was the behavior before validating it
+# and to continue allowing it here keeps test setup simple (instead of creating events before)
 class TestExperimentService(APIBaseTest):
     def _service(self) -> ExperimentService:
         return ExperimentService(team=self.team, user=self.user)
@@ -79,7 +85,6 @@ class TestExperimentService(APIBaseTest):
         assert experiment.secondary_metrics == []
         assert experiment.filters == {}
         assert experiment.scheduling_config is None
-        assert experiment.exposure_preaggregation_enabled is False
         assert experiment.archived is False
         assert experiment.deleted is False
         assert experiment.conclusion is None
@@ -187,6 +192,38 @@ class TestExperimentService(APIBaseTest):
         assert experiment.stats_config["bayesian"]["ci_level"] == 0.99
 
     # ------------------------------------------------------------------
+    # Only count matured users defaults
+    # ------------------------------------------------------------------
+
+    def test_only_count_matured_users_defaults_from_team(self):
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config.default_only_count_matured_users = True
+        config.save()
+
+        self._create_flag(key="matured-default")
+        service = self._service()
+
+        experiment = service.create_experiment(name="Matured Default", feature_flag_key="matured-default")
+
+        assert experiment.only_count_matured_users is True
+
+    def test_only_count_matured_users_explicit_override(self):
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config.default_only_count_matured_users = True
+        config.save()
+
+        self._create_flag(key="matured-override")
+        service = self._service()
+
+        experiment = service.create_experiment(
+            name="Matured Override",
+            feature_flag_key="matured-override",
+            only_count_matured_users=False,
+        )
+
+        assert experiment.only_count_matured_users is False
+
+    # ------------------------------------------------------------------
     # Metric fingerprints
     # ------------------------------------------------------------------
 
@@ -206,6 +243,7 @@ class TestExperimentService(APIBaseTest):
         experiment = service.create_experiment(
             name="Fingerprint Test",
             feature_flag_key="fingerprint-test",
+            allow_unknown_events=True,
             metrics=metrics,
         )
 
@@ -249,6 +287,7 @@ class TestExperimentService(APIBaseTest):
         experiment = service.create_experiment(
             name="Ordering Test",
             feature_flag_key="ordering-test",
+            allow_unknown_events=True,
             metrics=metrics,
         )
 
@@ -270,6 +309,7 @@ class TestExperimentService(APIBaseTest):
         experiment = service.create_experiment(
             name="Secondary Ordering",
             feature_flag_key="sec-ordering",
+            allow_unknown_events=True,
             metrics_secondary=metrics_secondary,
         )
 
@@ -480,6 +520,7 @@ class TestExperimentService(APIBaseTest):
         experiment = service.create_experiment(
             name="All Fields Experiment",
             feature_flag_key="all-fields-flag",
+            allow_unknown_events=True,
             description="All optional fields set",
             type="web",
             parameters={
@@ -522,7 +563,6 @@ class TestExperimentService(APIBaseTest):
             create_in_folder="Test/Experiments",
             filters={"events": [], "actions": [], "properties": []},
             scheduling_config={"timeseries": True},
-            exposure_preaggregation_enabled=True,
             archived=True,
             deleted=True,
             conclusion="won",
@@ -536,7 +576,6 @@ class TestExperimentService(APIBaseTest):
         assert experiment.feature_flag.active is True
         assert experiment.holdout_id == holdout.id
         assert experiment.secondary_metrics == secondary_metrics
-        assert experiment.exposure_preaggregation_enabled is True
         assert experiment.archived is True
         assert experiment.deleted is True
         assert experiment.conclusion == "won"
@@ -651,6 +690,7 @@ class TestExperimentService(APIBaseTest):
         return service.create_experiment(
             name=name,
             feature_flag_key=flag_key,
+            allow_unknown_events=True,
             metrics=[
                 {
                     "kind": "ExperimentMetric",
@@ -721,6 +761,7 @@ class TestExperimentService(APIBaseTest):
         experiment = service.create_experiment(
             name="Launch Test",
             feature_flag_key="launch-test-flag",
+            allow_unknown_events=True,
             metrics=[
                 {
                     "kind": "ExperimentMetric",
@@ -809,6 +850,150 @@ class TestExperimentService(APIBaseTest):
         assert len(variants) == 3
         assert variants[2]["key"] == "variant-b"
 
+    def test_update_running_experiment_syncs_flag_when_update_feature_flag_params_true(self):
+        experiment = self._create_running_experiment()
+        assert experiment.feature_flag.filters["multivariate"]["variants"][0]["rollout_percentage"] == 50
+        assert experiment.feature_flag.filters["groups"][0]["rollout_percentage"] == 100
+
+        self._service().update_experiment(
+            experiment,
+            {
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 75},
+                        {"key": "test", "name": "Test", "rollout_percentage": 25},
+                    ],
+                    "rollout_percentage": 50,
+                },
+                "update_feature_flag_params": True,
+            },
+        )
+
+        experiment.feature_flag.refresh_from_db()
+        variants = experiment.feature_flag.filters["multivariate"]["variants"]
+        assert variants[0]["rollout_percentage"] == 75
+        assert variants[1]["rollout_percentage"] == 25
+        assert experiment.feature_flag.filters["groups"][0]["rollout_percentage"] == 50
+
+    @parameterized.expand(
+        [
+            ("absent", {}),
+            ("false", {"update_feature_flag_params": False}),
+        ]
+    )
+    def test_update_running_experiment_does_not_sync_flag(self, _name: str, extra: dict):
+        experiment = self._create_running_experiment()
+        assert experiment.feature_flag.filters["multivariate"]["variants"][0]["rollout_percentage"] == 50
+
+        self._service().update_experiment(
+            experiment,
+            {
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 75},
+                        {"key": "test", "name": "Test", "rollout_percentage": 25},
+                    ],
+                },
+                **extra,
+            },
+        )
+
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.filters["multivariate"]["variants"][0]["rollout_percentage"] == 50
+
+    def test_update_running_experiment_with_flag_preserves_single_group_with_custom_conditions(self):
+        """A flag with one group targeting a cohort at 57% — variant split change must not touch the group."""
+        experiment = self._create_running_experiment()
+
+        cohort = Cohort.objects.create(team=self.team, name="Internal / Test users")
+        flag = experiment.feature_flag
+        flag.filters["groups"] = [
+            {
+                "properties": [{"key": "id", "value": cohort.id, "type": "cohort"}],
+                "rollout_percentage": 57,
+            },
+        ]
+        flag.save()
+
+        self._service().update_experiment(
+            experiment,
+            {
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 70},
+                        {"key": "test", "name": "Test", "rollout_percentage": 30},
+                    ],
+                },
+                "update_feature_flag_params": True,
+            },
+        )
+
+        flag.refresh_from_db()
+        assert len(flag.filters["groups"]) == 1
+        assert flag.filters["groups"][0]["properties"] == [{"key": "id", "value": cohort.id, "type": "cohort"}]
+        assert flag.filters["groups"][0]["rollout_percentage"] == 57
+        assert flag.filters["multivariate"]["variants"][0]["rollout_percentage"] == 70
+        assert flag.filters["multivariate"]["variants"][1]["rollout_percentage"] == 30
+
+    def test_update_running_experiment_with_flag_preserves_multiple_groups(self):
+        experiment = self._create_running_experiment()
+
+        cohort = Cohort.objects.create(team=self.team, name="Internal / Test users")
+        flag = experiment.feature_flag
+        flag.filters["groups"] = [
+            {
+                "properties": [{"key": "id", "value": cohort.id, "type": "cohort"}],
+                "rollout_percentage": 57,
+            },
+            {
+                "properties": [{"key": "country", "value": "US", "type": "person"}],
+                "rollout_percentage": 100,
+            },
+        ]
+        flag.save()
+
+        self._service().update_experiment(
+            experiment,
+            {
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 70},
+                        {"key": "test", "name": "Test", "rollout_percentage": 30},
+                    ],
+                },
+                "update_feature_flag_params": True,
+            },
+        )
+
+        flag.refresh_from_db()
+        assert len(flag.filters["groups"]) == 2
+        assert flag.filters["groups"][0]["properties"] == [{"key": "id", "value": cohort.id, "type": "cohort"}]
+        assert flag.filters["groups"][0]["rollout_percentage"] == 57
+        assert flag.filters["groups"][1]["properties"] == [{"key": "country", "value": "US", "type": "person"}]
+        assert flag.filters["groups"][1]["rollout_percentage"] == 100
+        assert flag.filters["multivariate"]["variants"][0]["rollout_percentage"] == 70
+        assert flag.filters["multivariate"]["variants"][1]["rollout_percentage"] == 30
+
+    def test_update_running_experiment_with_flag_still_rejects_adding_variants(self):
+        experiment = self._create_running_experiment()
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().update_experiment(
+                experiment,
+                {
+                    "parameters": {
+                        "feature_flag_variants": [
+                            {"key": "control", "name": "Control", "rollout_percentage": 34},
+                            {"key": "test", "name": "Test", "rollout_percentage": 33},
+                            {"key": "new_variant", "name": "New", "rollout_percentage": 33},
+                        ]
+                    },
+                    "update_feature_flag_params": True,
+                },
+            )
+
+        assert "Can't update feature_flag_variants" in str(ctx.exception)
+
     def test_update_experiment_recalculates_fingerprints(self):
         experiment = self._create_draft_experiment()
         assert experiment.metrics is not None
@@ -828,10 +1013,21 @@ class TestExperimentService(APIBaseTest):
             experiment,
             {
                 "metrics": [
-                    {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "m1", "event": "$pageview"},
-                    {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "m2", "event": "$pageleave"},
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": "m1",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    },
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": "m2",
+                        "source": {"kind": "EventsNode", "event": "$pageleave"},
+                    },
                 ],
             },
+            allow_unknown_events=True,
         )
 
         assert updated.primary_metrics_ordered_uuids is not None
@@ -844,6 +1040,7 @@ class TestExperimentService(APIBaseTest):
         experiment = service.create_experiment(
             name="Remove Test",
             feature_flag_key="remove-test",
+            allow_unknown_events=True,
             metrics=[
                 {
                     "kind": "ExperimentMetric",
@@ -873,9 +1070,143 @@ class TestExperimentService(APIBaseTest):
                     },
                 ],
             },
+            allow_unknown_events=True,
         )
 
         assert updated.primary_metrics_ordered_uuids == ["m1"]
+
+    @parameterized.expand(
+        [
+            ("primary", "metrics", "primary_metrics_ordered_uuids"),
+            ("secondary", "metrics_secondary", "secondary_metrics_ordered_uuids"),
+        ]
+    )
+    def test_update_experiment_auto_generates_uuids(self, _name, field, ordering_attr):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+
+        updated = service.update_experiment(
+            experiment,
+            {
+                field: [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    }
+                ],
+            },
+            allow_unknown_events=True,
+        )
+
+        metrics = getattr(updated, field)
+        assert len(metrics) == 1
+        generated_uuid = metrics[0].get("uuid")
+        assert generated_uuid, "UUID should be auto-generated for metrics without one"
+        assert getattr(updated, ordering_attr) == [generated_uuid]
+
+    @parameterized.expand(
+        [
+            ("primary", "metrics", "primary_metrics_ordered_uuids"),
+            ("secondary", "metrics_secondary", "secondary_metrics_ordered_uuids"),
+        ]
+    )
+    def test_update_experiment_preserves_provided_metric_uuids(self, _name, field, ordering_attr):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+
+        updated = service.update_experiment(
+            experiment,
+            {
+                field: [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": "explicit-uuid",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    }
+                ],
+            },
+            allow_unknown_events=True,
+        )
+
+        metrics = getattr(updated, field)
+        assert metrics[0]["uuid"] == "explicit-uuid"
+        assert "explicit-uuid" in (getattr(updated, ordering_attr) or [])
+
+    @parameterized.expand(
+        [
+            ("primary", "metrics"),
+            ("secondary", "metrics_secondary"),
+        ]
+    )
+    def test_create_experiment_does_not_mutate_input_metrics(self, _name, field):
+        self._create_flag(key=f"no-mutate-create-flag-{_name}")
+        service = self._service()
+
+        input_metrics = [
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            }
+        ]
+        snapshot = deepcopy(input_metrics)
+        metric_kwargs: dict[str, Any] = {field: input_metrics}
+
+        service.create_experiment(
+            name=f"No Mutate Create {_name}",
+            feature_flag_key=f"no-mutate-create-flag-{_name}",
+            allow_unknown_events=True,
+            **metric_kwargs,
+        )
+
+        assert input_metrics == snapshot
+
+    @parameterized.expand(
+        [
+            ("primary", "metrics"),
+            ("secondary", "metrics_secondary"),
+        ]
+    )
+    def test_update_experiment_does_not_mutate_input_metrics(self, _name, field):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+
+        input_metrics = [
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            }
+        ]
+        snapshot = deepcopy(input_metrics)
+
+        service.update_experiment(experiment, {field: input_metrics}, allow_unknown_events=True)
+
+        assert input_metrics == snapshot
+
+    def test_update_experiment_does_not_mutate_flag_filters_in_place(self):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+
+        original_filters = experiment.feature_flag.filters
+        snapshot = deepcopy(original_filters)
+
+        service.update_experiment(
+            experiment,
+            {
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ],
+                    "rollout_percentage": 75,
+                }
+            },
+        )
+
+        assert original_filters == snapshot
 
     def test_update_experiment_replaces_saved_metrics(self):
         experiment = self._create_draft_experiment()
@@ -1167,6 +1498,7 @@ class TestExperimentService(APIBaseTest):
     ) -> Experiment:
         kwargs.setdefault("metrics", [self._DEFAULT_METRIC])
         kwargs.setdefault("primary_metrics_ordered_uuids", ["m1"])
+        kwargs.setdefault("allow_unknown_events", True)
         return self._service().create_experiment(name=name, feature_flag_key=feature_flag_key, **kwargs)
 
     def _create_ended_experiment(
@@ -1250,6 +1582,7 @@ class TestExperimentService(APIBaseTest):
         experiment = self._service().create_experiment(
             name="Secondary Only",
             feature_flag_key="secondary-only",
+            allow_unknown_events=True,
             metrics_secondary=[self._DEFAULT_METRIC],
             secondary_metrics_ordered_uuids=["m1"],
         )
@@ -2402,10 +2735,11 @@ class TestExperimentService(APIBaseTest):
             ("name", {"name": "Updated Name"}),
             ("description", {"description": "New hypothesis"}),
             ("end_date", {"end_date": timezone.now() + timedelta(days=7)}),
+            ("deleted", {"deleted": True}),
         ]
     )
     def test_update_experiment_with_legacy_metrics_allows_specific_fields(self, field_name: str, update_data: dict):
-        """Test that experiments with legacy metrics can update name, description, and end_date."""
+        """Test that experiments with legacy metrics can update name, description, end_date, and deleted."""
         service = self._service()
         flag = self._create_flag(key=f"legacy-flag-{field_name}")
 
@@ -2427,6 +2761,29 @@ class TestExperimentService(APIBaseTest):
             assert updated.description == "New hypothesis"
         elif field_name == "end_date":
             assert updated.end_date is not None
+        elif field_name == "deleted":
+            assert updated.deleted is True
+
+    def test_update_experiment_with_legacy_metrics_restore_with_deleted_flag_raises(self):
+        service = self._service()
+        flag = self._create_flag(key="legacy-restore-flag")
+
+        experiment = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            feature_flag=flag,
+            name="Legacy Experiment",
+            metrics=[{"kind": "ExperimentTrendsQuery", "query": {}}],
+            start_date=timezone.now(),
+            deleted=True,
+        )
+        flag.deleted = True
+        flag.save()
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.update_experiment(experiment, {"deleted": False})
+
+        assert "linked feature flag has been deleted" in str(ctx.exception)
 
     @parameterized.expand(
         [
@@ -2537,6 +2894,7 @@ class TestExperimentService(APIBaseTest):
         experiment = service.create_experiment(
             name="Normal Experiment",
             feature_flag_key="normal-flag",
+            allow_unknown_events=True,
             metrics=[
                 {
                     "kind": "ExperimentMetric",
@@ -2555,7 +2913,7 @@ class TestExperimentService(APIBaseTest):
                 "source": {"kind": "EventsNode", "event": "another_event"},
             }
         ]
-        updated = service.update_experiment(experiment, {"metrics": new_metrics})
+        updated = service.update_experiment(experiment, {"metrics": new_metrics}, allow_unknown_events=True)
         assert updated.metrics
         assert updated.metrics[0]["source"]["event"] == "another_event"
 
@@ -2594,6 +2952,37 @@ class TestExperimentService(APIBaseTest):
                 parameters={"feature_flag_variants": ["control", "test"]},
             )
 
+    def test_variant_missing_both_percentages_raises_validation_error(self):
+        """Variant without split_percent or rollout_percentage should be rejected."""
+        service = self._service()
+        with self.assertRaises(ValidationError) as ctx:
+            service.create_experiment(
+                name="Missing Percentages",
+                feature_flag_key="missing-pct-flag",
+                parameters={
+                    "feature_flag_variants": [
+                        {"key": "control"},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                },
+            )
+        assert "split_percent" in str(ctx.exception)
+
+    def test_variant_with_only_rollout_percentage_succeeds(self):
+        """Legacy clients sending only rollout_percentage must still work (deprecated but accepted)."""
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Legacy rollout only",
+            feature_flag_key="legacy-rollout-flag",
+            parameters={
+                "feature_flag_variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50},
+                ]
+            },
+        )
+        assert experiment.id is not None
+
     def test_duplicate_metric_uuids_raises_validation_error(self):
         """Metrics with duplicate UUIDs should be rejected."""
         service = self._service()
@@ -2601,6 +2990,7 @@ class TestExperimentService(APIBaseTest):
             service.create_experiment(
                 name="Dup UUIDs",
                 feature_flag_key="dup-uuid-flag",
+                allow_unknown_events=True,
                 metrics=[
                     {
                         "kind": "ExperimentMetric",
@@ -2624,6 +3014,7 @@ class TestExperimentService(APIBaseTest):
             service.create_experiment(
                 name="Dup UUIDs Cross",
                 feature_flag_key="dup-uuid-cross-flag",
+                allow_unknown_events=True,
                 metrics=[
                     {
                         "kind": "ExperimentMetric",
@@ -2648,6 +3039,7 @@ class TestExperimentService(APIBaseTest):
         experiment = service.create_experiment(
             name="Auto UUID",
             feature_flag_key="auto-uuid-flag",
+            allow_unknown_events=True,
             metrics=[
                 {
                     "kind": "ExperimentMetric",
@@ -2677,6 +3069,7 @@ class TestExperimentService(APIBaseTest):
         experiment = service.create_experiment(
             name="Empty UUID",
             feature_flag_key="empty-uuid-flag",
+            allow_unknown_events=True,
             metrics=[
                 {
                     "kind": "ExperimentMetric",
@@ -2699,6 +3092,7 @@ class TestExperimentService(APIBaseTest):
         experiment = service.create_experiment(
             name="Empty UUID Dup",
             feature_flag_key="empty-uuid-dup-flag",
+            allow_unknown_events=True,
             metrics=[
                 {
                     "kind": "ExperimentMetric",
@@ -2810,3 +3204,447 @@ class TestExperimentService(APIBaseTest):
         )
         assert experiment.stats_config is not None
         assert experiment.stats_config["method"] == method
+
+    # ------------------------------------------------------------------
+    # Action ID validation (hard error)
+    # ------------------------------------------------------------------
+
+    def test_metric_with_nonexistent_action_id_raises(self):
+        service = self._service()
+        with self.assertRaises(ValidationError) as ctx:
+            service.create_experiment(
+                name="Bad Action",
+                feature_flag_key="bad-action-flag",
+                metrics=[
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "ActionsNode", "id": 999999},
+                    },
+                ],
+            )
+        assert "999999" in str(ctx.exception.detail)
+
+    def test_metric_with_action_belonging_to_other_team_raises(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        action = Action.objects.create(team=other_team, name="other team action")
+        service = self._service()
+        with self.assertRaises(ValidationError):
+            service.create_experiment(
+                name="Wrong Team Action",
+                feature_flag_key="wrong-team-action-flag",
+                metrics=[
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "ActionsNode", "id": action.id},
+                    },
+                ],
+            )
+
+    def test_metric_with_deleted_action_raises(self):
+        action = Action.objects.create(team=self.team, name="deleted action", deleted=True)
+        service = self._service()
+        with self.assertRaises(ValidationError):
+            service.create_experiment(
+                name="Deleted Action",
+                feature_flag_key="deleted-action-flag",
+                metrics=[
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "ActionsNode", "id": action.id},
+                    },
+                ],
+            )
+
+    def test_metric_with_valid_action_id_passes(self):
+        action = Action.objects.create(team=self.team, name="valid action")
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Valid Action",
+            feature_flag_key="valid-action-flag",
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "ActionsNode", "id": action.id},
+                },
+            ],
+        )
+        assert experiment.metrics is not None and len(experiment.metrics) == 1
+
+    def test_funnel_metric_with_empty_series_raises(self):
+        # The experiment exposure event is prepended as step_0 at query time, so an
+        # empty series would produce a degenerate single-step funnel with no conversion event.
+        service = self._service()
+        with self.assertRaises(ValidationError) as ctx:
+            service.create_experiment(
+                name="Empty Funnel",
+                feature_flag_key="empty-funnel-flag",
+                allow_unknown_events=True,
+                metrics=[
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "funnel",
+                        "series": [],
+                    },
+                ],
+            )
+        assert "at least one step" in str(ctx.exception)
+
+    @parameterized.expand(
+        [
+            ("primary", "metrics"),
+            ("secondary", "metrics_secondary"),
+        ]
+    )
+    def test_update_experiment_rejects_empty_funnel_series(self, _name, field):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+        with self.assertRaises(ValidationError):
+            service.update_experiment(
+                experiment,
+                {
+                    field: [
+                        {
+                            "kind": "ExperimentMetric",
+                            "metric_type": "funnel",
+                            "series": [],
+                        }
+                    ],
+                },
+                allow_unknown_events=True,
+            )
+
+    @parameterized.expand(
+        [
+            (
+                "single_step",
+                [{"kind": "EventsNode", "event": "$pageview"}],
+            ),
+            (
+                "two_steps",
+                [
+                    {"kind": "EventsNode", "event": "$pageview"},
+                    {"kind": "EventsNode", "event": "$pageleave"},
+                ],
+            ),
+        ]
+    )
+    def test_funnel_metric_with_valid_series_succeeds(self, name, series):
+        # Single-step series is valid: the exposure event is prepended as step_0 at query
+        # time, yielding a standard conversion-rate funnel (exposure → event).
+        flag_key = f"valid-funnel-flag-{name.replace('_', '-')}"
+        self._create_flag(key=flag_key)
+        service = self._service()
+        experiment = service.create_experiment(
+            name=f"Valid Funnel {name}",
+            feature_flag_key=flag_key,
+            allow_unknown_events=True,
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "funnel",
+                    "series": series,
+                },
+            ],
+        )
+        assert experiment.metrics is not None and len(experiment.metrics) == 1
+        assert experiment.metrics[0]["metric_type"] == "funnel"
+
+    def test_funnel_metric_with_nonexistent_action_in_series_raises(self):
+        action = Action.objects.create(team=self.team, name="real action")
+        service = self._service()
+        with self.assertRaises(ValidationError):
+            service.create_experiment(
+                name="Bad Funnel Action",
+                feature_flag_key="bad-funnel-action-flag",
+                metrics=[
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "funnel",
+                        "series": [
+                            {"kind": "ActionsNode", "id": action.id},
+                            {"kind": "ActionsNode", "id": 999999},
+                        ],
+                    },
+                ],
+            )
+
+    def test_ratio_metric_with_nonexistent_action_raises(self):
+        service = self._service()
+        with self.assertRaises(ValidationError):
+            service.create_experiment(
+                name="Bad Ratio Action",
+                feature_flag_key="bad-ratio-action-flag",
+                metrics=[
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "ratio",
+                        "numerator": {"kind": "EventsNode", "event": "$pageview"},
+                        "denominator": {"kind": "ActionsNode", "id": 999999},
+                    },
+                ],
+            )
+
+    def test_retention_metric_with_nonexistent_action_raises(self):
+        service = self._service()
+        with self.assertRaises(ValidationError):
+            service.create_experiment(
+                name="Bad Retention Action",
+                feature_flag_key="bad-retention-action-flag",
+                metrics=[
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "retention",
+                        "start_event": {"kind": "EventsNode", "event": "$pageview"},
+                        "completion_event": {"kind": "ActionsNode", "id": 999999},
+                        "retention_window_start": 0,
+                        "retention_window_end": 7,
+                        "retention_window_unit": "day",
+                        "start_handling": "strict",
+                    },
+                ],
+            )
+
+    def test_action_validation_in_secondary_metrics(self):
+        service = self._service()
+        with self.assertRaises(ValidationError):
+            service.create_experiment(
+                name="Bad Secondary Action",
+                feature_flag_key="bad-secondary-action-flag",
+                metrics_secondary=[
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "ActionsNode", "id": 999999},
+                    },
+                ],
+            )
+
+    # ------------------------------------------------------------------
+    # Event name validation (hard error by default)
+    # ------------------------------------------------------------------
+
+    def test_metric_with_unknown_event_raises(self):
+        service = self._service()
+        with self.assertRaises(ValidationError) as ctx:
+            service.create_experiment(
+                name="Unknown Event",
+                feature_flag_key="unknown-event-flag",
+                metrics=[
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$unknown_event"},
+                    },
+                ],
+            )
+        assert "$unknown_event" in str(ctx.exception.detail)
+
+    def test_metric_with_known_event_passes(self):
+        EventDefinition.objects.create(team=self.team, name="$pageview")
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Known Event",
+            feature_flag_key="known-event-flag",
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            ],
+        )
+        assert experiment.metrics is not None and len(experiment.metrics) == 1
+
+    def test_unknown_event_in_secondary_metrics_raises(self):
+        EventDefinition.objects.create(team=self.team, name="$pageview")
+        service = self._service()
+        with self.assertRaises(ValidationError) as ctx:
+            service.create_experiment(
+                name="Bad Secondary Event",
+                feature_flag_key="bad-secondary-event-flag",
+                metrics=[
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    },
+                ],
+                metrics_secondary=[
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "totally_fake"},
+                    },
+                ],
+            )
+        assert "totally_fake" in str(ctx.exception.detail)
+
+    def test_funnel_series_with_unknown_event_raises(self):
+        EventDefinition.objects.create(team=self.team, name="step_one")
+        service = self._service()
+        with self.assertRaises(ValidationError) as ctx:
+            # step_one exists (created above), step_two_typo does not
+            service.create_experiment(
+                name="Funnel Unknown Event",
+                feature_flag_key="funnel-unknown-event-flag",
+                metrics=[
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "funnel",
+                        "series": [
+                            {"kind": "EventsNode", "event": "step_one"},
+                            {"kind": "EventsNode", "event": "step_two_typo"},
+                        ],
+                    },
+                ],
+            )
+        assert "step_two_typo" in str(ctx.exception.detail)
+
+    def test_null_event_name_passes_validation(self):
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Null Event",
+            feature_flag_key="null-event-flag",
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": None},
+                },
+            ],
+        )
+        assert experiment.metrics is not None and len(experiment.metrics) == 1
+
+    def test_no_metrics_passes_validation(self):
+        service = self._service()
+        experiment = service.create_experiment(
+            name="No Metrics",
+            feature_flag_key="no-metrics-flag",
+        )
+        assert experiment.metrics == []
+
+    def test_action_nodes_not_checked_for_event_existence(self):
+        action = Action.objects.create(team=self.team, name="valid action for event test")
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Action No Event Check",
+            feature_flag_key="action-no-event-check-flag",
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "ActionsNode", "id": action.id},
+                },
+            ],
+        )
+        assert experiment.metrics is not None and len(experiment.metrics) == 1
+
+    # ------------------------------------------------------------------
+    # allow_unknown_events opt-in
+    # ------------------------------------------------------------------
+
+    def test_allow_unknown_events_bypasses_event_validation(self):
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Allow Unknown",
+            feature_flag_key="allow-unknown-flag",
+            allow_unknown_events=True,
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "not_yet_deployed"},
+                },
+            ],
+        )
+        assert experiment.metrics is not None and len(experiment.metrics) == 1
+
+    def test_allow_unknown_events_still_validates_actions(self):
+        service = self._service()
+        with self.assertRaises(ValidationError):
+            service.create_experiment(
+                name="Allow Unknown But Bad Action",
+                feature_flag_key="allow-unknown-bad-action-flag",
+                allow_unknown_events=True,
+                metrics=[
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "ActionsNode", "id": 999999},
+                    },
+                ],
+            )
+
+    def test_explicit_allow_unknown_events_false_raises(self):
+        service = self._service()
+        with self.assertRaises(ValidationError) as ctx:
+            service.create_experiment(
+                name="Explicit False",
+                feature_flag_key="explicit-false-flag",
+                allow_unknown_events=False,
+                metrics=[
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "nonexistent_event"},
+                    },
+                ],
+            )
+        assert "nonexistent_event" in str(ctx.exception.detail)
+
+    # ------------------------------------------------------------------
+    # Event/action validation on update_experiment
+    # ------------------------------------------------------------------
+
+    def test_update_experiment_with_unknown_event_raises(self):
+        EventDefinition.objects.create(team=self.team, name="$pageview")
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Update Event Error",
+            feature_flag_key="update-event-error-flag",
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            ],
+        )
+
+        with self.assertRaises(ValidationError):
+            service.update_experiment(
+                experiment,
+                {
+                    "metrics": [
+                        {
+                            "kind": "ExperimentMetric",
+                            "metric_type": "mean",
+                            "source": {"kind": "EventsNode", "event": "nonexistent_event"},
+                        },
+                    ],
+                },
+            )
+
+    def test_update_experiment_with_nonexistent_action_raises(self):
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Update Action Error",
+            feature_flag_key="update-action-error-flag",
+        )
+        with self.assertRaises(ValidationError):
+            service.update_experiment(
+                experiment,
+                {
+                    "metrics": [
+                        {
+                            "kind": "ExperimentMetric",
+                            "metric_type": "mean",
+                            "source": {"kind": "ActionsNode", "id": 999999},
+                        },
+                    ],
+                },
+            )

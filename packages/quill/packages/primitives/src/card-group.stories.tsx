@@ -46,6 +46,31 @@ export const Default: Story = {
     ),
 } satisfies Story
 
+export const Small: Story = {
+    render: () => (
+        <CardGroup className="max-w-sm">
+            <Card size="sm">
+                <CardHeader>
+                    <CardTitle>Card Title</CardTitle>
+                    <CardDescription>Card Description</CardDescription>
+                    <CardAction>
+                        <Button variant="outline">Button 1</Button>
+                    </CardAction>
+                </CardHeader>
+            </Card>
+            <Card size="sm">
+                <CardHeader>
+                    <CardTitle>Card Title</CardTitle>
+                    <CardDescription>Card Description</CardDescription>
+                    <CardAction>
+                        <Button variant="outline">Button 1</Button>
+                    </CardAction>
+                </CardHeader>
+            </Card>
+        </CardGroup>
+    ),
+} satisfies Story
+
 export const Multiple: Story = {
     render: () => {
         const items = [
