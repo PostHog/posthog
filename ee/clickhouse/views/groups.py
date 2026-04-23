@@ -835,7 +835,7 @@ class GroupUsageMetricSerializer(serializers.ModelSerializer, UserAccessControlS
     destroy=extend_schema(tags=["customer_analytics"]),
 )
 class GroupUsageMetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "group"
+    scope_object = "usage_metric"
     queryset = GroupUsageMetric.objects.all()
     serializer_class = GroupUsageMetricSerializer
 
