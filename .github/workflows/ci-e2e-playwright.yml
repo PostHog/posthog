@@ -71,16 +71,10 @@ jobs:
             shouldRun: ${{ steps.changes.outputs.shouldRun || 'true' }}
             oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
         steps:
-            - uses: actions/checkout@v6
-              if: github.event_name != 'push'
-              with:
-                  filter: blob:none
-
             - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
               id: changes
               if: github.event_name != 'push' # Run all tests on master push
               with:
-                  token: ''
                   filters: |
                       shouldRun:
                         # Avoid running E2E tests for irrelevant changes
