@@ -202,9 +202,9 @@ impl SinkEvent for WrappedEvent {
         } else {
             ctx.client_ip.to_string()
         };
-        let timestamp = self
-            .adjusted_timestamp
-            .ok_or_else(|| anyhow::anyhow!("serialize_into called on event without adjusted_timestamp"))?;
+        let timestamp = self.adjusted_timestamp.ok_or_else(|| {
+            anyhow::anyhow!("serialize_into called on event without adjusted_timestamp")
+        })?;
         let ie = IngestionEvent {
             uuid: self.uuid,
             distinct_id: self.event.distinct_id.clone(),
@@ -820,7 +820,9 @@ mod tests {
         let ctx = test_utils::test_context();
         let ev = ok_wrapped("$pageview", "user-1");
         let h = ev.headers(&ctx);
-        let now = h.now.expect("now should be set from ctx.server_received_at");
+        let now = h
+            .now
+            .expect("now should be set from ctx.server_received_at");
         assert_eq!(
             now,
             ctx.server_received_at
