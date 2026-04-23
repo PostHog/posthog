@@ -458,11 +458,6 @@ function ScheduleSection({
         }
     }
 
-    const handleDiscard = (): void => {
-        setDraftFrequency(serverFrequency)
-        setDraftSyncTimeOfDay(serverSyncTimeOfDay)
-    }
-
     return (
         <div>
             <SectionHeader
@@ -498,16 +493,7 @@ function ScheduleSection({
                     setIsProjectTime={setIsProjectTime}
                 />
             </div>
-            <div className="mt-4 flex gap-2 justify-end">
-                {isDirty && (
-                    <LemonButton
-                        type="secondary"
-                        onClick={handleDiscard}
-                        disabledReason={saving ? 'Saving…' : undefined}
-                    >
-                        Discard
-                    </LemonButton>
-                )}
+            <div className="mt-4 flex justify-end">
                 <LemonButton
                     type="primary"
                     loading={saving}

@@ -445,7 +445,37 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
         }
     )
 
-    const saveDisabledReason = getSaveDisabledReason(radioValue, incrementalFieldValue, appendFieldValue)
+    // The form is "dirty" if the user has deviated from the server-persisted sync config. For a
+    // schema that has never been set up (`schema.sync_type` is null), any selection counts as
+    // dirty — the form's initial `radioValue` comes from the supported-modes default, which never
+    // equals null. For an existing schema we compare each relevant field against the schema.
+    const isDirty = ((): boolean => {
+        if (radioValue !== schema.sync_type) {
+            return true
+        }
+        if (radioValue === 'incremental') {
+            if (incrementalFieldValue !== (schema.incremental_field ?? null)) {
+                return true
+            }
+            const serverPrimaryKeys = schema.primary_key_columns ?? []
+            if (primaryKeyColumns.length !== serverPrimaryKeys.length) {
+                return true
+            }
+            if (primaryKeyColumns.some((pk, index) => pk !== serverPrimaryKeys[index])) {
+                return true
+            }
+        }
+        if (radioValue === 'append' && appendFieldValue !== (schema.incremental_field ?? null)) {
+            return true
+        }
+        if (radioValue === 'cdc' && cdcTableMode !== (schema.cdc_table_mode ?? 'consolidated')) {
+            return true
+        }
+        return false
+    })()
+
+    const validationDisabledReason = getSaveDisabledReason(radioValue, incrementalFieldValue, appendFieldValue)
+    const saveDisabledReason = validationDisabledReason ?? (!isDirty ? 'No changes to save' : undefined)
 
     const handleSave = (): void => {
         if (radioValue === 'webhook') {
