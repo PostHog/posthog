@@ -486,14 +486,26 @@ export class MCP extends McpAgent<Env> {
         if (organizationId) {
             await this.cache.set('orgId', organizationId)
         }
+        let cachedProjectId: string | undefined
         if (projectId) {
+            cachedProjectId = projectId
             await this.cache.set('projectId', projectId)
         }
 
         const context = await this.getContext()
+        // Sticky session: skip default resolution if a previous init for this
+        // userHash already picked a project (cache survives DO cold-restarts).
+        // Without this guard, switching the active org in the user's browser
+        // would silently reshuffle an established Claude session — `users/@me`
+        // returns whatever team the browser currently has selected, and
+        // setDefaultOrganizationAndProject would overwrite the cache with it.
+        // Headers always win because they were applied to the cache above.
+        if (!cachedProjectId) {
+            cachedProjectId = await this.cache.get('projectId')
+        }
 
-        // Resolve defaults if headers didn't provide org/project
-        if (!organizationId || !projectId) {
+        // Initialize org and project
+        if (!cachedProjectId) {
             await context.stateManager.setDefaultOrganizationAndProject()
         }
 
