@@ -18,6 +18,10 @@
                 }
             ]
         },
+        "id": {
+            "description": "A UUID string identifying this external data source.",
+            "type": "string"
+        },
         "job_inputs": {
             "anyOf": [
                 {},
@@ -36,12 +40,8 @@
                     "type": "null"
                 }
             ]
-        },
-        "source_type": {
-            "description": "The source type name (e.g. \"Postgres\", \"MySQL\", \"Stripe\"). Use external-data-sources-wizard to see available types and their required fields.",
-            "type": "string"
         }
     },
-    "required": ["client_secret", "account_id", "source_type"],
+    "required": ["id", "client_secret", "account_id"],
     "type": "object"
 }
