@@ -33,6 +33,24 @@ const llmAnalyticsClusteringJobsList = (): ToolBase<
     },
 })
 
+const LlmAnalyticsClusteringJobsRetrieveSchema = LlmAnalyticsClusteringJobsRetrieveParams.omit({ project_id: true })
+
+const llmAnalyticsClusteringJobsRetrieve = (): ToolBase<
+    typeof LlmAnalyticsClusteringJobsRetrieveSchema,
+    Schemas.ClusteringJob
+> => ({
+    name: 'llm-analytics-clustering-jobs-retrieve',
+    schema: LlmAnalyticsClusteringJobsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmAnalyticsClusteringJobsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ClusteringJob>({
+            method: 'GET',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/clustering_jobs/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
 const LlmAnalyticsEvaluationSummaryCreateSchema = LlmAnalyticsEvaluationSummaryCreateBody
 
 const llmAnalyticsEvaluationSummaryCreate = (): ToolBase<
@@ -147,28 +165,10 @@ const llmAnalyticsSummarizationCreate = (): ToolBase<
     },
 })
 
-const LlmAnalyticsClusteringJobsRetrieveSchema = LlmAnalyticsClusteringJobsRetrieveParams.omit({ project_id: true })
-
-const llmAnalyticsClusteringJobsRetrieve = (): ToolBase<
-    typeof LlmAnalyticsClusteringJobsRetrieveSchema,
-    Schemas.ClusteringJob
-> => ({
-    name: 'llm-analytics-clustering-jobs-retrieve',
-    schema: LlmAnalyticsClusteringJobsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmAnalyticsClusteringJobsRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ClusteringJob>({
-            method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/clustering_jobs/${encodeURIComponent(String(params.id))}/`,
-        })
-        return result
-    },
-})
-
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llm-analytics-clustering-jobs-list': llmAnalyticsClusteringJobsList,
+    'llm-analytics-clustering-jobs-retrieve': llmAnalyticsClusteringJobsRetrieve,
     'llm-analytics-evaluation-summary-create': llmAnalyticsEvaluationSummaryCreate,
     'llm-analytics-sentiment-create': llmAnalyticsSentimentCreate,
     'llm-analytics-summarization-create': llmAnalyticsSummarizationCreate,
-    'llm-analytics-clustering-jobs-retrieve': llmAnalyticsClusteringJobsRetrieve,
 }

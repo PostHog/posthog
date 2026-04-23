@@ -13,23 +13,16 @@ import {
 } from '@/generated/evaluation_reports/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const EvaluationReportsListSchema = LlmAnalyticsEvaluationReportsListQueryParams
+const EvaluationReportGenerateSchema = LlmAnalyticsEvaluationReportsGenerateCreateParams.omit({ project_id: true })
 
-const evaluationReportsList = (): ToolBase<
-    typeof EvaluationReportsListSchema,
-    Schemas.PaginatedEvaluationReportList
-> => ({
-    name: 'evaluation-reports-list',
-    schema: EvaluationReportsListSchema,
-    handler: async (context: Context, params: z.infer<typeof EvaluationReportsListSchema>) => {
+const evaluationReportGenerate = (): ToolBase<typeof EvaluationReportGenerateSchema, unknown> => ({
+    name: 'evaluation-report-generate',
+    schema: EvaluationReportGenerateSchema,
+    handler: async (context: Context, params: z.infer<typeof EvaluationReportGenerateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedEvaluationReportList>({
-            method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_reports/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-            },
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_reports/${encodeURIComponent(String(params.id))}/generate/`,
         })
         return result
     },
@@ -45,6 +38,30 @@ const evaluationReportGet = (): ToolBase<typeof EvaluationReportGetSchema, Schem
         const result = await context.api.request<Schemas.EvaluationReport>({
             method: 'GET',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_reports/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const EvaluationReportRunsListSchema = LlmAnalyticsEvaluationReportsRunsListParams.omit({ project_id: true }).extend(
+    LlmAnalyticsEvaluationReportsRunsListQueryParams.shape
+)
+
+const evaluationReportRunsList = (): ToolBase<
+    typeof EvaluationReportRunsListSchema,
+    Schemas.PaginatedEvaluationReportRunList
+> => ({
+    name: 'evaluation-report-runs-list',
+    schema: EvaluationReportRunsListSchema,
+    handler: async (context: Context, params: z.infer<typeof EvaluationReportRunsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedEvaluationReportRunList>({
+            method: 'GET',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_reports/${encodeURIComponent(String(params.id))}/runs/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
         })
         return result
     },
@@ -108,36 +125,19 @@ const evaluationReportUpdate = (): ToolBase<typeof EvaluationReportUpdateSchema,
     },
 })
 
-const EvaluationReportGenerateSchema = LlmAnalyticsEvaluationReportsGenerateCreateParams.omit({ project_id: true })
+const EvaluationReportsListSchema = LlmAnalyticsEvaluationReportsListQueryParams
 
-const evaluationReportGenerate = (): ToolBase<typeof EvaluationReportGenerateSchema, unknown> => ({
-    name: 'evaluation-report-generate',
-    schema: EvaluationReportGenerateSchema,
-    handler: async (context: Context, params: z.infer<typeof EvaluationReportGenerateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
-            method: 'POST',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_reports/${encodeURIComponent(String(params.id))}/generate/`,
-        })
-        return result
-    },
-})
-
-const EvaluationReportRunsListSchema = LlmAnalyticsEvaluationReportsRunsListParams.omit({ project_id: true }).extend(
-    LlmAnalyticsEvaluationReportsRunsListQueryParams.shape
-)
-
-const evaluationReportRunsList = (): ToolBase<
-    typeof EvaluationReportRunsListSchema,
-    Schemas.PaginatedEvaluationReportRunList
+const evaluationReportsList = (): ToolBase<
+    typeof EvaluationReportsListSchema,
+    Schemas.PaginatedEvaluationReportList
 > => ({
-    name: 'evaluation-report-runs-list',
-    schema: EvaluationReportRunsListSchema,
-    handler: async (context: Context, params: z.infer<typeof EvaluationReportRunsListSchema>) => {
+    name: 'evaluation-reports-list',
+    schema: EvaluationReportsListSchema,
+    handler: async (context: Context, params: z.infer<typeof EvaluationReportsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedEvaluationReportRunList>({
+        const result = await context.api.request<Schemas.PaginatedEvaluationReportList>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_reports/${encodeURIComponent(String(params.id))}/runs/`,
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_reports/`,
             query: {
                 limit: params.limit,
                 offset: params.offset,
@@ -148,9 +148,9 @@ const evaluationReportRunsList = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'evaluation-reports-list': evaluationReportsList,
-    'evaluation-report-get': evaluationReportGet,
-    'evaluation-report-update': evaluationReportUpdate,
     'evaluation-report-generate': evaluationReportGenerate,
+    'evaluation-report-get': evaluationReportGet,
     'evaluation-report-runs-list': evaluationReportRunsList,
+    'evaluation-report-update': evaluationReportUpdate,
+    'evaluation-reports-list': evaluationReportsList,
 }
