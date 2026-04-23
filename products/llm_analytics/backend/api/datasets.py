@@ -14,6 +14,7 @@ from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.permissions import AccessControlPermission
@@ -230,6 +231,9 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDe
 
 
 class DatasetItemSerializer(serializers.ModelSerializer):
+    dataset = TeamScopedPrimaryKeyRelatedField(queryset=Dataset.objects.all())
+    created_by = UserBasicSerializer(read_only=True)
+
     class Meta:
         model = DatasetItem
         fields = [
@@ -254,8 +258,6 @@ class DatasetItemSerializer(serializers.ModelSerializer):
             "team",
             "created_by",
         ]
-
-    created_by = UserBasicSerializer(read_only=True)
 
     def create(self, validated_data: dict, *args, **kwargs):
         request = self.context["request"]

@@ -70,7 +70,14 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
             "last_executed_at",
             "end_date",
         ]
-        read_only_fields = ["id", "created_at", "created_by", "updated_at", "last_executed_at"]
+        read_only_fields = [
+            "id",
+            "created_at",
+            "created_by",
+            "updated_at",
+            "last_executed_at",
+            "executed_at",
+        ]
 
     def get_failure_reason(self, obj: ScheduledChange) -> str | None:
         """Return the safely formatted failure reason instead of raw data."""
@@ -91,6 +98,11 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {"model_name": "Cannot change the model type of an existing scheduled change."}
                 )
+
+            # A completed one-time schedule is immutable. Recurring schedules legitimately carry
+            # executed_at=NULL while active, so this guard only trips for one-time completions.
+            if instance.executed_at is not None and not instance.is_recurring:
+                raise serializers.ValidationError("Cannot modify a scheduled change that has already executed.")
 
         # For updates, merge with existing instance values
         is_recurring = data.get("is_recurring", getattr(instance, "is_recurring", False) if instance else False)
@@ -168,30 +180,38 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
 
         return data
 
+    def _check_target_edit_permission(self, model_name: str | None, record_id: Any, team_id: int) -> None:
+        """Raise ValidationError unless the request user can edit the target record."""
+        if model_name != "FeatureFlag" or not record_id:
+            return
+
+        from posthog.models import FeatureFlag
+
+        try:
+            feature_flag = FeatureFlag.objects.get(id=record_id, team_id=team_id)
+        except FeatureFlag.DoesNotExist:
+            raise serializers.ValidationError("Feature flag not found")
+
+        request = self.context["request"]
+        if not CanEditFeatureFlag().has_object_permission(request, None, feature_flag):
+            raise serializers.ValidationError("You don't have edit permissions for this feature flag")
+
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> ScheduledChange:
         request = self.context["request"]
         validated_data["created_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
 
-        # Check permissions for feature flag changes
-        if validated_data.get("model_name") == "FeatureFlag":
-            record_id = validated_data.get("record_id")
-            if record_id:
-                # Get the feature flag to check permissions
-                from posthog.models import FeatureFlag
-
-                try:
-                    feature_flag = FeatureFlag.objects.get(id=record_id, team_id=validated_data["team_id"])
-
-                    # Use the permission class to check if user can edit this feature flag
-                    permission_check = CanEditFeatureFlag()
-                    if not permission_check.has_object_permission(request, None, feature_flag):
-                        raise serializers.ValidationError("You don't have edit permissions for this feature flag")
-
-                except FeatureFlag.DoesNotExist:
-                    raise serializers.ValidationError("Feature flag not found")
+        self._check_target_edit_permission(
+            validated_data.get("model_name"), validated_data.get("record_id"), validated_data["team_id"]
+        )
 
         return super().create(validated_data)
+
+    def update(self, instance: ScheduledChange, validated_data: dict) -> ScheduledChange:
+        # Enforce the same edit-permission check on updates. record_id/model_name can't be changed
+        # (blocked in validate()), so the instance's existing target is authoritative.
+        self._check_target_edit_permission(instance.model_name, instance.record_id, instance.team_id)
+        return super().update(instance, validated_data)
 
 
 @extend_schema(tags=["feature_flags"])

@@ -5620,18 +5620,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `trace` - trace
-    * `generation` - generation
-     */
-    export type AnalysisLevelEnum = typeof AnalysisLevelEnum[keyof typeof AnalysisLevelEnum];
-
-
-    export const AnalysisLevelEnum = {
-      Trace: 'trace',
-      Generation: 'generation',
-    } as const;
-
-    /**
      * * `USR` - user
     * `GIT` - GitHub
      */
@@ -5825,6 +5813,18 @@ export namespace Schemas {
       Linear: 'linear',
       TimeDecay: 'time_decay',
       PositionBased: 'position_based',
+    } as const;
+
+    /**
+     * * `api_key` - API Key
+    * `oauth` - OAuth
+     */
+    export type AuthType9cbEnum = typeof AuthType9cbEnum[keyof typeof AuthType9cbEnum];
+
+
+    export const AuthType9cbEnum = {
+      ApiKey: 'api_key',
+      Oauth: 'oauth',
     } as const;
 
     export interface UserBasicInfo {
@@ -6509,10 +6509,7 @@ export namespace Schemas {
       type: BatchExportDestinationTypeEnum;
       /** A JSON field to store all configuration parameters required to access a BatchExportDestination. */
       config?: unknown;
-      /**
-       * The integration for this destination.
-       * @nullable
-       */
+      /** @nullable */
       integration?: number | null;
       /** @nullable */
       integration_id?: number | null;
@@ -7826,11 +7823,25 @@ export namespace Schemas {
       readonly elements_chain: string;
     }
 
+    /**
+     * * `trace` - trace
+    * `generation` - generation
+    * `evaluation` - evaluation
+     */
+    export type ClusteringJobAnalysisLevelEnum = typeof ClusteringJobAnalysisLevelEnum[keyof typeof ClusteringJobAnalysisLevelEnum];
+
+
+    export const ClusteringJobAnalysisLevelEnum = {
+      Trace: 'trace',
+      Generation: 'generation',
+      Evaluation: 'evaluation',
+    } as const;
+
     export interface ClusteringJob {
       readonly id: string;
       /** @maxLength 100 */
       name: string;
-      analysis_level: AnalysisLevelEnum;
+      analysis_level: ClusteringJobAnalysisLevelEnum;
       event_filters?: unknown;
       enabled?: boolean;
       readonly created_at: string;
@@ -8764,32 +8775,17 @@ export namespace Schemas {
     * `DPA` - DPA */
       document_type: DocumentTypeEnum;
       /**
-       * The customer legal entity entering the agreement.
+       * The customer legal entity entering the agreement (PandaDoc's Client.Company).
        * @maxLength 255
        */
       company_name: string;
       /**
-       * Customer address. Required for DPAs; ignored for BAAs.
+       * The customer address (PandaDoc's Client.StreetAddress).
        * @maxLength 512
        */
-      company_address?: string;
-      /**
-       * Name of the signer at the customer.
-       * @maxLength 255
-       */
-      representative_name: string;
-      /**
-       * Title of the signer at the customer.
-       * @maxLength 255
-       */
-      representative_title: string;
-      /** Email the signed PandaDoc envelope is sent to. */
+      company_address: string;
+      /** Email the signed PandaDoc envelope is sent to (PandaDoc's Client.Email). */
       representative_email: string;
-      /**
-       * DPA style: 'pretty' or 'lawyer' for submittable versions. 'fairytale' and 'tswift' are preview-only on posthog.com and are not accepted by the API.
-       * @maxLength 16
-       */
-      dpa_mode?: string;
     }
 
     /**
@@ -17163,6 +17159,11 @@ export namespace Schemas {
       full_name: string;
     }
 
+    export interface GitHubReposRefreshResponse {
+      /** The refreshed repository cache. */
+      repositories: GitHubRepo[];
+    }
+
     export interface GitHubReposResponse {
       repositories: GitHubRepo[];
       /** Whether more repositories are available beyond this page. */
@@ -17244,6 +17245,18 @@ export namespace Schemas {
       Sparkline: 'sparkline',
     } as const;
 
+    /**
+     * * `count` - count
+    * `sum` - sum
+     */
+    export type MathEnum = typeof MathEnum[keyof typeof MathEnum];
+
+
+    export const MathEnum = {
+      Count: 'count',
+      Sum: 'sum',
+    } as const;
+
     export interface GroupUsageMetric {
       readonly id: string;
       /** @maxLength 255 */
@@ -17257,6 +17270,12 @@ export namespace Schemas {
       interval?: number;
       display?: GroupUsageMetricDisplayEnum;
       filters: unknown;
+      math?: MathEnum;
+      /**
+       * @maxLength 255
+       * @nullable
+       */
+      math_property?: string | null;
     }
 
     /**
@@ -19689,16 +19708,36 @@ export namespace Schemas {
     } as const;
 
     export interface InsightVariable {
+      /** UUID of the SQL variable. */
       readonly id: string;
-      /** @maxLength 400 */
+      /**
+       * Human-readable name for the SQL variable.
+       * @maxLength 400
+       */
       name: string;
+      /** Variable type. Controls how the value is rendered and substituted in HogQL.
+
+    * `String` - String
+    * `Number` - Number
+    * `Boolean` - Boolean
+    * `List` - List
+    * `Date` - Date */
       type: InsightVariableTypeEnum;
+      /** Default value used when a query references this variable. */
       default_value?: unknown | null;
-      /** @nullable */
+      /**
+       * ID of the user who created the SQL variable.
+       * @nullable
+       */
       readonly created_by: number | null;
+      /** Timestamp when the SQL variable was created. */
       readonly created_at: string;
-      /** @nullable */
+      /**
+       * Generated code-safe name used in HogQL as {variables.code_name}. Derived from name.
+       * @nullable
+       */
       readonly code_name: string | null;
+      /** Allowed values for List variables. Null for other variable types. */
       values?: unknown | null;
     }
 
@@ -19734,6 +19773,15 @@ export namespace Schemas {
       auth_type: InstallCustomAuthTypeEnum;
       api_key?: string;
       description?: string;
+      client_id?: string;
+      client_secret?: string;
+      install_source?: InstallSourceEnum;
+      posthog_code_callback_url?: string;
+    }
+
+    export interface InstallTemplate {
+      template_id: string;
+      api_key?: string;
       install_source?: InstallSourceEnum;
       posthog_code_callback_url?: string;
     }
@@ -20144,10 +20192,8 @@ export namespace Schemas {
       id: string;
       document_type: string;
       company_name: string;
-      representative_name: string;
       representative_email: string;
       status: string;
-      signed_document_url: string;
       created_by: LegalDocumentCreator | null;
       created_at: string;
     }
@@ -20663,29 +20709,17 @@ export namespace Schemas {
       blocked?: boolean;
     }
 
-    /**
-     * * `api_key` - API Key
-    * `oauth` - OAuth
-     */
-    export type MCPServerInstallationAuthTypeEnum = typeof MCPServerInstallationAuthTypeEnum[keyof typeof MCPServerInstallationAuthTypeEnum];
-
-
-    export const MCPServerInstallationAuthTypeEnum = {
-      ApiKey: 'api_key',
-      Oauth: 'oauth',
-    } as const;
-
     export interface MCPServerInstallation {
       readonly id: string;
       /** @nullable */
-      readonly server_id: string | null;
+      readonly template_id: string | null;
       readonly name: string;
       /** @maxLength 200 */
       display_name?: string;
       /** @maxLength 2048 */
       url?: string;
       description?: string;
-      auth_type?: MCPServerInstallationAuthTypeEnum;
+      auth_type?: AuthType9cbEnum;
       is_enabled?: boolean;
       readonly needs_reauth: boolean;
       readonly pending_oauth: boolean;
@@ -20693,6 +20727,47 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
+    }
+
+    /**
+     * * `approved` - Approved
+    * `needs_approval` - Needs approval
+    * `do_not_use` - Do not use
+     */
+    export type MCPServerInstallationToolApprovalStateEnum = typeof MCPServerInstallationToolApprovalStateEnum[keyof typeof MCPServerInstallationToolApprovalStateEnum];
+
+
+    export const MCPServerInstallationToolApprovalStateEnum = {
+      Approved: 'approved',
+      NeedsApproval: 'needs_approval',
+      DoNotUse: 'do_not_use',
+    } as const;
+
+    export interface MCPServerInstallationTool {
+      readonly id: string;
+      readonly tool_name: string;
+      readonly display_name: string;
+      readonly description: string;
+      readonly input_schema: unknown;
+      approval_state?: MCPServerInstallationToolApprovalStateEnum;
+      readonly last_seen_at: string;
+      /** @nullable */
+      readonly removed_at: string | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface MCPServerTemplate {
+      readonly id: string;
+      /** @maxLength 200 */
+      name: string;
+      /** @maxLength 2048 */
+      url: string;
+      description?: string;
+      auth_type?: AuthType9cbEnum;
+      /** @maxLength 100 */
+      icon_key?: string;
     }
 
     export interface MarkToleratedInput {
@@ -22204,6 +22279,24 @@ export namespace Schemas {
       results: MCPServerInstallation[];
     }
 
+    export interface PaginatedMCPServerInstallationToolList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: MCPServerInstallationTool[];
+    }
+
+    export interface PaginatedMCPServerTemplateList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: MCPServerTemplate[];
+    }
+
     export interface PaginatedMaterializedColumnSlotList {
       count: number;
       /** @nullable */
@@ -22616,36 +22709,6 @@ export namespace Schemas {
       results: QuickFilter[];
     }
 
-    /**
-     * * `none` - none
-    * `api_key` - api_key
-    * `oauth` - oauth
-     */
-    export type RecommendedServerAuthTypeEnum = typeof RecommendedServerAuthTypeEnum[keyof typeof RecommendedServerAuthTypeEnum];
-
-
-    export const RecommendedServerAuthTypeEnum = {
-      None: 'none',
-      ApiKey: 'api_key',
-      Oauth: 'oauth',
-    } as const;
-
-    export interface RecommendedServer {
-      name: string;
-      url: string;
-      description: string;
-      auth_type: RecommendedServerAuthTypeEnum;
-    }
-
-    export interface PaginatedRecommendedServerList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: RecommendedServer[];
-    }
-
     export type RepoBaselineFilePaths = {[key: string]: string};
 
     export interface Repo {
@@ -22825,7 +22888,7 @@ export namespace Schemas {
       /** ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z'). */
       scheduled_at: string;
       /** @nullable */
-      executed_at?: string | null;
+      readonly executed_at: string | null;
       /**
        * Return the safely formatted failure reason instead of raw data.
        * @nullable
@@ -24724,7 +24787,7 @@ export namespace Schemas {
       readonly id?: string;
       /** @maxLength 100 */
       name?: string;
-      analysis_level?: AnalysisLevelEnum;
+      analysis_level?: ClusteringJobAnalysisLevelEnum;
       event_filters?: unknown;
       enabled?: boolean;
       readonly created_at?: string;
@@ -26067,6 +26130,12 @@ export namespace Schemas {
       interval?: number;
       display?: GroupUsageMetricDisplayEnum;
       filters?: unknown;
+      math?: MathEnum;
+      /**
+       * @maxLength 255
+       * @nullable
+       */
+      math_property?: string | null;
     }
 
     export interface PatchedHealthIssue {
@@ -26376,16 +26445,36 @@ export namespace Schemas {
     }
 
     export interface PatchedInsightVariable {
+      /** UUID of the SQL variable. */
       readonly id?: string;
-      /** @maxLength 400 */
+      /**
+       * Human-readable name for the SQL variable.
+       * @maxLength 400
+       */
       name?: string;
+      /** Variable type. Controls how the value is rendered and substituted in HogQL.
+
+    * `String` - String
+    * `Number` - Number
+    * `Boolean` - Boolean
+    * `List` - List
+    * `Date` - Date */
       type?: InsightVariableTypeEnum;
+      /** Default value used when a query references this variable. */
       default_value?: unknown | null;
-      /** @nullable */
+      /**
+       * ID of the user who created the SQL variable.
+       * @nullable
+       */
       readonly created_by?: number | null;
+      /** Timestamp when the SQL variable was created. */
       readonly created_at?: string;
-      /** @nullable */
+      /**
+       * Generated code-safe name used in HogQL as {variables.code_name}. Derived from name.
+       * @nullable
+       */
       readonly code_name?: string | null;
+      /** Allowed values for List variables. Null for other variable types. */
       values?: unknown | null;
     }
 
@@ -27910,7 +27999,7 @@ export namespace Schemas {
       /** ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z'). */
       scheduled_at?: string;
       /** @nullable */
-      executed_at?: string | null;
+      readonly executed_at?: string | null;
       /**
        * Return the safely formatted failure reason instead of raw data.
        * @nullable
@@ -29279,6 +29368,24 @@ export namespace Schemas {
       readonly cc_participants?: unknown;
       readonly person?: TicketPerson | null;
       tags?: unknown[];
+    }
+
+    /**
+     * * `approved` - approved
+    * `needs_approval` - needs_approval
+    * `do_not_use` - do_not_use
+     */
+    export type ToolApprovalUpdateApprovalStateEnum = typeof ToolApprovalUpdateApprovalStateEnum[keyof typeof ToolApprovalUpdateApprovalStateEnum];
+
+
+    export const ToolApprovalUpdateApprovalStateEnum = {
+      Approved: 'approved',
+      NeedsApproval: 'needs_approval',
+      DoNotUse: 'do_not_use',
+    } as const;
+
+    export interface PatchedToolApprovalUpdate {
+      approval_state?: ToolApprovalUpdateApprovalStateEnum;
     }
 
     export interface TraceReviewScoreWrite {
@@ -33671,13 +33778,25 @@ export namespace Schemas {
       results: SentimentBatchResponseResults;
     }
 
+    /**
+     * * `trace` - trace
+    * `generation` - generation
+     */
+    export type SentimentRequestAnalysisLevelEnum = typeof SentimentRequestAnalysisLevelEnum[keyof typeof SentimentRequestAnalysisLevelEnum];
+
+
+    export const SentimentRequestAnalysisLevelEnum = {
+      Trace: 'trace',
+      Generation: 'generation',
+    } as const;
+
     export interface SentimentRequest {
       /**
        * @minItems 1
        * @maxItems 5
        */
       ids: string[];
-      analysis_level?: AnalysisLevelEnum;
+      analysis_level?: SentimentRequestAnalysisLevelEnum;
       force_refresh?: boolean;
       /** @nullable */
       date_from?: string | null;
@@ -36878,6 +36997,10 @@ export namespace Schemas {
      * @minLength 1
      */
     repo: string;
+    /**
+     * Optional case-insensitive branch name search query.
+     */
+    search?: string;
     };
 
     export type EnvironmentsIntegrationsGithubReposRetrieveParams = {
@@ -38332,8 +38455,9 @@ export namespace Schemas {
      * @minLength 1
      */
     install_source?: McpServerInstallationsAuthorizeRetrieveInstallSource;
+    installation_id?: string;
     posthog_code_callback_url?: string;
-    server_id: string;
+    template_id?: string;
     };
 
     export type McpServerInstallationsAuthorizeRetrieveInstallSource = typeof McpServerInstallationsAuthorizeRetrieveInstallSource[keyof typeof McpServerInstallationsAuthorizeRetrieveInstallSource];
@@ -41006,6 +41130,10 @@ export namespace Schemas {
      * @minLength 1
      */
     repo: string;
+    /**
+     * Optional case-insensitive branch name search query.
+     */
+    search?: string;
     };
 
     export type IntegrationsGithubReposRetrieveParams = {

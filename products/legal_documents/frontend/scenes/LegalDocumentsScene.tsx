@@ -7,6 +7,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -14,6 +15,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { getLegalDocumentsDownloadRetrieveUrl } from '../generated/api'
 import { LegalDocument, LegalDocumentType, legalDocumentsLogic } from './legalDocumentsLogic'
 
 function buildNewMenuItems(existingTypes: Set<LegalDocumentType>): LemonMenuItems {
@@ -63,8 +65,23 @@ export const scene: SceneExport = {
 
 export function LegalDocumentsScene(): JSX.Element {
     const { legalDocuments, legalDocumentsLoading, existingDocumentTypes } = useValues(legalDocumentsLogic)
-    const { isAdminOrOwner } = useValues(organizationLogic)
+    const { isAdminOrOwner, currentOrganizationId } = useValues(organizationLogic)
+    const { isCloudOrDev } = useValues(preflightLogic)
     const isEnabled = useFeatureFlag('LEGAL_DOCUMENTS')
+
+    if (!isCloudOrDev) {
+        return (
+            <SceneContent>
+                <SceneTitleSection
+                    name={sceneConfigurations[Scene.LegalDocuments].name}
+                    resourceType={{ type: 'default_icon_type', forceIcon: <IconBalance /> }}
+                />
+                <LemonBanner type="info">
+                    <p className="mb-0">Legal documents are only available on PostHog Cloud.</p>
+                </LemonBanner>
+            </SceneContent>
+        )
+    }
 
     if (!isEnabled) {
         return (
@@ -138,13 +155,8 @@ export function LegalDocumentsScene(): JSX.Element {
                         render: (_: any, row: LegalDocument) => row.company_name,
                     },
                     {
-                        title: 'Representative',
-                        render: (_: any, row: LegalDocument) => (
-                            <div className="flex flex-col">
-                                <span>{row.representative_name}</span>
-                                <span className="text-xs text-muted">{row.representative_email}</span>
-                            </div>
-                        ),
+                        title: 'Signer',
+                        render: (_: any, row: LegalDocument) => row.representative_email,
                     },
                     {
                         title: 'Status',
@@ -160,8 +172,11 @@ export function LegalDocumentsScene(): JSX.Element {
                         title: 'Signed copy',
                         width: 140,
                         render: (_: any, row: LegalDocument) =>
-                            row.signed_document_url ? (
-                                <Link to={row.signed_document_url} target="_blank">
+                            row.status === 'signed' && currentOrganizationId ? (
+                                <Link
+                                    to={getLegalDocumentsDownloadRetrieveUrl(currentOrganizationId, row.id)}
+                                    target="_blank"
+                                >
                                     <span className="inline-flex items-center gap-1">
                                         <IconDownload />
                                         Download
