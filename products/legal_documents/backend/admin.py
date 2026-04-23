@@ -16,7 +16,6 @@ class LegalDocumentAdmin(admin.ModelAdmin):
         "organization_link",
         "status",
         "pandadoc_link",
-        "signed_url_preview",
         "created_at",
     )
     list_display_links = ("id",)
@@ -70,13 +69,6 @@ class LegalDocumentAdmin(admin.ModelAdmin):
             },
         ),
         (
-            "Signed document",
-            {
-                "fields": ("signed_document_url",),
-                "description": "Paste the PandaDoc download URL once the customer has signed.",
-            },
-        ),
-        (
             "Audit",
             {"fields": ("created_by", "created_at", "updated_at")},
         ),
@@ -121,18 +113,3 @@ class LegalDocumentAdmin(admin.ModelAdmin):
             '<a href="https://app.pandadoc.com/a/#/documents/{id}" target="_blank" rel="noopener">{id}</a>',
             id=document.pandadoc_document_id,
         )
-
-    @admin.display(description="Signed URL")
-    def signed_url_preview(self, document: LegalDocument) -> str:
-        if not document.signed_document_url:
-            return "—"
-        return format_html(
-            '<a href="{url}" target="_blank" rel="noopener">Download</a>',
-            url=document.signed_document_url,
-        )
-
-    def save_model(self, request, obj, form, change) -> None:
-        # If an admin pastes a URL for the first time, move the row into the signed state.
-        if change and "signed_document_url" in form.changed_data and obj.signed_document_url:
-            obj.status = LegalDocument.Status.SIGNED
-        super().save_model(request, obj, form, change)

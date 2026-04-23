@@ -16,6 +16,15 @@ from . import contracts
 from .enums import LegalDocumentStatus
 
 
+class LegalDocumentDownloadFailed(Exception):
+    """
+    Raised when we own a row but couldn't pull the signed PDF from PandaDoc /
+    stash it in object storage. The webhook handler surfaces this as a 5xx so
+    PandaDoc retries; the underlying exception has already been logged +
+    captured at the source.
+    """
+
+
 def _to_dto(doc) -> contracts.LegalDocumentDTO:
     creator = doc.created_by
     return contracts.LegalDocumentDTO(
@@ -24,7 +33,6 @@ def _to_dto(doc) -> contracts.LegalDocumentDTO:
         company_name=doc.company_name,
         representative_email=doc.representative_email,
         status=doc.status,
-        signed_document_url=doc.signed_document_url,
         created_by=(
             contracts.LegalDocumentCreator(first_name=creator.first_name or "", email=creator.email)
             if creator is not None
@@ -41,6 +49,18 @@ def list_for_organization(organization_id: UUID) -> list[contracts.LegalDocument
 def get_for_organization(document_id: UUID, organization_id: UUID) -> contracts.LegalDocumentDTO | None:
     document = logic.get_for_organization(document_id, organization_id)
     return _to_dto(document) if document is not None else None
+
+
+def get_signed_pdf_download_url(document_id: UUID, organization_id: UUID) -> str | None:
+    """
+    Return a short-lived presigned URL for the signed PDF, or None if the
+    document doesn't exist, isn't signed yet, or the PDF isn't in object
+    storage (upload failed, storage disabled).
+    """
+    document = logic.get_for_organization(document_id, organization_id)
+    if document is None or document.status != LegalDocumentStatus.SIGNED:
+        return None
+    return logic.get_signed_pdf_presigned_url(document)
 
 
 def has_qualifying_baa_addon(organization: Organization) -> bool:
@@ -108,7 +128,6 @@ def mark_envelope_ready_by_pandadoc_document_id(
 def mark_signed_by_pandadoc_document_id(
     *,
     pandadoc_document_id: str,
-    signed_document_url: str,
     template_id: str,
 ) -> contracts.LegalDocumentDTO | None:
     """
@@ -118,21 +137,24 @@ def mark_signed_by_pandadoc_document_id(
     - Looks up the row by the PandaDoc document uuid (no IDOR surface: unknown ids 404).
     - Double-checks the template matches the stored document variant, to guard
       against misconfigured PandaDoc templates flipping the wrong row.
+    - Downloads the signed PDF from PandaDoc and stashes it in object storage.
     - Flips status to signed, fires analytics + Slack.
 
     Idempotent: if the row is already signed we return the existing DTO
-    without touching the URL or re-firing Slack/analytics. PandaDoc can
-    replay the same webhook (retries, multi-instance fan-out, out-of-order
-    delivery after a manual admin paste) — the first write wins.
+    without re-downloading or re-firing Slack/analytics. If the download or
+    upload fails we leave the row unsigned and return None so the webhook
+    handler can surface 5xx; PandaDoc will retry.
     """
     document = logic.get_by_pandadoc_document_id(pandadoc_document_id)
     if document is None:
         return None
     if not logic.template_id_matches_document(document, template_id):
         return None
-    if document.signed_document_url or document.status == LegalDocumentStatus.SIGNED:
+    if document.status == LegalDocumentStatus.SIGNED:
         return _to_dto(document)
-    document = logic.mark_document_signed(document, signed_document_url)
+    if not logic.download_and_store_signed_pdf(document):
+        raise LegalDocumentDownloadFailed(f"Failed to retrieve signed PDF for legal_document {document.id}")
+    document = logic.mark_document_signed(document)
     logic.notify_slack_on_signed(document)
     logic.fire_legal_document_signed_event(document)
     return _to_dto(document)

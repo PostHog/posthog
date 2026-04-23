@@ -1,6 +1,7 @@
 import hmac
 import json
 import hashlib
+from contextlib import contextmanager
 from typing import Any
 
 from posthog.test.base import APIBaseTest
@@ -130,9 +131,6 @@ class TestLegalDocumentAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         body = response.json()
         self.assertEqual(body["status"], "submitted_for_signature")
-        self.assertEqual(body["signed_document_url"], "")
-        # Internal PandaDoc id should never reach the UI.
-        self.assertNotIn("pandadoc_document_id", body)
 
     @patch("products.legal_documents.backend.logic.posthoganalytics.capture")
     def test_create_fires_submitted_analytics_event(self, mock_capture) -> None:
@@ -242,6 +240,74 @@ class TestLegalDocumentAPI(APIBaseTest):
 
 
 @override_settings(CLOUD_DEPLOYMENT="US")
+class TestLegalDocumentDownloadEndpoint(APIBaseTest):
+    """
+    The `GET .../download` proxy hands back a short-lived presigned URL to the
+    signed PDF in object storage. The PDF itself lives at legal_documents/{id}.pdf.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.document = LegalDocument.objects.create(
+            organization=self.organization,
+            document_type="DPA",
+            company_name="Acme, Inc.",
+            company_address="1 Analytics Way",
+            representative_email="ada@acme.example",
+            status=LegalDocument.Status.SIGNED,
+            pandadoc_document_id="doc_123",
+            created_by=self.user,
+        )
+        self.url = f"/api/organizations/{self.organization.id}/legal_documents/{self.document.id}/download"
+
+    def test_signed_document_returns_302_to_presigned_url(self) -> None:
+        with patch(
+            "products.legal_documents.backend.logic.object_storage.get_presigned_url",
+            return_value="https://s3.example/signed-url?token=abc",
+        ) as presign_mock:
+            response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response["Location"], "https://s3.example/signed-url?token=abc")
+        presign_mock.assert_called_once()
+        # Key should be under the legal_documents prefix.
+        args, kwargs = presign_mock.call_args
+        self.assertTrue(args[0].endswith(f"{self.document.id}.pdf"))
+
+    def test_unsigned_document_returns_404(self) -> None:
+        self.document.status = LegalDocument.Status.SUBMITTED_FOR_SIGNATURE
+        self.document.save()
+        with patch("products.legal_documents.backend.logic.object_storage.get_presigned_url") as presign_mock:
+            response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        presign_mock.assert_not_called()
+
+    def test_unknown_document_returns_404(self) -> None:
+        bogus_url = (
+            f"/api/organizations/{self.organization.id}/legal_documents/00000000-0000-0000-0000-000000000000/download"
+        )
+        response = self.client.get(bogus_url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_regular_member_cannot_download(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_cross_organization_download_is_blocked(self) -> None:
+        other_org = Organization.objects.create(name="Other Co")
+        OrganizationMembership.objects.create(
+            user=self.user, organization=other_org, level=OrganizationMembership.Level.ADMIN
+        )
+        # Same document id but accessed under the wrong org's path.
+        url = f"/api/organizations/{other_org.id}/legal_documents/{self.document.id}/download"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+@override_settings(CLOUD_DEPLOYMENT="US")
 class TestLegalDocumentPandaDocWebhook(APIBaseTest):
     SECRET = "pandadoc-test-secret"
     BAA_TEMPLATE_ID = "tpl_baa"
@@ -262,13 +328,15 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         self.client.logout()
 
     def _completed_payload(self, pandadoc_document_id: str = "doc_123", template_id: str | None = None) -> list[dict]:
+        # PandaDoc's `document.completed` webhook doesn't carry a signed-PDF
+        # URL — we pull the PDF ourselves via the public API. The fixture
+        # mirrors the real shape (no download_link, no public_url).
         return [
             {
                 "event": "document_state_changed",
                 "data": {
                     "id": pandadoc_document_id,
                     "status": "document.completed",
-                    "download_link": "https://app.pandadoc.com/s/signed.pdf",
                     "template": {"id": template_id or self.DPA_TEMPLATE_ID},
                 },
             }
@@ -308,14 +376,55 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
             PANDADOC_DPA_TEMPLATE_ID=self.DPA_TEMPLATE_ID,
         )
 
-    def test_valid_signature_flips_status_and_stores_url(self) -> None:
+    def test_valid_signature_streams_pdf_to_object_storage_and_flips_status(self) -> None:
+        # The streaming handle is opaque to the webhook layer; we just need to
+        # confirm it's threaded from PandaDoc into object storage.
+        fake_stream = object()
+
+        @contextmanager
+        def fake_stream_cm(*, document_id):  # noqa: ARG001
+            yield fake_stream
+
         body = json.dumps(self._completed_payload()).encode("utf-8")
-        with self._override():
+        with (
+            self._override(),
+            patch(
+                "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.stream_document",
+                side_effect=fake_stream_cm,
+            ) as stream_mock,
+            patch("products.legal_documents.backend.logic.object_storage.write_stream") as write_mock,
+        ):
             response = self._post_raw(body, self._sign(body))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.document.refresh_from_db()
         self.assertEqual(self.document.status, "signed")
-        self.assertEqual(self.document.signed_document_url, "https://app.pandadoc.com/s/signed.pdf")
+        stream_mock.assert_called_once_with(document_id="doc_123")
+        write_mock.assert_called_once()
+        args, kwargs = write_mock.call_args
+        # Positional args: (key, fileobj); content-type rides in extras.
+        self.assertTrue(args[0].endswith(f"{self.document.id}.pdf"))
+        self.assertIs(args[1], fake_stream)
+        self.assertEqual(kwargs["extras"], {"ContentType": "application/pdf"})
+
+    def test_download_failure_returns_503_and_leaves_row_unsigned(self) -> None:
+        from products.legal_documents.backend.logic import pandadoc as pandadoc_module
+
+        body = json.dumps(self._completed_payload()).encode("utf-8")
+        with (
+            self._override(),
+            patch(
+                "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.stream_document",
+                side_effect=pandadoc_module.PandaDocError("network boom"),
+            ),
+            patch("products.legal_documents.backend.logic.object_storage.write_stream") as write_mock,
+        ):
+            response = self._post_raw(body, self._sign(body))
+
+        # 503 surfaces so PandaDoc retries the delivery.
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        write_mock.assert_not_called()
+        self.document.refresh_from_db()
+        self.assertEqual(self.document.status, "submitted_for_signature")
 
     def test_invalid_signature_returns_404(self) -> None:
         body = json.dumps(self._completed_payload()).encode("utf-8")
@@ -376,7 +485,6 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
 
     def test_draft_event_for_already_signed_document_is_a_noop(self) -> None:
         self.document.status = "signed"
-        self.document.signed_document_url = "https://app.pandadoc.com/s/signed.pdf"
         self.document.save()
 
         body = json.dumps(self._draft_payload()).encode("utf-8")
@@ -406,30 +514,42 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
             response = self._post_raw(body, self._sign(body))
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_already_signed_document_keeps_original_url_and_skips_side_effects(self) -> None:
-        # First delivery flips the row to signed.
+    def test_replayed_completed_event_skips_side_effects(self) -> None:
+        @contextmanager
+        def fake_stream_cm(*, document_id):  # noqa: ARG001
+            yield object()
+
+        # First delivery: stream + flip to signed.
         body = json.dumps(self._completed_payload()).encode("utf-8")
-        with self._override():
+        with (
+            self._override(),
+            patch(
+                "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.stream_document",
+                side_effect=fake_stream_cm,
+            ),
+            patch("products.legal_documents.backend.logic.object_storage.write_stream"),
+        ):
             first = self._post_raw(body, self._sign(body))
         self.assertEqual(first.status_code, status.HTTP_200_OK)
         self.document.refresh_from_db()
-        original_url = self.document.signed_document_url
-        self.assertEqual(original_url, "https://app.pandadoc.com/s/signed.pdf")
+        self.assertEqual(self.document.status, "signed")
 
-        # A replay with a different URL must not overwrite it and must not
-        # re-fire Slack or analytics.
-        replay = self._completed_payload()
-        replay[0]["data"]["download_link"] = "https://app.pandadoc.com/s/REPLAY.pdf"
-        replay_body = json.dumps(replay).encode("utf-8")
+        # Replay: must not re-stream the PDF, re-upload, or re-fire Slack /
+        # analytics. PandaDoc retries / cross-instance fan-out both land here.
+        replay_body = json.dumps(self._completed_payload()).encode("utf-8")
         with (
             self._override(),
+            patch(
+                "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.stream_document"
+            ) as stream_spy,
+            patch("products.legal_documents.backend.logic.object_storage.write_stream") as write_spy,
             patch("products.legal_documents.backend.logic.notify_slack_on_signed") as slack_spy,
             patch("products.legal_documents.backend.logic.fire_legal_document_signed_event") as event_spy,
         ):
             response = self._post_raw(replay_body, self._sign(replay_body))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.document.refresh_from_db()
-        self.assertEqual(self.document.signed_document_url, original_url)
+        stream_spy.assert_not_called()
+        write_spy.assert_not_called()
         slack_spy.assert_not_called()
         event_spy.assert_not_called()
 

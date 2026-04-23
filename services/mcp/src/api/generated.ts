@@ -20192,7 +20192,6 @@ export namespace Schemas {
       company_name: string;
       representative_email: string;
       status: string;
-      signed_document_url: string;
       created_by: LegalDocumentCreator | null;
       created_at: string;
     }
