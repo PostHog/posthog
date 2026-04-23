@@ -16,9 +16,11 @@ from posthog.temporal.session_replay.session_summary.state import (
     get_data_class_from_redis,
 )
 from posthog.temporal.session_replay.session_summary.summarize_session import (
+    _set_phase,
     execute_summarize_session_video_stream,
     fetch_session_data_activity,
 )
+from posthog.temporal.session_replay.session_summary.types.single import SingleSessionProgress
 from posthog.temporal.tests.session_replay.session_summary.conftest import AsyncRedisTestContext
 
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
@@ -26,6 +28,22 @@ from ee.hogai.session_summaries.utils import serialize_to_sse_event
 from ee.models.session_summaries import SingleSessionSummary
 
 pytestmark = pytest.mark.django_db
+
+
+def test_set_phase_updates_phase_and_step() -> None:
+    progress: SingleSessionProgress = {
+        "phase": "fetching_data",
+        "step": 0,
+        "total_steps": 6,
+        "rasterizer_workflow_id": None,
+        "segments_total": 0,
+        "segments_completed": 0,
+    }
+
+    _set_phase(progress, "uploading_to_gemini")
+
+    assert progress["phase"] == "uploading_to_gemini"
+    assert progress["step"] == 3
 
 
 class TestFetchSessionDataActivity:

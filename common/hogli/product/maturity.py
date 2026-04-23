@@ -34,6 +34,7 @@ from .ast_helpers import (
     view_facade_usage,
 )
 from .paths import PRODUCTS_DIR, REPO_ROOT, TACH_TOML, find_views_path, get_tach_block
+from .product_yaml import load_all_product_yamls, load_product_yaml
 from .ts_helpers import codegen_adoption
 
 # ---------------------------------------------------------------------------
@@ -96,6 +97,8 @@ class DimensionScore:
 @dataclass
 class ProductScore:
     product: str
+    display_name: str = ""
+    owners: list[str] = field(default_factory=list)
     dimensions: list[DimensionScore] = field(default_factory=list)
 
     @property
@@ -542,15 +545,24 @@ def score_product(
     *,
     assigned_counts: dict[str, int] | None = None,
     inbound_map: dict[str, int] | None = None,
+    product_yamls: dict[str, dict] | None = None,
 ) -> ProductScore:
     """Compute all dimension scores for a single product."""
     if assigned_counts is None:
         assigned_counts = _load_model_assignments()
 
+    meta = (product_yamls or {}).get(name) or load_product_yaml(name)
     product_dir = PRODUCTS_DIR / name
     backend_dir = product_dir / "backend"
 
-    ps = ProductScore(product=name)
+    raw_owners = meta.get("owners", [])
+    owners = raw_owners if isinstance(raw_owners, list) and all(isinstance(o, str) for o in raw_owners) else []
+
+    ps = ProductScore(
+        product=name,
+        display_name=meta.get("name", "") if isinstance(meta.get("name"), str) else "",
+        owners=owners,
+    )
     ps.dimensions = [
         score_models(name, backend_dir, assigned_counts),
         score_facade(backend_dir),
@@ -570,6 +582,7 @@ def score_all_products() -> list[ProductScore]:
     )
 
     assigned_counts = _load_model_assignments()
+    product_yamls = load_all_product_yamls()
     inbound_map = _build_inbound_violation_map()
     if inbound_map is None:
         import warnings
@@ -577,7 +590,10 @@ def score_all_products() -> list[ProductScore]:
         warnings.warn("inbound violation scan failed (rg unavailable or timeout)", stacklevel=2)
         inbound_map = {}
 
-    scores = [score_product(name, assigned_counts=assigned_counts, inbound_map=inbound_map) for name in product_dirs]
+    scores = [
+        score_product(name, assigned_counts=assigned_counts, inbound_map=inbound_map, product_yamls=product_yamls)
+        for name in product_dirs
+    ]
     scores.sort(key=lambda s: s.overall or -1, reverse=True)
     return scores
 
@@ -655,7 +671,21 @@ def generate_report(scores: list[ProductScore]) -> str:
         mini_bars = "  ".join(_mini_bar(dim_map[d]) if d in dim_map else "\u00b7" * _MINI_WIDTH for d in _DIM_ORDER)
         lines.append(f"{ps.product:>{name_w}s}  {ps.overall:>3d}    {mini_bars}")
 
-    lines.append("")
+    # Owner rollup
+    owner_scores: dict[str, list[int]] = {}
+    for ps in scores:
+        if ps.overall is not None:
+            for owner in ps.owners:
+                owner_scores.setdefault(owner, []).append(ps.overall)
+
+    if owner_scores:
+        lines.append("")
+        lines.append("By Team")
+        for owner, vals in sorted(owner_scores.items(), key=lambda t: -sum(t[1]) / len(t[1])):
+            avg = round(sum(vals) / len(vals))
+            lines.append(f"  {owner:40s}  {avg:3d}  {_bar(avg, 10)}  ({len(vals)} products)")
+        lines.append("")
+
     return "\n".join(lines)
 
 
@@ -665,7 +695,9 @@ def generate_detail(ps: ProductScore) -> str:
 
     overall = ps.overall
     score_str = "N/A" if overall is None else f"{overall}/100"
-    lines.append(f"{ps.product}  {score_str}")
+    name = ps.display_name or ps.product
+    owner_str = f" ({', '.join(ps.owners)})" if ps.owners else ""
+    lines.append(f"{name}{owner_str}  {score_str}")
     lines.append("")
 
     applicable = list(ps.dimensions)

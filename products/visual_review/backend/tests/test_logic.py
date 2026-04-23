@@ -1,10 +1,14 @@
 """Unit tests for visual_review business logic."""
 
+from datetime import timedelta
+
 import pytest
 
+from django.utils import timezone
+
 from products.visual_review.backend import logic
-from products.visual_review.backend.facade.enums import RunStatus, RunType, SnapshotResult
-from products.visual_review.backend.models import Repo
+from products.visual_review.backend.facade.enums import ReviewState, RunStatus, RunType, SnapshotResult
+from products.visual_review.backend.models import Repo, Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
 
@@ -1536,3 +1540,136 @@ class TestMergeBaseBaselineHealing:
         snapshot = run.snapshots.get(identifier="flaky")
         assert snapshot.result == SnapshotResult.CHANGED
         assert snapshot.baseline_hash == "master_hash"
+
+    @pytest.mark.parametrize(
+        "prior_branch, prior_run_type, prior_approved, prior_review_state, expect_tombstoned",
+        [
+            ("my-branch", RunType.STORYBOOK, True, ReviewState.APPROVED, True),
+            ("someone-else", RunType.STORYBOOK, True, ReviewState.APPROVED, False),
+            ("my-branch", "playwright", True, ReviewState.APPROVED, False),
+            ("my-branch", RunType.STORYBOOK, False, ReviewState.PENDING, False),
+        ],
+        ids=["approved_on_branch", "wrong_branch", "wrong_run_type", "not_approved"],
+    )
+    def test_tombstone_excludes_only_approved_removals_on_branch(
+        self, repo, team, mocker, prior_branch, prior_run_type, prior_approved, prior_review_state, expect_tombstoned
+    ):
+        branch_baseline: dict[str, str] = {}
+        merge_base_baseline = {"candidate": "h1"}
+        self._mock_github(mocker, branch_baseline=branch_baseline, merge_base_baseline=merge_base_baseline)
+
+        prior_run = Run.objects.create(
+            team_id=team.id,
+            repo=repo,
+            run_type=prior_run_type,
+            branch=prior_branch,
+            commit_sha="prior-sha",
+            status=RunStatus.COMPLETED,
+            approved=prior_approved,
+        )
+        RunSnapshot.objects.create(
+            run=prior_run,
+            team_id=team.id,
+            identifier="candidate",
+            baseline_hash="h1",
+            current_hash="",
+            result=SnapshotResult.REMOVED,
+            review_state=prior_review_state,
+        )
+
+        merged, healed = logic._resolve_baselines_with_merge_base(repo, RunType.STORYBOOK, "my-branch")
+
+        if expect_tombstoned:
+            assert merged == {}
+            assert healed == 0
+        else:
+            assert merged == merge_base_baseline
+            assert healed == 1
+
+    def test_tombstone_cleared_by_later_re_addition(self, repo, team, mocker):
+        """Remove→approve→restore→approve: the re-addition clears the tombstone."""
+        branch_baseline: dict[str, str] = {}
+        merge_base_baseline = {"story-x": "h1"}
+        self._mock_github(mocker, branch_baseline=branch_baseline, merge_base_baseline=merge_base_baseline)
+
+        # Run 1: story-x removed and approved
+        run1 = Run.objects.create(
+            team_id=team.id,
+            repo=repo,
+            run_type=RunType.STORYBOOK,
+            branch="my-branch",
+            commit_sha="sha1",
+            status=RunStatus.COMPLETED,
+            approved=True,
+            created_at=timezone.now() - timedelta(hours=2),
+        )
+        RunSnapshot.objects.create(
+            run=run1,
+            team_id=team.id,
+            identifier="story-x",
+            baseline_hash="h1",
+            current_hash="",
+            result=SnapshotResult.REMOVED,
+            review_state=ReviewState.APPROVED,
+        )
+
+        # Supersede run1 (as create_run would)
+        run1.superseded_by = run1
+        run1.save(update_fields=["superseded_by"])
+
+        # Run 2: story-x re-added and approved as NEW
+        run2 = Run.objects.create(
+            team_id=team.id,
+            repo=repo,
+            run_type=RunType.STORYBOOK,
+            branch="my-branch",
+            commit_sha="sha2",
+            status=RunStatus.COMPLETED,
+            approved=True,
+            created_at=timezone.now() - timedelta(hours=1),
+        )
+        RunSnapshot.objects.create(
+            run=run2,
+            team_id=team.id,
+            identifier="story-x",
+            baseline_hash="",
+            current_hash="h1",
+            result=SnapshotResult.NEW,
+            review_state=ReviewState.APPROVED,
+        )
+
+        merged, healed = logic._resolve_baselines_with_merge_base(repo, RunType.STORYBOOK, "my-branch")
+
+        # Latest approved outcome is NEW, not REMOVED — tombstone cleared, healing works
+        assert "story-x" in merged
+        assert healed == 1
+
+    def test_tombstone_persists_without_later_approval(self, repo, team, mocker):
+        """Remove→approve: tombstone stays until a later approval overrides it."""
+        branch_baseline: dict[str, str] = {}
+        merge_base_baseline = {"story-x": "h1"}
+        self._mock_github(mocker, branch_baseline=branch_baseline, merge_base_baseline=merge_base_baseline)
+
+        run1 = Run.objects.create(
+            team_id=team.id,
+            repo=repo,
+            run_type=RunType.STORYBOOK,
+            branch="my-branch",
+            commit_sha="sha1",
+            status=RunStatus.COMPLETED,
+            approved=True,
+        )
+        RunSnapshot.objects.create(
+            run=run1,
+            team_id=team.id,
+            identifier="story-x",
+            baseline_hash="h1",
+            current_hash="",
+            result=SnapshotResult.REMOVED,
+            review_state=ReviewState.APPROVED,
+        )
+
+        merged, healed = logic._resolve_baselines_with_merge_base(repo, RunType.STORYBOOK, "my-branch")
+
+        assert "story-x" not in merged
+        assert healed == 0
