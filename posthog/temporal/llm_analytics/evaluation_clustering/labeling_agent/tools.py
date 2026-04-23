@@ -315,6 +315,8 @@ def get_evaluator_config(
             )
         resolved_id = next(iter(matches))
 
+    # Either evaluator_id was provided or matches had exactly one entry — narrow for mypy.
+    assert resolved_id is not None
     team = Team.objects.get(id=state["team_id"])
     configs = fetch_evaluator_configs(team=team, evaluator_ids=[resolved_id])
     config = configs.get(resolved_id)

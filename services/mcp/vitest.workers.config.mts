@@ -1,18 +1,16 @@
 import { defineWorkersProject } from '@cloudflare/vitest-pool-workers/config'
 import tsconfigPaths from 'vite-tsconfig-paths'
 
-// Cold-start `MCP.init()` fires several outbound calls that would otherwise hit
-// the real PostHog API. We want init() to complete without hanging so the DO
-// reaches the "started" state — warm-DO `setName()` only short-circuits once
-// status is "started". The strategy: stub oauth/introspect with a valid
-// payload so `StateManager.getApiKey()` returns, and let every other call 404
-// (all are wrapped in try/catch inside init()).
-const INTROSPECT_OK_BODY = JSON.stringify({
-    active: true,
-    scope: '',
-    scoped_teams: [],
-    scoped_organizations: [],
-})
+import { dispatchHandlers } from './tests/workers/fixtures/handlers'
+
+// vitest-pool-workers runs tests inside the real workerd runtime. Workerd's
+// fetch can't be patched from the test process, so MSW's setupServer-style
+// global interception doesn't apply here. Miniflare's `outboundService` is
+// invoked from this Node config whenever the worker makes an outbound HTTP
+// call — that's the workerd-equivalent escape hatch. We hand each request to
+// MSW's `RequestHandler#run()` so handlers declared with the standard
+// `http.*` DSL (see tests/workers/fixtures/handlers.ts) match and respond.
+// Fixtures are real PostHog API responses captured from a local dev server.
 
 export default defineWorkersProject({
     plugins: [tsconfigPaths({ root: '.' })],
@@ -24,11 +22,10 @@ export default defineWorkersProject({
                 singleWorker: true,
                 wrangler: { configPath: './wrangler.jsonc' },
                 miniflare: {
-                    // Override secrets loaded from .dev.vars. Leaving PostHog
-                    // analytics / observability secrets unset makes init() skip
-                    // code paths that would otherwise call users/@me during
-                    // mcpcat setup (which throws on 404 and aborts init).
                     bindings: {
+                        // Override secrets loaded from .dev.vars. Empty values
+                        // make init()'s analytics / observability paths short-
+                        // circuit cleanly.
                         POSTHOG_API_BASE_URL: '',
                         POSTHOG_ANALYTICS_API_KEY: '',
                         POSTHOG_ANALYTICS_HOST: '',
@@ -36,17 +33,12 @@ export default defineWorkersProject({
                         POSTHOG_UI_APPS_TOKEN: '',
                         INKEEP_API_KEY: '',
                         MCP_CAT_PROJECT_ID: '',
+                        // Generic test marker. Code can short-circuit features
+                        // that need real network (e.g. context-mill GitHub
+                        // fetch in src/resources/index.ts).
+                        TEST: '1',
                     },
-                    outboundService: (request) => {
-                        const url = new URL(request.url)
-                        if (url.pathname.includes('/oauth/introspect')) {
-                            return new Response(INTROSPECT_OK_BODY, {
-                                status: 200,
-                                headers: { 'content-type': 'application/json' },
-                            })
-                        }
-                        return new Response(null, { status: 404 })
-                    },
+                    outboundService: dispatchHandlers,
                 },
             },
         },
