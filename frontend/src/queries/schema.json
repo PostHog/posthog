@@ -15133,7 +15133,7 @@
         },
         "ErrorTrackingPendingFingerprintIssueStateUpdate": {
             "additionalProperties": false,
-            "description": "Client-side pending fingerprint issue state update UNIONed into the argMax subquery to hide Kafka->CH sync lag after mutations.",
+            "description": "Client-side pending fingerprint issue state update UNIONed into the argMax subquery to hide Kafka->CH sync lag after mutations. This has to be kept in sync with the CH schema",
             "properties": {
                 "assigned_role_id": {
                     "type": ["string", "null"]
