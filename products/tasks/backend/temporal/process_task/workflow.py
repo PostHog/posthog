@@ -17,6 +17,7 @@ from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnapshotForRepositoryInput
+from products.tasks.backend.temporal.process_task.activities.get_pr_context import GetPrContextInput, get_pr_context
 
 from .activities.cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
 from .activities.create_resume_snapshot import CreateResumeSnapshotInput, create_resume_snapshot
@@ -109,6 +110,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # group) so we can emit a "failed" transition from the workflow-level
         # exception handler onto the right card.
         self._current_progress_step: Optional[tuple[str, str, str]] = None
+        self._pr_fingerprint: Optional[str] = None
 
     @property
     def context(self) -> TaskProcessingContext:
@@ -208,7 +210,46 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 return task_result
         raise RuntimeError("No event was completed successfully")
 
-    @temporalio.workflow.run
+    async def _should_run_ci_follow_up(self) -> bool:
+        pr_context = await workflow.execute_activity(
+            get_pr_context,
+            GetPrContextInput(context=self.context),
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+        if not pr_context:
+            workflow.logger.info(
+                "PR context is missing, skipping CI follow-up",
+                run_id=self.context.run_id,
+            )
+            return False
+        if pr_context.pr_state == "closed":
+            workflow.logger.info(
+                "PR is closed, skipping CI follow-up",
+                run_id=self.context.run_id,
+                pr_url=pr_context.pr_url,
+                pr_state=pr_context.pr_state,
+            )
+            return False
+        if self._pr_fingerprint != pr_context.fingerprint:
+            workflow.logger.info(
+                "PR context has changed, running CI follow-up",
+                run_id=self.context.run_id,
+                pr_url=pr_context.pr_url,
+                pr_state=pr_context.pr_state,
+            )
+            self._pr_fingerprint = pr_context.fingerprint
+            return True
+        else:
+            workflow.logger.info(
+                "PR context has not changed, skipping CI follow-up",
+                run_id=self.context.run_id,
+                pr_url=pr_context.pr_url,
+                pr_state=pr_context.pr_state,
+            )
+            return False
+
+    @workflow.run
     async def run(self, input: ProcessTaskInput) -> ProcessTaskOutput:
         sandbox_id = None
         sandbox_cleaned = False
@@ -281,10 +322,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         workflow.logger.info(
                             "CI follow-up event triggered", run_id=self.context.run_id, repetitions=self._ci_repetitions
                         )
-                        self._ci_repetitions += 1
-                        ci_message = self.context.ci_prompt or DEFAULT_CI_MESSAGE
-                        self._last_active_time = workflow.now()  # Reset inactivity timer on CI follow-up
-                        await self._send_followup_to_sandbox(ci_message, [])
+                        if await self._should_run_ci_follow_up():
+                            self._ci_repetitions += 1
+                            ci_message = self.context.ci_prompt or DEFAULT_CI_MESSAGE
+
+                            self._last_active_time = workflow.now()  # Reset inactivity timer on CI follow-up
+
+                            await self._send_followup_to_sandbox(ci_message, [])
                     case TaskEvent.SIGNAL_RECEIVED:
                         if self._pending_followup is not None:
                             workflow.logger.info(
@@ -481,7 +525,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
             await self._emit_progress("clone", "completed", "Cloned repository", "setup")
 
-        if will_checkout:
+        state = self.context.state or {}
+        is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
+        if will_checkout and not is_resume:
             branch_label_active = f"Checking out branch {prepared.branch}"
             branch_label_done = f"Checked out branch {prepared.branch}"
             await self._emit_progress("checkout", "in_progress", branch_label_active, "setup")
@@ -557,7 +603,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         if not self._context:
             return False
 
-        is_resume = bool((self.context.state or {}).get("resume_from_run_id"))
+        state = self.context.state or {}
+        is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
         return self.context.mode != "interactive" and not is_resume
 
     async def _track_workflow_event(self, event_name: str, properties: dict) -> None:

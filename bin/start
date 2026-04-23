@@ -65,19 +65,10 @@ else
     export OTEL_SDK_DISABLED="true"
 fi
 
-if [ "$SOURCE_ENV" == "true" ]; then
-    echo "👉 Sourcing environment variables from .env and .env.local"
-    if [ -f .env ]; then
-        set -o allexport
-        source .env
-        set +o allexport
-    fi
-
-    if [ -f .env.local ]; then
-        set -o allexport
-        source .env.local
-        set +o allexport
-    fi
+if [ -f .env ]; then
+    set -o allexport
+    source .env
+    set +o allexport
 fi
 
 # Ducklake

@@ -1,4 +1,5 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from freezegun import freeze_time
@@ -10,6 +11,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
 
 from django.test import override_settings
 from django.utils import timezone
@@ -670,3 +672,262 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response2, CachedUsageMetricsQueryResponse)
         self.assertFalse(response2.is_cached)
         self.assertEqual(len(response2.results), 0)
+
+    @freeze_time("2025-10-09T12:11:00")
+    def test_usage_metrics_fetched_once_per_runner(self):
+        GroupUsageMetric.objects.create(
+            id=self.test_metric_id,
+            team=self.team,
+            group_type_index=0,
+            name="Test metric",
+            format=GroupUsageMetric.Format.NUMERIC,
+            interval=7,
+            display=GroupUsageMetric.Display.NUMBER,
+            filters={"events": [{"id": "metric_event", "type": "events", "order": 0}]},
+        )
+        runner = UsageMetricsQueryRunner(
+            team=self.team,
+            query=UsageMetricsQuery(kind="UsageMetricsQuery", person_id=str(self.person.uuid)),
+        )
+
+        with patch.object(GroupUsageMetric.objects, "filter", wraps=GroupUsageMetric.objects.filter) as filter_spy:
+            runner.get_cache_payload()
+            runner.calculate()
+            runner.to_query()
+
+        self.assertEqual(filter_spy.call_count, 1)
+
+    @freeze_time("2025-10-09T12:11:00")
+    def test_datetime_now_shared_between_query_build_and_post_process(self):
+        GroupUsageMetric.objects.create(
+            id=self.test_metric_id,
+            team=self.team,
+            group_type_index=0,
+            name="Test metric",
+            format=GroupUsageMetric.Format.NUMERIC,
+            interval=7,
+            display=GroupUsageMetric.Display.NUMBER,
+            filters={"events": [{"id": "metric_event", "type": "events", "order": 0}]},
+        )
+        _create_event(
+            event="metric_event",
+            team=self.team,
+            person_id=str(self.person.uuid),
+            distinct_id=self.person_distinct_id,
+        )
+        flush_persons_and_events()
+
+        fake_now = datetime(2025, 10, 9, 12, 11, 0, tzinfo=ZoneInfo("UTC"))
+        call_log: list[datetime] = []
+
+        class TimeDriftingDatetime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                # Each call advances by 12 hours to simulate worst-case drift across the day boundary
+                value = fake_now + timedelta(hours=12 * len(call_log))
+                call_log.append(value)
+                return value
+
+        with patch(
+            "products.customer_analytics.backend.hogql_queries.usage_metrics_query_runner.datetime",
+            TimeDriftingDatetime,
+        ):
+            runner = UsageMetricsQueryRunner(
+                team=self.team,
+                query=UsageMetricsQuery(kind="UsageMetricsQuery", person_id=str(self.person.uuid)),
+            )
+            query_result = runner.calculate().model_dump()
+
+        self.assertEqual(len(call_log), 1)
+        results = query_result["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["value"], 1.0)
+
+    @freeze_time("2025-10-09T12:11:00")
+    def test_sparkline_returns_timeseries(self):
+        GroupUsageMetric.objects.create(
+            id=self.test_metric_id,
+            team=self.team,
+            group_type_index=0,
+            name="Events",
+            format=GroupUsageMetric.Format.NUMERIC,
+            interval=7,
+            display=GroupUsageMetric.Display.SPARKLINE,
+            filters={"events": [{"id": "metric_event", "type": "events", "order": 0}]},
+        )
+        with freeze_time(timezone.now() - timedelta(days=2)):
+            _create_event(
+                event="metric_event",
+                team=self.team,
+                person_id=str(self.person.uuid),
+                distinct_id=self.person_distinct_id,
+            )
+        with freeze_time(timezone.now()):
+            for _ in range(3):
+                _create_event(
+                    event="metric_event",
+                    team=self.team,
+                    person_id=str(self.person.uuid),
+                    distinct_id=self.person_distinct_id,
+                )
+        flush_persons_and_events()
+
+        query_result = self._calculate(person_id=str(self.person.uuid))
+
+        results = query_result["results"]
+        self.assertEqual(len(results), 1)
+        result = results[0]
+        self.assertEqual(result["display"], "sparkline")
+        self.assertEqual(result["value"], 4.0)
+        self.assertIsNotNone(result["timeseries"])
+        self.assertIsNotNone(result["timeseries_labels"])
+        self.assertEqual(len(result["timeseries"]), len(result["timeseries_labels"]))
+        self.assertEqual(sum(result["timeseries"]), 4.0)
+
+    @freeze_time("2025-10-09T12:11:00")
+    def test_number_metric_no_timeseries(self):
+        GroupUsageMetric.objects.create(
+            id=self.test_metric_id,
+            team=self.team,
+            group_type_index=0,
+            name="Events",
+            format=GroupUsageMetric.Format.NUMERIC,
+            interval=7,
+            display=GroupUsageMetric.Display.NUMBER,
+            filters={"events": [{"id": "metric_event", "type": "events", "order": 0}]},
+        )
+        _create_event(
+            event="metric_event",
+            team=self.team,
+            person_id=str(self.person.uuid),
+            distinct_id=self.person_distinct_id,
+        )
+        flush_persons_and_events()
+
+        query_result = self._calculate(person_id=str(self.person.uuid))
+
+        results = query_result["results"]
+        self.assertEqual(len(results), 1)
+        self.assertIsNone(results[0]["timeseries"])
+        self.assertIsNone(results[0]["timeseries_labels"])
+
+    @freeze_time("2025-10-09T12:11:00")
+    def test_sparkline_gap_filling(self):
+        GroupUsageMetric.objects.create(
+            id=self.test_metric_id,
+            team=self.team,
+            group_type_index=0,
+            name="Events",
+            format=GroupUsageMetric.Format.NUMERIC,
+            interval=7,
+            display=GroupUsageMetric.Display.SPARKLINE,
+            filters={"events": [{"id": "metric_event", "type": "events", "order": 0}]},
+        )
+        with freeze_time(timezone.now() - timedelta(days=5)):
+            _create_event(
+                event="metric_event",
+                team=self.team,
+                person_id=str(self.person.uuid),
+                distinct_id=self.person_distinct_id,
+            )
+        with freeze_time(timezone.now() - timedelta(days=1)):
+            _create_event(
+                event="metric_event",
+                team=self.team,
+                person_id=str(self.person.uuid),
+                distinct_id=self.person_distinct_id,
+            )
+        flush_persons_and_events()
+
+        query_result = self._calculate(person_id=str(self.person.uuid))
+
+        results = query_result["results"]
+        self.assertEqual(len(results), 1)
+        timeseries = results[0]["timeseries"]
+        self.assertIsNotNone(timeseries)
+        self.assertEqual(sum(timeseries), 2.0)
+        zero_count = sum(1 for v in timeseries if v == 0.0)
+        self.assertEqual(zero_count, len(timeseries) - 2)
+
+    @freeze_time("2025-10-09T12:11:00")
+    def test_sparkline_sum_aggregation(self):
+        GroupUsageMetric.objects.create(
+            id=self.test_metric_id,
+            team=self.team,
+            group_type_index=0,
+            name="Revenue",
+            format=GroupUsageMetric.Format.CURRENCY,
+            interval=7,
+            display=GroupUsageMetric.Display.SPARKLINE,
+            filters={"events": [{"id": "purchase", "type": "events", "order": 0}]},
+            math=GroupUsageMetric.Math.SUM,
+            math_property="amount",
+        )
+        _create_event(
+            event="purchase",
+            team=self.team,
+            person_id=str(self.person.uuid),
+            distinct_id=self.person_distinct_id,
+            properties={"amount": 100.5},
+        )
+        _create_event(
+            event="purchase",
+            team=self.team,
+            person_id=str(self.person.uuid),
+            distinct_id=self.person_distinct_id,
+            properties={"amount": 250},
+        )
+        flush_persons_and_events()
+
+        query_result = self._calculate(person_id=str(self.person.uuid))
+
+        results = query_result["results"]
+        self.assertEqual(len(results), 1)
+        result = results[0]
+        self.assertEqual(result["display"], "sparkline")
+        self.assertIsNotNone(result["timeseries"])
+        self.assertEqual(sum(result["timeseries"]), 350.5)
+
+    @freeze_time("2025-10-09T12:11:00")
+    def test_mixed_display_types(self):
+        GroupUsageMetric.objects.create(
+            id=self.test_metric_id,
+            team=self.team,
+            group_type_index=0,
+            name="Number metric",
+            format=GroupUsageMetric.Format.NUMERIC,
+            interval=7,
+            display=GroupUsageMetric.Display.NUMBER,
+            filters={"events": [{"id": "metric_event", "type": "events", "order": 0}]},
+        )
+        GroupUsageMetric.objects.create(
+            id=self.another_test_metric_id,
+            team=self.team,
+            group_type_index=0,
+            name="Sparkline metric",
+            format=GroupUsageMetric.Format.NUMERIC,
+            interval=7,
+            display=GroupUsageMetric.Display.SPARKLINE,
+            filters={"events": [{"id": "metric_event", "type": "events", "order": 0}]},
+        )
+        _create_event(
+            event="metric_event",
+            team=self.team,
+            person_id=str(self.person.uuid),
+            distinct_id=self.person_distinct_id,
+        )
+        flush_persons_and_events()
+
+        query_result = self._calculate(person_id=str(self.person.uuid))
+
+        results = query_result["results"]
+        self.assertEqual(len(results), 2)
+        results_by_name = {r["name"]: r for r in results}
+
+        number_result = results_by_name["Number metric"]
+        self.assertEqual(number_result["value"], 1.0)
+        self.assertIsNone(number_result["timeseries"])
+
+        sparkline_result = results_by_name["Sparkline metric"]
+        self.assertEqual(sparkline_result["value"], 1.0)
+        self.assertIsNotNone(sparkline_result["timeseries"])

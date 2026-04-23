@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildToolResultPayload } from '@/lib/build-tool-result'
+import { EXEC_BUILT_PAYLOAD, markExecPayload, buildToolResultPayload, isToolCallPayload } from '@/lib/build-tool-result'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
 
 // Simulates a `query-trends` handler return value: a UI-resource tool that
@@ -240,5 +240,47 @@ describe('buildToolResultPayload — non-query use cases', () => {
             results: [],
             _posthogUrl: 'http://...',
         })
+    })
+})
+
+describe('isToolCallPayload — nominal brand', () => {
+    it('matches only payloads carrying the exec brand', () => {
+        const branded = markExecPayload({
+            content: [{ type: 'text', text: 'hi' }],
+            structuredContent: { foo: 1 },
+            _meta: { ui: { resourceUri: 'ui://app' } },
+        })
+        expect(isToolCallPayload(branded)).toBe(true)
+        expect(branded[EXEC_BUILT_PAYLOAD]).toBe(true)
+    })
+
+    it('returns false for bare CallToolResult-shaped payloads without the brand', () => {
+        // Regression guard: `setActive` / `searchDocs` return this shape today, and
+        // a future tool returning a similar shape must not silently skip the
+        // buildToolResultPayload pipeline.
+        expect(
+            isToolCallPayload({
+                content: [{ type: 'text', text: 'switched' }],
+            })
+        ).toBe(false)
+        expect(
+            isToolCallPayload({
+                content: [{ type: 'text', text: 'switched' }],
+                structuredContent: { foo: 1 },
+            })
+        ).toBe(false)
+        expect(
+            isToolCallPayload({
+                content: [{ type: 'text', text: 'switched' }],
+                _meta: { ui: { resourceUri: 'ui://app' } },
+            })
+        ).toBe(false)
+    })
+
+    it('returns false for non-object values', () => {
+        expect(isToolCallPayload(undefined)).toBe(false)
+        expect(isToolCallPayload(null)).toBe(false)
+        expect(isToolCallPayload('string-result')).toBe(false)
+        expect(isToolCallPayload(42)).toBe(false)
     })
 })

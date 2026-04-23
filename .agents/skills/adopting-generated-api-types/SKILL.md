@@ -10,13 +10,13 @@ description: Use when migrating frontend code from manual API client calls (`api
 PostHog generates TypeScript API client functions and types from Django serializers via the OpenAPI pipeline:
 
 ```text
-Django serializer → drf-spectacular → OpenAPI JSON → Orval → TypeScript (api.ts + api.schemas.ts)
+Django serializer → drf-spectacular → OpenAPI JSON → Orval → TypeScript (api.ts + api.schemas.ts + api.zod.ts)
 ```
 
 Generated files live in:
 
-- **Core:** `frontend/src/generated/core/api.ts` and `api.schemas.ts`
-- **Products:** `products/<product>/frontend/generated/api.ts` and `api.schemas.ts`
+- **Core:** `frontend/src/generated/core/api.ts`, `api.schemas.ts`, and `api.zod.ts`
+- **Products:** `products/<product>/frontend/generated/api.ts`, `api.schemas.ts`, and `api.zod.ts`
 
 Generated types use the `Api` suffix (`DashboardApi`, `SurveyApi`). Handwritten types never do.
 
@@ -172,13 +172,18 @@ import { domainsList, domainsCreate, domainsRetrieve } from '~/generated/core/ap
 // Core generated types — import type from api.schemas.ts
 import type { OrganizationDomainApi } from '~/generated/core/api.schemas'
 
+// Core generated Zod schemas — import from api.zod.ts
+import { DomainsCreateBody } from '~/generated/core/api.zod'
+
 // Product generated functions — NO tilde prefix, use 'products/' path
 import { surveysList, surveysRetrieve } from 'products/surveys/frontend/generated/api'
 import type { SurveyApi } from 'products/surveys/frontend/generated/api.schemas'
+import { SurveysCreateBody } from 'products/surveys/frontend/generated/api.zod'
 
 // Within a product, relative imports also work
 import { logsAlertsCreate } from '../generated/api'
 import type { LogsAlertConfigurationApi } from '../generated/api.schemas'
+import { LogsAlertsCreateBody } from '../generated/api.zod'
 ```
 
 **Path rules:**
