@@ -129,6 +129,21 @@ def _add_to_db_routing(product_name: str, database_name: str, *, dry_run: bool) 
 _VALID_PRODUCT_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
+def _default_display_name(product_name: str) -> str:
+    return product_name.replace("_", " ").capitalize()
+
+
+def _write_product_yaml(product_dir: Path, display_name: str, owners: list[str], *, dry_run: bool) -> None:
+    yaml_path = product_dir / "product.yaml"
+    owners_yaml = "\n".join(f"  - {o}" for o in owners)
+    content = f"name: {display_name}\nowners:\n{owners_yaml}\n"
+    if dry_run:
+        click.echo(f"\n  Would create product.yaml:\n{content}")
+        return
+    yaml_path.write_text(content)
+    click.echo(f"\n  Created product.yaml (name={display_name!r}, owners={owners})")
+
+
 def bootstrap_product(name: str, dry_run: bool, force: bool) -> None:
     if not _VALID_PRODUCT_NAME_RE.match(name):
         raise click.ClickException(
@@ -186,6 +201,21 @@ def bootstrap_product(name: str, dry_run: bool, force: bool) -> None:
         click.echo(f"\n  Skipped {len(skipped)} existing files:")
         for path in skipped:
             click.echo(f"    {path}")
+
+    # product.yaml — canonical metadata
+    if dry_run:
+        _write_product_yaml(product_dir, _default_display_name(name), ["team-CHANGEME"], dry_run=True)
+    else:
+        display_name = click.prompt("  Display name", default=_default_display_name(name), show_default=True)
+        owner = click.prompt(
+            "  Owning GitHub team slug (e.g. team-product-analytics)",
+            default="",
+            show_default=False,
+        )
+        owners = [owner] if owner else ["team-CHANGEME"]
+        _write_product_yaml(product_dir, display_name, owners, dry_run=False)
+        if not owner:
+            click.secho("  ⚠ Set the real team slug in product.yaml before merging.", fg="yellow")
 
     _add_to_tach_toml(name, dry_run=dry_run)
     _add_to_frontend_package_json(name, dry_run=dry_run)

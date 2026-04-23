@@ -33,15 +33,8 @@ from .ast_helpers import (
     imports_any,
     view_facade_usage,
 )
-from .paths import (
-    PRODUCTS_DIR,
-    REPO_ROOT,
-    TACH_TOML,
-    find_views_path,
-    get_tach_block,
-    load_all_product_yamls,
-    load_product_yaml,
-)
+from .paths import PRODUCTS_DIR, REPO_ROOT, TACH_TOML, find_views_path, get_tach_block
+from .product_yaml import load_all_product_yamls, load_product_yaml
 from .ts_helpers import codegen_adoption
 
 # ---------------------------------------------------------------------------
@@ -562,10 +555,13 @@ def score_product(
     product_dir = PRODUCTS_DIR / name
     backend_dir = product_dir / "backend"
 
+    raw_owners = meta.get("owners", [])
+    owners = raw_owners if isinstance(raw_owners, list) and all(isinstance(o, str) for o in raw_owners) else []
+
     ps = ProductScore(
         product=name,
-        display_name=meta.get("name", ""),
-        owners=meta.get("owners", []),
+        display_name=meta.get("name", "") if isinstance(meta.get("name"), str) else "",
+        owners=owners,
     )
     ps.dimensions = [
         score_models(name, backend_dir, assigned_counts),
@@ -683,6 +679,7 @@ def generate_report(scores: list[ProductScore]) -> str:
                 owner_scores.setdefault(owner, []).append(ps.overall)
 
     if owner_scores:
+        lines.append("")
         lines.append("By Team")
         for owner, vals in sorted(owner_scores.items(), key=lambda t: -sum(t[1]) / len(t[1])):
             avg = round(sum(vals) / len(vals))
