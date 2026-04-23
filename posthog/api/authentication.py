@@ -194,6 +194,30 @@ class EmailMFARequired(APIException):
         super().__init__(detail=detail, code=self.default_code)
 
 
+def is_email_verified_for_login(user: User) -> bool:
+    """
+    Send a verification email when the login policy requires it.
+
+    Returns whether login may continue for this user. Legacy users with a null
+    verification state are still allowed to sign in.
+    """
+    if not is_email_available():
+        return True
+
+    if user.is_email_verified is True:
+        return True
+
+    if is_email_verification_disabled(user):
+        return True
+
+    EmailVerifier.create_token_and_send_email_verification(user)
+    if user.is_email_verified is False:
+        return False
+
+    # legacy None users are still allowed to log in
+    return True
+
+
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField()
@@ -300,16 +324,11 @@ class LoginSerializer(serializers.Serializer):
 
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
-        # We still let them log in if is_email_verified is null so existing users don't get locked out
-        if is_email_available() and user.is_email_verified is not True and not is_email_verification_disabled(user):
-            EmailVerifier.create_token_and_send_email_verification(user)
-            # If it's None, we want to let them log in still since they are an existing user
-            # If it's False, we want to tell them to check their email
-            if user.is_email_verified is False:
-                raise serializers.ValidationError(
-                    "Your account is awaiting verification. Please check your email for a verification link.",
-                    code="not_verified",
-                )
+        if not is_email_verified_for_login(user):
+            raise serializers.ValidationError(
+                "Your account is awaiting verification. Please check your email for a verification link.",
+                code="not_verified",
+            )
 
         clear_two_factor_session_flags(request)
 

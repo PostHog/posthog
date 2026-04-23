@@ -254,6 +254,11 @@ class TaskRunUpdateSerializer(serializers.Serializer):
     error_message = serializers.CharField(
         required=False, allow_null=True, allow_blank=True, help_text="Error message if execution failed"
     )
+    environment = serializers.ChoiceField(
+        choices=["local"],
+        required=False,
+        help_text="Transition a cloud run to local. Use the resume_in_cloud action to move a run into cloud.",
+    )
 
 
 class TaskRunArtifactResponseSerializer(serializers.Serializer):

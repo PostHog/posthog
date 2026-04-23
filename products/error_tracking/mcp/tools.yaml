@@ -265,8 +265,8 @@ tools:
             idempotent: false
         title: Create error tracking suppression rule
         description: >
-            Create an error tracking suppression rule for the current project. Provide optional `filters` and
-            optional `sampling_rate`; omit `filters` to create a match-all suppression rule.
+            Create an error tracking suppression rule for the current project. Provide optional `filters` and optional
+            `sampling_rate`; omit `filters` to create a match-all suppression rule.
     error-tracking-suppression-rules-reorder-partial-update:
         operation: error_tracking_suppression_rules_reorder_partial_update
         enabled: false
@@ -362,6 +362,9 @@ tools:
         enabled: false
     error-tracking-recommendations-restore-create:
         operation: error_tracking_recommendations_restore_create
+        enabled: false
+    error-tracking-symbol-sets-download-retrieve:
+        operation: error_tracking_symbol_sets_download_retrieve
         enabled: false
 wrappers:
     query-error-tracking-issues:

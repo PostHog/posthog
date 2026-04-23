@@ -3978,6 +3978,10 @@ const api = {
                     .withAction('bulk_delete')
                     .create({ data: { ids } })
             },
+
+            async download(id: ErrorTrackingSymbolSet['id']): Promise<{ url: string }> {
+                return await new ApiRequest().errorTrackingSymbolSet(id).withAction('download').get()
+            },
         },
 
         releases: {

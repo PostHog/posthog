@@ -1,4 +1,4 @@
-Query log entries with filtering by severity, service name, date range, search term, and structured attribute filters. Supports cursor-based pagination. Returns log entries with timestamp, body, level, service_name, trace_id, and attributes.
+Query log entries with filtering by severity, service name, date range, search term, and structured attribute filters. Supports cursor-based pagination. The response schema (see the tool's typed output) lists every returned field — prefer `severity_text` over `severity_number` / `level`, and be aware that `trace_id` and `span_id` return zero-padded strings rather than null when unset.
 
 Use `logs-attributes-list` and `logs-attribute-values-list` to discover available attributes before building filters.
 
