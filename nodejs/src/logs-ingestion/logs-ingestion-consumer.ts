@@ -175,7 +175,7 @@ export class LogsIngestionConsumer {
         return {
             // Produce first so PII replacement counts are folded into `usageStats` before MSK usage emit
             backgroundTask: (async () => {
-                await this.produceValidLogMessages(rateLimiterAllowedMessages, usageStats)
+                await this.processAndProduceLogMessages(rateLimiterAllowedMessages, usageStats)
                 await this.emitUsageMetrics(usageStats)
             })(),
             messages: rateLimiterAllowedMessages,
@@ -301,7 +301,7 @@ export class LogsIngestionConsumer {
         return { rateLimiterAllowedMessages: allowed, rateLimiterDroppedMessages: dropped }
     }
 
-    private async produceValidLogMessages(
+    private async processAndProduceLogMessages(
         messages: LogsIngestionMessage[],
         usageStats: UsageStatsByTeam
     ): Promise<void> {
