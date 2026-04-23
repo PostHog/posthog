@@ -12,7 +12,6 @@ user (readonly=2 pinned in the profile, row policies for team scoping).
 from __future__ import annotations
 
 import json
-import time
 import logging
 
 from django.conf import settings
@@ -33,10 +32,14 @@ from posthog.permissions import APIScopePermission
 logger = logging.getLogger(__name__)
 
 
-# Single-tenant cluster, so only duration matters — any memory/row/byte cap
-# low enough to protect anything would abort legitimate exploration queries
-# and slow the campaign.
+# Single-tenant cluster, so we don't need caps aimed at protecting the CH side
+# itself — wall-clock is what bounds how long one iteration can stall the
+# campaign loop. The row / byte caps here protect the _Django worker_: the
+# proxy materializes the result list in memory before DRF-serializing it, so
+# one LLM-drafted `SELECT *` on `events` would otherwise OOM the web process.
 MAX_EXECUTION_TIME_SECONDS = 5 * 60
+MAX_RESULT_ROWS = 10_000
+MAX_RESULT_BYTES = 10 * 1024 * 1024  # 10 MiB
 
 
 class ExecuteRequestSerializer(serializers.Serializer):
@@ -49,9 +52,57 @@ _ACTION_SCOPES: dict[str, list[str]] = {
 
 _QUERY_SETTINGS: dict[str, object] = {
     "max_execution_time": MAX_EXECUTION_TIME_SECONDS,
+    "max_result_rows": MAX_RESULT_ROWS,
+    "max_result_bytes": MAX_RESULT_BYTES,
+    # "throw" so the caller sees a concrete CH error code on overflow and can
+    # narrow the query, rather than silently receiving a truncated result.
+    "result_overflow_mode": "throw",
     "readonly": 2,
-    "log_comment": json.dumps({"kind": "query_performance_autoresearch_proxy"}),
 }
+
+
+# Module-level client cache. `clickhouse-driver.Client` owns a TCP (+ TLS)
+# connection and exposes per-connection state (`last_query`), so reusing one
+# avoids a handshake per request. Keyed on the connection settings tuple so
+# test `override_settings(CLICKHOUSE_TEST_CLUSTER_HOST=...)` rebuilds.
+#
+# The endpoint is DEBUG-gated and single-operator today; when that changes a
+# proper thread-local / pool will be needed because `last_query` is mutable
+# per-client state.
+_SYNC_CLIENT: SyncClient | None = None
+_SYNC_CLIENT_KEY: tuple | None = None
+
+
+def _get_sync_client() -> SyncClient:
+    global _SYNC_CLIENT, _SYNC_CLIENT_KEY
+    key = (
+        settings.CLICKHOUSE_TEST_CLUSTER_HOST,
+        settings.CLICKHOUSE_TEST_CLUSTER_DATABASE,
+        settings.CLICKHOUSE_TEST_CLUSTER_USER,
+        settings.CLICKHOUSE_TEST_CLUSTER_PASSWORD,
+        settings.CLICKHOUSE_TEST_CLUSTER_SECURE,
+        settings.CLICKHOUSE_TEST_CLUSTER_CA,
+        settings.CLICKHOUSE_TEST_CLUSTER_VERIFY,
+    )
+    if _SYNC_CLIENT is None or _SYNC_CLIENT_KEY != key:
+        _SYNC_CLIENT = SyncClient(
+            host=key[0],
+            database=key[1],
+            user=key[2],
+            password=key[3],
+            secure=key[4],
+            ca_certs=key[5],
+            verify=key[6],
+        )
+        _SYNC_CLIENT_KEY = key
+    return _SYNC_CLIENT
+
+
+def _reset_sync_client_cache() -> None:
+    """Test-only: clear the module-level client cache between tests."""
+    global _SYNC_CLIENT, _SYNC_CLIENT_KEY
+    _SYNC_CLIENT = None
+    _SYNC_CLIENT_KEY = None
 
 
 class QueryPerformanceProxyViewSet(viewsets.ViewSet):
@@ -61,7 +112,7 @@ class QueryPerformanceProxyViewSet(viewsets.ViewSet):
 
     # Not project-nested: no URL team to validate scoped_teams against. Access
     # is gated by clickhouse_test_cluster_perf:test_read + DEBUG + the CH user's profile.
-    skip_scoped_team_enforcement = True
+    dangerously_skip_scoped_team_enforcement = True
 
     def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
         return _ACTION_SCOPES.get(getattr(view, "action", "") or "")
@@ -87,16 +138,7 @@ class QueryPerformanceProxyViewSet(viewsets.ViewSet):
 
 
 def _run_autoresearch_query(sql: str) -> Response:
-    client = SyncClient(
-        host=settings.CLICKHOUSE_TEST_CLUSTER_HOST,
-        database=settings.CLICKHOUSE_TEST_CLUSTER_DATABASE,
-        user=settings.CLICKHOUSE_TEST_CLUSTER_USER,
-        password=settings.CLICKHOUSE_TEST_CLUSTER_PASSWORD,
-        secure=settings.CLICKHOUSE_TEST_CLUSTER_SECURE,
-        ca_certs=settings.CLICKHOUSE_TEST_CLUSTER_CA,
-        verify=settings.CLICKHOUSE_TEST_CLUSTER_VERIFY,
-    )
-    start = time.monotonic()
+    client = _get_sync_client()
     try:
         # Required: sync_execute raises UntaggedQueryError in DEBUG without these tags.
         with tags_context(product=Product.INTERNAL, feature=Feature.QUERY):
@@ -118,14 +160,19 @@ def _run_autoresearch_query(sql: str) -> Response:
             {"error": "clickhouse unreachable"},
             status=status.HTTP_502_BAD_GATEWAY,
         )
-    elapsed_ms = (time.monotonic() - start) * 1000.0
 
-    profile_info = getattr(client.last_query, "profile_info", None)
+    # All the metrics come from the driver's `last_query` info so they reflect
+    # ClickHouse's own view of the query (server-side elapsed, scan-side
+    # rows/bytes) — autoresearch compares these across candidates.
+    last_query = getattr(client, "last_query", None)
+    profile_info = getattr(last_query, "profile_info", None)
+    elapsed_seconds = getattr(last_query, "elapsed", None)
 
     return Response(
         {
             "result": rows if isinstance(rows, list) else [],
-            "elapsed_ms": round(elapsed_ms, 3),
+            "query_id": getattr(last_query, "query_id", None),
+            "elapsed_ms": round(elapsed_seconds * 1000.0, 3) if isinstance(elapsed_seconds, int | float) else None,
             "rows_read": getattr(profile_info, "rows", None),
             "bytes_read": getattr(profile_info, "bytes", None),
             "rows_returned": len(rows) if isinstance(rows, list) else None,

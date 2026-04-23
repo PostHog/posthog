@@ -514,6 +514,12 @@ class APIScopePermission(ScopeBasePermission):
         if scope_object == "user":
             return  # The /api/users/@me/ endpoint is exempt from team and org scoping
 
+        if getattr(view, "dangerously_skip_scoped_team_enforcement", False) and scope_object != "INTERNAL":
+            raise RuntimeError(
+                f"`dangerously_skip_scoped_team_enforcement = True` is only allowed on viewsets with "
+                f"`scope_object = 'INTERNAL'`; {type(view).__name__} declares `scope_object = {scope_object!r}`."
+            )
+
         self._check_organization_personal_api_key_restrictions(request, view)
 
         if isinstance(request.successful_authenticator, OAuthAccessTokenAuthentication):
@@ -525,10 +531,12 @@ class APIScopePermission(ScopeBasePermission):
         else:
             raise ValueError("Unexpected authentication type")
 
-        if scoped_teams and not getattr(view, "skip_scoped_team_enforcement", False):
+        if scoped_teams and not getattr(view, "dangerously_skip_scoped_team_enforcement", False):
             # Views that aren't project-nested but still need to accept
-            # scoped_teams tokens can set `skip_scoped_team_enforcement = True`
-            # and take on responsibility for their own per-team access.
+            # scoped_teams tokens can set `dangerously_skip_scoped_team_enforcement = True`
+            # and take on responsibility for their own per-team access. The
+            # flag is only honored on `scope_object = "INTERNAL"` views —
+            # anywhere else it's a config error and we fail loudly.
             try:
                 team = view.team
                 if team.id not in scoped_teams:

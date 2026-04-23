@@ -173,7 +173,7 @@ class PosthogProxyTransport(Transport):
         self.base_url = base_url.rstrip("/")
         self.token = token
 
-    def run(self, sql: str, *, timeout_s: int = 30) -> TransportResult:
+    def run(self, sql: str, *, timeout_s: int = 300) -> TransportResult:
         endpoint = f"{self.base_url}/api/query_performance_proxy/execute-test/"
         body = json.dumps({"sql": sql}).encode("utf-8")
         req = urllib.request.Request(

@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 from django.test import override_settings
 from django.utils import timezone
 
+from posthog.api.query_performance_proxy import _reset_sync_client_cache
 from posthog.errors import InternalCHQueryError
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 
@@ -16,6 +17,9 @@ TEST_HOST = "clickhouse-test.internal"
 class TestQueryPerformanceProxyViewSet(APIBaseTest):
     def setUp(self):
         super().setUp()
+        # Proxy caches a SyncClient at module scope — clear it so each test
+        # gets a fresh client (or a freshly-patched one).
+        _reset_sync_client_cache()
         self.oauth_app = OAuthApplication.objects.create(
             name="Test query-perf App",
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
@@ -100,7 +104,7 @@ class TestQueryPerformanceProxyViewSet(APIBaseTest):
         assert "DEBUG" in resp.json()["error"]
         assert mocked.call_count == 0
 
-    def test_passes_duration_cap_and_readonly_on_every_request(self):
+    def test_passes_caps_and_readonly_on_every_request(self):
         token = self._make_token(["clickhouse_test_cluster_perf:test_read"])
 
         with patch("posthog.api.query_performance_proxy.sync_execute") as mocked:
@@ -115,6 +119,11 @@ class TestQueryPerformanceProxyViewSet(APIBaseTest):
         passed_settings = mocked.call_args.kwargs["settings"]
         assert passed_settings["readonly"] == 2
         assert passed_settings["max_execution_time"] == 5 * 60
+        # Row/byte caps protect the Django worker from an LLM-drafted
+        # `SELECT *` that would otherwise materialize in process memory.
+        assert passed_settings["max_result_rows"] == 10_000
+        assert passed_settings["max_result_bytes"] == 10 * 1024 * 1024
+        assert passed_settings["result_overflow_mode"] == "throw"
         assert mocked.call_args.kwargs.get("readonly") is True
         client = mocked.call_args.kwargs["sync_client"]
         assert client.connection.hosts[0][0] == TEST_HOST
@@ -189,17 +198,19 @@ class TestQueryPerformanceProxyViewSet(APIBaseTest):
 
     # --- happy path --------------------------------------------------------
 
-    def test_test_endpoint_returns_rows_as_native_json(self):
+    def test_test_endpoint_returns_rows_and_ch_reported_metrics(self):
         token = self._make_token(["clickhouse_test_cluster_perf:test_read"])
 
-        # rows_read / bytes_read come from the driver's `last_query.profile_info`,
-        # so patch `SyncClient` to plant the counters.
+        # Metrics come from the driver's `last_query` so plant them on a fake
+        # client and patch the proxy's cache getter to return it.
         profile = MagicMock(rows=987654, bytes=12345678)
         fake_client = MagicMock()
         fake_client.last_query.profile_info = profile
+        fake_client.last_query.elapsed = 0.1234  # seconds
+        fake_client.last_query.query_id = "qid-abc-123"
 
         with (
-            patch("posthog.api.query_performance_proxy.SyncClient", return_value=fake_client),
+            patch("posthog.api.query_performance_proxy._get_sync_client", return_value=fake_client),
             patch("posthog.api.query_performance_proxy.sync_execute", return_value=[(1, "a"), (2, None)]),
         ):
             resp = self._post(
@@ -214,7 +225,9 @@ class TestQueryPerformanceProxyViewSet(APIBaseTest):
         assert payload["rows_read"] == 987654
         assert payload["bytes_read"] == 12345678
         assert payload["rows_returned"] == 2
-        assert isinstance(payload["elapsed_ms"], int | float)
+        # elapsed_ms comes from ClickHouse's own timer, not a Python wall clock.
+        assert payload["elapsed_ms"] == 123.4
+        assert payload["query_id"] == "qid-abc-123"
 
     # --- token scoping -----------------------------------------------------
 
