@@ -32288,6 +32288,10 @@
         "RetentionEntity": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_target_field": {
+                    "description": "Data warehouse field used as the actor identifier",
+                    "type": "string"
+                },
                 "custom_name": {
                     "type": "string"
                 },
@@ -32309,6 +32313,14 @@
                         "$ref": "#/definitions/AnyPropertyFilter"
                     },
                     "type": "array"
+                },
+                "table_name": {
+                    "description": "Data warehouse table name",
+                    "type": "string"
+                },
+                "timestamp_field": {
+                    "description": "Data warehouse timestamp field",
+                    "type": "string"
                 },
                 "type": {
                     "$ref": "#/definitions/EntityType"

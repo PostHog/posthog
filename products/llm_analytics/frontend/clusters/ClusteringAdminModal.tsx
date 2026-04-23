@@ -69,6 +69,13 @@ export function ClusteringAdminModal(): JSX.Element {
                     <div className="text-xs text-muted mt-2">
                         <strong>Traces:</strong> Cluster entire conversation traces. <strong>Generations:</strong>{' '}
                         Cluster individual LLM generations for finer-grained analysis.
+                        {evaluationsEnabled && (
+                            <>
+                                {' '}
+                                <strong>Evaluations:</strong> Cluster $ai_evaluation events by their verdict and
+                                reasoning to see patterns in what evaluators flag.
+                            </>
+                        )}
                     </div>
                 </div>
 

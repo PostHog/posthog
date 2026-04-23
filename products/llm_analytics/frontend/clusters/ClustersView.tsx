@@ -129,12 +129,20 @@ export function ClustersView(): JSX.Element {
 
                 <div className="flex flex-col items-center justify-center p-8 text-center">
                     <h3 className="text-lg font-semibold mb-2">
-                        No {clusteringLevel === 'generation' ? 'generation' : 'trace'} clustering runs found
+                        No{' '}
+                        {clusteringLevel === 'generation'
+                            ? 'generation'
+                            : clusteringLevel === 'evaluation'
+                              ? 'evaluation'
+                              : 'trace'}{' '}
+                        clustering runs found
                     </h3>
                     <p className="text-muted max-w-md">
                         {clusteringLevel === 'trace'
-                            ? 'Try switching to "Generations" to see generation-level clusters, or check back later once more data has been collected.'
-                            : 'Try switching to "Traces" to see trace-level clusters, or check back later once more data has been collected.'}
+                            ? 'Try switching to "Generations" or "Evaluations" to see other clusters, or check back later once more data has been collected.'
+                            : clusteringLevel === 'generation'
+                              ? 'Try switching to "Traces" or "Evaluations" to see other clusters, or check back later once more data has been collected.'
+                              : 'Try switching to "Traces" or "Generations" to see other clusters, or check back later once more data has been collected.'}
                     </p>
                 </div>
 

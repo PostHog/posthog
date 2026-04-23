@@ -113,11 +113,7 @@ function TraceListItem({
                     }
           )
 
-    const linkLabel = isEvalLevel
-        ? 'View generation →'
-        : clusteringLevel === 'generation'
-          ? 'View generation →'
-          : 'View trace →'
+    const linkLabel = clusteringLevel === 'trace' ? 'View trace →' : 'View generation →'
 
     const verdictTagType: 'success' | 'danger' | 'warning' | 'muted' =
         summary?.evaluationVerdict === 'pass'
