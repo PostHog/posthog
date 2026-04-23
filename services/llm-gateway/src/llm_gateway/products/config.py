@@ -121,6 +121,19 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_models=frozenset({"gpt-4.1-mini"}),
         allow_api_keys=True,
     ),
+    "hogql": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset(
+            {
+                "claude-haiku-4-5",
+                "claude-sonnet-4-5",
+                "gpt-4.1-mini",
+                "gpt-4.1-nano",
+                "gpt-5-mini",
+            }
+        ),
+        allow_api_keys=True,
+    ),
 }
 
 

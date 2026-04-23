@@ -11,6 +11,7 @@ from posthog.clickhouse.workload import Workload
 
 if TYPE_CHECKING:
     from posthog.hogql.database.database import Database
+    from posthog.hogql.transforms.llm_completions import LlmCompletionSpec
     from posthog.hogql.transforms.property_types import PropertySwapper
 
     from posthog.models import Team, User
@@ -75,6 +76,11 @@ class HogQLContext:
     property_swapper: Optional["PropertySwapper"] = None
     # Workload detected during AST resolution (set by prepare_ast_for_printing)
     workload: Optional[Workload] = None
+
+    # LLM completion column specs harvested during the llm_completions transform.
+    # After ClickHouse returns rows, the executor iterates this list and replaces the
+    # matching column values with gateway completions. See posthog/llm/hogql_runner.py.
+    llm_completions: list["LlmCompletionSpec"] = field(default_factory=list)
 
     def __post_init__(self):
         if self.team:

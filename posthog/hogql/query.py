@@ -842,6 +842,21 @@ class HogQLQueryExecutor:
                     printed_sql=self.clickhouse_sql,
                 )
 
+    def _apply_llm_completions(self) -> None:
+        if self.results is None or not self.clickhouse_context:
+            return
+        specs = self.clickhouse_context.llm_completions
+        if not specs:
+            return
+        from posthog.llm.hogql_runner import apply_llm_completions
+
+        self.results = apply_llm_completions(
+            self.results,
+            specs,
+            user=self.user,
+            timings=self.timings,
+        )
+
     @tracer.start_as_current_span("HogQLQueryExecutor.generate_clickhouse_sql")
     def generate_clickhouse_sql(self) -> tuple[str, HogQLContext]:
         prepared_execution = self._prepare_execution()
@@ -859,6 +874,8 @@ class HogQLQueryExecutor:
                 self._execute_direct_postgres_query()
             elif self.clickhouse_sql is not None:
                 self._execute_clickhouse_query()
+
+        self._apply_llm_completions()
 
         return HogQLQueryResponse(
             query=self.query,

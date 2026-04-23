@@ -75,6 +75,17 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ((StringType(), DateTimeType(), DateTimeType()), StringType()),
         ],
     ),
+    # LLM completion (experimental). Rewritten by the llm_completions transform —
+    # ClickHouse evaluates the per-row prompt, Python calls the LLM gateway.
+    "__preview_llm_complete": HogQLFunctionMeta(
+        "__preview_llm_complete",
+        2,
+        3,
+        signatures=[
+            ((StringType(), StringType()), StringType()),
+            ((StringType(), StringType(), StringType()), StringType()),
+        ],
+    ),
     # traffic type classification functions (experimental)
     "__preview_getTrafficType": HogQLFunctionMeta(
         "__preview_getTrafficType", 1, 1, signatures=[((StringType(),), StringType())]

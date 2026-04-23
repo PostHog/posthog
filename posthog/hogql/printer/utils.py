@@ -17,6 +17,7 @@ from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
+from posthog.hogql.transforms.llm_completions import rewrite_llm_completions
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
 from posthog.hogql.visitor import clone_expr
@@ -156,6 +157,12 @@ def prepare_ast_for_printing(
     if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN:
         with context.timings.measure("resolve_in_cohorts"):
             resolve_in_cohorts(node, dialect, stack, context)
+
+    # Rewrite __preview_llm_complete() calls only for ClickHouse — this is the path that
+    # actually executes a query. Other dialects just print the original AST.
+    if dialect == "clickhouse":
+        with context.timings.measure("rewrite_llm_completions"):
+            rewrite_llm_completions(node, context)
 
     # We add a team_id guard right before printing. It's not a separate step here.
     return node

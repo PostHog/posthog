@@ -97,6 +97,12 @@ OPENAI_BASE_URL = get_from_env("OPENAI_BASE_URL", "https://api.openai.com/v1")
 # LLM Gateway (internal service for proxying LLM requests with rate limiting and attribution)
 LLM_GATEWAY_URL = get_from_env("LLM_GATEWAY_URL", "http://localhost:3308" if DEBUG else "")
 LLM_GATEWAY_API_KEY = get_from_env("LLM_GATEWAY_PERSONAL_API_KEY", DEV_API_KEY if DEBUG else "")
+
+# Safety limits for __preview_llm_complete() calls inside HogQL queries
+HOGQL_LLM_COMPLETE_MAX_ROWS = get_from_env("HOGQL_LLM_COMPLETE_MAX_ROWS", 1000, type_cast=int)
+HOGQL_LLM_COMPLETE_CONCURRENCY = get_from_env("HOGQL_LLM_COMPLETE_CONCURRENCY", 20, type_cast=int)
+HOGQL_LLM_COMPLETE_TIMEOUT_SECONDS = get_from_env("HOGQL_LLM_COMPLETE_TIMEOUT_SECONDS", 30.0, type_cast=float)
+HOGQL_LLM_COMPLETE_MAX_TOKENS = get_from_env("HOGQL_LLM_COMPLETE_MAX_TOKENS", 512, type_cast=int)
 INKEEP_API_KEY = get_from_env("INKEEP_API_KEY", "")
 MISTRAL_API_KEY = get_from_env("MISTRAL_API_KEY", "")
 GEMINI_API_KEY = get_from_env("GEMINI_API_KEY", "")
