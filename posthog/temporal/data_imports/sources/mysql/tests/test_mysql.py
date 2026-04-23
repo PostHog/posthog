@@ -147,11 +147,15 @@ def mysql_mocks(mocker):
         parents=("mydb",),
         columns=[MySQLColumn(name="id", data_type="int", column_type="int", nullable=False)],
     )
-    mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql._get_table", return_value=fake_table)
-    mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql._get_primary_keys", return_value=["id"])
-    mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql._get_rows_to_sync", return_value=0)
-    mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql._get_table_chunk_size", return_value=1000)
-    mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql._get_partition_settings", return_value=None)
+    # Metadata helpers all live on the module-level `_SCHEMA_EXPLORER` now; patch
+    # its methods directly so `mysql_source` doesn't fan out into real queries.
+    explorer_path = "posthog.temporal.data_imports.sources.mysql.mysql._SCHEMA_EXPLORER"
+    mocker.patch(f"{explorer_path}.get_table", return_value=fake_table)
+    mocker.patch(f"{explorer_path}.get_primary_keys", return_value=["id"])
+    mocker.patch(f"{explorer_path}.get_rows_to_sync", return_value=0)
+    mocker.patch(f"{explorer_path}.get_chunk_size", return_value=1000)
+    mocker.patch(f"{explorer_path}.get_partition_settings", return_value=None)
+    mocker.patch(f"{explorer_path}.explain_query")
 
     setup_cursor = MagicMock()
     setup_cursor.__enter__.return_value = setup_cursor

@@ -23,6 +23,7 @@ from posthog.temporal.data_imports.sources.common.sql.incremental import (
     initial_value_for_incremental_type,
 )
 from posthog.temporal.data_imports.sources.common.sql.query_builder import ParamStyle, SafeSQL, SelectQueryBuilder
+from posthog.temporal.data_imports.sources.common.sql.schema_explorer import SchemaExplorer, TableStats
 from posthog.temporal.data_imports.sources.common.sql.types import (
     Column,
     ColumnType,
@@ -42,11 +43,13 @@ __all__ = [
     "InvalidIdentifierError",
     "ParamStyle",
     "SafeSQL",
+    "SchemaExplorer",
     "SelectQueryBuilder",
     "Table",
     "TableBase",
     "TableReference",
     "TableSchemas",
+    "TableStats",
     "build_incremental_fields",
     "initial_value_for_incremental_type",
 ]
