@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
 import type { GroupType } from '@/api/client'
-import { buildDefinedGroupsBlock, buildInstructionsV2, buildToolDomainsBlock } from '@/lib/instructions'
+import {
+    buildDefinedGroupsBlock,
+    buildInstructionsV2,
+    buildQueryToolsBlock,
+    buildToolDomainsBlock,
+    QueryToolCatalog,
+    type QueryToolInfo,
+} from '@/lib/instructions'
 
 const MOCK_TEMPLATE = `{metadata}
 
@@ -11,6 +18,10 @@ Some instructions here.
 {guidelines}
 
 {tool_domains}
+
+### Query tools
+
+{query_tools}
 
 ### Examples
 Some examples here.
@@ -124,6 +135,63 @@ describe('buildToolDomainsBlock', () => {
     })
 })
 
+describe('QueryToolCatalog', () => {
+    it('filters to query-* tools only', () => {
+        const tools: QueryToolInfo[] = [
+            { name: 'query-trends', title: 'Trends', systemPromptHint: 'time series' },
+            { name: 'dashboard-create', title: 'Create dashboard', systemPromptHint: 'not a query' },
+            { name: 'query-funnel', title: 'Funnel', systemPromptHint: 'conversion rate' },
+        ]
+        const result = new QueryToolCatalog(tools).toMarkdown()
+        expect(result).toContain('`query-trends`')
+        expect(result).toContain('`query-funnel`')
+        expect(result).not.toContain('dashboard-create')
+    })
+
+    it('sorts tools alphabetically', () => {
+        const tools: QueryToolInfo[] = [
+            { name: 'query-trends', title: 'Trends', systemPromptHint: 'time series' },
+            { name: 'query-funnel', title: 'Funnel', systemPromptHint: 'conversion rate' },
+            { name: 'query-lifecycle', title: 'Lifecycle', systemPromptHint: 'user composition' },
+        ]
+        const result = new QueryToolCatalog(tools).toMarkdown()
+        const lines = result.split('\n')
+        expect(lines).toEqual([
+            '- `query-funnel` — conversion rate',
+            '- `query-lifecycle` — user composition',
+            '- `query-trends` — time series',
+        ])
+    })
+
+    it('prefers systemPromptHint over title', () => {
+        const tools: QueryToolInfo[] = [
+            { name: 'query-trends', title: 'Run a trends query', systemPromptHint: 'time series' },
+        ]
+        const result = new QueryToolCatalog(tools).toMarkdown()
+        expect(result).toBe('- `query-trends` — time series')
+    })
+
+    it('falls back to title when systemPromptHint is missing', () => {
+        const tools: QueryToolInfo[] = [{ name: 'query-trends', title: 'Run a trends query' }]
+        const result = new QueryToolCatalog(tools).toMarkdown()
+        expect(result).toBe('- `query-trends` — Run a trends query')
+    })
+
+    it('returns empty string for empty input', () => {
+        expect(new QueryToolCatalog([]).toMarkdown()).toBe('')
+    })
+
+    it('returns empty string when no tools match query-*', () => {
+        const tools: QueryToolInfo[] = [{ name: 'dashboard-create', title: 'Create dashboard' }]
+        expect(new QueryToolCatalog(tools).toMarkdown()).toBe('')
+    })
+
+    it('buildQueryToolsBlock delegates to QueryToolCatalog.toMarkdown', () => {
+        const tools: QueryToolInfo[] = [{ name: 'query-trends', title: 'Trends', systemPromptHint: 'time series' }]
+        expect(buildQueryToolsBlock(tools)).toBe('- `query-trends` — time series')
+    })
+})
+
 describe('buildInstructionsV2', () => {
     it('should replace all placeholders', () => {
         const groupTypes: GroupType[] = [
@@ -141,13 +209,39 @@ describe('buildInstructionsV2', () => {
             { name: 'action-create', category: 'Actions' },
             { name: 'action-get', category: 'Actions' },
         ]
-        const result = buildInstructionsV2(MOCK_TEMPLATE, '  some guidelines  ', groupTypes, undefined, tools)
+        const queryTools: QueryToolInfo[] = [{ name: 'query-trends', title: 'Trends', systemPromptHint: 'time series' }]
+        const result = buildInstructionsV2(
+            MOCK_TEMPLATE,
+            '  some guidelines  ',
+            groupTypes,
+            undefined,
+            tools,
+            queryTools
+        )
         expect(result).toContain('some guidelines')
         expect(result).toContain('Defined group types: organization, instance')
         expect(result).toContain('- action\n- dashboard')
+        expect(result).toContain('- `query-trends` — time series')
         expect(result).not.toContain('{guidelines}')
         expect(result).not.toContain('{defined_groups}')
         expect(result).not.toContain('{tool_domains}')
+        expect(result).not.toContain('{query_tools}')
+    })
+
+    it('should substitute {query_tools} while leaving other placeholders intact', () => {
+        const template = 'Domains: {tool_domains}\nQuery tools:\n{query_tools}\nGuidelines: {guidelines}'
+        const queryTools: QueryToolInfo[] = [{ name: 'query-funnel', title: 'Funnel', systemPromptHint: 'conversion' }]
+        const result = buildInstructionsV2(template, 'rules', undefined, undefined, [], queryTools)
+        expect(result).toContain('Query tools:\n- `query-funnel` — conversion')
+        expect(result).toContain('Guidelines: rules')
+    })
+
+    it('should leave {query_tools} placeholder blank when queryTools is undefined', () => {
+        const template = 'before\n{query_tools}\nafter'
+        const result = buildInstructionsV2(template, 'rules')
+        expect(result).not.toContain('{query_tools}')
+        expect(result).toContain('before')
+        expect(result).toContain('after')
     })
 
     it('should leave no placeholders when no group types or tools', () => {
@@ -155,6 +249,7 @@ describe('buildInstructionsV2', () => {
         expect(result).not.toContain('{guidelines}')
         expect(result).not.toContain('{defined_groups}')
         expect(result).not.toContain('{tool_domains}')
+        expect(result).not.toContain('{query_tools}')
     })
 
     it('should trim guidelines whitespace', () => {
