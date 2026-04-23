@@ -110,8 +110,14 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    # Any unexpected exception must exit 2 — exit 1 is reserved for
+    # "ran cleanly, result mismatches baseline," and a crash exiting 1
+    # would be indistinguishable from a real mismatch to the caller.
     try:
         sys.exit(main())
     except AutoresearchError as err:
         print(f"error: {err}", file=sys.stderr)
+        sys.exit(2)
+    except Exception as err:
+        print(f"error: {err!r}", file=sys.stderr)
         sys.exit(2)

@@ -96,8 +96,12 @@ def main(argv: list[str] | None = None) -> int:
         print("METRIC latency_ms=-1")
         return 0
 
-    # Best effort — mismatch is acceptable, the agent decides next.
-    subprocess.run(  # noqa: S603
+    # Exit 0 = match, 1 = mismatch, 2 = comparator crashed. Both 0 and 1
+    # leave a definitive comparison.json behind for the agent to reason
+    # about. Exit 2 does NOT — on crash we write an error-shaped
+    # comparison.json ourselves so the skill can't mistake "failed to
+    # verify" for "matches baseline."
+    compare_result = subprocess.run(  # noqa: S603
         [
             sys.executable,
             str(SCRIPT_DIR / "ch_compare_results.py"),
@@ -109,7 +113,25 @@ def main(argv: list[str] | None = None) -> int:
             str(comparison_file),
         ],
         check=False,
+        capture_output=True,
+        text=True,
     )
+    if compare_result.returncode not in (0, 1):
+        err_detail = (compare_result.stderr or "").strip()[:500]
+        info(f"comparison crashed (exit {compare_result.returncode}): {err_detail}")
+        comparison_file.parent.mkdir(parents=True, exist_ok=True)
+        comparison_file.write_text(
+            json.dumps(
+                {
+                    "matches": False,
+                    "mode": "sorted-line",
+                    "summary": f"comparator crashed (exit {compare_result.returncode})",
+                    "error": err_detail,
+                },
+                indent=2,
+            )
+            + "\n"
+        )
 
     write_last_run_json(
         last_run,
