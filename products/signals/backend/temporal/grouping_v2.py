@@ -4,6 +4,7 @@ from typing import Optional
 
 from django.conf import settings
 
+import structlog
 import temporalio
 from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
@@ -24,6 +25,8 @@ from products.signals.backend.temporal.types import (
     ReadSignalsFromS3Output,
     TeamSignalGroupingV2Input,
 )
+
+logger = structlog.get_logger(__name__)
 
 PAUSE_SLEEP_SECONDS = 30
 PAUSE_MAX_RUN_DURATION = timedelta(minutes=30)
@@ -146,7 +149,7 @@ class TeamSignalGroupingV2Workflow:
                 self._cached_type_examples = type_examples
                 self._type_examples_fetched_at = self._type_examples_fetched_at if cached is not None else now
             except Exception:
-                workflow.logger.exception(
+                logger.exception(
                     "Failed to process signal batch",
                     team_id=input.team_id,
                     batch_size=len(signals),

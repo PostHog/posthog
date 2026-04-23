@@ -143,6 +143,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         setBucketOverride: (column: string, bucketFn: string) => ({ column, bucketFn }),
         resetBucketOverrides: (overrides: Record<string, string>) => ({ overrides }),
         setDebugMode: (debugMode: boolean) => ({ debugMode }),
+        setDebugInfoExpanded: (debugInfoExpanded: boolean) => ({ debugInfoExpanded }),
         loadMaterializationPreview: true,
         keepSqlEditorMounted: (editorTabId: string) => ({ editorTabId }),
     }),
@@ -217,6 +218,13 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             false,
             {
                 setDebugMode: (_, { debugMode }: { debugMode: boolean }) => debugMode,
+                loadEndpoint: () => false,
+            },
+        ],
+        debugInfoExpanded: [
+            false,
+            {
+                setDebugInfoExpanded: (_, { debugInfoExpanded }: { debugInfoExpanded: boolean }) => debugInfoExpanded,
                 loadEndpoint: () => false,
             },
         ],

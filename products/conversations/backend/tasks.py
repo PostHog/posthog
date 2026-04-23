@@ -28,7 +28,13 @@ from products.conversations.backend.formatting import (
     rich_content_to_markdown,
     rich_content_to_slack_payload,
 )
-from products.conversations.backend.mailgun import get_smtp_connection
+from products.conversations.backend.mailgun import (
+    MailgunDomainNotRegistered,
+    MailgunNotConfigured,
+    MailgunPermanentError,
+    MailgunTransientError,
+    send_mime,
+)
 from products.conversations.backend.models import (
     EmailMessageMapping,
     TeamConversationsSlackConfig,
@@ -476,20 +482,31 @@ def send_email_reply(
     )
     email_message.attach_alternative(html_body, "text/html")
 
-    connection = None
+    recipients = [ticket.email_from, *(ticket.cc_participants or [])]
+    mime_bytes = email_message.message().as_bytes(linesep="\r\n")
+
     try:
-        connection = get_smtp_connection()
-        connection.open()
-        connection.send_messages([email_message])
-    except Exception as e:
-        logger.exception("email_reply_send_failed", ticket_id=ticket_id, error=str(e))
+        send_mime(config.domain, mime_bytes, recipients=recipients)
+    except MailgunTransientError as e:
+        logger.warning("email_reply_send_transient_failure", ticket_id=ticket_id, error=str(e))
         raise cast(Any, send_email_reply).retry(exc=e)
-    finally:
-        if connection:
-            try:
-                connection.close()
-            except Exception:
-                pass
+    except MailgunDomainNotRegistered:
+        logger.exception(
+            "email_reply_send_domain_not_registered",
+            ticket_id=ticket_id,
+            team_id=team_id,
+            domain=config.domain,
+        )
+        config.mark_domain_unverified()
+        return
+    except (MailgunPermanentError, MailgunNotConfigured):
+        logger.exception(
+            "email_reply_send_permanent_failure",
+            ticket_id=ticket_id,
+            team_id=team_id,
+            domain=config.domain,
+        )
+        return
 
     # Record the outbound message mapping for threading (best-effort, don't retry on failure)
     try:

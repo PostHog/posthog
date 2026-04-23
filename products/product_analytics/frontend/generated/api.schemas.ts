@@ -2778,6 +2778,11 @@ export interface RetentionFilterApi {
     aggregationType?: AggregationTypeApi | null
     /** @nullable */
     cumulative?: boolean | null
+    /**
+     * For data warehouse based retention insights when the aggregation target can't be mapped to persons or groups.
+     * @nullable
+     */
+    customAggregationTarget?: boolean | null
     dashboardDisplay?: RetentionDashboardDisplayTypeApi | null
     /** controls the display of the retention graph */
     display?: ChartDisplayTypeApi | null
@@ -8352,6 +8357,25 @@ export const OrderDirection2Api = {
     Desc: 'DESC',
 } as const
 
+export interface ErrorTrackingPendingFingerprintIssueStateUpdateApi {
+    /** @nullable */
+    assigned_role_id?: string | null
+    /** @nullable */
+    assigned_user_id?: number | null
+    fingerprint: string
+    /** ISO 8601 datetime string. */
+    first_seen: string
+    is_deleted: number
+    /** @nullable */
+    issue_description?: string | null
+    issue_id: string
+    /** @nullable */
+    issue_name?: string | null
+    issue_status: string
+    /** Client-stamped monotonic version (`Date.now()` ms at mutation success). */
+    version: number
+}
+
 export interface ErrorTrackingQueryResponseApi {
     /** @nullable */
     columns?: string[] | null
@@ -8415,6 +8439,11 @@ export interface ErrorTrackingQueryApi {
     orderBy: ErrorTrackingOrderByApi
     /** Sort direction. */
     orderDirection?: OrderDirection2Api | null
+    /**
+     * Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only). The backend caps the list at 50 entries; extras are dropped silently.
+     * @nullable
+     */
+    pendingFingerprintIssueStateUpdates?: ErrorTrackingPendingFingerprintIssueStateUpdateApi[] | null
     /** @nullable */
     personId?: string | null
     response?: ErrorTrackingQueryResponseApi | null
