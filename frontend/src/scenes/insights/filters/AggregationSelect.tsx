@@ -8,8 +8,14 @@ import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { FunnelsQuery, LifecycleQuery } from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isInsightQueryNode, isLifecycleQuery, isStickinessQuery } from '~/queries/utils'
+import { FunnelsQuery, LifecycleQuery, RetentionQuery } from '~/queries/schema/schema-general'
+import {
+    isFunnelsQuery,
+    isInsightQueryNode,
+    isLifecycleQuery,
+    isRetentionQuery,
+    isStickinessQuery,
+} from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 export function getHogQLValue(groupIndex?: number | null, aggregationQuery?: string | null): string {
@@ -49,7 +55,7 @@ export function AggregationSelect({
     className,
     hogqlAvailable,
 }: AggregationSelectProps): JSX.Element | null {
-    const { querySource, isFunnels, isLifecycle, hasOnlyDataWarehouseSeries } = useValues(
+    const { querySource, isFunnels, isLifecycle, isRetention, hasOnlyDataWarehouseSeries } = useValues(
         insightVizDataLogic(insightProps)
     )
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
@@ -63,7 +69,8 @@ export function AggregationSelect({
 
     const value =
         (isLifecycleQuery(querySource) && querySource.customAggregationTarget) ||
-        (isFunnelsQuery(querySource) && querySource.funnelsFilter?.customAggregationTarget)
+        (isFunnelsQuery(querySource) && querySource.funnelsFilter?.customAggregationTarget) ||
+        (isRetentionQuery(querySource) && querySource.retentionFilter?.customAggregationTarget)
             ? CUSTOM_DATA_WAREHOUSE_ITEMS
             : getHogQLValue(
                   isStickinessQuery(querySource) ? undefined : querySource.aggregation_group_type_index,
@@ -104,6 +111,24 @@ export function AggregationSelect({
                     customAggregationTarget: undefined,
                 } as LifecycleQuery)
             }
+        } else if (isRetentionQuery(querySource)) {
+            if (value === CUSTOM_DATA_WAREHOUSE_ITEMS) {
+                updateQuerySource({
+                    aggregation_group_type_index: undefined,
+                    retentionFilter: {
+                        ...querySource.retentionFilter,
+                        customAggregationTarget: true,
+                    },
+                } as RetentionQuery)
+            } else {
+                updateQuerySource({
+                    aggregation_group_type_index: groupIndex,
+                    retentionFilter: {
+                        ...querySource.retentionFilter,
+                        customAggregationTarget: undefined,
+                    },
+                } as RetentionQuery)
+            }
         } else {
             updateQuerySource({ aggregation_group_type_index: groupIndex } as FunnelsQuery)
         }
@@ -142,15 +167,22 @@ export function AggregationSelect({
         })
     }
 
-    if (isFunnels || isLifecycle) {
+    if (isFunnels || isLifecycle || isRetention) {
+        const hasOnlyDataWarehouseRetentionEntities =
+            isRetentionQuery(querySource) &&
+            querySource.retentionFilter &&
+            querySource.retentionFilter.targetEntity?.type === 'data_warehouse' &&
+            querySource.retentionFilter.returningEntity?.type === 'data_warehouse'
+
         optionSections[0].options.push({
             value: CUSTOM_DATA_WAREHOUSE_ITEMS,
             label: 'Custom entities',
             tooltip:
                 'Custom entities from your data warehouse instead of persons or groups. This mainly affects how aggregation labels are shown and disables the persons modal.',
-            disabledReason: hasOnlyDataWarehouseSeries
-                ? undefined
-                : 'This option is only available for insights with only data warehouse series.',
+            disabledReason:
+                hasOnlyDataWarehouseSeries || hasOnlyDataWarehouseRetentionEntities
+                    ? undefined
+                    : 'This option is only available for insights with only data warehouse series.',
         })
     }
 
