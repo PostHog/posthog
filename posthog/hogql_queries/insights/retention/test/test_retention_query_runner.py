@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 from freezegun import freeze_time
@@ -4554,7 +4554,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        base_query = {
+        base_query: dict[str, Any] = {
             "dateRange": {"date_from": _date(0), "date_to": _date(5)},
             "retentionFilter": {
                 "totalIntervals": 5,
@@ -6333,6 +6333,7 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         assert canada_day0_cohort is not None
         self.assertEqual(canada_day0_cohort["values"][0]["count"], 3, "Canada should have 3 users")
 
+    @snapshot_clickhouse_queries
     def test_retention_24h_window_calculation(self):
         # This test validates that 24-hour window retention works differently from calendar-based retention
         # Key difference: with 24h windows, intervals are calculated from each user's first event timestamp,

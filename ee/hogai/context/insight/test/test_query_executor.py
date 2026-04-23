@@ -113,8 +113,8 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         query = AssistantRetentionQuery(
             retentionFilter=AssistantRetentionFilter(
-                targetEntity=AssistantRetentionEventsNode(name="event"),
-                returningEntity=AssistantRetentionEventsNode(name="event"),
+                targetEntity=AssistantRetentionEventsNode(id="event"),
+                returningEntity=AssistantRetentionEventsNode(id="event"),
             )
         )
         result, used_fallback = await self.query_runner.arun_and_format_query(query)

@@ -6,6 +6,7 @@ import { useValues } from 'kea'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -47,6 +48,7 @@ interface InsightsLabelProps {
     showSingleName?: boolean // If label has default name and custom name, only show custom name. By default show both.
     pillMidEllipsis?: boolean // Whether to use mid ellipsis if pill text needs to be truncated
     pillMaxWidth?: number // Max width of each pill in px
+    showPathCleaningHighlight?: boolean // Whether to show path cleaning highlights on the breakdown value
 }
 
 interface MathTagProps {
@@ -117,6 +119,7 @@ export function InsightLabel({
     pillMidEllipsis = false,
     pillMaxWidth,
     showSingleName = false,
+    showPathCleaningHighlight = false,
 }: InsightsLabelProps): JSX.Element {
     const showEventName = _showEventName || !breakdownValue || (hasMultipleSeries && !Array.isArray(breakdownValue))
 
@@ -203,7 +206,11 @@ export function InsightLabel({
                                     <LemonTag className="tag-pill">
                                         {/* eslint-disable-next-line react/forbid-dom-props */}
                                         <span className="truncate" style={{ maxWidth: pillMaxWidth }}>
-                                            {pillMidEllipsis ? midEllipsis(String(pill), 50) : pill}
+                                            {showPathCleaningHighlight
+                                                ? parseAliasToReadable(pill?.toString() ?? '')
+                                                : pillMidEllipsis
+                                                  ? midEllipsis(String(pill), 50)
+                                                  : pill}
                                         </span>
                                     </LemonTag>
                                 </Tooltip>

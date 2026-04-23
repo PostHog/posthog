@@ -2,26 +2,36 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "distinct_id": {
-            "description": "Distinct ID of the event (optional, improves lookup performance).",
-            "type": "string"
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Distinct ID of the event (optional, improves lookup performance)."
         },
-        "evaluationId": {
-            "description": "The UUID of the evaluation to run.",
+        "evaluation_id": {
+            "description": "UUID of the evaluation to run.",
             "type": "string"
         },
         "event": {
-            "description": "Event name. Defaults to \"$ai_generation\".",
+            "default": "$ai_generation",
+            "description": "Event name. Defaults to '$ai_generation'.",
             "type": "string"
         },
         "target_event_id": {
-            "description": "The UUID of the $ai_generation event to evaluate.",
+            "description": "UUID of the $ai_generation event to evaluate.",
             "type": "string"
         },
         "timestamp": {
-            "description": "ISO 8601 timestamp of the target event (needed for efficient lookup).",
+            "description": "ISO 8601 timestamp of the target event (needed for efficient ClickHouse lookup).",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
             "type": "string"
         }
     },
-    "required": ["evaluationId", "target_event_id", "timestamp"],
+    "required": ["evaluation_id", "target_event_id", "timestamp"],
     "type": "object"
 }

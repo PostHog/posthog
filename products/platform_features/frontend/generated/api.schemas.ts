@@ -475,6 +475,72 @@ export interface PaginatedRoleMembershipListApi {
     results: RoleMembershipApi[]
 }
 
+export interface _WelcomeInviterApi {
+    name: string
+    email: string
+}
+
+/**
+ * * `today` - today
+ * `this_week` - this_week
+ * `inactive` - inactive
+ * `never` - never
+ */
+export type LastActiveEnumApi = (typeof LastActiveEnumApi)[keyof typeof LastActiveEnumApi]
+
+export const LastActiveEnumApi = {
+    Today: 'today',
+    ThisWeek: 'this_week',
+    Inactive: 'inactive',
+    Never: 'never',
+} as const
+
+export interface _WelcomeTeamMemberApi {
+    name: string
+    email: string
+    /** @nullable */
+    avatar: string | null
+    role: string
+    last_active: LastActiveEnumApi
+}
+
+export interface _WelcomeRecentActivityApi {
+    /** Scope.activity pair, e.g. 'Insight.created'. */
+    type: string
+    actor_name: string
+    entity_name: string
+    /** @nullable */
+    entity_url: string | null
+    timestamp: string
+}
+
+export interface _WelcomePopularDashboardApi {
+    id: number
+    name: string
+    description: string
+    team_id: number
+    url: string
+}
+
+export interface _WelcomeSuggestedStepApi {
+    label: string
+    href: string
+    reason: string
+    docs_href?: string
+    product_key?: string
+}
+
+export interface WelcomeResponseApi {
+    organization_name: string
+    inviter: _WelcomeInviterApi | null
+    team_members: _WelcomeTeamMemberApi[]
+    recent_activity: _WelcomeRecentActivityApi[]
+    popular_dashboards: _WelcomePopularDashboardApi[]
+    products_in_use: string[]
+    suggested_next_steps: _WelcomeSuggestedStepApi[]
+    is_organization_first_user: boolean
+}
+
 export interface ActivityLogApi {
     readonly id: string
     user: UserBasicApi
@@ -524,6 +590,8 @@ export type StaticFiltersApiScopesItem = { [key: string]: unknown }
 
 export type StaticFiltersApiActivitiesItem = { [key: string]: unknown }
 
+export type StaticFiltersApiClientsItem = { [key: string]: unknown }
+
 export interface StaticFiltersApi {
     /** Users who have logged activity. */
     users: StaticFiltersApiUsersItem[]
@@ -531,6 +599,8 @@ export interface StaticFiltersApi {
     scopes: StaticFiltersApiScopesItem[]
     /** Available activity types. */
     activities: StaticFiltersApiActivitiesItem[]
+    /** API clients that have generated activity (from x-posthog-client header). */
+    clients: StaticFiltersApiClientsItem[]
 }
 
 export interface AvailableFiltersResponseApi {
@@ -646,6 +716,10 @@ export type MembersListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Sort order. Defaults to `-joined_at`.
+     */
+    order?: string
 }
 
 export type RolesListParams = {
@@ -718,6 +792,7 @@ export type ActivityLogListParams = {
 * `Project` - Project
 * `ErrorTrackingIssue` - ErrorTrackingIssue
 * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
+* `LegalDocument` - LegalDocument
 * `Organization` - Organization
 * `OrganizationDomain` - OrganizationDomain
 * `OrganizationMembership` - OrganizationMembership
@@ -790,6 +865,7 @@ export const ActivityLogListScope = {
     Project: 'Project',
     ErrorTrackingIssue: 'ErrorTrackingIssue',
     DataWarehouseSavedQuery: 'DataWarehouseSavedQuery',
+    LegalDocument: 'LegalDocument',
     Organization: 'Organization',
     OrganizationDomain: 'OrganizationDomain',
     OrganizationMembership: 'OrganizationMembership',
@@ -849,6 +925,7 @@ export const ActivityLogListScope = {
  * `Project` - Project
  * `ErrorTrackingIssue` - ErrorTrackingIssue
  * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
+ * `LegalDocument` - LegalDocument
  * `Organization` - Organization
  * `OrganizationDomain` - OrganizationDomain
  * `OrganizationMembership` - OrganizationMembership
@@ -909,6 +986,7 @@ export const ActivityLogListScopesItem = {
     Project: 'Project',
     ErrorTrackingIssue: 'ErrorTrackingIssue',
     DataWarehouseSavedQuery: 'DataWarehouseSavedQuery',
+    LegalDocument: 'LegalDocument',
     Organization: 'Organization',
     OrganizationDomain: 'OrganizationDomain',
     OrganizationMembership: 'OrganizationMembership',
@@ -941,6 +1019,7 @@ export const ActivityLogListScopesItem = {
 
 export type AdvancedActivityLogsListParams = {
     activities?: string[]
+    clients?: string[]
     detail_filters?: string
     end_date?: string
     hogql_filter?: string

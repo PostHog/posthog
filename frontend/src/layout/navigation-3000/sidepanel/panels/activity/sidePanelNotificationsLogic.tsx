@@ -25,8 +25,8 @@ import { InAppNotification, InsightShortId } from '~/types'
 
 import { NotificationEventSourceTypeEnumApi } from 'products/notifications/frontend/generated/api.schemas'
 
+import { sidePanelContextLogic } from '../../sidePanelContextLogic'
 import { sidePanelStateLogic } from '../../sidePanelStateLogic'
-import { sidePanelContextLogic } from '../sidePanelContextLogic'
 import type { sidePanelNotificationsLogicType } from './sidePanelNotificationsLogicType'
 
 const LEGACY_POLL_TIMEOUT = 5 * 60 * 1000

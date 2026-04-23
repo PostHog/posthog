@@ -7,7 +7,7 @@ from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisionin
 from ee.api.agentic_provisioning.views import DEEP_LINK_CACHE_PREFIX
 
 
-@override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)
+@override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
 class TestDeepLinks(StripeProvisioningTestBase):
     def test_deep_link_returns_url(self):
         token = self._get_bearer_token()
@@ -38,7 +38,7 @@ class TestDeepLinks(StripeProvisioningTestBase):
         assert res.status_code == 401
 
 
-@override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)
+@override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
 class TestAgenticLogin(StripeProvisioningTestBase):
     def _create_deep_link_token(self) -> str:
         token = "test_deep_link_token"
