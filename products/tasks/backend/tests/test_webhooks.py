@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from django.test import TestCase
 
+from parameterized import parameterized
 from rest_framework.test import APIClient
 
 from posthog.models.organization import Organization
@@ -301,27 +302,28 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
             HTTP_X_GITHUB_EVENT="pull_request",
         )
 
+    @parameterized.expand(
+        [
+            ("merged_pr_resolves_ready", True, SignalReport.Status.READY, SignalReport.Status.RESOLVED),
+            ("closed_without_merge_noop", False, SignalReport.Status.READY, SignalReport.Status.READY),
+            ("merged_pr_skips_suppressed", True, SignalReport.Status.SUPPRESSED, SignalReport.Status.SUPPRESSED),
+        ]
+    )
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
-    def test_merged_pr_resolves_linked_signal_report(self, _mock_capture, mock_get_secret):
+    def test_pr_event_transitions_linked_report(
+        self, _name, merged, initial_status, expected_status, _mock_capture, mock_get_secret
+    ):
         mock_get_secret.return_value = self.webhook_secret
+        if self.report.status != initial_status:
+            self.report.status = initial_status
+            self.report.save(update_fields=["status"])
 
-        response = self._post_pr_webhook(action="closed", merged=True)
+        response = self._post_pr_webhook(action="closed", merged=merged)
 
         self.assertEqual(response.status_code, 200)
         self.report.refresh_from_db()
-        self.assertEqual(self.report.status, SignalReport.Status.RESOLVED)
-
-    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
-    @patch("products.tasks.backend.models.posthoganalytics.capture")
-    def test_closed_without_merge_does_not_resolve(self, _mock_capture, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
-
-        response = self._post_pr_webhook(action="closed", merged=False)
-
-        self.assertEqual(response.status_code, 200)
-        self.report.refresh_from_db()
-        self.assertEqual(self.report.status, SignalReport.Status.READY)
+        self.assertEqual(self.report.status, expected_status)
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
@@ -334,19 +336,6 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         self.assertEqual(response.status_code, 200)
         self.report.refresh_from_db()
         self.assertEqual(self.report.status, SignalReport.Status.READY)
-
-    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
-    @patch("products.tasks.backend.models.posthoganalytics.capture")
-    def test_merge_on_suppressed_report_does_not_raise(self, _mock_capture, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
-        self.report.status = SignalReport.Status.SUPPRESSED
-        self.report.save(update_fields=["status"])
-
-        response = self._post_pr_webhook(action="closed", merged=True)
-
-        self.assertEqual(response.status_code, 200)
-        self.report.refresh_from_db()
-        self.assertEqual(self.report.status, SignalReport.Status.SUPPRESSED)
 
 
 class TestFindTaskRun(TestCase):
