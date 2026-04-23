@@ -2338,8 +2338,9 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                             rollout_percentage: zod.number().nullish(),
                             split_percent: zod
                                 .number()
+                                .nullish()
                                 .describe(
-                                    'Percentage of users assigned to this variant (0–100). All variants must sum to 100.'
+                                    'Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided.'
                                 ),
                         })
                     )
