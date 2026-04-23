@@ -883,7 +883,7 @@ export interface ReviewQueueItemApi {
     readonly queue_id: string
     /** Human-readable name of the queue that currently owns this pending trace. */
     readonly queue_name: string
-    /** Trace ID currently pending human review. */
+    /** Trace ID currently pending review. */
     readonly trace_id: string
     readonly created_at: string
     /** @nullable */
@@ -1390,7 +1390,7 @@ export interface TraceReviewApi {
     /** Trace ID for the review. */
     readonly trace_id: string
     /**
-     * Optional human comment or reasoning for the review.
+     * Optional comment or reasoning for the review.
      * @nullable
      */
     readonly comment: string | null
@@ -1448,7 +1448,7 @@ export interface TraceReviewCreateApi {
      */
     trace_id: string
     /**
-     * Optional human comment or reasoning for the review.
+     * Optional comment or reasoning for the review.
      * @nullable
      */
     comment?: string | null
@@ -1468,7 +1468,7 @@ export interface PatchedTraceReviewUpdateApi {
      */
     trace_id?: string
     /**
-     * Optional human comment or reasoning for the review.
+     * Optional comment or reasoning for the review.
      * @nullable
      */
     comment?: string | null

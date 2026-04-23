@@ -192,6 +192,7 @@ const llmAnalyticsReviewQueueItemsList = (): ToolBase<
 > => ({
     name: 'llm-analytics-review-queue-items-list',
     schema: LlmAnalyticsReviewQueueItemsListSchema,
+    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof LlmAnalyticsReviewQueueItemsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedReviewQueueItemList>({
@@ -212,7 +213,7 @@ const llmAnalyticsReviewQueueItemsList = (): ToolBase<
             {
                 ...result,
                 results: await Promise.all(
-                    result.results.map((item) =>
+                    (result.results ?? []).map((item) =>
                         withPostHogUrl(context, item, `/llm-analytics/traces/${item.trace_id}`)
                     )
                 ),
@@ -230,6 +231,7 @@ const llmAnalyticsReviewQueueItemsCreate = (): ToolBase<
 > => ({
     name: 'llm-analytics-review-queue-items-create',
     schema: LlmAnalyticsReviewQueueItemsCreateSchema,
+    mcpVersion: 2,
     handler: async (context: Context, params: z.infer<typeof LlmAnalyticsReviewQueueItemsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
@@ -256,6 +258,7 @@ const llmAnalyticsReviewQueueItemsRetrieve = (): ToolBase<
 > => ({
     name: 'llm-analytics-review-queue-items-retrieve',
     schema: LlmAnalyticsReviewQueueItemsRetrieveSchema,
+    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof LlmAnalyticsReviewQueueItemsRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ReviewQueueItem>({
@@ -276,6 +279,7 @@ const llmAnalyticsReviewQueueItemsPartialUpdate = (): ToolBase<
 > => ({
     name: 'llm-analytics-review-queue-items-partial-update',
     schema: LlmAnalyticsReviewQueueItemsPartialUpdateSchema,
+    mcpVersion: 2,
     handler: async (context: Context, params: z.infer<typeof LlmAnalyticsReviewQueueItemsPartialUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
@@ -299,6 +303,7 @@ const llmAnalyticsReviewQueueItemsDestroy = (): ToolBase<
 > => ({
     name: 'llm-analytics-review-queue-items-destroy',
     schema: LlmAnalyticsReviewQueueItemsDestroySchema,
+    mcpVersion: 2,
     handler: async (context: Context, params: z.infer<typeof LlmAnalyticsReviewQueueItemsDestroySchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
@@ -317,6 +322,7 @@ const llmAnalyticsReviewQueuesList = (): ToolBase<
 > => ({
     name: 'llm-analytics-review-queues-list',
     schema: LlmAnalyticsReviewQueuesListSchema,
+    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof LlmAnalyticsReviewQueuesListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedReviewQueueList>({
@@ -335,7 +341,7 @@ const llmAnalyticsReviewQueuesList = (): ToolBase<
             {
                 ...result,
                 results: await Promise.all(
-                    result.results.map((item) =>
+                    (result.results ?? []).map((item) =>
                         withPostHogUrl(context, item, `/llm-analytics/reviews?queue_id=${item.id}`)
                     )
                 ),
@@ -353,6 +359,7 @@ const llmAnalyticsReviewQueuesCreate = (): ToolBase<
 > => ({
     name: 'llm-analytics-review-queues-create',
     schema: LlmAnalyticsReviewQueuesCreateSchema,
+    mcpVersion: 2,
     handler: async (context: Context, params: z.infer<typeof LlmAnalyticsReviewQueuesCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
@@ -376,6 +383,7 @@ const llmAnalyticsReviewQueuesRetrieve = (): ToolBase<
 > => ({
     name: 'llm-analytics-review-queues-retrieve',
     schema: LlmAnalyticsReviewQueuesRetrieveSchema,
+    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof LlmAnalyticsReviewQueuesRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ReviewQueue>({
@@ -396,6 +404,7 @@ const llmAnalyticsReviewQueuesPartialUpdate = (): ToolBase<
 > => ({
     name: 'llm-analytics-review-queues-partial-update',
     schema: LlmAnalyticsReviewQueuesPartialUpdateSchema,
+    mcpVersion: 2,
     handler: async (context: Context, params: z.infer<typeof LlmAnalyticsReviewQueuesPartialUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
@@ -416,6 +425,7 @@ const LlmAnalyticsReviewQueuesDestroySchema = LlmAnalyticsReviewQueuesDestroyPar
 const llmAnalyticsReviewQueuesDestroy = (): ToolBase<typeof LlmAnalyticsReviewQueuesDestroySchema, unknown> => ({
     name: 'llm-analytics-review-queues-destroy',
     schema: LlmAnalyticsReviewQueuesDestroySchema,
+    mcpVersion: 2,
     handler: async (context: Context, params: z.infer<typeof LlmAnalyticsReviewQueuesDestroySchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
@@ -434,6 +444,7 @@ const llmAnalyticsTraceReviewsList = (): ToolBase<
 > => ({
     name: 'llm-analytics-trace-reviews-list',
     schema: LlmAnalyticsTraceReviewsListSchema,
+    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof LlmAnalyticsTraceReviewsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedTraceReviewList>({
@@ -455,7 +466,7 @@ const llmAnalyticsTraceReviewsList = (): ToolBase<
             {
                 ...result,
                 results: await Promise.all(
-                    result.results.map((item) =>
+                    (result.results ?? []).map((item) =>
                         withPostHogUrl(context, item, `/llm-analytics/traces/${item.trace_id}`)
                     )
                 ),
@@ -473,6 +484,7 @@ const llmAnalyticsTraceReviewsCreate = (): ToolBase<
 > => ({
     name: 'llm-analytics-trace-reviews-create',
     schema: LlmAnalyticsTraceReviewsCreateSchema,
+    mcpVersion: 2,
     handler: async (context: Context, params: z.infer<typeof LlmAnalyticsTraceReviewsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
@@ -505,6 +517,7 @@ const llmAnalyticsTraceReviewsRetrieve = (): ToolBase<
 > => ({
     name: 'llm-analytics-trace-reviews-retrieve',
     schema: LlmAnalyticsTraceReviewsRetrieveSchema,
+    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof LlmAnalyticsTraceReviewsRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.TraceReview>({
@@ -525,6 +538,7 @@ const llmAnalyticsTraceReviewsPartialUpdate = (): ToolBase<
 > => ({
     name: 'llm-analytics-trace-reviews-partial-update',
     schema: LlmAnalyticsTraceReviewsPartialUpdateSchema,
+    mcpVersion: 2,
     handler: async (context: Context, params: z.infer<typeof LlmAnalyticsTraceReviewsPartialUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
@@ -554,6 +568,7 @@ const LlmAnalyticsTraceReviewsDestroySchema = LlmAnalyticsTraceReviewsDestroyPar
 const llmAnalyticsTraceReviewsDestroy = (): ToolBase<typeof LlmAnalyticsTraceReviewsDestroySchema, unknown> => ({
     name: 'llm-analytics-trace-reviews-destroy',
     schema: LlmAnalyticsTraceReviewsDestroySchema,
+    mcpVersion: 2,
     handler: async (context: Context, params: z.infer<typeof LlmAnalyticsTraceReviewsDestroySchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
