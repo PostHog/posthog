@@ -2,6 +2,7 @@ import { getDefaultCdpConfig } from '../cdp/config'
 import { getDefaultCommonConfig } from '../common/config'
 import { getDefaultIngestionConsumerConfig } from '../ingestion/config'
 import { getDefaultErrorTrackingConsumerConfig } from '../ingestion/error-tracking/config'
+import { getDefaultLlmAnalyticsConfig } from '../llm-analytics/config'
 import {
     getDefaultLogsIngestionConsumerConfig,
     getDefaultTracesIngestionConsumerConfig,
@@ -19,6 +20,7 @@ export function getDefaultConfig(): PluginsServerConfig {
     return {
         ...getDefaultCommonConfig(),
         ...getDefaultCdpConfig(),
+        ...getDefaultLlmAnalyticsConfig(),
         ...getDefaultIngestionConsumerConfig(),
         ...getDefaultLogsIngestionConsumerConfig(),
         ...getDefaultTracesIngestionConsumerConfig(),

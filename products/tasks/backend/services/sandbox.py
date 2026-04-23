@@ -285,8 +285,15 @@ def wait_for_health_check(
     """
     health_script = (
         f"for i in $(seq 1 {max_attempts}); do "
-        f"  status=$(curl -s -o /dev/null -w '%{{http_code}}' http://localhost:{port}/health); "
-        f'  [ "$status" = "200" ] && echo "ok:$i" && exit 0; '
+        f"  body=$(curl -s http://localhost:{port}/health); "
+        "  status=$?; "
+        '  if [ "$status" = "0" ]; then '
+        "    python3 -c '"
+        "import json, sys; "
+        "payload = json.loads(sys.argv[1]); "
+        'sys.exit(0 if payload.get("status") == "ok" and payload.get("hasSession") is True else 1)'
+        f'\' "$body" && echo "ok:$i" && exit 0; '
+        "  fi; "
         f"  sleep {poll_interval}; "
         f"done; "
         f"exit 1"

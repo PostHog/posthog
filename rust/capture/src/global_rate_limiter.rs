@@ -234,6 +234,61 @@ impl GlobalRateLimiter {
         }
     }
 
+    /// Test helper: build a `GlobalRateLimiter` that returns `Limited` for any
+    /// key in `limited_keys` and `Allowed` otherwise. Custom limits always
+    /// return `NotApplicable`. Shared across capture pipeline tests that need
+    /// to simulate per-key global rate limiting.
+    #[cfg(test)]
+    pub(crate) fn mock_limiting(limited_keys: &[&str]) -> Self {
+        use async_trait::async_trait;
+        use std::collections::HashSet;
+
+        struct MockLimitingLimiter {
+            limited_keys: HashSet<String>,
+        }
+
+        #[async_trait]
+        impl CommonGlobalRateLimiter for MockLimitingLimiter {
+            async fn check_limit(
+                &self,
+                key: &str,
+                _count: u64,
+                _timestamp: Option<DateTime<Utc>>,
+            ) -> EvalResult {
+                if self.limited_keys.contains(key) {
+                    EvalResult::Limited(GlobalRateLimitResponse {
+                        key: key.to_string(),
+                        current_count: 100.0,
+                        threshold: 10,
+                        window_interval: std::time::Duration::from_secs(60),
+                        sync_interval: std::time::Duration::from_secs(15),
+                        is_custom_limited: false,
+                    })
+                } else {
+                    EvalResult::Allowed
+                }
+            }
+
+            async fn check_custom_limit(
+                &self,
+                _key: &str,
+                _count: u64,
+                _timestamp: Option<DateTime<Utc>>,
+            ) -> EvalResult {
+                EvalResult::NotApplicable
+            }
+
+            fn is_custom_key(&self, _key: &str) -> bool {
+                false
+            }
+
+            fn shutdown(&mut self) {}
+        }
+
+        let limited_keys: HashSet<String> = limited_keys.iter().map(|k| k.to_string()).collect();
+        Self::new_with(MockLimitingLimiter { limited_keys })
+    }
+
     // In capture deploys, the custom keys and rate limit thresholds should be
     // supplied as a CSV list of <string_key>=<u64_value> elements. malformed
     // elements will be logged and skipped during limiter initialization

@@ -12,7 +12,6 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/TracingScene'),
             projectBased: true,
             layout: 'app-container',
-            defaultDocsPath: '/docs/tracing',
             activityScope: 'Tracing',
             description: 'Monitor and analyze distributed traces to understand service performance and debug issues.',
             iconType: 'tracing',

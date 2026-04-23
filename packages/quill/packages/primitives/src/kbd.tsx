@@ -6,6 +6,7 @@ import { cn } from './lib/utils'
 function Kbd({ className, ...props }: React.ComponentProps<'kbd'>): React.ReactElement {
     return (
         <kbd
+            data-quill
             data-slot="kbd"
             className={cn(
                 buttonVariants({ variant: 'outline', size: 'xs' }),

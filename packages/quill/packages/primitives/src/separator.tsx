@@ -6,6 +6,7 @@ import { cn } from './lib/utils'
 function Separator({ className, orientation = 'horizontal', ...props }: SeparatorPrimitive.Props): React.ReactElement {
     return (
         <SeparatorPrimitive
+            data-quill
             data-slot="separator"
             orientation={orientation}
             className={cn(
