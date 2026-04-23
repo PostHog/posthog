@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-04-23 10:29:30 UTC
+// Generated at: 2026-04-23 20:17:10 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -38,6 +38,7 @@ export type CanonicalProvider =
     | 'deepinfra-fp8'
     | 'deepinfra-turbo'
     | 'deepseek'
+    | 'dekallm-bf16'
     | 'dekallm-fp8'
     | 'featherless'
     | 'fireworks'
@@ -118,10 +119,12 @@ export type CanonicalProvider =
     | 'upstage'
     | 'venice'
     | 'venice-beta'
+    | 'venice-bf16'
     | 'venice-e2ee'
     | 'venice-fp16'
     | 'venice-fp4'
     | 'venice-fp8'
+    | 'venice-int4'
     | 'wandb-bf16'
     | 'wandb-fp16'
     | 'wandb-fp4'
