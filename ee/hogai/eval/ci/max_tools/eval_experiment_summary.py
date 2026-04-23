@@ -22,6 +22,7 @@ from posthog.schema import (
     MaxExperimentMetricResult,
     MaxExperimentSummaryContext,
     MaxExperimentVariantResultBayesian,
+    MaxExperimentVariantResultFrequentist,
 )
 
 from posthog.models import FeatureFlag
@@ -33,6 +34,8 @@ from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.eval.base import MaxPublicEval
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation
+
+_SUMMARY_PROMPT = "Summarize experiment {experiment_id}. What do the results show?"
 
 
 class EvalInput(TypedDict):
@@ -61,6 +64,7 @@ Check:
 3. The agent must not declare a winner when results are not statistically significant.
 4. Variant names must match the tool output.
 5. When a metric's goal is "Decrease", a reduction in the metric is a positive outcome. The agent must frame lower values as good and not treat them as a regression.
+6. When multiple metrics are present (primary and secondary), the agent must mention results from both. It must not ignore a significant secondary metric that contradicts the primary.
 
 Choose: pass (all facts accurate, no hallucinations) or fail (any factual error, hallucinated number, or wrong conclusion)
 """.strip()
@@ -236,10 +240,145 @@ MOCK_BAYESIAN_GOAL_DECREASE = MaxExperimentSummaryContext(
 )
 
 
+# Mixed metrics: primary says ship (test wins on conversion), but a secondary
+# guardrail metric shows a significant regression (revenue per user dropped).
+# Checks that Claude surfaces both signals and doesn't cherry-pick the winner.
+MOCK_BAYESIAN_MIXED_METRICS = MaxExperimentSummaryContext(
+    experiment_id=0,  # replaced at runtime
+    experiment_name="Simplified Pricing Page Test",
+    description="Testing whether a simplified pricing page increases plan upgrades",
+    variants=["control", "test"],
+    exposures={"control": 5210.0, "test": 5185.0},
+    primary_metrics_results=[
+        MaxExperimentMetricResult(
+            name="1. Plan upgrade conversion",
+            goal=Goal.INCREASE,
+            variant_results=[
+                MaxExperimentVariantResultBayesian(
+                    key="control",
+                    chance_to_win=0.09,
+                    credible_interval=[-0.041, 0.008],
+                    delta=-0.0165,
+                    significant=False,
+                ),
+                MaxExperimentVariantResultBayesian(
+                    key="test",
+                    chance_to_win=0.91,
+                    credible_interval=[0.015, 0.058],
+                    delta=0.0365,
+                    significant=True,
+                ),
+            ],
+        ),
+    ],
+    secondary_metrics_results=[
+        MaxExperimentMetricResult(
+            name="1. Revenue per user",
+            goal=Goal.INCREASE,
+            variant_results=[
+                MaxExperimentVariantResultBayesian(
+                    key="control",
+                    chance_to_win=0.86,
+                    credible_interval=[0.012, 0.049],
+                    delta=0.0305,
+                    significant=True,
+                ),
+                MaxExperimentVariantResultBayesian(
+                    key="test",
+                    chance_to_win=0.14,
+                    credible_interval=[-0.049, -0.012],
+                    delta=-0.0305,
+                    significant=False,
+                ),
+            ],
+        ),
+    ],
+    stats_method=ExperimentStatsMethod.BAYESIAN,
+)
+
+
+# Frequentist significant winner: test variant has a low p-value and
+# confidence interval entirely above zero. Exercises the Frequentist
+# formatting branch (p-values and confidence intervals instead of
+# chance-to-win and credible intervals). Checks that Claude correctly
+# interprets p-values — low means significant, high means not.
+MOCK_FREQUENTIST_SIGNIFICANT = MaxExperimentSummaryContext(
+    experiment_id=0,  # replaced at runtime
+    experiment_name="Search Ranking Algorithm Test",
+    description="Testing whether a new search ranking algorithm improves click-through rate",
+    variants=["control", "test"],
+    exposures={"control": 6340.0, "test": 6285.0},
+    primary_metrics_results=[
+        MaxExperimentMetricResult(
+            name="1. Search click-through rate",
+            goal=Goal.INCREASE,
+            variant_results=[
+                MaxExperimentVariantResultFrequentist(
+                    key="control",
+                    p_value=0.73,
+                    confidence_interval=[-0.048, 0.019],
+                    delta=-0.0145,
+                    significant=False,
+                ),
+                MaxExperimentVariantResultFrequentist(
+                    key="test",
+                    p_value=0.003,
+                    confidence_interval=[0.012, 0.054],
+                    delta=0.033,
+                    significant=True,
+                ),
+            ],
+        ),
+    ],
+    secondary_metrics_results=[],
+    stats_method=ExperimentStatsMethod.FREQUENTIST,
+)
+
+
+# Frequentist non-significant: both variants have high p-values and
+# confidence intervals crossing zero. Test slightly leads on delta but
+# p=0.35 is far from significant. Checks that Claude doesn't misread
+# a moderate p-value as "trending toward significance" or pick a winner.
+MOCK_FREQUENTIST_NON_SIGNIFICANT = MaxExperimentSummaryContext(
+    experiment_id=0,  # replaced at runtime
+    experiment_name="Email Subject Line Test",
+    description="Testing whether a personalized email subject line improves open rate",
+    variants=["control", "test"],
+    exposures={"control": 3150.0, "test": 3120.0},
+    primary_metrics_results=[
+        MaxExperimentMetricResult(
+            name="1. Email open rate",
+            goal=Goal.INCREASE,
+            variant_results=[
+                MaxExperimentVariantResultFrequentist(
+                    key="control",
+                    p_value=0.58,
+                    confidence_interval=[-0.022, 0.015],
+                    delta=-0.0035,
+                    significant=False,
+                ),
+                MaxExperimentVariantResultFrequentist(
+                    key="test",
+                    p_value=0.35,
+                    confidence_interval=[-0.009, 0.027],
+                    delta=0.009,
+                    significant=False,
+                ),
+            ],
+        ),
+    ],
+    secondary_metrics_results=[],
+    stats_method=ExperimentStatsMethod.FREQUENTIST,
+)
+
+
 MOCK_CONTEXTS: dict[str, MaxExperimentSummaryContext] = {
     "bayesian_significant": MOCK_BAYESIAN_SIGNIFICANT,
     "bayesian_non_significant": MOCK_BAYESIAN_NON_SIGNIFICANT,
     "bayesian_goal_decrease": MOCK_BAYESIAN_GOAL_DECREASE,
+    "bayesian_mixed_metrics": MOCK_BAYESIAN_MIXED_METRICS,
+    "frequentist_significant": MOCK_FREQUENTIST_SIGNIFICANT,
+    "frequentist_non_significant": MOCK_FREQUENTIST_NON_SIGNIFICANT,
 }
 
 
@@ -276,6 +415,11 @@ def experiment_with_mock_data(demo_org_team_user):
         )
 
         now = datetime.now(tz=ZoneInfo("UTC"))
+        stats_config = (
+            {"method": mock_template.stats_method.value}
+            if mock_template.stats_method != ExperimentStatsMethod.BAYESIAN
+            else None
+        )
         experiment = await Experiment.objects.acreate(
             name=mock_template.experiment_name,
             team=team,
@@ -283,6 +427,7 @@ def experiment_with_mock_data(demo_org_team_user):
             feature_flag=flag,
             description=mock_template.description or "",
             start_date=now - timedelta(days=14),
+            stats_config=stats_config,
             metrics=[
                 {
                     "metric_type": "funnel",
@@ -352,24 +497,45 @@ async def eval_experiment_summary(call_agent_for_summary, pytestconfig):
         data=[
             EvalCase(
                 input=EvalInput(
-                    input="Summarize experiment {experiment_id}. What do the results show?",
+                    input=_SUMMARY_PROMPT,
                     mock_key="bayesian_significant",
                 ),
                 metadata={"test_type": "bayesian_significant"},
             ),
             EvalCase(
                 input=EvalInput(
-                    input="Summarize experiment {experiment_id}. What do the results show?",
+                    input=_SUMMARY_PROMPT,
                     mock_key="bayesian_non_significant",
                 ),
                 metadata={"test_type": "bayesian_non_significant"},
             ),
             EvalCase(
                 input=EvalInput(
-                    input="Summarize experiment {experiment_id}. What do the results show?",
+                    input=_SUMMARY_PROMPT,
                     mock_key="bayesian_goal_decrease",
                 ),
                 metadata={"test_type": "bayesian_goal_decrease"},
+            ),
+            EvalCase(
+                input=EvalInput(
+                    input=_SUMMARY_PROMPT,
+                    mock_key="bayesian_mixed_metrics",
+                ),
+                metadata={"test_type": "bayesian_mixed_metrics"},
+            ),
+            EvalCase(
+                input=EvalInput(
+                    input=_SUMMARY_PROMPT,
+                    mock_key="frequentist_significant",
+                ),
+                metadata={"test_type": "frequentist_significant"},
+            ),
+            EvalCase(
+                input=EvalInput(
+                    input=_SUMMARY_PROMPT,
+                    mock_key="frequentist_non_significant",
+                ),
+                metadata={"test_type": "frequentist_non_significant"},
             ),
         ],
         pytestconfig=pytestconfig,

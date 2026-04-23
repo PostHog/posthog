@@ -155,7 +155,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                 else {}
             )
 
-            checkpoint_dict: Checkpoint = {
+            checkpoint_dict: Checkpoint = {  # ty: ignore[missing-typed-dict-key]
                 **loaded_checkpoint,
                 "pending_sends": pending_sends,
                 "channel_values": channel_values,

@@ -52,7 +52,7 @@ function RadioIndicator({
 }
 
 function RadioGroup({ className, ...props }: RadioGroupPrimitive.Props): React.ReactElement {
-    return <RadioGroupPrimitive data-slot="radio-group" className={cn('grid w-full gap-3', className)} {...props} />
+    return <RadioGroupPrimitive data-quill data-slot="radio-group" className={cn('grid w-full gap-3', className)} {...props} />
 }
 
 const radioGroupItemVariants = cva(

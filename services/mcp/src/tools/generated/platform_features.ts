@@ -228,6 +228,7 @@ const advancedActivityLogsList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/advanced_activity_logs/`,
             query: {
                 activities: params.activities,
+                clients: params.clients,
                 detail_filters: params.detail_filters,
                 end_date: params.end_date,
                 hogql_filter: params.hogql_filter,
@@ -298,6 +299,7 @@ const orgMembersList = (): ToolBase<typeof OrgMembersListSchema, Schemas.Paginat
             query: {
                 limit: params.limit,
                 offset: params.offset,
+                order: params.order,
             },
         })
         return result

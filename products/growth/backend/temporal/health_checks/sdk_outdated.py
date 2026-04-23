@@ -82,7 +82,7 @@ class SdkOutdatedCheck(HealthCheck):
     name = "sdk_outdated"
     kind = "sdk_outdated"
     owner = JobOwners.TEAM_GROWTH
-    policy = HealthExecutionPolicy(batch_size=25, max_concurrent=1)
+    policy = HealthExecutionPolicy(batch_size=10, max_concurrent=3)
     schedule = "0 8 * * *"
     active_since_days = 30
 

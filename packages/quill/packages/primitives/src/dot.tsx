@@ -32,7 +32,7 @@ function Dot({
     ...props
 }: React.ComponentProps<'span'> & VariantProps<typeof dotVariants>): React.ReactElement {
     return (
-        <span data-slot="dot" className={cn(dotVariants({ variant, pulse }), className)} {...props}>
+        <span data-quill data-slot="dot" className={cn(dotVariants({ variant, pulse }), className)} {...props}>
             {pulse && (
                 <span
                     aria-hidden

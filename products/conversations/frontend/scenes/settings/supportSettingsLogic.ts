@@ -23,7 +23,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'settings', 'supportSettingsLogic']),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
-        actions: [teamLogic, ['updateCurrentTeam', 'updateCurrentTeamSuccess']],
+        actions: [teamLogic, ['updateCurrentTeam', 'updateCurrentTeamSuccess', 'loadCurrentTeam']],
     })),
     actions({
         generateNewToken: true,
@@ -58,6 +58,18 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         setSlackBotDisplayNameValue: (value: string | null) => ({ value }),
         saveSlackBotSettings: true,
         disconnectSlack: true,
+        // Teams channel settings
+        connectTeams: (nextPath: string) => ({ nextPath }),
+        disconnectTeams: true,
+        setTeamsTeam: (teamId: string | null, teamName: string | null) => ({ teamId, teamName }),
+        setTeamsChannel: (channelId: string | null, channelName: string | null) => ({ channelId, channelName }),
+        loadTeamsTeamsWithToken: true,
+        loadTeamsChannelsForTeam: (teamId: string) => ({ teamId }),
+        installTeamsApp: (teamId: string) => ({ teamId }),
+        setTeamsInstallStatus: (
+            status: 'idle' | 'installing' | 'installed' | 'needs_org_catalog' | 'error',
+            teamId: string | null = null
+        ) => ({ status, teamId }),
         // Email channel settings (multi-config)
         loadEmailConfigs: true,
         loadEmailConfigsDone: (configs: EmailConfigStatus[]) => ({ configs }),
@@ -205,6 +217,22 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 sendTestEmailDone: () => null,
             },
         ],
+        teamsInstallStatus: [
+            'idle' as 'idle' | 'installing' | 'installed' | 'needs_org_catalog' | 'error',
+            {
+                installTeamsApp: () => 'installing' as const,
+                setTeamsInstallStatus: (_, { status }) => status,
+                disconnectTeams: () => 'idle' as const,
+            },
+        ],
+        teamsInstallingForTeamId: [
+            null as string | null,
+            {
+                installTeamsApp: (_, { teamId }) => teamId,
+                setTeamsInstallStatus: (_, { teamId }) => teamId,
+                disconnectTeams: () => null,
+            },
+        ],
         slackTicketEmojiValue: [
             null as string | null,
             {
@@ -235,6 +263,36 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                     } catch {
                         lemonToast.error('Failed to load Slack channels')
                         return values.slackChannels
+                    }
+                },
+            },
+        ],
+        teamsTeams: [
+            [] as { id: string; name: string }[],
+            {
+                loadTeamsTeamsWithToken: async () => {
+                    try {
+                        const response = await api.create('api/conversations/v1/teams/teams', {})
+                        return response.teams || []
+                    } catch {
+                        lemonToast.error('Failed to load Teams groups')
+                        return values.teamsTeams
+                    }
+                },
+            },
+        ],
+        teamsChannels: [
+            [] as { id: string; name: string }[],
+            {
+                loadTeamsChannelsForTeam: async ({ teamId }) => {
+                    try {
+                        const response = await api.create('api/conversations/v1/teams/channels', {
+                            team_id: teamId,
+                        })
+                        return response.channels || []
+                    } catch {
+                        lemonToast.error('Failed to load Teams channels')
+                        return values.teamsChannels
                     }
                 },
             },
@@ -280,6 +338,26 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             (currentTeam): string | null => currentTeam?.conversations_settings?.slack_bot_display_name ?? null,
         ],
         emailConnected: [(s) => [s.emailConfigs], (emailConfigs): boolean => emailConfigs.length > 0],
+        teamsConnected: [
+            (s) => [s.currentTeam],
+            (currentTeam): boolean => !!currentTeam?.conversations_settings?.teams_enabled,
+        ],
+        teamsTeamId: [
+            (s) => [s.currentTeam],
+            (currentTeam): string | null => currentTeam?.conversations_settings?.teams_team_id ?? null,
+        ],
+        teamsTeamName: [
+            (s) => [s.currentTeam],
+            (currentTeam): string | null => currentTeam?.conversations_settings?.teams_team_name ?? null,
+        ],
+        teamsChannelId: [
+            (s) => [s.currentTeam],
+            (currentTeam): string | null => currentTeam?.conversations_settings?.teams_channel_id ?? null,
+        ],
+        teamsChannelName: [
+            (s) => [s.currentTeam],
+            (currentTeam): string | null => currentTeam?.conversations_settings?.teams_channel_name ?? null,
+        ],
     }),
     listeners(({ values, actions }) => ({
         connectSlack: async ({ nextPath }) => {
@@ -531,6 +609,88 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             })
             lemonToast.success('Slack disconnected')
         },
+        connectTeams: async ({ nextPath }) => {
+            try {
+                const query = encodeURIComponent(nextPath)
+                const response = await api.get(`api/conversations/v1/teams/authorize?next=${query}`)
+                window.location.href = response.url
+            } catch {
+                lemonToast.error('Failed to start Microsoft Teams authorization')
+            }
+        },
+        disconnectTeams: async () => {
+            try {
+                await api.create('api/conversations/v1/teams/disconnect', {})
+            } catch {
+                lemonToast.error('Failed to disconnect Microsoft Teams')
+                return
+            }
+
+            actions.loadCurrentTeam()
+            lemonToast.success('Microsoft Teams disconnected')
+        },
+        setTeamsTeam: async ({ teamId }) => {
+            try {
+                await api.create('api/conversations/v1/teams/select-channel', {
+                    teams_team_id: teamId,
+                })
+            } catch {
+                lemonToast.error('Failed to save the selected Teams group')
+                return
+            }
+            actions.loadCurrentTeam()
+            if (teamId) {
+                actions.installTeamsApp(teamId)
+            } else {
+                actions.setTeamsInstallStatus('idle')
+            }
+        },
+        installTeamsApp: async ({ teamId }) => {
+            try {
+                const response = await api.create('api/conversations/v1/teams/install', {
+                    team_id: teamId,
+                })
+                if (response?.ok) {
+                    actions.setTeamsInstallStatus('installed', teamId)
+                    actions.loadTeamsChannelsForTeam(teamId)
+                } else {
+                    actions.setTeamsInstallStatus('error', teamId)
+                    lemonToast.error('Failed to install SupportHog in the selected Teams group')
+                }
+            } catch (err: any) {
+                const detail = err?.data?.error ?? err?.detail ?? ''
+                if (detail === 'app_not_found_in_catalog') {
+                    actions.setTeamsInstallStatus('needs_org_catalog', teamId)
+                    return
+                }
+                if (detail === 'catalog_not_configured') {
+                    actions.setTeamsInstallStatus('error', teamId)
+                    lemonToast.error(
+                        'SupportHog Teams app is not configured on this PostHog instance. Contact your administrator.'
+                    )
+                    return
+                }
+                actions.setTeamsInstallStatus('error', teamId)
+                lemonToast.error('Failed to install SupportHog in the selected Teams group')
+            }
+        },
+        setTeamsChannel: async ({ channelId }) => {
+            const teamsTeamId = values.currentTeam?.conversations_settings?.teams_team_id
+            if (!teamsTeamId) {
+                lemonToast.error('Select a Microsoft Teams group before choosing a channel')
+                return
+            }
+            try {
+                await api.create('api/conversations/v1/teams/select-channel', {
+                    teams_team_id: teamsTeamId,
+                    teams_channel_id: channelId,
+                })
+            } catch {
+                lemonToast.error('Failed to save the selected Teams channel')
+                return
+            }
+            actions.loadCurrentTeam()
+        },
         updateCurrentTeamSuccess: () => {
             actions.setGreetingInputValue(null)
             actions.setIdentificationFormTitleValue(null)
@@ -544,6 +704,17 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
     afterMount(({ values, actions }) => {
         if (values.slackConnected) {
             actions.loadSlackChannelsWithToken()
+        }
+        if (values.teamsConnected) {
+            actions.loadTeamsTeamsWithToken()
+            const teamsTeamId = values.teamsTeamId
+            if (teamsTeamId) {
+                // Already installed on a previous visit — skip the Graph install
+                // call (it's idempotent server-side, but avoids a request per page
+                // load) and jump straight to loading channels.
+                actions.setTeamsInstallStatus('installed', teamsTeamId)
+                actions.loadTeamsChannelsForTeam(teamsTeamId)
+            }
         }
         // Always load email configs to populate the list
         actions.loadEmailConfigs()
