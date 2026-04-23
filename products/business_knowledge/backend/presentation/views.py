@@ -66,12 +66,12 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     text=serializer.validated_data["text"],
                 )
             )
-        except TextTooLargeError as exc:
-            raise exceptions.ValidationError({"text": str(exc)})
-        except QuotaExceededError as exc:
+        except TextTooLargeError:
+            raise exceptions.ValidationError({"text": "Text exceeds the maximum allowed size."})
+        except QuotaExceededError:
             # 402 is reserved for billing; using 429 to surface "slow down"
             # semantics to the UI so it can nudge the user to delete sources.
-            raise exceptions.Throttled(detail=str(exc))
+            raise exceptions.Throttled(detail="Knowledge source quota exceeded for this project.")
         return Response(KnowledgeSourceSerializer(instance=dto).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(responses={200: KnowledgeSourceSerializer})
