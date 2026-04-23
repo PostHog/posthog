@@ -15,6 +15,7 @@ export function CompareEditorFilter(): JSX.Element | null {
                 updateCompareFilter={updateCompareFilter}
                 disabled={!canEditInsight || !supportsCompare}
                 disableReason={editingDisabledReason ?? undefined}
+                fullWidth
             />
         </div>
     )

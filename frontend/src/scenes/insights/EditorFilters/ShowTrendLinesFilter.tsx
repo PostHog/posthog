@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCheckbox } from '@posthog/lemon-ui'
+import { LemonSwitch } from '@posthog/lemon-ui'
 
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -16,7 +16,6 @@ export function ShowTrendLinesFilter(): JSX.Element {
     const { isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
-    // Get the current state based on query type
     const showTrendLines = isRetentionQuery(querySource)
         ? querySource.retentionFilter.showTrendLines
         : isTrendsQuery(querySource)
@@ -25,14 +24,13 @@ export function ShowTrendLinesFilter(): JSX.Element {
             ? querySource.funnelsFilter?.showTrendLines
             : false
 
-    // Determine if trend lines should be disabled based on chart type and scale
     const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
     const isLineGraph = isTrendsQuery(querySource)
         ? (trendsFilter?.display || ChartDisplayType.ActionsLineGraph) === ChartDisplayType.ActionsLineGraph ||
           (trendsFilter?.display || ChartDisplayType.ActionsLineGraph) === ChartDisplayType.ActionsLineGraphCumulative
         : isFunnelsQuery(querySource)
           ? isTrendsFunnel
-          : true // Retention graphs are always line graphs
+          : true
 
     const disabledReason = !isLineGraph
         ? 'Trend lines are only available for line graphs'
@@ -55,13 +53,13 @@ export function ShowTrendLinesFilter(): JSX.Element {
     }
 
     return (
-        <LemonCheckbox
-            className="p-1 px-2"
-            onChange={toggleShowTrendLines}
+        <LemonSwitch
+            className="px-2 py-1"
+            onChange={() => toggleShowTrendLines()}
             checked={!disabledReason && !!showTrendLines}
             disabledReason={disabledReason}
-            label={<span className="font-normal">Show trend lines</span>}
-            size="small"
+            label="Show trend lines"
+            fullWidth
         />
     )
 }

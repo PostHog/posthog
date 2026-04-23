@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCheckbox } from '@posthog/lemon-ui'
+import { LemonSwitch } from '@posthog/lemon-ui'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -11,17 +11,13 @@ export function ShowLegendFilter(): JSX.Element | null {
     const { showLegend } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
-    const toggleShowLegend = (): void => {
-        updateInsightFilter({ showLegend: !showLegend })
-    }
-
     return (
-        <LemonCheckbox
-            className="p-1 px-2"
-            onChange={toggleShowLegend}
+        <LemonSwitch
+            className="px-2 py-1"
+            onChange={(checked) => updateInsightFilter({ showLegend: checked })}
             checked={!!showLegend}
-            label={<span className="font-normal">Show legend</span>}
-            size="small"
+            label="Show legend"
+            fullWidth
         />
     )
 }

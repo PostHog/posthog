@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCheckbox } from '@posthog/lemon-ui'
+import { LemonSwitch } from '@posthog/lemon-ui'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -11,17 +11,13 @@ export function ShowMultipleYAxesFilter(): JSX.Element {
     const { showMultipleYAxes } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
-    const toggleShowMultipleYAxes = (): void => {
-        updateInsightFilter({ showMultipleYAxes: !showMultipleYAxes })
-    }
-
     return (
-        <LemonCheckbox
-            className="p-1 px-2"
-            onChange={toggleShowMultipleYAxes}
+        <LemonSwitch
+            className="px-2 py-1"
+            onChange={(checked) => updateInsightFilter({ showMultipleYAxes: checked })}
             checked={!!showMultipleYAxes}
-            label={<span className="font-normal">Show multiple Y-axes</span>}
-            size="small"
+            label="Show multiple Y-axes"
+            fullWidth
         />
     )
 }

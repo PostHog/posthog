@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
+import { LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -14,17 +14,16 @@ export function BoxPlotOutliersFilter(): JSX.Element | null {
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
     return (
-        <LemonCheckbox
+        <LemonSwitch
             label={
-                <span className="font-normal">
+                <span>
                     Exclude outliers{' '}
                     <Tooltip title="When enabled, whiskers are clipped to 1.5x the interquartile range, making it easier to see differences between the quartiles. When disabled, the y-axis extends to show the full range including extreme values.">
                         <IconInfo className="relative top-0.5 text-lg text-secondary" />
                     </Tooltip>
                 </span>
             }
-            className="p-1 px-2"
-            size="small"
+            className="px-2 py-1"
             checked={trendsFilter?.excludeBoxPlotOutliers !== false}
             onChange={(checked) => {
                 if (isTrendsQuery(querySource)) {
@@ -34,6 +33,7 @@ export function BoxPlotOutliersFilter(): JSX.Element | null {
                     })
                 }
             }}
+            fullWidth
         />
     )
 }

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCheckbox } from '@posthog/lemon-ui'
+import { LemonSwitch } from '@posthog/lemon-ui'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -11,17 +11,13 @@ export function HideWeekendsFilter(): JSX.Element | null {
     const { trendsFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
-    const toggleHideWeekends = (): void => {
-        updateInsightFilter({ hideWeekends: !trendsFilter?.hideWeekends })
-    }
-
     return (
-        <LemonCheckbox
-            className="p-1 px-2"
-            onChange={toggleHideWeekends}
+        <LemonSwitch
+            className="px-2 py-1"
+            onChange={(checked) => updateInsightFilter({ hideWeekends: checked })}
             checked={!!trendsFilter?.hideWeekends}
-            label={<span className="font-normal">Hide weekend data</span>}
-            size="small"
+            label="Hide weekend data"
+            fullWidth
         />
     )
 }

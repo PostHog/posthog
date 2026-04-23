@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCheckbox } from '@posthog/lemon-ui'
+import { LemonSwitch } from '@posthog/lemon-ui'
 
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -16,12 +16,12 @@ export function ShowAlertAnomalyPointsFilter(): JSX.Element | null {
     }
 
     return (
-        <LemonCheckbox
-            className="p-1 px-2"
-            onChange={() => setShowAlertAnomalyPoints(!showAlertAnomalyPointsFlag)}
+        <LemonSwitch
+            className="px-2 py-1"
+            onChange={(checked) => setShowAlertAnomalyPoints(checked)}
             checked={showAlertAnomalyPointsFlag}
-            label={<span className="font-normal">Show alert anomaly points</span>}
-            size="small"
+            label="Show alert anomaly points"
+            fullWidth
         />
     )
 }
