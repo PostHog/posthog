@@ -309,7 +309,7 @@ export class CdpEventsConsumer<
                         const logEntry: LogEntry = {
                             timestamp: DateTime.now(),
                             level: 'warn',
-                            message: `Workflow invocation dropped due to rate limiting (tokens remaining: ${rateLimit.tokens})`,
+                            message: 'Workflow invocation dropped due to rate limiting',
                             team_id: item.teamId,
                             log_source: 'hog_flow',
                             log_source_id: item.functionId,
