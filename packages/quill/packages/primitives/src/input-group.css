@@ -221,35 +221,45 @@
     }
 
     /* =========================================================================
-       InputGroupInput / Textarea / NumberInput — strip default input chrome
+       InputGroupInput / Textarea / NumberInput — strip default input chrome.
+       Compound selectors raise specificity above `.quill-input` / `.quill-textarea`
+       so overrides win regardless of stylesheet chunk load order.
        ========================================================================= */
-    .quill-input-group__control {
+    .quill-input.quill-input-group__control,
+    .quill-textarea.quill-input-group__control {
         flex: 1 1 auto;
+        height: auto;
         background-color: transparent;
         border: 0;
         border-radius: 0;
         box-shadow: none;
     }
 
-    .quill-input-group__control,
-    .quill-input-group__control[aria-invalid='true'] {
+    .quill-input.quill-input-group__control:focus-visible,
+    .quill-textarea.quill-input-group__control:focus-visible,
+    .quill-input.quill-input-group__control[aria-invalid='true'],
+    .quill-textarea.quill-input-group__control[aria-invalid='true'],
+    .quill-input.quill-input-group__control:focus-visible[aria-invalid='true'],
+    .quill-textarea.quill-input-group__control:focus-visible[aria-invalid='true'] {
+        border: 0;
         box-shadow: none;
     }
 
-    .quill-input-group__control:focus-visible {
-        box-shadow: none;
-    }
-
-    :is(.dark, [theme='dark']) .quill-input-group__control {
+    .quill-input.quill-input-group__control[aria-invalid='true'] {
         background-color: transparent;
     }
 
-    .quill-input-group__control--textarea {
+    :is(.dark, [theme='dark']) .quill-input.quill-input-group__control,
+    :is(.dark, [theme='dark']) .quill-textarea.quill-input-group__control {
+        background-color: transparent;
+    }
+
+    .quill-textarea.quill-input-group__control--textarea {
         padding-block: 0.5rem;
         resize: none;
     }
 
-    .quill-input-group__control--textarea[aria-invalid='true'] {
+    .quill-textarea.quill-input-group__control--textarea[aria-invalid='true'] {
         background-color: transparent;
     }
 }
