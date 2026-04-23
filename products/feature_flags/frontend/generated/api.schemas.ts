@@ -1018,6 +1018,8 @@ export interface ScheduledChangeApi {
      * @nullable
      */
     end_date?: string | null
+    /** @nullable */
+    readonly timezone: string | null
 }
 
 export interface PaginatedScheduledChangeListApi {
@@ -1076,6 +1078,8 @@ export interface PatchedScheduledChangeApi {
      * @nullable
      */
     end_date?: string | null
+    /** @nullable */
+    readonly timezone?: string | null
 }
 
 export type FeatureFlagsListParams = {

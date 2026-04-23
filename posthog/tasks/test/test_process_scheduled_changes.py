@@ -1538,3 +1538,189 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         scheduled_change.refresh_from_db()
         # Next cron match (Jan 17) is past end_date's day, so schedule is completed
         self.assertIsNotNone(scheduled_change.executed_at)
+
+    @freeze_time("2024-01-15T14:00:00Z")
+    def test_cron_recurring_schedule_honors_project_timezone_west_of_utc(self) -> None:
+        # New York is UTC-5 in January. "0 9 * * 1-5" authored in America/New_York means
+        # "9am New York", which is 14:00 UTC. Without the timezone column the next run
+        # would advance to 09:00 UTC on Tuesday — an hour-of-day drift of 5.
+        feature_flag = FeatureFlag.objects.create(
+            name="NY Flag",
+            key="ny-flag",
+            active=False,
+            filters={"groups": []},
+            team=self.team,
+            created_by=self.user,
+        )
+
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": True},
+            scheduled_at=datetime(2024, 1, 15, 14, 0, tzinfo=UTC),
+            is_recurring=True,
+            cron_expression="0 9 * * 1-5",
+            timezone="America/New_York",
+        )
+
+        process_scheduled_changes()
+
+        scheduled_change.refresh_from_db()
+        # Next weekday 9am New York is Tuesday 2024-01-16 09:00 ET = 14:00 UTC
+        self.assertEqual(scheduled_change.scheduled_at, datetime(2024, 1, 16, 14, 0, tzinfo=UTC))
+
+    @freeze_time("2024-01-15T00:00:00Z")
+    def test_cron_recurring_schedule_honors_project_timezone_east_of_utc(self) -> None:
+        # Tokyo is UTC+9. "0 9 * * 1-5" in Asia/Tokyo means 9am JST = 00:00 UTC.
+        feature_flag = FeatureFlag.objects.create(
+            name="Tokyo Flag",
+            key="tokyo-flag",
+            active=False,
+            filters={"groups": []},
+            team=self.team,
+            created_by=self.user,
+        )
+
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": True},
+            scheduled_at=datetime(2024, 1, 15, 0, 0, tzinfo=UTC),
+            is_recurring=True,
+            cron_expression="0 9 * * 1-5",
+            timezone="Asia/Tokyo",
+        )
+
+        process_scheduled_changes()
+
+        scheduled_change.refresh_from_db()
+        # Next weekday 9am Tokyo is Tuesday 2024-01-16 09:00 JST = 2024-01-16 00:00 UTC
+        self.assertEqual(scheduled_change.scheduled_at, datetime(2024, 1, 16, 0, 0, tzinfo=UTC))
+
+    @freeze_time("2024-01-15T09:00:00Z")
+    def test_cron_recurring_schedule_explicit_utc_timezone(self) -> None:
+        # Timezone="UTC" is the identity case: matches pre-existing NULL semantics.
+        feature_flag = FeatureFlag.objects.create(
+            name="UTC Flag",
+            key="utc-flag",
+            active=False,
+            filters={"groups": []},
+            team=self.team,
+            created_by=self.user,
+        )
+
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": True},
+            scheduled_at=datetime(2024, 1, 15, 9, 0, tzinfo=UTC),
+            is_recurring=True,
+            cron_expression="0 9 * * 1-5",
+            timezone="UTC",
+        )
+
+        process_scheduled_changes()
+
+        scheduled_change.refresh_from_db()
+        self.assertEqual(scheduled_change.scheduled_at, datetime(2024, 1, 16, 9, 0, tzinfo=UTC))
+
+    @freeze_time("2024-01-15T09:00:00Z")
+    def test_cron_recurring_schedule_legacy_null_timezone_preserves_utc_semantics(self) -> None:
+        # Rows created before the timezone column existed have timezone=NULL and must keep
+        # firing at the same wall-clock moment they always did — i.e. UTC interpretation.
+        feature_flag = FeatureFlag.objects.create(
+            name="Legacy Flag",
+            key="legacy-flag",
+            active=False,
+            filters={"groups": []},
+            team=self.team,
+            created_by=self.user,
+        )
+
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": True},
+            scheduled_at=datetime(2024, 1, 15, 9, 0, tzinfo=UTC),
+            is_recurring=True,
+            cron_expression="0 9 * * 1-5",
+            timezone=None,
+        )
+
+        process_scheduled_changes()
+
+        scheduled_change.refresh_from_db()
+        self.assertIsNone(scheduled_change.timezone)
+        self.assertEqual(scheduled_change.scheduled_at, datetime(2024, 1, 16, 9, 0, tzinfo=UTC))
+
+    @freeze_time("2024-03-10T14:00:00Z")
+    def test_cron_recurring_schedule_handles_spring_forward_dst_transition(self) -> None:
+        # 2024-03-10 is the US spring-forward day. New York jumps from 02:00 EST to 03:00 EDT,
+        # shifting the UTC offset from -5 to -4. Starting from 9am EST on Mar 9 (pre-transition)
+        # and processing after the transition, the catch-up loop must settle on 9am EDT on
+        # Mar 11 (= 13:00 UTC), not the UTC-anchored 14:00Z it was stored at.
+        feature_flag = FeatureFlag.objects.create(
+            name="DST Spring Flag",
+            key="dst-spring-flag",
+            active=False,
+            filters={"groups": []},
+            team=self.team,
+            created_by=self.user,
+        )
+
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": True},
+            # 2024-03-09 at 09:00 New York (EST) = 14:00 UTC
+            scheduled_at=datetime(2024, 3, 9, 14, 0, tzinfo=UTC),
+            is_recurring=True,
+            cron_expression="0 9 * * *",
+            timezone="America/New_York",
+        )
+
+        process_scheduled_changes()
+
+        scheduled_change.refresh_from_db()
+        # Catch-up advances past the transition and lands on 2024-03-11 at 09:00 New York
+        # (now EDT) = 13:00 UTC — not 14:00 UTC.
+        self.assertEqual(scheduled_change.scheduled_at, datetime(2024, 3, 11, 13, 0, tzinfo=UTC))
+
+    @freeze_time("2024-11-04T13:30:00Z")
+    def test_cron_recurring_schedule_handles_fall_back_dst_transition(self) -> None:
+        # 2024-11-03 is the US fall-back day; New York drops from EDT (-4) to EST (-5).
+        # Starting from the pre-transition run (Nov 2 at 9am EDT = 13:00 UTC), the catch-up
+        # loop advances past Nov 3 and lands on Nov 4 at 9am EST = 14:00 UTC. This confirms
+        # the recurring schedule resumes firing at 9am local time after the transition
+        # rather than drifting by the offset delta.
+        feature_flag = FeatureFlag.objects.create(
+            name="DST Fall Flag",
+            key="dst-fall-flag",
+            active=False,
+            filters={"groups": []},
+            team=self.team,
+            created_by=self.user,
+        )
+
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": True},
+            # 2024-11-02 at 09:00 New York (EDT) = 13:00 UTC
+            scheduled_at=datetime(2024, 11, 2, 13, 0, tzinfo=UTC),
+            is_recurring=True,
+            cron_expression="0 9 * * *",
+            timezone="America/New_York",
+        )
+
+        process_scheduled_changes()
+
+        scheduled_change.refresh_from_db()
+        # Catch-up lands on 2024-11-04 at 09:00 New York (EST post fall-back) = 14:00 UTC
+        self.assertEqual(scheduled_change.scheduled_at, datetime(2024, 11, 4, 14, 0, tzinfo=UTC))
