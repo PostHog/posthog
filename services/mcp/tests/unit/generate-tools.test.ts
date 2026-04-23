@@ -4,12 +4,14 @@ import {
     buildResponseFilter,
     composeToolSchema,
     extractPathParams,
+    generateDefinitionsJson,
+    generateQueryWrapperDefinitionsJson,
     generateQueryWrapperFile,
     generateToolCode,
 } from '../../scripts/generate-tools'
 import type { OpenApiSpec, ResolvedOperation } from '../../scripts/generate-tools'
 import { QueryWrapperToolConfigSchema, ToolConfigSchema } from '../../scripts/yaml-config-schema'
-import type { ToolConfig } from '../../scripts/yaml-config-schema'
+import type { EnabledQueryWrapperToolConfig, EnabledToolConfig, ToolConfig } from '../../scripts/yaml-config-schema'
 
 function makeSpec(overrides: Partial<OpenApiSpec> = {}): OpenApiSpec {
     return {
@@ -530,6 +532,83 @@ describe('QueryWrapperToolConfigSchema validation', () => {
             use_optimized_output: 'optimized',
         })
         expect(result.success).toBe(false)
+    })
+
+    it('accepts system_prompt_hint on query wrappers', () => {
+        const result = QueryWrapperToolConfigSchema.safeParse({
+            schema_ref: 'AssistantTrendsQuery',
+            enabled: true,
+            scopes: ['query:read'],
+            annotations: { readOnly: true, destructive: false, idempotent: true },
+            system_prompt_hint: 'Time series, aggregations, formulas',
+        })
+        expect(result.success).toBe(true)
+    })
+
+    it('accepts system_prompt_hint on standard tools', () => {
+        const result = ToolConfigSchema.safeParse({
+            operation: 'logs_query_create',
+            enabled: true,
+            system_prompt_hint: 'Log filtering by severity/service/attribute',
+        })
+        expect(result.success).toBe(true)
+    })
+})
+
+describe('system_prompt_hint flows into tool definitions', () => {
+    it('propagates system_prompt_hint from wrapper YAML into the generated definition', () => {
+        const wrapperConfig: EnabledQueryWrapperToolConfig = {
+            schema_ref: 'AssistantTrendsQuery',
+            enabled: true,
+            scopes: ['query:read'],
+            annotations: { readOnly: true, destructive: false, idempotent: true },
+            system_prompt_hint: 'Time series, aggregations, formulas',
+        }
+        const definitions = generateQueryWrapperDefinitionsJson(
+            { category: 'Query wrappers', feature: 'insights', wrappers: {} },
+            [['query-trends', wrapperConfig]],
+            '/tmp'
+        ) as Record<string, { system_prompt_hint?: string }>
+        expect(definitions['query-trends']?.system_prompt_hint).toBe('Time series, aggregations, formulas')
+    })
+
+    it('omits system_prompt_hint from the wrapper definition when not set', () => {
+        const wrapperConfig: EnabledQueryWrapperToolConfig = {
+            schema_ref: 'AssistantTrendsQuery',
+            enabled: true,
+            scopes: ['query:read'],
+            annotations: { readOnly: true, destructive: false, idempotent: true },
+        }
+        const definitions = generateQueryWrapperDefinitionsJson(
+            { category: 'Query wrappers', feature: 'insights', wrappers: {} },
+            [['query-trends', wrapperConfig]],
+            '/tmp'
+        )
+        expect((definitions['query-trends'] as Record<string, unknown>).system_prompt_hint).toBeUndefined()
+    })
+
+    it('propagates system_prompt_hint from standard tool YAML into the generated definition', () => {
+        const toolConfig: EnabledToolConfig = {
+            operation: 'logs_query_create',
+            enabled: true,
+            scopes: ['logs:read'],
+            annotations: { readOnly: true, destructive: false, idempotent: true },
+            system_prompt_hint: 'Log filtering by severity/service/attribute',
+        }
+        const resolved: ResolvedOperation = {
+            method: 'POST',
+            path: '/api/projects/{project_id}/logs/query/',
+            operation: { operationId: 'logs_query_create', description: 'Query logs' },
+        }
+        const definitions = generateDefinitionsJson([
+            {
+                config: { category: 'Logs', feature: 'logs', url_prefix: '/logs', tools: {} },
+                enabledTools: [['query-logs', toolConfig, resolved]],
+                enabledWrappers: [],
+                yamlDir: '/tmp',
+            },
+        ]) as Record<string, { system_prompt_hint?: string }>
+        expect(definitions['query-logs']?.system_prompt_hint).toBe('Log filtering by severity/service/attribute')
     })
 })
 

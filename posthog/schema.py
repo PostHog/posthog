@@ -6739,6 +6739,14 @@ class ExperimentParameters(BaseModel):
             " but catch smaller changes. Suggest 20–30% for most experiments."
         ),
     )
+    rollout_percentage: float | None = Field(
+        default=None,
+        description=(
+            "Overall rollout percentage (0-100). Controls what fraction of all users"
+            " enter the experiment. Users outside the rollout never see any variant and"
+            " are excluded from analysis. Default: 100."
+        ),
+    )
 
 
 class ExperimentStatsBase(BaseModel):

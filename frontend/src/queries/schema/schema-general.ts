@@ -3365,6 +3365,8 @@ export interface ExperimentParameters {
     feature_flag_variants?: ExperimentVariant[]
     /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments. */
     minimum_detectable_effect?: number
+    /** Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100. */
+    rollout_percentage?: number
 }
 
 /** Slim exposure config for experiment API payloads. */
