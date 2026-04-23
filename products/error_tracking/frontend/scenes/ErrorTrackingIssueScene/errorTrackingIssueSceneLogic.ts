@@ -33,6 +33,7 @@ import { issueActionsLogic } from '../../components/IssueActions/issueActionsLog
 import {
     DEFAULT_DATE_RANGE,
     issueFiltersLogic,
+    parseDateRangeParam,
     triggerFilterActions,
     updateFilterSearchParams,
 } from '../../components/IssueFilters/issueFiltersLogic'
@@ -480,7 +481,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         return {
             '**/error_tracking/:id': (_, params) => {
                 if (values.listDateRange == null) {
-                    actions.setListDateRange(params.dateRange ?? DEFAULT_DATE_RANGE)
+                    actions.setListDateRange(parseDateRangeParam(params))
                 }
                 triggerFilterActions(params, values, actions)
                 const tab = params.tab as ErrorTrackingIssueSceneCategory | undefined

@@ -171,6 +171,13 @@ export function renderColumn(
             if (value.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3,6})?(?:Z|[+-]\d{2}:\d{2})?$/)) {
                 return <TZLabel time={value} showSeconds />
             }
+            if (isURL(value)) {
+                return (
+                    <Link to={value} target="_blank">
+                        {value}
+                    </Link>
+                )
+            }
         }
         if (typeof value === 'object') {
             if (Array.isArray(value)) {

@@ -149,8 +149,37 @@ export function updateFilterSearchParams(params: Params, values: IssueFilterValu
     return params
 }
 
+// Accept three URL shapes so hand-crafted and AI-generated deep links work:
+//   ?dateRange=%7B%22date_from%22%3A%22-30d%22%7D  (JSON-encoded object, our default)
+//   ?dateRange=-30d                                  (shorthand, treated as date_from)
+//   ?date_from=-30d&date_to=...                      (flat params)
+export function parseDateRangeParam(params: Params): DateRange {
+    const raw = params.dateRange
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        return raw as DateRange
+    }
+    if (typeof raw === 'string' && raw.length > 0) {
+        try {
+            const parsed = JSON.parse(raw)
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                return parsed as DateRange
+            }
+        } catch {
+            // fall through — treat as a shorthand date_from value
+        }
+        return { date_from: raw, date_to: null }
+    }
+    if (params.date_from != null || params.date_to != null) {
+        return {
+            date_from: params.date_from ?? null,
+            date_to: params.date_to ?? null,
+        }
+    }
+    return DEFAULT_DATE_RANGE
+}
+
 export const triggerFilterActions = (params: Params, values: any, actions: IssueFilterActions): void => {
-    const dateRange = params.dateRange ?? DEFAULT_DATE_RANGE
+    const dateRange = parseDateRangeParam(params)
     if (!equal(dateRange, values.dateRange)) {
         actions.setDateRange(dateRange)
     }
