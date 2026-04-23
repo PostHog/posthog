@@ -3,11 +3,11 @@ from __future__ import annotations
 import dataclasses
 from typing import Any
 
+import pytest
 from unittest.mock import MagicMock
 
 from posthog.schema import SourceConfig
 
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.sources.common.sql.base import DiscoveryResult, SQLSource
 from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
@@ -38,7 +38,6 @@ class _FakeSQLSource(SQLSource[_FakeConfig]):
 
     def __init__(self, *, discovery: DiscoveryResult | None = None) -> None:
         self._discovery = discovery or DiscoveryResult(columns_by_table={})
-        self._pipeline_calls: list[tuple[_FakeConfig, SourceInputs]] = []
         self._last_discover_args: tuple[list[str] | None, bool] | None = None
 
     @property
@@ -58,27 +57,6 @@ class _FakeSQLSource(SQLSource[_FakeConfig]):
 
     def _filter_incremental_fields(self) -> IncrementalFieldFilter:
         return _fake_filter
-
-    def _run_pipeline_source(self, config: _FakeConfig, inputs: SourceInputs) -> SourceResponse:
-        self._pipeline_calls.append((config, inputs))
-        return SourceResponse(name=inputs.schema_name, items=lambda: iter([]), primary_keys=None)
-
-
-def _inputs(schema_name: str = "messages") -> SourceInputs:
-    return SourceInputs(
-        schema_name=schema_name,
-        schema_id="schema-id",
-        source_id="source-id",
-        team_id=1,
-        should_use_incremental_field=False,
-        db_incremental_field_last_value=None,
-        db_incremental_field_earliest_value=None,
-        incremental_field=None,
-        incremental_field_type=None,
-        job_id="job-id",
-        logger=MagicMock(),
-        reset_pipeline=False,
-    )
 
 
 class TestGetSchemas:
@@ -156,12 +134,11 @@ class TestGetSchemas:
         [schema] = source.get_schemas(_FakeConfig(), team_id=1)
         assert schema.foreign_keys == [("author_id", "users", "id")]
 
-    def test_with_counts_flag_forwarded_to_discover(self) -> None:
+    @pytest.mark.parametrize("with_counts", [True, False])
+    def test_with_counts_flag_forwarded_to_discover(self, with_counts: bool) -> None:
         source = _FakeSQLSource(discovery=DiscoveryResult(columns_by_table={"tbl": [("id", "int", False)]}))
-        source.get_schemas(_FakeConfig(), team_id=1, with_counts=True)
-        assert source._last_discover_args == (None, True)
-        source.get_schemas(_FakeConfig(), team_id=1, with_counts=False)
-        assert source._last_discover_args == (None, False)
+        source.get_schemas(_FakeConfig(), team_id=1, with_counts=with_counts)
+        assert source._last_discover_args == (None, with_counts)
 
     def test_names_filter_forwarded_to_discover(self) -> None:
         source = _FakeSQLSource(
@@ -195,11 +172,3 @@ class TestGetSchemas:
         assert schema.source_schema == "public"
         assert schema.source_table_name == "original_t"
         assert schema.supports_cdc is True
-
-
-class TestSourceForPipeline:
-    def test_delegates_to_run_pipeline_source(self) -> None:
-        source = _FakeSQLSource(discovery=DiscoveryResult(columns_by_table={"messages": [("id", "int", False)]}))
-        response = source.source_for_pipeline(_FakeConfig(), _inputs("messages"))
-        assert response.name == "messages"
-        assert len(source._pipeline_calls) == 1

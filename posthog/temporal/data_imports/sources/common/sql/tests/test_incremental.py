@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import datetime
 
+import pytest
+
 from posthog.temporal.data_imports.sources.common.sql.incremental import (
     build_incremental_fields,
     initial_value_for_incremental_type,
@@ -43,11 +45,15 @@ def test_build_incremental_fields_empty_input() -> None:
     assert build_incremental_fields([]) == []
 
 
-def test_initial_value_for_integer_is_zero() -> None:
-    assert initial_value_for_incremental_type(IncrementalFieldType.Integer) == 0
-
-
-def test_initial_value_for_datetime_is_epoch() -> None:
-    value = initial_value_for_incremental_type(IncrementalFieldType.DateTime)
-    assert isinstance(value, datetime.datetime)
-    assert value.year == 1970
+@pytest.mark.parametrize(
+    "field_type,expected",
+    [
+        (IncrementalFieldType.Integer, 0),
+        (IncrementalFieldType.Numeric, 0),
+        (IncrementalFieldType.DateTime, datetime.datetime(1970, 1, 1, tzinfo=datetime.UTC)),
+        (IncrementalFieldType.Timestamp, datetime.datetime(1970, 1, 1, tzinfo=datetime.UTC)),
+        (IncrementalFieldType.Date, datetime.date(1970, 1, 1)),
+    ],
+)
+def test_initial_value_for_incremental_type(field_type: IncrementalFieldType, expected: object) -> None:
+    assert initial_value_for_incremental_type(field_type) == expected

@@ -2,19 +2,21 @@
 
 Every current SQL source (`PostgresSource`, `MySQLSource`, `MSSQLSource`,
 `SnowflakeSource`, `BigQuerySource`, `RedshiftSource`, `ClickHouseSource`)
-re-implements the same two methods on top of `SimpleSource`:
+re-implements the same `get_schemas` on top of `SimpleSource`: open a
+tunnel, query `information_schema`, detect incremental fields, detect
+primary keys, assemble a list of `SourceSchema`.
 
-- `get_schemas` — open a tunnel, query `information_schema`, detect
-  incremental fields, detect primary keys, assemble a list of `SourceSchema`.
-- `source_for_pipeline` — open a tunnel, delegate to the driver's
-  `<name>_source()` factory, return a `SourceResponse`.
+This base class owns that orchestration as a template method and delegates
+the driver-specific work to `_discover` — an **atomic** hook that opens
+the SSH tunnel / connection once and returns everything needed to build
+`SourceSchema` rows. This preserves today's single-tunnel-per-listing
+behavior in `MySQLSource.get_schemas` and `PostgresSource.get_schemas`.
 
-This base class owns the orchestration and delegates driver-specific work
-to two hooks (`_discover`, `_run_pipeline_source`). The discovery hook is
-**atomic** — subclasses open their SSH tunnel / connection once and return
-everything needed to build `SourceSchema` rows. This preserves today's
-single-tunnel-per-listing behavior in `MySQLSource.get_schemas` and
-`PostgresSource.get_schemas`.
+Subclasses override `source_for_pipeline` directly (same contract as
+`SimpleSource`); the base class intentionally does not wrap that — the
+driver-specific pipeline factories (`mysql_source`, `postgres_source`,
+etc.) are diverse enough that adding a template there would be churn
+without benefit.
 
 **No behavior change today.** This class is additive — existing sources
 that still inherit from `SimpleSource` directly continue to work unchanged.
@@ -28,7 +30,6 @@ import dataclasses
 from abc import abstractmethod
 from typing import Generic
 
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import ConfigType, SimpleSource
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.sql.incremental import (
@@ -62,11 +63,12 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
     Subclasses implement two hooks:
 
     - `_discover(config, names, with_counts)` — atomic schema discovery.
-    - `_run_pipeline_source(config, inputs)` — build the pipeline's
-      `SourceResponse`.
+    - `_filter_incremental_fields()` — return the driver's incremental
+      filter.
 
-    …plus one zero-arg method (`_filter_incremental_fields`) that returns
-    the driver's incremental-field filter.
+    …and override `source_for_pipeline` directly (unchanged from
+    `SimpleSource`; kept out of this base so the driver-specific pipeline
+    factories can stay as-is).
     """
 
     source_display_name: str = "this database"
@@ -98,19 +100,6 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
         Called once per `get_schemas` invocation. Keeping this as a hook
         (rather than a classmethod) lets subclasses parameterize the filter
         on config if they ever need to.
-        """
-
-    @abstractmethod
-    def _run_pipeline_source(
-        self,
-        config: ConfigType,
-        inputs: SourceInputs,
-    ) -> SourceResponse:
-        """Build and return the `SourceResponse` for a live pipeline run.
-
-        Exists as a separate method so `source_for_pipeline` can be a
-        thin template. Subclasses typically delegate to their existing
-        `<name>_source()` factory here.
         """
 
     # ------------------------------------------------------------------
@@ -168,6 +157,3 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
                 )
             )
         return schemas
-
-    def source_for_pipeline(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
-        return self._run_pipeline_source(config, inputs)

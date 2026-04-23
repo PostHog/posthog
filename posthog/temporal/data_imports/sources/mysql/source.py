@@ -163,7 +163,7 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
     def _filter_incremental_fields(self) -> IncrementalFieldFilter:
         return filter_mysql_incremental_fields
 
-    def _run_pipeline_source(self, config: MySQLSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def source_for_pipeline(self, config: MySQLSourceConfig, inputs: SourceInputs) -> SourceResponse:
         ssh_tunnel = self.make_ssh_tunnel_func(config)
 
         return mysql_source(

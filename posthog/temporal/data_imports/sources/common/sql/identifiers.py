@@ -6,9 +6,14 @@ an `IdentifierQuoter` implementation so the allowlist check is uniform and
 cannot be bypassed by subclasses. The allowlist is strict (alphanumeric,
 `_`, `-`, `.`, `$`, `@`) — anything else raises `InvalidIdentifierError`.
 
-The check matches today's `mysql._sanitize_identifier` (the only driver that
-already validated identifiers) and is applied to every driver so MSSQL,
-Snowflake, BigQuery, Redshift, and ClickHouse inherit the same guarantees.
+The allowlist is derived from today's `mysql._sanitize_identifier` (the
+only driver that already validated identifiers) but is intentionally a
+superset: the old MySQL helper rejected identifiers that started with a
+digit followed by letters (e.g. `"23abc"`), whereas this allowlist accepts
+any mix of `_ALLOWED_CHARACTERS`. Quoted MySQL identifiers legitimately
+allow digit prefixes, and every other SQL dialect we target treats quoted
+identifiers as opaque strings — so the widening is a correctness
+improvement rather than a behavior regression.
 """
 
 from __future__ import annotations
@@ -62,6 +67,7 @@ class IdentifierQuoter(Protocol):
 
     def quote_qualified(self, *parts: str) -> str:
         """Quote each part and join with '.' for a fully-qualified reference."""
+        ...
 
 
 class _BaseQuoter:
