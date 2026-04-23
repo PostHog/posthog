@@ -1479,6 +1479,50 @@ export const LlmSkillsNameDuplicateCreateBody = /* @__PURE__ */ zod.object({
         .describe('Name for the duplicated skill. Must be unique.'),
 })
 
+export const llmSkillsNameFilesCreateBodyPathMax = 500
+
+export const llmSkillsNameFilesCreateBodyContentTypeDefault = `text/plain`
+export const llmSkillsNameFilesCreateBodyContentTypeMax = 100
+
+export const LlmSkillsNameFilesCreateBody = /* @__PURE__ */ zod.object({
+    path: zod
+        .string()
+        .max(llmSkillsNameFilesCreateBodyPathMax)
+        .describe("File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'."),
+    content: zod.string().describe('Text content of the file.'),
+    content_type: zod
+        .string()
+        .max(llmSkillsNameFilesCreateBodyContentTypeMax)
+        .default(llmSkillsNameFilesCreateBodyContentTypeDefault)
+        .describe('MIME type of the file content.'),
+    base_version: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe(
+            'Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.'
+        ),
+})
+
+export const llmSkillsNameFilesRenameCreateBodyOldPathMax = 500
+
+export const llmSkillsNameFilesRenameCreateBodyNewPathMax = 500
+
+export const LlmSkillsNameFilesRenameCreateBody = /* @__PURE__ */ zod.object({
+    old_path: zod.string().max(llmSkillsNameFilesRenameCreateBodyOldPathMax).describe('Current file path to rename.'),
+    new_path: zod
+        .string()
+        .max(llmSkillsNameFilesRenameCreateBodyNewPathMax)
+        .describe('New file path. Must not already exist in the skill.'),
+    base_version: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe(
+            'Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.'
+        ),
+})
+
 export const datasetItemsCreateBodyRefTraceIdMax = 255
 
 export const datasetItemsCreateBodyRefSourceIdMax = 255
