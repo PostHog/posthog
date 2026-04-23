@@ -44,7 +44,7 @@ class ExecuteRequestSerializer(serializers.Serializer):
 
 
 _ACTION_SCOPES: dict[str, list[str]] = {
-    "execute_test": ["clickhouse_perf:test_read"],
+    "execute_test": ["clickhouse_test_cluster_perf:test_read"],
 }
 
 _QUERY_SETTINGS: dict[str, object] = {
@@ -60,7 +60,7 @@ class QueryPerformanceProxyViewSet(viewsets.ViewSet):
     scope_object = "INTERNAL"
 
     # Not project-nested: no URL team to validate scoped_teams against. Access
-    # is gated by clickhouse_perf:test_read + DEBUG + the CH user's profile.
+    # is gated by clickhouse_test_cluster_perf:test_read + DEBUG + the CH user's profile.
     skip_scoped_team_enforcement = True
 
     def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:

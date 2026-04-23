@@ -161,7 +161,7 @@ class PosthogProxyTransport(Transport):
         {
           "type": "posthog_proxy",
           "url": "https://posthog.example.com",   # base URL of the PostHog app
-          "token": "<oauth access token>"         # must have clickhouse_perf:test_read scope
+          "token": "<oauth access token>"         # must have clickhouse_test_cluster_perf:test_read scope
         }
 
     The proxy enforces ``readonly = 2`` server-side, so this transport stays

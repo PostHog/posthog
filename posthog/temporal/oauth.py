@@ -60,15 +60,6 @@ INTERNAL_SCOPES: list[str] = [
 
 TOKEN_EXPIRATION_SECONDS = 60 * 60 * 6  # 6 hours
 
-# Scope for the query-performance autoresearch proxy endpoint. Authorizes
-# SELECT-only traffic through /api/query_performance_proxy/execute-test. The
-# cluster behind the endpoint must be team-scoped at the ClickHouse layer
-# (row policies or a test cluster that only contains data the caller is
-# authorized to see).
-CLICKHOUSE_PERF_SCOPES: list[str] = [
-    "clickhouse_perf:test_read",
-]
-
 PosthogMcpScopes = McpScopePreset | list[str]
 
 MCP_SCOPE_PRESETS = ("read_only", "full")

@@ -422,7 +422,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--posthog-token",
         default=os.environ.get("POSTHOG_OAUTH_TOKEN", ""),
-        help="Scoped OAuth access token with clickhouse_perf:test_read (env: POSTHOG_OAUTH_TOKEN)",
+        help="Scoped OAuth access token with clickhouse_test_cluster_perf:test_read (env: POSTHOG_OAUTH_TOKEN)",
     )
     parser.add_argument(
         "--workspace",

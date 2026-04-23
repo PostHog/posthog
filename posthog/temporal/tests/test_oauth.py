@@ -31,9 +31,9 @@ class TestResolveScopes(SimpleTestCase):
 
     def test_include_internal_scopes_false_drops_internal_scopes(self) -> None:
         # Narrow-scope tokens (e.g. the autoresearch proxy's
-        # `clickhouse_perf:test_read`) need to opt out of the internal
+        # `clickhouse_test_cluster_perf:test_read`) need to opt out of the internal
         # union so they don't silently carry task:write etc.
-        custom = ["clickhouse_perf:test_read"]
+        custom = ["clickhouse_test_cluster_perf:test_read"]
         result = resolve_scopes(custom, include_internal_scopes=False)
         assert result == custom
         for scope in INTERNAL_SCOPES:

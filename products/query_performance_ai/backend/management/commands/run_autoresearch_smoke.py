@@ -114,7 +114,7 @@ class Command(BaseCommand):
 
         sql = _load_sql_from_file(options["sql_file"])
 
-        scope = "clickhouse_perf:test_read"
+        scope = "clickhouse_test_cluster_perf:test_read"
         self.stdout.write(f"Minting OAuth token for user={user.id} team={team.id} scope={scope}")
         # The sandbox uses this token for the proxy and for pi's Anthropic
         # calls against the LLM gateway — those two scopes are all it needs.
