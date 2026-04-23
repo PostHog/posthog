@@ -1,6 +1,6 @@
 ---
 name: suggesting-data-imports
-description: 'Identify when data the user needs is not in PostHog and suggest setting up a data warehouse import. Use when a query returns no results for an expected table, the user asks about data from an external system (CRM, payments, support, etc.), or when analysis requires data that PostHog does not collect natively. Covers checking what sources are already connected, what tables exist, and recommending the right source type to connect.'
+description: 'Use when the user asks about revenue, payments, subscriptions, billing, CRM deals, support tickets, production database tables, or other data that PostHog does not collect natively. Also use when a query fails because a table does not exist or returns no results for expected external data. The data warehouse can import from SaaS tools (Stripe, Hubspot, etc.), production databases (Postgres, MySQL, BigQuery, Snowflake), and other arbitrary data sources. Covers checking existing sources, identifying the right source type, and guiding the setup.'
 ---
 
 # Suggesting data imports
