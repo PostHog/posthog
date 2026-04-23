@@ -107,7 +107,7 @@ class TeamSignalGroupingV2Workflow:
         self._paused_until = input.paused_until
         start_time = workflow.now()
 
-        meter = workflow.metric_meter().with_additional_attributes({"team_id": input.team_id})
+        meter = workflow.metric_meter().with_additional_attributes({"team_id": str(input.team_id)})
         self._batch_buffer_size_gauge = meter.create_gauge(
             "signals_grouping_v2_batch_buffer_size",
             "Current number of signal batches buffered for processing in grouping v2",
