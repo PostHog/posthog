@@ -4,10 +4,9 @@ import { useCallback } from 'react'
 import { IconArrowRight, IconLock } from '@posthog/icons'
 import { LemonButton, Popover, PopoverProps, Tooltip } from '@posthog/lemon-ui'
 
-import { Link } from 'lib/lemon-ui/Link'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
-import { AIHipaaDisclaimer, getExternalAIProvidersTooltipTitle } from './aiConsentCopy'
+import { getExternalAIProvidersTooltipTitle, openAIConsentLegalDialog } from './aiConsentCopy'
 
 export function AIConsentPopoverContent({
     onApprove,
@@ -31,15 +30,6 @@ export function AIConsentPopoverContent({
                 </Tooltip>
                 . <i>Your data won't be used for training models.</i>
             </p>
-            <p className="text-muted text-xs leading-relaxed">
-                If your org requires a Data Processing Agreement (DPA) for compliance (and your existing DPA doesn't
-                already cover AI subprocessors),{' '}
-                <Link to="https://posthog.com/dpa" target="_blank">
-                    you can get a fresh DPA here
-                </Link>
-                .
-            </p>
-            <AIHipaaDisclaimer />
             <div className="flex gap-1.5 self-end">
                 <LemonButton data-attr="ai-consent-cancel" type="secondary" size="xsmall" onClick={onDismiss}>
                     Cancel
@@ -48,7 +38,7 @@ export function AIConsentPopoverContent({
                     data-attr="ai-consent-approve"
                     type="primary"
                     size="xsmall"
-                    onClick={onApprove}
+                    onClick={() => openAIConsentLegalDialog({ onConfirm: onApprove })}
                     sideIcon={approvalDisabledReason ? <IconLock /> : <IconArrowRight />}
                     disabledReason={approvalDisabledReason}
                     tooltip={approvalDisabledReason ? undefined : 'You are approving this as an organization admin'}

@@ -1,4 +1,7 @@
+import { LemonDialog } from '@posthog/lemon-ui'
+
 import { dayjs } from 'lib/dayjs'
+import { Link } from 'lib/lemon-ui/Link'
 
 export function getExternalAIProvidersTooltipTitle(): string {
     return `As of ${dayjs().format('MMMM YYYY')}: Anthropic and OpenAI`
@@ -12,4 +15,32 @@ export function AIHipaaDisclaimer(): JSX.Element {
             this functionality. You are responsible for ensuring your use complies with applicable laws and regulations.
         </span>
     )
+}
+
+export function openAIConsentLegalDialog({ onConfirm }: { onConfirm: () => void }): void {
+    LemonDialog.open({
+        title: 'The legal bits',
+        content: (
+            <div className="flex flex-col gap-2">
+                <p className="text-sm leading-relaxed mb-0">
+                    If your org requires a Data Processing Agreement (DPA) for compliance (and your existing DPA doesn't
+                    already cover AI subprocessors),{' '}
+                    <Link to="https://posthog.com/dpa" target="_blank">
+                        you can get a fresh DPA here
+                    </Link>
+                    .
+                </p>
+                <AIHipaaDisclaimer />
+            </div>
+        ),
+        primaryButton: {
+            children: 'Enable AI analysis',
+            'data-attr': 'ai-consent-legal-confirm',
+            onClick: onConfirm,
+        },
+        secondaryButton: {
+            children: 'Cancel',
+            'data-attr': 'ai-consent-legal-cancel',
+        },
+    })
 }
