@@ -17,6 +17,7 @@ interface HoverTooltipState extends SharedTooltipBase {
     hideTimeout: ReturnType<typeof setTimeout> | null
     interactiveTimeout: ReturnType<typeof setTimeout> | null
     lastRendered: ReactNode
+    lastRenderedOwner: string | null
 }
 
 interface PinnedTooltipState extends SharedTooltipBase {
@@ -31,6 +32,7 @@ const hover: HoverTooltipState = {
     hideTimeout: null,
     interactiveTimeout: null,
     lastRendered: null,
+    lastRenderedOwner: null,
 }
 
 const pinned: PinnedTooltipState = {
@@ -42,22 +44,29 @@ const pinned: PinnedTooltipState = {
 
 let activeRenderId: string | null = null
 
-const wrappedHoverRoot: Root = {
-    render: (children: ReactNode): void => {
-        if (activeRenderId === null || hover.owner !== activeRenderId) {
-            console.error('[useInsightTooltip] dropped render — caller no longer owns the hover tooltip', {
-                activeRenderId,
-                hoverOwner: hover.owner,
-                pinnedOwner: pinned.owner,
-            })
-            return
-        }
-        hover.lastRendered = children
-        hover.root?.render(children)
-    },
-    unmount: (): void => {
-        hover.root?.unmount()
-    },
+function createHoverRootForCaller(callerId: string, suppressed: boolean): Root {
+    return {
+        render: (children: ReactNode): void => {
+            if (suppressed) {
+                return
+            }
+            if (hover.owner !== callerId || activeRenderId !== callerId) {
+                console.error('[useInsightTooltip] dropped render — caller no longer owns the hover tooltip', {
+                    callerId,
+                    hoverOwner: hover.owner,
+                    activeRenderId,
+                    pinnedOwner: pinned.owner,
+                })
+                return
+            }
+            hover.lastRendered = children
+            hover.lastRenderedOwner = callerId
+            hover.root?.render(children)
+        },
+        unmount: (): void => {
+            // the shared hover root is never unmounted; cleanupTooltip clears state instead
+        },
+    }
 }
 
 function clearHoverHideTimeout(): void {
@@ -231,11 +240,11 @@ export function ensureTooltip(id: string): [Root, HTMLElement] {
     if (pinned.owner === id) {
         hideHoverNow()
         activeRenderId = null
-        return [wrappedHoverRoot, hover.element!]
+        return [createHoverRootForCaller(id, true), hover.element!]
     }
     hover.owner = id
     activeRenderId = id
-    return [wrappedHoverRoot, hover.element!]
+    return [createHoverRootForCaller(id, false), hover.element!]
 }
 
 export function showTooltip(id: string): void {
@@ -266,6 +275,9 @@ export function hideTooltip(id?: string): void {
 
 export function pinTooltip(id: string, onUnpin?: () => void): void {
     if (!hover.element) {
+        return
+    }
+    if (hover.lastRenderedOwner !== id || hover.lastRendered === null) {
         return
     }
     ensurePinnedDom()
@@ -315,8 +327,11 @@ export function cleanupTooltip(id: string): void {
         if (activeRenderId === id) {
             activeRenderId = null
         }
-        hover.lastRendered = null
-        hover.root?.render(null)
+        if (hover.lastRenderedOwner === id) {
+            hover.lastRendered = null
+            hover.lastRenderedOwner = null
+            hover.root?.render(null)
+        }
         hideHoverNow()
     }
     if (pinned.owner === id) {
