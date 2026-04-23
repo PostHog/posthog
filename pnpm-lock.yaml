@@ -141,6 +141,9 @@ importers:
       uuid:
         specifier: ^10.0.0
         version: 10.0.0
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
     devDependencies:
       '@parcel/packager-ts':
         specifier: 'catalog:'
@@ -1151,6 +1154,9 @@ importers:
       use-resize-observer:
         specifier: ^8.0.0
         version: 8.0.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
       zxcvbn:
         specifier: ^4.4.2
         version: 4.4.2
@@ -3358,8 +3364,8 @@ importers:
         specifier: 'catalog:'
         version: 9.0.3(react@18.3.1)
       zod:
-        specifier: '*'
-        version: 3.25.76
+        specifier: ^4.0.0
+        version: 4.3.6
     devDependencies:
       '@storybook/react':
         specifier: 'catalog:'
