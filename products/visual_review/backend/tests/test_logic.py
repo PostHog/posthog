@@ -1349,6 +1349,164 @@ class TestQuarantineStamping:
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestRecheckGate:
+    @pytest.fixture
+    def repo(self, team):
+        return logic.create_repo(team_id=team.id, repo_external_id=77777, repo_full_name="org/test-repo")
+
+    def _create_completed_run(self, repo, mocker, identifiers_and_hashes, baseline=None, metadata=None):
+        snapshots = [{"identifier": ident, "content_hash": h} for ident, h in identifiers_and_hashes]
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="my-branch",
+            pr_number=1,
+            snapshots=snapshots,
+            metadata=metadata or {},
+        )
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=(baseline or {}, 0),
+        )
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+        mocker.patch("products.visual_review.backend.logic._post_commit_status")
+        logic.complete_run(run.id)
+        logic.finish_processing(run.id)
+        run.refresh_from_db()
+        return run
+
+    def test_recheck_gate_updates_counts_after_quarantine(self, repo, team, mocker):
+        from products.visual_review.backend.models import QuarantinedIdentifier
+
+        run = self._create_completed_run(
+            repo,
+            mocker,
+            identifiers_and_hashes=[("Button", "h1"), ("Card", "h2")],
+            baseline={"Button": "old1", "Card": "old2"},
+        )
+        assert run.changed_count == 2
+
+        QuarantinedIdentifier.objects.create(
+            repo=repo,
+            team_id=team.id,
+            identifier="Button",
+            run_type=RunType.STORYBOOK,
+            reason="flaky",
+        )
+        QuarantinedIdentifier.objects.create(
+            repo=repo,
+            team_id=team.id,
+            identifier="Card",
+            run_type=RunType.STORYBOOK,
+            reason="flaky",
+        )
+
+        result = logic.recheck_gate(run.id, team_id=team.id)
+
+        assert result["counts_changed"] is True
+        run.refresh_from_db()
+        assert run.changed_count == 0
+
+    def test_recheck_gate_no_change_without_quarantine(self, repo, team, mocker):
+        run = self._create_completed_run(
+            repo,
+            mocker,
+            identifiers_and_hashes=[("Button", "h1")],
+            baseline={"Button": "old1"},
+        )
+
+        result = logic.recheck_gate(run.id, team_id=team.id)
+
+        assert result["counts_changed"] is False
+        assert result["ci_rerun_error"] == "CI metadata not available (upgrade CLI to enable)"
+
+    def test_recheck_gate_rejects_non_completed_run(self, repo, team, mocker):
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="main",
+            pr_number=1,
+            snapshots=[],
+        )
+
+        with pytest.raises(ValueError, match="Can only recheck completed runs"):
+            logic.recheck_gate(run.id, team_id=team.id)
+
+    def test_recheck_gate_rejects_approved_run(self, repo, team, user, mocker):
+        logic.get_or_create_artifact(repo_id=repo.id, content_hash="h1", storage_path="p/h1")
+        run = self._create_completed_run(
+            repo,
+            mocker,
+            identifiers_and_hashes=[("Button", "h1")],
+            baseline={"Button": "old1"},
+        )
+        logic.approve_run(
+            run_id=run.id,
+            user_id=user.id,
+            approved_snapshots=[{"identifier": "Button", "new_hash": "h1"}],
+            commit_to_github=False,
+        )
+
+        with pytest.raises(ValueError, match="already approved"):
+            logic.recheck_gate(run.id, team_id=team.id)
+
+    def test_recheck_gate_reports_missing_ci_metadata(self, repo, team, mocker):
+        run = self._create_completed_run(
+            repo,
+            mocker,
+            identifiers_and_hashes=[("Button", "h1")],
+            baseline={"Button": "old1"},
+        )
+
+        result = logic.recheck_gate(run.id, team_id=team.id)
+
+        assert result["ci_rerun_triggered"] is False
+        assert result["ci_rerun_error"] == "CI metadata not available (upgrade CLI to enable)"
+
+    def test_recheck_gate_triggers_ci_rerun(self, repo, team, mocker):
+        run = self._create_completed_run(
+            repo,
+            mocker,
+            identifiers_and_hashes=[("Button", "h1")],
+            baseline={"Button": "old1"},
+            metadata={"github_run_id": "12345", "github_job": "visual-regression"},
+        )
+
+        mocker.patch(
+            "products.visual_review.backend.logic._rerun_github_job",
+            return_value=(True, None),
+        )
+
+        result = logic.recheck_gate(run.id, team_id=team.id)
+
+        assert result["ci_rerun_triggered"] is True
+        assert result["ci_rerun_error"] is None
+
+    def test_recheck_gate_handles_ci_rerun_failure(self, repo, team, mocker):
+        run = self._create_completed_run(
+            repo,
+            mocker,
+            identifiers_and_hashes=[("Button", "h1")],
+            baseline={"Button": "old1"},
+            metadata={"github_run_id": "12345", "github_job": "visual-regression"},
+        )
+
+        mocker.patch(
+            "products.visual_review.backend.logic._rerun_github_job",
+            return_value=(False, "Job 'visual-regression' not found in workflow run 12345"),
+        )
+
+        result = logic.recheck_gate(run.id, team_id=team.id)
+
+        assert result["ci_rerun_triggered"] is False
+        assert "not found" in result["ci_rerun_error"]
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestMergeBaseBaselineHealing:
     """Tests for _resolve_baselines_with_merge_base healing rebase-corrupted baselines."""
 

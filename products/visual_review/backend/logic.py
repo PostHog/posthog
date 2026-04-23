@@ -895,6 +895,109 @@ def finish_processing(run_id: UUID, error_message: str = "") -> Run:
     return run
 
 
+def recheck_gate(run_id: UUID, team_id: int | None = None) -> dict:
+    """Re-evaluate quarantine and counts, update commit status, and optionally rerun the CI job.
+
+    Returns a dict with counts_changed, ci_rerun_triggered, and ci_rerun_error.
+    """
+    run = get_run(run_id, team_id=team_id)
+
+    if run.status != RunStatus.COMPLETED:
+        raise ValueError(f"Can only recheck completed runs (current status: {run.status})")
+
+    if run.approved:
+        raise ValueError("Run is already approved")
+
+    old_counts = (run.changed_count, run.new_count, run.removed_count)
+    _update_counts_and_post_status(run)
+    new_counts = (run.changed_count, run.new_count, run.removed_count)
+    counts_changed = old_counts != new_counts
+
+    ci_rerun_triggered = False
+    ci_rerun_error: str | None = None
+
+    github_run_id = (run.metadata or {}).get("github_run_id")
+    github_job = (run.metadata or {}).get("github_job")
+
+    if not github_run_id or not github_job:
+        ci_rerun_error = "CI metadata not available (upgrade CLI to enable)"
+    else:
+        ci_rerun_triggered, ci_rerun_error = _rerun_github_job(run, github_run_id, github_job)
+
+    return {
+        "counts_changed": counts_changed,
+        "ci_rerun_triggered": ci_rerun_triggered,
+        "ci_rerun_error": ci_rerun_error,
+    }
+
+
+def _rerun_github_job(run: Run, github_run_id: str, github_job_name: str) -> tuple[bool, str | None]:
+    """Look up a GitHub Actions job by name and rerun it. Returns (success, error_message)."""
+    import requests
+
+    repo = run.repo
+    if not repo.repo_full_name:
+        return False, "Repo has no GitHub full name configured"
+
+    try:
+        github = get_github_integration_for_repo(repo)
+        if github.access_token_expired():
+            github.refresh_access_token()
+    except Exception:
+        return False, "No GitHub integration available"
+
+    access_token = github.integration.sensitive_config["access_token"]
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {access_token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+    try:
+        jobs_response = requests.get(
+            f"https://api.github.com/repos/{repo.repo_full_name}/actions/runs/{github_run_id}/jobs",
+            headers=headers,
+            params={"per_page": 100},
+            timeout=10,
+        )
+    except requests.RequestException:
+        return False, "Failed to fetch CI jobs from GitHub"
+
+    if jobs_response.status_code != 200:
+        return False, f"GitHub API returned {jobs_response.status_code} when fetching jobs"
+
+    jobs = jobs_response.json().get("jobs", [])
+    job_id: int | None = None
+    for job in jobs:
+        if job.get("name") == github_job_name:
+            job_id = job["id"]
+            break
+
+    if job_id is None:
+        return False, f"Job '{github_job_name}' not found in workflow run {github_run_id}"
+
+    try:
+        rerun_response = requests.post(
+            f"https://api.github.com/repos/{repo.repo_full_name}/actions/jobs/{job_id}/rerun",
+            headers=headers,
+            timeout=10,
+        )
+    except requests.RequestException:
+        return False, "Failed to trigger job rerun"
+
+    if rerun_response.status_code == 201:
+        logger.info(
+            "visual_review.ci_job_rerun_triggered",
+            run_id=str(run.id),
+            github_run_id=github_run_id,
+            job_id=job_id,
+            job_name=github_job_name,
+        )
+        return True, None
+
+    return False, f"GitHub API returned {rerun_response.status_code} when rerunning job"
+
+
 def get_github_integration_for_repo(repo: Repo):
     """Get GitHub integration for the repo's team."""
     from posthog.models.integration import GitHubIntegration, Integration

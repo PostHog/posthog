@@ -278,6 +278,19 @@ function makeClient(options: { baseline: string; api?: string; team?: string; to
     return { client, ...config }
 }
 
+function collectCIMetadata(): Record<string, string> {
+    const metadata: Record<string, string> = {}
+    const runId = process.env.GITHUB_RUN_ID
+    const job = process.env.GITHUB_JOB
+    if (runId) {
+        metadata.github_run_id = runId
+    }
+    if (job) {
+        metadata.github_job = job
+    }
+    return metadata
+}
+
 // --- Command implementations ---
 
 // --- Shard command implementations ---
@@ -300,6 +313,7 @@ async function runCreate(options: RunCreateOptions): Promise<string> {
         prNumber: options.pr ? parseInt(options.pr, 10) : undefined,
         snapshots: [],
         purpose: options.purpose,
+        metadata: collectCIMetadata(),
     })
 
     log(`Run created: ${result.run_id}`)
@@ -571,6 +585,7 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
             width: s.width,
             height: s.height,
         })),
+        metadata: collectCIMetadata(),
     })
 
     log(`Run created: ${result.run_id}`)

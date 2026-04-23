@@ -83,6 +83,7 @@ export class VisualReviewClient {
         snapshots: SnapshotManifestItemApi[]
         prNumber?: number
         purpose?: string
+        metadata?: Record<string, string>
     }): Promise<CreateRunResultApi> {
         const body: CreateRunInputApi = {
             repo_id: input.repoId,
@@ -92,6 +93,7 @@ export class VisualReviewClient {
             snapshots: input.snapshots,
             pr_number: input.prNumber,
             purpose: input.purpose,
+            metadata: input.metadata,
         }
 
         return this.request<CreateRunResultApi>('/visual_review/runs/', {

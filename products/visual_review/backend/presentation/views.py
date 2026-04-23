@@ -45,6 +45,7 @@ from .serializers import (
     MarkToleratedInputSerializer,
     QuarantinedIdentifierEntrySerializer,
     QuarantineInputSerializer,
+    RecheckGateResultSerializer,
     RepoSerializer,
     ReviewStateCountsSerializer,
     RunSerializer,
@@ -377,10 +378,20 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": str(e), "code": "sha_mismatch"}, status=status.HTTP_409_CONFLICT)
         except api.GitHubCommitError as e:
             return Response({"detail": f"GitHub commit failed: {e}"}, status=status.HTTP_502_BAD_GATEWAY)
-        except api.BaselineFilePathNotConfiguredError as e:
+
+    @extend_schema(
+        responses={200: RecheckGateResultSerializer},
+        description="Re-evaluate quarantine and counts, update commit status, and optionally rerun the CI job.",
+    )
+    @action(detail=True, methods=["post"], url_path="recheck-gate")
+    def recheck_gate(self, request: Request, pk: str, **kwargs) -> Response:
+        try:
+            result = api.recheck_gate(UUID(pk), team_id=self.team_id)
+        except api.RunNotFoundError:
+            return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+        except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-        except ValueError:
-            return Response({"detail": "Invalid request"}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(RecheckGateResultSerializer(instance=result).data)
 
     @extend_schema(responses={200: AutoApproveResultSerializer}, deprecated=True)
     @action(detail=True, methods=["post"], url_path="auto-approve")

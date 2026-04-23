@@ -204,6 +204,16 @@ class AutoApproveResult:
 
 
 @dataclass(frozen=True)
+class RecheckGateResult:
+    """Result of re-evaluating quarantine/counts and optionally retriggering CI."""
+
+    run: Run
+    counts_changed: bool
+    ci_rerun_triggered: bool
+    ci_rerun_error: str | None = None
+
+
+@dataclass(frozen=True)
 class ToleratedHashEntry:
     """A known tolerated alternate hash for a snapshot identifier."""
 
