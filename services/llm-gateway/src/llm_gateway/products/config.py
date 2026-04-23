@@ -123,6 +123,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     ),
     "signals": ProductConfig(
         allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID}),
+        allow_api_keys=False,
     ),
 }
 
