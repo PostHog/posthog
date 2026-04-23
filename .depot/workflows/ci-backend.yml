@@ -362,50 +362,21 @@ jobs:
                   #   sqlx database create
                   # DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                   #   sqlx migrate run --source rust/persons_migrations/
-            # Get app token early so it can be passed to checkout below.
-            # This sets the git extraheader to the app token instead of GITHUB_TOKEN,
-            # which is required for the OpenAPI type commit push to trigger CI.
-            - name: Get app token for OpenAPI type commits
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
-              id: openapi-app-token
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
-            # Now we can consider this PR's migrations
+            # Shadow trial: OpenAPI app-token step stripped (secret not available on Depot).
             - name: Checkout this PR
               uses: actions/checkout@v6
               with:
-                  # For same-repo PRs, checkout the actual branch (not the merge commit)
-                  # so OpenAPI type generation can be committed directly. Fork PRs fall
-                  # back to the default merge commit (auto-commit bails out for forks).
                   ref: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') && github.event.pull_request.head.ref || github.ref }}
                   clean: false
-                  # Use app token so the git extraheader is set correctly for the OpenAPI
-                  # type commit push later — GITHUB_TOKEN pushes don't trigger CI.
-                  token: ${{ steps.openapi-app-token.outputs.token || github.token }}
+                  token: ${{ github.token }}
             - name: Install python dependencies for this PR
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
-            - name: Check migrations and post SQL comment
-              if: github.event_name == 'pull_request' && needs.changes.outputs.migrations == 'true'
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  CHANGED_FILES: ${{ needs.changes.outputs.migrations_files }}
-                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
-              run: "# If no migration files changed, exit\nif [ -z \"$CHANGED_FILES\" ]; then\n  echo \"No migration files changed\"\n  exit 0\nfi\n\nif [ -z \"$BASE_SHA\" ]; then\n  echo \"::warning::BASE_SHA is empty — all changed migrations will be treated as new\"\nelse\n  # Ensure the base commit is available for comparison\n  git fetch --no-tags --prune --depth=1 origin \"$BASE_SHA\" || echo \"::warning::Could not fetch base SHA $BASE_SHA — all changed migrations will be shown as new\"\nfi\n\n# Initialize comment body for SQL changes\nCOMMENT_BODY=\"## Migration SQL Changes\\n\\nHey \U0001F44B, we've detected some migrations on this PR. Here's the SQL output for each migration, make sure they make sense:\\n\\n\"\nHAS_NEW_MIGRATIONS=false\n\n# Process each changed migration file (excluding Rust migrations)\nfor file in $CHANGED_FILES; do\n  # Skip Rust migrations as they're handled separately by sqlx\n  if [[ $file =~ rust/persons_migrations ]]; then\n    continue\n  fi\n  if [[ $file =~ migrations/([0-9]+)_ ]]; then\n    migration_number=\"${BASH_REMATCH[1]}\"\n    # Get app name by looking at the directory structure\n    # For new structure products/user_interviews/backend/migrations, we want user_interviews\n    # For old structure products/user_interviews/migrations, we want user_interviews\n    if [[ $file =~ products/([^/]+)/backend/migrations/ ]]; then\n      app_name=\"${BASH_REMATCH[1]}\"\n    else\n      app_name=$(echo $file | sed -E 's|^([^/]+/)*([^/]+)/migrations/.*|\\2|')\n    fi\n\n    # Only show SQL for new migrations, not modifications to existing ones\n    if git cat-file -e \"$BASE_SHA:$file\" 2>/dev/null; then\n      echo \"Skipping $file (already exists on base branch)\"\n      continue\n    fi\n\n    HAS_NEW_MIGRATIONS=true\n    echo \"Checking migration $migration_number for app $app_name\"\n\n    # Get SQL output\n    SQL_OUTPUT=$(python manage.py sqlmigrate $app_name $migration_number)\n\n    # Add to comment body\n    COMMENT_BODY+=\"#### [\\`$file\\`](https:\\/\\/github.com\\/${{ github.repository }}\\/blob\\/${{ github.sha }}\\/$file)\\n\\`\\`\\`sql\\n$SQL_OUTPUT\\n\\`\\`\\`\\n\\n\"\n  fi\ndone\n\n# Get existing comments (needed for both update and cleanup)\nCOMMENTS=$(curl -s -H \"Authorization: token $GITHUB_TOKEN\" \\\n  -H \"Accept: application/vnd.github.v3+json\" \\\n  \"https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments\")\n\n# Extract comment ID if exists\nSQL_COMMENT_ID=$(echo \"$COMMENTS\" | jq -r '.[] | select(.body | startswith(\"## Migration SQL Changes\")) | .id' | head -1)\n\n# If no new migrations, clean up any stale comment and exit\nif [ \"$HAS_NEW_MIGRATIONS\" = false ]; then\n  echo \"No new migrations to show (all changed files already exist on base branch)\"\n  if [ -n \"$SQL_COMMENT_ID\" ]; then\n    echo \"Deleting stale SQL comment $SQL_COMMENT_ID\"\n    curl -X DELETE \\\n      -H \"Authorization: token $GITHUB_TOKEN\" \\\n      -H \"Accept: application/vnd.github.v3+json\" \\\n      \"https://api.github.com/repos/${{ github.repository }}/issues/comments/$SQL_COMMENT_ID\"\n  fi\n  exit 0\nfi\n\n# Add timestamp and commit SHA to SQL changes\nTIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')\nCOMMIT_SHA=\"${{ github.event.pull_request.head.sha }}\"\nCOMMIT_SHORT=\"${COMMIT_SHA:0:7}\"\nCOMMENT_BODY+=\"\\n*Last updated: $TIMESTAMP ([${COMMIT_SHORT}](https://github.com/${{ github.repository }}/commit/${COMMIT_SHA}))*\"\n\n# Convert \\n into actual newlines\nCOMMENT_BODY=$(printf '%b' \"$COMMENT_BODY\")\nCOMMENT_BODY_JSON=$(jq -n --arg body \"$COMMENT_BODY\" '{body: $body}')\n\nif [ -n \"$SQL_COMMENT_ID\" ]; then\n  # Update existing comment\n  echo \"Updating existing SQL comment $SQL_COMMENT_ID\"\n  curl -X PATCH \\\n    -H \"Authorization: token $GITHUB_TOKEN\" \\\n    -H \"Accept: application/vnd.github.v3+json\" \\\n    \"https://api.github.com/repos/${{ github.repository }}/issues/comments/$SQL_COMMENT_ID\" \\\n    -d \"$COMMENT_BODY_JSON\"\nelse\n  # Post new SQL comment to PR\n  echo \"Posting new SQL comment to PR\"\n  curl -X POST \\\n    -H \"Authorization: token $GITHUB_TOKEN\" \\\n    -H \"Accept: application/vnd.github.v3+json\" \\\n    \"https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments\" \\\n    -d \"$COMMENT_BODY_JSON\"\nfi\n"
-            - name: Run migration risk analysis and post comment
+            # Shadow trial: migration SQL-comment + risk-analysis-comment steps stripped.
+            # Keep the risk check itself so blocked migrations still fail the job.
+            - name: Run migration risk analysis
               if: github.event_name == 'pull_request'
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-              run: "# Get risk analysis for all unapplied migrations (including third-party)\nset +e  # Don't exit immediately on error\nRISK_ANALYSIS=$(python manage.py analyze_migration_risk --fail-on-blocked 2>/dev/null)\nEXIT_CODE=$?\nset -e  # Re-enable exit on error\n\n# Save analysis to file for artifact upload\nif [ -n \"$RISK_ANALYSIS\" ]; then\n  echo \"$RISK_ANALYSIS\" > migration_analysis.md\nfi\n\n# Get existing comments\nCOMMENTS=$(curl -s -H \"Authorization: token $GITHUB_TOKEN\" \\\n  -H \"Accept: application/vnd.github.v3+json\" \\\n  \"https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments\")\n\n# Extract comment ID if exists\nCOMMENT_ID=$(echo \"$COMMENTS\" | jq -r '.[] | select(.body | startswith(\"## \U0001F50D Migration Risk Analysis\")) | .id' | head -1)\n\nif [ -n \"$RISK_ANALYSIS\" ] && echo \"$RISK_ANALYSIS\" | grep -q \"Summary:\"; then\n  # Add timestamp and commit SHA to analysis\n  TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')\n  COMMIT_SHA=\"${{ github.event.pull_request.head.sha }}\"\n  COMMIT_SHORT=\"${COMMIT_SHA:0:7}\"\n  RISK_COMMENT=\"## \U0001F50D Migration Risk Analysis\\n\\nWe've analyzed your migrations for potential risks.\\n\\n$RISK_ANALYSIS\\n\\n*Last updated: $TIMESTAMP ([${COMMIT_SHORT}](https://github.com/${{ github.repository }}/commit/${COMMIT_SHA}))*\"\n  RISK_COMMENT=$(printf '%b' \"$RISK_COMMENT\")\n  RISK_COMMENT_JSON=$(jq -n --arg body \"$RISK_COMMENT\" '{body: $body}')\n\n  if [ -n \"$COMMENT_ID\" ]; then\n    # Update existing comment\n    echo \"Updating existing risk analysis comment $COMMENT_ID\"\n    curl -X PATCH \\\n      -H \"Authorization: token $GITHUB_TOKEN\" \\\n      -H \"Accept: application/vnd.github.v3+json\" \\\n      \"https://api.github.com/repos/${{ github.repository }}/issues/comments/$COMMENT_ID\" \\\n      -d \"$RISK_COMMENT_JSON\"\n  else\n    # Create new comment if none exists\n    echo \"Posting new risk analysis comment to PR\"\n    curl -X POST \\\n      -H \"Authorization: token $GITHUB_TOKEN\" \\\n      -H \"Accept: application/vnd.github.v3+json\" \\\n      \"https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments\" \\\n      -d \"$RISK_COMMENT_JSON\"\n  fi\nelif [ -n \"$COMMENT_ID\" ]; then\n  # No migrations to analyze but comment exists - delete it\n  echo \"Deleting risk analysis comment (no migrations to analyze)\"\n  curl -X DELETE \\\n    -H \"Authorization: token $GITHUB_TOKEN\" \\\n    -H \"Accept: application/vnd.github.v3+json\" \\\n    \"https://api.github.com/repos/${{ github.repository }}/issues/comments/$COMMENT_ID\"\nelse\n  echo \"No migrations to analyze and no existing comment\"\nfi\n\n# Fail the job if there were blocked migrations\nif [ $EXIT_CODE -ne 0 ]; then\n  exit $EXIT_CODE\nfi\n"
-            - name: Upload migration analysis artifact
-              if: always() && github.event_name == 'pull_request'
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              with:
-                  name: migration-analysis
-                  path: migration_analysis.md
-                  if-no-files-found: ignore
+              run: python manage.py analyze_migration_risk --fail-on-blocked
             - name: Run migrations for this PR
               run: |
                   # Run Django migrations first (excluding managed=False models)
@@ -464,76 +435,17 @@ jobs:
               run: pnpm --filter=@posthog/root --filter=@posthog/frontend... --filter=@posthog/mcp... install --frozen-lockfile
             - name: Add OpenAPI Problem Matcher
               run: echo "::add-matcher::.github/openapi-problem-matcher.json"
-            - name: Check and update OpenAPI types
-              id: openapi-check
-              env:
-                  EVENT_NAME: ${{ github.event_name }}
-                  HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
-                  BRANCH: ${{ github.event.pull_request.head.ref }}
-                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
-                  GH_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
+            # Shadow trial: OpenAPI types are check-only — no auto-commit side effect.
+            - name: Check OpenAPI types
               run: |
                   ./bin/hogli build:openapi
                   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
                   if git diff --exit-code; then
                       echo "OpenAPI types are up to date"
-                      echo "needs-commit=false" >> $GITHUB_OUTPUT
                       exit 0
                   fi
-
-                  echo "OpenAPI types are out of date"
-
-                  # On non-PR builds or fork PRs, fail with instructions
-                  if [ "$EVENT_NAME" != "pull_request" ] || \
-                     [ "$HEAD_REPO" != "PostHog/posthog" ]; then
-                      echo ""
-                      echo "::error::OpenAPI types are out of date!"
-                      echo ""
-                      echo "The TypeScript API types in products/*/frontend/generated/ are auto-generated"
-                      echo "from Django serializers and views. When you modify the backend API, you need"
-                      echo "to regenerate these types."
-                      echo ""
-                      echo "To fix, run locally:  hogli build:openapi"
-                      echo "Then commit the updated generated files."
-                      echo ""
-                      echo "More info: https://posthog.com/handbook/engineering/type-system"
-                      echo ""
-                      echo "Questions? #team-devex on Slack"
-                      exit 1
-                  fi
-
-                  echo "::notice::Committing updated OpenAPI types to PR branch"
-
-                  # Verify branch hasn't advanced since CI started
-                  CURRENT_SHA=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
-                  if [ "$CURRENT_SHA" != "$HEAD_SHA" ]; then
-                      echo "::error::Branch advanced during workflow ($HEAD_SHA -> $CURRENT_SHA) — cannot auto-commit OpenAPI types."
-                      echo ""
-                      echo "OpenAPI types are out of date and could not be auto-committed because the branch"
-                      echo "was updated while this workflow was running. Please run locally and push:"
-                      echo ""
-                      echo "  hogli build:openapi"
-                      echo ""
-                      echo "Then commit the updated generated files."
-                      echo "needs-commit=false" >> $GITHUB_OUTPUT
-                      exit 1
-                  fi
-
-                  # Disable auto-merge before pushing to prevent unreviewed code from merging
-                  gh pr merge --disable-auto "$PR_NUMBER" || echo "Auto-merge was not enabled"
-
-                  echo "needs-commit=true" >> $GITHUB_OUTPUT
-            - name: Commit OpenAPI types via GitHub API (signed)
-              if: steps.openapi-check.outputs.needs-commit == 'true'
-              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
-              with:
-                  commit_message: 'chore: update OpenAPI generated types'
-                  repo: ${{ github.repository }}
-                  branch: ${{ github.event.pull_request.head.ref }}
-                  file_pattern: 'frontend/src/generated/** products/*/frontend/generated/** products/*/mcp/*.yaml services/mcp/definitions/*.yaml services/mcp/src/api/generated.ts services/mcp/src/generated/** services/mcp/schema/generated-tool-definitions.json services/mcp/schema/tool-definitions-all.json services/mcp/src/tools/generated/**'
-              env:
-                  GITHUB_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
+                  echo "::error::OpenAPI types are out of date — run 'hogli build:openapi' locally and commit the result."
+                  exit 1
     build_django_matrix:
         name: Build Django matrix
         needs: [changes, get_clickhouse_versions]
