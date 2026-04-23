@@ -298,9 +298,6 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
         '/data-warehouse/view/:id': ({ id }) => {
             actions.setEditingView(id as string)
         },
-        '/data-warehouse': () => {
-            actions.setEditingView(null)
-        },
     })),
     afterMount(({ actions, values }) => {
         if (!values.database && !values.databaseLoading) {
