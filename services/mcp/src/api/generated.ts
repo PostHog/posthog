@@ -14028,6 +14028,11 @@ export namespace Schemas {
        * @nullable
        */
       sync_frequency?: string | null;
+      /**
+       * UUID of the underlying saved query backing this materialization. Only populated when the version is materialized.
+       * @nullable
+       */
+      saved_query_id?: string | null;
     }
 
     export type EndpointRefreshMode = typeof EndpointRefreshMode[keyof typeof EndpointRefreshMode];
@@ -14153,6 +14158,11 @@ export namespace Schemas {
       is_materialized: boolean;
       /** Latest version number. */
       current_version: number;
+      /**
+       * UUID of the current EndpointVersion row.
+       * @nullable
+       */
+      current_version_id?: string | null;
       /** Total number of versions for this endpoint. */
       versions_count: number;
       /**
@@ -14299,6 +14309,11 @@ export namespace Schemas {
       is_materialized: boolean;
       /** Latest version number. */
       current_version: number;
+      /**
+       * UUID of the current EndpointVersion row.
+       * @nullable
+       */
+      current_version_id?: string | null;
       /** Total number of versions for this endpoint. */
       versions_count: number;
       /**
@@ -15639,6 +15654,11 @@ export namespace Schemas {
        * @nullable
        */
       minimum_detectable_effect?: number | null;
+      /**
+       * Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100.
+       * @nullable
+       */
+      rollout_percentage?: number | null;
     }
 
     export interface ExperimentToSavedMetric {
@@ -15821,7 +15841,7 @@ export namespace Schemas {
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort: number | null;
-      /** Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
+      /** Variant definitions and rollout configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set rollout_percentage (0-100, default 100) to limit what fraction of users enter the experiment. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
       parameters?: ExperimentParameters | null;
       secondary_metrics?: unknown | null;
       readonly saved_metrics: readonly ExperimentToSavedMetric[];
@@ -19386,6 +19406,16 @@ export namespace Schemas {
       interval: number;
       name: string;
       previous: number;
+      /**
+       * Daily values over the current interval period. Only populated when display is 'sparkline'.
+       * @nullable
+       */
+      timeseries?: number[] | null;
+      /**
+       * ISO date strings for sparkline tooltip labels. Only populated when display is 'sparkline'.
+       * @nullable
+       */
+      timeseries_labels?: string[] | null;
       value: number;
     }
 
@@ -20817,6 +20847,8 @@ export namespace Schemas {
       readonly needs_reauth: boolean;
       readonly pending_oauth: boolean;
       readonly proxy_url: string;
+      /** Number of live (non-removed) tools exposed by this installation. */
+      readonly tool_count: number;
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
@@ -20851,16 +20883,39 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    /**
+     * * `business` - Business Operations
+    * `data` - Data & Analytics
+    * `design` - Design & Content
+    * `dev` - Developer Tools & APIs
+    * `infra` - Infrastructure
+    * `productivity` - Productivity & Collaboration
+     */
+    export type MCPServerTemplateCategoryEnum = typeof MCPServerTemplateCategoryEnum[keyof typeof MCPServerTemplateCategoryEnum];
+
+
+    export const MCPServerTemplateCategoryEnum = {
+      Business: 'business',
+      Data: 'data',
+      Design: 'design',
+      Dev: 'dev',
+      Infra: 'infra',
+      Productivity: 'productivity',
+    } as const;
+
     export interface MCPServerTemplate {
       readonly id: string;
       /** @maxLength 200 */
       name: string;
       /** @maxLength 2048 */
       url: string;
+      /** @maxLength 2048 */
+      docs_url?: string;
       description?: string;
       auth_type?: AuthType9cbEnum;
       /** @maxLength 100 */
       icon_key?: string;
+      category?: MCPServerTemplateCategoryEnum;
     }
 
     export interface MarkToleratedInput {
@@ -25990,7 +26045,7 @@ export namespace Schemas {
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort?: number | null;
-      /** Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
+      /** Variant definitions and rollout configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set rollout_percentage (0-100, default 100) to limit what fraction of users enter the experiment. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
       parameters?: ExperimentParameters | null;
       secondary_metrics?: unknown | null;
       readonly saved_metrics?: readonly ExperimentToSavedMetric[];
@@ -29218,6 +29273,16 @@ export namespace Schemas {
       Cancelled: 'cancelled',
     } as const;
 
+    /**
+     * * `local` - local
+     */
+    export type TaskRunUpdateEnvironmentEnum = typeof TaskRunUpdateEnvironmentEnum[keyof typeof TaskRunUpdateEnvironmentEnum];
+
+
+    export const TaskRunUpdateEnvironmentEnum = {
+      Local: 'local',
+    } as const;
+
     export interface PatchedTaskRunUpdate {
       /** Current execution status
 
@@ -29249,6 +29314,10 @@ export namespace Schemas {
        * @nullable
        */
       error_message?: string | null;
+      /** Transition a cloud run to local. Use the resume_in_cloud action to move a run into cloud.
+
+    * `local` - local */
+      environment?: TaskRunUpdateEnvironmentEnum;
     }
 
     export type PatchedTeamDefaultModifiers = {[key: string]: unknown};
@@ -38257,6 +38326,11 @@ export namespace Schemas {
     offset?: number;
     };
 
+    /**
+     * Unspecified response body
+     */
+    export type ErrorTrackingSymbolSetsDownloadRetrieve200 = {[key: string]: unknown};
+
     export type EvaluationsListParams = {
     /**
      * Filter by enabled status
@@ -40147,6 +40221,11 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    /**
+     * Unspecified response body
+     */
+    export type ErrorTrackingSymbolSetsDownloadRetrieve2200 = {[key: string]: unknown};
 
     export type EventDefinitionsListParams = {
     /**
