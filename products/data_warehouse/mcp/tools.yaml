@@ -99,7 +99,6 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-
         list: true
         title: List data warehouse sources
         description: >
@@ -115,15 +114,15 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
-
         title: Create data warehouse source
         description: >
             Create a new external data source connection. Before calling this, use 'external-data-sources-wizard' to
             discover source types and 'external-data-sources-db-schema' to validate credentials and discover available
             tables. Present the db-schema results to the user showing each table's available sync methods, incremental
-            fields, detected primary keys, and columns so they can configure before creation. The payload must include
-            a 'schemas' array where each entry has: name, should_sync (bool), sync_type (incremental/full_refresh/append),
-            and optionally incremental_field, incremental_field_type, and primary_key_columns from the db-schema response.
+            fields, detected primary keys, and columns so they can configure before creation. The payload must include a
+            'schemas' array where each entry has: name, should_sync (bool), sync_type (incremental/full_refresh/append),
+            and optionally incremental_field, incremental_field_type, and primary_key_columns from the db-schema
+            response.
         exclude_params:
             - client_secret
             - account_id
@@ -142,7 +141,6 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-
         title: Get data warehouse source
         description: >
             Get a single data warehouse source by ID. Returns full details including source type, connection status,
@@ -159,7 +157,6 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-
         title: Update data warehouse source
         description: >
             Update an existing data warehouse source. Can change the prefix (table name prefix in HogQL), description,
@@ -212,8 +209,8 @@ tools:
             idempotent: true
         title: Trigger sync for a source
         description: >
-            Trigger a sync for all enabled table schemas in the source using each table's configured sync method. If
-            the source uses direct query mode, this refreshes the schema metadata instead.
+            Trigger a sync for all enabled table schemas in the source using each table's configured sync method. If the
+            source uses direct query mode, this refreshes the schema metadata instead.
         exclude_params:
             - client_secret
             - account_id
@@ -272,6 +269,50 @@ tools:
     query-tab-state-user-retrieve:
         operation: query_tab_state_user_retrieve
         enabled: false
+    sql-variables-create:
+        operation: insight_variables_create
+        enabled: true
+        scopes:
+            - insight_variable:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create SQL variable
+        description: >
+            Create a reusable SQL variable for HogQL queries. Provide a human-readable name and type. The code_name is
+            generated from the name and is referenced in SQL as {variables.code_name}. For List variables, provide
+            values as the allowed options.
+    sql-variables-update:
+        operation: insight_variables_partial_update
+        enabled: true
+        scopes:
+            - insight_variable:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update SQL variable
+        description: >
+            Update an existing SQL variable by ID. You can change the name, type, default_value, or allowed values for
+            List variables. If the name changes, check the response for the current code_name before writing queries
+            that reference it.
+    insight-variables-update:
+        operation: insight_variables_update
+        enabled: false
+    sql-variables-delete:
+        operation: insight_variables_destroy
+        enabled: true
+        scopes:
+            - insight_variable:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete SQL variable
+        description: >
+            Delete a SQL variable by ID. Queries that reference this variable by code_name may stop working after
+            deletion.
     warehouse-dag-retrieve:
         operation: warehouse_dag_retrieve
         enabled: false
@@ -575,8 +616,8 @@ tools:
             idempotent: true
         title: Get data import schema
         description: >
-            Get a single table schema by ID. Returns full details including sync status, sync frequency,
-            incremental field, latest error, and the associated source and table metadata.
+            Get a single table schema by ID. Returns full details including sync status, sync frequency, incremental
+            field, latest error, and the associated source and table metadata.
     external-data-schemas-update:
         operation: external_data_schemas_update
         enabled: false
@@ -591,8 +632,8 @@ tools:
             idempotent: true
         title: Update data import schema
         description: >
-            Update a table schema's sync configuration. Can change sync type, sync frequency, incremental
-            field, primary key columns, CDC table mode, and enable/disable the schema.
+            Update a table schema's sync configuration. Can change sync type, sync frequency, incremental field, primary
+            key columns, CDC table mode, and enable/disable the schema.
         param_overrides:
             sync_type:
                 input_schema: ExternalDataSchemaSyncTypeSchema
@@ -622,9 +663,8 @@ tools:
             idempotent: true
         title: Cancel running sync
         description: >
-            Cancel a currently running sync job for a specific table schema. If no sync is running, returns
-            an error. Use 'external-data-schemas-list' to check which schemas have status 'Running' before
-            calling this.
+            Cancel a currently running sync job for a specific table schema. If no sync is running, returns an error.
+            Use 'external-data-schemas-list' to check which schemas have status 'Running' before calling this.
     external-data-schemas-delete-data:
         operation: external_data_schemas_delete_data_destroy
         enabled: true
@@ -636,9 +676,8 @@ tools:
             idempotent: true
         title: Delete synced table data
         description: >
-            Delete the synced table data from PostHog but keep the schema entry. The schema remains visible
-            in the source and can be re-synced. Use this to clear stale or corrupt data before triggering
-            a fresh sync.
+            Delete the synced table data from PostHog but keep the schema entry. The schema remains visible in the
+            source and can be re-synced. Use this to clear stale or corrupt data before triggering a fresh sync.
     external-data-schemas-incremental-fields-create:
         operation: external_data_schemas_incremental_fields_create
         enabled: false
@@ -666,6 +705,12 @@ tools:
             idempotent: false
         title: Resync table schema from scratch
         description: >
-            Trigger a full resync for a table schema, discarding all previously synced data and re-importing
-            from the source. This cancels any running sync first, then resets the pipeline state. Use this
-            when data is corrupt or out of sync.
+            Trigger a full resync for a table schema, discarding all previously synced data and re-importing from the
+            source. This cancels any running sync first, then resets the pipeline state. Use this when data is corrupt
+            or out of sync.
+    insight-variables-list:
+        operation: insight_variables_list
+        enabled: false
+    insight-variables-retrieve:
+        operation: insight_variables_retrieve
+        enabled: false

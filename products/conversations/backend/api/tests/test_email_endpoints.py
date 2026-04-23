@@ -13,6 +13,7 @@ from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 
+from products.conversations.backend.mailgun import MailgunDomainConflict
 from products.conversations.backend.models import EmailChannel
 from products.conversations.backend.models.ticket import Ticket
 
@@ -313,6 +314,35 @@ class TestEmailMultiConfig(BaseTest):
 
         # Domain NOT deleted from Mailgun since billing@ still uses it
         mock_delete.assert_not_called()
+
+    @patch(
+        "products.conversations.backend.api.email_settings.mailgun_add_domain",
+        side_effect=MailgunDomainConflict("Domain example.com already exists"),
+    )
+    @patch("products.conversations.backend.api.email_settings.mailgun_delete_domain")
+    @patch(
+        "products.conversations.backend.api.email_settings.get_instance_setting",
+        return_value="mg.posthog.com",
+    )
+    def test_connect_rejects_preexisting_mailgun_domain(
+        self,
+        _mock_setting: MagicMock,
+        mock_mailgun_delete: MagicMock,
+        _mock_mailgun_add: MagicMock,
+    ):
+        response = self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "support@example.com", "from_name": "Support"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert EmailChannel.objects.filter(team=self.team).count() == 0
+        mock_mailgun_delete.assert_not_called()
+
+        self.team.refresh_from_db()
+        settings = self.team.conversations_settings or {}
+        assert settings.get("email_enabled") is not True
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
     @patch(

@@ -852,3 +852,102 @@ class TestEvaluateSingleAlert(APIBaseTest):
         kwargs = mock_query_cls.call_args.kwargs
         assert kwargs["date_to"] == now
         assert kwargs["date_from"] == now - dt.timedelta(minutes=5)
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    def test_errored_notification_emitted_on_first_error(self, mock_produce, mock_query_cls):
+        mock_query_cls.return_value.execute.side_effect = RuntimeError("CH down")
+        alert = self._make_alert()
+
+        _evaluate_single_alert(alert, datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), _make_stats())
+
+        alert.refresh_from_db()
+        assert alert.state == LogsAlertConfiguration.State.ERRORED
+        errored_calls = [
+            c
+            for c in mock_produce.call_args_list
+            if c.kwargs.get("event") and c.kwargs["event"].event == "$logs_alert_errored"
+        ]
+        assert len(errored_calls) == 1
+        assert errored_calls[0].kwargs["event"].properties["consecutive_failures"] == 1
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.capture_exception")
+    def test_errored_notification_retried_after_kafka_failure(self, _mock_capture, mock_query_cls):
+        mock_query_cls.return_value.execute.side_effect = RuntimeError("CH down")
+        alert = self._make_alert()
+        now1 = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
+        now2 = datetime(2025, 1, 1, 0, 6, 0, tzinfo=UTC)
+
+        with patch("products.logs.backend.temporal.activities.produce_internal_event") as mock_produce:
+            mock_produce.side_effect = Exception("Kafka down")
+            _evaluate_single_alert(alert, now1, _make_stats())
+
+            mock_produce.side_effect = None
+            mock_produce.reset_mock()
+            _evaluate_single_alert(alert, now2, _make_stats())
+
+        errored_calls = [
+            c
+            for c in mock_produce.call_args_list
+            if c.kwargs.get("event") and c.kwargs["event"].event == "$logs_alert_errored"
+        ]
+        assert len(errored_calls) == 1
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.capture_exception")
+    def test_broken_notification_retried_after_kafka_failure(self, _mock_capture, mock_query_cls):
+        mock_query_cls.return_value.execute.side_effect = RuntimeError("CH down")
+        # 4 prior failures — one more pushes consecutive_failures to MAX (5) → BROKEN.
+        alert = self._make_alert(state=LogsAlertConfiguration.State.ERRORED, consecutive_failures=4)
+        now1 = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
+        now2 = datetime(2025, 1, 1, 0, 6, 0, tzinfo=UTC)
+
+        with patch("products.logs.backend.temporal.activities.produce_internal_event") as mock_produce:
+            mock_produce.side_effect = Exception("Kafka down")
+            _evaluate_single_alert(alert, now1, _make_stats())
+
+            mock_produce.side_effect = None
+            mock_produce.reset_mock()
+            _evaluate_single_alert(alert, now2, _make_stats())
+
+        auto_disabled_calls = [
+            c
+            for c in mock_produce.call_args_list
+            if c.kwargs.get("event") and c.kwargs["event"].event == "$logs_alert_auto_disabled"
+        ]
+        assert len(auto_disabled_calls) == 1
+
+    @parameterized.expand(
+        [
+            ("error", LogsAlertConfiguration.State.NOT_FIRING, 0, NotificationAction.ERROR),
+            ("broken", LogsAlertConfiguration.State.ERRORED, 4, NotificationAction.BROKEN),
+        ]
+    )
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.increment_notification_failures")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event", side_effect=Exception("Kafka down"))
+    @patch("products.logs.backend.temporal.activities.capture_exception")
+    def test_notification_failures_counter_for_error_and_broken(
+        self,
+        _name,
+        initial_state,
+        initial_failures,
+        expected_action,
+        _mock_capture,
+        _mock_produce,
+        mock_query_cls,
+        mock_notif_failures,
+    ):
+        mock_query_cls.return_value.execute.side_effect = RuntimeError("CH down")
+        self._make_alert(state=initial_state, consecutive_failures=initial_failures)
+
+        _evaluate_single_alert(
+            LogsAlertConfiguration.objects.get(), datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), _make_stats()
+        )
+
+        mock_notif_failures.assert_called_once_with(expected_action)

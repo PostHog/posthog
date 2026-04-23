@@ -16,10 +16,12 @@ from posthog.models.data_deletion_request import (
     ExecutionMode,
     RequestStatus,
     RequestType,
+    event_match_params,
+    event_match_sql_fragment,
     jsonhas_expr,
 )
 
-CRITERIA_FIELDS = {"request_type", "events", "properties", "start_time", "end_time"}
+CRITERIA_FIELDS = {"request_type", "events", "delete_all_events", "properties", "start_time", "end_time"}
 CLICKHOUSE_TEAM_GROUP = "ClickHouse Team"
 
 
@@ -132,8 +134,9 @@ class ArrayTextareaField(forms.CharField):
 
 class DataDeletionRequestForm(forms.ModelForm):
     events = ArrayTextareaField(
-        required=True,
-        help_text="One event name per line. You can also paste a JSON array.",
+        required=False,
+        help_text="One event name per line. You can also paste a JSON array. "
+        "Leave empty only when 'delete all events' is set.",
     )
     properties = ArrayTextareaField(
         required=False,
@@ -147,33 +150,25 @@ class DataDeletionRequestForm(forms.ModelForm):
 
 def _build_event_filter(obj) -> tuple[str, dict]:
     """Build the WHERE clause and params for matching events."""
-    return "", {
-        "team_id": obj.team_id,
-        "start_time": obj.start_time,
-        "end_time": obj.end_time,
-        "events": obj.events,
-    }
+    return event_match_sql_fragment(obj), event_match_params(obj)
 
 
 def _build_property_filter(obj) -> tuple[str, dict]:
     """Build the WHERE clause addition and params for matching properties."""
-    params: dict = {
-        "team_id": obj.team_id,
-        "start_time": obj.start_time,
-        "end_time": obj.end_time,
-        "events": obj.events,
-    }
+    event_clause = event_match_sql_fragment(obj)
+    params: dict = event_match_params(obj)
     properties = obj.properties
     if len(properties) == 1:
-        filter_clause = f"AND {jsonhas_expr(properties[0], 'fp_0')}"
+        property_clause = f"AND {jsonhas_expr(properties[0], 'fp_0')}"
     else:
         exprs = [jsonhas_expr(prop, f"fp_{i}") for i, prop in enumerate(properties)]
-        filter_clause = f"AND ({' OR '.join(exprs)})"
+        property_clause = f"AND ({' OR '.join(exprs)})"
 
     for i, prop in enumerate(properties):
         for j, part in enumerate(prop.split(".")):
             params[f"fp_{i}_{j}"] = part
 
+    filter_clause = f"{event_clause} {property_clause}".strip()
     return filter_clause, params
 
 
@@ -200,7 +195,6 @@ def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
             WHERE team_id = %(team_id)s
               AND timestamp >= %(start_time)s
               AND timestamp < %(end_time)s
-              AND event IN %(events)s
               {extra_filter}
             """,
             params,
@@ -235,7 +229,6 @@ def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
                 WHERE team_id = %(team_id)s
                   AND timestamp >= %(start_time)s
                   AND timestamp < %(end_time)s
-                  AND event IN %(events)s
                   {extra_filter}
             ) AS matched ON p.name = matched.name
             WHERE p.table = 'sharded_events'
@@ -260,8 +253,8 @@ def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
 
 def fetch_event_deletion_stats(obj: DataDeletionRequest):
     """Count events and affected parts for an event removal request."""
-    _, params = _build_event_filter(obj)
-    return _fetch_stats(obj.team_id, "", params)
+    extra_filter, params = _build_event_filter(obj)
+    return _fetch_stats(obj.team_id, extra_filter, params)
 
 
 def fetch_property_deletion_stats(obj: DataDeletionRequest):
@@ -328,6 +321,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                     "start_time",
                     "end_time",
                     "events",
+                    "delete_all_events",
                     "properties",
                     "notes",
                     "requires_approval",

@@ -351,19 +351,22 @@ export interface TestHogResponseApi {
 /**
  * * `trace` - trace
  * `generation` - generation
+ * `evaluation` - evaluation
  */
-export type AnalysisLevelEnumApi = (typeof AnalysisLevelEnumApi)[keyof typeof AnalysisLevelEnumApi]
+export type ClusteringJobAnalysisLevelEnumApi =
+    (typeof ClusteringJobAnalysisLevelEnumApi)[keyof typeof ClusteringJobAnalysisLevelEnumApi]
 
-export const AnalysisLevelEnumApi = {
+export const ClusteringJobAnalysisLevelEnumApi = {
     Trace: 'trace',
     Generation: 'generation',
+    Evaluation: 'evaluation',
 } as const
 
 export interface ClusteringJobApi {
     readonly id: string
     /** @maxLength 100 */
     name: string
-    analysis_level: AnalysisLevelEnumApi
+    analysis_level: ClusteringJobAnalysisLevelEnumApi
     event_filters?: unknown
     enabled?: boolean
     readonly created_at: string
@@ -383,7 +386,7 @@ export interface PatchedClusteringJobApi {
     readonly id?: string
     /** @maxLength 100 */
     name?: string
-    analysis_level?: AnalysisLevelEnumApi
+    analysis_level?: ClusteringJobAnalysisLevelEnumApi
     event_filters?: unknown
     enabled?: boolean
     readonly created_at?: string
@@ -1076,13 +1079,25 @@ export interface ScoreDefinitionNewVersionApi {
     config: ScoreDefinitionConfigApi
 }
 
+/**
+ * * `trace` - trace
+ * `generation` - generation
+ */
+export type SentimentRequestAnalysisLevelEnumApi =
+    (typeof SentimentRequestAnalysisLevelEnumApi)[keyof typeof SentimentRequestAnalysisLevelEnumApi]
+
+export const SentimentRequestAnalysisLevelEnumApi = {
+    Trace: 'trace',
+    Generation: 'generation',
+} as const
+
 export interface SentimentRequestApi {
     /**
      * @minItems 1
      * @maxItems 5
      */
     ids: string[]
-    analysis_level?: AnalysisLevelEnumApi
+    analysis_level?: SentimentRequestAnalysisLevelEnumApi
     force_refresh?: boolean
     /** @nullable */
     date_from?: string | null
@@ -1744,9 +1759,18 @@ export interface LLMSkillApi {
  */
 export type PatchedLLMSkillPublishApiMetadata = { [key: string]: unknown }
 
+export interface LLMSkillEditOperationApi {
+    /** Text to find in the current skill body. Must match exactly once. */
+    old: string
+    /** Replacement text. */
+    new: string
+}
+
 export interface PatchedLLMSkillPublishApi {
-    /** Full skill body (SKILL.md instruction content) to publish as a new version. */
+    /** Full skill body (SKILL.md instruction content) to publish as a new version. Mutually exclusive with edits. */
     body?: string
+    /** List of find/replace operations to apply to the current skill body. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with body. */
+    edits?: LLMSkillEditOperationApi[]
     /**
      * Updated description for the new version.
      * @maxLength 4096
