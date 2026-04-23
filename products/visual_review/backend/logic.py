@@ -477,7 +477,7 @@ def _resolve_baselines_with_merge_base(repo: Repo, run_type: str, branch: str) -
     healed = set(healable_merge_base) - set(branch_baseline)
     merged = {**healable_merge_base, **branch_baseline}
 
-    if healed:
+    if healed or tombstoned:
         logger.info(
             "visual_review.baseline_healed",
             repo_id=str(repo.id),
