@@ -5378,6 +5378,22 @@ snapshots:
         hash: v1.k794b7964.d95b2089f09cc6d2bb9677fd26d4d346fa706bd3aae1e3f5eb8ddce6be982aa4.TiTGYPV1UsBLYZ6xsrmb7wceCMhVBvdq6MInjtWl1LA
     scenes-other-preflight--preflight--light:
         hash: v1.k794b7964.6ccf830c77c20e655c85034a351f628e6e150cc0785d14058aa15197b06452ce.pCIijcSjefHlbwUtC4DGvHUVxudZQMIsyUnKMFlTBU0
+    scenes-other-settings-organization-ai-consent-legal-dialog--default--dark:
+        hash: v1.k794b7964.e1bb02d400ee8d12ebefcabc4dce7e3b63e944043988e39c3b4f579cfca247bd.4oYDcvIUvrseWKH3xK9qfSAA8GpPAp5lO6HF_DD-XSI
+    scenes-other-settings-organization-ai-consent-legal-dialog--default--light:
+        hash: v1.k794b7964.9b52fdc0470804c094606795a2fd435a17d7e19f69f950eb490c2cf8d11c4fa9.a2t7f7HfstezBMjzBnml929VWukUQwcBMLt2rI-yASs
+    scenes-other-settings-organization-ai-consent-popover--default--dark:
+        hash: v1.k794b7964.decd50b7fae4d93a9d9db460c4d7ff90af0fa7fea52923b5aec705b5e4293b98.nnN8yhEaynHiRBoq6qAKribm2RyO9fli0LAJrjakU9k
+    scenes-other-settings-organization-ai-consent-popover--default--light:
+        hash: v1.k794b7964.2d3a2036a698736a89ba3e105000840303a45a9eb35fcba1df9c904c880f6295.-kAJ2_KTxh601qwqWXUWoT0Dw1n0Lq1zeEkl-wf4Zbc
+    scenes-other-settings-organization-ai-consent-popover--long-disabled-reason--dark:
+        hash: v1.k794b7964.939a2e34e816cba2b148c525f91a2db1b565afd6cf9489dea953f181bca05c1d.cQPWCV7WnoHRSD9sABJpO9_ULAsPvTUz-llMT-9f6YU
+    scenes-other-settings-organization-ai-consent-popover--long-disabled-reason--light:
+        hash: v1.k794b7964.1844c47146805ead9ef32a6d726e7b92abcbd51717949ba011baa2d31afda631.Vgb7TdG3c4ja1w_XB3TUSUupwBSs0OAp5eDAd_bJJ6c
+    scenes-other-settings-organization-ai-consent-popover--non-admin--dark:
+        hash: v1.k794b7964.9815f6429b926a920939b81a58f66f10e4a1a1fc3a4596f3fd4ddadcf4da73ae.LI4HuHYaTJ5CwcrCXtjKojRRQXbTC0c89vFgbqwT6JU
+    scenes-other-settings-organization-ai-consent-popover--non-admin--light:
+        hash: v1.k794b7964.665e40bd6c54436e733622bcb573de371f41ab668f2bb5bc8ed6b82bfdaca72c.opKVB9eD-xMIHJsP5ExBLz0CCkSUl7zH8_-xnBt3bF4
     scenes-other-settings-organization-oauth-apps--empty--dark:
         hash: v1.k794b7964.747dfc34f0ec91a2131f6287c1b04e091c648d3c0cc91e1116fae0617ebd1d3f.RBhpcvpynPpxDU8tIZhbhcnaY3BBkzQDuqAdqjJMKeg
     scenes-other-settings-organization-oauth-apps--empty--light:
