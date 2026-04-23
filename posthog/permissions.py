@@ -513,12 +513,6 @@ class APIScopePermission(ScopeBasePermission):
         scope_object = self._get_scope_object(request, view)
         if scope_object == "user":
             return  # The /api/users/@me/ endpoint is exempt from team and org scoping
-        if scope_object == "INTERNAL":
-            # INTERNAL endpoints opt out of the generic team-scoped-token check
-            # because they enforce their own access rules (see, e.g.,
-            # posthog/api/query_performance_proxy.py which gates on required
-            # OAuth scope + in-SQL team predicate instead of the URL's team).
-            return
 
         self._check_organization_personal_api_key_restrictions(request, view)
 
@@ -531,7 +525,12 @@ class APIScopePermission(ScopeBasePermission):
         else:
             raise ValueError("Unexpected authentication type")
 
-        if scoped_teams:
+        if scoped_teams and not getattr(view, "skip_scoped_team_enforcement", False):
+            # Default: the view must be project-nested and the URL's team must be
+            # in the token's scoped_teams. Views that are intentionally not
+            # project-nested but still need to accept scoped_teams tokens can
+            # opt out by setting `skip_scoped_team_enforcement = True` — they
+            # are responsible for enforcing their own per-team access.
             try:
                 team = view.team
                 if team.id not in scoped_teams:

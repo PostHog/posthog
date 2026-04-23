@@ -7,7 +7,9 @@
     * For now this is only our own (team 2) data
 * Requires ``scope_object = "INTERNAL"`` plus explicit OAuth scope ``clickhouse_perf:test_read``
   * a token with this scope is created for autoresearch sandboxes
-* Add ``settings={"max_execution_time": 60, "readonly": 2}``
+* Enforces the resource caps in ``_QUERY_SETTINGS`` (execution time, memory,
+  rows/bytes read) on every submission. When a cap is tripped ClickHouse
+  returns an error code the caller can use to self-correct.
     * In the future, will also set a test cluster user, this is not needed while DEBUG=1 is enforced
 * Don't try to validate the SQL, we are protected by the nature of how limited the data on the test cluster is
 """
@@ -36,6 +38,17 @@ from posthog.permissions import APIScopePermission
 logger = logging.getLogger(__name__)
 
 
+# Resource caps pushed to ClickHouse on every submission. When a query trips
+# one of these the caller gets a 502 with the ClickHouse error code (e.g. 241
+# "memory limit exceeded", 158 "too many rows", 307 "too many bytes") and can
+# narrow the query. These are safety nets only — the real cap is the test
+# cluster's own user profile once we ship that.
+MAX_EXECUTION_TIME_SECONDS = 60
+MAX_MEMORY_USAGE_BYTES = 4 * 1024**3  # 4 GiB
+MAX_RESULT_ROWS = 100_000
+MAX_RESULT_BYTES = 100 * 1024**2  # 100 MiB
+
+
 class ExecuteRequestSerializer(serializers.Serializer):
     sql = serializers.CharField()
 
@@ -45,7 +58,14 @@ _ACTION_SCOPES: dict[str, list[str]] = {
 }
 
 _QUERY_SETTINGS: dict[str, object] = {
-    "max_execution_time": 60,
+    "max_execution_time": MAX_EXECUTION_TIME_SECONDS,
+    "max_memory_usage": MAX_MEMORY_USAGE_BYTES,
+    "max_result_rows": MAX_RESULT_ROWS,
+    "max_result_bytes": MAX_RESULT_BYTES,
+    # "throw" so the caller sees an error code on overflow and can narrow the
+    # query, rather than silently truncating (which would corrupt the
+    # autoresearch baseline/candidate comparison).
+    "result_overflow_mode": "throw",
     "readonly": 2,
     "log_comment": json.dumps({"kind": "query_performance_autoresearch_proxy"}),
 }
@@ -55,6 +75,16 @@ class QueryPerformanceProxyViewSet(viewsets.ViewSet):
     authentication_classes = [OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "INTERNAL"
+
+    # This view is not project-nested. The URL has no team segment, and the
+    # test cluster has no per-team structure — access is gated by the
+    # clickhouse_perf:test_read OAuth scope + DEBUG + the ClickHouse user's
+    # readonly profile. scoped_teams on the caller's token can't be validated
+    # against a URL team (there is no URL team), so we opt out of the generic
+    # project-scoped check rather than letting scoped_teams tokens be
+    # rejected with "API keys with scoped projects are only supported on
+    # project-based endpoints."
+    skip_scoped_team_enforcement = True
 
     def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
         """
@@ -129,15 +159,20 @@ def _run_autoresearch_query(sql: str) -> Response:
         )
     elapsed_ms = (time.monotonic() - start) * 1000.0
 
+    # Pull read-side counters from the native driver's last-query ProfileInfo
+    # so `rows_read` / `bytes_read` match ClickHouse's own definitions (rows
+    # scanned, not rows returned). The autoresearch agent uses these to judge
+    # scan efficiency across candidates — returning `len(rows)` would have
+    # masked index/pruning wins.
+    profile = getattr(client.last_query, "profile_info", None)
+
     return Response(
         {
             "result": rows if isinstance(rows, list) else [],
             "elapsed_ms": round(elapsed_ms, 3),
-            "rows_read": len(rows) if isinstance(rows, list) else None,
-            "bytes_read": None,
-            "query_id": None,
+            "rows_read": getattr(profile, "rows", None),
+            "bytes_read": getattr(profile, "bytes", None),
+            "rows_returned": len(rows) if isinstance(rows, list) else None,
         },
         status=status.HTTP_200_OK,
     )
-
-

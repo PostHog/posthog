@@ -88,6 +88,19 @@ export CDP_REDIS_HOST=${CDP_REDIS_HOST:-redis7}
 export SESSION_RECORDING_API_REDIS_HOST=${SESSION_RECORDING_API_REDIS_HOST:-redis7}
 export COOKIELESS_REDIS_HOST=${COOKIELESS_REDIS_HOST:-redis7}
 export TEMPORAL_HOST=${TEMPORAL_HOST:-temporal}
+
+# Query-performance autoresearch proxy points at the main local ClickHouse
+# for dev. Settings default these to empty (fail-closed) so a missing env
+# var in prod keeps the endpoint disabled — here we set explicit local-dev
+# values. Override CLICKHOUSE_TEST_CLUSTER_HOST to point the smoke at a
+# different cluster.
+export CLICKHOUSE_TEST_CLUSTER_HOST=${CLICKHOUSE_TEST_CLUSTER_HOST:-clickhouse}
+export CLICKHOUSE_TEST_CLUSTER_DATABASE=${CLICKHOUSE_TEST_CLUSTER_DATABASE:-default}
+export CLICKHOUSE_TEST_CLUSTER_USER=${CLICKHOUSE_TEST_CLUSTER_USER:-default}
+export CLICKHOUSE_TEST_CLUSTER_PASSWORD=${CLICKHOUSE_TEST_CLUSTER_PASSWORD:-}
+export CLICKHOUSE_TEST_CLUSTER_SECURE=${CLICKHOUSE_TEST_CLUSTER_SECURE:-false}
+export CLICKHOUSE_TEST_CLUSTER_VERIFY=${CLICKHOUSE_TEST_CLUSTER_VERIFY:-true}
+
 # Persons DB — Node.js and Rust use different env var names for the same connection
 export PERSONS_DATABASE_URL=${PERSONS_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/posthog_persons}
 export PERSONS_READONLY_DATABASE_URL=${PERSONS_READONLY_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/posthog_persons}

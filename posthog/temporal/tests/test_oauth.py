@@ -29,6 +29,22 @@ class TestResolveScopes(SimpleTestCase):
             assert scope in resolve_scopes("full")
             assert scope in resolve_scopes(["feature_flag:read"])
 
+    def test_include_internal_scopes_false_drops_internal_scopes(self) -> None:
+        # Narrow-scope tokens (e.g. the autoresearch proxy's
+        # `clickhouse_perf:test_read`) need to opt out of the internal
+        # union so they don't silently carry task:write etc.
+        custom = ["clickhouse_perf:test_read"]
+        result = resolve_scopes(custom, include_internal_scopes=False)
+        assert result == custom
+        for scope in INTERNAL_SCOPES:
+            assert scope not in result
+
+    def test_include_internal_scopes_false_for_read_only_preset(self) -> None:
+        result = resolve_scopes("read_only", include_internal_scopes=False)
+        assert set(result) == set(MCP_READ_SCOPES)
+        for scope in INTERNAL_SCOPES:
+            assert scope not in result
+
 
 class TestHasWriteScopes(SimpleTestCase):
     @parameterized.expand(

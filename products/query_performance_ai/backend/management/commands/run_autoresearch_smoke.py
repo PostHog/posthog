@@ -120,7 +120,18 @@ class Command(BaseCommand):
 
         scope = "clickhouse_perf:test_read"
         self.stdout.write(f"Minting OAuth token for user={user.id} team={team.id} scope={scope}")
-        token = create_oauth_access_token_for_user(user, team.id, scopes=[scope])
+        # The sandbox token is used for two things: the ClickHouse proxy
+        # (needs `clickhouse_perf:test_read`) and the Anthropic-compat LLM
+        # gateway pi calls via ANTHROPIC_API_KEY (needs `llm_gateway:read`).
+        # Those are the only scopes required — explicitly drop the auto-union
+        # so `task:write` does NOT end up on a token handed to an
+        # LLM-controlled agent.
+        token = create_oauth_access_token_for_user(
+            user,
+            team.id,
+            scopes=[scope, "llm_gateway:read"],
+            include_internal_scopes=False,
+        )
 
         github_token = get_github_token(github_integration.id)
         if not github_token:

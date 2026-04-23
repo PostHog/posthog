@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 from django.utils import timezone
@@ -28,14 +28,15 @@ class TestQueryPerformanceProxyViewSet(APIBaseTest):
         )
         self.client.logout()
 
-    def _make_token(self, scopes: list[str]) -> str:
+    def _make_token(self, scopes: list[str], *, scoped_teams: list[int] | None = None) -> str:
+        team_scope = [self.team.id] if scoped_teams is None else scoped_teams
         token = OAuthAccessToken.objects.create(
             user=self.user,
             application=self.oauth_app,
-            token=f"pha_test_{'_'.join(scopes).replace(':', '_')}",
+            token=f"pha_test_{'_'.join(scopes).replace(':', '_')}_{'_'.join(str(t) for t in team_scope)}",
             expires=timezone.now() + timedelta(hours=1),
             scope=" ".join(scopes),
-            scoped_teams=[self.team.id],
+            scoped_teams=team_scope,
         )
         return token.token
 
@@ -102,15 +103,16 @@ class TestQueryPerformanceProxyViewSet(APIBaseTest):
 
     # --- settings are the real guardrail -----------------------------------
     #
-    # The proxy passes `readonly = 2` + `max_execution_time = 60` on every
-    # submission. Server-side enforcement (the ClickHouse user's profile
-    # pinning `readonly = 2` + row policies) is what actually keeps writes
-    # out — the proxy's job is to make sure those settings always travel
-    # with the query. The tests below verify the settings are set and that
+    # The proxy forces `readonly = 2`, `max_execution_time`, `max_memory_usage`,
+    # `max_result_rows`, `max_result_bytes`, and `result_overflow_mode = "throw"`
+    # on every submission. Server-side enforcement (the ClickHouse user's
+    # profile pinning `readonly = 2` + row policies) is what will ultimately
+    # keep writes out — the proxy's job is to make sure those caps always
+    # travel with the query. Tests below verify the caps are set and that
     # write-shaped queries are forwarded rather than filtered at the Django
     # layer (so the server can reject them).
 
-    def test_passes_readonly_and_timeout_settings_on_every_request(self):
+    def test_passes_resource_caps_on_every_request(self):
         token = self._make_token(["clickhouse_perf:test_read"])
 
         with patch("posthog.api.query_performance_proxy.sync_execute") as mocked:
@@ -123,8 +125,14 @@ class TestQueryPerformanceProxyViewSet(APIBaseTest):
 
         assert resp.status_code == 200, resp.content
         passed_settings = mocked.call_args.kwargs["settings"]
+        # Writes are blocked via readonly; overflow is hard-fail so the agent
+        # must narrow the query rather than silently truncate.
         assert passed_settings["readonly"] == 2
         assert passed_settings["max_execution_time"] == 60
+        assert passed_settings["max_memory_usage"] == 4 * 1024**3
+        assert passed_settings["max_result_rows"] == 100_000
+        assert passed_settings["max_result_bytes"] == 100 * 1024**2
+        assert passed_settings["result_overflow_mode"] == "throw"
         # sync_execute is called in read-only elevation mode (for workload routing).
         assert mocked.call_args.kwargs.get("readonly") is True
         # And against a SyncClient pointed at the configured host.
@@ -213,8 +221,18 @@ class TestQueryPerformanceProxyViewSet(APIBaseTest):
     def test_test_endpoint_returns_rows_as_native_json(self):
         token = self._make_token(["clickhouse_perf:test_read"])
 
-        with patch("posthog.api.query_performance_proxy.sync_execute") as mocked:
-            mocked.return_value = [(1, "a"), (2, None)]
+        # `rows_read` / `bytes_read` are pulled from the native driver's
+        # `client.last_query.profile_info` so they reflect CH's view of the
+        # query (rows scanned, bytes scanned) — not the number of rows the
+        # caller got back. Patch the SyncClient so `profile_info` is set.
+        profile = MagicMock(rows=987654, bytes=12345678)
+        fake_client = MagicMock()
+        fake_client.last_query.profile_info = profile
+
+        with (
+            patch("posthog.api.query_performance_proxy.SyncClient", return_value=fake_client),
+            patch("posthog.api.query_performance_proxy.sync_execute", return_value=[(1, "a"), (2, None)]),
+        ):
             resp = self._post(
                 "/api/query_performance_proxy/execute-test/",
                 token=token,
@@ -227,6 +245,33 @@ class TestQueryPerformanceProxyViewSet(APIBaseTest):
         # Tuples from clickhouse-driver serialize as lists through DRF's JSON
         # renderer.
         assert payload["result"] == [[1, "a"], [2, None]]
-        assert payload["rows_read"] == 2
-        assert payload["bytes_read"] is None
+        # rows_read / bytes_read are CH's scan-side counters, not output size.
+        assert payload["rows_read"] == 987654
+        assert payload["bytes_read"] == 12345678
+        # rows_returned is the output row count — useful for the agent to
+        # compare against rows_read as a scan-efficiency proxy.
+        assert payload["rows_returned"] == 2
         assert isinstance(payload["elapsed_ms"], int | float)
+
+    # --- token scoping -----------------------------------------------------
+
+    def test_scoped_teams_token_for_another_team_can_still_reach_endpoint(self):
+        # The proxy is not URL-team-nested: the test cluster has no per-team
+        # structure and access is gated by the OAuth scope + DEBUG + CH user's
+        # readonly profile. A token scoped to a different team must still be
+        # accepted (the endpoint opts out of the generic project-scope check).
+        # This is the regression we care about — an earlier version of this
+        # PR took a hammer to `permissions.check_team_and_org_permissions`
+        # that weakened every INTERNAL endpoint.
+        other_team_token = self._make_token(["clickhouse_perf:test_read"], scoped_teams=[self.team.id + 999])
+
+        with patch("posthog.api.query_performance_proxy.sync_execute") as mocked:
+            mocked.return_value = [(1,)]
+            resp = self._post(
+                "/api/query_performance_proxy/execute-test/",
+                token=other_team_token,
+                body={"sql": "SELECT 1"},
+            )
+
+        assert resp.status_code == 200, resp.content
+        assert mocked.call_count == 1

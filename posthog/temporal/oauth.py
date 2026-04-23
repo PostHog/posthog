@@ -74,12 +74,22 @@ PosthogMcpScopes = McpScopePreset | list[str]
 MCP_SCOPE_PRESETS = ("read_only", "full")
 
 
-def resolve_scopes(scopes: PosthogMcpScopes = "read_only") -> list[str]:
+def resolve_scopes(scopes: PosthogMcpScopes = "read_only", *, include_internal_scopes: bool = True) -> list[str]:
+    """Expand the caller's scope request into the full list written on the token.
+
+    The default (``include_internal_scopes=True``) preserves historical MCP
+    behavior — every token issued through this helper gets the MCP
+    ``INTERNAL_SCOPES`` (``task:write``, ``llm_gateway:read``) appended. Callers
+    that need a strictly narrow token (e.g. ``clickhouse_perf:test_read``
+    only, for the autoresearch proxy) should pass
+    ``include_internal_scopes=False`` so the union does not happen.
+    """
+    internal = list(INTERNAL_SCOPES) if include_internal_scopes else []
     if isinstance(scopes, str):
         if scopes == "full":
-            return [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *INTERNAL_SCOPES]
-        return [*MCP_READ_SCOPES, *INTERNAL_SCOPES]
-    return [*scopes, *INTERNAL_SCOPES]
+            return [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *internal]
+        return [*MCP_READ_SCOPES, *internal]
+    return [*scopes, *internal]
 
 
 def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
@@ -103,8 +113,14 @@ def get_array_app() -> OAuthApplication:
         raise RuntimeError(f"Array app not found for region {region} (client_id={client_id})") from err
 
 
-def create_oauth_access_token_for_user(user, team_id: int, *, scopes: PosthogMcpScopes = "read_only") -> str:
-    resolved = resolve_scopes(scopes)
+def create_oauth_access_token_for_user(
+    user,
+    team_id: int,
+    *,
+    scopes: PosthogMcpScopes = "read_only",
+    include_internal_scopes: bool = True,
+) -> str:
+    resolved = resolve_scopes(scopes, include_internal_scopes=include_internal_scopes)
     app = get_array_app()
     token_value = generate_random_oauth_access_token(None)
 

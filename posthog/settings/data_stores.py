@@ -310,43 +310,17 @@ CLICKHOUSE_CONN_POOL_MAX: int = get_from_env("CLICKHOUSE_CONN_POOL_MAX", 1000, t
 # ClickHouse cluster a sandbox is allowed to reach. The cluster behind this
 # host must be team-scoped at the ClickHouse layer (row policies, or a
 # dedicated test cluster containing only data the caller is authorized to
-# see). ``CLICKHOUSE_TEST_CLUSTER_HOST`` is required — unset leaves the proxy
-# endpoint disabled (503), which is the safe default: a missing deploy-time
-# env var should never silently fall back to the main cluster. In local dev,
-# the other CLICKHOUSE_TEST_CLUSTER_* vars fall back to the main cluster
-# values so an operator can just set the host. In prod (DEBUG off) the fallback
-# is a safe empty/default — but the endpoint refuses regardless until DEBUG is
-# on (see posthog/api/query_performance_proxy.py).
-CLICKHOUSE_TEST_CLUSTER_HOST: str = os.getenv(
-    "CLICKHOUSE_TEST_CLUSTER_HOST",
-    CLICKHOUSE_HOST if DEBUG else "",
-)
-CLICKHOUSE_TEST_CLUSTER_DATABASE: str = os.getenv(
-    "CLICKHOUSE_TEST_CLUSTER_DATABASE",
-    CLICKHOUSE_DATABASE if DEBUG else "",
-)
-CLICKHOUSE_TEST_CLUSTER_USER: str = os.getenv(
-    "CLICKHOUSE_TEST_CLUSTER_USER",
-    CLICKHOUSE_USER if DEBUG else "",
-)
-CLICKHOUSE_TEST_CLUSTER_PASSWORD: str = os.getenv(
-    "CLICKHOUSE_TEST_CLUSTER_PASSWORD",
-    CLICKHOUSE_PASSWORD if DEBUG else "",
-)
-CLICKHOUSE_TEST_CLUSTER_SECURE: bool = get_from_env(
-    "CLICKHOUSE_TEST_CLUSTER_SECURE",
-    CLICKHOUSE_SECURE,
-    type_cast=str_to_bool,
-)
-CLICKHOUSE_TEST_CLUSTER_CA: str | None = os.getenv(
-    "CLICKHOUSE_TEST_CLUSTER_CA",
-    CLICKHOUSE_CA,
-)
-CLICKHOUSE_TEST_CLUSTER_VERIFY: bool = get_from_env(
-    "CLICKHOUSE_TEST_CLUSTER_VERIFY",
-    CLICKHOUSE_VERIFY,
-    type_cast=str_to_bool,
-)
+# see). These vars are fail-closed: unset leaves the proxy endpoint disabled
+# (503). ``bin/start`` sets sensible local-dev defaults so operators running
+# the autoresearch smoke don't need to configure anything by hand; production
+# never sets them.
+CLICKHOUSE_TEST_CLUSTER_HOST: str = os.getenv("CLICKHOUSE_TEST_CLUSTER_HOST", "")
+CLICKHOUSE_TEST_CLUSTER_DATABASE: str = os.getenv("CLICKHOUSE_TEST_CLUSTER_DATABASE", "")
+CLICKHOUSE_TEST_CLUSTER_USER: str = os.getenv("CLICKHOUSE_TEST_CLUSTER_USER", "")
+CLICKHOUSE_TEST_CLUSTER_PASSWORD: str = os.getenv("CLICKHOUSE_TEST_CLUSTER_PASSWORD", "")
+CLICKHOUSE_TEST_CLUSTER_SECURE: bool = get_from_env("CLICKHOUSE_TEST_CLUSTER_SECURE", False, type_cast=str_to_bool)
+CLICKHOUSE_TEST_CLUSTER_CA: str | None = os.getenv("CLICKHOUSE_TEST_CLUSTER_CA", None)
+CLICKHOUSE_TEST_CLUSTER_VERIFY: bool = get_from_env("CLICKHOUSE_TEST_CLUSTER_VERIFY", True, type_cast=str_to_bool)
 
 CLICKHOUSE_STABLE_HOST: str = get_from_env("CLICKHOUSE_STABLE_HOST", CLICKHOUSE_HOST)
 # If enabled, some queries will use system.cluster table to query each shard
