@@ -1,7 +1,8 @@
-"""Per-job workflows for evaluation clustering (Stage A sampler real, Stage B clustering stub)."""
+"""Per-job workflows for evaluation clustering (Stage A sampler + Stage B clustering stub)."""
 
 from datetime import timedelta
 
+import temporalio.exceptions
 from temporalio import workflow
 
 from posthog.temporal.common.base import PostHogWorkflow
@@ -92,12 +93,18 @@ class LLMAEvaluationSamplerWorkflow(PostHogWorkflow):
 # and the no-op run body go away at that point.
 @workflow.defn(name=CLUSTERING_WORKFLOW_NAME)
 class LLMAEvaluationClusteringWorkflow(PostHogWorkflow):
-    """Stub for the daily per-job clustering workflow.
+    """Daily per-job clustering workflow.
 
-    The real Stage B pipeline (compute → metadata → label → aggregates → emit)
-    lands alongside the activities module in a follow-up PR. Until then this
-    workflow is registered so its name resolves on the worker, but the run is
-    a no-op so an accidentally-scheduled invocation completes harmlessly.
+    Orchestrates five activities:
+
+    1. Compute — fetch embeddings, HDBSCAN cluster, distances, 2D coords.
+    2. Metadata — join evals to their linked generations for downstream use.
+    3. Label — LangGraph agent over evaluator+verdict+reasoning snippets.
+    4. Aggregates — operational (via linked generation) + eval-specific metrics.
+    5. Emit — single ``$ai_evaluation_clusters`` event with everything baked in.
+
+    Returns a ``SamplerWorkflowResult`` (reused for coordinator-side tallying)
+    with ``sampled`` set to total items analyzed.
     """
 
     @staticmethod
@@ -110,16 +117,170 @@ class LLMAEvaluationClusteringWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: SamplerWorkflowInputs) -> SamplerWorkflowResult:
-        workflow.logger.info(
-            "evaluation clustering workflow stub — Stage B pipeline not yet wired",
-            team_id=inputs.team_id,
-            job_id=inputs.job_id,
+        # Lazy imports inside the workflow keep numpy / sklearn / umap / langgraph
+        # off the workflow-side import graph (Temporal doesn't like heavy I/O
+        # libs reaching workflow code).
+        from posthog.temporal.llm_analytics.evaluation_clustering.activities import (
+            METADATA_LOOKBACK,
+            ComputeEvaluationAggregatesInputs,
+            EmitEvaluationClusterEventsInputs,
+            EvaluationClusteringComputeInputs,
+            FetchEvaluationMetadataInputs,
+            GenerateEvaluationLabelsInputs,
+            compute_evaluation_cluster_aggregates_activity,
+            compute_item_labeling_metadata,
+            emit_evaluation_cluster_events_activity,
+            fetch_evaluation_metadata_activity,
+            generate_evaluation_cluster_labels_activity,
+            perform_evaluation_clustering_compute_activity,
         )
+        from posthog.temporal.llm_analytics.trace_clustering.constants import (
+            AGGREGATES_ACTIVITY_RETRY_POLICY,
+            AGGREGATES_ACTIVITY_TIMEOUT,
+            AGGREGATES_HEARTBEAT_TIMEOUT,
+            AGGREGATES_SCHEDULE_TO_CLOSE_TIMEOUT,
+            COMPUTE_ACTIVITY_RETRY_POLICY,
+            COMPUTE_ACTIVITY_TIMEOUT,
+            COMPUTE_HEARTBEAT_TIMEOUT,
+            COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT,
+            EMIT_ACTIVITY_RETRY_POLICY,
+            EMIT_ACTIVITY_TIMEOUT,
+            EMIT_HEARTBEAT_TIMEOUT,
+            EMIT_SCHEDULE_TO_CLOSE_TIMEOUT,
+            LLM_ACTIVITY_RETRY_POLICY,
+            LLM_ACTIVITY_TIMEOUT,
+            LLM_HEARTBEAT_TIMEOUT,
+            LLM_SCHEDULE_TO_CLOSE_TIMEOUT,
+        )
+
+        now = workflow.now()
+        window_end = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+        window_start = (now - METADATA_LOOKBACK).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        # 1. Compute — pass the workflow's window through so the embeddings
+        # fetch uses the same time slice as the metadata fetch below. Without
+        # this, activity-local datetime.now() can drift past the metadata
+        # lookback and sample eval ids whose linked generations are already
+        # out of range, producing clusters with unresolvable navigation.
+        compute_result = await workflow.execute_activity(
+            perform_evaluation_clustering_compute_activity,
+            EvaluationClusteringComputeInputs(
+                team_id=inputs.team_id,
+                job_id=inputs.job_id,
+                job_name=inputs.job_name,
+                window_start=window_start,
+                window_end=window_end,
+            ),
+            start_to_close_timeout=COMPUTE_ACTIVITY_TIMEOUT,
+            schedule_to_close_timeout=COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT,
+            heartbeat_timeout=COMPUTE_HEARTBEAT_TIMEOUT,
+            retry_policy=COMPUTE_ACTIVITY_RETRY_POLICY,
+        )
+
+        if compute_result.skip_reason or not compute_result.eval_ids:
+            workflow.logger.info(
+                "skipping eval clustering run",
+                reason=compute_result.skip_reason,
+                job_id=inputs.job_id,
+            )
+            return SamplerWorkflowResult(
+                team_id=inputs.team_id,
+                job_id=inputs.job_id,
+                sampled=0,
+                embedded=0,
+                window_start=window_start,
+                window_end=window_end,
+            )
+
+        # 2. Metadata
+        metadata_result = await workflow.execute_activity(
+            fetch_evaluation_metadata_activity,
+            FetchEvaluationMetadataInputs(
+                team_id=inputs.team_id,
+                eval_ids=compute_result.eval_ids,
+                window_start=window_start,
+                window_end=window_end,
+            ),
+            start_to_close_timeout=COMPUTE_ACTIVITY_TIMEOUT,
+            schedule_to_close_timeout=COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT,
+            heartbeat_timeout=COMPUTE_HEARTBEAT_TIMEOUT,
+            retry_policy=COMPUTE_ACTIVITY_RETRY_POLICY,
+        )
+
+        item_metadata = compute_item_labeling_metadata(compute_result)
+
+        # 3. Labels (LangGraph agent)
+        labels_result = await workflow.execute_activity(
+            generate_evaluation_cluster_labels_activity,
+            GenerateEvaluationLabelsInputs(
+                team_id=inputs.team_id,
+                eval_ids=compute_result.eval_ids,
+                labels=compute_result.labels,
+                item_metadata=item_metadata,
+                centroid_coords_2d=compute_result.centroid_coords_2d,
+                eval_metadata=metadata_result.metadata,
+                window_start=window_start,
+                window_end=window_end,
+            ),
+            start_to_close_timeout=LLM_ACTIVITY_TIMEOUT,
+            schedule_to_close_timeout=LLM_SCHEDULE_TO_CLOSE_TIMEOUT,
+            heartbeat_timeout=LLM_HEARTBEAT_TIMEOUT,
+            retry_policy=LLM_ACTIVITY_RETRY_POLICY,
+        )
+
+        # 4. Aggregates — best-effort on activity failure, but cancellation
+        # must propagate so shutdowns/manual cancels don't silently continue
+        # through emit (matches trace clustering's pattern).
+        cluster_metrics: dict = {}
+        try:
+            cluster_metrics = await workflow.execute_activity(
+                compute_evaluation_cluster_aggregates_activity,
+                ComputeEvaluationAggregatesInputs(
+                    eval_ids=compute_result.eval_ids,
+                    labels=compute_result.labels,
+                    eval_metadata=metadata_result.metadata,
+                ),
+                start_to_close_timeout=AGGREGATES_ACTIVITY_TIMEOUT,
+                schedule_to_close_timeout=AGGREGATES_SCHEDULE_TO_CLOSE_TIMEOUT,
+                heartbeat_timeout=AGGREGATES_HEARTBEAT_TIMEOUT,
+                retry_policy=AGGREGATES_ACTIVITY_RETRY_POLICY,
+            )
+        except temporalio.exceptions.ActivityError as e:
+            if isinstance(e.cause, temporalio.exceptions.CancelledError):
+                raise
+            workflow.logger.warning("eval aggregates activity failed; emitting without metrics")
+
+        # 5. Emit
+        emit_result = await workflow.execute_activity(
+            emit_evaluation_cluster_events_activity,
+            EmitEvaluationClusterEventsInputs(
+                team_id=inputs.team_id,
+                clustering_run_id=compute_result.clustering_run_id,
+                window_start=window_start,
+                window_end=window_end,
+                eval_ids=compute_result.eval_ids,
+                labels=compute_result.labels,
+                centroids=compute_result.centroids,
+                distances=compute_result.distances,
+                coords_2d=compute_result.coords_2d,
+                centroid_coords_2d=compute_result.centroid_coords_2d,
+                cluster_labels=labels_result.cluster_labels,
+                eval_metadata=metadata_result.metadata,
+                job_id=inputs.job_id,
+                job_name=inputs.job_name,
+                cluster_metrics=cluster_metrics,
+            ),
+            start_to_close_timeout=EMIT_ACTIVITY_TIMEOUT,
+            schedule_to_close_timeout=EMIT_SCHEDULE_TO_CLOSE_TIMEOUT,
+            heartbeat_timeout=EMIT_HEARTBEAT_TIMEOUT,
+            retry_policy=EMIT_ACTIVITY_RETRY_POLICY,
+        )
+
         return SamplerWorkflowResult(
             team_id=inputs.team_id,
             job_id=inputs.job_id,
-            sampled=0,
-            embedded=0,
-            window_start="",
-            window_end="",
+            sampled=emit_result.metrics.total_items_analyzed,
+            embedded=emit_result.metrics.num_clusters,
+            window_start=window_start,
+            window_end=window_end,
         )
