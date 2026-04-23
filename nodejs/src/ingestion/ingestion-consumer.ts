@@ -141,7 +141,10 @@ export class IngestionConsumer {
         overrides: Partial<
             Pick<
                 IngestionConsumerConfig,
-                'INGESTION_CONSUMER_GROUP_ID' | 'INGESTION_CONSUMER_CONSUME_TOPIC' | 'INGESTION_CONSUMER_OVERFLOW_TOPIC'
+                | 'INGESTION_CONSUMER_GROUP_ID'
+                | 'INGESTION_CONSUMER_CONSUME_TOPIC'
+                | 'INGESTION_CONSUMER_OVERFLOW_TOPIC'
+                | 'INGESTION_CONSUMER_DLQ_TOPIC'
             >
         > = {}
     ) {

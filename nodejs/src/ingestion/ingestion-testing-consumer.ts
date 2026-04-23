@@ -30,7 +30,7 @@ export type IngestionTestingConsumerFullConfig = Pick<
     | 'KAFKA_CLIENT_RACK'
     | 'INGESTION_CONSUMER_CONSUME_TOPIC'
     | 'INGESTION_CONSUMER_GROUP_ID'
-    | 'INGESTION_OUTPUT_DLQ_TOPIC'
+    | 'INGESTION_CONSUMER_DLQ_TOPIC'
     | 'CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC'
     | 'CLICKHOUSE_HEATMAPS_KAFKA_TOPIC'
     | 'KAFKA_BATCH_START_LOGGING_ENABLED'
@@ -65,13 +65,13 @@ export class IngestionTestingConsumer {
         overrides: Partial<
             Pick<
                 PluginsServerConfig,
-                'INGESTION_CONSUMER_CONSUME_TOPIC' | 'INGESTION_CONSUMER_GROUP_ID' | 'INGESTION_OUTPUT_DLQ_TOPIC'
+                'INGESTION_CONSUMER_CONSUME_TOPIC' | 'INGESTION_CONSUMER_GROUP_ID' | 'INGESTION_CONSUMER_DLQ_TOPIC'
             >
         > = {}
     ) {
         this.groupId = overrides.INGESTION_CONSUMER_GROUP_ID ?? config.INGESTION_CONSUMER_GROUP_ID
         this.topic = overrides.INGESTION_CONSUMER_CONSUME_TOPIC ?? config.INGESTION_CONSUMER_CONSUME_TOPIC
-        this.dlqTopic = overrides.INGESTION_OUTPUT_DLQ_TOPIC ?? config.INGESTION_OUTPUT_DLQ_TOPIC
+        this.dlqTopic = overrides.INGESTION_CONSUMER_DLQ_TOPIC ?? config.INGESTION_CONSUMER_DLQ_TOPIC
 
         this.name = `ingestion-testing-consumer-${this.topic}`
 
