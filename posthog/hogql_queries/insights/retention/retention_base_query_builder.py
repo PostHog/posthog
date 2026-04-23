@@ -12,72 +12,72 @@ from posthog.hogql_queries.insights.retention.utils import breakdown_extract_exp
 if TYPE_CHECKING:
     from posthog.schema import RetentionEntity, RetentionQuery
 
-    from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
+    from posthog.hogql_queries.insights.retention.retention_query_context import RetentionQueryContext
     from posthog.hogql_queries.utils.query_date_range import QueryDateRangeWithIntervals
     from posthog.models import Team
 
 
 class RetentionBaseQueryBuilder(ABC):
-    runner: RetentionQueryRunner
+    context: RetentionQueryContext
 
-    def __init__(self, runner: RetentionQueryRunner):
-        self.runner = runner
+    def __init__(self, context: RetentionQueryContext):
+        self.context = context
 
     @property
     def team(self) -> Team:
-        return self.runner.team
+        return self.context.team
 
     @property
     def query(self) -> RetentionQuery:
-        return self.runner.query
+        return self.context.query
 
     @property
     def query_date_range(self) -> QueryDateRangeWithIntervals:
-        return self.runner.query_date_range
+        return self.context.query_date_range
 
     @property
     def start_event(self) -> RetentionEntity:
-        return self.runner.start_event
+        return self.context.start_event
 
     @property
     def return_event(self) -> RetentionEntity:
-        return self.runner.return_event
+        return self.context.return_event
 
     @property
     def start_entity_expr(self) -> ast.Expr:
-        return self.runner.start_entity_expr
+        return self.context.start_entity_expr
 
     @property
     def return_entity_expr(self) -> ast.Expr:
-        return self.runner.return_entity_expr
+        return self.context.return_entity_expr
 
     @property
     def aggregation_target_events_column(self) -> str:
-        return self.runner.aggregation_target_events_column
+        return self.context.aggregation_target_events_column
 
     @property
     def property_aggregation_expr(self) -> ast.Expr | None:
-        return self.runner.property_aggregation_expr
+        return self.context.property_aggregation_expr
 
     @property
     def global_event_filters(self) -> list[ast.Expr]:
-        return self.runner.global_event_filters
+        return self.context.global_event_filters
 
     @property
     def events_timestamp_filter(self) -> ast.Expr:
-        return self.runner.events_timestamp_filter
+        return self.context.events_timestamp_filter
 
     @property
     def is_first_ever_occurrence(self) -> bool:
-        return self.runner.is_first_ever_occurrence
+        return self.context.is_first_ever_occurrence
 
     @property
     def is_first_occurrence_matching_filters(self) -> bool:
-        return self.runner.is_first_occurrence_matching_filters
+        return self.context.is_first_occurrence_matching_filters
 
     @property
     def is_custom_bracket_retention(self) -> bool:
-        return self.runner.is_custom_bracket_retention
+        return self.context.is_custom_bracket_retention
 
     def build(
         self,
