@@ -435,6 +435,9 @@ def _resolve_baselines_with_merge_base(repo: Repo, run_type: str, branch: str) -
     rewrites the full file, and git rebase replays it destructively).
 
     Branch entries win on conflict so approvals are preserved.
+    Identifiers previously approved as REMOVED on this branch are
+    tombstoned — healing would otherwise resurrect them from master
+    and re-flag them as removed on every subsequent run.
     Returns (merged_baseline, healed_count).
     """
     try:
@@ -468,8 +471,11 @@ def _resolve_baselines_with_merge_base(repo: Repo, run_type: str, branch: str) -
     if not merge_base_baseline:
         return branch_baseline, 0
 
-    healed = set(merge_base_baseline) - set(branch_baseline)
-    merged = {**merge_base_baseline, **branch_baseline}
+    tombstoned = _tombstoned_identifiers(repo, run_type, branch)
+    healable_merge_base = {k: v for k, v in merge_base_baseline.items() if k not in tombstoned}
+
+    healed = set(healable_merge_base) - set(branch_baseline)
+    merged = {**healable_merge_base, **branch_baseline}
 
     if healed:
         logger.info(
@@ -480,9 +486,34 @@ def _resolve_baselines_with_merge_base(repo: Repo, run_type: str, branch: str) -
             branch_count=len(branch_baseline),
             merge_base_count=len(merge_base_baseline),
             merged_count=len(merged),
+            tombstoned_count=len(tombstoned),
         )
 
     return merged, len(healed)
+
+
+def _tombstoned_identifiers(repo: Repo, run_type: str, branch: str) -> set[str]:
+    """Identifiers approved as REMOVED on this branch.
+
+    Healing pulls entries from merge-base back into the baseline when
+    they're missing from branch. Without tombstoning, an approved
+    removal on this PR keeps reappearing: the bot commit drops it from
+    the branch file, but the next run's merge-base fetch re-adds it
+    and classifies it REMOVED all over again.
+    """
+    return set(
+        RunSnapshot.objects.using(WRITER_DB)
+        .filter(
+            run__repo=repo,
+            run__run_type=run_type,
+            run__branch=branch,
+            run__approved=True,
+            result=SnapshotResult.REMOVED,
+            review_state=ReviewState.APPROVED,
+        )
+        .values_list("identifier", flat=True)
+        .distinct()
+    )
 
 
 def create_run(

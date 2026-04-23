@@ -3,7 +3,7 @@
 import pytest
 
 from products.visual_review.backend import logic
-from products.visual_review.backend.facade.enums import RunStatus, RunType, SnapshotResult
+from products.visual_review.backend.facade.enums import ReviewState, RunStatus, RunType, SnapshotResult
 from products.visual_review.backend.models import Repo
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
@@ -1536,3 +1536,124 @@ class TestMergeBaseBaselineHealing:
         snapshot = run.snapshots.get(identifier="flaky")
         assert snapshot.result == SnapshotResult.CHANGED
         assert snapshot.baseline_hash == "master_hash"
+
+    def test_tombstoned_removals_not_healed_back(self, repo, team, mocker):
+        """Approved REMOVED identifiers on this branch must not be healed from merge-base.
+
+        Repro for the PR #55391 bug: a story intentionally removed on the
+        branch kept getting re-flagged because healing pulled it back from
+        master on every run.
+        """
+        from products.visual_review.backend.models import Run, RunSnapshot
+
+        branch_baseline = {"kept": "h_kept"}
+        merge_base_baseline = {"kept": "h_kept", "intentionally_removed": "h_gone"}
+        self._mock_github(mocker, branch_baseline=branch_baseline, merge_base_baseline=merge_base_baseline)
+
+        approved_run = Run.objects.create(
+            team_id=team.id,
+            repo=repo,
+            run_type=RunType.STORYBOOK,
+            branch="my-branch",
+            commit_sha="previous-sha",
+            status=RunStatus.COMPLETED,
+            approved=True,
+        )
+        RunSnapshot.objects.create(
+            run=approved_run,
+            team_id=team.id,
+            identifier="intentionally_removed",
+            baseline_hash="h_gone",
+            current_hash="",
+            result=SnapshotResult.REMOVED,
+            review_state=ReviewState.APPROVED,
+        )
+
+        merged, healed = logic._resolve_baselines_with_merge_base(repo, "storybook", "my-branch")
+
+        assert "intentionally_removed" not in merged
+        assert merged == {"kept": "h_kept"}
+        assert healed == 0
+
+    def test_tombstones_scoped_to_branch_and_run_type(self, repo, team, mocker):
+        """Tombstones from other branches or run types must not leak across."""
+        from products.visual_review.backend.models import Run, RunSnapshot
+
+        branch_baseline: dict[str, str] = {}
+        merge_base_baseline = {"other_branch_removal": "h1", "other_run_type_removal": "h2"}
+        self._mock_github(mocker, branch_baseline=branch_baseline, merge_base_baseline=merge_base_baseline)
+
+        other_branch_run = Run.objects.create(
+            team_id=team.id,
+            repo=repo,
+            run_type=RunType.STORYBOOK,
+            branch="someone-else",
+            commit_sha="x",
+            status=RunStatus.COMPLETED,
+            approved=True,
+        )
+        RunSnapshot.objects.create(
+            run=other_branch_run,
+            team_id=team.id,
+            identifier="other_branch_removal",
+            baseline_hash="h1",
+            current_hash="",
+            result=SnapshotResult.REMOVED,
+            review_state=ReviewState.APPROVED,
+        )
+
+        other_run_type_run = Run.objects.create(
+            team_id=team.id,
+            repo=repo,
+            run_type="playwright",
+            branch="my-branch",
+            commit_sha="y",
+            status=RunStatus.COMPLETED,
+            approved=True,
+        )
+        RunSnapshot.objects.create(
+            run=other_run_type_run,
+            team_id=team.id,
+            identifier="other_run_type_removal",
+            baseline_hash="h2",
+            current_hash="",
+            result=SnapshotResult.REMOVED,
+            review_state=ReviewState.APPROVED,
+        )
+
+        merged, healed = logic._resolve_baselines_with_merge_base(repo, "storybook", "my-branch")
+
+        assert merged == merge_base_baseline
+        assert healed == 2
+
+    def test_unapproved_removal_still_healed(self, repo, team, mocker):
+        """Only *approved* REMOVED entries tombstone — pending removals still heal."""
+        from products.visual_review.backend.models import Run, RunSnapshot
+
+        branch_baseline: dict[str, str] = {}
+        merge_base_baseline = {"pending_removal": "h1"}
+        self._mock_github(mocker, branch_baseline=branch_baseline, merge_base_baseline=merge_base_baseline)
+
+        pending_run = Run.objects.create(
+            team_id=team.id,
+            repo=repo,
+            run_type=RunType.STORYBOOK,
+            branch="my-branch",
+            commit_sha="z",
+            status=RunStatus.COMPLETED,
+            approved=False,
+        )
+        RunSnapshot.objects.create(
+            run=pending_run,
+            team_id=team.id,
+            identifier="pending_removal",
+            baseline_hash="h1",
+            current_hash="",
+            result=SnapshotResult.REMOVED,
+            review_state=ReviewState.PENDING,
+        )
+
+        merged, healed = logic._resolve_baselines_with_merge_base(repo, "storybook", "my-branch")
+
+        assert "pending_removal" in merged
+        assert healed == 1
