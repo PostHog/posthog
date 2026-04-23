@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Optional, get_args
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth.models import AbstractUser
@@ -24,6 +24,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.utils import relative_date_parse
 
 from ee.billing.billing_manager import BillingManager
+from ee.billing.billing_types import UsageType
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 
@@ -64,7 +65,16 @@ class BillingUsageRequestSerializer(serializers.Serializer):
 
     start_date = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     end_date = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    usage_types = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    usage_types = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text=(
+            "Comma-separated usage type identifiers to filter on. Valid values: "
+            + ", ".join(get_args(UsageType))
+            + '. E.g. "event_count_in_period,recording_count_in_period". Omit for all types.'
+        ),
+    )
     team_ids = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     breakdowns = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     interval = serializers.CharField(required=False, allow_blank=True, allow_null=True)
