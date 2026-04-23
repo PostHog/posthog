@@ -19,7 +19,7 @@ export function SuperpowersModal(): JSX.Element | null {
     const { closeSuperpowers } = useActions(superpowersLogic)
 
     return (
-        <LemonModal title="" isOpen={isSuperpowersOpen} onClose={closeSuperpowers} width={500}>
+        <LemonModal title="" isOpen={isSuperpowersOpen} onClose={closeSuperpowers}>
             <SuperpowersContent />
         </LemonModal>
     )

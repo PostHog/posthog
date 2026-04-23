@@ -141,7 +141,7 @@ export function SavedViewsModal({ id }: LogsViewsLogicProps): JSX.Element {
                 isOpen={isModalOpen}
                 onClose={closeModal}
                 title="Saved views"
-                width={720}
+                maxWidth="48rem"
                 footer={
                     <div className="flex justify-between w-full">
                         <LemonButton type="primary" onClick={openSaveModal}>

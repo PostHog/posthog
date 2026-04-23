@@ -138,6 +138,7 @@ export default function TracingScene(): JSX.Element {
                 isOpen={isTraceModalOpen}
                 onClose={closeTraceModal}
                 width="90vw"
+                maxWidth="90vw"
             >
                 <div className="relative min-h-32">
                     {isLoadingFullTrace && <SpinnerOverlay />}

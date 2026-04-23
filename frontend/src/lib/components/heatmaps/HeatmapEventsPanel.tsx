@@ -57,7 +57,7 @@ export function HeatmapEventsPanel({ context, exportToken }: HeatmapDataLogicPro
     ]
 
     return (
-        <LemonModal title="Events in this area" onClose={handleClose} isOpen width={700}>
+        <LemonModal title="Events in this area" onClose={handleClose} isOpen maxWidth="48rem">
             {areaEventsLoading ? (
                 <div className="space-y-2 p-4">
                     <LemonSkeleton className="h-8 w-full" />

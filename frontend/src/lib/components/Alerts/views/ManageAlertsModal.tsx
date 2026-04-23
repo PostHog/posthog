@@ -106,7 +106,7 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
     const showDeferredListSpinner = props.deferInitialAlertsLoad && props.isOpen && alertsLoading
 
     return (
-        <LemonModal onClose={props.onClose} isOpen={props.isOpen} width={600} simple title="">
+        <LemonModal onClose={props.onClose} isOpen={props.isOpen} maxWidth="48rem" simple title="">
             <LemonModal.Header>
                 <h3 className="!m-0">Manage Alerts</h3>
             </LemonModal.Header>

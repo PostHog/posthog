@@ -146,7 +146,7 @@ function LogsAlertModalContent({ editingAlert }: { editingAlert: LogsAlertConfig
                     onClose={closeSimulationPanel}
                     title="Alert simulation"
                     description="Run the alert against historical data to preview when it would have fired. Includes threshold evaluation, N-of-M noise reduction, and cooldown."
-                    width={960}
+                    maxWidth="90vw"
                 >
                     <LogsAlertSimulation />
                 </LemonModal>

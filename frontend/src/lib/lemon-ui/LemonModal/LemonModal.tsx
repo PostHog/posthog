@@ -28,6 +28,11 @@ export interface LemonModalProps {
     onClose?: () => void
     onAfterClose?: () => void
     width?: number | string
+    /**
+     * Caps the modal width. Defaults to prose (`65ch`).
+     * Tier vocabulary: `'48rem'` for wide content, `'90vw'` for extra-wide.
+     * Pass the CSS literal `'none'` (i.e. `max-width: none`) to opt out.
+     */
     maxWidth?: number | string
     inline?: boolean
     title?: React.ReactNode

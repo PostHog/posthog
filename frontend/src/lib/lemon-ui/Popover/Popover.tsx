@@ -61,7 +61,12 @@ export interface PopoverProps {
     /** Whether the popover's width should be synced with the children's width or bigger. */
     matchWidth?: boolean
     maxContentWidth?: boolean
-    /** Caps the popover content width. Defaults to prose (`65ch`); use `'48rem'` for wide content, `'90vw'` for extra-wide, or `'none'` to opt out. */
+    /**
+     * Caps the popover content width. Defaults to prose (`65ch`).
+     * Tier vocabulary: `'48rem'` for wide content, `'90vw'` for extra-wide.
+     * Pass the CSS literal `'none'` (i.e. `max-width: none`) for overlays
+     * whose content is naturally wider than prose and should not be capped.
+     */
     maxWidth?: number | string
     className?: string
     /** Whether default box padding should be applies. @default true */
