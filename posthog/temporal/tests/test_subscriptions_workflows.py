@@ -1421,9 +1421,10 @@ async def test_workflow_survives_large_insight_snapshot(
     # Workflow must complete end-to-end despite the ~4 MB snapshot.
     assert mock_send_email.call_count == 1
 
-    deliveries = await sync_to_async(list)(
-        SubscriptionDelivery.objects.filter(subscription=subscription).order_by("-created_at")
-    )
+    def _fetch_deliveries() -> list[SubscriptionDelivery]:
+        return list(SubscriptionDelivery.objects.filter(subscription=subscription).order_by("-created_at"))
+
+    deliveries = await sync_to_async(_fetch_deliveries)()
     assert len(deliveries) == 1
     assert deliveries[0].status == DeliveryStatus.COMPLETED
 

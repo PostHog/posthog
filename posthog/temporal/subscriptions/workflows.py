@@ -258,8 +258,57 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     f"{len(non_user_errors)} export(s) failed: {', '.join(distinct_classes)}",
                 )
 
-            # content_snapshot is already in Postgres — create_export_assets wrote
-            # it from within the activity so the LLM summary can read it from DB.
+            # content_snapshot is already in Postgres — create_export_assets
+            # writes it directly from inside the activity, so the LLM summary
+            # activity below can read it back from the DB with full fidelity.
+            #
+            # Rolling-deploy gate: in-flight workflows from before this change
+            # recorded an execute_activity(update_delivery_record, ...) command
+            # in their history here. To keep their replay deterministic when a
+            # new worker picks them up, re-issue the same command for those
+            # workflows only. workflow.patched() writes a permanent marker into
+            # each workflow's history on first evaluation — pre-rollout
+            # workflows see False (no marker in history) and take the old
+            # branch for the rest of their lifetime; post-rollout workflows see
+            # True and skip it.
+            #
+            # TODO(follow-up PR): once all pre-patch workflows have drained
+            # (max ~2h execution timeout + deploy window), remove this branch,
+            # the UpdateDeliveryRecordInputs.content_snapshot field, and the
+            # CreateExportAssetsResult.insight_snapshots field. See PR #55943
+            # discussion for context.
+            if not temporalio.workflow.patched("subscriptions-content-snapshot-direct-write"):
+                if delivery_id is not None:
+                    # Reconstruct the old accumulator so the replayed command
+                    # payload is the same shape pre-patch code would have sent.
+                    # prepare_result.insight_snapshots is populated on pre-patch
+                    # workflow histories; None on post-patch (which won't reach
+                    # this branch anyway once the patch marker is recorded).
+                    legacy_content_snapshot: dict = {
+                        "total_insight_count": prepare_result.total_insight_count,
+                        "insights": prepare_result.insight_snapshots or [],
+                    }
+                    try:
+                        await temporalio.workflow.execute_activity(
+                            update_delivery_record,
+                            UpdateDeliveryRecordInputs(
+                                delivery_id=delivery_id,
+                                status=DeliveryStatus.STARTING,
+                                exported_asset_ids=delivery_exported_asset_ids or None,
+                                content_snapshot=legacy_content_snapshot,
+                            ),
+                            start_to_close_timeout=dt.timedelta(minutes=1),
+                            retry_policy=temporalio.common.RetryPolicy(
+                                initial_interval=dt.timedelta(seconds=5),
+                                maximum_interval=dt.timedelta(seconds=30),
+                                maximum_attempts=3,
+                            ),
+                        )
+                    except Exception:
+                        temporalio.workflow.logger.warning(
+                            "process_subscription.content_snapshot_persist_failed",
+                            extra={"subscription_id": inputs.subscription_id},
+                        )
 
             change_summary: str | None = None
             # Phase 2.5: Generate LLM change summary (best-effort, skip if not enabled)

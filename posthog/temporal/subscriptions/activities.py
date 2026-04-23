@@ -173,10 +173,14 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
     # instead of returning them across the Temporal activity boundary — per-insight
     # query_results can reach multi-MB and will trip Temporal's ~2 MiB payload cap.
     if inputs.delivery_id is not None:
+        # Capture the narrowed value for the inner closure — mypy won't narrow
+        # Optional through a nested function because the outer value could in
+        # principle change between the check and the closure's execution.
+        delivery_id_for_write: str = inputs.delivery_id
 
         @database_sync_to_async(thread_sensitive=False)
         def _merge_content_snapshot() -> None:
-            delivery = SubscriptionDelivery.objects.get(pk=inputs.delivery_id)
+            delivery = SubscriptionDelivery.objects.get(pk=delivery_id_for_write)
             delivery.content_snapshot = {
                 **(delivery.content_snapshot or {}),
                 "total_insight_count": total_insight_count,
