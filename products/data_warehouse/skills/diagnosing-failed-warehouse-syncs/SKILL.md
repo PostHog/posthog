@@ -10,17 +10,22 @@ description: >
 
 # Diagnosing failed data warehouse syncs
 
-When the user reports that a data warehouse source or table is failing, stuck, or producing bad data, work top-down:
-source → schema → recovery action. Do **not** jump straight to "resync from scratch" — that discards synced data and
-restarts from zero, which is rarely the right first step.
+Work top-down when a data warehouse source or table is failing, stuck, or producing bad data: source → schema →
+recovery action. Do **not** jump straight to "resync from scratch" — that discards synced data and restarts from
+zero, which is rarely the right first step.
 
 ## When to use this skill
 
-- A specific sync is failing (e.g. "my Stripe source is red")
+- The user reports a specific sync is failing (e.g. "my Stripe source is red")
 - A table has been in `Running` state far longer than expected
 - Data in a warehouse table is stale, missing rows, or looks corrupt
 - Latest rows aren't appearing despite the schema being marked `Completed`
 - The user is choosing between cancel / reload / resync / delete-data and isn't sure which
+- Another skill — typically `auditing-warehouse-data-health` — has surfaced a failing source or schema and the user
+  wants to dig into it
+
+Both entry points (user-reported and audit-handoff) use the same workflow; the audit just means you already know
+which item to diagnose and can skip Step 1's discovery search.
 
 ## Available tools
 
@@ -35,6 +40,9 @@ restarts from zero, which is rarely the right first step.
 | `external-data-schemas-resync`                         | Full resync — wipes synced data and restarts. Destructive                  |
 | `external-data-schemas-delete-data`                    | Delete the synced table but keep the schema entry                          |
 | `external-data-schemas-partial-update`                 | Change sync_type / incremental_field / cdc_table_mode                      |
+| `external-data-sources-partial-update`                 | Update a source's credentials (`job_inputs`) after rotation                |
+| `external-data-sources-reload`                         | Retrigger syncs for every enabled schema on a source                       |
+| `external-data-sources-refresh-schemas`                | Re-fetch the source's table list to pick up new tables                     |
 | `external-data-sources-check-cdc-prerequisites-create` | Verify Postgres CDC setup for a source                                     |
 | `external-data-schemas-incremental-fields-create`      | Refresh candidate incremental fields when the source schema has changed    |
 | `external-data-sources-webhook-info-retrieve`          | Check webhook registration state and external service status               |
@@ -53,8 +61,10 @@ Two kinds of failure:
 
 - **Source-level** (`ExternalDataSource.status = "Error"`): the connection itself is broken — credentials expired,
   host unreachable, account disabled. Affects every table.
-- **Schema-level** (`ExternalDataSchema.status ∈ {"Failed", "BillingLimitReached", "BillingLimitTooLow"}`): the
-  source connects fine but one or more tables are failing.
+- **Schema-level** — the source connects fine but one or more tables are failing. In the serialized API response
+  from `external-data-schemas-list`, look for `status` values `"Failed"`, `"Billing limits"`, or `"Billing limits
+too low"`. (The underlying model enum values are `BillingLimitReached` and `BillingLimitTooLow`, but the
+  serializer rewrites them — match on both the human-readable and enum forms to be safe.)
 
 A source can look `Completed` at the top level while one of its schemas is `Failed` — always check both.
 
@@ -62,14 +72,14 @@ A source can look `Completed` at the top level while one of its schemas is `Fail
 
 From `external-data-schemas-list`, each schema has a `status`:
 
-| Status                | Meaning                                    | Usually means                          |
-| --------------------- | ------------------------------------------ | -------------------------------------- |
-| `Running`             | Sync currently executing                   | Normal, unless stuck for hours         |
-| `Completed`           | Last sync finished successfully            | Healthy                                |
-| `Failed`              | Last sync errored — see `latest_error`     | Needs diagnosis                        |
-| `Paused`              | User disabled sync (`should_sync = false`) | Intentional                            |
-| `BillingLimitReached` | Team hit its warehouse row quota           | Billing issue, not a technical failure |
-| `BillingLimitTooLow`  | Team has insufficient credit               | Billing issue                          |
+| Status                                                              | Meaning                                    | Usually means                          |
+| ------------------------------------------------------------------- | ------------------------------------------ | -------------------------------------- |
+| `Running`                                                           | Sync currently executing                   | Normal, unless stuck for hours         |
+| `Completed`                                                         | Last sync finished successfully            | Healthy                                |
+| `Failed`                                                            | Last sync errored — see `latest_error`     | Needs diagnosis                        |
+| `Paused`                                                            | User disabled sync (`should_sync = false`) | Intentional                            |
+| `Billing limits` (serializer) / `BillingLimitReached` (enum)        | Team hit its warehouse row quota           | Billing issue, not a technical failure |
+| `Billing limits too low` (serializer) / `BillingLimitTooLow` (enum) | Team has insufficient credit               | Billing issue                          |
 
 Always check `last_synced_at` alongside status. A schema in `Running` with `last_synced_at` from 12 hours ago is
 almost certainly stuck, even though the status isn't `Failed`.

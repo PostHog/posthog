@@ -121,7 +121,7 @@ For each table the user wants to sync, pick a sync_type. See the
 - **Append-only immutable tables (logs, events):** `append` if available — preserves history.
 - **Postgres with CDC enabled and you need near-real-time:** `cdc` — requires primary keys and Postgres prerequisites.
 - **Sources that support webhooks (currently Stripe):** for near-real-time ingestion set `sync_type: "webhook"` on
-  the tables where `supports_webhooks: true`, then register the webhook as a post-create step (see step 5.5 below).
+  the tables where `supports_webhooks: true`, then register the webhook as a post-create step (see step 6 below).
   Tables that don't support webhooks on the same source still need a bulk sync_type.
 
 For each schema that will use `incremental`/`append`/`cdc`, you also need:
@@ -191,25 +191,19 @@ Rules for the `schemas` array:
 
 On success you'll get back a source with a new `id`. The first sync is triggered automatically.
 
-### Step 6 — Confirm and explain what happens next
-
-After creation:
-
-- Call `external-data-sources-retrieve({id})` or `external-data-schemas-list` to show the user the initial state.
-- Explain: every enabled schema enters `Running`, then moves to `Completed` when the first sync finishes. First
-  syncs can take anywhere from seconds to hours depending on row count — a multi-million-row table is fine, just
-  slow.
-- Tell them how to query: `SELECT * FROM {prefix}_{table_name} LIMIT 10` in HogQL.
-- Offer to check back in a few minutes to confirm the initial syncs succeeded.
-
-### Step 5.5 — Register a webhook (only when any schema is `sync_type: "webhook"`)
+### Step 6 — Register a webhook (only when any schema is `sync_type: "webhook"`)
 
 Webhook-type schemas don't start receiving data just by existing — the external service needs to know where to POST
 events, and PostHog needs to know how to verify them. This is a second call after source creation, not part of the
-`external-data-sources-create` payload.
+`external-data-sources-create` payload. Do this **before** telling the user the setup is complete, otherwise they
+hear "syncs are running" while the push channel is still unregistered.
 
 Only needed when at least one schema on the source has `sync_type: "webhook"` and `should_sync: true`. Currently only
 Stripe implements this flow; for everything else skip this step.
+
+Before calling create-webhook, check `external-data-sources-webhook-info-retrieve({id})`. If it already returns
+`exists: true`, do NOT call create-webhook again — each successful call registers a new external endpoint and would
+result in duplicate deliveries.
 
 1. Call `external-data-sources-create-webhook-create({id})`. PostHog:
    - creates the HogFunction that will receive webhook POSTs,
@@ -234,6 +228,17 @@ Webhooks are supplementary to bulk sync. The first load of a webhook-enabled sch
 (`initial_sync_complete` flips to true when done); after that, the webhook becomes the primary ingestion path. A
 webhook schema will still have a `sync_frequency` that schedules a periodic bulk refresh as a safety net. This is
 expected — not something to "fix".
+
+### Step 7 — Confirm and explain what happens next
+
+After creation (and, for webhook schemas, after Step 6):
+
+- Call `external-data-schemas-list` to show the user the initial state.
+- Explain: every enabled schema enters `Running`, then moves to `Completed` when the first sync finishes. First
+  syncs can take anywhere from seconds to hours depending on row count — a multi-million-row table is fine, just
+  slow.
+- Tell them how to query: `SELECT * FROM {prefix}_{table_name} LIMIT 10` in HogQL.
+- Offer to check back in a few minutes to confirm the initial syncs succeeded.
 
 ## CDC setup for Postgres (optional, when requested)
 

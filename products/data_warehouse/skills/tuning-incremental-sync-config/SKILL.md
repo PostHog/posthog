@@ -45,16 +45,16 @@ chosen at creation time there.
 
 From the partial-update endpoint:
 
-| Field                    | Values                                                            | Notes                                                              |
-| ------------------------ | ----------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `sync_type`              | `full_refresh`, `incremental`, `append`, `cdc`, `webhook`         | Source must support the target type — check via incremental-fields |
-| `incremental_field`      | Column name from the source                                       | Must appear in `incremental_fields` list for the schema            |
-| `incremental_field_type` | `datetime`, `date`, `timestamp`, `integer`, `numeric`, `objectid` | Must match the column's real type                                  |
-| `primary_key_columns`    | Array of column names                                             | Required for CDC. Used for upsert dedup on incremental             |
-| `cdc_table_mode`         | `consolidated`, `cdc_only`, `both`                                | Only meaningful when sync_type=cdc                                 |
-| `sync_frequency`         | `24hour`, `12hour`, `6hour`, `1hour`, `30min`, `never`            | Applies to all non-CDC types                                       |
-| `sync_time_of_day`       | `HH:MM:SS`                                                        | When sync_frequency is daily/weekly-scale                          |
-| `should_sync`            | `true` / `false`                                                  | Pause the schema without deleting it                               |
+| Field                    | Values                                                                                           | Notes                                                              |
+| ------------------------ | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| `sync_type`              | `full_refresh`, `incremental`, `append`, `cdc`, `webhook`                                        | Source must support the target type — check via incremental-fields |
+| `incremental_field`      | Column name from the source                                                                      | Must appear in `incremental_fields` list for the schema            |
+| `incremental_field_type` | `datetime`, `date`, `timestamp`, `integer`, `numeric`, `objectid`                                | Must match the column's real type                                  |
+| `primary_key_columns`    | Array of column names                                                                            | Required for CDC. Used for upsert dedup on incremental             |
+| `cdc_table_mode`         | `consolidated`, `cdc_only`, `both`                                                               | Only meaningful when sync_type=cdc                                 |
+| `sync_frequency`         | `1min`, `5min`, `15min`, `30min`, `1hour`, `6hour`, `12hour`, `24hour`, `7day`, `30day`, `never` | Applies to all non-CDC types                                       |
+| `sync_time_of_day`       | `HH:MM:SS`                                                                                       | When sync_frequency is daily/weekly-scale                          |
+| `should_sync`            | `true` / `false`                                                                                 | Pause the schema without deleting it                               |
 
 ## Workflow
 

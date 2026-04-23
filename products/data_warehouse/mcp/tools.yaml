@@ -238,7 +238,7 @@ tools:
         operation: external_data_sources_database_schema_create
         enabled: true
         scopes:
-            - external_data_source:read
+            - external_data_source:write
         annotations:
             readOnly: true
             destructive: false
@@ -601,15 +601,19 @@ tools:
         annotations:
             readOnly: false
             destructive: false
-            idempotent: true
+            idempotent: false
         title: Create and register a webhook for a source
         description: >
             For sources that support real-time webhook ingestion (currently Stripe), create the HogFunction handler
             and register the webhook URL with the external service using the source's stored credentials. Requires at
             least one schema on the source with sync_type='webhook' and should_sync=true. Returns the webhook_url,
-            success flag, and any error. For Stripe the signing_secret is auto-captured from the Stripe API response
-            and stored securely; if auto-registration fails (e.g. the API key lacks webhook permissions), the user
-            must create the webhook manually in Stripe and submit the signing_secret via update-webhook-inputs.
+            success flag, and any error. NOT idempotent — each successful call registers a new endpoint on the
+            external service, so retrying after a network error or calling twice can create duplicate webhook
+            endpoints (e.g. duplicate Stripe webhook endpoints delivering the same events twice). Always check
+            webhook-info-retrieve first and only re-call if `exists: false`. For Stripe the signing_secret is
+            auto-captured from the Stripe API response and stored securely; if auto-registration fails (e.g. the
+            API key lacks webhook permissions), the user must create the webhook manually in Stripe and submit the
+            signing_secret via update-webhook-inputs.
     external-data-sources-update-webhook-inputs-create:
         operation: external_data_sources_update_webhook_inputs_create
         enabled: true
@@ -685,7 +689,7 @@ tools:
         operation: external_data_sources_check_cdc_prerequisites_create
         enabled: true
         scopes:
-            - external_data_source:read
+            - external_data_source:write
         annotations:
             readOnly: true
             destructive: false
@@ -779,7 +783,7 @@ tools:
         operation: external_data_schemas_incremental_fields_create
         enabled: true
         scopes:
-            - external_data_source:read
+            - external_data_source:write
         annotations:
             readOnly: true
             destructive: false

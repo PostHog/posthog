@@ -41,13 +41,13 @@ context than the summary provides (row counts, non-failing items, schema-level d
 
 The data-health endpoint returns items from five categories:
 
-| `type`               | Trigger                                                                        | Typical urgency |
-| -------------------- | ------------------------------------------------------------------------------ | --------------- |
-| `source`             | `ExternalDataSource.status = Error` — whole source connection broken           | High            |
-| `external_data_sync` | `ExternalDataSchema.status ∈ {Failed, BillingLimitReached}` — one table broken | Medium–High     |
-| `materialized_view`  | `DataWarehouseSavedQuery.is_materialized=true, status=Failed`                  | Medium          |
-| `destination`        | Batch export's latest run is FAILED / FAILED_RETRYABLE / TIMEDOUT / TERMINATED | Medium          |
-| `transformation`     | HogFunction transformation in DISABLED / DEGRADED / FORCEFULLY\_\* state       | Low–Medium      |
+| `type`               | Trigger                                                                                                                                       | Typical urgency |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
+| `source`             | `ExternalDataSource.status = Error` — whole source connection broken                                                                          | High            |
+| `external_data_sync` | schema in Failed or BillingLimitReached state (the data-health endpoint returns `status: "failed"` or `status: "billing_limit"` respectively) | Medium–High     |
+| `materialized_view`  | `DataWarehouseSavedQuery.is_materialized=true, status=Failed`                                                                                 | Medium          |
+| `destination`        | Batch export's latest run is FAILED / FAILED_RETRYABLE / TIMEDOUT / TERMINATED                                                                | Medium          |
+| `transformation`     | HogFunction transformation in DISABLED / DEGRADED / FORCEFULLY\_\* state                                                                      | Low–Medium      |
 
 Each entry includes `id`, `name`, `type`, `status`, `error`, `failed_at`, `url`, and (for syncs/sources)
 `source_type`.
@@ -78,7 +78,7 @@ Group the issues by `type` and sort within each group by severity:
 1. **Sources in Error first.** A source failure cascades — every schema under it is effectively dead until the
    source reconnects. Fix these first.
 2. **Sync schemas next**, in this order:
-   - `BillingLimitReached` (billing issue, non-technical — flag and route to billing)
+   - `status: "billing_limit"` entries (billing issue, non-technical — flag and route to billing)
    - `Failed` on heavily-used tables (user asks / check row counts via schemas-list if needed)
    - `Failed` on less-used tables
 3. **Materialized views.** Usually independent of sources — a view failure is a HogQL or data issue in the view

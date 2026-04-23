@@ -110,12 +110,16 @@ The `supports_webhooks` flag on each table in the db-schema response is the sour
 
 ## Sync frequency
 
-`sync_frequency` is a per-schema option that's orthogonal to `sync_type`. Values: `"24hour"`, `"12hour"`, `"6hour"`,
-`"1hour"`, `"30min"`, `"never"`.
+`sync_frequency` is a per-schema option that's orthogonal to `sync_type`. Valid values are (smallest to largest):
+`"1min"`, `"5min"`, `"15min"`, `"30min"`, `"1hour"`, `"6hour"`, `"12hour"`, `"24hour"`, `"7day"`, `"30day"`, and
+`"never"`.
 
-- For `full_refresh` on anything non-trivial: default to `24hour` — it re-imports everything each run.
-- For `incremental` / `append`: can safely go to `1hour` or `6hour` on reasonably sized tables.
+- For `full_refresh` on anything non-trivial: default to `24hour` — it re-imports everything each run. Sub-hour
+  frequencies are usually wasteful for full refresh.
+- For `incremental` / `append`: `1hour` or `6hour` is a reasonable default on reasonably sized tables. Sub-minute
+  frequencies (`1min`, `5min`) exist but are rarely needed — if the user wants real-time, prefer `cdc` or `webhook`.
 - For `cdc`: frequency doesn't really apply — CDC streams continuously.
+- For cold archive tables: `7day` or `30day` keeps the schedule alive without wasting runs.
 
 The `never` value freezes the schema — it won't sync automatically, but can still be triggered manually via
 `external-data-schemas-reload`.
