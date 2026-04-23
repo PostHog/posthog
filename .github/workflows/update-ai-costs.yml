@@ -76,8 +76,25 @@ jobs:
               run: |
                   existing_pr=$(gh pr list --head "chore/llma-update-ai-costs" --json number --jq '.[0].number' 2>/dev/null || true)
                   if [ -n "$existing_pr" ]; then
+                    gh pr comment "$existing_pr" --body "Closing — a fresh run found no cost changes against master, so this PR is no longer needed. A new PR will open automatically the next time pricing drifts." || true
                     gh pr close "$existing_pr" --delete-branch || true
                     echo "Closed stale PR #$existing_pr and deleted branch"
+                  fi
+
+            - name: Capture any open PR before branch reset
+              # Force-resetting the branch below can auto-close the previously open PR
+              # (GitHub closes a PR when its head branch no longer contains any commits
+              # beyond the base). Remember the PR number now so we can cross-link the
+              # old and new PRs later if a new one gets created.
+              id: previous-pr
+              if: steps.check-changes.outputs.changes == 'true'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  pr=$(gh pr list --head "chore/llma-update-ai-costs" --state open --json number --jq '.[0].number' 2>/dev/null || true)
+                  echo "number=$pr" >> "$GITHUB_OUTPUT"
+                  if [ -n "$pr" ]; then
+                    echo "Captured open PR #$pr before branch reset"
                   fi
 
             - name: Reset branch to checked-out SHA
@@ -115,14 +132,17 @@ jobs:
               if: steps.check-changes.outputs.changes == 'true'
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  PREVIOUS_PR: ${{ steps.previous-pr.outputs.number }}
               run: |
                   existing_pr=$(gh pr list --head "chore/llma-update-ai-costs" --json number --jq '.[0].number' 2>/dev/null || true)
                   if [ -n "$existing_pr" ]; then
                     echo "PR #$existing_pr already exists — updated by commit"
-                  else
-                    gh pr create \
-                      --title "chore(llma): Update LLM costs" \
-                      --body "$(cat <<'BODY'
+                    exit 0
+                  fi
+
+                  new_pr_url=$(gh pr create \
+                    --title "chore(llma): Update LLM costs" \
+                    --body "$(cat <<'BODY'
                   This is an automated PR to update LLM pricing models.
 
                   ## Reviewer checklist
