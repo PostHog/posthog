@@ -153,15 +153,22 @@ export const LogsAlertConfigurationStateEnumApi = {
     Broken: 'broken',
 } as const
 
-export interface LogsAlertSparklineBucketApi {
-    /** Bucket start timestamp (UTC, hourly). */
-    timestamp: string
-    /** Count of breached checks in this hour. */
-    breached: number
-    /** Count of errored checks in this hour. */
-    errored: number
-    /** Count of checks that transitioned the alert from firing to resolved in this hour. */
-    resolved: number
+export interface LogsAlertStateIntervalApi {
+    /** Interval start (UTC, inclusive). */
+    start: string
+    /** Interval end (UTC, exclusive). */
+    end: string
+    /** Alert state during this interval.
+
+* `not_firing` - Not firing
+* `firing` - Firing
+* `pending_resolve` - Pending resolve
+* `errored` - Errored
+* `snoozed` - Snoozed
+* `broken` - Broken */
+    state: LogsAlertConfigurationStateEnumApi
+    /** Whether the alert was enabled during this interval. Disabled alerts keep their state but are inactive. */
+    enabled: boolean
 }
 
 /**
@@ -254,8 +261,8 @@ export interface LogsAlertConfigurationApi {
      * @nullable
      */
     readonly last_error_message: string | null
-    /** 24 hourly buckets of breached + errored check counts for the last 24h, ordered oldest-first. Drives the activity column on the alert list — empty sparkline = healthy alert. Ok checks are not included: retention caps OK rows at MAX_EVALUATION_PERIODS (~50min at 5-min cadence), so only events that survive the prune (breached + errored) are meaningful over a 24h window. */
-    readonly sparkline: readonly LogsAlertSparklineBucketApi[]
+    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
+    readonly state_timeline: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
     readonly destination_types: readonly DestinationTypesEnumApi[]
     /** When the alert was created. */
@@ -356,8 +363,8 @@ export interface PatchedLogsAlertConfigurationApi {
      * @nullable
      */
     readonly last_error_message?: string | null
-    /** 24 hourly buckets of breached + errored check counts for the last 24h, ordered oldest-first. Drives the activity column on the alert list — empty sparkline = healthy alert. Ok checks are not included: retention caps OK rows at MAX_EVALUATION_PERIODS (~50min at 5-min cadence), so only events that survive the prune (breached + errored) are meaningful over a 24h window. */
-    readonly sparkline?: readonly LogsAlertSparklineBucketApi[]
+    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
+    readonly state_timeline?: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
     readonly destination_types?: readonly DestinationTypesEnumApi[]
     /** When the alert was created. */
