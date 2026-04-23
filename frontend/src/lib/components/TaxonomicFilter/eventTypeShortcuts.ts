@@ -16,29 +16,44 @@ export interface AutocaptureInteraction {
  *  interactions (as the user keeps typing), we surface them. */
 export const MAX_SHORTCUT_MATCHES = 3
 
-/** Keyword set for each `$event_type` autocapture emits. The set of `eventType` values must stay
- *  in sync with `eventTypeToVerb` in `lib/utils.tsx`; a test enforces this. Keywords are matched
- *  with `startsWith(query)` so each entry should only list terms that uniquely point at the
- *  interaction — avoid generic verbs like `input`, `drag`, `zoom`, `hold` that users might type
- *  for unrelated reasons. */
-export const AUTOCAPTURE_INTERACTIONS: AutocaptureInteraction[] = [
-    { label: 'Click', eventType: 'click', keywords: ['click', 'clicked', 'tap', 'tapped'] },
-    { label: 'Change', eventType: 'change', keywords: ['change', 'changed', 'typed'] },
-    { label: 'Submit', eventType: 'submit', keywords: ['submit', 'submitted', 'form'] },
-    { label: 'Touch', eventType: 'touch', keywords: ['touch', 'touched'] },
-    { label: 'Scroll', eventType: 'scroll', keywords: ['scroll', 'scrolled'] },
-    { label: 'Toggle', eventType: 'toggle', keywords: ['toggle', 'toggled', 'switch', 'switched'] },
-    { label: 'Swipe', eventType: 'swipe', keywords: ['swipe', 'swiped'] },
-    { label: 'Long press', eventType: 'long_press', keywords: ['long press', 'longpress', 'press'] },
-    { label: 'Pinch', eventType: 'pinch', keywords: ['pinch', 'pinched'] },
-    { label: 'Pan', eventType: 'pan', keywords: ['pan', 'panned'] },
-    { label: 'Rotation', eventType: 'rotation', keywords: ['rotation', 'rotate', 'rotated'] },
-    { label: 'Value changed', eventType: 'value_changed', keywords: ['value changed', 'value change'] },
-    { label: 'Menu action', eventType: 'menu_action', keywords: ['menu action', 'menu'] },
-]
+/** Extra keywords a user might type for each `$event_type`. Purely additive — the list always
+ *  includes the eventType itself and its derived label, so entries here are synonyms for better
+ *  discovery (e.g. typing `form` matches `submit`). Omit an eventType to fall back to just
+ *  eventType + derived label. */
+const KEYWORD_SYNONYMS: Record<string, string[]> = {
+    click: ['clicked', 'tap', 'tapped'],
+    change: ['changed', 'typed'],
+    submit: ['submitted', 'form'],
+    touch: ['touched'],
+    scroll: ['scrolled'],
+    toggle: ['toggled', 'switch', 'switched'],
+    swipe: ['swiped'],
+    long_press: ['long press', 'press'],
+    pinch: ['pinched'],
+    pan: ['panned'],
+    rotation: ['rotate', 'rotated'],
+    value_changed: ['value change', 'value changed'],
+    menu_action: ['menu', 'menu action'],
+}
 
-// Sanity check in tests: AUTOCAPTURE_INTERACTIONS eventTypes must match the keys of eventTypeToVerb.
-export const _AUTOCAPTURE_INTERACTIONS_SOURCE = eventTypeToVerb
+function formatLabel(eventType: string): string {
+    const spaced = eventType.replace(/_/g, ' ')
+    return spaced.charAt(0).toUpperCase() + spaced.slice(1)
+}
+
+function buildKeywords(eventType: string): string[] {
+    const label = formatLabel(eventType).toLowerCase()
+    return [...new Set([eventType, label, ...(KEYWORD_SYNONYMS[eventType] ?? [])])]
+}
+
+/** Interactions derived from the canonical `eventTypeToVerb` map in `lib/utils.tsx`. Adding a new
+ *  `$event_type` to that map automatically surfaces it here with a sensible default label and
+ *  matching keywords (eventType + label). Extra user-facing synonyms live in `KEYWORD_SYNONYMS`. */
+export const AUTOCAPTURE_INTERACTIONS: AutocaptureInteraction[] = Object.keys(eventTypeToVerb).map((eventType) => ({
+    eventType,
+    label: formatLabel(eventType),
+    keywords: buildKeywords(eventType),
+}))
 
 function matchesKeyword(interaction: AutocaptureInteraction, trimmedQuery: string): boolean {
     return interaction.keywords.some((keyword) => keyword.startsWith(trimmedQuery))

@@ -106,7 +106,7 @@ describe('event type shortcuts', () => {
         })
     })
 
-    describe('keyword coverage', () => {
+    describe('derivation from eventTypeToVerb', () => {
         it('every full keyword surfaces its interaction (via both builders)', () => {
             for (const interaction of AUTOCAPTURE_INTERACTIONS) {
                 for (const keyword of interaction.keywords) {
@@ -118,10 +118,22 @@ describe('event type shortcuts', () => {
             }
         })
 
-        it('AUTOCAPTURE_INTERACTIONS eventTypes match the canonical eventTypeToVerb keys', () => {
-            const shortcutKeys = AUTOCAPTURE_INTERACTIONS.map((i) => i.eventType).sort()
-            const canonicalKeys = Object.keys(eventTypeToVerb).sort()
-            expect(shortcutKeys).toEqual(canonicalKeys)
+        it('every canonical eventTypeToVerb key is represented with a sensible label', () => {
+            const shortcutByType = new Map(AUTOCAPTURE_INTERACTIONS.map((i) => [i.eventType, i]))
+            for (const eventType of Object.keys(eventTypeToVerb)) {
+                const shortcut = shortcutByType.get(eventType)
+                expect(shortcut).toBeDefined() // oxlint-disable-line jest/no-restricted-matchers
+                expect(shortcut?.label).toMatch(/^[A-Z]/) // label is capitalized
+                expect(shortcut?.keywords).toContain(eventType) // always matches the raw eventType
+            }
+        })
+
+        it('new eventTypeToVerb entries automatically get shortcuts with no extra config', () => {
+            // This isn't a runtime check — it's a reminder that the derivation above means
+            // adding `foo: 'foo'd'` to eventTypeToVerb surfaces a "Foo" shortcut matchable via
+            // `foo`. Synonyms are optional and layered via KEYWORD_SYNONYMS.
+            const derivedEventTypes = new Set(AUTOCAPTURE_INTERACTIONS.map((i) => i.eventType))
+            expect(derivedEventTypes).toEqual(new Set(Object.keys(eventTypeToVerb)))
         })
     })
 })
