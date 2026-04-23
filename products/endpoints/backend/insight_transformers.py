@@ -153,35 +153,33 @@ def _transform_trends(result: dict, original_query: dict, team: Team, now: datet
 
     _coerce_temporal_columns(rows, result.get("types"))
 
-    # Group rows by __series_index (trends uses named column access in build_series_response)
     series_index_col = columns.index("__series_index") if "__series_index" in columns else None
     groups: dict[int, list] = defaultdict(list)
     for row in rows:
         idx = row[series_index_col] if series_index_col is not None else 0
         groups[idx].append(row)
 
-    per_series_responses: list[HogQLQueryResponse] = []
-    for series_idx in sorted(groups.keys()):
-        per_series_responses.append(
-            HogQLQueryResponse(
-                results=groups[series_idx],
-                columns=columns,
-            )
-        )
+    expected_series_count = len(runner.series)
 
-    if len(per_series_responses) != len(runner.series):
+    # A row tagged with a series index the current query no longer defines is real drift:
+    # the table was built for a superset. Missing indices are NOT drift — filters or sparse
+    # UNION ALL branches can legitimately leave a series with zero rows at read time.
+    if groups and max(groups.keys()) >= expected_series_count:
         raise MaterializedSeriesMismatchError(
-            f"Materialized table has {len(per_series_responses)} series "
-            f"but current query defines {len(runner.series)}. "
+            f"Materialized table has series index {max(groups.keys())} "
+            f"but current query defines only {expected_series_count} series. "
             f"The endpoint query was likely edited after materialization."
         )
 
-    # Call build_series_response per series, then format_results for post-processing
+    # Build one response per expected series (not per non-empty bucket) so filtered-to-empty
+    # series keep their positional slot — build_series_response handles empty results cleanly.
+    per_series_responses: list[HogQLQueryResponse] = [
+        HogQLQueryResponse(results=groups.get(i, []), columns=columns) for i in range(expected_series_count)
+    ]
+
     returned_results: list[list[dict[str, Any]]] = []
-    series_count = len(per_series_responses)
     for i, response in enumerate(per_series_responses):
-        series_with_extra = runner.series[i]
-        returned_results.append(runner.build_series_response(response, series_with_extra, series_count))
+        returned_results.append(runner.build_series_response(response, runner.series[i], expected_series_count))
 
     final_result, has_more = runner.format_results(returned_results)
 

@@ -314,9 +314,35 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         return instance
 
     def update(self, instance: Subscription, validated_data: dict, *args, **kwargs) -> Subscription:
+        request = self.context["request"]
         previous_value = instance.target_value
+        is_delete = not instance.deleted and validated_data.get("deleted") is True
         invite_message = validated_data.pop("invite_message", "")
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
+
+        if is_delete:
+            with slo_operation(
+                spec=SloSpec(
+                    distinct_id=str(request.user.distinct_id),
+                    area=SloArea.ANALYTIC_PLATFORM,
+                    operation=SloOperation.SUBSCRIPTION_DELETE,
+                    team_id=instance.team_id,
+                    resource_id=str(instance.id),
+                ),
+                properties={
+                    "subscription_id": instance.id,
+                    "target_type": instance.target_type,
+                    "frequency": instance.frequency,
+                    "resource_type": "dashboard"
+                    if instance.dashboard_id
+                    else "insight"
+                    if instance.insight_id
+                    else None,
+                },
+            ):
+                instance = super().update(instance, validated_data)
+            return instance
+
         instance = super().update(instance, validated_data)
 
         if dashboard_export_insight_ids:

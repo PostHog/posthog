@@ -11,6 +11,7 @@ class SloOperation(StrEnum):
     EXPORT = "export"
     SUBSCRIPTION_DELIVERY = "subscription_delivery"
     SUBSCRIPTION_CREATE = "subscription_create"
+    SUBSCRIPTION_DELETE = "subscription_delete"
     ALERT_CHECK = "alert_check"
 
 
