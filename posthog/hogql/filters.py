@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Optional, TypeVar
+from typing import Optional, TypeVar, cast
 
 from dateutil.parser import isoparse
 
@@ -14,6 +14,7 @@ from posthog.models import Team
 from posthog.utils import relative_date_parse
 
 T = TypeVar("T", bound=ast.Expr)
+DEFAULT_TEAM = cast(Team, None)
 
 
 @dataclasses.dataclass
@@ -27,7 +28,7 @@ def replace_filters(node: T, filters: Optional[HogQLFilters], team: Team) -> T:
 
 
 class ReplaceFilters(CloningVisitor):
-    def __init__(self, filters: Optional[HogQLFilters], team: Team = None):
+    def __init__(self, filters: Optional[HogQLFilters], team: Team = DEFAULT_TEAM):
         super().__init__()
         self.filters = filters
         self.team = team

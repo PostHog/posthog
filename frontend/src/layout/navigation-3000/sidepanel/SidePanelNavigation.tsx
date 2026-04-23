@@ -9,7 +9,6 @@ import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 
-import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { SidePanelTab } from '~/types'
 
 import { SIDE_PANEL_TABS } from './SidePanel'
@@ -24,7 +23,6 @@ interface SidePanelNavigationProps {
 
 export function SidePanelNavigation({ activeTab, onTabChange, children }: SidePanelNavigationProps): JSX.Element {
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
-    const { scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { visibleTabs } = useValues(sidePanelLogic)
 
     return (
@@ -38,63 +36,47 @@ export function SidePanelNavigation({ activeTab, onTabChange, children }: SidePa
         >
             {/* Tab buttons */}
             <Tabs.List className="h-[50px] flex items-center justify-between gap-1 pl-2 pr-1.5 border-b border-primary shrink-0 relative z-0 grow overflow-x-auto">
-                {[
-                    ...(scenePanelIsPresent ? [SidePanelTab.Info] : []),
-                    SidePanelTab.Max,
-                    SidePanelTab.Discussion,
-                    SidePanelTab.AccessControl,
-                    SidePanelTab.Activity,
-                    SidePanelTab.Notebooks,
-                    SidePanelTab.Support,
-                ]
-                    .filter((tab) => tab === SidePanelTab.Info || visibleTabs.includes(tab))
-                    .map((tab) => {
-                        const { Icon, label: defaultLabel } = SIDE_PANEL_TABS[tab]!
-                        const label =
-                            tab === SidePanelTab.AccessControl
-                                ? 'Access'
-                                : tab === SidePanelTab.Discussion
-                                  ? 'Discuss'
-                                  : defaultLabel
-                        return (
-                            <Tooltip key={tab} title={defaultLabel} delayMs={100}>
-                                <Tabs.Tab
-                                    value={tab}
-                                    render={(props) => (
-                                        <ButtonPrimitive
-                                            {...props}
-                                            onClick={() => openSidePanel(tab as SidePanelTab)}
-                                            data-attr={`context-panel-tab-${tab}`}
-                                            className="size-[33px] @[660px]/side-panel:w-auto hover:bg-transparent group justify-center @[660px]/side-panel:justify-normal"
-                                        >
-                                            {tab === SidePanelTab.Max ? (
-                                                <IconSparkles
-                                                    className={cn(
-                                                        'text-ai size-4 -mt-[1px] ml-[2px] group-hover/button-primitive:animate-hue-rotate'
-                                                    )}
-                                                />
-                                            ) : (
-                                                <Icon
-                                                    className={cn(
-                                                        'size-4 text-tertiary group-hover:text-primary',
-                                                        activeTab === tab ? 'text-primary' : 'text-tertiary'
-                                                    )}
-                                                />
-                                            )}
-                                            <span
+                {visibleTabs.map((tab) => {
+                    const { Icon, label } = SIDE_PANEL_TABS[tab]!
+                    return (
+                        <Tooltip key={tab} title={label} delayMs={100}>
+                            <Tabs.Tab
+                                value={tab}
+                                render={(props) => (
+                                    <ButtonPrimitive
+                                        {...props}
+                                        onClick={() => openSidePanel(tab as SidePanelTab)}
+                                        data-attr={`context-panel-tab-${tab}`}
+                                        className="size-[33px] @[660px]/side-panel:w-auto hover:bg-transparent group justify-center @[660px]/side-panel:justify-normal"
+                                    >
+                                        {tab === SidePanelTab.Max ? (
+                                            <IconSparkles
                                                 className={cn(
-                                                    'hidden @[660px]/side-panel:block text-tertiary group-hover:text-primary',
+                                                    'text-ai size-4 -mt-[1px] ml-[2px] group-hover/button-primitive:animate-hue-rotate'
+                                                )}
+                                            />
+                                        ) : (
+                                            <Icon
+                                                className={cn(
+                                                    'size-4 text-tertiary group-hover:text-primary',
                                                     activeTab === tab ? 'text-primary' : 'text-tertiary'
                                                 )}
-                                            >
-                                                {label}
-                                            </span>
-                                        </ButtonPrimitive>
-                                    )}
-                                />
-                            </Tooltip>
-                        )
-                    })}
+                                            />
+                                        )}
+                                        <span
+                                            className={cn(
+                                                'hidden @[660px]/side-panel:block text-tertiary group-hover:text-primary',
+                                                activeTab === tab ? 'text-primary' : 'text-tertiary'
+                                            )}
+                                        >
+                                            {label}
+                                        </span>
+                                    </ButtonPrimitive>
+                                )}
+                            />
+                        </Tooltip>
+                    )
+                })}
                 <Tabs.Indicator className="transform-gpu absolute top-1/2 left-0 z-[-1] h-[33px] w-[var(--active-tab-width)] translate-x-[var(--active-tab-left)] -translate-y-1/2 rounded bg-[var(--color-bg-fill-button-tertiary-active)] transition-all duration-200 ease-in-out" />
 
                 <ButtonPrimitive

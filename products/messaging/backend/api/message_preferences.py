@@ -79,6 +79,12 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         serializer = MessagePreferencesSerializer(opt_outs, many=True)
         return Response(serializer.data)
 
+    @action(detail=False, methods=["get"])
+    def webhook_url(self, request, **kwargs):
+        """Return the webhook URL for Customer.io integration setup."""
+        base = request.build_absolute_uri("/")[:-1]
+        return Response({"url": f"{base}/api/environments/{self.team_id}/messaging/customerio/webhook/"})
+
     @action(detail=False, methods=["post"])
     def generate_link(self, request, **kwargs):
         """Generate an unsubscribe link for the current user's email address"""

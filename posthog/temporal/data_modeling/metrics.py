@@ -1,6 +1,32 @@
 from temporalio import workflow
 from temporalio.common import MetricCounter, MetricHistogramFloat
 
+# custom latency histogram buckets,
+# since we lose some important granularity with default max at 60s
+DATA_MODELING_LATENCY_HISTOGRAM_METRICS = (
+    "temporal_activity_execution_latency",
+    "temporal_activity_schedule_to_start_latency",
+    "temporal_workflow_task_execution_latency",
+    "temporal_workflow_task_schedule_to_start_latency",
+    "temporal_workflow_endtoend_latency",
+)
+DATA_MODELING_LATENCY_HISTOGRAM_BUCKETS = [
+    1.0,  # 1ms
+    10.0,  # 10ms
+    50.0,  # 50ms
+    100.0,  # 100ms
+    500.0,  # 500ms
+    1_000.0,  # 1s
+    5_000.0,  # 5s
+    30_000.0,  # 30s
+    60_000.0,  # 1m (old ceiling)
+    120_000.0,  # 2m
+    300_000.0,  # 5m
+    900_000.0,  # 15m
+    1_800_000.0,  # 30m
+    3_600_000.0,  # 1h (run_dag_activity start_to_close_timeout)
+]
+
 
 def get_data_modeling_finished_metric(status: str) -> MetricCounter:
     return (

@@ -35,7 +35,7 @@ function resolveGroupLabel(group: LogsAlertDestinationGroup, slackChannels: Slac
     return group.label
 }
 
-export function LogsAlertNotifications(): JSX.Element {
+export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.Element {
     const {
         existingHogFunctionsLoading,
         destinationGroups,
@@ -100,7 +100,7 @@ export function LogsAlertNotifications(): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
             <p className="text-xs text-muted-alt m-0">
-                Each destination delivers notifications for all alert events — firing and resolved.
+                Each destination delivers notifications for all alert events — firing, resolved, and broken.
             </p>
             {(existingHogFunctionsLoading || destinationGroups.length > 0) && (
                 <div>
@@ -162,7 +162,9 @@ export function LogsAlertNotifications(): JSX.Element {
                         >
                             <span className="text-sm min-w-0 truncate flex flex-col">
                                 {getNotificationLabel(notification)}{' '}
-                                <span className="text-muted-alt">(pending - click Save to apply)</span>
+                                <span className="text-muted-alt">
+                                    {alertId ? '(saving…)' : '(pending — save alert to apply)'}
+                                </span>
                             </span>
                             <LemonButton
                                 icon={<IconTrash />}

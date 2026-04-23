@@ -4,6 +4,8 @@ from uuid import uuid4
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.core.cache import cache
+
 from parameterized import parameterized
 from rest_framework import status
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -12,7 +14,9 @@ from posthog.models import Team
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
 from posthog.models.integration import Integration
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.subscription import Subscription, SubscriptionDelivery
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -415,6 +419,55 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "require a Slack integration" in response.json()["detail"]
 
+    def test_cannot_create_subscription_with_summary_enabled_without_ai_consent(self):
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        response = self._create_subscription(summary_enabled=True)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "AI data processing must be approved" in response.json()["detail"]
+        self.mock_temporal_client.start_workflow.assert_not_called()
+
+    def test_can_create_subscription_with_summary_enabled_when_ai_consent_given(self):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+        response = self._create_subscription(summary_enabled=True)
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["summary_enabled"] is True
+
+    def test_cannot_patch_summary_enabled_true_without_ai_consent(self):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        create_response = self._create_subscription()
+        subscription_id = create_response.json()["id"]
+
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+            {"summary_enabled": True},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "AI data processing must be approved" in response.json()["detail"]
+
+    def test_can_patch_unrelated_fields_when_summary_enabled_and_ai_consent_revoked(self):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        create_response = self._create_subscription(summary_enabled=True)
+        subscription_id = create_response.json()["id"]
+
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+            {"title": "Updated title"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["title"] == "Updated title"
+
     def test_deliver_subscription(self):
         mock_client = MagicMock()
         mock_client.start_workflow = AsyncMock()
@@ -491,6 +544,53 @@ class TestSubscriptionTemporal(APILicensedTest):
 
         response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/test-delivery/")
         assert response.status_code == status.HTTP_409_CONFLICT
+
+    @patch("posthog.rate_limit.SubscriptionTestDeliveryThrottle.rate", new="3/minute")
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_test_delivery_throttled_per_team_across_subscriptions_and_keys(self, _rate_limit_enabled_mock):
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock()
+        self.mock_sync.return_value = mock_client
+
+        throttle_key = f"throttle_subscription_test_delivery_team_{self.team.id}"
+        cache.delete(throttle_key)
+        self.addCleanup(cache.delete, throttle_key)
+
+        def fresh_api_key_headers() -> dict[str, str]:
+            raw_key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label=f"throttle-{uuid4().hex[:8]}",
+                user=self.user,
+                secure_value=hash_key_value(raw_key),
+                scopes=["*"],
+            )
+            return {"authorization": f"Bearer {raw_key}"}
+
+        pat_a = fresh_api_key_headers()
+        pat_b = fresh_api_key_headers()
+
+        sub_a = self._create_subscription(invite_message=None).json()["id"]
+        sub_b = self._create_subscription(invite_message=None).json()["id"]
+        mock_client.start_workflow.reset_mock()
+
+        for sub_id, headers in [(sub_a, pat_a), (sub_b, pat_b), (sub_a, pat_b)]:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/subscriptions/{sub_id}/test-delivery/",
+                headers=headers,
+            )
+            assert response.status_code == status.HTTP_202_ACCEPTED
+
+        for headers in (pat_a, pat_b):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/subscriptions/{sub_b}/test-delivery/",
+                headers=headers,
+            )
+            assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+        session_response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_a}/test-delivery/")
+        assert session_response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+        assert mock_client.start_workflow.call_count == 3
 
     def test_backfill_picks_same_integration_as_delivery(self):
         """The data migration must assign the lowest-id Slack integration
@@ -764,8 +864,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         params.update(kwargs)
         return SubscriptionDelivery.objects.create(**params)
 
-    @patch("ee.api.subscription.hackathon_subscription_feature", return_value=True)
-    def test_can_list_deliveries(self, _mock_feature):
+    def test_can_list_deliveries(self):
         d1 = self._create_delivery(idempotency_key="key-1")
         d2 = self._create_delivery(idempotency_key="key-2")
 
@@ -814,8 +913,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         )
         assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
-    @patch("ee.api.subscription.hackathon_subscription_feature", return_value=True)
-    def test_deliveries_scoped_to_subscription(self, _mock_feature):
+    def test_deliveries_scoped_to_subscription(self):
         other_subscription = Subscription.objects.create(
             team=self.team,
             insight=self.insight,
@@ -839,8 +937,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         assert len(results) == 1
         assert results[0]["subscription"] == self.subscription.id
 
-    @patch("ee.api.subscription.hackathon_subscription_feature", return_value=True)
-    def test_deliveries_ordered_by_created_at_desc(self, _mock_feature):
+    def test_deliveries_ordered_by_created_at_desc(self):
         d1 = self._create_delivery(idempotency_key="older")
         d2 = self._create_delivery(idempotency_key="newer")
 
@@ -853,8 +950,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         [(s,) for s in SubscriptionDelivery.Status],
         name_func=lambda f, _n, p: f"{f.__name__}__{p.args[0].value}",
     )
-    @patch("ee.api.subscription.hackathon_subscription_feature", return_value=True)
-    def test_deliveries_filter_by_status(self, filter_status, _mock_feature):
+    def test_deliveries_filter_by_status(self, filter_status):
         other_status = next(s for s in SubscriptionDelivery.Status if s != filter_status)
         self._create_delivery(idempotency_key=f"other-{other_status.value}", status=other_status)
         self._create_delivery(idempotency_key=f"match-{filter_status.value}", status=filter_status)
@@ -866,8 +962,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         assert len(results) == 1
         assert results[0]["status"] == filter_status
 
-    @patch("ee.api.subscription.hackathon_subscription_feature", return_value=True)
-    def test_deliveries_invalid_status_filter_returns_400(self, _mock_feature):
+    def test_deliveries_invalid_status_filter_returns_400(self):
         self._create_delivery(idempotency_key="any")
         response = self.client.get(
             f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/",
@@ -876,8 +971,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @pytest.mark.skip_on_multitenancy
-    @patch("ee.api.subscription.hackathon_subscription_feature", return_value=True)
-    def test_deliveries_require_premium_feature(self, _mock_feature):
+    def test_deliveries_require_premium_feature(self):
         self.organization.available_product_features = []
         self.organization.save()
         response = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/")
@@ -887,29 +981,6 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         self._create_delivery(idempotency_key="legacy-test")
         response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/")
         assert response.status_code == status.HTTP_404_NOT_FOUND
-
-    def test_deliveries_list_not_found_when_feature_flag_off(self):
-        self._create_delivery(idempotency_key="flag-off")
-        with patch(
-            "ee.api.subscription.hackathon_subscription_feature",
-            return_value=False,
-        ):
-            response = self.client.get(
-                f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/"
-            )
-        assert response.status_code == status.HTTP_404_NOT_FOUND
-
-    def test_deliveries_retrieve_ok_when_feature_flag_off(self):
-        delivery = self._create_delivery(idempotency_key="retrieve-flag-off")
-        with patch(
-            "ee.api.subscription.hackathon_subscription_feature",
-            return_value=False,
-        ):
-            response = self.client.get(
-                f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/{delivery.id}/"
-            )
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["id"] == str(delivery.id)
 
     def test_retrieve_delivery_not_found_when_row_belongs_to_different_subscription(self):
         other = Subscription.objects.create(
@@ -942,8 +1013,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     @patch("ee.api.subscription.SubscriptionDeliveryCursorPagination.page_size", 2)
-    @patch("ee.api.subscription.hackathon_subscription_feature", return_value=True)
-    def test_deliveries_list_cursor_pagination(self, _mock_feature):
+    def test_deliveries_list_cursor_pagination(self):
         self._create_delivery(idempotency_key="page-a")
         self._create_delivery(idempotency_key="page-b")
         self._create_delivery(idempotency_key="page-c")

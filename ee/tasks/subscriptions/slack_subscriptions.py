@@ -12,11 +12,28 @@ from posthog.models.exported_asset import ExportedAsset
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.subscription import Subscription
 
-from ee.tasks.subscriptions.subscription_utils import ASSET_GENERATION_FAILED_MESSAGE, _has_asset_failed
+from ee.tasks.subscriptions.subscription_utils import ASSET_GENERATION_FAILED_MESSAGE, UTM_TAGS_BASE, _has_asset_failed
 
 logger = structlog.get_logger(__name__)
 
-UTM_TAGS_BASE = "utm_source=posthog&utm_campaign=subscription_report"
+# Slack API error codes that indicate transient server-side issues — safe to retry.
+# These are 5xx-equivalents in Slack's string-coded error model. Permanent errors
+# (channel_not_found, invalid_auth, etc.) are NOT in this set and should fail fast.
+_RETRYABLE_SLACK_ERRORS = frozenset(
+    {
+        "internal_error",
+        "service_unavailable",
+        "fatal_error",
+        "request_timeout",
+        "ratelimited",
+        "rate_limited",
+    }
+)
+
+
+def _next_delivery_date_display(subscription: Subscription) -> str:
+    next_delivery_date = subscription.next_delivery_date
+    return next_delivery_date.strftime("%A %B %d, %Y") if next_delivery_date is not None else "an upcoming date"
 
 
 @dataclass
@@ -124,7 +141,10 @@ def _prepare_slack_message(
 
     if is_new_subscription:
         title = f"This channel has been subscribed to {display_name} on PostHog! 🎉"
-        title += f"\nThis subscription is {subscription.summary}. The next one will be sent on {subscription.next_delivery_date.strftime('%A %B %d, %Y')}"
+        title += (
+            f"\nThis subscription is {subscription.summary}. "
+            f"The next one will be sent on {_next_delivery_date_display(subscription)}"
+        )
     else:
         title = f"Your subscription to {display_name} is ready! 🎉"
 
@@ -227,9 +247,12 @@ async def _send_slack_message_with_retry(client, max_retries: int = 3, **kwargs)
         except (TimeoutError, SlackApiError) as e:
             if isinstance(e, SlackApiError):
                 slack_error = e.response.get("error", "")
-                if slack_error != "invalid_blocks":
+                if slack_error == "invalid_blocks":
+                    log_event = "_send_slack_message_with_retry.invalid_blocks_retrying"
+                elif slack_error in _RETRYABLE_SLACK_ERRORS:
+                    log_event = "_send_slack_message_with_retry.transient_error_retrying"
+                else:
                     raise
-                log_event = "_send_slack_message_with_retry.invalid_blocks_retrying"
             else:
                 log_event = "_send_slack_message_with_retry.timeout_retrying"
 

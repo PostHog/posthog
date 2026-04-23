@@ -83,8 +83,8 @@ class Migration(AsyncMigrationDefinition):
         persons_backfill_ongoing = get_client().get(REDIS_HIGHWATERMARK_KEY) is not None
         return not has_new_engine or persons_backfill_ongoing
 
-    @cached_property
-    def operations(self):
+    @property
+    def operations(self) -> list[AsyncMigrationOperation]:
         return [
             AsyncMigrationOperationSQL(
                 database=AnalyticsDBMS.CLICKHOUSE,
