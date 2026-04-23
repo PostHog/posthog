@@ -248,6 +248,44 @@ class TestErrorHandling(TestCase):
         assert outcome.notification == NotificationAction.NONE
 
 
+class TestTransientErrors(TestCase):
+    def test_transient_error_does_not_increment_consecutive_failures(self) -> None:
+        snapshot = _snapshot(state=NOT_FIRING, consecutive_failures=2)
+        check = CheckResult(
+            result_count=None, threshold_breached=False, error_message="cluster busy", is_transient_error=True
+        )
+        outcome = evaluate_alert_check(snapshot, check, NOW)
+        assert outcome.consecutive_failures == 2
+
+    def test_transient_error_still_transitions_to_errored(self) -> None:
+        snapshot = _snapshot(state=NOT_FIRING)
+        check = CheckResult(
+            result_count=None, threshold_breached=False, error_message="cluster busy", is_transient_error=True
+        )
+        outcome = evaluate_alert_check(snapshot, check, NOW)
+        assert outcome.new_state == ERRORED
+        assert outcome.notification == NotificationAction.ERROR
+
+    def test_transient_error_does_not_push_counter_past_threshold(self) -> None:
+        # MAX_CONSECUTIVE_FAILURES - 1 non-transient errors → ERRORED, counter at 4.
+        # A transient error must NOT push it to 5 (BROKEN).
+        snapshot = _snapshot(state=ERRORED, consecutive_failures=4)
+        check = CheckResult(
+            result_count=None, threshold_breached=False, error_message="cancelled", is_transient_error=True
+        )
+        outcome = evaluate_alert_check(snapshot, check, NOW)
+        assert outcome.new_state == ERRORED
+        assert outcome.consecutive_failures == 4
+
+    def test_non_transient_error_still_increments_failures(self) -> None:
+        snapshot = _snapshot(state=NOT_FIRING, consecutive_failures=2)
+        check = CheckResult(
+            result_count=None, threshold_breached=False, error_message="invalid query", is_transient_error=False
+        )
+        outcome = evaluate_alert_check(snapshot, check, NOW)
+        assert outcome.consecutive_failures == 3
+
+
 class TestBrokenTransition(TestCase):
     @parameterized.expand(
         [

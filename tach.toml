@@ -14,12 +14,6 @@ source_roots = [
 [[modules]]
 path = "<root>"
 depends_on = [
-    "ee",
-    "posthog",
-    "products.error_tracking",
-    "products.event_definitions",
-    "products.llm_analytics",
-    "products.logs",
 ]
 layer = "modules"
 
@@ -40,7 +34,6 @@ utility = true
 [[modules]]
 path = "ee"
 depends_on = [
-    "<root>",
     "posthog",
     "products.alerts",
     "products.dashboards",
@@ -64,7 +57,6 @@ layer = "modules"
 [[modules]]
 path = "posthog"
 depends_on = [
-    "<root>",
     "ee",
     "products.analytics_platform",
     "products.batch_exports",
@@ -97,7 +89,6 @@ depends_on = [
     "products.signals",
     "products.slack_app",
     "products.surveys",
-    "products.streamlit_apps",
     "products.tasks",
     "products.tracing",
     "products.user_interviews",
@@ -202,6 +193,7 @@ depends_on = [
     "posthog",
     "products.data_modeling",
     "products.data_warehouse",
+    "products.signals",
 ]
 layer = "modules"
 
@@ -241,7 +233,6 @@ layer = "modules"
 [[modules]]
 path = "products.growth"
 depends_on = [
-    "ee",
     "posthog",
 ]
 layer = "modules"
@@ -316,7 +307,6 @@ layer = "modules"
 [[modules]]
 path = "products.metrics"
 depends_on = [
-    "posthog",
 ]
 layer = "modules"
 
@@ -333,7 +323,6 @@ layer = "modules"
 path = "products.streamlit_apps"
 depends_on = [
     "posthog",
-    "products.tasks",
 ]
 layer = "modules"
 
@@ -348,7 +337,6 @@ layer = "modules"
 [[modules]]
 path = "products.platform_features"
 depends_on = [
-    "posthog",
 ]
 layer = "modules"
 
@@ -372,7 +360,6 @@ layer = "modules"
 [[modules]]
 path = "products.product_tours"
 depends_on = [
-    "ee",
     "posthog",
     "products.surveys",
 ]
@@ -506,6 +493,7 @@ from = [
 
 [[interfaces]]
 expose = [
+    "backend\\.admin.*",
     "backend\\.models.*",
     "backend\\.oauth.*",
 ]

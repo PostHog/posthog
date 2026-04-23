@@ -89,7 +89,7 @@ def create_notification(data: NotificationData) -> NotificationEvent | None:
         resolved_user_ids=resolved_user_ids,
     )
 
-    def _on_commit():
+    def _on_commit() -> None:
         _publish_to_kafka(event)
         invalidate_unread_count_for_users(resolved_user_ids, organization.id)
 

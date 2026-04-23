@@ -14,8 +14,9 @@ import {
     isFeatureFlagEnabled,
     type MCPAnalyticsContext,
 } from '@/lib/analytics'
-import { buildToolResultPayload } from '@/lib/build-tool-result'
+import { buildToolResultPayload, isToolCallPayload } from '@/lib/build-tool-result'
 import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
+import { isCodingAgentClient, isPostHogCodeConsumer } from '@/lib/client-detection'
 import {
     CUSTOM_API_BASE_URL,
     POSTHOG_EU_BASE_URL,
@@ -51,6 +52,10 @@ export type RequestProperties = {
     organizationId?: string
     projectId?: string
     clientUserAgent?: string
+    mcpConsumer?: string
+    mcpClientName?: string
+    mcpClientVersion?: string
+    mcpProtocolVersion?: string
     readOnly?: boolean
     transport?: 'streamable-http' | 'sse'
     requestStartTime?: number
@@ -110,7 +115,27 @@ export class MCP extends McpAgent<Env> {
         return this._clientInfoPromise
     }
 
+    private _seedClientInfoFromProps(): boolean {
+        const { mcpClientName, mcpClientVersion, mcpProtocolVersion } = this.requestProperties
+        if (!mcpClientName && !mcpClientVersion) {
+            return false
+        }
+        this._mcpClientName = mcpClientName
+        this._mcpClientVersion = mcpClientVersion
+        this._mcpProtocolVersion = mcpProtocolVersion
+        return true
+    }
+
     private async _doResolveClientInfo(): Promise<void> {
+        // Prefer values parsed from the current request body (see
+        // `extractClientInfoFromBody` in index.ts). This is the only path
+        // that works on first-connect, because the framework's
+        // `getInitializeRequest()` reads from DO storage which is only written
+        // *after* `onStart`/`init()` has already run.
+        if (this._seedClientInfoFromProps()) {
+            return
+        }
+
         try {
             const initRequest = await this.getInitializeRequest()
             if (!initRequest || !('params' in initRequest)) {
@@ -198,6 +223,7 @@ export class MCP extends McpAgent<Env> {
                 mcpClientName: this._mcpClientName,
                 mcpClientVersion: this._mcpClientVersion,
                 mcpProtocolVersion: this._mcpProtocolVersion,
+                mcpConsumer: this.requestProperties.mcpConsumer,
             })
         }
 
@@ -296,6 +322,7 @@ export class MCP extends McpAgent<Env> {
                     ...(this._mcpClientName ? { mcp_client_name: this._mcpClientName } : {}),
                     ...(this._mcpClientVersion ? { mcp_client_version: this._mcpClientVersion } : {}),
                     ...(this._mcpProtocolVersion ? { mcp_protocol_version: this._mcpProtocolVersion } : {}),
+                    ...(this.requestProperties.mcpConsumer ? { mcp_consumer: this.requestProperties.mcpConsumer } : {}),
                     ...(this.requestProperties.transport ? { mcp_transport: this.requestProperties.transport } : {}),
                     ...contextProperties,
                     ...previousContextProperties,
@@ -369,6 +396,13 @@ export class MCP extends McpAgent<Env> {
                         this.trackContextSwitchEvent(tool.name, await this.getContext(), previousContext)
                     )
                 }
+                // The exec wrapper (single-exec mode) assembles the per-call payload itself —
+                // propagating the inner tool's UI resourceUri onto the response — so pass it
+                // through unchanged. Re-running `buildToolResultPayload` on the payload would
+                // object-rest-destructure its content/structuredContent fields.
+                if (isToolCallPayload(handlerResult)) {
+                    return handlerResult
+                }
                 // Fetch distinctId only when a UI-resource tool with a non-string result might
                 // actually use it in structuredContent; avoids an extra round-trip otherwise.
                 const hasUiResource = !!tool._meta?.ui?.resourceUri
@@ -427,11 +461,20 @@ export class MCP extends McpAgent<Env> {
             env: this.env,
             stateManager: new StateManager(this.cache, api),
             sessionManager: this.sessionManager,
+            getDistinctId: () => this.getDistinctId(),
         }
     }
 
     async init(): Promise<void> {
         const { features, tools, version: clientVersion, organizationId, projectId, readOnly } = this.requestProperties
+
+        // Seed the MCP client-info fields from request properties (parsed from
+        // the JSON-RPC initialize message in the request body at the worker
+        // entry point). This must happen before any code reads
+        // `this._mcpClientName` — most importantly the `useSingleExec`
+        // decision below. Without this, first-connect sessions make tool
+        // registration decisions with an undefined client name.
+        this._seedClientInfoFromProps()
 
         // Start feature flag resolution in parallel with cache seeding
         const flagPromise = this.resolveVersionFlag()
@@ -453,11 +496,20 @@ export class MCP extends McpAgent<Env> {
             await context.stateManager.setDefaultOrganizationAndProject()
         }
 
-        const [flagVersion, toolFeatureFlags, useSingleExec] = await Promise.all([
+        const [flagVersion, toolFeatureFlags, singleExecFlagOn] = await Promise.all([
             flagPromise,
             toolFlagsPromise,
             singleExecPromise,
         ])
+        // Restrict single-exec mode to coding agents only — Cursor and other clients that
+        // render `structuredContent` in their UI need the full per-tool roster, not the
+        // wrapped CLI. `_mcpClientName` is seeded from request properties at the top of
+        // `init()` so this decision sees the real value on first-connect. PostHog's agent
+        // wrapper self-identifies via the `x-posthog-mcp-consumer` header and forces
+        // single-exec regardless of the wrapped client's reported name.
+        const useSingleExec =
+            singleExecFlagOn &&
+            (isCodingAgentClient(this._mcpClientName) || isPostHogCodeConsumer(this.requestProperties.mcpConsumer))
         const version = useSingleExec ? 2 : (flagVersion ?? clientVersion ?? 1)
 
         // Fetch group types and metadata in parallel (cache is now seeded)
@@ -519,7 +571,13 @@ export class MCP extends McpAgent<Env> {
             }))
             const commandReference = buildInstructionsV2(CLI_PROXY_COMMAND, guidelines, groupTypes, metadata, toolInfos)
 
-            const execTool = createExecTool(allTools, context, CLI_PROXY_TOOL, commandReference)
+            const execTool = createExecTool(
+                allTools,
+                context,
+                CLI_PROXY_TOOL,
+                commandReference,
+                this.requestProperties.mcpConsumer
+            )
             const typedExecTool = execTool as Tool<z.ZodObject>
             this.registerTool(typedExecTool, async (params) => typedExecTool.handler(context, params))
         } else {

@@ -36,7 +36,7 @@
                         "type": "string"
                     },
                     "old": {
-                        "description": "Text to find in the current skill body. Must match exactly once.",
+                        "description": "Text to find in the target content. Must match exactly once.",
                         "type": "string"
                     }
                 },
@@ -45,8 +45,41 @@
             },
             "type": "array"
         },
+        "file_edits": {
+            "description": "Per-file find/replace updates. Each entry targets one existing file by path and applies sequential edits to its content. Non-targeted files carry forward unchanged. Cannot add, remove, or rename files — use 'files' for that. Mutually exclusive with files.",
+            "items": {
+                "properties": {
+                    "edits": {
+                        "description": "Sequential find/replace operations to apply to this file's content.",
+                        "items": {
+                            "properties": {
+                                "new": {
+                                    "description": "Replacement text.",
+                                    "type": "string"
+                                },
+                                "old": {
+                                    "description": "Text to find in the target content. Must match exactly once.",
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["old", "new"],
+                            "type": "object"
+                        },
+                        "type": "array"
+                    },
+                    "path": {
+                        "description": "Path of the bundled file to edit. Must match an existing file on the current skill version.",
+                        "maxLength": 500,
+                        "type": "string"
+                    }
+                },
+                "required": ["path", "edits"],
+                "type": "object"
+            },
+            "type": "array"
+        },
         "files": {
-            "description": "Bundled files to include with this version. Replaces all files from the previous version.",
+            "description": "Bundled files to include with this version. Replaces all files from the previous version. Mutually exclusive with file_edits.",
             "items": {
                 "properties": {
                     "content": {

@@ -17,6 +17,53 @@ def jsonhas_expr(prop: str, param_prefix: str) -> str:
     return f"JSONHas(properties, {args})"
 
 
+def compile_hogql_predicate(obj) -> tuple[str, dict]:
+    """Parse and compile ``obj.hogql_predicate`` into a ClickHouse SQL fragment.
+
+    Returns ``(sql_fragment, extra_params)``. Both are empty when the predicate
+    is blank. The fragment excludes the surrounding parentheses so callers can
+    decide how to splice it (typically ``AND (<fragment>)``). Raises
+    :class:`~django.core.exceptions.ValidationError` on parse, resolution or
+    subquery errors — suitable for use inside ``Model.clean()``.
+    """
+    predicate = (getattr(obj, "hogql_predicate", "") or "").strip()
+    if not predicate:
+        return "", {}
+
+    # Imported lazily: HogQL pulls in the full schema graph, which we don't want
+    # to load for every model import (admin registration, migrations, etc.).
+    from posthog.hogql import ast
+    from posthog.hogql.context import HogQLContext
+    from posthog.hogql.hogql import translate_hogql
+    from posthog.hogql.parser import parse_expr
+    from posthog.hogql.visitor import TraversingVisitor
+
+    class _RejectSubqueries(TraversingVisitor):
+        def visit_select_query(self, node: ast.SelectQuery) -> None:
+            raise ValidationError({"hogql_predicate": "Subqueries are not allowed in a data deletion predicate."})
+
+        def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+            raise ValidationError({"hogql_predicate": "Subqueries are not allowed in a data deletion predicate."})
+
+    try:
+        parsed = parse_expr(predicate)
+    except Exception as exc:
+        raise ValidationError({"hogql_predicate": f"Could not parse HogQL: {exc}"}) from exc
+
+    _RejectSubqueries().visit(parsed)
+
+    if obj.team_id is None:
+        raise ValidationError({"hogql_predicate": "team_id must be set before validating the predicate."})
+
+    context = HogQLContext(team_id=obj.team_id, within_non_hogql_query=True, enable_select_queries=True)
+    try:
+        sql = translate_hogql(predicate, context, dialect="clickhouse")
+    except Exception as exc:
+        raise ValidationError({"hogql_predicate": f"Could not compile HogQL: {exc}"}) from exc
+
+    return sql, dict(context.values)
+
+
 def event_match_sql_fragment(obj) -> str:
     """WHERE fragment that narrows to the matching event names.
 
@@ -84,6 +131,14 @@ class DataDeletionRequest(UUIDModel):
         default=False,
         help_text="Opt in to deleting every event for the team in the given time range. "
         "Only honored for event_removal requests. Requires events to be empty.",
+    )
+    hogql_predicate = models.TextField(
+        blank=True,
+        default="",
+        help_text="Optional HogQL boolean expression to further narrow matching events. "
+        "Validated against the events table at save time. Combined with the other "
+        "filters (team/timestamp/events) via AND. Example: "
+        "properties.$browser = 'Chrome'.",
     )
     properties = ArrayField(
         models.CharField(max_length=1024),
@@ -178,3 +233,7 @@ class DataDeletionRequest(UUIDModel):
             raise ValidationError(
                 {"delete_all_events": "delete_all_events is only valid for event_removal requests."},
             )
+
+        if self.hogql_predicate:
+            # Raises ValidationError on parse/resolve/subquery errors.
+            compile_hogql_predicate(self)

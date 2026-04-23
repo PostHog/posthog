@@ -1,0 +1,39 @@
+ARG BASE_IMAGE=ghcr.io/posthog/posthog-sandbox-base:master
+FROM ${BASE_IMAGE}
+
+ARG PI_CODING_AGENT_VERSION=0.68.1
+RUN npm install -g "@mariozechner/pi-coding-agent@${PI_CODING_AGENT_VERSION}"
+
+# Fetch-by-SHA (not by tag) means the server only returns the specified commit; tag force-moves
+# on the personal upstream cannot affect what lands here. Install via the repo's documented
+# manual-copy path so nothing downstream re-resolves the SHA through a mutable name.
+ARG PI_AUTORESEARCH_SHA=56e9f2ec6f0dc6f9997126e4f1d8a4223de2a534
+RUN set -eux; \
+    src=/tmp/pi-autoresearch; \
+    git init -q "$src"; \
+    git -C "$src" remote add origin https://github.com/davebcn87/pi-autoresearch.git; \
+    git -C "$src" -c protocol.version=2 fetch --depth 1 origin "$PI_AUTORESEARCH_SHA"; \
+    git -C "$src" reset --hard FETCH_HEAD; \
+    mkdir -p /root/.pi/agent/extensions /root/.pi/agent/skills; \
+    cp -r "$src/extensions/pi-autoresearch" /root/.pi/agent/extensions/; \
+    cp -r "$src/skills/autoresearch-create" /root/.pi/agent/skills/; \
+    cp -r "$src/skills/autoresearch-finalize" /root/.pi/agent/skills/; \
+    rm -rf "$src"
+
+# production_us is the canonical source; US/EU/oldest share the pin today but can diverge.
+# Fetching the exact SHA eliminates the tag-force-move TOCTOU window that --branch would have.
+COPY .github/clickhouse-versions.json /tmp/clickhouse-versions.json
+RUN set -eux; \
+    expected_sha=$(jq -r '.source_shas.production_us // empty' /tmp/clickhouse-versions.json); \
+    [ -n "$expected_sha" ] || { echo "source_shas.production_us missing"; exit 1; }; \
+    dst=/opt/clickhouse; \
+    git init -q "$dst"; \
+    git -C "$dst" remote add origin https://github.com/ClickHouse/ClickHouse.git; \
+    git -C "$dst" -c protocol.version=2 fetch --depth 1 origin "$expected_sha"; \
+    git -C "$dst" reset --hard FETCH_HEAD; \
+    find "$dst" -maxdepth 2 -type d \
+        \( -name tests -o -name docs -o -name website -o -name contrib \) \
+        -prune -exec rm -rf {} +; \
+    rm -rf "$dst/.git" /tmp/clickhouse-versions.json
+
+CMD ["/bin/bash"]

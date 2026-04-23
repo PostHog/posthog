@@ -51,6 +51,7 @@ function TabsList({
 }: TabsPrimitive.List.Props & VariantProps<typeof tabsListVariants>): React.ReactElement {
     return (
         <TabsPrimitive.List
+            data-quill
             data-slot="tabs-list"
             data-variant={variant}
             className={cn(tabsListVariants({ variant }), className)}

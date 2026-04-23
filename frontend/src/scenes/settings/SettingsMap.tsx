@@ -42,6 +42,7 @@ import { ApiSection } from 'products/conversations/frontend/scenes/settings/ApiS
 import { EmailSection } from 'products/conversations/frontend/scenes/settings/EmailSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
 import { SlackSection } from 'products/conversations/frontend/scenes/settings/SlackSection'
+import { TeamsSection } from 'products/conversations/frontend/scenes/settings/TeamsSection'
 import { WidgetSection } from 'products/conversations/frontend/scenes/settings/WidgetSection'
 import { WorkflowsSection } from 'products/conversations/frontend/scenes/settings/WorkflowsSection'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
@@ -452,6 +453,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['conversation', 'ticket', 'message', 'support'],
             },
             {
+                id: 'conversations-email',
+                title: 'Email channel',
+                component: <EmailSection />,
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: ['conversation', 'ticket', 'message', 'support'],
+            },
+            {
                 id: 'conversations-slack',
                 title: 'Slack channel',
                 component: <SlackSection />,
@@ -459,11 +467,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['conversation', 'ticket', 'message', 'support'],
             },
             {
-                id: 'conversations-email',
-                title: 'Email channel',
-                component: <EmailSection />,
+                id: 'conversations-teams',
+                title: 'Microsoft Teams',
+                component: <TeamsSection />,
+                flag: 'PRODUCT_SUPPORT_TEAMS_ENABLED',
                 allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: ['conversation', 'ticket', 'message', 'support'],
+                keywords: ['conversation', 'ticket', 'message', 'support', 'teams', 'microsoft'],
             },
             {
                 id: 'conversations-workflows',

@@ -10,6 +10,7 @@ function NumberFieldRoot({
 }: NumberFieldPrimitive.Root.Props): React.ReactElement {
     return (
         <NumberFieldPrimitive.Root
+            data-quill
             data-slot="number-field"
             className={cn('flex flex-col gap-1', className)}
             {...props}

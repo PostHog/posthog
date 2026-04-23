@@ -92,7 +92,6 @@ GATE_ONLY_PATTERNS = (
     "bin/build-taxonomy-json.py",
     "bin/check_uv_python_compatibility.py",
     "bin/find_python_dependencies.py",
-    "bin/granian_metrics.py",
     "bin/unit_metrics.py",
 )
 
