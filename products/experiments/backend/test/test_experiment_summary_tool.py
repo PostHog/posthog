@@ -516,6 +516,12 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(context.primary_metrics_results), 1)
         self.assertEqual(len(context.secondary_metrics_results), 1)
 
+        # Verify the saved metric queries were actually passed to the query runner
+        query_runner_calls = mock_query_runner_class.call_args_list
+        self.assertEqual(len(query_runner_calls), 2)
+        metrics_queried = [call.kwargs["query"].metric.metric_type for call in query_runner_calls]
+        self.assertEqual(metrics_queried, ["funnel", "funnel"])
+
     @freeze_time("2020-01-10T12:00:00Z")
     async def test_fetch_experiment_data_combines_inline_and_saved_metrics(self):
         experiment = await self.acreate_experiment(name="mixed-metrics-test", with_metrics=True)
@@ -610,3 +616,10 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(context.primary_metrics_results), 2)
         # 1 inline secondary + 1 saved secondary = 2
         self.assertEqual(len(context.secondary_metrics_results), 2)
+
+        # Verify all 4 metrics were passed to the query runner (2 primary + 2 secondary)
+        query_runner_calls = mock_query_runner_class.call_args_list
+        self.assertEqual(len(query_runner_calls), 4)
+        metrics_queried = [call.kwargs["query"].metric.metric_type for call in query_runner_calls]
+        # Inline funnel primary, saved mean primary, inline funnel secondary, saved funnel secondary
+        self.assertEqual(metrics_queried, ["funnel", "mean", "funnel", "funnel"])
