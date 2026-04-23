@@ -363,6 +363,71 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 datetime(2020, 1, 13, 2, 0, 0, tzinfo=self.team.timezone_info),
             ]
 
+    def test_event_metadata_person_mode_filter_with_non_enum_value(self):
+        self._create_events(
+            data=[
+                ("p1", "2020-01-11T22:00:00", {}),
+                ("p2", "2020-01-12T01:00:00", {}),
+            ]
+        )
+
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-13T12:01:00"):
+            query = EventsQuery(
+                after="2020-01-11",
+                before="2020-01-15",
+                event="$pageview",
+                kind="EventsQuery",
+                orderBy=["timestamp ASC"],
+                select=["*"],
+                properties=[
+                    EventMetadataPropertyFilter(
+                        type="event_metadata",
+                        operator="exact",
+                        key="person_mode",
+                        value=[" not-an-enum-value@example.com", "another-bogus-value"],
+                    )
+                ],
+            )
+
+            runner = EventsQueryRunner(query=query, team=self.team)
+
+            response = runner.run()
+            assert isinstance(response, CachedEventsQueryResponse)
+            assert response.results == []
+
+    def test_event_metadata_person_mode_filter_with_valid_enum_value(self):
+        self._create_events(
+            data=[
+                ("p1", "2020-01-11T22:00:00", {}),
+                ("p2", "2020-01-12T01:00:00", {}),
+            ]
+        )
+
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-13T12:01:00"):
+            query = EventsQuery(
+                after="2020-01-11",
+                before="2020-01-15",
+                event="$pageview",
+                kind="EventsQuery",
+                orderBy=["timestamp ASC"],
+                select=["*"],
+                properties=[
+                    EventMetadataPropertyFilter(
+                        type="event_metadata", operator="exact", key="person_mode", value=["full"]
+                    )
+                ],
+            )
+
+            runner = EventsQueryRunner(query=query, team=self.team)
+
+            response = runner.run()
+            assert isinstance(response, CachedEventsQueryResponse)
+            assert len(response.results) == 2
+
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21")
     def test_element_chain_property_filter(self):

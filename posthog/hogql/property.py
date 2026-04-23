@@ -881,6 +881,12 @@ def property_to_expr(
 
         expr: ast.Expr = map_virtual_properties(field)
 
+        if property.type == "event_metadata" and property.key == "person_mode":
+            # person_mode is an Enum8 column in ClickHouse. Filtering it with arbitrary user-supplied
+            # strings (e.g. pasted identifiers) would otherwise raise CHQueryErrorUnknownElementOfEnum
+            # and fail the whole events query, so cast to String before the comparison.
+            expr = ast.Call(name="toString", args=[expr])
+
         if property.type == "recording" and property.key in ("snapshot_source", "snapshot_library"):
             expr = ast.Call(name="argMinMerge", args=[field])
 
