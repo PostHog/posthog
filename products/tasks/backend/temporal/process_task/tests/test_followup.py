@@ -212,6 +212,18 @@ def _mock_get_pr_context(_input) -> GetPrContextOutput | None:
             pr_state="open",
             fingerprint="stable-fp",
         )
+    if behavior == "sequence":
+        # Returns fingerprints from a configured list, repeating the last value
+        # once exhausted. Lets a test deterministically drive change-vs-unchanged
+        # transitions across CI ticks.
+        sequence: list[str] = _pr_context_overrides["sequence"]
+        idx = min(_pr_context_overrides.get("_call_count", 0), len(sequence) - 1)
+        _pr_context_overrides["_call_count"] = idx + 1
+        return GetPrContextOutput(
+            pr_url="https://github.com/org/repo/pull/1",
+            pr_state="open",
+            fingerprint=sequence[idx],
+        )
     # Default "changing": unique fingerprint per call so CI follow-up always fires
     _pr_context_overrides["_call_count"] = _pr_context_overrides.get("_call_count", 0) + 1
     return GetPrContextOutput(
@@ -391,6 +403,18 @@ class TestCIFollowUpLoop:
 
 
 class TestFollowupGuards:
+    @pytest.fixture(autouse=True)
+    def _reset_state(self):
+        _ci_context_overrides.clear()
+        _ci_followup_calls.clear()
+        _status_updates.clear()
+        _pr_context_overrides.clear()
+        yield
+        _ci_context_overrides.clear()
+        _ci_followup_calls.clear()
+        _status_updates.clear()
+        _pr_context_overrides.clear()
+
     @pytest.mark.parametrize(
         "message,artifact_ids,expected",
         [
@@ -473,3 +497,41 @@ class TestFollowupGuards:
                 await handle.result()
 
         assert len(_ci_followup_calls) == 1
+
+    @pytest.mark.timeout(60)
+    async def test_ci_follow_up_fires_on_changed_fingerprint_and_persists(self):
+        # Once a follow-up fires for a new fingerprint, that fingerprint must
+        # persist on the workflow so the *next* tick observing the same
+        # fingerprint skips. Sequence drives CI to MAX_CI_REPETITIONS while
+        # including an unchanged tick in the middle:
+        #   tick 1: fp-A (vs None)  → fire        (persist fp-A)
+        #   tick 2: fp-A (vs fp-A)  → skip        ← only succeeds if persisted
+        #   tick 3: fp-B (vs fp-A)  → fire        (persist fp-B)
+        #   tick 4: fp-C (vs fp-B)  → fire        (hits MAX, disables CI)
+        # With broken persistence, tick 2 would also fire — MAX would be hit
+        # one tick earlier and only 3 get_pr_context calls would land. The call
+        # count is therefore the persistence signal.
+        _pr_context_overrides["behavior"] = "sequence"
+        _pr_context_overrides["sequence"] = ["fp-A", "fp-A", "fp-B", "fp-C"]
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            task_queue = f"test-{uuid.uuid4()}"
+            async with _make_worker(env, task_queue):
+                handle = await env.client.start_workflow(
+                    ProcessTaskWorkflow.run,
+                    ProcessTaskInput(run_id="run-1"),
+                    id=f"test-{uuid.uuid4()}",
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=timedelta(hours=4),
+                )
+                # Workflow ends naturally via inactivity once MAX_CI_REPETITIONS
+                # fires have happened — no signal needed.
+                await handle.result()
+
+        assert len(_ci_followup_calls) == MAX_CI_REPETITIONS
+        assert all(msg == DEFAULT_CI_MESSAGE for msg in _ci_followup_calls)
+        assert _pr_context_overrides.get("_call_count") == 4, (
+            f"expected 4 get_pr_context calls (fire, skip, fire, fire) — broken persistence "
+            f"would yield 3. Got {_pr_context_overrides.get('_call_count')}"
+        )
