@@ -6,6 +6,7 @@ import {
     CachedLegacyExperimentQueryResponse,
     ExperimentFunnelsQuery,
     ExperimentTrendsQuery,
+    ExperimentMetric,
 } from '~/queries/schema/schema-general'
 import {
     legacyGetHighestProbabilityVariant,
@@ -84,6 +85,32 @@ export function LegacySignificanceText({
                 }`}
                 .
             </span>
+        </div>
+    )
+}
+
+/**
+ * @deprecated
+ * Use the Overview component from the experimentLogic instead.
+ */
+export function LegacyOverview({ metricUuid }: { metricUuid: string }): JSX.Element {
+    const { legacyPrimaryMetricsResults, experiment } = useValues(legacyExperimentLogic)
+
+    // Find metric index by UUID
+    const index = experiment.metrics.findIndex(
+        (m: ExperimentTrendsQuery | ExperimentFunnelsQuery | ExperimentMetric) => m.uuid === metricUuid
+    )
+    const result = index >= 0 ? legacyPrimaryMetricsResults?.[index] : null
+    if (!result) {
+        return <></>
+    }
+
+    return (
+        <div>
+            <div className="items-center inline-flex flex-wrap">
+                <LegacyWinningVariantText result={result} />
+                <LegacySignificanceText metricUuid={metricUuid} />
+            </div>
         </div>
     )
 }

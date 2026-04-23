@@ -7,11 +7,22 @@ import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeReques
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import {
+    ExperimentFunnelsQuery,
+    ExperimentTrendsQuery,
+    ExperimentTrendsQueryResponse,
+    ExperimentFunnelsQueryResponse,
+} from '~/queries/schema/schema-general'
+import {
     LegacyExperimentHeader,
     LegacyExperimentInfo,
     LegacyMetricsView,
     legacyExperimentLogic,
+    LegacyOverview,
+    LegacySummaryTable,
+    LegacyResultsQuery,
+    LegacyExploreButton,
 } from '~/scenes/experiments/legacy'
+import { Experiment } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
@@ -21,14 +32,79 @@ import { DistributionModal, DistributionTable } from '../ExperimentView/Distribu
 import { ExperimentWarningBanner } from '../ExperimentView/ExperimentWarningBanners'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from '../ExperimentView/ReleaseConditionsTable'
 
+const getFirstPrimaryMetric = (experiment: Experiment): ExperimentTrendsQuery | ExperimentFunnelsQuery | null => {
+    if (experiment.metrics.length) {
+        return experiment.metrics[0] as ExperimentTrendsQuery | ExperimentFunnelsQuery
+    }
+    const primaryMetric = experiment.saved_metrics.find((metric) => metric.metadata.type === 'primary')
+    if (primaryMetric) {
+        return primaryMetric.query as ExperimentTrendsQuery | ExperimentFunnelsQuery
+    }
+    return null
+}
 /**
  * Metrics tab for legacy experiments
  * Shows primary and secondary metrics in read-only mode
  */
 const LegacyMetricsTab = (): JSX.Element => {
+    const { experiment, legacyPrimaryMetricsResults } = useValues(legacyExperimentLogic)
+
+    const firstPrimaryMetric = getFirstPrimaryMetric(experiment)
+
+    const hasSomeResults = legacyPrimaryMetricsResults?.some((result) => result?.insight)
+    const primaryMetricsLengthWithSharedMetrics =
+        experiment.metrics.length +
+        experiment.saved_metrics.filter((metric) => metric.metadata.type === 'primary').length
+    const hasSinglePrimaryMetric = primaryMetricsLengthWithSharedMetrics === 1
+    const firstPrimaryMetricResult = legacyPrimaryMetricsResults?.[0]
+
+    /**
+     * Show a detailed results if:
+     * - there's a single primary metric
+     * - if the metric has insight results
+     * - if we have the minimum number of exposures
+     * - if it's the first primary metric (?)
+     *
+     * this is only for legacy experiments.
+     */
+    const showResultDetails = hasSomeResults && hasSinglePrimaryMetric && firstPrimaryMetric && firstPrimaryMetricResult
+
     return (
         <>
+            {hasSinglePrimaryMetric && (
+                <div className="mb-4 mt-2">
+                    <LegacyOverview metricUuid={firstPrimaryMetric?.uuid || ''} />
+                </div>
+            )}
             <LegacyMetricsView isSecondary={false} />
+            {showResultDetails && (
+                <>
+                    <div className="pb-4">
+                        <LegacySummaryTable metric={firstPrimaryMetric} displayOrder={0} isSecondary={false} />
+                    </div>
+                    <div className="flex justify-end">
+                        <LegacyExploreButton
+                            result={
+                                firstPrimaryMetricResult as
+                                    | ExperimentTrendsQueryResponse
+                                    | ExperimentFunnelsQueryResponse
+                            }
+                            size="xsmall"
+                        />
+                    </div>
+                    <div className="pb-4">
+                        <LegacyResultsQuery
+                            result={
+                                firstPrimaryMetricResult as
+                                    | ExperimentTrendsQueryResponse
+                                    | ExperimentFunnelsQueryResponse
+                                    | null
+                            }
+                            showTable={true}
+                        />
+                    </div>
+                </>
+            )}
             <LegacyMetricsView isSecondary={true} />
         </>
     )

@@ -47,7 +47,7 @@ export { LegacyMetricsChartLayout } from './metricsView/LegacyMetricsChartLayout
 export { LegacySignificanceHighlight } from './metricsView/LegacySignificanceHighlight'
 export { LegacyTickPanel } from './metricsView/LegacyTickPanel'
 export { LegacyVariantTooltip } from './metricsView/LegacyVariantTooltip'
-export { LegacyWinningVariantText, LegacySignificanceText } from './metricsView/LegacyOverview'
+export { LegacyWinningVariantText, LegacySignificanceText, LegacyOverview } from './metricsView/LegacyOverview'
 export { LegacyVariantTag } from './components/LegacyVariantTag'
 export * from './metricsView/legacyViolinUtils'
 
