@@ -83,7 +83,7 @@ export const UsageMetricCard = ({ metric }: { metric: UsageMetric }): JSX.Elemen
                         className="p-4 flex flex-col flex-1 justify-between max-w-80 min-h-36"
                     >
                         <div className="flex items-start gap-2 mb-1">
-                            <div className="text-sm font-semibold text-muted-alt truncate">{metric.name}</div>
+                            <div className="text-sm font-semibold text-muted-alt truncate min-w-0">{metric.name}</div>
                             <span className="text-xs text-muted ml-auto whitespace-nowrap shrink-0">
                                 Last {metric.interval} days
                             </span>

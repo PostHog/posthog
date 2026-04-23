@@ -20,9 +20,10 @@ const sparklineData = [
     18,
 ]
 
+const SPARKLINE_ANCHOR_DATE = new Date('2024-01-30T00:00:00Z')
 const sparklineLabels = Array.from({ length: 30 }, (_, i) => {
-    const date = new Date()
-    date.setDate(date.getDate() - (29 - i))
+    const date = new Date(SPARKLINE_ANCHOR_DATE)
+    date.setUTCDate(date.getUTCDate() - (29 - i))
     return date.toISOString()
 })
 
@@ -39,9 +40,7 @@ const baseSparklineMetric: UsageMetric = {
     timeseries_labels: sparklineLabels,
 }
 
-type GridArgs = { metrics: UsageMetric[] }
-
-const meta: Meta<GridArgs> = {
+const meta: Meta<typeof UsageMetricCard> = {
     title: 'Components/UsageMetricCard',
     component: UsageMetricCard,
     parameters: {
@@ -50,9 +49,9 @@ const meta: Meta<GridArgs> = {
 }
 export default meta
 
-type Story = StoryObj<GridArgs>
+type Story = StoryObj<typeof UsageMetricCard>
 
-const Grid = ({ metrics }: GridArgs): JSX.Element => (
+const Grid = ({ metrics }: { metrics: UsageMetric[] }): JSX.Element => (
     <div className="@container">
         <div className="grid grid-cols-1 @md:grid-cols-2 @xl:grid-cols-4 gap-4 p-4">
             {metrics.map((metric) => (
@@ -96,33 +95,35 @@ export const PositiveAndNegativeTrends: Story = {
 }
 
 /**
- * Mixes number and sparkline cards in the same row at the @xl breakpoint.
- * Regression test for the "Last N days" label wrapping and making sparkline
- * tiles taller than their neighbors.
+ * Mixes number and sparkline cards in the same row at the @xl (4-col) breakpoint,
+ * pinned to a width that reproduces the original regression where the
+ * "Last N days" label wrapped and made sparkline tiles taller than neighbors.
  */
 export const MixedGridAtNarrowBreakpoint: Story = {
     render: () => (
-        <Grid
-            metrics={[
-                baseNumberMetric,
-                {
-                    ...baseNumberMetric,
-                    id: 'recordings',
-                    name: 'Recordings',
-                    value: 25_400,
-                    change_from_previous_pct: -0.92,
-                },
-                baseSparklineMetric,
-                {
-                    ...baseSparklineMetric,
-                    id: 'events-with-groups',
-                    name: 'Events with groups',
-                    value: 563_000,
-                    change_from_previous_pct: 0.11,
-                    timeseries: sparklineData.slice().reverse(),
-                },
-            ]}
-        />
+        <div style={{ width: 1280 }}>
+            <Grid
+                metrics={[
+                    baseNumberMetric,
+                    {
+                        ...baseNumberMetric,
+                        id: 'recordings',
+                        name: 'Recordings',
+                        value: 25_400,
+                        change_from_previous_pct: -0.92,
+                    },
+                    baseSparklineMetric,
+                    {
+                        ...baseSparklineMetric,
+                        id: 'events-with-groups',
+                        name: 'Events with groups',
+                        value: 563_000,
+                        change_from_previous_pct: 0.11,
+                        timeseries: sparklineData.slice().reverse(),
+                    },
+                ]}
+            />
+        </div>
     ),
 }
 
