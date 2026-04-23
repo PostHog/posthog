@@ -381,6 +381,11 @@ def iterate_date_windows(
     cursor_lo: Any = db_incremental_field_last_value
     if cursor_lo is None:
         cursor_lo = incremental_type_to_initial_value(incremental_field_type)
+    # Partition bounds parsed from the catalog are always UTC-aware (see
+    # _parse_bound_value). The pipeline cursor can be naive when it was
+    # persisted without tz info; coerce both sides to UTC-aware so
+    # comparisons don't raise `can't compare offset-naive and offset-aware`.
+    cursor_lo = _ensure_aware(cursor_lo, incremental_field_type)
 
     if range_bounds:
         min_partition_lo = min(lo_ for lo_, _ in range_bounds)
@@ -551,6 +556,17 @@ def iterate_partitions(
         f"iterate_partitions complete: {total_rows} rows over {len(child_partitions)} partitions "
         f"in {clock() - start:.1f}s"
     )
+
+
+def _ensure_aware(value: Any, field_type: IncrementalFieldType) -> Any:
+    """Coerce naive DateTime/Timestamp values to UTC-aware so comparisons with
+    catalog-parsed partition bounds (which are always aware) don't fail with
+    `can't compare offset-naive and offset-aware datetimes`."""
+    if field_type not in (IncrementalFieldType.DateTime, IncrementalFieldType.Timestamp):
+        return value
+    if isinstance(value, datetime) and value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value
 
 
 def _step_back_one(value: Any, field_type: IncrementalFieldType) -> Any:
