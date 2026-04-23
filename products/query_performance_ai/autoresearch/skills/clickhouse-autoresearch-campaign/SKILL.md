@@ -115,6 +115,15 @@ SELECT name, expr, type FROM system.data_skipping_indices WHERE table = 'events'
 
 Use these to check the primary key, partitioning, codecs, and existing skip-indexes before hypothesizing that "adding an index" would help.
 
+**ClickHouse source code** is bundled into the sandbox at `/opt/clickhouse`, pinned to the same commit SHA running in PostHog production (US). `tests/`, `docs/`, `website/`, `contrib/`, and `.git` are stripped; everything else — the engine, query analyzer, storage, functions — is readable. Use it to ground hypotheses in the actual implementation:
+
+- `grep -rn "<FunctionName>" /opt/clickhouse/src/Functions/` — find the C++ implementation of a function you're using
+- `ls /opt/clickhouse/src/Storages/MergeTree/` — MergeTree internals (skip indexes, parts, marks)
+- `ls /opt/clickhouse/src/Interpreters/` — query-tree rewrites, analyzer passes, join engines
+- `ls /opt/clickhouse/src/Processors/` — pipeline / QueryPlan steps (what `EXPLAIN PIPELINE` is describing)
+
+Reading the source is often the fastest way to resolve questions like "does this function short-circuit?", "how does this skip-index decide which granules to read?", "what settings does this pass consult?". Prefer reading the source over guessing or inferring from documentation.
+
 **What this means for hypothesis formation**: start every lane by running `EXPLAIN indexes = 1, actions = 1, json = 1 SELECT <original>` and inspecting the plan. Then propose rewrites that target concrete weaknesses (full table scan, skipped PREWHERE, missing primary-key usage, etc.). Do not guess.
 
 ## Setup sequence
