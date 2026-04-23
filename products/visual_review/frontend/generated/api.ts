@@ -26,6 +26,7 @@ import type {
     PatchedUpdateRepoRequestInputApi,
     QuarantineInputApi,
     QuarantinedIdentifierEntryApi,
+    RecomputeResultApi,
     RepoApi,
     ReviewStateCountsApi,
     RunApi,
@@ -351,6 +352,24 @@ export const visualReviewRunsCompleteCreate = async (
     options?: RequestInit
 ): Promise<RunApi> => {
     return apiMutator<RunApi>(getVisualReviewRunsCompleteCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+/**
+ * Re-evaluate quarantine and counts, update commit status, and optionally rerun the CI job.
+ */
+export const getVisualReviewRunsRecomputeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/visual_review/runs/${id}/recompute/`
+}
+
+export const visualReviewRunsRecomputeCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<RecomputeResultApi> => {
+    return apiMutator<RecomputeResultApi>(getVisualReviewRunsRecomputeCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
     })

@@ -199,6 +199,14 @@ export interface AutoApproveResultApi {
     baseline_content: string
 }
 
+export interface RecomputeResultApi {
+    run: RunApi
+    counts_changed: boolean
+    ci_rerun_triggered: boolean
+    /** @nullable */
+    ci_rerun_error?: string | null
+}
+
 export interface SnapshotHistoryEntryApi {
     run_id: string
     result: string

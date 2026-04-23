@@ -13,6 +13,7 @@ import {
     visualReviewReposQuarantineList,
     visualReviewReposRetrieve,
     visualReviewRunsApproveCreate,
+    visualReviewRunsRecomputeCreate,
     visualReviewRunsTolerateCreate,
     visualReviewRunsRetrieve,
     visualReviewRunsSnapshotHistoryList,
@@ -55,6 +56,9 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             expiresAt,
         }),
         unquarantineSnapshot: (snapshot: SnapshotApi) => ({ snapshot }),
+        recomputeRun: true,
+        recomputeRunSuccess: true,
+        recomputeRunFailure: true,
     }),
     reducers({
         selectedSnapshotId: [
@@ -77,6 +81,14 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 approveSnapshot: () => true,
                 approveSnapshotSuccess: () => false,
                 approveSnapshotFailure: () => false,
+            },
+        ],
+        isRecomputing: [
+            false,
+            {
+                recomputeRun: () => true,
+                recomputeRunSuccess: () => false,
+                recomputeRunFailure: () => false,
             },
         ],
     }),
@@ -221,6 +233,10 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 ),
         ],
         repoFullName: [(s) => [s.repo], (repo): string | null => repo?.repo_full_name || null],
+        hasCIMetadata: [
+            (s) => [s.run],
+            (run): boolean => !!(run?.metadata?.github_run_id && run?.metadata?.github_job),
+        ],
         breadcrumbs: [
             (s) => [s.run],
             (run): Breadcrumb[] => [
@@ -341,6 +357,28 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 actions.loadQuarantinedIdentifiers()
             } catch (e: any) {
                 lemonToast.error(e?.detail || e?.message || 'Failed to quarantine')
+            }
+        },
+        recomputeRun: async () => {
+            try {
+                const result = await visualReviewRunsRecomputeCreate(String(values.currentProjectId), props.runId)
+                actions.recomputeRunSuccess()
+
+                const parts: string[] = []
+                if (result.counts_changed) {
+                    parts.push('counts updated')
+                }
+                if (result.ci_rerun_triggered) {
+                    parts.push('CI job rerun triggered')
+                } else if (result.ci_rerun_error) {
+                    parts.push(result.ci_rerun_error)
+                }
+                lemonToast.success(parts.length > 0 ? `Recomputed: ${parts.join(', ')}` : 'No changes needed')
+                actions.loadRun()
+                actions.loadSnapshots()
+            } catch (e: any) {
+                actions.recomputeRunFailure()
+                lemonToast.error(e?.detail || e?.message || 'Failed to recompute')
             }
         },
         unquarantineSnapshot: async ({ snapshot }) => {
