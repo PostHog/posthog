@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1112_datadeletionrequest_delete_all_events"),
+        ("posthog", "1115_featureflag_filters_groups_default"),
     ]
 
     operations = [
