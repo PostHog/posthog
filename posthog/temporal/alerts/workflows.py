@@ -148,6 +148,7 @@ class CheckAlertWorkflow(PostHogWorkflow):
                     NotifyAlertActivityInputs(
                         alert_id=inputs.alert_id,
                         alert_check_id=evaluation.alert_check_id,
+                        breaches=evaluation.breaches,
                     ),
                     start_to_close_timeout=dt.timedelta(minutes=5),
                     retry_policy=ALERT_NOTIFY_RETRY_POLICY,

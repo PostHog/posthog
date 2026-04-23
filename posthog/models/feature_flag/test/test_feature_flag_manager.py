@@ -16,3 +16,8 @@ class TestFeatureFlagManager(BaseTest):
         with self.assertRaises(FeatureFlag.DoesNotExist):
             FeatureFlag.objects.get(pk=deleted_flag.pk)
         assert FeatureFlag.objects_including_soft_deleted.get(pk=deleted_flag.pk) == deleted_flag
+
+    def test_filters_default_includes_groups_key(self):
+        flag = FeatureFlag.objects.create(team=self.team, key="default-filters", created_by=self.user)
+        flag.refresh_from_db()
+        assert flag.filters == {"groups": []}

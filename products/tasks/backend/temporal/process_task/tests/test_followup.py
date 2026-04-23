@@ -295,11 +295,15 @@ class TestCIFollowUpLoop:
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     execution_timeout=timedelta(hours=2),
                 )
-                await env.sleep(CI_FOLLOW_UP_DELAY.total_seconds() + 60)
-                await handle.signal(ProcessTaskWorkflow.complete_task, args=["completed", None])
+                # With CI gated off, the inactivity timer stays at its default
+                # 5m and is not extended to cover CI_FOLLOW_UP_DELAY (15m). The
+                # workflow therefore terminates via inactivity well before the
+                # CI deadline — which itself proves no follow-up could fire.
                 await handle.result()
 
         assert _ci_followup_calls == []
+        timeout_updates = [(s, e) for s, e in _status_updates if "timed out" in (e or "")]
+        assert timeout_updates, f"expected an inactivity-timeout completion, got {_status_updates}"
 
     @pytest.mark.timeout(60)
     async def test_completion_signal_wins_over_ready_ci_follow_up(self):

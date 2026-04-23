@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
+    CopyDashboardTemplateApi,
     CopyDashboardTileRequestApi,
     DashboardApi,
     DashboardCollaboratorApi,
@@ -151,6 +152,27 @@ export const dashboardTemplatesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(dashboardTemplateApi),
+    })
+}
+
+/**
+ * Creates a new team-scoped template in the **target** project (URL) from a **team-scoped** source template in the same organization. Global and feature-flag templates return 400. Cross-organization or inaccessible sources return 404. Source and destination projects must differ (400 if equal). Conflicting `template_name` values on the destination are auto-suffixed with `(copy)`, `(copy 2)`, …
+ * @summary Copy a team template to this project
+ */
+export const getDashboardTemplatesCopyBetweenProjectsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/dashboard_templates/copy_between_projects/`
+}
+
+export const dashboardTemplatesCopyBetweenProjectsCreate = async (
+    projectId: string,
+    copyDashboardTemplateApi: CopyDashboardTemplateApi,
+    options?: RequestInit
+): Promise<DashboardTemplateApi> => {
+    return apiMutator<DashboardTemplateApi>(getDashboardTemplatesCopyBetweenProjectsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(copyDashboardTemplateApi),
     })
 }
 
