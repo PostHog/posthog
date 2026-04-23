@@ -79,6 +79,7 @@ from posthog.models import Team
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.queries.breakdown_props import resolve_cohort_names
 from posthog.queries.util import correct_result_for_sampling
 from posthog.utils import multisort
 
@@ -532,6 +533,11 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         if self.query.compareFilter is not None and self.query.compareFilter.compare:
             real_series_count = ceil(series_count / 2)
 
+        # Batch-resolve cohort IDs to names in one query so we label every series
+        # without N+1 Cohort SELECTs and without relying on a client-side cohortsModel
+        # fetch (which isn't available on shared dashboards).
+        cohort_name_cache: dict[int, str] = self._collect_cohort_name_cache(response, get_value)
+
         res = []
         for val in response.results:
             try:
@@ -639,11 +645,12 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     series_object["breakdown_value"] = remapped_label
                 elif self.query.breakdownFilter.breakdown_type == "cohort":
                     cohort_id = get_value("breakdown_value", val)
-                    cohort_name = (
-                        "all users"
-                        if str(cohort_id) == "0"
-                        else Cohort.objects.get(pk=cohort_id, team__project_id=self.team.project_id).name
-                    )
+                    if str(cohort_id) == "0":
+                        cohort_name = "all users"
+                    else:
+                        cohort_name = cohort_name_cache.get(int(cohort_id)) or (
+                            Cohort.objects.get(pk=cohort_id, team__project_id=self.team.project_id).name or ""
+                        )
 
                     if real_series_count > 1:
                         series_object["label"] = "{} - {}".format(series_object["label"], cohort_name)
@@ -658,7 +665,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                             continue
                         remapped_label = "none"
 
-                    formatted_breakdown_value = self._format_breakdown_label(remapped_label)
+                    formatted_breakdown_value = self._format_breakdown_label(
+                        remapped_label, cohort_name_cache=cohort_name_cache
+                    )
 
                     # If there's multiple series, include the object label in the series label
                     if real_series_count > 1:
@@ -1197,12 +1206,72 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             # we should disable `compare` _no matter how_ we arrived at the final executed query
             self.query.compareFilter.compare = False
 
-    def _format_breakdown_label(self, breakdown_value: Any):
+    def _collect_cohort_name_cache(self, response: HogQLQueryResponse, get_value) -> dict[int, str]:
+        """Scan the response once to gather every cohort ID that needs a name.
+
+        Returns an empty dict unless the breakdown uses cohorts. Batches the
+        lookup into a single DB query, replacing what would otherwise be one
+        Cohort SELECT per series.
+        """
+        if not self.breakdown_enabled or self.query.breakdownFilter is None:
+            return {}
+
+        is_cohort_single = self.query.breakdownFilter.breakdown_type == "cohort"
+        cohort_positions: list[int] = []
+        if self.query.breakdownFilter.breakdowns:
+            cohort_positions = [
+                idx for idx, breakdown in enumerate(self.query.breakdownFilter.breakdowns) if breakdown.type == "cohort"
+            ]
+
+        if not is_cohort_single and not cohort_positions:
+            return {}
+
+        cohort_ids: set[int] = set()
+        for val in response.results:
+            raw = get_value("breakdown_value", val)
+            if raw is None:
+                continue
+            if is_cohort_single:
+                try:
+                    cohort_ids.add(int(raw))
+                except (TypeError, ValueError):
+                    continue
+            else:
+                if not isinstance(raw, list | tuple):
+                    continue
+                for pos in cohort_positions:
+                    if pos >= len(raw):
+                        continue
+                    try:
+                        cohort_ids.add(int(raw[pos]))
+                    except (TypeError, ValueError):
+                        continue
+
+        if not cohort_ids:
+            return {}
+        return resolve_cohort_names(cohort_ids, self.team)
+
+    def _format_breakdown_label(self, breakdown_value: Any, cohort_name_cache: dict[int, str] | None = None):
         if self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdowns is not None:
             labels = []
             for breakdown, label in zip(self.query.breakdownFilter.breakdowns, breakdown_value):
                 if self._is_breakdown_field_boolean(breakdown.property, breakdown.type, breakdown.group_type_index):
                     labels.append(self._convert_boolean(label))
+                elif breakdown.type == "cohort":
+                    # Resolve cohort IDs to names so shared dashboards (which can't
+                    # fetch cohorts client-side) can label each breakdown tuple.
+                    if str(label) == "0":
+                        labels.append("all users")
+                    else:
+                        try:
+                            cohort_id = int(label)
+                        except (TypeError, ValueError):
+                            labels.append(str(label))
+                            continue
+                        resolved = (cohort_name_cache or {}).get(cohort_id)
+                        if resolved is None:
+                            resolved = resolve_cohort_names([cohort_id], self.team).get(cohort_id)
+                        labels.append(resolved or str(cohort_id))
                 else:
                     labels.append(label)
 

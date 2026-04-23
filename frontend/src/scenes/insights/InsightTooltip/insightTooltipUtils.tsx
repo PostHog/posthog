@@ -182,7 +182,14 @@ function getPillValues(
     const pillValues = []
     if (s.breakdown_value !== undefined) {
         pillValues.push(
-            formatBreakdownLabel(s.breakdown_value, breakdownFilter, cohorts?.results, formatPropertyValueForDisplay)
+            formatBreakdownLabel(
+                s.breakdown_value,
+                breakdownFilter,
+                cohorts?.results,
+                formatPropertyValueForDisplay,
+                undefined,
+                s.label
+            )
         )
     }
     if (s.compare_label) {

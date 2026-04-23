@@ -387,12 +387,24 @@ export const retentionLogic = kea<retentionLogicType>([
         ],
 
         breakdownDisplayNames: [
-            (s) => [s.breakdownValues, s.breakdownFilter, s.cohortsById],
+            (s) => [s.breakdownValues, s.breakdownFilter, s.cohortsById, s.results],
             (
                 breakdownValues: (string | number | boolean | null)[],
                 breakdownFilter: any,
-                cohortsById: Partial<Record<string | number, CohortType>>
+                cohortsById: Partial<Record<string | number, CohortType>>,
+                results
             ): Record<string, string> => {
+                // Map breakdown values to server-resolved labels (e.g. cohort names
+                // for cohort breakdowns), so shared dashboards that can't fetch the
+                // cohort list can still label rows correctly.
+                const serverLabels: Record<string, string> = {}
+                for (const result of results ?? []) {
+                    if ('breakdown_value_label' in result && result.breakdown_value_label) {
+                        const k = String((result as { breakdown_value?: string | number | null }).breakdown_value ?? '')
+                        serverLabels[k] = result.breakdown_value_label as string
+                    }
+                }
+
                 return breakdownValues.reduce(
                     (acc, breakdownValue, breakdownIndex) => {
                         const key = String(breakdownValue ?? '')
@@ -412,7 +424,8 @@ export const retentionLogic = kea<retentionLogicType>([
                                 breakdownFilter,
                                 cohorts,
                                 undefined,
-                                breakdownIndex
+                                breakdownIndex,
+                                serverLabels[key]
                             )
                             acc[key] = formattedLabel
                         }

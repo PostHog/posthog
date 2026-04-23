@@ -7582,6 +7582,12 @@ class RetentionResult(BaseModel):
     breakdown_value: str | float | None = Field(
         default=None, description="Optional breakdown value for retention cohorts"
     )
+    breakdown_value_label: str | None = Field(
+        default=None,
+        description=(
+            "Display label for the breakdown value, resolved server-side (e.g. cohort name for cohort breakdowns)"
+        ),
+    )
     date: AwareDatetime
     label: str
     values: list[RetentionValue]

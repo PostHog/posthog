@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from typing import Any, Optional, Union, cast
 
 from django.forms import ValidationError
@@ -397,3 +398,25 @@ def get_breakdown_cohort_name(cohort_id: int, team: Team, not_in_cohort_name: st
     else:
         cohort_name = Cohort.objects.get(pk=cohort_id, team__project_id=team.project_id).name
         return cohort_name or ""
+
+
+def resolve_cohort_names(cohort_ids: Iterable[int], team: Team) -> dict[int, str]:
+    """Batch-resolve cohort IDs to display names with a single DB query.
+
+    Used by insight query runners to label cohort-breakdown series without
+    issuing one SELECT per series. Includes the ALL_USERS_COHORT_ID and
+    NOT_IN_COHORT_ID sentinels in the returned map so callers can look them
+    up uniformly.
+    """
+    ids = {int(cid) for cid in cohort_ids}
+    result: dict[int, str] = {}
+    if ALL_USERS_COHORT_ID in ids:
+        result[ALL_USERS_COHORT_ID] = "all users"
+        ids.remove(ALL_USERS_COHORT_ID)
+    if NOT_IN_COHORT_ID in ids:
+        result[NOT_IN_COHORT_ID] = "Not in cohort"
+        ids.remove(NOT_IN_COHORT_ID)
+    if ids:
+        for pk, name in Cohort.objects.filter(pk__in=ids, team__project_id=team.project_id).values_list("pk", "name"):
+            result[pk] = name or ""
+    return result

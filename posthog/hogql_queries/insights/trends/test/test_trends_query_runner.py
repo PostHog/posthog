@@ -3345,6 +3345,44 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[2]["count"] == 1
         assert response.results[3]["count"] == 1
 
+    def test_trends_multi_breakdown_cohort_resolves_name_in_label(self):
+        # Multi-breakdown (`breakdowns` list) with a cohort entry should emit
+        # the resolved cohort name in the series label, not the raw cohort ID.
+        # Shared dashboards rely on this because they can't fetch cohorts
+        # client-side.
+        self._create_test_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "name", "value": "p1", "type": "person"}]}],
+            name="VIP customers",
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        flush_persons_and_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(type="cohort", property=cohort.pk),
+                    Breakdown(type="event", property="$browser"),
+                ]
+            ),
+        )
+
+        assert len(response.results) >= 1
+        for result in response.results:
+            # Label segments are joined by "::" — the first segment must be the
+            # cohort name, not the raw ID.
+            assert result["label"].startswith(f"{cohort.name}::"), (
+                f"expected cohort name in label, got {result['label']!r}"
+            )
+            assert str(cohort.pk) not in result["label"].split("::")[0]
+
     def test_trends_multiple_breakdowns_have_max_limit(self):
         # max three breakdowns are allowed
         with pytest.raises(ValidationError, match=".*at most 3.*"):

@@ -145,7 +145,8 @@ export function InsightsTable({
                   breakdownFilter,
                   allCohorts?.results,
                   formatPropertyValueForDisplay,
-                  breakdownFilter.breakdowns ? 0 : undefined
+                  breakdownFilter.breakdowns ? 0 : undefined,
+                  item.label
               )
         : undefined
 
@@ -275,7 +276,8 @@ export function InsightsTable({
                     breakdownFilter,
                     allCohorts?.results,
                     formatPropertyValueForDisplay,
-                    index
+                    index,
+                    item.label
                 )
 
             const columnKey = `breakdown-${breakdown.property?.toString() || index}`

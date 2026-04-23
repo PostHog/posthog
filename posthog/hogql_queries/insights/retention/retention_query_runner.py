@@ -47,7 +47,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRangeWithInter
 from posthog.models import Team
 from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
+from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID, resolve_cohort_names
 from posthog.queries.util import correct_result_for_sampling
 
 DEFAULT_INTERVAL = IntervalType("day")
@@ -727,6 +727,25 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             if other_values:
                 ordered_breakdown_keys.append(BREAKDOWN_OTHER_STRING_LABEL)
 
+            # Resolve cohort IDs to display names so shared dashboards (which can't
+            # fetch cohorts client-side) can label cohort-breakdown rows.
+            cohort_name_map: dict[int, str] = {}
+            has_cohort_breakdown = bool(
+                self.query.breakdownFilter
+                and self.query.breakdownFilter.breakdowns
+                and any(b.type == "cohort" for b in self.query.breakdownFilter.breakdowns)
+            )
+            if has_cohort_breakdown:
+                resolvable_ids: list[int] = []
+                for key in ordered_breakdown_keys:
+                    if key == BREAKDOWN_OTHER_STRING_LABEL:
+                        continue
+                    try:
+                        resolvable_ids.append(int(key))
+                    except (TypeError, ValueError):
+                        continue
+                cohort_name_map = resolve_cohort_names(resolvable_ids, self.team)
+
             for breakdown_value in ordered_breakdown_keys:
                 count_intervals_data: dict[int, dict[int, float]] = aggregated_count_data.get(breakdown_value, {})
                 value_intervals_data: dict[int, dict[int, float]] = aggregated_value_data.get(breakdown_value, {})
@@ -749,14 +768,22 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                         for return_interval in range(self.lookahead_period_count)
                     ]
 
-                    breakdown_results.append(
-                        {
-                            "values": values,
-                            "label": f"{self.query_date_range.interval_name.title()} {start_interval}",
-                            "date": self.get_date(start_interval),
-                            "breakdown_value": breakdown_value,
-                        }
-                    )
+                    breakdown_value_label: str | None = None
+                    if has_cohort_breakdown and breakdown_value != BREAKDOWN_OTHER_STRING_LABEL:
+                        try:
+                            breakdown_value_label = cohort_name_map.get(int(breakdown_value))
+                        except (TypeError, ValueError):
+                            breakdown_value_label = None
+
+                    entry: dict[str, Any] = {
+                        "values": values,
+                        "label": f"{self.query_date_range.interval_name.title()} {start_interval}",
+                        "date": self.get_date(start_interval),
+                        "breakdown_value": breakdown_value,
+                    }
+                    if breakdown_value_label is not None:
+                        entry["breakdown_value_label"] = breakdown_value_label
+                    breakdown_results.append(entry)
 
                 final_results.extend(breakdown_results)
 

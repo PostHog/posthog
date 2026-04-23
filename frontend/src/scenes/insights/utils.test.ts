@@ -222,6 +222,32 @@ describe('formatBreakdownLabel()', () => {
         expect(formatBreakdownLabel(3, breakdownFilter2, [], identity)).toEqual('3')
     })
 
+    it('falls back to server-provided label when cohorts are not loaded (shared dashboards)', () => {
+        // Shared dashboards can't fetch the cohort list client-side, so
+        // formatBreakdownLabel must trust the server-resolved itemLabel.
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: [42],
+            breakdown_type: 'cohort',
+        }
+        expect(formatBreakdownLabel(42, breakdownFilter, [], identity, undefined, 'VIP customers')).toEqual(
+            'VIP customers'
+        )
+        expect(formatBreakdownLabel(42, breakdownFilter, undefined, identity, undefined, 'VIP customers')).toEqual(
+            'VIP customers'
+        )
+    })
+
+    it('prefers cohortsModel name when both cohorts and itemLabel are available', () => {
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: [cohort.id],
+            breakdown_type: 'cohort',
+        }
+        // When cohorts is populated we use the authoritative name; itemLabel is only a fallback.
+        expect(
+            formatBreakdownLabel(cohort.id, breakdownFilter, [cohort as any], identity, undefined, 'stale name')
+        ).toEqual(cohort.name)
+    })
+
     it('handles cohort breakdowns with all users', () => {
         const breakdownFilter1: BreakdownFilter = {
             breakdown: ['all'],

@@ -5893,6 +5893,44 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
             pad([[2, 2, 1, 0, 0], [2, 1, 0, 0], [1, 0, 0], [0, 0], [0]]),
         )
 
+    def test_retention_cohort_breakdown_results_include_cohort_name_label(self):
+        # Shared dashboards can't fetch the cohort list client-side, so the server
+        # must emit the cohort name alongside the raw breakdown_value.
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"name": "person1"})
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"name": "person2"})
+
+        flush_persons_and_events()
+
+        named_cohort = Cohort.objects.create(
+            team=self.team,
+            name="VIP customers",
+            groups=[{"properties": [{"key": "name", "value": "person1", "type": "person"}]}],
+        )
+        named_cohort.calculate_people_ch(pending_version=0)
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person2", _date(0)),
+                ("person1", _date(1)),
+            ],
+        )
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(4, hour=0)},
+                "retentionFilter": {"totalIntervals": 3, "period": "Day"},
+                "breakdownFilter": {"breakdown_type": "cohort", "breakdown": [named_cohort.pk]},
+            }
+        )
+
+        cohort_rows = [r for r in result if r.get("breakdown_value") == str(named_cohort.pk)]
+        self.assertTrue(cohort_rows, "expected at least one row for the cohort breakdown")
+        for row in cohort_rows:
+            self.assertEqual(row.get("breakdown_value_label"), "VIP customers")
+
     def test_retention_with_multiple_cohort_breakdowns(self):
         # Person 1 in cohort 1
         _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"name": "person1"})

@@ -1670,6 +1670,8 @@ export interface RetentionResult {
     date: string
     /** Optional breakdown value for retention cohorts */
     breakdown_value?: string | number | null
+    /** Display label for the breakdown value, resolved server-side (e.g. cohort name for cohort breakdowns) */
+    breakdown_value_label?: string | null
 }
 
 export interface RetentionQueryResponse extends AnalyticsQueryResponseBase {

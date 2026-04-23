@@ -115,7 +115,9 @@ export function FunnelLineGraph({
                                         breakdownValue,
                                         breakdownFilter,
                                         allCohorts.results,
-                                        formatPropertyValueForDisplay
+                                        formatPropertyValueForDisplay,
+                                        undefined,
+                                        (dataset as { label?: string })?.label
                                     )
                                   : null
 

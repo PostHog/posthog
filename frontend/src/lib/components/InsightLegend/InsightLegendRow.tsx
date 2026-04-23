@@ -71,7 +71,9 @@ export function InsightLegendRow({ item, readOnly = false }: InsightLegendRowPro
         item.breakdown_value,
         breakdownFilter,
         allCohorts.results,
-        formatPropertyValueForDisplay
+        formatPropertyValueForDisplay,
+        undefined,
+        item.label
     )
 
     const isPrevious = !!item.compare && item.compare_label === 'previous'
