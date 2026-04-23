@@ -136,8 +136,9 @@ jobs:
 
             - name: Lint changed files with strict Oxlint rules
               # Scoped to frontend/ and products/ because those are the areas that use
-              # kea for state management. Stories and MCP apps are excluded — they run
-              # standalone and legitimately need useState.
+              # kea for state management. Stories, MCP apps, and frontend/src/lib are
+              # excluded — they render standalone components that legitimately need
+              # useState.
               if: github.event_name == 'pull_request'
               env:
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -146,7 +147,7 @@ jobs:
                   mapfile -t CHANGED < <(
                       git diff --name-only --diff-filter=ACMRT "$BASE_SHA...$HEAD_SHA" -- 'frontend/' 'products/' \
                       | grep -E '\.(ts|tsx|js|jsx|mjs)$' \
-                      | grep -vE '\.stories\.tsx$|^products/[^/]+/mcp/apps/' \
+                      | grep -vE '\.stories\.tsx$|^products/[^/]+/mcp/apps/|^frontend/src/lib/' \
                       || true
                   )
                   if [ ${#CHANGED[@]} -gt 0 ]; then
