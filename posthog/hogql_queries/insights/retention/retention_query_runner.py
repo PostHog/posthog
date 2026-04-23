@@ -972,8 +972,8 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(source=start_timestamp_field)
             start_entity_expr = (
                 property_to_expr(self.start_event.properties, self.team)
-                if start_entity_is_dwh
-                else self.start_entity_expr
+                if start_entity_is_dwh and self.start_event.properties
+                else (ast.Constant(value=True) if start_entity_is_dwh else self.start_entity_expr)
             )
             start_event_timestamps = parse_expr(
                 """
