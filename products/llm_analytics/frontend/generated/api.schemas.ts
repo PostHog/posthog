@@ -351,19 +351,22 @@ export interface TestHogResponseApi {
 /**
  * * `trace` - trace
  * `generation` - generation
+ * `evaluation` - evaluation
  */
-export type AnalysisLevelEnumApi = (typeof AnalysisLevelEnumApi)[keyof typeof AnalysisLevelEnumApi]
+export type ClusteringJobAnalysisLevelEnumApi =
+    (typeof ClusteringJobAnalysisLevelEnumApi)[keyof typeof ClusteringJobAnalysisLevelEnumApi]
 
-export const AnalysisLevelEnumApi = {
+export const ClusteringJobAnalysisLevelEnumApi = {
     Trace: 'trace',
     Generation: 'generation',
+    Evaluation: 'evaluation',
 } as const
 
 export interface ClusteringJobApi {
     readonly id: string
     /** @maxLength 100 */
     name: string
-    analysis_level: AnalysisLevelEnumApi
+    analysis_level: ClusteringJobAnalysisLevelEnumApi
     event_filters?: unknown
     enabled?: boolean
     readonly created_at: string
@@ -383,7 +386,7 @@ export interface PatchedClusteringJobApi {
     readonly id?: string
     /** @maxLength 100 */
     name?: string
-    analysis_level?: AnalysisLevelEnumApi
+    analysis_level?: ClusteringJobAnalysisLevelEnumApi
     event_filters?: unknown
     enabled?: boolean
     readonly created_at?: string
@@ -1076,13 +1079,25 @@ export interface ScoreDefinitionNewVersionApi {
     config: ScoreDefinitionConfigApi
 }
 
+/**
+ * * `trace` - trace
+ * `generation` - generation
+ */
+export type SentimentRequestAnalysisLevelEnumApi =
+    (typeof SentimentRequestAnalysisLevelEnumApi)[keyof typeof SentimentRequestAnalysisLevelEnumApi]
+
+export const SentimentRequestAnalysisLevelEnumApi = {
+    Trace: 'trace',
+    Generation: 'generation',
+} as const
+
 export interface SentimentRequestApi {
     /**
      * @minItems 1
      * @maxItems 5
      */
     ids: string[]
-    analysis_level?: AnalysisLevelEnumApi
+    analysis_level?: SentimentRequestAnalysisLevelEnumApi
     force_refresh?: boolean
     /** @nullable */
     date_from?: string | null

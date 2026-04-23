@@ -2441,7 +2441,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     breakdownBy: WebStatsBreakdown.InitialReferringDomain,
                                     properties: [
                                         {
-                                            key: '$initial_referring_domain',
+                                            key: '$entry_referring_domain',
                                             value: AI_REFERRER_DOMAINS,
                                             operator: PropertyOperator.Exact,
                                             type: PropertyFilterType.Session,
@@ -2487,12 +2487,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         display: ChartDisplayType.ActionsLineGraph,
                                     },
                                     breakdownFilter: {
-                                        breakdown: '$initial_referring_domain',
+                                        breakdown: '$entry_referring_domain',
                                         breakdown_type: 'session',
                                     },
                                     properties: [
                                         {
-                                            key: '$initial_referring_domain',
+                                            key: '$entry_referring_domain',
                                             value: AI_REFERRER_DOMAINS,
                                             operator: PropertyOperator.Exact,
                                             type: PropertyFilterType.Session,

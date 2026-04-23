@@ -1,6 +1,20 @@
 {
-    "production_eu": "clickhouse/clickhouse-server:25.12.8",
-    "production_us": "clickhouse/clickhouse-server:25.12.8",
-    "local": "clickhouse/clickhouse-server:26.3.9",
-    "oldest_supported": "clickhouse/clickhouse-server:25.12.8"
+    "versions": {
+        "production_eu": "clickhouse/clickhouse-server:25.12.8",
+        "production_us": "clickhouse/clickhouse-server:25.12.8",
+        "local": "clickhouse/clickhouse-server:26.3.9",
+        "oldest_supported": "clickhouse/clickhouse-server:25.12.8"
+    },
+    "source_tags": {
+        "production_eu": "v25.12.8.9-stable",
+        "production_us": "v25.12.8.9-stable",
+        "local": "v26.3.9.8-lts",
+        "oldest_supported": "v25.12.8.9-stable"
+    },
+    "source_shas": {
+        "production_eu": "36747349fb542bdd401151a442253dfdc2c9891a",
+        "production_us": "36747349fb542bdd401151a442253dfdc2c9891a",
+        "local": "0d82c1998e3b4d54e110dd8a77a64d247c4bff4a",
+        "oldest_supported": "36747349fb542bdd401151a442253dfdc2c9891a"
+    }
 }
