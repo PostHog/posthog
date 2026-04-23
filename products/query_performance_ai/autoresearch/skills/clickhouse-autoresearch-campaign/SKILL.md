@@ -115,7 +115,7 @@ SELECT name, expr, type FROM system.data_skipping_indices WHERE table = 'events'
 
 Use these to check the primary key, partitioning, codecs, and existing skip-indexes before hypothesizing that "adding an index" would help.
 
-**ClickHouse source code** is bundled into the sandbox at `/opt/clickhouse`, pinned to the same commit SHA running in PostHog production (US). `tests/`, `docs/`, `website/`, `contrib/`, and `.git` are stripped; everything else — the engine, query analyzer, storage, functions — is readable. Use it to ground hypotheses in the actual implementation:
+**ClickHouse source code** is bundled into the sandbox at `/opt/clickhouse`, pinned to a recent ClickHouse commit. This likely matches the behavior of the cluster you're querying, but it may lag or diverge from the version actually running in prod — treat it as a strong hint, not ground truth, and be alert to cases where observed behavior disagrees with what the source suggests. `tests/`, `docs/`, `website/`, `contrib/`, and `.git` are stripped; everything else — the engine, query analyzer, storage, functions — is readable. Use it to ground hypotheses in the actual implementation:
 
 - `grep -rn "<FunctionName>" /opt/clickhouse/src/Functions/` — find the C++ implementation of a function you're using
 - `ls /opt/clickhouse/src/Storages/MergeTree/` — MergeTree internals (skip indexes, parts, marks)
