@@ -40,20 +40,19 @@ def create_default_evaluation_jobs(apps, schema_editor):
         )
 
 
-def remove_default_evaluation_jobs(apps, schema_editor):
-    """Reverse: delete the rows this migration created, identified by name + level."""
-    ClusteringJob = apps.get_model("llm_analytics", "ClusteringJob")
-    ClusteringJob.objects.filter(name=DEFAULT_NAME, analysis_level="evaluation").delete()
-
-
 class Migration(migrations.Migration):
     dependencies = [
         ("llm_analytics", "0028_clusteringjob_evaluation_level"),
     ]
 
     operations = [
+        # reverse_code=noop matches migration 0018's precedent: forward uses
+        # ignore_conflicts=True, so a name+level filter can't distinguish rows
+        # this migration actually created from rows inserted by other paths
+        # (the post_save signal on Team, manual admin creates, etc.). A naive
+        # reverse would be data-destructive in those cases.
         migrations.RunPython(
             create_default_evaluation_jobs,
-            reverse_code=remove_default_evaluation_jobs,
+            reverse_code=migrations.RunPython.noop,
         ),
     ]
