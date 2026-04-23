@@ -661,7 +661,9 @@ class TestLLMSkillAPI(APIBaseTest):
 
         response = self.client.delete(self._url("name/crud-delete-traversal/files/..%2Fetc%2Fpasswd"))
 
-        # The URL resolver won't match ".." after normalization — either 400 or 404 is acceptable.
+        # %2F decodes to '/' so the path *does* reach delete_file; the in-view ".." segment
+        # check is what produces the 400. 404 is also tolerated in case routing/middleware
+        # rejects it earlier for some setups.
         assert response.status_code in {status.HTTP_400_BAD_REQUEST, status.HTTP_404_NOT_FOUND}
 
     def test_delete_file_requires_write_scope(self, mock_feature_enabled):

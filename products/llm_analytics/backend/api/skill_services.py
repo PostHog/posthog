@@ -386,9 +386,6 @@ def rename_skill_file(
     new_path: str,
     base_version: int | None = None,
 ) -> LLMSkill:
-    if old_path == new_path:
-        raise LLMSkillFilePathConflictError(path=new_path)
-
     with transaction.atomic():
         current_latest = _select_latest_for_write(team, skill_name, base_version)
         existing_files = list(LLMSkillFile.objects.filter(skill=current_latest))
@@ -396,8 +393,6 @@ def rename_skill_file(
             raise LLMSkillFileNotFoundError(path=old_path)
         if any(f.path == new_path for f in existing_files):
             raise LLMSkillFilePathConflictError(path=new_path)
-        if len(existing_files) > MAX_SKILL_FILE_COUNT:
-            raise LLMSkillFileLimitError(max_count=MAX_SKILL_FILE_COUNT)
 
         next_files = [
             LLMSkillFile(

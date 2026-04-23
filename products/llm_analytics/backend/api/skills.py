@@ -137,7 +137,10 @@ class LLMSkillViewSet(
         if view.action in ["get_by_name", "update_by_name"]:
             return ["llm_skill:write"] if request.method == "PATCH" else ["llm_skill:read"]
         # delete_file shares get_file's URL via @get_file.mapping.delete and would otherwise
-        # inherit llm_skill:read. DELETE must require write scope.
+        # inherit llm_skill:read. DELETE must require write scope. The `request.method` check
+        # and inclusion of `get_file` in the action list are belt-and-braces: in practice,
+        # `view.action == "delete_file"` only ever fires on DELETE, but we guard against any
+        # future dispatch reshuffle that could leave action=`get_file` on a DELETE request.
         if view.action in ["get_file", "delete_file"] and request.method == "DELETE":
             return ["llm_skill:write"]
         return None
