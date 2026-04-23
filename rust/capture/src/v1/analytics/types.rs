@@ -132,7 +132,7 @@ impl SinkEvent for WrappedEvent {
         }
     }
 
-    fn serialize_into(&self, _ctx: &Context, _buf: &mut String) -> Result<(), String> {
+    fn serialize_into(&self, _ctx: &Context, _buf: &mut String) -> anyhow::Result<()> {
         // TODO: builds IngestionEvent from self + Context, applies $-prefix
         // remapping, IP redaction, property merging. Tackled separately.
         unimplemented!("WrappedEvent::serialize_into")
