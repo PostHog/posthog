@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     NotebookApi,
+    NotebookCollabSaveApi,
     NotebooksListParams,
     PaginatedNotebookMinimalListApi,
     PatchedNotebookApi,
@@ -171,6 +172,27 @@ export const notebooksActivityRetrieve2 = async (
     return apiMutator<void>(getNotebooksActivityRetrieve2Url(projectId, shortId), {
         ...options,
         method: 'GET',
+    })
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const getNotebooksCollabSaveCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/collab/save/`
+}
+
+export const notebooksCollabSaveCreate = async (
+    projectId: string,
+    shortId: string,
+    notebookCollabSaveApi: NotebookCollabSaveApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getNotebooksCollabSaveCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(notebookCollabSaveApi),
     })
 }
 

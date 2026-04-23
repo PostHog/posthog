@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries_context
@@ -93,7 +93,6 @@ def team_api_test_factory():
             self.assertEqual(response_data["name"], self.team.name)
             self.assertEqual(response_data["timezone"], "UTC")
             self.assertEqual(response_data["is_demo"], False)
-            self.assertEqual(response_data["slack_incoming_webhook"], self.team.slack_incoming_webhook)
             self.assertEqual(response_data["has_group_types"], False)
             self.assertEqual(
                 response_data["person_on_events_querying_enabled"],
@@ -358,38 +357,6 @@ def team_api_test_factory():
             self.team.refresh_from_db()
             self.assertNotEqual(self.team.timezone, "America/I_Dont_Exist")
 
-        @parameterized.expand(
-            [
-                ("null_value", None, True),
-                ("empty_string", "", True),
-                ("valid_slack_url", "https://hooks.slack.com/services/T00/B00/XXX", True),
-                ("valid_external_url", "https://example.com/webhook", True),
-                ("localhost", "http://localhost/webhook", False),
-                ("localhost_with_port", "http://localhost:8080/webhook", False),
-                ("loopback_ip", "http://127.0.0.1/webhook", False),
-                ("internal_ip_192", "http://192.168.1.1/webhook", False),
-                ("internal_ip_10", "http://10.0.0.1/webhook", False),
-                ("internal_ip_172", "http://172.16.0.1/webhook", False),
-            ]
-        )
-        @override_settings(DEBUG=False)
-        def test_slack_incoming_webhook_ssrf_validation(
-            self, _name: str, webhook_url: str | None, should_succeed: bool
-        ):
-            """Test that slack_incoming_webhook rejects internal/private IPs (CVE-2025-1521)."""
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/",
-                {"slack_incoming_webhook": webhook_url},
-            )
-            if should_succeed:
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
-                self.team.refresh_from_db()
-                self.assertEqual(self.team.slack_incoming_webhook, webhook_url if webhook_url else None)
-            else:
-                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-                response_data = response.json()
-                self.assertIn("Invalid webhook URL", response_data.get("detail", "") or str(response_data))
-
         def test_cant_update_team_from_another_org(self):
             org = Organization.objects.create(name="New Org")
             team = Team.objects.create(organization=org, name="Default project")
@@ -454,6 +421,7 @@ def team_api_test_factory():
                         "short_id": None,
                         "trigger": None,
                     },
+                    "client": None,
                     "created_at": ANY,
                 },
                 {
@@ -476,6 +444,7 @@ def team_api_test_factory():
                     "scope": "Team",
                     "user_id": self.user.pk,
                     "was_impersonated": False,
+                    "client": None,
                 },
             ]
             if self.client_class is EnvironmentToProjectRewriteClient:
@@ -501,6 +470,7 @@ def team_api_test_factory():
                         "scope": "Project",
                         "user_id": self.user.pk,
                         "was_impersonated": False,
+                        "client": None,
                     },
                 )
             assert activity == expected_activity
@@ -1338,7 +1308,7 @@ def team_api_test_factory():
         ) -> None:
             response = self._patch_linked_flag_config(provided_value, expected_status=status.HTTP_400_BAD_REQUEST)
 
-            assert response.json() == {
+            assert cast(Any, response).json() == {
                 "attr": "session_recording_linked_flag",
                 "code": expected_code,
                 "detail": expected_error,
@@ -1470,7 +1440,7 @@ def team_api_test_factory():
             response = self._patch_session_replay_config(
                 {"ai_config": provided_value}, expected_status=status.HTTP_400_BAD_REQUEST
             )
-            assert response.json() == {
+            assert cast(Any, response).json() == {
                 "attr": "session_replay_config",
                 "code": expected_code,
                 "detail": expected_error,
@@ -2112,7 +2082,7 @@ def team_api_test_factory():
             with freeze_time("2025-01-01T00:00:00Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 16}},
+                    {"logs_settings": {"retention_days": 30}},
                 )
                 assert response.status_code == status.HTTP_200_OK
                 assert not hasattr(response.json()["logs_settings"], "retention_last_updated")
@@ -2121,7 +2091,7 @@ def team_api_test_factory():
             with freeze_time("2025-01-01T00:00:00Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 15}},
+                    {"logs_settings": {"retention_days": 14}},
                 )
                 assert response.status_code == status.HTTP_200_OK
                 assert response.json()["logs_settings"]["retention_last_updated"] is not None
@@ -2130,7 +2100,7 @@ def team_api_test_factory():
             with freeze_time("2025-01-01T12:00:00Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 20}},
+                    {"logs_settings": {"retention_days": 90}},
                 )
                 assert response.status_code == status.HTTP_400_BAD_REQUEST
                 assert "24 hours" in response.json()["detail"]
@@ -2139,23 +2109,34 @@ def team_api_test_factory():
             with freeze_time("2025-01-02T00:00:01Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 20}},
+                    {"logs_settings": {"retention_days": 90}},
                 )
                 assert response.status_code == status.HTTP_200_OK
+
+        def test_logs_settings_retention_invalid_values_rejected(self):
+            for invalid_days in [7, 15, 20, 45, 100]:
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"logs_settings": {"retention_days": invalid_days}},
+                )
+                assert response.status_code == status.HTTP_400_BAD_REQUEST, (
+                    f"Expected 400 for retention_days={invalid_days}"
+                )
+                assert "retention_days must be one of" in response.json()["detail"]
 
         def test_logs_settings_non_retention_changes_not_restricted(self):
             # Set initial retention
             with freeze_time("2025-01-01T00:00:00Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 16}},
+                    {"logs_settings": {"retention_days": 30}},
                 )
                 assert response.status_code == status.HTTP_200_OK
 
             with freeze_time("2025-01-01T00:00:00Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 15}},
+                    {"logs_settings": {"retention_days": 14}},
                 )
                 assert response.status_code == status.HTTP_200_OK
 
@@ -2165,7 +2146,7 @@ def team_api_test_factory():
                     "/api/environments/@current/",
                     {
                         "logs_settings": {
-                            "retention_days": 15,  # Same retention
+                            "retention_days": 14,  # Same retention
                             "json_parse_logs": True,
                         }
                     },
@@ -2178,7 +2159,7 @@ def team_api_test_factory():
                     "/api/environments/@current/",
                     {
                         "logs_settings": {
-                            "retention_days": 16,
+                            "retention_days": 30,
                         }
                     },
                 )

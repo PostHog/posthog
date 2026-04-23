@@ -387,9 +387,9 @@ export const ScheduleEnumApi = {
  * `person` - person
  * `group` - group
  */
-export type Type380EnumApi = (typeof Type380EnumApi)[keyof typeof Type380EnumApi]
+export type Type576EnumApi = (typeof Type576EnumApi)[keyof typeof Type576EnumApi]
 
-export const Type380EnumApi = {
+export const Type576EnumApi = {
     Cohort: 'cohort',
     Person: 'person',
     Group: 'group',
@@ -431,7 +431,7 @@ export interface FeatureFlagFilterPropertyGenericSchemaApi {
 * `cohort` - cohort
 * `person` - person
 * `group` - group */
-    type?: Type380EnumApi
+    type?: Type576EnumApi
     /**
      * Resolved cohort name for cohort-type filters.
      * @nullable
@@ -463,9 +463,9 @@ export interface FeatureFlagFilterPropertyGenericSchemaApi {
  * * `is_set` - is_set
  * `is_not_set` - is_not_set
  */
-export type Operator3e6EnumApi = (typeof Operator3e6EnumApi)[keyof typeof Operator3e6EnumApi]
+export type OperatorA04EnumApi = (typeof OperatorA04EnumApi)[keyof typeof OperatorA04EnumApi]
 
-export const Operator3e6EnumApi = {
+export const OperatorA04EnumApi = {
     IsSet: 'is_set',
     IsNotSet: 'is_not_set',
 } as const
@@ -478,7 +478,7 @@ export interface FeatureFlagFilterPropertyExistsSchemaApi {
 * `cohort` - cohort
 * `person` - person
 * `group` - group */
-    type?: Type380EnumApi
+    type?: Type576EnumApi
     /**
      * Resolved cohort name for cohort-type filters.
      * @nullable
@@ -493,23 +493,22 @@ export interface FeatureFlagFilterPropertyExistsSchemaApi {
 
 * `is_set` - is_set
 * `is_not_set` - is_not_set */
-    operator: Operator3e6EnumApi
+    operator: OperatorA04EnumApi
     /** Optional value. Runtime behavior determines whether this is ignored. */
     value?: unknown
 }
 
 /**
  * * `is_date_exact` - is_date_exact
- * `is_date_after` - is_date_after
  * `is_date_before` - is_date_before
+ * `is_date_after` - is_date_after
  */
-export type FeatureFlagFilterPropertyDateSchemaOperatorEnumApi =
-    (typeof FeatureFlagFilterPropertyDateSchemaOperatorEnumApi)[keyof typeof FeatureFlagFilterPropertyDateSchemaOperatorEnumApi]
+export type Operator382EnumApi = (typeof Operator382EnumApi)[keyof typeof Operator382EnumApi]
 
-export const FeatureFlagFilterPropertyDateSchemaOperatorEnumApi = {
+export const Operator382EnumApi = {
     IsDateExact: 'is_date_exact',
-    IsDateAfter: 'is_date_after',
     IsDateBefore: 'is_date_before',
+    IsDateAfter: 'is_date_after',
 } as const
 
 export interface FeatureFlagFilterPropertyDateSchemaApi {
@@ -520,7 +519,7 @@ export interface FeatureFlagFilterPropertyDateSchemaApi {
 * `cohort` - cohort
 * `person` - person
 * `group` - group */
-    type?: Type380EnumApi
+    type?: Type576EnumApi
     /**
      * Resolved cohort name for cohort-type filters.
      * @nullable
@@ -536,7 +535,7 @@ export interface FeatureFlagFilterPropertyDateSchemaApi {
 * `is_date_exact` - is_date_exact
 * `is_date_after` - is_date_after
 * `is_date_before` - is_date_before */
-    operator: FeatureFlagFilterPropertyDateSchemaOperatorEnumApi
+    operator: Operator382EnumApi
     /** Date value in ISO format or relative date expression. */
     value: string
 }
@@ -575,7 +574,7 @@ export interface FeatureFlagFilterPropertySemverSchemaApi {
 * `cohort` - cohort
 * `person` - person
 * `group` - group */
-    type?: Type380EnumApi
+    type?: Type576EnumApi
     /**
      * Resolved cohort name for cohort-type filters.
      * @nullable
@@ -622,7 +621,7 @@ export interface FeatureFlagFilterPropertyMultiContainsSchemaApi {
 * `cohort` - cohort
 * `person` - person
 * `group` - group */
-    type?: Type380EnumApi
+    type?: Type576EnumApi
     /**
      * Resolved cohort name for cohort-type filters.
      * @nullable
@@ -1094,22 +1093,22 @@ export type SurveyQuestionInputSchemaApi =
     | SurveyMultipleChoiceQuestionSchemaApi
 
 /**
- * * `regex` - regex
- * `not_regex` - not_regex
- * `exact` - exact
+ * * `exact` - exact
  * `is_not` - is_not
  * `icontains` - icontains
  * `not_icontains` - not_icontains
+ * `regex` - regex
+ * `not_regex` - not_regex
  */
-export type UrlMatchTypeEnumApi = (typeof UrlMatchTypeEnumApi)[keyof typeof UrlMatchTypeEnumApi]
+export type DeviceTypesMatchTypeEnumApi = (typeof DeviceTypesMatchTypeEnumApi)[keyof typeof DeviceTypesMatchTypeEnumApi]
 
-export const UrlMatchTypeEnumApi = {
-    Regex: 'regex',
-    NotRegex: 'not_regex',
+export const DeviceTypesMatchTypeEnumApi = {
     Exact: 'exact',
     IsNot: 'is_not',
     Icontains: 'icontains',
     NotIcontains: 'not_icontains',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
 } as const
 
 export interface SurveyConditionEventValueSchemaApi {
@@ -1137,25 +1136,6 @@ export const DeviceTypesEnumApi = {
     Tablet: 'Tablet',
 } as const
 
-/**
- * * `regex` - regex
- * `not_regex` - not_regex
- * `exact` - exact
- * `is_not` - is_not
- * `icontains` - icontains
- * `not_icontains` - not_icontains
- */
-export type DeviceTypesMatchTypeEnumApi = (typeof DeviceTypesMatchTypeEnumApi)[keyof typeof DeviceTypesMatchTypeEnumApi]
-
-export const DeviceTypesMatchTypeEnumApi = {
-    Regex: 'regex',
-    NotRegex: 'not_regex',
-    Exact: 'exact',
-    IsNot: 'is_not',
-    Icontains: 'icontains',
-    NotIcontains: 'not_icontains',
-} as const
-
 export interface SurveyConditionsSchemaApi {
     url?: string
     selector?: string
@@ -1172,7 +1152,7 @@ export interface SurveyConditionsSchemaApi {
 * `is_not` - is_not
 * `icontains` - icontains
 * `not_icontains` - not_icontains */
-    urlMatchType?: UrlMatchTypeEnumApi
+    urlMatchType?: DeviceTypesMatchTypeEnumApi
     events?: SurveyEventsConditionSchemaApi
     /** Device types that should match for this survey to be shown. */
     deviceTypes?: DeviceTypesEnumApi[]

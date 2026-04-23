@@ -94,7 +94,10 @@ export function isValidCohortGroup(criteria: AnyCohortGroupType): boolean {
     )
 }
 
-export function createCohortFormData(cohort: CohortType): FormData {
+export function createCohortFormData(
+    cohort: CohortType,
+    { preserveStaticFilters = false }: { preserveStaticFilters?: boolean } = {}
+): FormData {
     const rawCohort = {
         ...(cohort.name ? { name: cohort.name } : {}),
         description: cohort.description ?? '',
@@ -102,7 +105,7 @@ export function createCohortFormData(cohort: CohortType): FormData {
         ...(cohort.is_static ? { is_static: cohort.is_static } : {}),
         ...(typeof cohort._create_in_folder === 'string' ? { _create_in_folder: cohort._create_in_folder } : {}),
         filters: JSON.stringify(
-            cohort.is_static
+            cohort.is_static && !preserveStaticFilters
                 ? {
                       properties: {},
                   }

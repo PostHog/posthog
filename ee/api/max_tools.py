@@ -64,6 +64,7 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             user=cast(User, request.user),
             is_new_conversation=False,  # we don't care about the conversation id being sent back to the client
             initial_state=serializer.validated_data["state"],
+            is_agent_billable=False,
         )
 
         return Response(

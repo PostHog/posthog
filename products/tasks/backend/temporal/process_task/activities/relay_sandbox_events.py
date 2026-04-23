@@ -130,21 +130,23 @@ async def _background_heartbeat(
         except TimeoutError:
             activity.heartbeat()
             # Lazy import to avoid circular dependency (workflow imports this module)
-            from products.tasks.backend.temporal.process_task.workflow import INACTIVITY_TIMEOUT_MINUTES
+            from products.tasks.backend.temporal.process_task.workflow import INACTIVITY_TIMEOUT
 
             now = time.monotonic()
             if (
                 workflow_handle is not None
                 and last_event_time is not None
                 and last_event_time[0] > 0
-                and (now - last_event_time[0]) < INACTIVITY_TIMEOUT_MINUTES * 60
+                and (now - last_event_time[0]) < INACTIVITY_TIMEOUT.total_seconds()
                 and (last_workflow_signal is None or (now - last_workflow_signal[0]) >= HEARTBEAT_INTERVAL_SECONDS)
                 and (agent_active is None or agent_active[0])
             ):
                 if last_workflow_signal is not None:
                     last_workflow_signal[0] = now
                 try:
-                    await workflow_handle.signal("heartbeat")
+                    await workflow_handle.signal(
+                        "heartbeat", arg=agent_active[0] if agent_active is not None else False
+                    )
                 except Exception as e:
                     logger.warning("relay_workflow_heartbeat_signal_failed", error=str(e))
 
@@ -241,7 +243,7 @@ async def _relay_loop(
                             ):
                                 last_workflow_signal[0] = now
                                 try:
-                                    await workflow_handle.signal("heartbeat")
+                                    await workflow_handle.signal("heartbeat", arg=True)
                                 except Exception as e:
                                     logger.warning(
                                         "relay_workflow_heartbeat_signal_failed", run_id=run_id, error=str(e)

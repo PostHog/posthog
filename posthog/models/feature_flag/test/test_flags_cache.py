@@ -17,6 +17,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+from django.core.management.base import OutputWrapper
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -2231,7 +2232,7 @@ class TestVerifyFlagsCacheVerboseOutput(BaseTest):
         # Directly test the format_verbose_diff method with an unknown type
         command = Command()
         out = StringIO()
-        command.stdout = out  # type: ignore[assignment]
+        command.stdout = OutputWrapper(out)
 
         unknown_diff = {
             "type": "UNKNOWN_TYPE",
@@ -2252,7 +2253,7 @@ class TestVerifyFlagsCacheVerboseOutput(BaseTest):
         # Directly test the format_verbose_diff method without flag_key
         command = Command()
         out = StringIO()
-        command.stdout = out  # type: ignore[assignment]
+        command.stdout = OutputWrapper(out)
 
         diff_without_key = {
             "type": "MISSING_IN_CACHE",
@@ -2273,7 +2274,7 @@ class TestVerifyFlagsCacheVerboseOutput(BaseTest):
         # Directly test the format_verbose_diff method with empty field_diffs
         command = Command()
         out = StringIO()
-        command.stdout = out  # type: ignore[assignment]
+        command.stdout = OutputWrapper(out)
 
         diff_with_empty_field_diffs = {
             "type": "FIELD_MISMATCH",
@@ -2296,7 +2297,7 @@ class TestVerifyFlagsCacheVerboseOutput(BaseTest):
         # Directly test the format_verbose_diff method with malformed field_diff
         command = Command()
         out = StringIO()
-        command.stdout = out  # type: ignore[assignment]
+        command.stdout = OutputWrapper(out)
 
         diff_with_malformed_field_diffs = {
             "type": "FIELD_MISMATCH",

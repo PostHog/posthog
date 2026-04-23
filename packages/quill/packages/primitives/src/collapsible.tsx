@@ -17,11 +17,12 @@ function Collapsible({ variant = 'default', className, ...props }: CollapsiblePr
     return (
         <CollapsibleVariantContext.Provider value={variant}>
             <CollapsiblePrimitive.Root
+                data-quill
                 data-slot="collapsible"
                 data-variant={variant}
                 className={cn(
                     'group/collapsible',
-                    variant !== 'folder' && 'hover:bg-muted data-open:bg-muted rounded-md',
+                    variant !== 'folder' && 'hover:bg-muted data-open:bg-muted rounded-sm',
                     className
                 )}
                 {...props}

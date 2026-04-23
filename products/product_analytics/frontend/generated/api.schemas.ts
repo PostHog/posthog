@@ -455,6 +455,11 @@ export interface HogQLQueryModifiersApi {
     propertyGroupsMode?: PropertyGroupsModeApi | null
     /** @nullable */
     s3TableUseInvalidColumns?: boolean | null
+    /**
+     * Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter.
+     * @nullable
+     */
+    sessionIdPushdown?: boolean | null
     sessionTableVersion?: SessionTableVersionApi | null
     sessionsV2JoinMode?: SessionsV2JoinModeApi | null
     /** @nullable */
@@ -999,10 +1004,7 @@ export interface QueryTimingApi {
 export type TrendsQueryResponseApiResultsItem = { [key: string]: unknown }
 
 export interface TrendsQueryResponseApi {
-    /**
-     * Box plot data when display type is BoxPlot
-     * @nullable
-     */
+    /** @nullable */
     boxplot_data?: BoxPlotDatumApi[] | null
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
@@ -2701,6 +2703,11 @@ export const EntityTypeApi = {
 } as const
 
 export interface RetentionEntityApi {
+    /**
+     * Data warehouse field used as the actor identifier
+     * @nullable
+     */
+    aggregation_target_field?: string | null
     /** @nullable */
     custom_name?: string | null
     id?: string | number | null
@@ -2737,6 +2744,16 @@ export interface RetentionEntityApi {
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
+    /**
+     * Data warehouse table name
+     * @nullable
+     */
+    table_name?: string | null
+    /**
+     * Data warehouse timestamp field
+     * @nullable
+     */
+    timestamp_field?: string | null
     type?: EntityTypeApi | null
     /** @nullable */
     uuid?: string | null
@@ -2761,6 +2778,11 @@ export interface RetentionFilterApi {
     aggregationType?: AggregationTypeApi | null
     /** @nullable */
     cumulative?: boolean | null
+    /**
+     * For data warehouse based retention insights when the aggregation target can't be mapped to persons or groups.
+     * @nullable
+     */
+    customAggregationTarget?: boolean | null
     dashboardDisplay?: RetentionDashboardDisplayTypeApi | null
     /** controls the display of the retention graph */
     display?: ChartDisplayTypeApi | null
@@ -3091,6 +3113,7 @@ export const StickinessOperatorApi = {
 
 export interface StickinessCriteriaApi {
     operator: StickinessOperatorApi
+    /** @minimum 1 */
     value: number
 }
 
@@ -3139,6 +3162,7 @@ export interface StickinessQueryApi {
     interval?: IntervalTypeApi | null
     /**
      * How many intervals comprise a period. Only used for cohorts, otherwise default 1.
+     * @minimum 1
      * @nullable
      */
     intervalCount?: number | null
@@ -4584,6 +4608,9 @@ export const IntegrationKindApi = {
     Firebase: 'firebase',
     Jira: 'jira',
     PinterestAds: 'pinterest-ads',
+    CustomerioApp: 'customerio-app',
+    CustomerioWebhook: 'customerio-webhook',
+    CustomerioTrack: 'customerio-track',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {
@@ -4873,6 +4900,8 @@ export interface LLMTraceApi {
     outputTokens?: number | null
     person?: LLMTracePersonApi | null
     /** @nullable */
+    requestCost?: number | null
+    /** @nullable */
     tools?: string[] | null
     /** @nullable */
     totalCost?: number | null
@@ -4880,6 +4909,8 @@ export interface LLMTraceApi {
     totalLatency?: number | null
     /** @nullable */
     traceName?: string | null
+    /** @nullable */
+    webSearchCost?: number | null
 }
 
 export interface Response25Api {
@@ -7950,6 +7981,9 @@ export const MarketingAnalyticsDrillDownLevelApi = {
     Channel: 'channel',
     Source: 'source',
     Campaign: 'campaign',
+    Medium: 'medium',
+    Content: 'content',
+    Term: 'term',
 } as const
 
 export interface IntegrationFilterApi {
@@ -8323,6 +8357,25 @@ export const OrderDirection2Api = {
     Desc: 'DESC',
 } as const
 
+export interface ErrorTrackingPendingFingerprintIssueStateUpdateApi {
+    /** @nullable */
+    assigned_role_id?: string | null
+    /** @nullable */
+    assigned_user_id?: number | null
+    fingerprint: string
+    /** ISO 8601 datetime string. */
+    first_seen: string
+    is_deleted: number
+    /** @nullable */
+    issue_description?: string | null
+    issue_id: string
+    /** @nullable */
+    issue_name?: string | null
+    issue_status: string
+    /** Client-stamped monotonic version (`Date.now()` ms at mutation success). */
+    version: number
+}
+
 export interface ErrorTrackingQueryResponseApi {
     /** @nullable */
     columns?: string[] | null
@@ -8386,6 +8439,11 @@ export interface ErrorTrackingQueryApi {
     orderBy: ErrorTrackingOrderByApi
     /** Sort direction. */
     orderDirection?: OrderDirection2Api | null
+    /**
+     * Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only). The backend caps the list at 50 entries; extras are dropped silently.
+     * @nullable
+     */
+    pendingFingerprintIssueStateUpdates?: ErrorTrackingPendingFingerprintIssueStateUpdateApi[] | null
     /** @nullable */
     personId?: string | null
     response?: ErrorTrackingQueryResponseApi | null
@@ -9189,6 +9247,7 @@ export const DisplayTypeApi = {
     Auto: 'auto',
     Line: 'line',
     Bar: 'bar',
+    Area: 'area',
 } as const
 
 export type YAxisPositionApi = (typeof YAxisPositionApi)[keyof typeof YAxisPositionApi]
@@ -9251,7 +9310,11 @@ export interface ChartSettingsApi {
     /** @nullable */
     showNullsAsZero?: boolean | null
     /** @nullable */
+    showPieTotal?: boolean | null
+    /** @nullable */
     showTotalRow?: boolean | null
+    /** @nullable */
+    showValuesOnSeries?: boolean | null
     /** @nullable */
     showXAxisBorder?: boolean | null
     /** @nullable */
@@ -9670,6 +9733,50 @@ export interface PatchedInsightApi {
     readonly last_viewed_at?: string | null
 }
 
+/**
+ * * `add` - add
+ * `remove` - remove
+ * `set` - set
+ */
+export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
+
+export const ActionEnumApi = {
+    Add: 'add',
+    Remove: 'remove',
+    Set: 'set',
+} as const
+
+export interface BulkUpdateTagsRequestApi {
+    /**
+     * List of object IDs to update tags on.
+     * @maxItems 500
+     */
+    ids: number[]
+    /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+
+* `add` - add
+* `remove` - remove
+* `set` - set */
+    action: ActionEnumApi
+    /** Tag names to add, remove, or set. */
+    tags: string[]
+}
+
+export interface BulkUpdateTagsItemApi {
+    id: number
+    tags: string[]
+}
+
+export interface BulkUpdateTagsErrorApi {
+    id: number
+    reason: string
+}
+
+export interface BulkUpdateTagsResponseApi {
+    updated: BulkUpdateTagsItemApi[]
+    skipped: BulkUpdateTagsErrorApi[]
+}
+
 export type ColumnConfigurationsListParams = {
     /**
      * Number of results to return per page.
@@ -9881,6 +9988,18 @@ export type InsightsActivityRetrieveFormat =
     (typeof InsightsActivityRetrieveFormat)[keyof typeof InsightsActivityRetrieveFormat]
 
 export const InsightsActivityRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type InsightsBulkUpdateTagsCreateParams = {
+    format?: InsightsBulkUpdateTagsCreateFormat
+}
+
+export type InsightsBulkUpdateTagsCreateFormat =
+    (typeof InsightsBulkUpdateTagsCreateFormat)[keyof typeof InsightsBulkUpdateTagsCreateFormat]
+
+export const InsightsBulkUpdateTagsCreateFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const

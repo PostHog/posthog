@@ -14,6 +14,7 @@ import {
     IconPlus,
     IconRefresh,
     IconRevert,
+    IconSearch,
     IconTrash,
     IconX,
 } from '@posthog/icons'
@@ -60,7 +61,7 @@ import {
 import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSavedFiltersLogic'
 import { TimestampFormat, playerSettingsLogic } from '../player/playerSettingsLogic'
 import { playlistFiltersLogic } from '../playlist/playlistFiltersLogic'
-import { createPlaylist, updatePlaylist } from '../playlist/playlistUtils'
+import { createPlaylist, stripSessionIds, updatePlaylist } from '../playlist/playlistUtils'
 import {
     defaultRecordingDurationFilter,
     sessionRecordingsPlaylistLogic,
@@ -361,7 +362,10 @@ const SaveFiltersModal = ({
     }
 
     const addSavedFilter = async (): Promise<void> => {
-        const f = await createPlaylist({ name: savedFilterName, filters, type: 'filters' }, false)
+        const f = await createPlaylist(
+            { name: savedFilterName, filters: stripSessionIds(filters), type: 'filters' },
+            false
+        )
         reportRecordingPlaylistCreated('new')
         loadSavedFilters()
         setIsOpen(false)
@@ -494,6 +498,7 @@ const ReplayFiltersTab = ({
     const [isSaveFiltersModalOpen, setIsSaveFiltersModalOpen] = useState(false)
 
     const [isPopoverVisible, setIsPopoverVisible] = useState(false)
+    const [addFilterSearchQuery, setAddFilterSearchQuery] = useState('')
 
     useMountedLogic(cohortsModel)
     useMountedLogic(actionsModel)
@@ -540,7 +545,7 @@ const ReplayFiltersTab = ({
         }
 
         if (pendingFilterApplication.filters) {
-            setFilters(pendingFilterApplication.filters as Partial<RecordingUniversalFilters>)
+            setFilters(stripSessionIds(pendingFilterApplication.filters as Partial<RecordingUniversalFilters>))
             setAppliedSavedFilter(pendingFilterApplication)
             setActiveFilterTab('filters')
         }
@@ -553,7 +558,11 @@ const ReplayFiltersTab = ({
             return
         }
 
-        const f = await updatePlaylist(appliedSavedFilter.short_id, { filters, type: 'filters' }, false)
+        const f = await updatePlaylist(
+            appliedSavedFilter.short_id,
+            { filters: stripSessionIds(filters), type: 'filters' },
+            false
+        )
         loadSavedFilters()
         setAppliedSavedFilter(f)
     }
@@ -592,7 +601,11 @@ const ReplayFiltersTab = ({
                                 size="small"
                                 icon={<IconTrash />}
                                 onClick={() =>
-                                    setFilters(appliedSavedFilter.filters as Partial<RecordingUniversalFilters>)
+                                    setFilters(
+                                        stripSessionIds(
+                                            appliedSavedFilter.filters as Partial<RecordingUniversalFilters>
+                                        )
+                                    )
                                 }
                             >
                                 Discard changes
@@ -655,9 +668,8 @@ const ReplayFiltersTab = ({
                 taxonomicGroupTypes={taxonomicGroupTypes}
                 onChange={(filterGroup) => setFilters({ filter_group: filterGroup })}
             >
-                <div className="flex items-center gap-2 px-2 mt-2">
-                    <span className="font-medium">Add filters:</span>
-                    {/* Add filter button scoped to the first nested group */}
+                <div className="px-2 mt-2 min-w-0">
+                    {/* Add filter search input scoped to the first nested group */}
                     {filters.filter_group.values.length > 0 &&
                         isUniversalGroupFilterLike(filters.filter_group.values[0]) && (
                             <UniversalFilters
@@ -676,28 +688,52 @@ const ReplayFiltersTab = ({
                                     overlay={
                                         <UniversalFilters.PureTaxonomicFilter
                                             fullWidth={false}
-                                            onChange={() => setIsPopoverVisible(false)}
+                                            onChange={() => {
+                                                setIsPopoverVisible(false)
+                                                setAddFilterSearchQuery('')
+                                            }}
+                                            searchQuery={addFilterSearchQuery}
+                                            hideSearchInput
                                         />
                                     }
-                                    placement="bottom"
+                                    placement="bottom-start"
                                     visible={isPopoverVisible}
-                                    onClickOutside={() => setIsPopoverVisible(false)}
+                                    onClickOutside={() => {
+                                        setIsPopoverVisible(false)
+                                        setAddFilterSearchQuery('')
+                                    }}
                                 >
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        data-attr="replay-filters-add-filter-button"
-                                        icon={<IconPlus />}
-                                        onClick={() => setIsPopoverVisible(!isPopoverVisible)}
-                                    >
-                                        Add filter
-                                    </LemonButton>
+                                    <div className="w-full max-w-[600px] shrink grow-0">
+                                        <LemonInput
+                                            type="search"
+                                            size="small"
+                                            fullWidth
+                                            data-attr="replay-filters-add-filter-input"
+                                            prefix={<IconSearch />}
+                                            placeholder="Search suggested filters, URLs, email addresses, recent, pinned..."
+                                            value={addFilterSearchQuery}
+                                            onChange={(value) => {
+                                                setAddFilterSearchQuery(value)
+                                                if (!isPopoverVisible) {
+                                                    setIsPopoverVisible(true)
+                                                }
+                                            }}
+                                            onFocus={() => setIsPopoverVisible(true)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Escape') {
+                                                    setIsPopoverVisible(false)
+                                                    setAddFilterSearchQuery('')
+                                                    e.preventDefault()
+                                                }
+                                            }}
+                                        />
+                                    </div>
                                 </Popover>
                             </UniversalFilters>
                         )}
                 </div>
 
-                <div className="flex justify-between flex-wrap gap-2 px-2 mt-2">
+                <div className="flex justify-between flex-wrap gap-2 px-2 mt-4">
                     <div className="flex flex-wrap gap-2 items-center">
                         <div className="py-2 font-medium">Applied filters:</div>
                         <DateFilter

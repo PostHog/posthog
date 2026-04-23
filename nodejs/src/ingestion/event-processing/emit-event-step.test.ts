@@ -115,6 +115,7 @@ describe('emit-event-step', () => {
                     key: 'test-uuid',
                     value: Buffer.from(JSON.stringify(serializeEvent(mockProcessedEvent))),
                     headers: { productTrack: 'general' },
+                    teamId: mockProcessedEvent.team_id,
                 })
 
                 // Execute the side effect to test metric increment
@@ -182,6 +183,7 @@ describe('emit-event-step', () => {
                     key: 'test-uuid',
                     value: Buffer.from(JSON.stringify(serializeEvent(mockProcessedEvent))),
                     headers: { productTrack: 'general' },
+                    teamId: mockProcessedEvent.team_id,
                 })
             } finally {
                 jest.useRealTimers()

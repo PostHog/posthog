@@ -78,7 +78,7 @@ class VercelSSOViewSet(VercelErrorResponseMixin, VercelRegionProxyMixin, viewset
 
     def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         # SSO codes are single-use, so we redirect the browser instead of proxying server-side
-        return viewsets.GenericViewSet.dispatch(self, request, *args, **kwargs)  # type: ignore[return-value]
+        return viewsets.GenericViewSet.dispatch(self, request, *args, **kwargs)  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
 
     def _should_redirect_to_eu(self, resource_id: str | None, installation_id: str | None = None) -> bool:
         if self.is_dev_env or self.current_region != "us":

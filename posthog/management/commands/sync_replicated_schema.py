@@ -8,6 +8,7 @@ from django.core.management.base import BaseCommand
 import structlog
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.schema import CREATE_TABLE_QUERIES, get_table_name
 from posthog.cloud_utils import is_cloud
 
@@ -34,24 +35,25 @@ class Command(BaseCommand):
             logger.info("✅ Skipping sync_replicated_schema because is_cloud=true")
             return
 
-        host_tables, create_table_queries, out_of_sync_hosts = self.analyze_cluster_tables()
+        with tags_context(product=Product.INTERNAL, feature=Feature.MIGRATION):
+            host_tables, create_table_queries, out_of_sync_hosts = self.analyze_cluster_tables()
 
-        if len(host_tables) <= 1:
-            logger.info("✅ Skipping sync_replicated_schema - single node cluster, nothing to sync")
-            return
+            if len(host_tables) <= 1:
+                logger.info("✅ Skipping sync_replicated_schema - single node cluster, nothing to sync")
+                return
 
-        if len(out_of_sync_hosts) > 0:
-            logger.info(
-                "Schema out of sync on some clickhouse nodes!",
-                out_of_sync_hosts=out_of_sync_hosts,
-            )
+            if len(out_of_sync_hosts) > 0:
+                logger.info(
+                    "Schema out of sync on some clickhouse nodes!",
+                    out_of_sync_hosts=out_of_sync_hosts,
+                )
 
-            if options.get("dry_run"):
-                exit(1)
-            else:
-                self.create_missing_tables(out_of_sync_hosts, create_table_queries)
+                if options.get("dry_run"):
+                    exit(1)
+                else:
+                    self.create_missing_tables(out_of_sync_hosts, create_table_queries)
 
-        logger.info("✅ All ClickHouse nodes schema in sync")
+            logger.info("✅ All ClickHouse nodes schema in sync")
 
     def analyze_cluster_tables(self):
         table_names = list(map(get_table_name, CREATE_TABLE_QUERIES))

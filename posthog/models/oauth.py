@@ -53,12 +53,12 @@ class OAuthApplication(AbstractApplication):
     # NOTE: By default an application should be linked to the organization that created it.
     # It can be null if the organization that created it is deleted, or it was created outside of an organization (e.g. using dynamic client registration)
     # Only admins of the organization should have permission to edit the application.
-    organization: "Organization | None" = models.ForeignKey(  # type: ignore[assignment]
+    organization: "Organization | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         "posthog.Organization", on_delete=models.SET_NULL, null=True, blank=True, related_name="oauth_applications"
     )
 
     # NOTE: The user that created the application. It should not be used to check for access to the application, since the user might have left the organization.
-    user: "User | None" = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)  # type: ignore[assignment]
+    user: "User | None" = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
     logo_uri: models.URLField = models.URLField(
         max_length=2048, null=True, blank=True, help_text="URL to the client's logo image"
@@ -252,7 +252,7 @@ class OAuthAccessToken(AbstractAccessToken):
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
-    user: "User | None" = models.ForeignKey(  # type: ignore[assignment]
+    user: "User | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         "posthog.User",
         on_delete=models.CASCADE,
         blank=True,
@@ -272,7 +272,7 @@ class OAuthIDToken(AbstractIDToken):
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
-    user: "User | None" = models.ForeignKey(  # type: ignore[assignment]
+    user: "User | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         "posthog.User",
         on_delete=models.CASCADE,
         blank=True,
@@ -289,7 +289,7 @@ class OAuthRefreshToken(AbstractRefreshToken):
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
-    user: "User" = models.ForeignKey(  # type: ignore[assignment]
+    user: "User" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         "posthog.User",
         on_delete=models.CASCADE,
         related_name="oauth_refresh_tokens",
@@ -315,7 +315,7 @@ class OAuthGrant(AbstractGrant):
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
-    user: "User" = models.ForeignKey(  # type: ignore[assignment]
+    user: "User" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         "posthog.User",
         on_delete=models.CASCADE,
         related_name="oauth_grants",

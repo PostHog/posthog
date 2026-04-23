@@ -16,40 +16,41 @@ public:
     ASOF = 8, BETWEEN = 9, BOTH = 10, BY = 11, CASE = 12, CAST = 13, CATCH = 14, 
     COHORT = 15, COLLATE = 16, COLUMNS = 17, CROSS = 18, CUBE = 19, CURRENT = 20, 
     DATE = 21, DAY = 22, DESC = 23, DESCENDING = 24, DISTINCT = 25, ELSE = 26, 
-    END = 27, EXCEPT = 28, EXCLUDE = 29, EXTRACT = 30, FINAL = 31, FILTER = 32, 
-    FINALLY = 33, FIRST = 34, FN = 35, FOLLOWING = 36, FOR = 37, FROM = 38, 
-    FULL = 39, FUN = 40, GROUP = 41, GROUPING = 42, HAVING = 43, HOUR = 44, 
-    ID = 45, IF = 46, ILIKE = 47, IGNORE = 48, INCLUDE = 49, IN = 50, INF = 51, 
-    INNER = 52, INTERSECT = 53, INTERVAL = 54, IS = 55, JOIN = 56, KEY = 57, 
-    LAMBDA = 58, LAST = 59, LEADING = 60, LEFT = 61, LET = 62, LIKE = 63, 
-    LIMIT = 64, MATERIALIZED = 65, MINUTE = 66, MONTH = 67, NAME = 68, NATURAL = 69, 
-    NAN_SQL = 70, NOT = 71, NULL_SQL = 72, NULLS = 73, OFFSET = 74, ON = 75, 
-    OR = 76, ORDER = 77, OUTER = 78, OVER = 79, PARTITION = 80, PIVOT = 81, 
-    POSITIONAL = 82, PRECEDING = 83, PREWHERE = 84, QUALIFY = 85, QUARTER = 86, 
-    RANGE = 87, RECURSIVE = 88, REPLACE = 89, RETURN = 90, RIGHT = 91, ROLLUP = 92, 
-    ROW = 93, ROWS = 94, SAMPLE = 95, SECOND = 96, SELECT = 97, SEMI = 98, 
-    SETS = 99, SETTINGS = 100, SUBSTRING = 101, THEN = 102, THROW = 103, 
-    TIES = 104, TIMESTAMP = 105, TIME = 106, LOCAL = 107, ZONE = 108, TO = 109, 
-    TOP = 110, TOTALS = 111, TRAILING = 112, TRIM = 113, TRUNCATE = 114, 
-    TRY = 115, TRY_CAST = 116, UNBOUNDED = 117, UNION = 118, UNPIVOT = 119, 
-    USING = 120, VALUES = 121, WEEK = 122, WHEN = 123, WHERE = 124, WHILE = 125, 
-    WINDOW = 126, WITH = 127, WITHIN = 128, YEAR = 129, ESCAPE_CHAR_COMMON = 130, 
-    IDENTIFIER = 131, QUOTED_IDENTIFIER = 132, FLOATING_LITERAL = 133, OCTAL_LITERAL = 134, 
-    DECIMAL_LITERAL = 135, HEXADECIMAL_LITERAL = 136, STRING_LITERAL = 137, 
-    ARROW = 138, ASTERISK = 139, BACKQUOTE = 140, BACKSLASH = 141, DOUBLECOLON = 142, 
-    COLONEQUALS = 143, COLON = 144, COMMA = 145, CONCAT = 146, DASH = 147, 
-    DOLLAR = 148, DOT = 149, EQ_DOUBLE = 150, EQ_SINGLE = 151, GT_EQ = 152, 
-    GT = 153, HASH = 154, IREGEX_SINGLE = 155, IREGEX_DOUBLE = 156, LBRACE = 157, 
-    LBRACKET = 158, LPAREN = 159, LT_EQ = 160, LT = 161, LT_SLASH = 162, 
-    NOT_EQ = 163, NOT_IREGEX = 164, NOT_REGEX = 165, NULL_PROPERTY = 166, 
-    NULLISH = 167, PERCENT = 168, PLUS = 169, QUERY = 170, QUOTE_DOUBLE = 171, 
-    QUOTE_SINGLE_TEMPLATE = 172, QUOTE_SINGLE_TEMPLATE_FULL = 173, QUOTE_SINGLE = 174, 
-    REGEX_SINGLE = 175, REGEX_DOUBLE = 176, RBRACE = 177, RBRACKET = 178, 
-    RPAREN = 179, SEMICOLON = 180, SLASH = 181, SLASH_GT = 182, UNDERSCORE = 183, 
-    MULTI_LINE_COMMENT = 184, SINGLE_LINE_COMMENT = 185, WHITESPACE = 186, 
-    STRING_TEXT = 187, STRING_ESCAPE_TRIGGER = 188, FULL_STRING_TEXT = 189, 
-    FULL_STRING_ESCAPE_TRIGGER = 190, TAG_WS = 191, TAGC_WS = 192, HOGQLX_TEXT_TEXT = 193, 
-    HOGQLX_TEXT_WS = 194
+    END = 27, EXCEPT = 28, EXCLUDE = 29, EXTRACT = 30, FINAL = 31, FILL = 32, 
+    FILTER = 33, FINALLY = 34, FIRST = 35, FN = 36, FOLLOWING = 37, FOR = 38, 
+    FROM = 39, FULL = 40, FUN = 41, GROUP = 42, GROUPING = 43, HAVING = 44, 
+    HOUR = 45, ID = 46, IF = 47, ILIKE = 48, IGNORE = 49, INCLUDE = 50, 
+    IN = 51, INF = 52, INNER = 53, INTERSECT = 54, INTERPOLATE = 55, INTERVAL = 56, 
+    IS = 57, JOIN = 58, KEY = 59, LAMBDA = 60, LAST = 61, LEADING = 62, 
+    LEFT = 63, LET = 64, LIKE = 65, LIMIT = 66, MATERIALIZED = 67, MINUTE = 68, 
+    MONTH = 69, NAME = 70, NATURAL = 71, NAN_SQL = 72, NOT = 73, NULL_SQL = 74, 
+    NULLS = 75, OFFSET = 76, ON = 77, OR = 78, ORDER = 79, OUTER = 80, OVER = 81, 
+    PARTITION = 82, PIVOT = 83, POSITIONAL = 84, PRECEDING = 85, PREWHERE = 86, 
+    QUALIFY = 87, QUARTER = 88, RANGE = 89, RECURSIVE = 90, REPLACE = 91, 
+    RETURN = 92, RIGHT = 93, ROLLUP = 94, ROW = 95, ROWS = 96, SAMPLE = 97, 
+    SECOND = 98, SELECT = 99, SEMI = 100, SETS = 101, SETTINGS = 102, STEP = 103, 
+    SUBSTRING = 104, THEN = 105, THROW = 106, TIES = 107, TIMESTAMP = 108, 
+    TIME = 109, LOCAL = 110, ZONE = 111, TO = 112, TOP = 113, TOTALS = 114, 
+    TRAILING = 115, TRIM = 116, TRUNCATE = 117, TRY = 118, TRY_CAST = 119, 
+    UNBOUNDED = 120, UNION = 121, UNPIVOT = 122, USING = 123, VALUES = 124, 
+    WEEK = 125, WHEN = 126, WHERE = 127, WHILE = 128, WINDOW = 129, WITH = 130, 
+    WITHIN = 131, YEAR = 132, ESCAPE_CHAR_COMMON = 133, IDENTIFIER = 134, 
+    QUOTED_IDENTIFIER = 135, FLOATING_LITERAL = 136, OCTAL_LITERAL = 137, 
+    DECIMAL_LITERAL = 138, HEXADECIMAL_LITERAL = 139, STRING_LITERAL = 140, 
+    ARROW = 141, ASTERISK = 142, BACKQUOTE = 143, BACKSLASH = 144, DOUBLECOLON = 145, 
+    COLONEQUALS = 146, COLON = 147, COMMA = 148, CONCAT = 149, DASH = 150, 
+    DOLLAR = 151, DOT = 152, EQ_DOUBLE = 153, EQ_SINGLE = 154, GT_EQ = 155, 
+    GT = 156, HASH = 157, IREGEX_SINGLE = 158, IREGEX_DOUBLE = 159, LBRACE = 160, 
+    LBRACKET = 161, LPAREN = 162, LT_EQ = 163, LT = 164, LT_SLASH = 165, 
+    NOT_EQ = 166, NOT_IREGEX = 167, NOT_REGEX = 168, NULL_PROPERTY = 169, 
+    NULLISH = 170, PERCENT = 171, PLUS = 172, QUERY = 173, QUOTE_DOUBLE = 174, 
+    QUOTE_SINGLE_TEMPLATE = 175, QUOTE_SINGLE_TEMPLATE_FULL = 176, QUOTE_SINGLE = 177, 
+    REGEX_SINGLE = 178, REGEX_DOUBLE = 179, RBRACE = 180, RBRACKET = 181, 
+    RPAREN = 182, SEMICOLON = 183, SLASH = 184, SLASH_GT = 185, UNDERSCORE = 186, 
+    MULTI_LINE_COMMENT = 187, SINGLE_LINE_COMMENT = 188, WHITESPACE = 189, 
+    STRING_TEXT = 190, STRING_ESCAPE_TRIGGER = 191, FULL_STRING_TEXT = 192, 
+    FULL_STRING_ESCAPE_TRIGGER = 193, TAG_WS = 194, TAGC_WS = 195, HOGQLX_TEXT_TEXT = 196, 
+    HOGQLX_TEXT_WS = 197
   };
 
   enum {
@@ -64,31 +65,32 @@ public:
     RuleArrayJoinClause = 30, RuleWindowClause = 31, RulePrewhereClause = 32, 
     RuleWhereClause = 33, RuleGroupByClause = 34, RuleGroupingSetList = 35, 
     RuleGroupingSet = 36, RuleHavingClause = 37, RuleQualifyClause = 38, 
-    RuleOrderByClause = 39, RuleProjectionOrderByClause = 40, RuleLimitByClause = 41, 
-    RuleLimitAndOffsetClause = 42, RuleOffsetOnlyClause = 43, RuleSettingsClause = 44, 
-    RuleValuesClause = 45, RuleValuesRow = 46, RuleJoinExpr = 47, RuleJoinOp = 48, 
-    RuleJoinOpCross = 49, RuleJoinConstraintClause = 50, RuleSampleClause = 51, 
-    RuleLimitExpr = 52, RuleOrderExprList = 53, RuleOrderExpr = 54, RuleRatioExpr = 55, 
-    RuleSettingExprList = 56, RuleSettingExpr = 57, RuleWindowExpr = 58, 
-    RuleWinPartitionByClause = 59, RuleWinOrderByClause = 60, RuleWithinGroupClause = 61, 
-    RuleWinFrameClause = 62, RuleWinFrameExtend = 63, RuleWinFrameBound = 64, 
-    RuleExpr = 65, RuleColumnTypeExpr = 66, RuleColumnTypeCastExpr = 67, 
-    RuleColumnTypeCastIdentifier = 68, RuleKeywordForTypeCast = 69, RuleColumnExprList = 70, 
-    RuleSelectColumnExprListBeforeFrom = 71, RuleSelectColumnExprList = 72, 
-    RuleSelectColumnExpr = 73, RuleColumnExpr = 74, RuleColumnLambdaExpr = 75, 
-    RuleColumnsReplaceList = 76, RuleColumnsReplaceItem = 77, RuleHogqlxChildElement = 78, 
-    RuleHogqlxText = 79, RuleHogqlxTagElement = 80, RuleHogqlxTagAttribute = 81, 
-    RuleWithExprList = 82, RuleWithExpr = 83, RuleWithExprColumnNameList = 84, 
-    RuleColumnIdentifier = 85, RuleNestedIdentifier = 86, RuleTableExpr = 87, 
-    RulePivotColumnList = 88, RulePivotColumn = 89, RuleUnpivotColumnList = 90, 
-    RuleUnpivotColumn = 91, RuleColumnExprTupleOrSingle = 92, RuleColumnAliases = 93, 
-    RuleTableFunctionExpr = 94, RuleTableIdentifier = 95, RuleTableArgList = 96, 
-    RuleDatabaseIdentifier = 97, RuleFloatingLiteral = 98, RuleNumberLiteral = 99, 
-    RuleLiteral = 100, RuleInterval = 101, RuleKeyword = 102, RuleKeywordForAlias = 103, 
-    RuleKeywordForImplicitAlias = 104, RuleAlias = 105, RuleImplicitAlias = 106, 
-    RuleIdentifier = 107, RuleEnumValue = 108, RulePlaceholder = 109, RuleString = 110, 
-    RuleTemplateString = 111, RuleStringContents = 112, RuleFullTemplateString = 113, 
-    RuleStringContentsFull = 114
+    RuleOrderByClause = 39, RuleInterpolateClause = 40, RuleProjectionOrderByClause = 41, 
+    RuleLimitByClause = 42, RuleLimitAndOffsetClause = 43, RuleOffsetOnlyClause = 44, 
+    RuleSettingsClause = 45, RuleValuesClause = 46, RuleValuesRow = 47, 
+    RuleJoinExpr = 48, RuleJoinOp = 49, RuleJoinOpCross = 50, RuleJoinConstraintClause = 51, 
+    RuleSampleClause = 52, RuleLimitExpr = 53, RuleOrderExprList = 54, RuleOrderExpr = 55, 
+    RuleWithFillClause = 56, RuleInterpolateExpr = 57, RuleRatioExpr = 58, 
+    RuleSettingExprList = 59, RuleSettingExpr = 60, RuleWindowExpr = 61, 
+    RuleWinPartitionByClause = 62, RuleWinOrderByClause = 63, RuleWithinGroupClause = 64, 
+    RuleWinFrameClause = 65, RuleWinFrameExtend = 66, RuleWinFrameBound = 67, 
+    RuleExpr = 68, RuleColumnTypeExpr = 69, RuleColumnTypeCastExpr = 70, 
+    RuleColumnTypeCastIdentifier = 71, RuleKeywordForTypeCast = 72, RuleColumnExprList = 73, 
+    RuleSelectColumnExprListBeforeFrom = 74, RuleSelectColumnExprList = 75, 
+    RuleSelectColumnExpr = 76, RuleColumnExpr = 77, RuleColumnLambdaExpr = 78, 
+    RuleColumnsReplaceList = 79, RuleColumnsReplaceItem = 80, RuleHogqlxChildElement = 81, 
+    RuleHogqlxText = 82, RuleHogqlxTagElement = 83, RuleHogqlxTagAttribute = 84, 
+    RuleWithExprList = 85, RuleWithExpr = 86, RuleWithExprColumnNameList = 87, 
+    RuleColumnIdentifier = 88, RuleNestedIdentifier = 89, RuleTableExpr = 90, 
+    RulePivotColumnList = 91, RulePivotColumn = 92, RuleUnpivotColumnList = 93, 
+    RuleUnpivotColumn = 94, RuleColumnExprTupleOrSingle = 95, RuleColumnAliases = 96, 
+    RuleTableFunctionExpr = 97, RuleTableIdentifier = 98, RuleTableArgList = 99, 
+    RuleDatabaseIdentifier = 100, RuleFloatingLiteral = 101, RuleNumberLiteral = 102, 
+    RuleLiteral = 103, RuleInterval = 104, RuleKeyword = 105, RuleKeywordForAlias = 106, 
+    RuleKeywordForImplicitAlias = 107, RuleAlias = 108, RuleImplicitAlias = 109, 
+    RuleIdentifier = 110, RuleEnumValue = 111, RulePlaceholder = 112, RuleString = 113, 
+    RuleTemplateString = 114, RuleStringContents = 115, RuleFullTemplateString = 116, 
+    RuleStringContentsFull = 117
   };
 
   explicit HogQLParser(antlr4::TokenStream *input);
@@ -148,6 +150,7 @@ public:
   class HavingClauseContext;
   class QualifyClauseContext;
   class OrderByClauseContext;
+  class InterpolateClauseContext;
   class ProjectionOrderByClauseContext;
   class LimitByClauseContext;
   class LimitAndOffsetClauseContext;
@@ -163,6 +166,8 @@ public:
   class LimitExprContext;
   class OrderExprListContext;
   class OrderExprContext;
+  class WithFillClauseContext;
+  class InterpolateExprContext;
   class RatioExprContext;
   class SettingExprListContext;
   class SettingExprContext;
@@ -932,6 +937,7 @@ public:
     antlr4::tree::TerminalNode *ORDER();
     antlr4::tree::TerminalNode *BY();
     OrderExprListContext *orderExprList();
+    InterpolateClauseContext *interpolateClause();
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
@@ -939,6 +945,25 @@ public:
   };
 
   OrderByClauseContext* orderByClause();
+
+  class  InterpolateClauseContext : public antlr4::ParserRuleContext {
+  public:
+    InterpolateClauseContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    antlr4::tree::TerminalNode *INTERPOLATE();
+    antlr4::tree::TerminalNode *LPAREN();
+    std::vector<InterpolateExprContext *> interpolateExpr();
+    InterpolateExprContext* interpolateExpr(size_t i);
+    antlr4::tree::TerminalNode *RPAREN();
+    std::vector<antlr4::tree::TerminalNode *> COMMA();
+    antlr4::tree::TerminalNode* COMMA(size_t i);
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  InterpolateClauseContext* interpolateClause();
 
   class  ProjectionOrderByClauseContext : public antlr4::ParserRuleContext {
   public:
@@ -1311,6 +1336,7 @@ public:
     antlr4::tree::TerminalNode *NULLS();
     antlr4::tree::TerminalNode *COLLATE();
     antlr4::tree::TerminalNode *STRING_LITERAL();
+    WithFillClauseContext *withFillClause();
     antlr4::tree::TerminalNode *ASCENDING();
     antlr4::tree::TerminalNode *DESCENDING();
     antlr4::tree::TerminalNode *DESC();
@@ -1323,6 +1349,40 @@ public:
   };
 
   OrderExprContext* orderExpr();
+
+  class  WithFillClauseContext : public antlr4::ParserRuleContext {
+  public:
+    WithFillClauseContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    antlr4::tree::TerminalNode *WITH();
+    antlr4::tree::TerminalNode *FILL();
+    antlr4::tree::TerminalNode *FROM();
+    std::vector<ColumnExprContext *> columnExpr();
+    ColumnExprContext* columnExpr(size_t i);
+    antlr4::tree::TerminalNode *TO();
+    antlr4::tree::TerminalNode *STEP();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  WithFillClauseContext* withFillClause();
+
+  class  InterpolateExprContext : public antlr4::ParserRuleContext {
+  public:
+    InterpolateExprContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    std::vector<ColumnExprContext *> columnExpr();
+    ColumnExprContext* columnExpr(size_t i);
+    antlr4::tree::TerminalNode *AS();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  InterpolateExprContext* interpolateExpr();
 
   class  RatioExprContext : public antlr4::ParserRuleContext {
   public:
@@ -3346,6 +3406,7 @@ public:
     antlr4::tree::TerminalNode *END();
     antlr4::tree::TerminalNode *EXCLUDE();
     antlr4::tree::TerminalNode *EXTRACT();
+    antlr4::tree::TerminalNode *FILL();
     antlr4::tree::TerminalNode *FILTER();
     antlr4::tree::TerminalNode *FINAL();
     antlr4::tree::TerminalNode *FIRST();
@@ -3356,6 +3417,7 @@ public:
     antlr4::tree::TerminalNode *GROUP();
     antlr4::tree::TerminalNode *HAVING();
     antlr4::tree::TerminalNode *ID();
+    antlr4::tree::TerminalNode *INTERPOLATE();
     antlr4::tree::TerminalNode *IS();
     antlr4::tree::TerminalNode *GROUPING();
     antlr4::tree::TerminalNode *IF();
@@ -3403,6 +3465,7 @@ public:
     antlr4::tree::TerminalNode *SEMI();
     antlr4::tree::TerminalNode *SETS();
     antlr4::tree::TerminalNode *SETTINGS();
+    antlr4::tree::TerminalNode *STEP();
     antlr4::tree::TerminalNode *SUBSTRING();
     antlr4::tree::TerminalNode *THEN();
     antlr4::tree::TerminalNode *TIES();

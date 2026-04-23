@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCheck, IconCode, IconDatabase, IconEllipsis, IconRefresh, IconSupport, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -128,7 +128,15 @@ const UnifiedHealthScene = (): JSX.Element => {
                 </div>
             </div>
 
-            <div className="flex flex-col gap-6 max-w-5xl">
+            <div className="flex flex-col gap-6">
+                <LemonBanner
+                    type="info"
+                    className="mb-2"
+                    dismissKey="unified-health-page-feedback-banner"
+                    action={{ children: 'Send feedback', id: 'unified-health-page-feedback-button' }}
+                >
+                    We'd love your feedback on the new Health page. Let us know what's working and what could be better!
+                </LemonBanner>
                 <PlatformStatusBanner />
                 <HealthIssueSummaryCards />
                 <HealthIssueList />

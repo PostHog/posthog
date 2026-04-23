@@ -22,7 +22,7 @@ const integrationsList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedIntegrationList>({
             method: 'GET',
-            path: `/api/projects/${projectId}/integrations/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/`,
             query: {
                 limit: params.limit,
                 offset: params.offset,
@@ -41,7 +41,7 @@ const integrationGet = (): ToolBase<typeof IntegrationGetSchema, Schemas.Integra
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Integration>({
             method: 'GET',
-            path: `/api/projects/${projectId}/integrations/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -56,7 +56,7 @@ const integrationDelete = (): ToolBase<typeof IntegrationDeleteSchema, unknown> 
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
-            path: `/api/projects/${projectId}/integrations/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },

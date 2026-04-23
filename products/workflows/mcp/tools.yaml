@@ -89,10 +89,34 @@ tools:
         enabled: false
     hog-flows-logs-retrieve:
         operation: hog_flows_logs_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get workflow logs
+        description: >
+            Retrieve execution logs for a specific workflow by ID. Returns log entries with timestamp,
+            level (DEBUG, LOG, INFO, WARN, ERROR), and message. Use to debug why a workflow is failing
+            or not producing expected results. Supports filtering by log level, text search, time range
+            (after/before), and pagination via limit.
     hog-flows-metrics-retrieve:
         operation: hog_flows_metrics_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get workflow metrics
+        description: >
+            Retrieve execution metrics for a specific workflow by ID. Returns time-series data showing
+            success and failure counts over a configurable interval (hour, day, or week). Use to understand
+            workflow health, identify failure spikes, and monitor execution reliability. Supports breakdown
+            by metric kind (success/failure) or name, and time range filtering.
     hog-flows-metrics-totals-retrieve:
         operation: hog_flows_metrics_totals_retrieve
         enabled: false

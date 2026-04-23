@@ -208,7 +208,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
         if self.context.breakdown:
             breakdown_limit = self.get_breakdown_limit()
             if breakdown_limit:
-                limit = min(breakdown_limit * len(self._date_range().all_values()), limit)
+                limit = breakdown_limit * len(self._date_range().all_values())
 
             not_in_cohort_union = ""
             extra_placeholders: dict[str, ast.Expr] = {}
@@ -293,7 +293,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
         self,
         extra_fields: Optional[list[str]] = None,
     ) -> ast.SelectQuery:
-        team, actorsQuery = self.context.team, self.context.actorsQuery
+        team, actorsQuery, breakdownType = self.context.team, self.context.actorsQuery, self.context.breakdownType
 
         if actorsQuery is None:
             raise ValidationError("No actors query present.")
@@ -322,16 +322,28 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
             select.append(ast.Alias(alias="person_id", expr=ast.Field(chain=["person_id"])))
         select_from = ast.JoinExpr(table=self._inner_aggregation_query())
 
-        where = ast.And(
-            exprs=[
-                parse_expr("success_bool != 1") if actorsQuery.funnelTrendsDropOff else parse_expr("success_bool = 1"),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=parse_expr("entrance_period_start"),
-                    right=ast.Constant(value=entrancePeriodStart),
-                ),
-            ]
-        )
+        where_exprs: list[ast.Expr] = [
+            parse_expr("success_bool != 1") if actorsQuery.funnelTrendsDropOff else parse_expr("success_bool = 1"),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=parse_expr("entrance_period_start"),
+                right=ast.Constant(value=entrancePeriodStart),
+            ),
+        ]
+
+        funnelStepBreakdown = actorsQuery.funnelStepBreakdown
+        if funnelStepBreakdown is not None:
+            if isinstance(funnelStepBreakdown, int | float) and breakdownType != "cohort":
+                funnelStepBreakdown = str(int(funnelStepBreakdown))
+
+            where_exprs.append(
+                parse_expr(
+                    "arrayFlatten(array(breakdown)) = arrayFlatten(array({funnelStepBreakdown}))",
+                    {"funnelStepBreakdown": ast.Constant(value=funnelStepBreakdown)},
+                )
+            )
+
+        where = ast.And(exprs=where_exprs)
         order_by = [ast.OrderExpr(expr=ast.Field(chain=["aggregation_target"]))]
 
         return ast.SelectQuery(

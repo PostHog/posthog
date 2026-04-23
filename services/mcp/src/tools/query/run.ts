@@ -27,7 +27,7 @@ export const queryRunHandler: ToolBase<typeof schema, Result>['handler'] = async
     }
 
     const queryParam = encodeURIComponent(JSON.stringify(query))
-    const path = `/insights/new?q=${queryParam}`
+    const path = `/insights/new#q=${queryParam}`
 
     const queryInfo = analyzeQuery(query)
 

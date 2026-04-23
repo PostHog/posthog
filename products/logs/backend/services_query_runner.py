@@ -74,13 +74,20 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             """
             SELECT
                 service_name,
-                count() AS log_count,
-                countIf(lower(severity_text) IN ('error', 'fatal')) AS error_count
-            FROM logs
-            WHERE {where}
+                sum(_log_count) AS log_count,
+                sumIf(_log_count, in(severity_text, tuple('error', 'fatal'))) AS error_count
+            FROM (
+                SELECT
+                    service_name,
+                    count() AS _log_count,
+                    severity_text,
+                FROM logs
+                WHERE {where}
+                GROUP BY service_name, severity_text
+            )
             GROUP BY service_name
             ORDER BY log_count DESC
-            LIMIT 1000
+            LIMIT 25
             """,
             placeholders={
                 "where": self.where(),

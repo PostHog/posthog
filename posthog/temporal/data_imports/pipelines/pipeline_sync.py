@@ -88,8 +88,8 @@ def _from_arrow_scalar(arrow_value: pyarrow.Scalar) -> Any:
     return row_value
 
 
-dlt.common.libs.pyarrow.from_arrow_scalar = _from_arrow_scalar
-dlt.extract.incremental.transform.from_arrow_scalar = _from_arrow_scalar
+dlt.common.libs.pyarrow.from_arrow_scalar = _from_arrow_scalar  # ty: ignore[invalid-assignment]
+dlt.extract.incremental.transform.from_arrow_scalar = _from_arrow_scalar  # ty: ignore[invalid-assignment]
 
 
 @dataclass

@@ -3,7 +3,10 @@ import { ClickHouseClient, createClient as createClickHouseClient } from '@click
 import https from 'https'
 import express from 'ultimate-express'
 
-import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '../../config/kafka-topics'
+import {
+    KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
+    KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
+} from '../../config/kafka-topics'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import {
     HealthCheckResult,
@@ -17,6 +20,7 @@ import { createRedisPoolFromConfig } from '../../utils/db/redis'
 import { logger, serializeError } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { getBlockDecryptor } from '../shared/crypto'
+import { SessionFeatureStore } from '../shared/features/session-feature-store'
 import { getKeyStore } from '../shared/keystore'
 import { RedisCachedKeyStore } from '../shared/keystore/cache'
 import { SessionMetadataStore } from '../shared/metadata/session-metadata-store'
@@ -116,6 +120,7 @@ export class RecordingApi {
         // Initialize Kafka producer for emitting deletion events
         this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
         const metadataStore = new SessionMetadataStore(this.kafkaProducer, KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS)
+        const featureStore = new SessionFeatureStore(this.kafkaProducer, KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES)
 
         // Initialize ClickHouse client for block listing queries
         const chScheme = this.config.CLICKHOUSE_SECURE ? 'https' : 'http'
@@ -141,6 +146,7 @@ export class RecordingApi {
             this.keyStore,
             this.decryptor,
             metadataStore,
+            featureStore,
             this.postgres,
             this.clickhouseClient
         )

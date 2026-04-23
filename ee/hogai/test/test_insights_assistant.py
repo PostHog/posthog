@@ -239,7 +239,7 @@ class TestChatAgent(BaseAssistantTest):
         )
         query = AssistantRetentionQuery(
             retentionFilter=AssistantRetentionFilter(
-                targetEntity=AssistantRetentionEventsNode(name="$pageview"),
+                targetEntity=AssistantRetentionEventsNode(id="$pageview"),
                 returningEntity=AssistantRetentionActionsNode(name=action.name, id=action.id),
             )
         )

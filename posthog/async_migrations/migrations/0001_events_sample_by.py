@@ -12,7 +12,9 @@ class Migration(AsyncMigrationDefinition):
 
     posthog_max_version = "1.33.9"
 
-    operations: list[AsyncMigrationOperation] = []
+    @property
+    def operations(self) -> list[AsyncMigrationOperation]:
+        return []
 
     def is_required(self):
         return False

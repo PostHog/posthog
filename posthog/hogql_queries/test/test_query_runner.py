@@ -11,16 +11,20 @@ from django.core.cache import cache
 
 from parameterized import parameterized
 from pydantic import BaseModel
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     BounceRatePageViewMode,
     CacheMissResponse,
     CurrencyCode,
+    DataTableNode,
+    DataVisualizationNode,
     EventsNode,
     HogQLQuery,
     HogQLQueryModifiers,
     InCohortVia,
     InlineCohortCalculation,
+    InsightVizNode,
     IntervalType,
     MaterializationMode,
     PersonsArgMaxVersion,
@@ -36,7 +40,7 @@ from posthog.schema import (
 from posthog.hogql.constants import LimitContext
 
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner, get_query_runner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team, WeekStartDay
 
@@ -77,7 +81,7 @@ class TestQueryRunner(BaseTest):
             query: TheTestQuery
             cached_response: TheTestCachedBasicQueryResponse
 
-            def calculate(self):
+            def _calculate(self):
                 return TheTestBasicQueryResponse(
                     results=[
                         ["row", 1, 2, 3],
@@ -100,6 +104,21 @@ class TestQueryRunner(BaseTest):
 
         return TestQueryRunner
 
+    def test_calculate_runs_validators_before_calculation(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        validation_rule = mock.MagicMock()
+        validation_rule.validate.side_effect = ValidationError("Validation failed")
+        TestQueryRunner.validators = lambda self: (validation_rule,)
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with mock.patch.object(TestQueryRunner, "_calculate", autospec=True) as mock_calculate:
+            with self.assertRaises(ValidationError) as context:
+                runner.calculate()
+
+        self.assertIn("Validation failed", str(context.exception))
+        validation_rule.validate.assert_called_once_with(runner.validation_context)
+        mock_calculate.assert_not_called()
+
     def test_init_with_query_instance(self):
         TestQueryRunner = self.setup_test_query_runner_class()
 
@@ -113,6 +132,45 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
         self.assertEqual(runner.query, TheTestQuery(some_attr="bla"))
+
+    @parameterized.expand(
+        [
+            [
+                DataVisualizationNode(source=HogQLQuery(query="SELECT 1")),
+                HogQLQuery(query="SELECT 1"),
+            ],
+            [
+                {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+                HogQLQuery(query="SELECT 1"),
+            ],
+            [
+                DataTableNode(source=HogQLQuery(query="SELECT 2")),
+                HogQLQuery(query="SELECT 2"),
+            ],
+            [
+                {"kind": "DataTableNode", "source": {"kind": "HogQLQuery", "query": "SELECT 2"}},
+                HogQLQuery(query="SELECT 2"),
+            ],
+            [
+                InsightVizNode(source=TrendsQuery(series=[EventsNode(event="$pageview")])),
+                TrendsQuery(series=[EventsNode(event="$pageview")]),
+            ],
+            [
+                {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    },
+                },
+                TrendsQuery(series=[EventsNode(event="$pageview")]),
+            ],
+        ]
+    )
+    def test_get_query_runner_uses_source_query_for_wrappers(self, query, expected_source_query):
+        runner = get_query_runner(query=query, team=self.team)
+
+        self.assertEqual(runner.query, expected_source_query)
 
     def test_cache_payload(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -150,6 +208,7 @@ class TestQueryRunner(BaseTest):
                 "optimizeProjections": True,
                 "personsArgMaxVersion": PersonsArgMaxVersion.AUTO,
                 "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                "sessionIdPushdown": False,
                 "sessionTableVersion": SessionTableVersion.AUTO,
                 "sessionsV2JoinMode": SessionsV2JoinMode.UUID,
                 "useMaterializedViews": True,
@@ -231,12 +290,12 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_2e7695f8ad7a4ad5e296e1945fa866647d8cbccd0c6c3dfebc0ece67ecb878fc"
+        assert cache_key == "cache_42_68a2c8e2bf539173ac6e464a103418bb433834fbce3157ed121192f403d69a0c"
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
 
-        class TestSubclassQueryRunner(TestQueryRunner):
+        class TestSubclassQueryRunner(TestQueryRunner):  # type: ignore[misc, valid-type]
             pass
 
         # set the pk directly as it affects the hash in the _cache_key call
@@ -245,7 +304,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_69c671108c15496f62a1f6a722891039279b5746f4d5f5ee401d9ebddf4d080e"
+        assert cache_key == "cache_42_4eb789b3c70480ba14a762c56a648f2bf7a117a3c31b60ed3c5cb826444ddf4c"
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -256,7 +315,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_ff888ce61e00a0bf5be0521f24b4225b723fd59d67b74bb104a56b1f01cfb1c4"
+        assert cache_key == "cache_42_f67778c870f29df1c38c85726fd6f2b319b920f6f3414acf2de1927271503977"
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
@@ -813,7 +872,7 @@ class TestApplySeriesCustomNames(BaseTest):
 
         from posthog.schema import CachedStickinessQueryResponse, StickinessQuery
 
-        from posthog.hogql_queries.insights.stickiness_query_runner import StickinessQueryRunner
+        from posthog.hogql_queries.insights.stickiness.stickiness_query_runner import StickinessQueryRunner
 
         query = StickinessQuery(
             series=[
@@ -878,7 +937,7 @@ class TestApplySeriesCustomNames(BaseTest):
 
         from posthog.schema import CachedLifecycleQueryResponse, LifecycleQuery
 
-        from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
+        from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
 
         query = LifecycleQuery(
             series=[

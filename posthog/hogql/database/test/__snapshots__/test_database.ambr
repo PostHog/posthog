@@ -31,19 +31,7 @@
 # ---
 # name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1
   '''
-  SELECT "posthog_datamodelingnode"."created_by_id",
-         "posthog_datamodelingnode"."created_at",
-         "posthog_datamodelingnode"."updated_at",
-         "posthog_datamodelingnode"."id",
-         "posthog_datamodelingnode"."team_id",
-         "posthog_datamodelingnode"."saved_query_id",
-         "posthog_datamodelingnode"."dag_fk_id",
-         "posthog_datamodelingnode"."name",
-         "posthog_datamodelingnode"."type",
-         "posthog_datamodelingnode"."description",
-         "posthog_datamodelingnode"."source_control_path",
-         "posthog_datamodelingnode"."properties",
-         "posthog_datawarehousesavedquery"."created_by_id",
+  SELECT "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
          "posthog_datawarehousesavedquery"."updated_at",
          "posthog_datawarehousesavedquery"."deleted",
@@ -65,27 +53,50 @@
          "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
-         "posthog_datawarehousesavedquery"."expires_at"
-  FROM "posthog_datamodelingnode"
-  INNER JOIN "posthog_datawarehousesavedquery" ON ("posthog_datamodelingnode"."saved_query_id" = "posthog_datawarehousesavedquery"."id")
-  WHERE "posthog_datamodelingnode"."saved_query_id" = '00000000000000000000000000000000'::uuid
+         "posthog_datawarehousesavedquery"."expires_at",
+         "posthog_datawarehousetable"."created_by_id",
+         "posthog_datawarehousetable"."created_at",
+         "posthog_datawarehousetable"."updated_at",
+         "posthog_datawarehousetable"."deleted",
+         "posthog_datawarehousetable"."deleted_at",
+         "posthog_datawarehousetable"."id",
+         "posthog_datawarehousetable"."name",
+         "posthog_datawarehousetable"."format",
+         "posthog_datawarehousetable"."team_id",
+         "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."queryable_folder",
+         "posthog_datawarehousetable"."credential_id",
+         "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."columns",
+         "posthog_datawarehousetable"."options",
+         "posthog_datawarehousetable"."row_count",
+         "posthog_datawarehousetable"."size_in_s3_mib",
+         "posthog_datawarehousecredential"."created_by_id",
+         "posthog_datawarehousecredential"."created_at",
+         "posthog_datawarehousecredential"."id",
+         "posthog_datawarehousecredential"."access_key",
+         "posthog_datawarehousecredential"."access_secret",
+         "posthog_datawarehousecredential"."team_id",
+         "posthog_datawarehousemanagedviewset"."created_by_id",
+         "posthog_datawarehousemanagedviewset"."created_at",
+         "posthog_datawarehousemanagedviewset"."updated_at",
+         "posthog_datawarehousemanagedviewset"."id",
+         "posthog_datawarehousemanagedviewset"."team_id",
+         "posthog_datawarehousemanagedviewset"."kind"
+  FROM "posthog_datawarehousesavedquery"
+  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
+  LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
+  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
+  WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
+         AND NOT ("posthog_datawarehousesavedquery"."deleted"
+                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
+         AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL)
+  ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
 # name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.1
   '''
-  SELECT "posthog_datamodelingnode"."created_by_id",
-         "posthog_datamodelingnode"."created_at",
-         "posthog_datamodelingnode"."updated_at",
-         "posthog_datamodelingnode"."id",
-         "posthog_datamodelingnode"."team_id",
-         "posthog_datamodelingnode"."saved_query_id",
-         "posthog_datamodelingnode"."dag_fk_id",
-         "posthog_datamodelingnode"."name",
-         "posthog_datamodelingnode"."type",
-         "posthog_datamodelingnode"."description",
-         "posthog_datamodelingnode"."source_control_path",
-         "posthog_datamodelingnode"."properties",
-         "posthog_datawarehousesavedquery"."created_by_id",
+  SELECT "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
          "posthog_datawarehousesavedquery"."updated_at",
          "posthog_datawarehousesavedquery"."deleted",
@@ -107,10 +118,37 @@
          "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
-         "posthog_datawarehousesavedquery"."expires_at"
-  FROM "posthog_datamodelingnode"
-  INNER JOIN "posthog_datawarehousesavedquery" ON ("posthog_datamodelingnode"."saved_query_id" = "posthog_datawarehousesavedquery"."id")
-  WHERE "posthog_datamodelingnode"."saved_query_id" = '00000000000000000000000000000000'::uuid
+         "posthog_datawarehousesavedquery"."expires_at",
+         "posthog_datawarehousetable"."created_by_id",
+         "posthog_datawarehousetable"."created_at",
+         "posthog_datawarehousetable"."updated_at",
+         "posthog_datawarehousetable"."deleted",
+         "posthog_datawarehousetable"."deleted_at",
+         "posthog_datawarehousetable"."id",
+         "posthog_datawarehousetable"."name",
+         "posthog_datawarehousetable"."format",
+         "posthog_datawarehousetable"."team_id",
+         "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."queryable_folder",
+         "posthog_datawarehousetable"."credential_id",
+         "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."columns",
+         "posthog_datawarehousetable"."options",
+         "posthog_datawarehousetable"."row_count",
+         "posthog_datawarehousetable"."size_in_s3_mib",
+         "posthog_datawarehousecredential"."created_by_id",
+         "posthog_datawarehousecredential"."created_at",
+         "posthog_datawarehousecredential"."id",
+         "posthog_datawarehousecredential"."access_key",
+         "posthog_datawarehousecredential"."access_secret",
+         "posthog_datawarehousecredential"."team_id"
+  FROM "posthog_datawarehousesavedquery"
+  LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
+  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
+  WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
+         AND "posthog_datawarehousesavedquery"."origin" = 'endpoint'
+         AND NOT ("posthog_datawarehousesavedquery"."deleted"
+                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL))
   '''
 # ---
 # name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.10
@@ -524,11 +562,13 @@
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
+  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
-                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
+                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
+                  AND "posthog_externaldatasource"."access_method" IS NOT NULL))
   '''
 # ---
 # name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.19
@@ -553,128 +593,110 @@
 # ---
 # name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.2
   '''
-  SELECT "posthog_datamodelingnode"."created_by_id",
-         "posthog_datamodelingnode"."created_at",
-         "posthog_datamodelingnode"."updated_at",
-         "posthog_datamodelingnode"."id",
-         "posthog_datamodelingnode"."team_id",
-         "posthog_datamodelingnode"."saved_query_id",
-         "posthog_datamodelingnode"."dag_fk_id",
-         "posthog_datamodelingnode"."name",
-         "posthog_datamodelingnode"."type",
-         "posthog_datamodelingnode"."description",
-         "posthog_datamodelingnode"."source_control_path",
-         "posthog_datamodelingnode"."properties",
-         "posthog_datawarehousesavedquery"."created_by_id",
-         "posthog_datawarehousesavedquery"."created_at",
-         "posthog_datawarehousesavedquery"."updated_at",
-         "posthog_datawarehousesavedquery"."deleted",
-         "posthog_datawarehousesavedquery"."deleted_at",
-         "posthog_datawarehousesavedquery"."id",
-         "posthog_datawarehousesavedquery"."name",
-         "posthog_datawarehousesavedquery"."team_id",
-         "posthog_datawarehousesavedquery"."latest_error",
-         "posthog_datawarehousesavedquery"."columns",
-         "posthog_datawarehousesavedquery"."external_tables",
-         "posthog_datawarehousesavedquery"."query",
-         "posthog_datawarehousesavedquery"."status",
-         "posthog_datawarehousesavedquery"."last_run_at",
-         "posthog_datawarehousesavedquery"."sync_frequency_interval",
-         "posthog_datawarehousesavedquery"."table_id",
-         "posthog_datawarehousesavedquery"."is_materialized",
-         "posthog_datawarehousesavedquery"."deleted_name",
-         "posthog_datawarehousesavedquery"."managed_viewset_id",
-         "posthog_datawarehousesavedquery"."folder_id",
-         "posthog_datawarehousesavedquery"."origin",
-         "posthog_datawarehousesavedquery"."is_test",
-         "posthog_datawarehousesavedquery"."expires_at"
-  FROM "posthog_datamodelingnode"
-  INNER JOIN "posthog_datawarehousesavedquery" ON ("posthog_datamodelingnode"."saved_query_id" = "posthog_datawarehousesavedquery"."id")
-  WHERE "posthog_datamodelingnode"."saved_query_id" = '00000000000000000000000000000000'::uuid
+  SELECT "posthog_externaldatasource"."created_by_id",
+         "posthog_externaldatasource"."created_at",
+         "posthog_externaldatasource"."updated_at",
+         "posthog_externaldatasource"."deleted",
+         "posthog_externaldatasource"."deleted_at",
+         "posthog_externaldatasource"."id",
+         "posthog_externaldatasource"."source_id",
+         "posthog_externaldatasource"."connection_id",
+         "posthog_externaldatasource"."destination_id",
+         "posthog_externaldatasource"."team_id",
+         "posthog_externaldatasource"."sync_frequency",
+         "posthog_externaldatasource"."status",
+         "posthog_externaldatasource"."source_type",
+         "posthog_externaldatasource"."job_inputs",
+         "posthog_externaldatasource"."connection_metadata",
+         "posthog_externaldatasource"."are_tables_created",
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."description",
+         "posthog_externaldatasource"."access_method",
+         "posthog_externaldatasource"."revenue_analytics_enabled",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
+  FROM "posthog_externaldatasource"
+  LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
+  WHERE ("posthog_externaldatasource"."source_type" IN ('Stripe')
+         AND "posthog_externaldatasource"."team_id" = 99999
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL))
   '''
 # ---
 # name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.3
   '''
-  SELECT "posthog_datamodelingnode"."created_by_id",
-         "posthog_datamodelingnode"."created_at",
-         "posthog_datamodelingnode"."updated_at",
-         "posthog_datamodelingnode"."id",
-         "posthog_datamodelingnode"."team_id",
-         "posthog_datamodelingnode"."saved_query_id",
-         "posthog_datamodelingnode"."dag_fk_id",
-         "posthog_datamodelingnode"."name",
-         "posthog_datamodelingnode"."type",
-         "posthog_datamodelingnode"."description",
-         "posthog_datamodelingnode"."source_control_path",
-         "posthog_datamodelingnode"."properties",
-         "posthog_datawarehousesavedquery"."created_by_id",
-         "posthog_datawarehousesavedquery"."created_at",
-         "posthog_datawarehousesavedquery"."updated_at",
-         "posthog_datawarehousesavedquery"."deleted",
-         "posthog_datawarehousesavedquery"."deleted_at",
-         "posthog_datawarehousesavedquery"."id",
-         "posthog_datawarehousesavedquery"."name",
-         "posthog_datawarehousesavedquery"."team_id",
-         "posthog_datawarehousesavedquery"."latest_error",
-         "posthog_datawarehousesavedquery"."columns",
-         "posthog_datawarehousesavedquery"."external_tables",
-         "posthog_datawarehousesavedquery"."query",
-         "posthog_datawarehousesavedquery"."status",
-         "posthog_datawarehousesavedquery"."last_run_at",
-         "posthog_datawarehousesavedquery"."sync_frequency_interval",
-         "posthog_datawarehousesavedquery"."table_id",
-         "posthog_datawarehousesavedquery"."is_materialized",
-         "posthog_datawarehousesavedquery"."deleted_name",
-         "posthog_datawarehousesavedquery"."managed_viewset_id",
-         "posthog_datawarehousesavedquery"."folder_id",
-         "posthog_datawarehousesavedquery"."origin",
-         "posthog_datawarehousesavedquery"."is_test",
-         "posthog_datawarehousesavedquery"."expires_at"
-  FROM "posthog_datamodelingnode"
-  INNER JOIN "posthog_datawarehousesavedquery" ON ("posthog_datamodelingnode"."saved_query_id" = "posthog_datawarehousesavedquery"."id")
-  WHERE "posthog_datamodelingnode"."saved_query_id" = '00000000000000000000000000000000'::uuid
+  SELECT "posthog_datawarehousetable"."created_by_id",
+         "posthog_datawarehousetable"."created_at",
+         "posthog_datawarehousetable"."updated_at",
+         "posthog_datawarehousetable"."deleted",
+         "posthog_datawarehousetable"."deleted_at",
+         "posthog_datawarehousetable"."id",
+         "posthog_datawarehousetable"."name",
+         "posthog_datawarehousetable"."format",
+         "posthog_datawarehousetable"."team_id",
+         "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."queryable_folder",
+         "posthog_datawarehousetable"."credential_id",
+         "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."columns",
+         "posthog_datawarehousetable"."options",
+         "posthog_datawarehousetable"."row_count",
+         "posthog_datawarehousetable"."size_in_s3_mib",
+         "posthog_datawarehousecredential"."created_by_id",
+         "posthog_datawarehousecredential"."created_at",
+         "posthog_datawarehousecredential"."id",
+         "posthog_datawarehousecredential"."access_key",
+         "posthog_datawarehousecredential"."access_secret",
+         "posthog_datawarehousecredential"."team_id",
+         "posthog_externaldatasource"."created_by_id",
+         "posthog_externaldatasource"."created_at",
+         "posthog_externaldatasource"."updated_at",
+         "posthog_externaldatasource"."deleted",
+         "posthog_externaldatasource"."deleted_at",
+         "posthog_externaldatasource"."id",
+         "posthog_externaldatasource"."source_id",
+         "posthog_externaldatasource"."connection_id",
+         "posthog_externaldatasource"."destination_id",
+         "posthog_externaldatasource"."team_id",
+         "posthog_externaldatasource"."sync_frequency",
+         "posthog_externaldatasource"."status",
+         "posthog_externaldatasource"."source_type",
+         "posthog_externaldatasource"."job_inputs",
+         "posthog_externaldatasource"."connection_metadata",
+         "posthog_externaldatasource"."are_tables_created",
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."description",
+         "posthog_externaldatasource"."access_method",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
+  FROM "posthog_datawarehousetable"
+  LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
+  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
+  WHERE ("posthog_datawarehousetable"."team_id" = 99999
+         AND NOT ("posthog_datawarehousetable"."deleted"
+                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
+                  AND "posthog_externaldatasource"."access_method" IS NOT NULL))
   '''
 # ---
 # name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.4
   '''
-  SELECT "posthog_datamodelingnode"."created_by_id",
-         "posthog_datamodelingnode"."created_at",
-         "posthog_datamodelingnode"."updated_at",
-         "posthog_datamodelingnode"."id",
-         "posthog_datamodelingnode"."team_id",
-         "posthog_datamodelingnode"."saved_query_id",
-         "posthog_datamodelingnode"."dag_fk_id",
-         "posthog_datamodelingnode"."name",
-         "posthog_datamodelingnode"."type",
-         "posthog_datamodelingnode"."description",
-         "posthog_datamodelingnode"."source_control_path",
-         "posthog_datamodelingnode"."properties",
-         "posthog_datawarehousesavedquery"."created_by_id",
-         "posthog_datawarehousesavedquery"."created_at",
-         "posthog_datawarehousesavedquery"."updated_at",
-         "posthog_datawarehousesavedquery"."deleted",
-         "posthog_datawarehousesavedquery"."deleted_at",
-         "posthog_datawarehousesavedquery"."id",
-         "posthog_datawarehousesavedquery"."name",
-         "posthog_datawarehousesavedquery"."team_id",
-         "posthog_datawarehousesavedquery"."latest_error",
-         "posthog_datawarehousesavedquery"."columns",
-         "posthog_datawarehousesavedquery"."external_tables",
-         "posthog_datawarehousesavedquery"."query",
-         "posthog_datawarehousesavedquery"."status",
-         "posthog_datawarehousesavedquery"."last_run_at",
-         "posthog_datawarehousesavedquery"."sync_frequency_interval",
-         "posthog_datawarehousesavedquery"."table_id",
-         "posthog_datawarehousesavedquery"."is_materialized",
-         "posthog_datawarehousesavedquery"."deleted_name",
-         "posthog_datawarehousesavedquery"."managed_viewset_id",
-         "posthog_datawarehousesavedquery"."folder_id",
-         "posthog_datawarehousesavedquery"."origin",
-         "posthog_datawarehousesavedquery"."is_test",
-         "posthog_datawarehousesavedquery"."expires_at"
-  FROM "posthog_datamodelingnode"
-  INNER JOIN "posthog_datawarehousesavedquery" ON ("posthog_datamodelingnode"."saved_query_id" = "posthog_datawarehousesavedquery"."id")
-  WHERE "posthog_datamodelingnode"."saved_query_id" = '00000000000000000000000000000000'::uuid
+  SELECT "posthog_datawarehousejoin"."created_by_id",
+         "posthog_datawarehousejoin"."created_at",
+         "posthog_datawarehousejoin"."deleted",
+         "posthog_datawarehousejoin"."deleted_at",
+         "posthog_datawarehousejoin"."id",
+         "posthog_datawarehousejoin"."team_id",
+         "posthog_datawarehousejoin"."source_table_name",
+         "posthog_datawarehousejoin"."source_table_key",
+         "posthog_datawarehousejoin"."joining_table_name",
+         "posthog_datawarehousejoin"."joining_table_key",
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
+  FROM "posthog_datawarehousejoin"
+  WHERE ("posthog_datawarehousejoin"."team_id" = 99999
+         AND NOT ("posthog_datawarehousejoin"."deleted"
+                  AND "posthog_datawarehousejoin"."deleted" IS NOT NULL))
   '''
 # ---
 # name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.5
@@ -878,11 +900,13 @@
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
+  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
-                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
+                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
+                  AND "posthog_externaldatasource"."access_method" IS NOT NULL))
   '''
 # ---
 # name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.9
@@ -4288,6 +4312,104 @@
           "row_count": null,
           "type": "system"
       },
+      "system.error_tracking_assignment_rules": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "user_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "user_id",
+                  "id": null,
+                  "name": "user_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "role_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "role_id",
+                  "id": null,
+                  "name": "role_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "order_key": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "order_key",
+                  "id": null,
+                  "name": "order_key",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "filters": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "filters",
+                  "id": null,
+                  "name": "filters",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "bytecode": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "bytecode",
+                  "id": null,
+                  "name": "bytecode",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "disabled_data": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "disabled_data",
+                  "id": null,
+                  "name": "disabled_data",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.error_tracking_assignment_rules",
+          "name": "system.error_tracking_assignment_rules",
+          "row_count": null,
+          "type": "system"
+      },
       "system.error_tracking_issue_assignments": {
           "fields": {
               "id": {
@@ -4439,6 +4561,162 @@
           },
           "id": "system.error_tracking_issues",
           "name": "system.error_tracking_issues",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.error_tracking_releases": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "hash_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "hash_id",
+                  "id": null,
+                  "name": "hash_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "version": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "version",
+                  "id": null,
+                  "name": "version",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "project": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "project",
+                  "id": null,
+                  "name": "project",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "metadata": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "metadata",
+                  "id": null,
+                  "name": "metadata",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.error_tracking_releases",
+          "name": "system.error_tracking_releases",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.error_tracking_suppression_rules": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "order_key": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "order_key",
+                  "id": null,
+                  "name": "order_key",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "sampling_rate": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "sampling_rate",
+                  "id": null,
+                  "name": "sampling_rate",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "float"
+              },
+              "filters": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "filters",
+                  "id": null,
+                  "name": "filters",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "bytecode": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "bytecode",
+                  "id": null,
+                  "name": "bytecode",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "disabled_data": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "disabled_data",
+                  "id": null,
+                  "name": "disabled_data",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.error_tracking_suppression_rules",
+          "name": "system.error_tracking_suppression_rules",
           "row_count": null,
           "type": "system"
       },
@@ -6401,6 +6679,234 @@
           },
           "id": "system.source_sync_jobs",
           "name": "system.source_sync_jobs",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.support_tickets": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "ticket_number": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "ticket_number",
+                  "id": null,
+                  "name": "ticket_number",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "channel_source": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "channel_source",
+                  "id": null,
+                  "name": "channel_source",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "channel_detail": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "channel_detail",
+                  "id": null,
+                  "name": "channel_detail",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "distinct_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "distinct_id",
+                  "id": null,
+                  "name": "distinct_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "status": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "status",
+                  "id": null,
+                  "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "priority": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "priority",
+                  "id": null,
+                  "name": "priority",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "anonymous_traits": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "anonymous_traits",
+                  "id": null,
+                  "name": "anonymous_traits",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "ai_resolved": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "ai_resolved",
+                  "id": null,
+                  "name": "ai_resolved",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "escalation_reason": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "escalation_reason",
+                  "id": null,
+                  "name": "escalation_reason",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "message_count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "message_count",
+                  "id": null,
+                  "name": "message_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "unread_customer_count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "unread_customer_count",
+                  "id": null,
+                  "name": "unread_customer_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "unread_team_count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "unread_team_count",
+                  "id": null,
+                  "name": "unread_team_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "last_message_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_message_at",
+                  "id": null,
+                  "name": "last_message_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_message_text": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_message_text",
+                  "id": null,
+                  "name": "last_message_text",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "email_subject": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "email_subject",
+                  "id": null,
+                  "name": "email_subject",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "email_from": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "email_from",
+                  "id": null,
+                  "name": "email_from",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "session_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "session_id",
+                  "id": null,
+                  "name": "session_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "session_context": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "session_context",
+                  "id": null,
+                  "name": "session_context",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "sla_due_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "sla_due_at",
+                  "id": null,
+                  "name": "sla_due_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.support_tickets",
+          "name": "system.support_tickets",
           "row_count": null,
           "type": "system"
       },
@@ -9910,6 +10416,104 @@
           "row_count": null,
           "type": "system"
       },
+      "system.error_tracking_assignment_rules": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "user_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "user_id",
+                  "id": null,
+                  "name": "user_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "role_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "role_id",
+                  "id": null,
+                  "name": "role_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "order_key": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "order_key",
+                  "id": null,
+                  "name": "order_key",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "filters": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "filters",
+                  "id": null,
+                  "name": "filters",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "bytecode": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "bytecode",
+                  "id": null,
+                  "name": "bytecode",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "disabled_data": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "disabled_data",
+                  "id": null,
+                  "name": "disabled_data",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.error_tracking_assignment_rules",
+          "name": "system.error_tracking_assignment_rules",
+          "row_count": null,
+          "type": "system"
+      },
       "system.error_tracking_issue_assignments": {
           "fields": {
               "id": {
@@ -10061,6 +10665,162 @@
           },
           "id": "system.error_tracking_issues",
           "name": "system.error_tracking_issues",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.error_tracking_releases": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "hash_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "hash_id",
+                  "id": null,
+                  "name": "hash_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "version": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "version",
+                  "id": null,
+                  "name": "version",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "project": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "project",
+                  "id": null,
+                  "name": "project",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "metadata": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "metadata",
+                  "id": null,
+                  "name": "metadata",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.error_tracking_releases",
+          "name": "system.error_tracking_releases",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.error_tracking_suppression_rules": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "order_key": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "order_key",
+                  "id": null,
+                  "name": "order_key",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "sampling_rate": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "sampling_rate",
+                  "id": null,
+                  "name": "sampling_rate",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "float"
+              },
+              "filters": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "filters",
+                  "id": null,
+                  "name": "filters",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "bytecode": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "bytecode",
+                  "id": null,
+                  "name": "bytecode",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "disabled_data": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "disabled_data",
+                  "id": null,
+                  "name": "disabled_data",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.error_tracking_suppression_rules",
+          "name": "system.error_tracking_suppression_rules",
           "row_count": null,
           "type": "system"
       },
@@ -12023,6 +12783,234 @@
           },
           "id": "system.source_sync_jobs",
           "name": "system.source_sync_jobs",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.support_tickets": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "ticket_number": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "ticket_number",
+                  "id": null,
+                  "name": "ticket_number",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "channel_source": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "channel_source",
+                  "id": null,
+                  "name": "channel_source",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "channel_detail": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "channel_detail",
+                  "id": null,
+                  "name": "channel_detail",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "distinct_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "distinct_id",
+                  "id": null,
+                  "name": "distinct_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "status": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "status",
+                  "id": null,
+                  "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "priority": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "priority",
+                  "id": null,
+                  "name": "priority",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "anonymous_traits": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "anonymous_traits",
+                  "id": null,
+                  "name": "anonymous_traits",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "ai_resolved": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "ai_resolved",
+                  "id": null,
+                  "name": "ai_resolved",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "escalation_reason": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "escalation_reason",
+                  "id": null,
+                  "name": "escalation_reason",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "message_count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "message_count",
+                  "id": null,
+                  "name": "message_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "unread_customer_count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "unread_customer_count",
+                  "id": null,
+                  "name": "unread_customer_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "unread_team_count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "unread_team_count",
+                  "id": null,
+                  "name": "unread_team_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "last_message_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_message_at",
+                  "id": null,
+                  "name": "last_message_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_message_text": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_message_text",
+                  "id": null,
+                  "name": "last_message_text",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "email_subject": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "email_subject",
+                  "id": null,
+                  "name": "email_subject",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "email_from": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "email_from",
+                  "id": null,
+                  "name": "email_from",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "session_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "session_id",
+                  "id": null,
+                  "name": "session_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "session_context": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "session_context",
+                  "id": null,
+                  "name": "session_context",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "sla_due_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "sla_due_at",
+                  "id": null,
+                  "name": "sla_due_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.support_tickets",
+          "name": "system.support_tickets",
           "row_count": null,
           "type": "system"
       },
