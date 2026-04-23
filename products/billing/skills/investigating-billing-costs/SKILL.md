@@ -182,3 +182,15 @@ page. The `billing-list` response includes `docs_url` on each product and addon.
 - `references/cost-reduction-strategies.md` — per-product cost reduction playbook with docs links
 - `references/usage-data-shape.md` — response shape for `billing-list`, `billing-usage-retrieve`, `billing-spend-retrieve`
 - `references/billing-nuances.md` — non-obvious billing facts (special events, flag billing model, quota timing)
+
+## Parsing scripts
+
+When `billing-list`'s response is large enough that Claude Code stashes it to a file, use the parsing script to extract the decision-relevant slice instead of loading the raw JSON into context:
+
+| Script                                                   | Purpose                                                                                                                                              | Usage                                                                            |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| [`summarize_billing.py`](./scripts/summarize_billing.py) | Compress `billing-list` into markdown: subscription, active products (ranked by projected spend), addons, near-limit flags, startup program, limits. | `python3 scripts/summarize_billing.py FILE` (add `--json` for structured output) |
+
+The script reads the stashed tool-result file, filters unsubscribed products and zero-usage noise, ranks by projected spend, and emits ~500 tokens of markdown. Prefer it over reading the raw response when subsequent reasoning only needs the high-level picture.
+
+Monetary fields are handled as `Decimal` to match the billing backend's representation and avoid float precision artifacts. Tests live alongside the script; fixtures under `fixtures/` document the expected response shapes.
