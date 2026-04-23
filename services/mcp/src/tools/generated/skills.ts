@@ -131,6 +131,9 @@ const skillUpdate = (): ToolBase<typeof SkillUpdateSchema, Schemas.LLMSkill> => 
         if (params.files !== undefined) {
             body['files'] = params.files
         }
+        if (params.file_edits !== undefined) {
+            body['file_edits'] = params.file_edits
+        }
         if (params.base_version !== undefined) {
             body['base_version'] = params.base_version
         }

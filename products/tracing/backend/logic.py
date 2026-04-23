@@ -59,7 +59,7 @@ def _is_number(value: str) -> bool:
 class TraceSpansQueryRunnerMixin(QueryRunner):
     """Shared WHERE clause and settings for all trace span query runners."""
 
-    def __init__(self, query, *args, **kwargs):
+    def __init__(self, query: TraceSpansQuery, *args, **kwargs) -> None:
         super().__init__(query, *args, **kwargs)
 
         self.paginator = HogQLHasMorePaginator.from_limit_context(
@@ -71,7 +71,7 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
         self.modifiers.convertToProjectTimezone = False
         self.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
 
-        def get_property_type(value):
+        def get_property_type(value: str | float | bool) -> str:
             try:
                 float(value)
                 return "float"
@@ -226,7 +226,7 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
         _step = (qdr.date_to() - qdr.date_from()) / 50
         interval_type = IntervalType.SECOND
 
-        def find_closest(target, arr):
+        def find_closest(target: float, arr: list[int]) -> int:
             if not arr:
                 raise ValueError("Input array cannot be empty")
             closest_number = min(arr, key=lambda x: (abs(x - target), x))
@@ -256,7 +256,7 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
         )
 
     @cached_property
-    def settings(self):
+    def settings(self) -> HogQLGlobalSettings:
         return HogQLGlobalSettings(
             allow_experimental_object_type=False,
             allow_experimental_join_condition=False,

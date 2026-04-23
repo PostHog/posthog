@@ -388,7 +388,7 @@ class TestLLMSkillAPI(APIBaseTest):
             self._url("name/seq-edits"),
             data={
                 "edits": [
-                    {"old": "alpha", "new": "APLHA"},
+                    {"old": "alpha", "new": "ALPHA"},
                     {"old": "beta", "new": "BETA"},
                 ],
                 "base_version": 1,
@@ -397,7 +397,7 @@ class TestLLMSkillAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["body"] == "APLHA\nBETA\ngamma\n"
+        assert response.json()["body"] == "ALPHA\nBETA\ngamma\n"
 
     @parameterized.expand(
         [
@@ -482,6 +482,191 @@ class TestLLMSkillAPI(APIBaseTest):
         new_skill = LLMSkill.objects.get(name="edits-files", version=2, deleted=False)
         assert new_skill.body == "edited\n"
         assert LLMSkillFile.objects.filter(skill=new_skill, path="references/a.md").exists()
+
+    # --- Publish with file_edits (per-file find/replace) ---
+
+    def test_publish_with_file_edits_patches_single_file(self, mock_feature_enabled):
+        skill = self.create_skill(name="file-patch", body="# Body\n")
+        LLMSkillFile.objects.create(skill=skill, path="references/ranking.md", content="rank high\n")
+        LLMSkillFile.objects.create(skill=skill, path="references/other.md", content="untouched\n")
+
+        response = self.client.patch(
+            self._url("name/file-patch"),
+            data={
+                "file_edits": [
+                    {
+                        "path": "references/ranking.md",
+                        "edits": [{"old": "rank high", "new": "rank higher"}],
+                    }
+                ],
+                "base_version": 1,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        new_skill = LLMSkill.objects.get(name="file-patch", version=2, deleted=False)
+        ranking = LLMSkillFile.objects.get(skill=new_skill, path="references/ranking.md")
+        other = LLMSkillFile.objects.get(skill=new_skill, path="references/other.md")
+        assert ranking.content == "rank higher\n"
+        assert other.content == "untouched\n"
+
+    def test_publish_with_file_edits_patches_multiple_files(self, mock_feature_enabled):
+        skill = self.create_skill(name="multi-patch", body="# Body\n")
+        LLMSkillFile.objects.create(skill=skill, path="references/a.md", content="alpha\n")
+        LLMSkillFile.objects.create(skill=skill, path="references/b.md", content="beta\n")
+
+        response = self.client.patch(
+            self._url("name/multi-patch"),
+            data={
+                "file_edits": [
+                    {"path": "references/a.md", "edits": [{"old": "alpha", "new": "ALPHA"}]},
+                    {"path": "references/b.md", "edits": [{"old": "beta", "new": "BETA"}]},
+                ],
+                "base_version": 1,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        new_skill = LLMSkill.objects.get(name="multi-patch", version=2, deleted=False)
+        assert LLMSkillFile.objects.get(skill=new_skill, path="references/a.md").content == "ALPHA\n"
+        assert LLMSkillFile.objects.get(skill=new_skill, path="references/b.md").content == "BETA\n"
+
+    @parameterized.expand(
+        [
+            (
+                "unknown_path",
+                "references/exists.md",
+                "hello\n",
+                [{"path": "references/missing.md", "edits": [{"old": "x", "new": "y"}]}],
+                "references/missing.md",
+                None,
+                None,
+            ),
+            (
+                "zero_matches",
+                "references/a.md",
+                "hello\n",
+                [{"path": "references/a.md", "edits": [{"old": "missing", "new": "x"}]}],
+                "references/a.md",
+                None,
+                0,
+            ),
+            (
+                "multi_matches",
+                "references/a.md",
+                "pick pick\n",
+                [{"path": "references/a.md", "edits": [{"old": "pick", "new": "chose"}]}],
+                "references/a.md",
+                "2 times",
+                0,
+            ),
+        ]
+    )
+    def test_publish_with_file_edits_apply_errors(
+        self,
+        mock_feature_enabled,
+        label,
+        seed_path,
+        seed_content,
+        file_edits,
+        expected_file_path,
+        detail_fragment,
+        expected_edit_index,
+    ):
+        skill_name = f"file-edit-apply-err-{label.replace('_', '-')}"
+        skill = self.create_skill(name=skill_name, body="# Body\n")
+        LLMSkillFile.objects.create(skill=skill, path=seed_path, content=seed_content)
+
+        response = self.client.patch(
+            self._url(f"name/{skill_name}"),
+            data={"file_edits": file_edits, "base_version": 1},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body_resp = response.json()
+        assert body_resp["file_path"] == expected_file_path
+        if expected_edit_index is None:
+            assert "edit_index" not in body_resp
+        else:
+            assert body_resp["edit_index"] == expected_edit_index
+        if detail_fragment is not None:
+            assert detail_fragment in body_resp["detail"]
+
+    @parameterized.expand(
+        [
+            (
+                "files_and_file_edits_conflict",
+                {
+                    "files": [{"path": "references/a.md", "content": "new"}],
+                    "file_edits": [{"path": "references/a.md", "edits": [{"old": "hello", "new": "bye"}]}],
+                    "base_version": 1,
+                },
+            ),
+            (
+                "duplicate_file_edit_paths",
+                {
+                    "file_edits": [
+                        {"path": "references/a.md", "edits": [{"old": "a", "new": "A"}]},
+                        {"path": "references/a.md", "edits": [{"old": "b", "new": "B"}]},
+                    ],
+                    "base_version": 1,
+                },
+            ),
+            ("empty_file_edits_list", {"file_edits": [], "base_version": 1}),
+            (
+                "traversal_path",
+                {
+                    "file_edits": [
+                        {"path": "../escape.md", "edits": [{"old": "a", "new": "b"}]},
+                    ],
+                    "base_version": 1,
+                },
+            ),
+            (
+                "absolute_path",
+                {
+                    "file_edits": [
+                        {"path": "/absolute/path.md", "edits": [{"old": "a", "new": "b"}]},
+                    ],
+                    "base_version": 1,
+                },
+            ),
+        ]
+    )
+    def test_publish_rejects_invalid_file_edit_requests(self, mock_feature_enabled, label, payload):
+        skill_name = f"invalid-file-edit-{label.replace('_', '-')}"
+        skill = self.create_skill(name=skill_name, body="# Body\n")
+        LLMSkillFile.objects.create(skill=skill, path="references/a.md", content="hello\n")
+
+        response = self.client.patch(
+            self._url(f"name/{skill_name}"),
+            data=payload,
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_publish_combines_body_edits_and_file_edits(self, mock_feature_enabled):
+        skill = self.create_skill(name="body-and-file", body="# Title\noriginal\n")
+        LLMSkillFile.objects.create(skill=skill, path="references/a.md", content="old\n")
+
+        response = self.client.patch(
+            self._url("name/body-and-file"),
+            data={
+                "edits": [{"old": "original", "new": "updated"}],
+                "file_edits": [{"path": "references/a.md", "edits": [{"old": "old", "new": "new"}]}],
+                "base_version": 1,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        new_skill = LLMSkill.objects.get(name="body-and-file", version=2, deleted=False)
+        assert new_skill.body == "# Title\nupdated\n"
+        assert LLMSkillFile.objects.get(skill=new_skill, path="references/a.md").content == "new\n"
 
     # --- Archive ---
 
