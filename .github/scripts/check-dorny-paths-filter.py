@@ -19,6 +19,7 @@ Usage:
 """
 
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,14 @@ import yaml
 WORKFLOWS_DIR = Path(__file__).resolve().parent.parent / "workflows"
 DORNY_PREFIX = "dorny/paths-filter@"
 DOCS_URL = "https://github.com/dorny/paths-filter#advanced-options"
+
+
+@dataclass(slots=True)
+class CheckResult:
+    parse_errors: list[str]
+    negation_errors: list[str]
+    workflow_count: int
+    step_count: int
 
 
 def parse_filters(raw: Any) -> dict[str, list[str]] | None:
@@ -58,18 +67,20 @@ def negation_patterns(filters: dict[str, list[str]]) -> list[tuple[str, str]]:
     return hits
 
 
-def check_workflows() -> tuple[list[str], int, int]:
-    errors: list[str] = []
+def check_workflows(workflows_dir: Path | None = None) -> CheckResult:
+    workflows_dir = workflows_dir or WORKFLOWS_DIR
+    parse_errors: list[str] = []
+    negation_errors: list[str] = []
     workflow_count = 0
     step_count = 0
 
-    for workflow_file in sorted(WORKFLOWS_DIR.glob("*.y*ml")):
+    for workflow_file in sorted(workflows_dir.glob("*.y*ml")):
         workflow_count += 1
-        with open(workflow_file) as f:
+        with open(workflow_file, encoding="utf-8") as f:
             try:
                 data = yaml.safe_load(f)
             except yaml.YAMLError as e:
-                errors.append(f"{workflow_file.name}: failed to parse YAML: {e}")
+                parse_errors.append(f"{workflow_file.name}: failed to parse YAML: {e}")
                 continue
 
         if not isinstance(data, dict):
@@ -111,33 +122,48 @@ def check_workflows() -> tuple[list[str], int, int]:
                     continue
 
                 step_ref = f"step id '{step['id']}'" if step.get("id") else f"step[{idx}]"
-                filter_name, pattern = negations[0]
-                errors.append(
-                    f"{workflow_file.name}: job '{job_name}' ({step_ref}): "
-                    f"filter '{filter_name}' uses negation '{pattern}' without "
-                    f"`predicate-quantifier: 'every'` — with the default "
-                    f"'some' quantifier, '!' rules match every file NOT at the "
-                    f"path (including unrelated changes). See {DOCS_URL}."
-                )
+                for filter_name, pattern in negations:
+                    negation_errors.append(
+                        f"{workflow_file.name}: job '{job_name}' ({step_ref}): "
+                        f"filter '{filter_name}' uses negation '{pattern}' without "
+                        f"`predicate-quantifier: 'every'` — with the default "
+                        f"'some' quantifier, '!' rules match every file NOT at the "
+                        f"path (including unrelated changes). See {DOCS_URL}."
+                    )
 
-    return errors, workflow_count, step_count
+    return CheckResult(
+        parse_errors=parse_errors,
+        negation_errors=negation_errors,
+        workflow_count=workflow_count,
+        step_count=step_count,
+    )
 
 
-def main() -> None:
-    errors, workflow_count, step_count = check_workflows()
-    if errors:
-        print(f"Found {len(errors)} unsafe dorny/paths-filter negation(s):\n")
-        for error in errors:
-            print(f"  - {error}")
-        print(
-            "\nFix: either remove the '!' patterns and use positive filters "
-            "with count comparison, or add `predicate-quantifier: 'every'` "
-            f"to the step's `with:` block. See {DOCS_URL}."
-        )
+def main(workflows_dir: Path | None = None) -> None:
+    result = check_workflows(workflows_dir)
+    if result.parse_errors or result.negation_errors:
+        if result.parse_errors:
+            print(f"Found {len(result.parse_errors)} workflow parse error(s):\n")
+            for error in result.parse_errors:
+                print(f"  - {error}")
+            print("\nFix the malformed workflow YAML and rerun this check.")
+
+        if result.parse_errors and result.negation_errors:
+            print()
+
+        if result.negation_errors:
+            print(f"Found {len(result.negation_errors)} unsafe dorny/paths-filter negation(s):\n")
+            for error in result.negation_errors:
+                print(f"  - {error}")
+            print(
+                "\nFix: either remove the '!' patterns and use positive filters "
+                "with count comparison, or add `predicate-quantifier: 'every'` "
+                f"to the step's `with:` block. See {DOCS_URL}."
+            )
+
         sys.exit(1)
-
     print(
-        f"Checked {workflow_count} workflow(s); {step_count} dorny/paths-filter "
+        f"Checked {result.workflow_count} workflow(s); {result.step_count} dorny/paths-filter "
         f"step(s); all negation usages guarded by predicate-quantifier: 'every'."
     )
 
