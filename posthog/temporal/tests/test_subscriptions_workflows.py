@@ -586,9 +586,12 @@ async def test_create_delivery_record_persists_row_and_idempotency_key_dedupes(t
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
 async def test_update_delivery_record_patches_status_and_results_without_touching_content(team, user):
-    # content_snapshot is owned by create_export_assets and must NOT be patched
-    # through update_delivery_record — the dataclass no longer accepts that field
-    # (that keeps multi-MB query_results off the Temporal payload wire).
+    # When the new workflow calls update_delivery_record without content_snapshot
+    # — which is the production path, since create_export_assets owns the
+    # snapshot write — the delivery row's existing content_snapshot is preserved.
+    # The field still exists on the dataclass for rolling-deploy replay compat
+    # (old in-flight workflows may populate it), but it's no longer part of the
+    # steady-state call path.
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id="upd01", name="Update delivery")
     subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
 
@@ -1319,13 +1322,18 @@ def test_create_export_assets_result_contains_only_small_metadata_fields():
     # SubscriptionDelivery.content_snapshot via Postgres), not returned.
     import dataclasses
 
-    expected_fields = {
+    small_metadata_fields = {
         "exported_asset_ids",
         "total_insight_count",
         "team_id",
         "distinct_id",
         "target_type",
     }
+    # Kept on the dataclass for rolling-deploy replay compatibility. New code
+    # does not populate them. Remove from this set when the fields are removed
+    # from types.py (after the subscriptions task queue has drained).
+    deprecated_fields = {"insight_snapshots"}
+    expected_fields = small_metadata_fields | deprecated_fields
     actual_fields = {f.name for f in dataclasses.fields(CreateExportAssetsResult)}
     assert actual_fields == expected_fields, (
         f"CreateExportAssetsResult fields changed: added={actual_fields - expected_fields}, "

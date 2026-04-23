@@ -69,6 +69,13 @@ class CreateExportAssetsResult:
     team_id: int = 0
     distinct_id: str = ""
     target_type: str = ""
+    # Deprecated — kept only so that in-flight Temporal workflows (whose
+    # history contains an old-format result) can still deserialize on new
+    # workers during a rolling deploy. New code does not populate this field;
+    # the per-insight snapshot is now written directly to Postgres by the
+    # activity via delivery_id. Safe to remove in a follow-up once the
+    # subscriptions task queue has drained.
+    insight_snapshots: typing.Optional[list[dict[str, typing.Any]]] = None
 
 
 @dataclasses.dataclass
@@ -142,9 +149,12 @@ class CreateDeliveryRecordInputs:
 class UpdateDeliveryRecordInputs:
     """Patch a SubscriptionDelivery row. None on optional collections means leave the column unchanged.
 
-    `content_snapshot` is intentionally absent — per-insight query results can be
-    multi-MB and must not cross the Temporal payload boundary. The owning activity
-    (`create_export_assets`) writes the snapshot directly to Postgres.
+    New code writes per-insight query results directly to Postgres from
+    `create_export_assets` rather than shipping them back through this input
+    (they can easily exceed Temporal's ~2 MiB payload cap). `content_snapshot`
+    remains here only so that in-flight workflows from before the rollout can
+    still replay successfully — their history carries a populated
+    content_snapshot, and dropping the field would break deserialization.
     """
 
     delivery_id: uuid.UUID
@@ -153,6 +163,10 @@ class UpdateDeliveryRecordInputs:
     recipient_results: typing.Optional[list[dict[str, typing.Any]]] = None
     error: typing.Optional[dict[str, typing.Any]] = None
     finished: bool = False
+    # Deprecated — see docstring. Remove in a follow-up after the subscriptions
+    # task queue has drained enough that no in-flight workflows still carry a
+    # populated content_snapshot in history.
+    content_snapshot: typing.Optional[dict[str, typing.Any]] = None
 
 
 @dataclasses.dataclass

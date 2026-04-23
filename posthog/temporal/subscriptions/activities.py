@@ -185,6 +185,16 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
             delivery.save(update_fields=["content_snapshot", "last_updated_at"])
 
         await _merge_content_snapshot()
+    else:
+        # Expected only for standalone callers (tests, management commands).
+        # In the production workflow, create_delivery_record always runs first
+        # and passes its delivery_id through — so hitting this branch in prod
+        # indicates a regression to the old shuttle-through-Temporal flow.
+        LOGGER.warning(
+            "create_export_assets.snapshot_not_persisted",
+            subscription_id=inputs.subscription_id,
+            reason="delivery_id_not_provided",
+        )
 
     await LOGGER.ainfo(
         "create_export_assets.assets_created",
@@ -467,6 +477,14 @@ async def update_delivery_record(inputs: UpdateDeliveryRecordInputs) -> None:
         if inputs.exported_asset_ids is not None:
             delivery.exported_asset_ids = inputs.exported_asset_ids
             update_fields.append("exported_asset_ids")
+        if inputs.content_snapshot is not None:
+            # Rolling-deploy compat: an in-flight pre-rollout workflow may still
+            # issue this call with a populated content_snapshot (from the old
+            # Phase 2.5 early-write). Merge so its insights aren't lost while the
+            # old workflow finishes draining. New workflows do not populate this
+            # field — the snapshot is written from inside create_export_assets.
+            delivery.content_snapshot = {**(delivery.content_snapshot or {}), **inputs.content_snapshot}
+            update_fields.append("content_snapshot")
         if inputs.recipient_results is not None:
             delivery.recipient_results = inputs.recipient_results
             update_fields.append("recipient_results")
