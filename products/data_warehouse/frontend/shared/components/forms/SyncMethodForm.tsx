@@ -147,7 +147,12 @@ export const SyncMethodForm = ({
     )
     const [incrementalFieldValue, setIncrementalFieldValue] = useState(schema.incremental_field ?? null)
     const [appendFieldValue, setAppendFieldValue] = useState(schema.incremental_field ?? null)
-    const [primaryKeyColumns, setPrimaryKeyColumns] = useState<string[]>(schema.primary_key_columns ?? [])
+    // Prefill detected PKs only when the selector is editable. For locked schemas
+    // (already synced) the backend rejects any PK diff, so prefilling from detected
+    // would silently turn unrelated edits into "Primary key cannot be changed" errors.
+    const [primaryKeyColumns, setPrimaryKeyColumns] = useState<string[]>(
+        schema.primary_key_columns ?? (primaryKeyLocked ? [] : (resolvedDetectedPks ?? []))
+    )
     const [cdcTableMode, setCdcTableMode] = useState<'consolidated' | 'cdc_only' | 'both'>(
         schema.cdc_table_mode ?? 'consolidated'
     )
@@ -159,7 +164,7 @@ export const SyncMethodForm = ({
         )
         setIncrementalFieldValue(schema.incremental_field ?? null)
         setAppendFieldValue(schema.incremental_field ?? null)
-        setPrimaryKeyColumns(schema.primary_key_columns ?? [])
+        setPrimaryKeyColumns(schema.primary_key_columns ?? (primaryKeyLocked ? [] : (resolvedDetectedPks ?? [])))
     }, [schema.table]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const radioOptions: {

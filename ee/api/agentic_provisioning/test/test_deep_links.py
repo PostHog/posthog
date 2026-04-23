@@ -3,12 +3,12 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
 from ee.api.agentic_provisioning.views import DEEP_LINK_CACHE_PREFIX
 
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
-class TestDeepLinks(StripeProvisioningTestBase):
+class TestDeepLinks(ProvisioningTestBase):
     def test_deep_link_returns_url(self):
         token = self._get_bearer_token()
         res = self._post_signed_with_bearer(
@@ -39,7 +39,7 @@ class TestDeepLinks(StripeProvisioningTestBase):
 
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
-class TestAgenticLogin(StripeProvisioningTestBase):
+class TestAgenticLogin(ProvisioningTestBase):
     def _create_deep_link_token(self) -> str:
         token = "test_deep_link_token"
         cache.set(

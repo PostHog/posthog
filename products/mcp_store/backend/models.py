@@ -16,6 +16,18 @@ APPROVAL_STATES = [
     ("do_not_use", "Do not use"),
 ]
 
+# Catalog categories used by the marketplace UI to group templates. Pinned to a
+# finite choice list so the frontend can render predictable filter chips. New
+# rows default to "dev" until they're reclassified in the admin.
+CATEGORY_CHOICES = [
+    ("business", "Business Operations"),
+    ("data", "Data & Analytics"),
+    ("design", "Design & Content"),
+    ("dev", "Developer Tools & APIs"),
+    ("infra", "Infrastructure"),
+    ("productivity", "Productivity & Collaboration"),
+]
+
 
 class SensitiveConfig(TypedDict, total=False):
     api_key: str
@@ -24,8 +36,9 @@ class SensitiveConfig(TypedDict, total=False):
     token_retrieved_at: int
     expires_in: int
     needs_reauth: bool
-    # Set on custom (non-template) OAuth installs.
-    # `dcr_is_user_provided` is true when the creds came from
+    # Set on custom (non-template) OAuth installs. Each user gets their own
+    # DCR client so the upstream provider can quarantine a single user without
+    # affecting others. `dcr_is_user_provided` is true when the creds came from
     # the install form instead of a DCR handshake.
     dcr_client_id: str
     dcr_client_secret: str
@@ -51,9 +64,11 @@ class MCPServerTemplate(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
 
     name = models.CharField(max_length=200)
     url = models.URLField(max_length=2048, unique=True)
+    docs_url = models.URLField(max_length=2048, blank=True, default="")
     description = models.TextField(blank=True, default="")
     auth_type = models.CharField(max_length=20, choices=AUTH_TYPE_CHOICES, default="oauth")
     icon_key = models.CharField(max_length=100, blank=True, default="")
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default="dev")
     oauth_issuer_url = models.URLField(max_length=2048, blank=True, default="")
     oauth_metadata = models.JSONField(default=dict, blank=True)
     oauth_credentials = EncryptedJSONField(default=dict, blank=True)

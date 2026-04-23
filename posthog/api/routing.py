@@ -20,7 +20,7 @@ from posthog.auth import (
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
 )
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
 from posthog.models.organization import Organization
 from posthog.models.project import Project
 from posthog.models.team import Team
@@ -281,19 +281,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
                     detail="Project not found."  # TODO: "Environment" instead of "Project" when project environments are rolled out
                 )
 
-        org_id: Optional[UUID] = None
-        ai_data_processing_approved: Optional[bool] = None
-        try:
-            organization = team.organization
-            org_id = organization.pk
-            ai_data_processing_approved = organization.is_ai_data_processing_approved
-        except Organization.DoesNotExist:
-            pass
-        tag_queries(
-            team_id=team.pk,
-            org_id=org_id,
-            ai_data_processing_approved=ai_data_processing_approved,
-        )
+        tag_queries(**get_team_query_tags(team))
         return team
 
     @cached_property

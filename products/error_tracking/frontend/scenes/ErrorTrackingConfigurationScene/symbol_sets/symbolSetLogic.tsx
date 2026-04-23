@@ -23,6 +23,7 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
 
     actions({
         loadSymbolSets: () => {},
+        downloadSymbolSet: (id: string) => ({ id }),
         setSymbolSetStatusFilter: (status: SymbolSetStatusFilter) => ({ status }),
         setSymbolSetOrder: (order: SymbolSetOrder) => ({ order }),
         setPage: (page: number) => ({ page }),
@@ -98,6 +99,15 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
     })),
 
     listeners(({ actions }) => ({
+        downloadSymbolSet: async ({ id }) => {
+            try {
+                const response = await api.errorTracking.symbolSets.download(id)
+                window.open(response.url, '_blank')
+            } catch (e) {
+                lemonToast.error('Failed to download symbol set')
+                throw e
+            }
+        },
         setSymbolSetStatusFilter: () => actions.loadSymbolSets(),
         setPage: () => actions.loadSymbolSets(),
         setSymbolSetOrder: () => actions.loadSymbolSets(),
