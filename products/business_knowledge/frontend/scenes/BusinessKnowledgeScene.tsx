@@ -38,14 +38,12 @@ function RefreshStatusCell({ source }: { source: KnowledgeSource }): JSX.Element
         return <span className="text-muted">—</span>
     }
     return (
-        <div className="flex flex-col gap-1">
+        <div>
             <TZLabel time={source.last_refresh_at} />
             {source.last_refresh_status === 'error' ? (
                 <LemonTag type="danger" title={source.last_refresh_error || undefined}>
                     refresh failed
                 </LemonTag>
-            ) : source.last_refresh_status === 'not_modified' ? (
-                <LemonTag type="muted">unchanged</LemonTag>
             ) : null}
         </div>
     )

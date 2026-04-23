@@ -93,6 +93,7 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
         closeEditModal: true,
         deleteSource: (id: string) => ({ id }),
         refreshSource: (id: string) => ({ id }),
+        refreshSourceDone: (id: string) => ({ id }),
     }),
     reducers({
         isCreateModalOpen: [
@@ -120,6 +121,7 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
             [] as string[],
             {
                 refreshSource: (state, { id }) => (state.includes(id) ? state : [...state, id]),
+                refreshSourceDone: (state, { id }) => state.filter((x) => x !== id),
             },
         ],
     }),
@@ -247,8 +249,7 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                     error?.detail || error?.data?.detail || error?.data?.url?.[0] || 'Could not refresh the source.'
                 )
             } finally {
-                // Remove id from in-flight set by loading fresh state from server.
-                actions.loadSources()
+                actions.refreshSourceDone(id)
             }
         },
         openEditModal: ({ source }) => {
