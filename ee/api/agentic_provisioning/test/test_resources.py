@@ -4,11 +4,11 @@ from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 
-from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
 
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
-class TestProvisioningResources(StripeProvisioningTestBase):
+class TestProvisioningResources(ProvisioningTestBase):
     def test_create_resource_returns_complete(self):
         token = self._get_bearer_token()
         res = self._post_signed_with_bearer(
@@ -118,7 +118,7 @@ class TestProvisioningResources(StripeProvisioningTestBase):
         )
         assert PersonalAPIKey.objects.filter(user=self.user).count() == initial_count + 1
 
-    def test_create_resource_pat_label_contains_stripe_projects(self):
+    def test_create_resource_pat_label_contains_provisioning_prefix(self):
         token = self._get_bearer_token()
         self._post_signed_with_bearer(
             "/api/agentic/provisioning/resources",
@@ -144,8 +144,8 @@ class TestProvisioningResources(StripeProvisioningTestBase):
             data={"service_id": "analytics"},
             token=token,
         )
-        stripe_pats = PersonalAPIKey.objects.filter(user=self.user, label__startswith="Stripe Projects")
-        assert stripe_pats.count() == 2
+        provisioning_pats = PersonalAPIKey.objects.filter(user=self.user, label__startswith="Stripe Projects")
+        assert provisioning_pats.count() == 2
         assert PersonalAPIKey.objects.filter(id=first_pat.id).exists()
 
     def test_create_resource_with_project_id_creates_new_team(self):
@@ -309,6 +309,103 @@ class TestProvisioningResources(StripeProvisioningTestBase):
         access_token.refresh_from_db()
         assert existing_team.id in access_token.scoped_teams
         assert self.team.id in access_token.scoped_teams
+
+    def test_create_resource_with_existing_project_id_rejects_when_user_lacks_team_access(self):
+        from posthog.constants import AvailableFeature
+        from posthog.models.organization import OrganizationMembership
+        from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+        from ee.models.rbac.access_control import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        restricted_team = Team.objects.create_with_data(
+            initiating_user=self.user,
+            organization=self.organization,
+            name="Restricted project",
+        )
+        TeamProvisioningConfig.objects.update_or_create(
+            team=restricted_team, defaults={"stripe_project_id": "proj_restricted"}
+        )
+        AccessControl.objects.create(
+            team=restricted_team,
+            access_level="none",
+            resource="project",
+            resource_id=str(restricted_team.id),
+        )
+
+        token = self._get_bearer_token()
+        res = self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "analytics", "project_id": "proj_restricted"},
+            token=token,
+        )
+        assert res.status_code == 404
+        assert res.json()["error"]["code"] == "not_found"
+
+        access_token = OAuthAccessToken.objects.get(token=token)
+        assert restricted_team.id not in (access_token.scoped_teams or [])
+
+    def test_create_resource_race_winner_rejects_when_user_lacks_team_access(self):
+        from unittest.mock import patch
+
+        from django.db import IntegrityError
+
+        from posthog.constants import AvailableFeature
+        from posthog.models.organization import OrganizationMembership
+        from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+        from ee.models.rbac.access_control import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        restricted_team = Team.objects.create_with_data(
+            initiating_user=self.user,
+            organization=self.organization,
+            name="Restricted race winner",
+        )
+        AccessControl.objects.create(
+            team=restricted_team,
+            access_level="none",
+            resource="project",
+            resource_id=str(restricted_team.id),
+        )
+
+        project_id = "proj_race_restricted"
+        original_update_or_create = TeamProvisioningConfig.objects.update_or_create
+        raced: list[int] = []
+
+        def race_then_raise(*args, **kwargs):
+            defaults = kwargs.get("defaults", {})
+            if "stripe_project_id" in defaults and not raced:
+                raced.append(1)
+                original_update_or_create(team=restricted_team, defaults={"stripe_project_id": project_id})
+                raise IntegrityError
+            return original_update_or_create(*args, **kwargs)
+
+        token = self._get_bearer_token()
+        with patch.object(TeamProvisioningConfig.objects, "update_or_create", side_effect=race_then_raise):
+            res = self._post_signed_with_bearer(
+                "/api/agentic/provisioning/resources",
+                data={"service_id": "analytics", "project_id": project_id},
+                token=token,
+            )
+
+        assert res.status_code == 404
+        assert res.json()["error"]["code"] == "not_found"
+
+        access_token = OAuthAccessToken.objects.get(token=token)
+        assert restricted_team.id not in (access_token.scoped_teams or [])
 
     def test_create_resource_without_project_id_returns_existing_team(self):
         token = self._get_bearer_token()

@@ -316,27 +316,16 @@ def tag_queries(**kwargs) -> None:
     query_tags.set(updated_tags)
 
 
-def get_team_query_tags(team: "int | Team") -> dict[str, Any]:
+def get_team_query_tags(team: "Team") -> dict[str, Any]:
     from posthog.models.organization import Organization
-    from posthog.models.team import Team
 
-    team_team: Team
-    if isinstance(team, int):
-        resolved = Team.objects.select_related("organization").filter(id=team).first()
-        if resolved is None:
-            logger.warning("get_team_query_tags_team_not_found", team_id=team)
-            return {"team_id": team}
-        team_team = resolved
-    else:
-        team_team = team
-
-    tags: dict[str, Any] = {"team_id": team_team.pk}
+    tags: dict[str, Any] = {"team_id": team.pk}
     try:
-        organization = team_team.organization
+        organization = team.organization
         tags["org_id"] = organization.pk
         tags["ai_data_processing_approved"] = organization.is_ai_data_processing_approved
     except Organization.DoesNotExist:
-        logger.warning("get_team_query_tags_org_not_found", team_id=team_team.pk)
+        logger.warning("get_team_query_tags_org_not_found", team_id=team.pk)
     return tags
 
 
