@@ -31,6 +31,13 @@ export const ToolConfigSchema = z
         description_file: z.string().optional(),
         exclude_params: z.array(z.string()).optional(),
         include_params: z.array(z.string()).optional(),
+        /**
+         * Body key/value pairs hardcoded by the generated handler. The values are always sent and
+         * always win over anything the caller supplied (the assignments are emitted after the
+         * dynamic body builder). Use to attribute a tool's requests — e.g. forcing
+         * `created_via: 'mcp'` so agents can't claim another origin.
+         */
+        inject_body: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
         param_overrides: z
             .record(
                 z.string(),

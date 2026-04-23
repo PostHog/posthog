@@ -702,7 +702,10 @@ function generateToolCode(
 
     const softDeleteField = typeof config.soft_delete === 'string' ? config.soft_delete : 'deleted'
 
-    const hasBody = !isSoftDelete && composition.bodyFieldNames.length > 0
+    const injectBody = config.inject_body ?? {}
+    const injectBodyEntries = Object.entries(injectBody)
+    const hasInjectBody = !isSoftDelete && injectBodyEntries.length > 0
+    const hasBody = !isSoftDelete && (composition.bodyFieldNames.length > 0 || hasInjectBody)
     const hasQuery = composition.queryParamNames.length > 0
 
     if (hasBody) {
@@ -712,6 +715,11 @@ function generateToolCode(
             // and bodyKey is the original name (used as the HTTP body key).
             const bodyKey = composition.renamedFields[bf] ?? bf
             handlerBody += `        if (params.${bf} !== undefined) body['${bodyKey}'] = params.${bf}\n`
+        }
+        // inject_body: hardcoded values that always override caller-supplied params.
+        // Emitted last so they overwrite anything set above.
+        for (const [key, value] of injectBodyEntries) {
+            handlerBody += `        body['${key}'] = ${JSON.stringify(value)}\n`
         }
     }
 
@@ -774,7 +782,10 @@ function generateToolCode(
     const appKey = config.ui_app ?? null
 
     const enrichUsesParams = !!config.enrich_url && parseEnrichUrl(config.enrich_url).source === 'params'
-    const paramsUsed = hasBody || hasQuery || composition.pathParamNames.length > 0 || enrichUsesParams
+    // `params` is only referenced when a dynamic body/query/path param reads from it; inject_body
+    // alone doesn't touch params, so don't count it here.
+    const paramsUsed =
+        composition.bodyFieldNames.length > 0 || hasQuery || composition.pathParamNames.length > 0 || enrichUsesParams
     const unusedParamsComment = paramsUsed ? '' : '// eslint-disable-next-line no-unused-vars\n'
 
     const mcpVersionLine = config.mcp_version !== undefined ? `\n    mcpVersion: ${config.mcp_version},` : ''

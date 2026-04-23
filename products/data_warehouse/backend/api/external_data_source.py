@@ -393,6 +393,15 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     )
     access_method = serializers.ChoiceField(choices=ExternalDataSource.AccessMethod.choices, read_only=True)
     supports_webhooks = serializers.SerializerMethodField(read_only=True)
+    created_via = serializers.ChoiceField(
+        choices=ExternalDataSource.CreatedVia.choices,
+        required=False,
+        help_text=(
+            "How this source was created. Required on create. "
+            "`web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. "
+            "Ignored on update."
+        ),
+    )
 
     class Meta:
         model = ExternalDataSource
@@ -400,6 +409,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "id",
             "created_at",
             "created_by",
+            "created_via",
             "status",
             "client_secret",
             "account_id",
@@ -539,6 +549,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             raise ValidationError("Access method cannot be changed. Create a new source instead.")
 
         validated_data.pop("access_method", None)
+        # created_via is set at creation time and cannot be mutated afterwards
+        validated_data.pop("created_via", None)
         incoming_prefix = validated_data.get("prefix", instance.prefix)
 
         if instance.is_direct_postgres:
@@ -769,6 +781,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         description = request.data.get("description", None)
         source_type = request.data["source_type"]
         access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
+
+        created_via = request.data.get("created_via")
+        if not created_via:
+            raise ValidationError({"created_via": "This field is required."})
+        if created_via not in ExternalDataSource.CreatedVia.values:
+            allowed = ", ".join(ExternalDataSource.CreatedVia.values)
+            raise ValidationError({"created_via": f"Must be one of: {allowed}."})
         is_direct_postgres = (
             access_method == ExternalDataSource.AccessMethod.DIRECT and source_type == ExternalDataSourceType.POSTGRES
         )
@@ -841,6 +860,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
             created_by=request.user if isinstance(request.user, User) else None,
+            created_via=created_via,
             team=self.team,
             status="Running",
             source_type=source_type_model,
