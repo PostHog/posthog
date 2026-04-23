@@ -32228,19 +32228,15 @@
         "RetentionEntity": {
             "additionalProperties": false,
             "properties": {
-                "custom_name": {
+                "aggregation_target_field": {
+                    "description": "Data warehouse field used as the actor identifier",
                     "type": "string"
                 },
-                "distinct_id_field": {
-                    "description": "Data warehouse field used as the actor identifier",
+                "custom_name": {
                     "type": "string"
                 },
                 "id": {
                     "type": ["string", "number"]
-                },
-                "id_field": {
-                    "description": "Data warehouse row identifier field",
-                    "type": "string"
                 },
                 "kind": {
                     "$ref": "#/definitions/RetentionEntityKind"
@@ -32276,7 +32272,7 @@
             "type": "object"
         },
         "RetentionEntityKind": {
-            "enum": ["ActionsNode", "EventsNode", "DataWarehouseNode"],
+            "enum": ["ActionsNode", "EventsNode"],
             "type": "string"
         },
         "RetentionFilter": {

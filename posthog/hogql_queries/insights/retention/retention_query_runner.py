@@ -965,7 +965,9 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         else:
             start_entity_is_dwh = self.start_event.type == EntityType.DATA_WAREHOUSE
 
-            start_actor_column_name = self.start_event.distinct_id_field if start_entity_is_dwh else self.target_field
+            start_actor_column_name = (
+                self.start_event.aggregation_target_field if start_entity_is_dwh else self.target_field
+            )
             start_actor_field = ast.Field(chain=[start_actor_column_name])
 
             start_timestamp_column_name = self.start_event.timestamp_field if start_entity_is_dwh else "timestamp"
@@ -1011,7 +1013,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             return_entity_is_dwh = self.return_event.type == EntityType.DATA_WAREHOUSE
 
             return_actor_column_name = (
-                self.return_event.distinct_id_field if return_entity_is_dwh else self.target_field
+                self.return_event.aggregation_target_field if return_entity_is_dwh else self.target_field
             )
             return_actor_field = ast.Field(chain=[return_actor_column_name])
 

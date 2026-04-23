@@ -81,9 +81,6 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
         return table.name
 
     def run_query(self, query: dict) -> list[dict]:
-        if not query.get("retentionFilter"):
-            query["retentionFilter"] = {}
-
         runner = RetentionQueryRunner(team=self.team, query=query)
         return runner.calculate().model_dump()["results"]
 
@@ -125,8 +122,7 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
                         "name": activity_table_name,
                         "type": "data_warehouse",
                         "table_name": activity_table_name,
-                        "id_field": "id",
-                        "distinct_id_field": "person_id",
+                        "aggregation_target_field": "person_id",
                         "timestamp_field": "occurred_at",
                         "properties": [
                             {
@@ -142,8 +138,7 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
                         "name": activity_table_name,
                         "type": "data_warehouse",
                         "table_name": activity_table_name,
-                        "id_field": "id",
-                        "distinct_id_field": "person_id",
+                        "aggregation_target_field": "person_id",
                         "timestamp_field": "occurred_at",
                         "properties": [
                             {"key": "activity_type", "value": "renewed", "operator": "exact", "type": "data_warehouse"}
@@ -215,8 +210,7 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
                         "name": signups_table_name,
                         "type": "data_warehouse",
                         "table_name": signups_table_name,
-                        "id_field": "id",
-                        "distinct_id_field": "person_id",
+                        "aggregation_target_field": "person_id",
                         "timestamp_field": "signed_up_at",
                     },
                     "returningEntity": {
@@ -224,8 +218,7 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
                         "name": renewals_table_name,
                         "type": "data_warehouse",
                         "table_name": renewals_table_name,
-                        "id_field": "id",
-                        "distinct_id_field": "person_id",
+                        "aggregation_target_field": "person_id",
                         "timestamp_field": "renewed_at",
                     },
                 },
@@ -287,8 +280,7 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
                         "name": signups_table_name,
                         "type": "data_warehouse",
                         "table_name": signups_table_name,
-                        "id_field": "id",
-                        "distinct_id_field": "person_id",
+                        "aggregation_target_field": "person_id",
                         "timestamp_field": "signed_up_at",
                     },
                     "returningEntity": {

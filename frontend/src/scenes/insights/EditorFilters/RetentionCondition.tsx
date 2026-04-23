@@ -5,7 +5,7 @@ import { toast } from 'react-toastify'
 import { IconInfo, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getOrdinalSuffix } from 'lib/utils'
 import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
@@ -26,6 +26,11 @@ import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 const MAX_RANGE = 1000
+
+const retentionDataWarehousePopoverFields: DataWarehousePopoverField[] = [
+    { key: 'timestamp_field', label: 'Timestamp', allowHogQL: true },
+    { key: 'aggregation_target_field', label: 'Aggregation target', allowHogQL: true },
+]
 
 function retentionEntityToFilter(entity: Record<string, any> | undefined): FilterType {
     if (!entity) {
@@ -186,6 +191,7 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
                 typeKey={`${keyForInsightLogicProps('new')(insightProps)}-targetEntity`}
                 propertiesTaxonomicGroupTypes={getRetentionPropertyFilterGroupTypes()}
                 actionsTaxonomicGroupTypes={actionsTaxonomicGroupTypes}
+                dataWarehousePopoverFields={retentionDataWarehousePopoverFields}
             />
             <LemonSelect
                 options={Object.entries(retentionOptions).map(([key, value]) => ({
@@ -223,6 +229,7 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
                 typeKey={`${keyForInsightLogicProps('new')(insightProps)}-returningEntity`}
                 propertiesTaxonomicGroupTypes={getRetentionPropertyFilterGroupTypes()}
                 actionsTaxonomicGroupTypes={actionsTaxonomicGroupTypes}
+                dataWarehousePopoverFields={retentionDataWarehousePopoverFields}
             />
             <div className="flex items-center gap-2">
                 {!retentionCustomBrackets ? (
