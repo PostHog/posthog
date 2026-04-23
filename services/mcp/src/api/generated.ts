@@ -19389,6 +19389,16 @@ export namespace Schemas {
       interval: number;
       name: string;
       previous: number;
+      /**
+       * Daily values over the current interval period. Only populated when display is 'sparkline'.
+       * @nullable
+       */
+      timeseries?: number[] | null;
+      /**
+       * ISO date strings for sparkline tooltip labels. Only populated when display is 'sparkline'.
+       * @nullable
+       */
+      timeseries_labels?: string[] | null;
       value: number;
     }
 

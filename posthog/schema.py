@@ -8663,6 +8663,14 @@ class UsageMetric(BaseModel):
     interval: int
     name: str
     previous: float
+    timeseries: list[float] | None = Field(
+        default=None,
+        description=("Daily values over the current interval period. Only populated when display is 'sparkline'."),
+    )
+    timeseries_labels: list[str] | None = Field(
+        default=None,
+        description=("ISO date strings for sparkline tooltip labels. Only populated when display is 'sparkline'."),
+    )
     value: float
 
 

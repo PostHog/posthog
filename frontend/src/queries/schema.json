@@ -37414,6 +37414,20 @@
                 "previous": {
                     "type": "number"
                 },
+                "timeseries": {
+                    "description": "Daily values over the current interval period. Only populated when display is 'sparkline'.",
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                },
+                "timeseries_labels": {
+                    "description": "ISO date strings for sparkline tooltip labels. Only populated when display is 'sparkline'.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "value": {
                     "type": "number"
                 }
