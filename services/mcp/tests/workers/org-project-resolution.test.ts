@@ -14,6 +14,28 @@ import type { MCP } from '@/mcp'
 // call. That means cold-start `init()` paths that read `users/@me` fall through
 // to their wrapped error paths and let init complete.
 
+/**
+ * Intercept `ctx.waitUntil` on a Durable Object instance so background promises
+ * (e.g. analytics fired at the end of `init()`) can be flushed before the
+ * `runInDurableObject` callback returns. Without this, lingering promises access
+ * DO storage outside the isolated storage frame and cause timeouts.
+ */
+function interceptWaitUntil(mcp: MCP): { flush: () => Promise<void> } {
+    const pending: Promise<unknown>[] = []
+    const ctx = (mcp as any).ctx
+    const original = ctx.waitUntil.bind(ctx)
+    ctx.waitUntil = (p: Promise<unknown>) => {
+        pending.push(p)
+        original(p)
+    }
+    return {
+        async flush() {
+            await Promise.allSettled(pending)
+            pending.length = 0
+        },
+    }
+}
+
 const propsFor = (
     overrides: Partial<{ projectId: string; organizationId: string; apiToken: string }> = {}
 ): {
@@ -40,6 +62,7 @@ describe('MCP org/project resolution inside the real Workers runtime', () => {
         const stub = env.MCP_OBJECT.get(env.MCP_OBJECT.idFromName('session-sticky-cached'))
 
         await runInDurableObject(stub, async (mcp: MCP) => {
+            const bg = interceptWaitUntil(mcp)
             ;(mcp as any).props = propsFor()
             await mcp.cache.set('orgId', 'previously-picked-org')
             await mcp.cache.set('projectId', 'previously-picked-project')
@@ -51,6 +74,8 @@ describe('MCP org/project resolution inside the real Workers runtime', () => {
             expect(setDefaultSpy).not.toHaveBeenCalled()
             expect(await mcp.cache.get('orgId')).toBe('previously-picked-org')
             expect(await mcp.cache.get('projectId')).toBe('previously-picked-project')
+
+            await bg.flush()
         })
     })
 
@@ -69,6 +94,7 @@ describe('MCP org/project resolution inside the real Workers runtime', () => {
         const stub = env.MCP_OBJECT.get(env.MCP_OBJECT.idFromName('session-cold-no-cache'))
 
         await runInDurableObject(stub, async (mcp: MCP) => {
+            const bg = interceptWaitUntil(mcp)
             ;(mcp as any).props = propsFor()
             // No prior cache — fresh DO for this userHash.
 
@@ -77,6 +103,8 @@ describe('MCP org/project resolution inside the real Workers runtime', () => {
             expect(setDefaultSpy).toHaveBeenCalledOnce()
             expect(await mcp.cache.get('orgId')).toBe('resolved-org')
             expect(await mcp.cache.get('projectId')).toBe('resolved-project')
+
+            await bg.flush()
         })
     })
 
@@ -84,6 +112,7 @@ describe('MCP org/project resolution inside the real Workers runtime', () => {
         const stub = env.MCP_OBJECT.get(env.MCP_OBJECT.idFromName('session-header-overrides-cache'))
 
         await runInDurableObject(stub, async (mcp: MCP) => {
+            const bg = interceptWaitUntil(mcp)
             ;(mcp as any).props = propsFor()
             // Simulate a prior session that cached an org + project.
             await mcp.cache.set('orgId', 'cached-org')
@@ -95,6 +124,8 @@ describe('MCP org/project resolution inside the real Workers runtime', () => {
             // Header wins on projectId; orgId is left as-is.
             expect(await mcp.cache.get('projectId')).toBe('new-header-project')
             expect(await mcp.cache.get('orgId')).toBe('cached-org')
+
+            await bg.flush()
         })
     })
 
