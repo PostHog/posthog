@@ -66,11 +66,16 @@ class TestClusteringMetricsInterceptor:
 class TestCounterHelpers:
     @parameterized.expand(
         [
-            ("increment_workflow_started", increment_workflow_started, ["trace"]),
-            ("increment_workflow_finished", increment_workflow_finished, ["completed", "trace"]),
-            ("record_items_analyzed", record_items_analyzed, [100, "trace"]),
-            ("record_clusters_generated", record_clusters_generated, [5, "trace"]),
-            ("record_noise_points", record_noise_points, [10, "trace"]),
+            ("increment_workflow_started_trace", increment_workflow_started, ["trace"]),
+            ("increment_workflow_started_evaluation", increment_workflow_started, ["evaluation"]),
+            ("increment_workflow_finished_trace", increment_workflow_finished, ["completed", "trace"]),
+            ("increment_workflow_finished_evaluation", increment_workflow_finished, ["completed", "evaluation"]),
+            ("record_items_analyzed_trace", record_items_analyzed, [100, "trace"]),
+            ("record_items_analyzed_evaluation", record_items_analyzed, [100, "evaluation"]),
+            ("record_clusters_generated_trace", record_clusters_generated, [5, "trace"]),
+            ("record_clusters_generated_evaluation", record_clusters_generated, [5, "evaluation"]),
+            ("record_noise_points_trace", record_noise_points, [10, "trace"]),
+            ("record_noise_points_evaluation", record_noise_points, [10, "evaluation"]),
         ]
     )
     def test_counter_emits_in_temporal_context(self, _name, fn, args):

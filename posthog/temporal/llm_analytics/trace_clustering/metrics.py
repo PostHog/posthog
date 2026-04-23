@@ -20,6 +20,9 @@ from temporalio.worker import (
     WorkflowInterceptorClassInput,
 )
 
+from posthog.temporal.llm_analytics.evaluation_clustering.constants import (
+    CLUSTERING_WORKFLOW_NAME as EVAL_CLUSTERING_WORKFLOW_NAME,
+)
 from posthog.temporal.llm_analytics.metrics import ExecutionTimeRecorder, get_metric_meter
 
 # ---------------------------------------------------------------------------
@@ -64,7 +67,7 @@ CLUSTERING_ACTIVITY_TYPES = {
 
 CLUSTERING_WORKFLOW_TYPES = {
     "llma-trace-clustering",
-    "llma-evaluation-clustering",
+    EVAL_CLUSTERING_WORKFLOW_NAME,
 }
 
 # ---------------------------------------------------------------------------
@@ -180,7 +183,7 @@ class _ClusteringWorkflowInterceptor(WorkflowInboundInterceptor):
         # (same workflow type handles both levels), while evaluation clustering is a
         # distinct workflow type whose input shape has no such field — infer from the
         # workflow name instead.
-        if workflow_info.workflow_type == "llma-evaluation-clustering":
+        if workflow_info.workflow_type == EVAL_CLUSTERING_WORKFLOW_NAME:
             analysis_level = "evaluation"
         else:
             analysis_level = "trace"
