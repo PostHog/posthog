@@ -1079,6 +1079,14 @@ class TaskRunBootstrapCreateRequestSerializer(serializers.Serializer):
                         f"'{runtime_adapter}'. Supported values: {allowed_values}."
                     )
 
+        pending_user_message = attrs.get("pending_user_message")
+        pending_user_artifact_ids = attrs.get("pending_user_artifact_ids") or []
+        if pending_user_message is not None:
+            trimmed_message = pending_user_message.strip()
+            attrs["pending_user_message"] = trimmed_message or None
+        if not attrs.get("pending_user_message") and not pending_user_artifact_ids:
+            attrs.pop("pending_user_message", None)
+
         runtime_fields = ("runtime_adapter", "model")
         has_runtime_selection = any(attrs.get(field) is not None for field in (*runtime_fields, "reasoning_effort"))
         if not has_runtime_selection:

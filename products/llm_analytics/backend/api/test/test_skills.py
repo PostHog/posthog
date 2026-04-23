@@ -3,8 +3,10 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.test import APIRequestFactory
 
 from ...models.skills import LLMSkill, LLMSkillFile
+from ..skills import LLMSkillViewSet
 
 
 @patch("products.llm_analytics.backend.api.skills.posthoganalytics.feature_enabled", return_value=True)
