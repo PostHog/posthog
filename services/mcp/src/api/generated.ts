@@ -23881,6 +23881,11 @@ export namespace Schemas {
       readonly status: SubscriptionDeliveryStatusEnum;
       /** Top-level failure payload when status is failed, if any. */
       readonly error: unknown | null;
+      /**
+       * AI-generated summary of the delivered insight/dashboard at send time. Null when summary generation was skipped or failed.
+       * @nullable
+       */
+      readonly change_summary: string | null;
       /** When the delivery row was created. */
       readonly created_at: string;
       /** Last ORM update to this row. */
