@@ -47,7 +47,7 @@ function getSourceDisplayStatus(unreleased: boolean, featureFlag: boolean | unde
             descriptionEl: unreleasedDescriptionEl,
         }
     }
-    // undefined feature flag should see whatever the release status is
+    // if the feature flag is undefined, fall back to the source's unreleased state
     return {
         status: unreleased ? 'coming_soon' : 'stable',
         descriptionEl: unreleased ? unreleasedDescriptionEl : releasedDescriptionEl,
@@ -82,6 +82,12 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                     }
                     const unreleasedValue = !!connector.unreleasedSource
                     const { status, descriptionEl } = getSourceDisplayStatus(unreleasedValue, featureFlagValue)
+                    // Only surface alpha/beta while the source is actually connectable — a source
+                    // that renders as "coming_soon" (Roadmap tag) shouldn't also advertise "Beta".
+                    const releaseStatus =
+                        status === 'stable' && connector.releaseStatus && connector.releaseStatus !== 'ga'
+                            ? connector.releaseStatus
+                            : undefined
 
                     return {
                         id: `managed-${connector.name}`,
@@ -98,7 +104,7 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                         masking: null,
                         free: true,
                         featured: connector.featured ?? false,
-                        releaseStatus: connector.releaseStatus,
+                        releaseStatus,
                     }
                 })
                 const selfManaged = manualConnectors.map(
