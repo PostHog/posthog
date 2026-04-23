@@ -1,3 +1,5 @@
+from posthog.schema import EntityType
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 
@@ -7,6 +9,40 @@ from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
 
 class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
     def build_base_query(
+        self,
+        start_interval_index_filter: int | None = None,
+        selected_breakdown_value: str | list[str] | int | None = None,
+    ) -> ast.SelectQuery:
+        has_data_warehouse_series = (
+            self.start_event.type == EntityType.DATA_WAREHOUSE or self.return_event.type == EntityType.DATA_WAREHOUSE
+        )
+
+        if has_data_warehouse_series:
+            return self.build_base_query_dwh(
+                start_interval_index_filter=start_interval_index_filter,
+                selected_breakdown_value=selected_breakdown_value,
+            )
+
+        return self.build_base_query_legacy(
+            start_interval_index_filter=start_interval_index_filter,
+            selected_breakdown_value=selected_breakdown_value,
+        )
+
+    # Nested fixed-interval query with data warehouse support.
+    # Intended as a drop-in replacement for the legacy query while we verify
+    # parity in production.
+    def build_base_query_dwh(
+        self,
+        start_interval_index_filter: int | None = None,
+        selected_breakdown_value: str | list[str] | int | None = None,
+    ) -> ast.SelectQuery:
+        return self.build_base_query_legacy(
+            start_interval_index_filter=start_interval_index_filter,
+            selected_breakdown_value=selected_breakdown_value,
+        )
+
+    # Original version of the fixed interval query.
+    def build_base_query_legacy(
         self,
         start_interval_index_filter: int | None = None,
         selected_breakdown_value: str | list[str] | int | None = None,
