@@ -20019,8 +20019,8 @@ class ErrorTrackingQuery(BaseModel):
         default=None,
         description=(
             "Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only)."
+            " The backend caps the list at 50 entries; extras are dropped silently."
         ),
-        max_length=50,
     )
     personId: str | None = None
     response: ErrorTrackingQueryResponse | None = None

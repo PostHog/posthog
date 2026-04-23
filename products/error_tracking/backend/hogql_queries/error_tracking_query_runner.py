@@ -76,9 +76,11 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
     def to_query(self) -> ast.SelectQuery:
         return self._builder.build_query()
 
+    MAX_PENDING_FINGERPRINT_ISSUE_STATE_UPDATES = 50
+
     def _hogql_context(self) -> HogQLContext:
         ctx = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True)
-        raw = self.query.pendingFingerprintIssueStateUpdates or []
+        raw = (self.query.pendingFingerprintIssueStateUpdates or [])[: self.MAX_PENDING_FINGERPRINT_ISSUE_STATE_UPDATES]
         if raw:
             ctx.data_to_ingest[PENDING_UPDATES_HOGQL_CONTEXT_KEY] = [row.model_dump(mode="json") for row in raw]
         return ctx

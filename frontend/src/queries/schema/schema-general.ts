@@ -2614,8 +2614,8 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     useQueryV3?: boolean
     /**
      * Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only).
+     * The backend caps the list at 50 entries; extras are dropped silently.
      * @type array
-     * @maxItems 50
      */
     pendingFingerprintIssueStateUpdates?: ErrorTrackingPendingFingerprintIssueStateUpdate[]
 }
