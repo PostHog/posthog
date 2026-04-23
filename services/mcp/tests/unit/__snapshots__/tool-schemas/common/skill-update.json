@@ -36,7 +36,7 @@
                         "type": "string"
                     },
                     "old": {
-                        "description": "Text to find in the current skill body. Must match exactly once.",
+                        "description": "Text to find in the target content. Must match exactly once.",
                         "type": "string"
                     }
                 },
@@ -58,7 +58,7 @@
                                     "type": "string"
                                 },
                                 "old": {
-                                    "description": "Text to find in the current skill body. Must match exactly once.",
+                                    "description": "Text to find in the target content. Must match exactly once.",
                                     "type": "string"
                                 }
                             },

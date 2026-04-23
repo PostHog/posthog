@@ -20036,7 +20036,7 @@ export namespace Schemas {
     }
 
     export interface LLMSkillEditOperation {
-      /** Text to find in the current skill body. Must match exactly once. */
+      /** Text to find in the target content. Must match exactly once. */
       old: string;
       /** Replacement text. */
       new: string;

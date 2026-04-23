@@ -29,8 +29,11 @@ class LLMSkillVersionLimitError(Exception):
 
 @dataclass
 class LLMSkillEditError(Exception):
+    # `file_path` extends this dataclass (rather than a subclass) so the publish view can catch a
+    # single exception type for both body edits and per-file edits. `edit_index` is optional because
+    # path-level failures (e.g. missing file) aren't tied to any particular edit.
     message: str
-    edit_index: int
+    edit_index: int | None = None
     file_path: str | None = None
 
 
@@ -249,7 +252,6 @@ def _resolve_file_edits(current_skill: LLMSkill, file_edits: list[dict[str, Any]
         if path not in source_files:
             raise LLMSkillEditError(
                 message=f"File '{path}' not found in the current skill version.",
-                edit_index=0,
                 file_path=path,
             )
         resolved[path] = apply_skill_file_edits(

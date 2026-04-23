@@ -269,10 +269,9 @@ class LLMSkillViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except LLMSkillEditError as err:
-            error_body: dict[str, Any] = {
-                "detail": err.message,
-                "edit_index": err.edit_index,
-            }
+            error_body: dict[str, Any] = {"detail": err.message}
+            if err.edit_index is not None:
+                error_body["edit_index"] = err.edit_index
             if err.file_path is not None:
                 error_body["file_path"] = err.file_path
             return Response(error_body, status=status.HTTP_400_BAD_REQUEST)

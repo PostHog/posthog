@@ -141,7 +141,7 @@ export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
     edits: zod
         .array(
             zod.object({
-                old: zod.string().describe('Text to find in the current skill body. Must match exactly once.'),
+                old: zod.string().describe('Text to find in the target content. Must match exactly once.'),
                 new: zod.string().describe('Replacement text.'),
             })
         )
@@ -197,9 +197,7 @@ export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
                 edits: zod
                     .array(
                         zod.object({
-                            old: zod
-                                .string()
-                                .describe('Text to find in the current skill body. Must match exactly once.'),
+                            old: zod.string().describe('Text to find in the target content. Must match exactly once.'),
                             new: zod.string().describe('Replacement text.'),
                         })
                     )

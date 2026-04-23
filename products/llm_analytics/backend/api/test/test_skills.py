@@ -388,7 +388,7 @@ class TestLLMSkillAPI(APIBaseTest):
             self._url("name/seq-edits"),
             data={
                 "edits": [
-                    {"old": "alpha", "new": "APLHA"},
+                    {"old": "alpha", "new": "ALPHA"},
                     {"old": "beta", "new": "BETA"},
                 ],
                 "base_version": 1,
@@ -397,7 +397,7 @@ class TestLLMSkillAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["body"] == "APLHA\nBETA\ngamma\n"
+        assert response.json()["body"] == "ALPHA\nBETA\ngamma\n"
 
     @parameterized.expand(
         [
@@ -542,6 +542,7 @@ class TestLLMSkillAPI(APIBaseTest):
                 [{"path": "references/missing.md", "edits": [{"old": "x", "new": "y"}]}],
                 "references/missing.md",
                 None,
+                None,
             ),
             (
                 "zero_matches",
@@ -550,6 +551,7 @@ class TestLLMSkillAPI(APIBaseTest):
                 [{"path": "references/a.md", "edits": [{"old": "missing", "new": "x"}]}],
                 "references/a.md",
                 None,
+                0,
             ),
             (
                 "multi_matches",
@@ -558,6 +560,7 @@ class TestLLMSkillAPI(APIBaseTest):
                 [{"path": "references/a.md", "edits": [{"old": "pick", "new": "chose"}]}],
                 "references/a.md",
                 "2 times",
+                0,
             ),
         ]
     )
@@ -570,6 +573,7 @@ class TestLLMSkillAPI(APIBaseTest):
         file_edits,
         expected_file_path,
         detail_fragment,
+        expected_edit_index,
     ):
         skill_name = f"file-edit-apply-err-{label.replace('_', '-')}"
         skill = self.create_skill(name=skill_name, body="# Body\n")
@@ -584,6 +588,10 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         body_resp = response.json()
         assert body_resp["file_path"] == expected_file_path
+        if expected_edit_index is None:
+            assert "edit_index" not in body_resp
+        else:
+            assert body_resp["edit_index"] == expected_edit_index
         if detail_fragment is not None:
             assert detail_fragment in body_resp["detail"]
 
@@ -608,6 +616,24 @@ class TestLLMSkillAPI(APIBaseTest):
                 },
             ),
             ("empty_file_edits_list", {"file_edits": [], "base_version": 1}),
+            (
+                "traversal_path",
+                {
+                    "file_edits": [
+                        {"path": "../escape.md", "edits": [{"old": "a", "new": "b"}]},
+                    ],
+                    "base_version": 1,
+                },
+            ),
+            (
+                "absolute_path",
+                {
+                    "file_edits": [
+                        {"path": "/absolute/path.md", "edits": [{"old": "a", "new": "b"}]},
+                    ],
+                    "base_version": 1,
+                },
+            ),
         ]
     )
     def test_publish_rejects_invalid_file_edit_requests(self, mock_feature_enabled, label, payload):
