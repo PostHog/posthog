@@ -935,7 +935,7 @@ class ExperimentQueryBuilder:
         # Build lower bound expression
         if self.metric.lower_bound_percentile is not None:
             lower_bound_expr = parse_expr(
-                "quantile({level})(entity_metrics.value)",
+                "quantileExact({level})(entity_metrics.value)",
                 placeholders={"level": ast.Constant(value=self.metric.lower_bound_percentile)},
             )
         else:
@@ -946,12 +946,12 @@ class ExperimentQueryBuilder:
             # Handle ignore_zeros flag for upper bound calculation
             if getattr(self.metric, "ignore_zeros", False):
                 upper_bound_expr = parse_expr(
-                    "quantile({level})(if(entity_metrics.value != 0, entity_metrics.value, null))",
+                    "quantileExact({level})(if(entity_metrics.value != 0, entity_metrics.value, null))",
                     placeholders={"level": ast.Constant(value=self.metric.upper_bound_percentile)},
                 )
             else:
                 upper_bound_expr = parse_expr(
-                    "quantile({level})(entity_metrics.value)",
+                    "quantileExact({level})(entity_metrics.value)",
                     placeholders={"level": ast.Constant(value=self.metric.upper_bound_percentile)},
                 )
         else:
