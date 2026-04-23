@@ -106,22 +106,18 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
         mergeIssues: ({ ids }) => {
             const { results } = values
 
-            const issues = results.filter(({ id }) => ids.includes(id))
-            const primaryIssue = issues.shift()
+            const [primaryId, ...sourceIds] = ids
+            const primaryIssue = results.find(({ id }) => id === primaryId)
+            const sourceIssues = results.filter(({ id }) => sourceIds.includes(id))
 
-            if (primaryIssue && issues.length > 0) {
-                const mergingIds = issues.map((g) => g.id)
-                const mergedIssue = mergeIssues(primaryIssue, issues)
+            if (primaryIssue && sourceIssues.length > 0) {
+                const mergedIssue = mergeIssues(primaryIssue, sourceIssues)
 
-                // optimistically update local results
                 actions.setResponse({
                     ...values.response,
                     results: results
-                        .filter(({ id }) => !mergingIds.includes(id))
-                        .map((issue) =>
-                            // replace primary issue
-                            mergedIssue.id === issue.id ? mergedIssue : issue
-                        ),
+                        .filter(({ id }) => !sourceIds.includes(id))
+                        .map((issue) => (issue.id === primaryIssue.id ? mergedIssue : issue)),
                 })
             }
         },
@@ -201,7 +197,15 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
             }
         },
 
-        mutationSuccess: () => actions.reloadData(),
+        mutationSuccess: () => {
+            // in v3 when mutation succeeds, phantom gets added (which is injected into the query) so the query reloads
+            // in v1 when mutation succeeds, we need to reload the data manually
+            const query = props.query as Record<string, any> | null
+            if (query?.useQueryV3) {
+                return
+            }
+            actions.reloadData()
+        },
         mutationFailure: () => actions.reloadData(),
     })),
 

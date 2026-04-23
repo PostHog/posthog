@@ -29,6 +29,13 @@ export const ToolConfigSchema = z
         description: z.string().optional(),
         /** Path to a file containing the tool description (resolved relative to the YAML file). Mutually exclusive with `description`. */
         description_file: z.string().optional(),
+        /**
+         * One-line selection hint injected into the system prompt catalog.
+         * Describes *when to pick this tool*, not what it does. Currently only
+         * surfaced for `query-*` tools in the query tool catalog.
+         * Example: "Time series, aggregations, formulas, comparisons"
+         */
+        system_prompt_hint: z.string().optional(),
         exclude_params: z.array(z.string()).optional(),
         include_params: z.array(z.string()).optional(),
         param_overrides: z
@@ -313,6 +320,12 @@ export const QueryWrapperToolConfigSchema = z
         description: z.string().optional(),
         /** Path to a file containing the tool description (resolved relative to the YAML file). Mutually exclusive with `description`. */
         description_file: z.string().optional(),
+        /**
+         * One-line selection hint injected into the query tool catalog in the
+         * system prompt. Describes *when to pick this tool*, not what it does.
+         * Example: "Time series, aggregations, formulas, comparisons"
+         */
+        system_prompt_hint: z.string().optional(),
         ui_resource_uri: z.string().optional(),
         /** Properties to exclude from the generated Zod schema */
         exclude_properties: z.array(z.string()).optional(),

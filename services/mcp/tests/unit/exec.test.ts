@@ -186,7 +186,24 @@ describe('exec tool', () => {
                 name: t.name,
                 category: getToolDefinition(t.name, 2).category,
             }))
-            const commandReference = buildInstructionsV2(CLI_PROXY_COMMAND, guidelines, undefined, undefined, toolInfos)
+            const queryToolInfos = v2Tools
+                .filter((t) => t.name.startsWith('query-'))
+                .map((t) => {
+                    const def = getToolDefinition(t.name, 2)
+                    return {
+                        name: t.name,
+                        title: def.title,
+                        ...(def.system_prompt_hint ? { systemPromptHint: def.system_prompt_hint } : {}),
+                    }
+                })
+            const commandReference = buildInstructionsV2(
+                CLI_PROXY_COMMAND,
+                guidelines,
+                undefined,
+                undefined,
+                toolInfos,
+                queryToolInfos
+            )
             const execTool = createExecTool(v2Tools, context, CLI_PROXY_TOOL, commandReference, undefined)
 
             expect(execTool.description.length).toBeLessThanOrEqual(2048)
@@ -207,7 +224,24 @@ describe('exec tool', () => {
                 name: t.name,
                 category: getToolDefinition(t.name, 2).category,
             }))
-            const commandReference = buildInstructionsV2(CLI_PROXY_COMMAND, guidelines, undefined, undefined, toolInfos)
+            const queryToolInfos = v2Tools
+                .filter((t) => t.name.startsWith('query-'))
+                .map((t) => {
+                    const def = getToolDefinition(t.name, 2)
+                    return {
+                        name: t.name,
+                        title: def.title,
+                        ...(def.system_prompt_hint ? { systemPromptHint: def.system_prompt_hint } : {}),
+                    }
+                })
+            const commandReference = buildInstructionsV2(
+                CLI_PROXY_COMMAND,
+                guidelines,
+                undefined,
+                undefined,
+                toolInfos,
+                queryToolInfos
+            )
             const execTool = createExecTool(v2Tools, context, CLI_PROXY_TOOL, commandReference, undefined)
 
             const snapshot = {
