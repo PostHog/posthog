@@ -1,4 +1,4 @@
-import { LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/ErrorTrackingAlerting'
 import { AssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/assignment_rules/AssignmentRules'
 import { GroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/grouping_rules/GroupingRules'
@@ -121,7 +121,7 @@ import {
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
 import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
 import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
-import { AI_HIPAA_DISCLAIMER, ExternalAIProvidersTooltip } from './organization/aiConsentCopy'
+import { AIHipaaDisclaimer, getExternalAIProvidersTooltipTitle } from './organization/aiConsentCopy'
 import { ApprovalPolicies } from './organization/Approvals/ApprovalPolicies'
 import { ChangeRequestsList } from './organization/Approvals/ChangeRequestsList'
 import { Invites } from './organization/Invites'
@@ -1439,18 +1439,16 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: (
                     <>
                         PostHog AI features, such as the PostHog AI chat, use{' '}
-                        <ExternalAIProvidersTooltip>
+                        <Tooltip title={getExternalAIProvidersTooltipTitle()}>
                             <dfn>external AI services</dfn>
-                        </ExternalAIProvidersTooltip>{' '}
+                        </Tooltip>{' '}
                         for data analysis.
                         <br />
                         This <i>can</i> involve transfer of identifying user data, so we ask for your org-wide consent
                         below.
                         <br />
                         <strong>Your data will not be used for training models.</strong>
-                        <br />
-                        <br />
-                        {AI_HIPAA_DISCLAIMER}
+                        <AIHipaaDisclaimer />
                     </>
                 ),
                 component: <OrganizationAI />,

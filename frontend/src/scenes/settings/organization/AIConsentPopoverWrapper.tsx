@@ -1,12 +1,13 @@
 import { useActions, useAsyncActions, useValues } from 'kea'
+import { useCallback } from 'react'
 
 import { IconArrowRight, IconLock } from '@posthog/icons'
-import { LemonButton, Popover, PopoverProps } from '@posthog/lemon-ui'
+import { LemonButton, Popover, PopoverProps, Tooltip } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
-import { AI_HIPAA_DISCLAIMER, ExternalAIProvidersTooltip } from './aiConsentCopy'
+import { AIHipaaDisclaimer, getExternalAIProvidersTooltipTitle } from './aiConsentCopy'
 
 export function AIConsentPopoverContent({
     onApprove,
@@ -17,13 +18,17 @@ export function AIConsentPopoverContent({
     onDismiss: () => void
     approvalDisabledReason: string | null
 }): JSX.Element {
+    const focusOnMount = useCallback((el: HTMLButtonElement | null) => {
+        el?.focus()
+    }, [])
+
     return (
         <div className="flex flex-col gap-2 m-1.5 max-w-sm">
             <p className="font-medium text-pretty">
                 PostHog AI needs your approval to potentially process identifying user data with{' '}
-                <ExternalAIProvidersTooltip>
+                <Tooltip title={getExternalAIProvidersTooltipTitle()}>
                     <dfn>external AI providers</dfn>
-                </ExternalAIProvidersTooltip>
+                </Tooltip>
                 . <i>Your data won't be used for training models.</i>
             </p>
             <p className="text-muted text-xs leading-relaxed">
@@ -34,22 +39,21 @@ export function AIConsentPopoverContent({
                 </Link>
                 .
             </p>
-            <p className="text-muted text-xs leading-relaxed">{AI_HIPAA_DISCLAIMER}</p>
+            <AIHipaaDisclaimer />
             <div className="flex gap-1.5 self-end">
-                <LemonButton type="secondary" size="xsmall" onClick={onDismiss}>
+                <LemonButton data-attr="ai-consent-cancel" type="secondary" size="xsmall" onClick={onDismiss}>
                     Cancel
                 </LemonButton>
                 <LemonButton
+                    data-attr="ai-consent-approve"
                     type="primary"
                     size="xsmall"
                     onClick={onApprove}
                     sideIcon={approvalDisabledReason ? <IconLock /> : <IconArrowRight />}
                     disabledReason={approvalDisabledReason}
-                    tooltip="You are approving this as an organization admin"
+                    tooltip={approvalDisabledReason ? undefined : 'You are approving this as an organization admin'}
                     tooltipPlacement="bottom"
-                    ref={(el) => {
-                        el?.focus() // Auto-focus the button when the popover is opened, so that you just hit enter to approve
-                    }}
+                    ref={focusOnMount}
                 >
                     I allow AI analysis in this organization
                 </LemonButton>
