@@ -12205,8 +12205,7 @@ export namespace Schemas {
       /** Sort direction. */
       orderDirection?: OrderDirection2 | null;
       /**
-       * Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only).
-       * @maxItems 50
+       * Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only). The backend caps the list at 50 entries; extras are dropped silently.
        * @nullable
        */
       pendingFingerprintIssueStateUpdates?: ErrorTrackingPendingFingerprintIssueStateUpdate[] | null;
