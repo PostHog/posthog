@@ -12122,7 +12122,7 @@ export namespace Schemas {
       Desc: 'DESC',
     } as const;
 
-    export interface ErrorTrackingPhantomFingerprintIssueState {
+    export interface ErrorTrackingPendingFingerprintIssueStateUpdate {
       /** @nullable */
       assigned_role_id?: string | null;
       /** @nullable */
@@ -12204,14 +12204,14 @@ export namespace Schemas {
       orderBy: ErrorTrackingOrderBy;
       /** Sort direction. */
       orderDirection?: OrderDirection2 | null;
-      /** @nullable */
-      personId?: string | null;
       /**
-       * Phantom rows UNIONed into the fingerprint issue state subquery (V3 only).
+       * Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only).
        * @maxItems 50
        * @nullable
        */
-      phantomFingerprintIssueStates?: ErrorTrackingPhantomFingerprintIssueState[] | null;
+      pendingFingerprintIssueStateUpdates?: ErrorTrackingPendingFingerprintIssueStateUpdate[] | null;
+      /** @nullable */
+      personId?: string | null;
       response?: ErrorTrackingQueryResponse | null;
       /**
        * Free-text search across exception type, message, and stack frames.

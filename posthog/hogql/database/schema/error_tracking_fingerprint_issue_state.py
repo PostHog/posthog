@@ -34,7 +34,7 @@ ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_FIELDS: dict[str, FieldOrTable] = {
 
 RAW_TABLE_NAME = "raw_error_tracking_fingerprint_issue_state"
 
-_PHANTOM_COLUMNS: list[str] = [
+_ISSUE_STATE_COLUMNS: list[str] = [
     "fingerprint",
     "issue_id",
     "issue_name",
@@ -58,9 +58,11 @@ def join_with_error_tracking_fingerprint_issue_state_table(
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from error_tracking_fingerprint_issue_state")
     join_table = join_to_add.lazy_join.join_table
-    phantoms = getattr(join_table, "phantoms", None) or []
+    pending_updates = getattr(join_table, "pending_updates", None) or []
     join_expr = ast.JoinExpr(
-        table=select_from_error_tracking_fingerprint_issue_state_table(join_to_add.fields_accessed, phantoms=phantoms)
+        table=select_from_error_tracking_fingerprint_issue_state_table(
+            join_to_add.fields_accessed, pending_updates=pending_updates
+        )
     )
     join_expr.join_type = "LEFT OUTER JOIN"
     join_expr.alias = join_to_add.to_table
@@ -77,7 +79,7 @@ def join_with_error_tracking_fingerprint_issue_state_table(
 
 def select_from_error_tracking_fingerprint_issue_state_table(
     requested_fields: dict[str, list[str | int]],
-    phantoms: Optional[list[dict[str, Any]]] = None,
+    pending_updates: Optional[list[dict[str, Any]]] = None,
 ):
     from posthog.hogql import ast
 
@@ -103,32 +105,32 @@ def select_from_error_tracking_fingerprint_issue_state_table(
             )
     select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
 
-    if phantoms:
-        # Wrap the raw-table scan so argMax sees phantom rows with higher versions and picks them.
+    if pending_updates:
+        # Wrap the raw-table scan so argMax sees pending update rows with higher versions and picks them.
         select.select_from = ast.JoinExpr(
-            table=_build_union_with_phantoms(phantoms),
+            table=_build_union_with_pending_updates(pending_updates),
             alias=RAW_TABLE_NAME,
         )
 
     return select
 
 
-def _build_union_with_phantoms(phantoms: list[dict[str, Any]]):
+def _build_union_with_pending_updates(pending_updates: list[dict[str, Any]]):
     from posthog.hogql import ast
 
     base = ast.SelectQuery(
-        select=[ast.Field(chain=[col]) for col in _PHANTOM_COLUMNS],
+        select=[ast.Field(chain=[col]) for col in _ISSUE_STATE_COLUMNS],
         select_from=ast.JoinExpr(table=ast.Field(chain=[RAW_TABLE_NAME])),
     )
 
     branches: list[ast.SelectQuery | ast.SelectSetQuery] = [base]
-    for row in phantoms:
-        branches.append(_phantom_select(row))
+    for row in pending_updates:
+        branches.append(_pending_update_select(row))
 
     return ast.SelectSetQuery.create_from_queries(branches, set_operator="UNION ALL")
 
 
-def _phantom_select(row: dict[str, Any]):
+def _pending_update_select(row: dict[str, Any]):
     from posthog.hogql import ast
 
     assigned_user_id = row.get("assigned_user_id")
@@ -155,7 +157,7 @@ def _phantom_select(row: dict[str, Any]):
     }
 
     return ast.SelectQuery(
-        select=[ast.Alias(alias=col, expr=column_exprs[col]) for col in _PHANTOM_COLUMNS],
+        select=[ast.Alias(alias=col, expr=column_exprs[col]) for col in _ISSUE_STATE_COLUMNS],
     )
 
 
@@ -175,7 +177,7 @@ class RawErrorTrackingFingerprintIssueStateTable(Table):
 
 class ErrorTrackingFingerprintIssueStateTable(LazyTable):
     fields: dict[str, FieldOrTable] = ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_FIELDS
-    phantoms: list[dict[str, Any]] = Field(default_factory=list)
+    pending_updates: list[dict[str, Any]] = Field(default_factory=list)
 
     def lazy_select(
         self,
@@ -184,7 +186,7 @@ class ErrorTrackingFingerprintIssueStateTable(LazyTable):
         node: SelectQuery,
     ):
         return select_from_error_tracking_fingerprint_issue_state_table(
-            table_to_add.fields_accessed, phantoms=self.phantoms
+            table_to_add.fields_accessed, pending_updates=self.pending_updates
         )
 
     def to_printed_clickhouse(self, context):

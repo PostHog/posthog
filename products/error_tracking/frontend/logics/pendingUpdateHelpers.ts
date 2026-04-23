@@ -1,7 +1,7 @@
 import {
     ErrorTrackingIssueAssignee,
     ErrorTrackingIssueStatus,
-    ErrorTrackingPhantomFingerprintIssueState,
+    ErrorTrackingPendingFingerprintIssueStateUpdate,
 } from '~/queries/schema/schema-general'
 
 export interface IssueStateDelta {
@@ -30,12 +30,12 @@ export function applyDelta(current: CurrentIssueState, delta: IssueStateDelta): 
     }
 }
 
-export function buildPhantomRow(
+export function buildPendingUpdate(
     fingerprint: string,
     issueId: string,
     state: CurrentIssueState,
     version: number
-): ErrorTrackingPhantomFingerprintIssueState {
+): ErrorTrackingPendingFingerprintIssueStateUpdate {
     const assignee = state.assignee
     return {
         fingerprint,

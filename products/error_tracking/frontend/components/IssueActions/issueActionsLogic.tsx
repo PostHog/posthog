@@ -10,12 +10,12 @@ import { createCohortFormData } from 'scenes/cohorts/cohortUtils'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { BehavioralEventType, CohortType, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { phantomFingerprintIssueStateLogic } from '../../logics/phantomFingerprintIssueStateLogic'
+import { pendingFingerprintIssueStateUpdateLogic } from '../../logics/pendingFingerprintIssueStateUpdateLogic'
 import type { issueActionsLogicType } from './issueActionsLogicType'
 
-const phantomActions = ():
-    | NonNullable<ReturnType<typeof phantomFingerprintIssueStateLogic.findMounted>>['asyncActions']
-    | undefined => phantomFingerprintIssueStateLogic.findMounted()?.asyncActions
+const pendingUpdateActions = ():
+    | NonNullable<ReturnType<typeof pendingFingerprintIssueStateUpdateLogic.findMounted>>['asyncActions']
+    | undefined => pendingFingerprintIssueStateUpdateLogic.findMounted()?.asyncActions
 
 export const issueActionsLogic = kea<issueActionsLogicType>([
     path(['products', 'error_tracking', 'components', 'IssueActions', 'issueActionsLogic']),
@@ -82,7 +82,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                             posthog.capture('error_tracking_issue_merged', { primary: firstId })
                             await api.errorTracking.mergeInto(firstId, otherIds)
                         },
-                        async () => phantomActions()?.captureMergePhantoms(firstId, otherIds)
+                        async () => pendingUpdateActions()?.captureMergePendingUpdates(firstId, otherIds)
                     )
                 }
             },
@@ -100,7 +100,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                         posthog.capture('error_tracking_issue_bulk_resolve')
                         await api.errorTracking.bulkMarkStatus(ids, 'resolved')
                     },
-                    async () => phantomActions()?.capturePhantomsForIssues(ids, { status: 'resolved' })
+                    async () => pendingUpdateActions()?.capturePendingUpdatesForIssues(ids, { status: 'resolved' })
                 )
 
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ResolveFirstError)
@@ -112,7 +112,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                         posthog.capture('error_tracking_issue_bulk_suppress')
                         await api.errorTracking.bulkMarkStatus(ids, 'suppressed')
                     },
-                    async () => phantomActions()?.capturePhantomsForIssues(ids, { status: 'suppressed' })
+                    async () => pendingUpdateActions()?.capturePendingUpdatesForIssues(ids, { status: 'suppressed' })
                 )
             },
             activateIssues: async ({ ids }) => {
@@ -122,7 +122,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                         posthog.capture('error_tracking_issue_bulk_activate')
                         await api.errorTracking.bulkMarkStatus(ids, 'active')
                     },
-                    async () => phantomActions()?.capturePhantomsForIssues(ids, { status: 'active' })
+                    async () => pendingUpdateActions()?.capturePendingUpdatesForIssues(ids, { status: 'active' })
                 )
             },
             assignIssues: async ({ ids, assignee }) => {
@@ -132,7 +132,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                         posthog.capture('error_tracking_issue_bulk_assign')
                         await api.errorTracking.bulkAssign(ids, assignee)
                     },
-                    async () => phantomActions()?.capturePhantomsForIssues(ids, { assignee })
+                    async () => pendingUpdateActions()?.capturePendingUpdatesForIssues(ids, { assignee })
                 )
             },
             updateIssueAssignee: async ({ id, assignee }) => {
@@ -142,7 +142,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                         posthog.capture('error_tracking_issue_update_assignee')
                         await api.errorTracking.assignIssue(id, assignee)
                     },
-                    async () => phantomActions()?.capturePhantomsForIssues([id], { assignee })
+                    async () => pendingUpdateActions()?.capturePendingUpdatesForIssues([id], { assignee })
                 )
             },
             updateIssueStatus: async ({ id, status }) => {
@@ -152,7 +152,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                         posthog.capture('error_tracking_issue_update_status')
                         await api.errorTracking.updateIssue(id, { status })
                     },
-                    async () => phantomActions()?.capturePhantomsForIssues([id], { status })
+                    async () => pendingUpdateActions()?.capturePendingUpdatesForIssues([id], { status })
                 )
             },
             updateIssueName: async ({ id, name }) => {
@@ -162,7 +162,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                         posthog.capture('error_tracking_issue_update_name')
                         await api.errorTracking.updateIssue(id, { name })
                     },
-                    async () => phantomActions()?.capturePhantomsForIssues([id], { name })
+                    async () => pendingUpdateActions()?.capturePendingUpdatesForIssues([id], { name })
                 )
             },
             updateIssueDescription: async ({ id, description }) => {
@@ -172,7 +172,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                         posthog.capture('error_tracking_issue_update_description')
                         await api.errorTracking.updateIssue(id, { description })
                     },
-                    async () => phantomActions()?.capturePhantomsForIssues([id], { description })
+                    async () => pendingUpdateActions()?.capturePendingUpdatesForIssues([id], { description })
                 )
             },
             createIssueCohort: async ({ id, name, description }) => {

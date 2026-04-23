@@ -19,7 +19,7 @@ import {
 } from '../../components/IssueFilters/issueFiltersLogic'
 import { issueQueryOptionsLogic } from '../../components/IssueQueryOptions/issueQueryOptionsLogic'
 import { bulkSelectLogic } from '../../logics/bulkSelectLogic'
-import { phantomFingerprintIssueStateLogic } from '../../logics/phantomFingerprintIssueStateLogic'
+import { pendingFingerprintIssueStateUpdateLogic } from '../../logics/pendingFingerprintIssueStateUpdateLogic'
 import { errorTrackingQuery } from '../../queries'
 import {
     ERROR_TRACKING_LISTING_RESOLUTION,
@@ -54,8 +54,8 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 settingId: 'error-tracking-alerting',
             }),
             ['selectedSettingId'],
-            phantomFingerprintIssueStateLogic,
-            ['currentPhantoms'],
+            pendingFingerprintIssueStateUpdateLogic,
+            ['currentPendingUpdates'],
         ],
         actions: [
             issueActionsLogic,
@@ -96,7 +96,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 s.useQueryV3,
                 s.showQueryV3Switch,
                 s.forceQueryV3,
-                s.currentPhantoms,
+                s.currentPendingUpdates,
             ],
             (
                 orderBy,
@@ -110,7 +110,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 useQueryV3,
                 showQueryV3Switch,
                 forceQueryV3,
-                currentPhantoms
+                currentPendingUpdates
             ): DataTableNode => {
                 const v3Active = forceQueryV3 || (showQueryV3Switch && useQueryV3)
                 return errorTrackingQuery({
@@ -125,7 +125,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     columns: ['error', 'volume', 'occurrences', 'sessions', 'users'],
                     orderDirection,
                     useQueryV3: v3Active,
-                    phantomFingerprintIssueStates: v3Active ? currentPhantoms : undefined,
+                    pendingFingerprintIssueStateUpdates: v3Active ? currentPendingUpdates : undefined,
                 })
             },
         ],

@@ -6516,7 +6516,7 @@ class ErrorTrackingIssueFilter(BaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
-class ErrorTrackingPhantomFingerprintIssueState(BaseModel):
+class ErrorTrackingPendingFingerprintIssueStateUpdate(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20015,12 +20015,14 @@ class ErrorTrackingQuery(BaseModel):
     offset: int | None = None
     orderBy: ErrorTrackingOrderBy = Field(..., description="Field to sort results by.")
     orderDirection: OrderDirection2 | None = Field(default=None, description="Sort direction.")
-    personId: str | None = None
-    phantomFingerprintIssueStates: list[ErrorTrackingPhantomFingerprintIssueState] | None = Field(
+    pendingFingerprintIssueStateUpdates: list[ErrorTrackingPendingFingerprintIssueStateUpdate] | None = Field(
         default=None,
-        description=("Phantom rows UNIONed into the fingerprint issue state subquery (V3 only)."),
+        description=(
+            "Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only)."
+        ),
         max_length=50,
     )
+    personId: str | None = None
     response: ErrorTrackingQueryResponse | None = None
     searchQuery: str | None = Field(
         default=None,

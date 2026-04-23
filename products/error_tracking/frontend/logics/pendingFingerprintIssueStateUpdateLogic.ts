@@ -5,40 +5,40 @@ import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
 
 import {
     ErrorTrackingIssue,
-    ErrorTrackingPhantomFingerprintIssueState,
+    ErrorTrackingPendingFingerprintIssueStateUpdate,
     ErrorTrackingRelationalIssue,
 } from '~/queries/schema/schema-general'
 
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 import { issuesDataNodeLogic } from './issuesDataNodeLogic'
-import type { phantomFingerprintIssueStateLogicType } from './phantomFingerprintIssueStateLogicType'
-import { applyDelta, buildPhantomRow, CurrentIssueState, IssueStateDelta } from './phantomHelpers'
+import type { pendingFingerprintIssueStateUpdateLogicType } from './pendingFingerprintIssueStateUpdateLogicType'
+import { applyDelta, buildPendingUpdate, CurrentIssueState, IssueStateDelta } from './pendingUpdateHelpers'
 
 // CH sync typically lands in seconds; 60s is generous.
-export const PHANTOM_TTL_MS = 60_000
+export const PENDING_UPDATE_TTL_MS = 60_000
 
-export type StoredPhantom = ErrorTrackingPhantomFingerprintIssueState & { expiresAt: number }
+export type StoredPendingUpdate = ErrorTrackingPendingFingerprintIssueStateUpdate & { expiresAt: number }
 
-export const phantomFingerprintIssueStateLogic = kea<phantomFingerprintIssueStateLogicType>([
-    path(['products', 'error_tracking', 'logics', 'phantomFingerprintIssueStateLogic']),
+export const pendingFingerprintIssueStateUpdateLogic = kea<pendingFingerprintIssueStateUpdateLogicType>([
+    path(['products', 'error_tracking', 'logics', 'pendingFingerprintIssueStateUpdateLogic']),
 
     actions({
-        addPhantoms: (rows: ErrorTrackingPhantomFingerprintIssueState[]) => ({ rows }),
-        capturePhantomsForIssues: (issueIds: string[], delta: IssueStateDelta) => ({ issueIds, delta }),
-        captureMergePhantoms: (primaryId: string, sourceIds: string[]) => ({ primaryId, sourceIds }),
+        addPendingUpdates: (rows: ErrorTrackingPendingFingerprintIssueStateUpdate[]) => ({ rows }),
+        capturePendingUpdatesForIssues: (issueIds: string[], delta: IssueStateDelta) => ({ issueIds, delta }),
+        captureMergePendingUpdates: (primaryId: string, sourceIds: string[]) => ({ primaryId, sourceIds }),
         clearAll: true,
     }),
 
     reducers({
-        phantoms: [
-            {} as Record<string, StoredPhantom>,
+        pendingUpdates: [
+            {} as Record<string, StoredPendingUpdate>,
             {
-                addPhantoms: (state, { rows }) => {
+                addPendingUpdates: (state, { rows }) => {
                     if (!rows || rows.length === 0) {
                         return state
                     }
                     const now = Date.now()
-                    const next: Record<string, StoredPhantom> = {}
+                    const next: Record<string, StoredPendingUpdate> = {}
                     for (const [fp, row] of Object.entries(state)) {
                         if (row.expiresAt > now) {
                             next[fp] = row
@@ -50,7 +50,7 @@ export const phantomFingerprintIssueStateLogic = kea<phantomFingerprintIssueStat
                         if (existing && existing.version > row.version) {
                             continue
                         }
-                        next[row.fingerprint] = { ...row, expiresAt: now + PHANTOM_TTL_MS }
+                        next[row.fingerprint] = { ...row, expiresAt: now + PENDING_UPDATE_TTL_MS }
                     }
                     return next
                 },
@@ -60,12 +60,12 @@ export const phantomFingerprintIssueStateLogic = kea<phantomFingerprintIssueStat
     }),
 
     selectors({
-        currentPhantoms: [
-            (s) => [s.phantoms],
-            (phantoms): ErrorTrackingPhantomFingerprintIssueState[] => {
+        currentPendingUpdates: [
+            (s) => [s.pendingUpdates],
+            (pendingUpdates): ErrorTrackingPendingFingerprintIssueStateUpdate[] => {
                 const now = Date.now()
-                const rows: ErrorTrackingPhantomFingerprintIssueState[] = []
-                for (const row of Object.values(phantoms)) {
+                const rows: ErrorTrackingPendingFingerprintIssueStateUpdate[] = []
+                for (const row of Object.values(pendingUpdates)) {
                     if (row.expiresAt > now) {
                         const { expiresAt: _expiresAt, ...rest } = row
                         rows.push(rest)
@@ -143,7 +143,7 @@ export const phantomFingerprintIssueStateLogic = kea<phantomFingerprintIssueStat
         }
 
         return {
-            capturePhantomsForIssues: async ({ issueIds, delta }) => {
+            capturePendingUpdatesForIssues: async ({ issueIds, delta }) => {
                 const uniqueIds = Array.from(new Set(issueIds)).filter(Boolean)
                 if (uniqueIds.length === 0) {
                     return
@@ -151,7 +151,7 @@ export const phantomFingerprintIssueStateLogic = kea<phantomFingerprintIssueStat
 
                 const fingerprintMap = await resolveFingerprintsForIssues(uniqueIds)
                 const version = Date.now()
-                const rows: ErrorTrackingPhantomFingerprintIssueState[] = []
+                const rows: ErrorTrackingPendingFingerprintIssueStateUpdate[] = []
 
                 for (const id of uniqueIds) {
                     const current = findCurrentIssueState(id)
@@ -161,15 +161,15 @@ export const phantomFingerprintIssueStateLogic = kea<phantomFingerprintIssueStat
                     const merged = applyDelta(current, delta)
                     const fingerprints = fingerprintMap[id] ?? []
                     for (const fp of fingerprints) {
-                        rows.push(buildPhantomRow(fp, id, merged, version))
+                        rows.push(buildPendingUpdate(fp, id, merged, version))
                     }
                 }
 
                 if (rows.length > 0) {
-                    actions.addPhantoms(rows)
+                    actions.addPendingUpdates(rows)
                 }
             },
-            captureMergePhantoms: async ({ primaryId, sourceIds }) => {
+            captureMergePendingUpdates: async ({ primaryId, sourceIds }) => {
                 const allIds = Array.from(new Set([primaryId, ...sourceIds])).filter(Boolean)
                 if (allIds.length === 0) {
                     return
@@ -182,17 +182,17 @@ export const phantomFingerprintIssueStateLogic = kea<phantomFingerprintIssueStat
 
                 const fingerprintMap = await resolveFingerprintsForIssues(allIds)
                 const version = Date.now()
-                const rows: ErrorTrackingPhantomFingerprintIssueState[] = []
+                const rows: ErrorTrackingPendingFingerprintIssueStateUpdate[] = []
 
                 for (const id of allIds) {
                     const fingerprints = fingerprintMap[id] ?? []
                     for (const fp of fingerprints) {
-                        rows.push(buildPhantomRow(fp, primaryId, primaryState, version))
+                        rows.push(buildPendingUpdate(fp, primaryId, primaryState, version))
                     }
                 }
 
                 if (rows.length > 0) {
-                    actions.addPhantoms(rows)
+                    actions.addPendingUpdates(rows)
                 }
             },
         }

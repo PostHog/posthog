@@ -78,12 +78,12 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
 
     def _hogql_context(self) -> HogQLContext:
         ctx = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True)
-        raw = self.query.phantomFingerprintIssueStates or []
+        raw = self.query.pendingFingerprintIssueStateUpdates or []
         if raw:
             database = Database.create_for(
                 team=self.team, user=self.user, modifiers=self.modifiers, timings=self.timings
             )
-            database.get_table("events").fields["fingerprint_issue_state"].join_table.phantoms = [  # type: ignore[attr-defined]
+            database.get_table("events").fields["fingerprint_issue_state"].join_table.pending_updates = [  # type: ignore[attr-defined]
                 row.model_dump(mode="json") for row in raw
             ]
             ctx.database = database

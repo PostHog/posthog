@@ -2565,8 +2565,8 @@ export type CachedRevenueExampleDataWarehouseTablesQueryResponse =
 /** @title ErrorTrackingOrderBy */
 export type ErrorTrackingOrderBy = 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
 
-/** Client-side phantom row UNIONed into the argMax subquery to hide Kafka->CH sync lag after mutations. */
-export interface ErrorTrackingPhantomFingerprintIssueState {
+/** Client-side pending fingerprint issue state update UNIONed into the argMax subquery to hide Kafka->CH sync lag after mutations. */
+export interface ErrorTrackingPendingFingerprintIssueStateUpdate {
     fingerprint: string
     issue_id: string
     issue_name: string | null
@@ -2613,11 +2613,11 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     /** Use V3 query path (denormalized ClickHouse table, no Postgres joins) */
     useQueryV3?: boolean
     /**
-     * Phantom rows UNIONed into the fingerprint issue state subquery (V3 only).
+     * Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only).
      * @type array
      * @maxItems 50
      */
-    phantomFingerprintIssueStates?: ErrorTrackingPhantomFingerprintIssueState[]
+    pendingFingerprintIssueStateUpdates?: ErrorTrackingPendingFingerprintIssueStateUpdate[]
 }
 
 export interface ErrorTrackingSimilarIssuesQuery extends DataNode<ErrorTrackingSimilarIssuesQueryResponse> {

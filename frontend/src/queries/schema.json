@@ -15131,9 +15131,9 @@
             "title": "ErrorTrackingOrderBy",
             "type": "string"
         },
-        "ErrorTrackingPhantomFingerprintIssueState": {
+        "ErrorTrackingPendingFingerprintIssueStateUpdate": {
             "additionalProperties": false,
-            "description": "Client-side phantom row UNIONed into the argMax subquery to hide Kafka->CH sync lag after mutations.",
+            "description": "Client-side pending fingerprint issue state update UNIONed into the argMax subquery to hide Kafka->CH sync lag after mutations.",
             "properties": {
                 "assigned_role_id": {
                     "type": ["string", "null"]
@@ -15246,16 +15246,16 @@
                     "enum": ["ASC", "DESC"],
                     "type": "string"
                 },
-                "personId": {
-                    "type": "string"
-                },
-                "phantomFingerprintIssueStates": {
-                    "description": "Phantom rows UNIONed into the fingerprint issue state subquery (V3 only).",
+                "pendingFingerprintIssueStateUpdates": {
+                    "description": "Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only).",
                     "items": {
-                        "$ref": "#/definitions/ErrorTrackingPhantomFingerprintIssueState"
+                        "$ref": "#/definitions/ErrorTrackingPendingFingerprintIssueStateUpdate"
                     },
                     "maxItems": 50,
                     "type": "array"
+                },
+                "personId": {
+                    "type": "string"
                 },
                 "response": {
                     "$ref": "#/definitions/ErrorTrackingQueryResponse"
