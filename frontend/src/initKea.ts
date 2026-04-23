@@ -100,33 +100,40 @@ export function initKea({
         formsPlugin,
         loadersPlugin({
             onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
-                // Toast if it's a fetch error or a specific API update error
-                const isLoadAction = typeof actionKey === 'string' && /^(load|get|fetch)[A-Z]/.test(actionKey)
-                if (
-                    !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
-                    error?.status !== undefined &&
-                    ![200, 201, 204, 401, 409].includes(error.status) && // 401 is handled by api.ts and the userLogic, 409 is handled by approval workflow
-                    !(isLoadAction && error.status === 403) // 403 access denied is handled by sceneLogic gates
-                ) {
-                    let errorMessage = error.detail || error.statusText
-                    const isTwoFactorError =
-                        error.code === 'two_factor_setup_required' || error.code === 'two_factor_verification_required'
-                    const isSensitiveActionError = error.code === 'sensitive_action_required_reauth'
+                // Defer side effects so they run after the current dispatch settles —
+                // calling lemonToast.error / captureException synchronously can re-enter
+                // the kea/redux pipeline and trigger "store.getState() while the reducer
+                // is executing" (Redux error #3) from the beforeReduxStore hook.
+                queueMicrotask(() => {
+                    // Toast if it's a fetch error or a specific API update error
+                    const isLoadAction = typeof actionKey === 'string' && /^(load|get|fetch)[A-Z]/.test(actionKey)
+                    if (
+                        !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
+                        error?.status !== undefined &&
+                        ![200, 201, 204, 401, 409].includes(error.status) && // 401 is handled by api.ts and the userLogic, 409 is handled by approval workflow
+                        !(isLoadAction && error.status === 403) // 403 access denied is handled by sceneLogic gates
+                    ) {
+                        let errorMessage = error.detail || error.statusText
+                        const isTwoFactorError =
+                            error.code === 'two_factor_setup_required' ||
+                            error.code === 'two_factor_verification_required'
+                        const isSensitiveActionError = error.code === 'sensitive_action_required_reauth'
 
-                    if (!errorMessage && error.status === 404) {
-                        errorMessage = 'URL not found'
+                        if (!errorMessage && error.status === 404) {
+                            errorMessage = 'URL not found'
+                        }
+                        if (isTwoFactorError || isSensitiveActionError) {
+                            errorMessage = null
+                        }
+                        if (errorMessage) {
+                            lemonToast.error(`${identifierToHuman(actionKey)} failed: ${errorMessage}`)
+                        }
                     }
-                    if (isTwoFactorError || isSensitiveActionError) {
-                        errorMessage = null
+                    if (!errorsSilenced) {
+                        console.error({ error, reducerKey, actionKey })
                     }
-                    if (errorMessage) {
-                        lemonToast.error(`${identifierToHuman(actionKey)} failed: ${errorMessage}`)
-                    }
-                }
-                if (!errorsSilenced) {
-                    console.error({ error, reducerKey, actionKey })
-                }
-                posthog.captureException(error)
+                    posthog.captureException(error)
+                })
             },
         }),
         subscriptionsPlugin,
