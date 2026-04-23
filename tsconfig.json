@@ -45,8 +45,7 @@
         "allowUnusedLabels": false, // Raise errors on unused labels
         "experimentalDecorators": true, // Enables experimental support for ES decorators
         "noFallthroughCasesInSwitch": true, // Report errors for fallthrough cases in switch statement
-        "lib": ["dom", "es2023"],
-        "autoImportFileExcludePatterns": ["**/@base-ui/**"]
+        "lib": ["dom", "es2023"]
     },
     "include": [
         "frontend/**/*",
