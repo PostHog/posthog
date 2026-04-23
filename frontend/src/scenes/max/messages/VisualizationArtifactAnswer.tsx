@@ -145,21 +145,19 @@ export const VisualizationArtifactAnswer = React.memo(function VisualizationArti
                     {isEditingInsight && activeTabId && activeSceneId === Scene.Insight && (
                         <InsightSuggestionButton tabId={activeTabId} />
                     )}
-                    {!isEditingInsight && (
-                        <LemonButton
-                            to={
-                                isSavedInsight
-                                    ? urls.insightView(message.artifact_id as InsightShortId)
-                                    : urls.insightNew({
-                                          query: query as InsightVizNode | DataVisualizationNode,
-                                      })
-                            }
-                            targetBlank
-                            icon={<IconOpenInNew />}
-                            size="xsmall"
-                            tooltip={isSavedInsight ? 'Open insight' : 'Open as new insight'}
-                        />
-                    )}
+                    <LemonButton
+                        to={
+                            isSavedInsight
+                                ? urls.insightView(message.artifact_id as InsightShortId)
+                                : urls.insightNew({
+                                      query: query as InsightVizNode | DataVisualizationNode,
+                                  })
+                        }
+                        targetBlank
+                        icon={<IconOpenInNew />}
+                        size="xsmall"
+                        tooltip={isSavedInsight ? 'Open insight' : 'Open as new insight'}
+                    />
                     <LemonButton
                         icon={isCollapsed ? <IconEye /> : <IconHide />}
                         onClick={() => setIsCollapsed(!isCollapsed)}
