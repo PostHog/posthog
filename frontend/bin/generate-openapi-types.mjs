@@ -386,8 +386,8 @@ const entries = [...schemasByOutput.entries()]
 /**
  * Orval emits `export const fooDefault = null` + `.default(fooDefault)` for
  * serializer fields with `default=None`. Zod rejects `.default(null)` on typed
- * schemas (number, string, etc.). Replace those with `.nullish()` and drop the
- * dead const.
+ * schemas (number, string, etc.). Replace with `.nullish().default(null)` to
+ * preserve Django's default=None semantics (missing key → null, not undefined).
  */
 function fixNullDefaults(filePath) {
     let content = fs.readFileSync(filePath, 'utf-8')
@@ -403,7 +403,7 @@ function fixNullDefaults(filePath) {
     const namesPattern = [...nullConsts].map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
     const defaultRe = new RegExp('\\.default\\(\\s*(?:' + namesPattern + ')\\s*[,)]', 'g')
     const constRe = new RegExp('export const (?:' + namesPattern + ')\\s*=\\s*null\\s*;', 'g')
-    content = content.replace(defaultRe, '.nullish()')
+    content = content.replace(defaultRe, '.nullish().default(null)')
     content = content.replace(constRe, '')
 
     fs.writeFileSync(filePath, content)
@@ -500,8 +500,8 @@ function opaqueDeepSchemas(schema) {
             return cache.get(name)
         }
         if (seen.has(name)) {
-            return 1
-        } // cycle — treat as leaf
+            return Infinity
+        } // true cycle — will exceed any limit
         const defn = allSchemas[name]
         if (!defn) {
             return 1
@@ -602,7 +602,7 @@ const zodJobs = skipZod
               },
           }
           return {
-              tempFile: fetchJob.tempFile,
+              tempFile: zodTempFile,
               outputDir: fetchJob.outputDir,
               label: fetchJob.label,
               config,
