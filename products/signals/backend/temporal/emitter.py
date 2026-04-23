@@ -1,5 +1,4 @@
 import uuid
-from dataclasses import dataclass
 from datetime import timedelta
 
 import temporalio
@@ -7,13 +6,7 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 
 from products.signals.backend.temporal.buffer import SubmitSignalToBufferInput, submit_signal_to_buffer_activity
-from products.signals.backend.temporal.types import EmitSignalInputs
-
-
-@dataclass
-class SignalEmitterInput:
-    team_id: int
-    signal: EmitSignalInputs
+from products.signals.backend.temporal.types import SignalEmitterInput
 
 
 @temporalio.workflow.defn(name="signal-emitter")

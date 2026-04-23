@@ -100,6 +100,18 @@ class BufferSignalsInput:
 
 
 @dataclass
+class SignalEmitterInput:
+    """Inputs for the ephemeral per-signal emitter workflow.
+
+    Defined here (rather than in ``emitter.py``) so parent workflows can import
+    it without pulling Django-bound modules into the Temporal workflow sandbox.
+    """
+
+    team_id: int
+    signal: "EmitSignalInputs"
+
+
+@dataclass
 class TeamSignalGroupingV2Input:
     """Inputs for the v2 grouping workflow."""
 

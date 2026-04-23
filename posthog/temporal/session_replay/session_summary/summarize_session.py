@@ -57,6 +57,8 @@ from posthog.temporal.session_replay.session_summary.types.video import (
     collect_session_problems,
 )
 
+from products.signals.backend.temporal.emit_as_child import emit_signal_as_child
+
 from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_UNDERSTANDING_MODEL, SESSION_SUMMARIES_MODEL
 from ee.hogai.session_summaries.llm.consume import get_exception_event_ids_from_summary, get_llm_single_session_summary
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
@@ -646,8 +648,11 @@ async def ensure_llm_single_session_summary(
             retry_policy=retry_policy,
         )
 
-        # Activities 6a + 6b run in parallel when some segment would emit a problem signal;
-        # otherwise skip 6a entirely.
+        # Activity 6a (prepare problem signals) runs in parallel with 6b
+        # (store summary) when some segment would emit a problem signal;
+        # otherwise skip 6a entirely. 6a only *prepares* the signal inputs —
+        # the child emitter/buffer workflows are started below from workflow
+        # code so they're true children of summarize-session (ABANDON policy).
         _set_phase(progress, "saving_summary")
         problems = collect_session_problems(consolidated_analysis.segments)
         logger.info(
@@ -661,6 +666,7 @@ async def ensure_llm_single_session_summary(
             will_run_emit_activity=bool(problems),
             signals_type="session-summaries",
         )
+        prepared_signals: list = []
         if problems:
             emit_result, store_result = await asyncio.gather(
                 temporalio.workflow.execute_activity(
@@ -683,9 +689,11 @@ async def ensure_llm_single_session_summary(
                     distinct_id=inputs.user_distinct_id_to_log,
                 )
                 logger.exception(
-                    f"Error emitting session problem signals for session {inputs.session_id}: {emit_result}",
+                    f"Error preparing session problem signals for session {inputs.session_id}: {emit_result}",
                     signals_type="session-summaries",
                 )
+            else:
+                prepared_signals = emit_result or []
             if isinstance(store_result, BaseException):
                 raise store_result
         else:
@@ -703,6 +711,31 @@ async def ensure_llm_single_session_summary(
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=retry_policy,
             )
+
+        # Dispatch prepared signals as child workflows (ABANDON policy) so
+        # signal emission is visible under the parent summarize-session
+        # workflow and survives the parent closing.
+        if prepared_signals:
+            logger.info(
+                "starting signal emission child workflows",
+                team_id=inputs.team_id,
+                session_id=inputs.session_id,
+                workflow_id=trace_id,
+                signal_count=len(prepared_signals),
+                signals_type="session-summaries",
+            )
+            for signal_input in prepared_signals:
+                try:
+                    await emit_signal_as_child(signal_input)
+                except Exception as e:
+                    posthoganalytics.capture_exception(
+                        e,
+                        distinct_id=inputs.user_distinct_id_to_log,
+                    )
+                    logger.exception(
+                        f"Failed to start signal emission child workflow for session {inputs.session_id}: {e}",
+                        signals_type="session-summaries",
+                    )
 
         # Activity 7: Write tags and highlight flag to ClickHouse via Kafka
         _set_phase(progress, "tagging")

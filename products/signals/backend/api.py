@@ -16,8 +16,8 @@ from posthog.temporal.common.client import async_connect
 
 from products.signals.backend.models import SignalSourceConfig
 from products.signals.backend.temporal.buffer import BufferSignalsWorkflow
-from products.signals.backend.temporal.emitter import SignalEmitterInput, SignalEmitterWorkflow
-from products.signals.backend.temporal.types import BufferSignalsInput, EmitSignalInputs
+from products.signals.backend.temporal.emitter import SignalEmitterWorkflow
+from products.signals.backend.temporal.types import BufferSignalsInput, EmitSignalInputs, SignalEmitterInput
 
 MAX_SIGNAL_DESCRIPTION_TOKENS = 8000
 _tiktoken_encoding = tiktoken.get_encoding("cl100k_base")
@@ -48,7 +48,7 @@ for _variant_type in get_args(SignalInput.model_fields["root"].annotation):
             _SIGNAL_VARIANT_LOOKUP[(_product, _source_type)] = _variant_type
 
 
-async def emit_signal(
+async def prepare_signal_for_emission(
     team: Team,
     source_product: str,
     source_type: str,
@@ -56,43 +56,28 @@ async def emit_signal(
     description: str,
     weight: float = 0.5,
     extra: dict | None = None,
-) -> None:
+) -> EmitSignalInputs | None:
+    """Run gating + validation and return ready-to-emit signal inputs.
+
+    Returns ``None`` when the signal is silently gated (organisation not
+    AI-approved or signal source disabled for the team). Raises ``ValueError``
+    if the description exceeds the token limit and ``pydantic.ValidationError``
+    if the variant doesn't match the schema.
+
+    Splitting this out lets Temporal activities prepare signals (hitting the
+    database for gating and doing schema validation) while the actual
+    workflow-spawning happens elsewhere — either in ``emit_signal`` (client
+    side) or in ``emit_signal_as_child`` (from workflow code).
     """
-    Emit a signal for grouping and potential report generation, fire-and-forget.
-
-    Active path:
-        emit_signal() -> SignalEmitterWorkflow -> BufferSignalsWorkflow -> TeamSignalGroupingV2Workflow
-
-    Args:
-        team: The team object
-        source_product: Product emitting the signal (e.g., "experiments", "web_analytics")
-        source_type: Type of signal (e.g., "significance_reached", "traffic_anomaly")
-        source_id: Unique identifier within the source (e.g., experiment UUID)
-        description: Human-readable description that will be embedded
-        weight: Importance/confidence of signal (0.0-1.0). Weight of 1.0 triggers summary.
-        extra: Optional product-specific metadata
-
-    Example:
-        await emit_signal(
-            team=team,
-            source_product="github",
-            source_type="issue",
-            source_id="posthog/posthog#12345",
-            description="GitHub Issue #12345: Button doesn't work on Safari\nLabels: bug\n...",
-            weight=0.8,
-            extra={"html_url": "https://github.com/posthog/posthog/issues/12345", "number": 12345, ...},
-        )
-    """
-
     organization = await database_sync_to_async(lambda: team.organization)()
     if not organization.is_ai_data_processing_approved:
-        return
+        return None
 
     is_enabled = await database_sync_to_async(SignalSourceConfig.is_source_enabled, thread_sensitive=False)(
         team.id, source_product, source_type
     )
     if not is_enabled:
-        return
+        return None
 
     token_count = len(_tiktoken_encoding.encode(description))
     if token_count > MAX_SIGNAL_DESCRIPTION_TOKENS:
@@ -101,7 +86,6 @@ async def emit_signal(
             f"Truncate the description before calling emit_signal."
         )
 
-    # Validate the signal against the matching schema variant
     variant_model = _SIGNAL_VARIANT_LOOKUP.get((source_product, source_type))
     if variant_model is None:
         raise pydantic.ValidationError.from_exception_data(
@@ -126,9 +110,7 @@ async def emit_signal(
         }
     )
 
-    client = await async_connect()
-
-    signal_input = EmitSignalInputs(
+    return EmitSignalInputs(
         team_id=team.id,
         source_product=source_product,
         source_type=source_type,
@@ -137,6 +119,61 @@ async def emit_signal(
         weight=weight,
         extra=extra or {},
     )
+
+
+async def emit_signal(
+    team: Team,
+    source_product: str,
+    source_type: str,
+    source_id: str,
+    description: str,
+    weight: float = 0.5,
+    extra: dict | None = None,
+) -> None:
+    """
+    Emit a signal for grouping and potential report generation, fire-and-forget.
+
+    Active path:
+        emit_signal() -> SignalEmitterWorkflow -> BufferSignalsWorkflow -> TeamSignalGroupingV2Workflow
+
+    Use this from non-Temporal callers (Django views, activities that don't need
+    child-workflow semantics). From inside a Temporal **workflow**, prefer
+    ``prepare_signal_for_emission`` (in an activity) + ``emit_signal_as_child``
+    so the emitter/buffer workflows become true children of the parent workflow.
+
+    Args:
+        team: The team object
+        source_product: Product emitting the signal (e.g., "experiments", "web_analytics")
+        source_type: Type of signal (e.g., "significance_reached", "traffic_anomaly")
+        source_id: Unique identifier within the source (e.g., experiment UUID)
+        description: Human-readable description that will be embedded
+        weight: Importance/confidence of signal (0.0-1.0). Weight of 1.0 triggers summary.
+        extra: Optional product-specific metadata
+
+    Example:
+        await emit_signal(
+            team=team,
+            source_product="github",
+            source_type="issue",
+            source_id="posthog/posthog#12345",
+            description="GitHub Issue #12345: Button doesn't work on Safari\nLabels: bug\n...",
+            weight=0.8,
+            extra={"html_url": "https://github.com/posthog/posthog/issues/12345", "number": 12345, ...},
+        )
+    """
+    signal_input = await prepare_signal_for_emission(
+        team=team,
+        source_product=source_product,
+        source_type=source_type,
+        source_id=source_id,
+        description=description,
+        weight=weight,
+        extra=extra,
+    )
+    if signal_input is None:
+        return
+
+    client = await async_connect()
 
     # Ensure the buffer workflow is running (idempotent)
     try:
