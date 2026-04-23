@@ -702,6 +702,23 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     """
 
     scope_object = "external_data_source"
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "destroy",
+        "reload",
+        "refresh_schemas",
+        "database_schema",
+        "source_prefix",
+        "revenue_analytics_config",
+        "create_webhook",
+        "update_webhook_inputs",
+        "delete_webhook",
+        "check_cdc_prerequisites",
+    ]
+    scope_object_read_actions = ["list", "retrieve", "jobs", "wizard", "webhook_info", "connections"]
     queryset = ExternalDataSource.objects.all()
     serializer_class = ExternalDataSourceSerializers
     filter_backends = [filters.SearchFilter]
@@ -961,11 +978,18 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
             is_cdc_schema = sync_type == "cdc"
             if requires_incremental_fields and new_source_model.supports_scheduled_sync:
+                # If the caller didn't provide primary_key_columns, fall back to whatever the
+                # source detected during schema discovery. Otherwise we rely on sync-time
+                # re-detection, which can disagree with discovery (e.g. permissions differences
+                # across query paths) and leave incremental syncs without a primary key.
+                effective_primary_key_columns = primary_key_columns or (
+                    source_schema.detected_primary_keys if source_schema else None
+                )
                 sync_type_config = {
                     "incremental_field": incremental_field,
                     "incremental_field_type": incremental_field_type,
                     "schema_metadata": schema_metadata,
-                    **({"primary_key_columns": primary_key_columns} if primary_key_columns else {}),
+                    **({"primary_key_columns": effective_primary_key_columns} if effective_primary_key_columns else {}),
                 }
             elif is_cdc_schema:
                 cdc_table_mode = schema.get("cdc_table_mode", "consolidated")
@@ -1554,7 +1578,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         before = request.query_params.get("before", None)
         schemas = request.query_params.getlist("schemas")
 
-        jobs = instance.jobs.filter(billable=True).prefetch_related("schema").order_by("-created_at")
+        # select_related joins the full ExternalDataSchema row; defer its large JSON/text
+        # columns so the serializer only pulls the fields SimpleExternalDataSchemaSerializer
+        # actually reads (sync_type_config + latest_error can each be sizeable).
+        jobs = (
+            instance.jobs.filter(billable=True)
+            .select_related("schema")
+            .defer("schema__sync_type_config", "schema__latest_error")
+            .order_by("-created_at")
+        )
 
         if schemas:
             jobs = jobs.filter(schema__name__in=schemas)

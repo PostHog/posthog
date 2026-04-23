@@ -68,14 +68,6 @@ export type CdpConfig = {
     SES_SECRET_ACCESS_KEY: string
     SES_REGION: string
 
-    // Temporal (LLM analytics)
-    TEMPORAL_HOST: string
-    TEMPORAL_PORT: string | undefined
-    TEMPORAL_NAMESPACE: string
-    TEMPORAL_CLIENT_ROOT_CA: string | undefined
-    TEMPORAL_CLIENT_CERT: string | undefined
-    TEMPORAL_CLIENT_KEY: string | undefined
-
     // Destination migration diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
 
@@ -115,8 +107,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_WATCHER_SEND_EVENTS: isProdEnv() ? false : true,
         CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS: 500,
         CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS: 500,
-        CDP_RATE_LIMITER_BUCKET_SIZE: 100,
-        CDP_RATE_LIMITER_REFILL_RATE: 1,
+        CDP_RATE_LIMITER_BUCKET_SIZE: 1_000,
+        CDP_RATE_LIMITER_REFILL_RATE: 10,
         CDP_RATE_LIMITER_TTL: 60 * 60 * 24,
         CDP_HOG_FILTERS_TELEMETRY_TEAMS: '',
         DISABLE_OPENTELEMETRY_TRACING: false,
@@ -168,14 +160,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         SES_ACCESS_KEY_ID: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_SECRET_ACCESS_KEY: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_REGION: isTestEnv() || isDevEnv() ? 'us-east-1' : '',
-
-        // Temporal
-        TEMPORAL_HOST: 'localhost',
-        TEMPORAL_PORT: '7233',
-        TEMPORAL_NAMESPACE: 'default',
-        TEMPORAL_CLIENT_ROOT_CA: undefined,
-        TEMPORAL_CLIENT_CERT: undefined,
-        TEMPORAL_CLIENT_KEY: undefined,
 
         // Destination migration diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,

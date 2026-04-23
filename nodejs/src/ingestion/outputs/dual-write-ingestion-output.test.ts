@@ -1,6 +1,12 @@
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { DualWriteIngestionOutput, keyHashBucket, shouldRouteToSecondary } from './dual-write-ingestion-output'
+import {
+    DualWriteIngestionOutput,
+    keyHashBucket,
+    shouldRouteToSecondary,
+    shouldRouteToSecondaryByTeam,
+} from './dual-write-ingestion-output'
 import { SingleIngestionOutput } from './single-ingestion-output'
+import { DualWriteMode } from './types'
 
 describe('DualWriteIngestionOutput', () => {
     function createMockProducer(): KafkaProducerWrapper {
@@ -12,12 +18,16 @@ describe('DualWriteIngestionOutput', () => {
         } as unknown as KafkaProducerWrapper
     }
 
-    function createOutputs(mode: 'copy' | 'move', percentage: number) {
+    function createOutputs(
+        mode: Exclude<DualWriteMode, 'off'>,
+        percentage: number,
+        teamDenylist: ReadonlySet<number> = new Set()
+    ) {
         const primaryProducer = createMockProducer()
         const secondaryProducer = createMockProducer()
         const primary = new SingleIngestionOutput('test', 'primary_topic', primaryProducer, 'PRIMARY')
         const secondary = new SingleIngestionOutput('test', 'secondary_topic', secondaryProducer, 'SECONDARY')
-        const output = new DualWriteIngestionOutput(primary, secondary, mode, percentage)
+        const output = new DualWriteIngestionOutput(primary, secondary, mode, percentage, teamDenylist)
         return { output, primaryProducer, secondaryProducer }
     }
 
@@ -188,6 +198,132 @@ describe('DualWriteIngestionOutput', () => {
         })
     })
 
+    describe('move_team_denylist mode', () => {
+        it('routes to primary when teamId is in the denylist', async () => {
+            const { output, primaryProducer, secondaryProducer } = createOutputs(
+                'move_team_denylist',
+                0,
+                new Set([42, 99])
+            )
+
+            await output.produce({ key: Buffer.from('k'), value: Buffer.from('v'), teamId: 42 })
+
+            expect(primaryProducer.produce).toHaveBeenCalledTimes(1)
+            expect(secondaryProducer.produce).not.toHaveBeenCalled()
+        })
+
+        it('routes to secondary when teamId is not in the denylist', async () => {
+            const { output, primaryProducer, secondaryProducer } = createOutputs('move_team_denylist', 0, new Set([42]))
+
+            await output.produce({ key: Buffer.from('k'), value: Buffer.from('v'), teamId: 7 })
+
+            expect(primaryProducer.produce).not.toHaveBeenCalled()
+            expect(secondaryProducer.produce).toHaveBeenCalledTimes(1)
+        })
+
+        it('routes to primary when teamId is missing', async () => {
+            const { output, primaryProducer, secondaryProducer } = createOutputs('move_team_denylist', 0, new Set([42]))
+
+            await output.produce({ key: Buffer.from('k'), value: Buffer.from('v') })
+
+            expect(primaryProducer.produce).toHaveBeenCalledTimes(1)
+            expect(secondaryProducer.produce).not.toHaveBeenCalled()
+        })
+
+        it('queueMessages splits messages between primary and secondary by denylist', async () => {
+            const { output, primaryProducer, secondaryProducer } = createOutputs('move_team_denylist', 0, new Set([42]))
+            const denied = { key: Buffer.from('a'), value: Buffer.from('denied'), teamId: 42 }
+            const allowed = { key: Buffer.from('b'), value: Buffer.from('allowed'), teamId: 7 }
+            const missing = { key: Buffer.from('c'), value: Buffer.from('no-team') }
+
+            await output.queueMessages([denied, allowed, missing])
+
+            expect(primaryProducer.queueMessages).toHaveBeenCalledWith({
+                topic: 'primary_topic',
+                messages: [denied, missing],
+            })
+            expect(secondaryProducer.queueMessages).toHaveBeenCalledWith({
+                topic: 'secondary_topic',
+                messages: [allowed],
+            })
+        })
+
+        it('ignores percentage when in denylist mode', async () => {
+            // percentage=100 would normally route everything to secondary, but denylist mode overrides
+            const { output, primaryProducer, secondaryProducer } = createOutputs(
+                'move_team_denylist',
+                100,
+                new Set([42])
+            )
+
+            await output.produce({ key: Buffer.from('k'), value: Buffer.from('v'), teamId: 42 })
+
+            expect(primaryProducer.produce).toHaveBeenCalledTimes(1)
+            expect(secondaryProducer.produce).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('copy_team_denylist mode', () => {
+        it('routes to primary only when teamId is in the denylist', async () => {
+            const { output, primaryProducer, secondaryProducer } = createOutputs('copy_team_denylist', 0, new Set([42]))
+
+            await output.produce({ key: Buffer.from('k'), value: Buffer.from('v'), teamId: 42 })
+
+            expect(primaryProducer.produce).toHaveBeenCalledTimes(1)
+            expect(secondaryProducer.produce).not.toHaveBeenCalled()
+        })
+
+        it('routes to both when teamId is not in the denylist', async () => {
+            const { output, primaryProducer, secondaryProducer } = createOutputs('copy_team_denylist', 0, new Set([42]))
+
+            await output.produce({ key: Buffer.from('k'), value: Buffer.from('v'), teamId: 7 })
+
+            expect(primaryProducer.produce).toHaveBeenCalledTimes(1)
+            expect(secondaryProducer.produce).toHaveBeenCalledTimes(1)
+        })
+
+        it('routes to primary only when teamId is missing', async () => {
+            const { output, primaryProducer, secondaryProducer } = createOutputs('copy_team_denylist', 0, new Set([42]))
+
+            await output.produce({ key: Buffer.from('k'), value: Buffer.from('v') })
+
+            expect(primaryProducer.produce).toHaveBeenCalledTimes(1)
+            expect(secondaryProducer.produce).not.toHaveBeenCalled()
+        })
+
+        it('queueMessages always sends to primary and only non-denied to secondary', async () => {
+            const { output, primaryProducer, secondaryProducer } = createOutputs('copy_team_denylist', 0, new Set([42]))
+            const denied = { key: Buffer.from('a'), value: Buffer.from('denied'), teamId: 42 }
+            const allowed = { key: Buffer.from('b'), value: Buffer.from('allowed'), teamId: 7 }
+
+            await output.queueMessages([denied, allowed])
+
+            expect(primaryProducer.queueMessages).toHaveBeenCalledWith({
+                topic: 'primary_topic',
+                messages: [denied, allowed],
+            })
+            expect(secondaryProducer.queueMessages).toHaveBeenCalledWith({
+                topic: 'secondary_topic',
+                messages: [allowed],
+            })
+        })
+
+        it('queueMessages skips secondary when every message is denied', async () => {
+            const { output, primaryProducer, secondaryProducer } = createOutputs(
+                'copy_team_denylist',
+                0,
+                new Set([42, 99])
+            )
+            const msg1 = { key: Buffer.from('a'), value: Buffer.from('1'), teamId: 42 }
+            const msg2 = { key: Buffer.from('b'), value: Buffer.from('2'), teamId: 99 }
+
+            await output.queueMessages([msg1, msg2])
+
+            expect(primaryProducer.queueMessages).toHaveBeenCalledTimes(1)
+            expect(secondaryProducer.queueMessages).not.toHaveBeenCalled()
+        })
+    })
+
     describe('health checks', () => {
         it('checks both primary and secondary producers', async () => {
             const { output, primaryProducer, secondaryProducer } = createOutputs('copy', 100)
@@ -255,6 +391,25 @@ describe('shouldRouteToSecondary', () => {
     it('works with string keys', () => {
         // key-a as string should behave the same as key-a as Buffer
         expect(shouldRouteToSecondary('key-a', 50)).toBe(shouldRouteToSecondary(Buffer.from('key-a'), 50))
+    })
+})
+
+describe('shouldRouteToSecondaryByTeam', () => {
+    it('returns false when teamId is in the denylist', () => {
+        expect(shouldRouteToSecondaryByTeam(42, new Set([42, 99]))).toBe(false)
+    })
+
+    it('returns true when teamId is not in the denylist', () => {
+        expect(shouldRouteToSecondaryByTeam(7, new Set([42]))).toBe(true)
+    })
+
+    it('returns false when teamId is undefined', () => {
+        expect(shouldRouteToSecondaryByTeam(undefined, new Set([42]))).toBe(false)
+    })
+
+    it('routes every team to secondary when denylist is empty', () => {
+        expect(shouldRouteToSecondaryByTeam(42, new Set())).toBe(true)
+        expect(shouldRouteToSecondaryByTeam(7, new Set())).toBe(true)
     })
 
     // FNV-1a hash values for known keys (verified empirically):

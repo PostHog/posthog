@@ -5,11 +5,11 @@ from unittest.mock import patch
 from django.test import override_settings
 
 from ee.api.agentic_provisioning.signature import compute_signature
-from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
 
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
-class TestProvisioningHealth(StripeProvisioningTestBase):
+class TestProvisioningHealth(ProvisioningTestBase):
     def test_valid_request(self):
         res = self._get_signed("/api/agentic/provisioning/health")
         assert res.status_code == 200

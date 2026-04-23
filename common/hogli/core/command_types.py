@@ -301,9 +301,8 @@ class DirectCommand(Command):
     def execute(self, *args: str) -> None:
         """Execute the shell command with any passed arguments."""
         cmd_str = self.config.get("cmd", "")
-        # Use shell=True if command contains shell operators or is multiline
-        has_operators = any(op in cmd_str for op in [" && ", " || ", "|", "\n"])
-        if has_operators:
+        needs_shell = any(op in cmd_str for op in [" && ", " || ", "|", "\n", "$"])
+        if needs_shell:
             # For shell commands, pass args as positional parameters using sh -c
             if args:
                 # Pass args as positional parameters: _ is placeholder for $0, then actual args as $1, $2, etc.

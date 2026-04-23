@@ -1162,6 +1162,11 @@ export type ErrorTrackingSymbolSetsListParams = {
     offset?: number
 }
 
+/**
+ * Unspecified response body
+ */
+export type ErrorTrackingSymbolSetsDownloadRetrieve200 = { [key: string]: unknown }
+
 export type ErrorTrackingReleasesList2Params = {
     /**
      * Number of results to return per page.
@@ -1183,3 +1188,8 @@ export type ErrorTrackingSymbolSetsList2Params = {
      */
     offset?: number
 }
+
+/**
+ * Unspecified response body
+ */
+export type ErrorTrackingSymbolSetsDownloadRetrieve2200 = { [key: string]: unknown }

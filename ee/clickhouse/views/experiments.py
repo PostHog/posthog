@@ -137,9 +137,10 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         required=False,
         allow_null=True,
         help_text=(
-            "Variant definitions and statistical configuration. "
+            "Variant definitions and rollout configuration. "
             "Set feature_flag_variants to customize the split (default: 50/50 control/test). "
             "Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. "
+            "Set rollout_percentage (0-100, default 100) to limit what fraction of users enter the experiment. "
             "Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power."
         ),
     )
@@ -354,7 +355,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         secondary_metrics_ordered_uuids = validated_data.pop("secondary_metrics_ordered_uuids", None)
         filters = validated_data.pop("filters", None)
         scheduling_config = validated_data.pop("scheduling_config", None)
-        only_count_matured_users = validated_data.pop("only_count_matured_users", False)
+        only_count_matured_users = validated_data.pop("only_count_matured_users", None)
         archived = validated_data.pop("archived", False)
         deleted = validated_data.pop("deleted", False)
         conclusion = validated_data.pop("conclusion", None)
