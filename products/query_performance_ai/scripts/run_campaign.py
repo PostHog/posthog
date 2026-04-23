@@ -293,9 +293,12 @@ def run_pi_campaign(workspace: Path) -> None:
 
     anthropic_base = os.environ.get("ANTHROPIC_BASE_URL", "<unset>")
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY") or ""
-    anthropic_key_prefix = anthropic_key[:10] or "<unset>"
+    # Log only a boolean presence marker — CodeQL flags even a short prefix
+    # of an API key as clear-text credential logging, and the presence bit
+    # is enough to diagnose env inheritance failures.
+    anthropic_key_state = "set" if anthropic_key else "<unset>"
     log(f"pi env: ANTHROPIC_BASE_URL={anthropic_base}")
-    log(f"pi env: ANTHROPIC_API_KEY={anthropic_key_prefix}...")
+    log(f"pi env: ANTHROPIC_API_KEY={anthropic_key_state}")
 
     # Preflight the gateway's Anthropic-compat endpoint with the exact same
     # headers pi's Anthropic SDK will use. Three-way diagnostic:

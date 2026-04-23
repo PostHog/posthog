@@ -108,10 +108,15 @@ def _run_autoresearch_query(sql: str) -> Response:
         with tags_context(product=Product.INTERNAL, feature=Feature.QUERY):
             rows = sync_execute(sql, settings=_QUERY_SETTINGS, sync_client=client, readonly=True, flush=False)
     except InternalCHQueryError as e:
+        # Log the full exception (stack trace + message) server-side so
+        # operators can debug. The response only carries the ClickHouse
+        # error code — CodeQL flags returning the exception text as
+        # information exposure, and the agent can look up what a given
+        # code means without needing the raw message echoed back.
+        logger.exception("query_performance_proxy: clickhouse query failed")
         return Response(
             {
                 "error": "clickhouse query failed",
-                "detail": _sanitize_ch_error_message(str(e)),
                 "code": getattr(e, "code", None),
             },
             status=status.HTTP_502_BAD_GATEWAY,
@@ -136,16 +141,3 @@ def _run_autoresearch_query(sql: str) -> Response:
     )
 
 
-_STACK_TRACE_MARKER = "Stack trace"
-_MAX_ERROR_DETAIL = 500
-
-
-def _sanitize_ch_error_message(message: str) -> str:
-    """Strip the C++ stack trace ClickHouse appends to exception messages.
-
-    Server-side we keep the full thing via ``logger.exception``; callers get
-    just the first line(s) up to the stack-trace marker, bounded to avoid
-    returning arbitrary-length payloads.
-    """
-    truncated = message.split(_STACK_TRACE_MARKER, 1)[0].rstrip()
-    return truncated[:_MAX_ERROR_DETAIL]

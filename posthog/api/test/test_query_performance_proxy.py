@@ -135,8 +135,8 @@ class TestQueryPerformanceProxyViewSet(APIBaseTest):
         # INSERT / ALTER / DROP / etc. are not filtered by the proxy; the
         # ClickHouse user runs with `readonly = 2` and will reject writes.
         # We assert the server's rejection arrives back to the caller as a
-        # 502 with the upstream detail intact, proving the proxy stays out
-        # of the way and enforcement is server-side.
+        # 502 carrying the CH error code (not the upstream message — that
+        # would be an exception-data-exposure path flagged by CodeQL).
         token = self._make_token(["clickhouse_perf:test_read"])
 
         for write_sql in ("INSERT INTO t VALUES (1)", "ALTER TABLE t DELETE WHERE 1 = 1", "DROP TABLE t"):
@@ -152,18 +152,18 @@ class TestQueryPerformanceProxyViewSet(APIBaseTest):
 
             # The write was forwarded (not filtered at Django).
             assert mocked.call_count == 1, f"{write_sql!r} was not forwarded"
-            # The CH error surfaces as 502 with upstream detail + code.
             payload = resp.json()
             assert resp.status_code == 502, f"{write_sql!r} did not 502 ({resp.status_code})"
-            assert "readonly" in payload["detail"]
             assert payload["code"] == 164
+            # Upstream message must not be echoed to the caller.
+            assert "detail" not in payload
+            assert "readonly" not in str(payload)
 
-    def test_clickhouse_error_detail_strips_stack_trace(self):
-        # ClickHouse exception messages embed a C++ stack trace after a
-        # marker. That's log-worthy server-side but a data-exfil risk if we
-        # echo it to the caller — CodeQL flagged this. The sanitizer keeps
-        # the first line (so agents can debug syntax errors) and drops the
-        # rest.
+    def test_clickhouse_query_error_does_not_leak_exception_text(self):
+        # ClickHouse exception messages embed a C++ stack trace and can carry
+        # data-shaped details. CodeQL flagged returning any of this text as
+        # information exposure, so the response only carries the CH error
+        # code — the full exception is logged server-side for operators.
         token = self._make_token(["clickhouse_perf:test_read"])
         msg = (
             "Code: 62. DB::Exception: Syntax error near 'FROOM'.\n"
@@ -183,9 +183,10 @@ class TestQueryPerformanceProxyViewSet(APIBaseTest):
 
         payload = resp.json()
         assert resp.status_code == 502
-        assert "Syntax error near 'FROOM'" in payload["detail"]
-        assert "Stack trace" not in payload["detail"]
-        assert "0xdeadbeef" not in payload["detail"]
+        assert payload == {"error": "clickhouse query failed", "code": 62}
+        assert "FROOM" not in str(payload)
+        assert "Stack trace" not in str(payload)
+        assert "0xdeadbeef" not in str(payload)
 
     def test_clickhouse_connection_failure_does_not_leak_exception_detail(self):
         # A raw ConnectionRefusedError (or DNS / TLS failure) can embed
