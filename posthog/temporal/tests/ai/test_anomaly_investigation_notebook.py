@@ -1,14 +1,13 @@
 from posthog.test.base import BaseTest
 
+from posthog.models import Insight
+from posthog.models.alert import AlertCheck, AlertConfiguration
 from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_notebook
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationHypothesis, InvestigationReport
 
 
 class TestAnomalyInvestigationNotebook(BaseTest):
     def _make_context(self, report: InvestigationReport) -> NotebookRenderContext:
-        from posthog.models import Insight
-        from posthog.models.alert import AlertCheck, AlertConfiguration
-
         insight = Insight.objects.create(team=self.team, name="pageviews/day")
         alert = AlertConfiguration.objects.create(
             team=self.team,

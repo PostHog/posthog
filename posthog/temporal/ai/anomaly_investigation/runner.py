@@ -38,6 +38,9 @@ logger = logging.getLogger(__name__)
 MAX_TOOL_CALLS = 10
 AGENT_MODEL = "claude-sonnet-4-5"
 MAX_TOOL_RESULT_CHARS = 12_000  # ~3K tokens per call — keeps 10 calls well under the context limit.
+# Per-request cap. The surrounding Temporal activity has its own (longer) deadline;
+# this guards against a single stuck HTTP call hanging for the whole activity budget.
+LLM_REQUEST_TIMEOUT_SECONDS = 90.0
 
 
 ToolHandler = Callable[[dict[str, Any]], Awaitable[str]]
@@ -122,6 +125,7 @@ async def run_investigation(
         inject_context=True,
         max_retries=2,
         temperature=0,
+        default_request_timeout=LLM_REQUEST_TIMEOUT_SECONDS,
     )
     llm_with_tools = llm.bind_tools(
         [
@@ -158,11 +162,30 @@ async def run_investigation(
             )
             if heartbeat is not None:
                 heartbeat()
-            final = await llm.ainvoke(messages)
+            try:
+                final = await llm.ainvoke(messages)
+            except Exception as err:
+                # Swallow final-turn failures and return an inconclusive report rather than
+                # bouncing off Temporal retries — MaxChatAnthropic already exhausted its
+                # built-in retry budget, so another activity attempt is unlikely to help.
+                logger.warning("anomaly_investigation.llm_finalize_error", extra={"error": str(err)})
+                return InvestigationRunResult(
+                    report=_fallback_report(f"LLM finalize call failed: {err}"),
+                    tool_calls_used=tool_calls_used,
+                    model=AGENT_MODEL,
+                )
             messages.append(final)
             break
 
-        response = await llm_with_tools.ainvoke(messages)
+        try:
+            response = await llm_with_tools.ainvoke(messages)
+        except Exception as err:
+            logger.warning("anomaly_investigation.llm_invoke_error", extra={"error": str(err)})
+            return InvestigationRunResult(
+                report=_fallback_report(f"LLM tool-calling loop failed: {err}"),
+                tool_calls_used=tool_calls_used,
+                model=AGENT_MODEL,
+            )
         messages.append(response)
 
         tool_calls = getattr(response, "tool_calls", None) or []

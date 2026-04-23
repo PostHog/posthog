@@ -33,6 +33,16 @@ _DATE_HELP = (
     "('2024-04-01', '2024-04-01 12:00:00') also work."
 )
 
+_RELATIVE_DATE = re.compile(r"^-(\d+)([smhdw])$")
+_DATE_UNIT_TO_DELTA = {
+    "s": lambda n: timedelta(seconds=n),
+    "m": lambda n: timedelta(minutes=n),
+    "h": lambda n: timedelta(hours=n),
+    "d": lambda n: timedelta(days=n),
+    "w": lambda n: timedelta(weeks=n),
+}
+_DATE_ONLY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
 
 class RunHogQLQueryArgs(BaseModel):
     query: str = Field(description="A HogQL SELECT statement. Results are limited to a few dozen rows.")
@@ -220,19 +230,6 @@ def _escape_literal(value: str) -> str:
     # like \' doesn't survive as an escape sequence in HogQL's ANTLR lexer.
     escaped = value.replace("\\", "\\\\").replace("'", "''")
     return f"'{escaped}'"
-
-
-_RELATIVE_DATE = re.compile(r"^-(\d+)([smhdw])$")
-_DATE_UNIT_TO_DELTA = {
-    "s": lambda n: timedelta(seconds=n),
-    "m": lambda n: timedelta(minutes=n),
-    "h": lambda n: timedelta(hours=n),
-    "d": lambda n: timedelta(days=n),
-    "w": lambda n: timedelta(weeks=n),
-}
-
-
-_DATE_ONLY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 def _resolve_date(value: str) -> str:
