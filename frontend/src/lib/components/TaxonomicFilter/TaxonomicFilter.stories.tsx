@@ -23,7 +23,9 @@ const meta: Meta<TaxonomicFilterProps> = {
     component: TaxonomicFilter,
     decorators: [taxonomicFilterMocksDecorator],
     parameters: {
-        testOptions: { waitForSelector: '.definition-popover' },
+        // The popover is gated on useDelayedOnMountEffect (500ms) -> setIndex -> definitionPopoverLogic fetch -> mount.
+        // Under CI load this chain can exceed the default 10s waitForSelector timeout, so we allow more time.
+        testOptions: { waitForSelector: '.definition-popover', waitForSelectorTimeout: 30000 },
         docs: {
             description: {
                 component:
