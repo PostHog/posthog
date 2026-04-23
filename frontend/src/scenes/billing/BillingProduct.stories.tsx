@@ -292,6 +292,22 @@ export const BillingProductTemporarilyFree: Story = {
     },
 }
 
+export const BillingProductInclusionOnlyWithAddon: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/billing/': {
+                    ...billingJson,
+                },
+            },
+        })
+
+        const product = billingJson.products.find((product) => product.type === 'platform_and_support')
+
+        return <BillingProduct product={product as BillingProductV2Type} />
+    },
+}
+
 const renderPlatformAddonsStory = (scenario: Parameters<typeof makeBillingWithPlatformAddons>[1]): JSX.Element => {
     const billing = makeBillingWithPlatformAddons(billingJson, scenario)
     useStorybookMocks({
