@@ -889,9 +889,9 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
         required=False,
         default=None,
         help_text=(
-            "Initial permission mode for the agent session. Claude runtimes accept PostHog permission "
-            "presets like 'plan'. Codex runtimes accept native Codex modes like 'auto' and "
-            "'read-only'."
+            "Initial permission mode for the agent session. Claude runtimes accept "
+            "'default', 'acceptEdits', 'plan', 'bypassPermissions', and 'auto'. "
+            "Codex runtimes accept 'auto', 'read-only', and 'full-access'."
         ),
     )
 
