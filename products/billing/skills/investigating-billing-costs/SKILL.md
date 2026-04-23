@@ -117,22 +117,36 @@ maps to the ID.
 ### Step 5. Drill into specific events (events usage only)
 
 If the standout product is Events (product analytics), call `posthog:execute-sql` to find
-the top contributing event names for the suspect project and time window. A useful
-pattern:
+the top contributing event names for the suspect project and time window.
+
+**Before writing the query, read `references/billing-nuances.md` §"Events excluded from
+the billable events product"** and exclude those events from the query. Otherwise the
+top-N will be dominated by events that are billed under other products (flag calls,
+survey events, AI traces, exceptions) — and the recommendations that follow will be
+wrong (e.g. "disable `$feature_flag_called` capture" does not reduce the events bill).
+
+Canonical billable-events drill-down:
 
 ```sql
 SELECT event, count() AS c
 FROM events
-WHERE team_id = {team_id} AND timestamp >= {window_start} AND timestamp < {window_end}
+WHERE team_id = {team_id}
+  AND timestamp >= {window_start} AND timestamp < {window_end}
+  AND event NOT IN (
+    '$feature_flag_called', '$exception',
+    'survey sent', 'survey shown', 'survey dismissed',
+    '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric',
+    '$ai_feedback', '$ai_evaluation',
+    '$ai_trace_summary', '$ai_generation_summary',
+    '$ai_trace_clusters', '$ai_generation_clusters'
+  )
 GROUP BY event
 ORDER BY c DESC
 LIMIT 20
 ```
 
-Events prefixed with `$` are PostHog built-in events (e.g. `$pageview`, `$autocapture`).
-High `$autocapture` or `$pageview` counts are common cost drivers. See
-`references/billing-nuances.md` for why some `$`-prefixed events are billed in other
-products.
+Among remaining events, `$autocapture` and `$pageview`/`$pageleave` are the most common
+cost drivers on a typical account.
 
 For non-events products (recordings, feature flag requests, etc.), the `execute-sql`
 drill-down is less useful. Skip to step 6.

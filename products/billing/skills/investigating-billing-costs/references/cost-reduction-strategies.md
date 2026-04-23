@@ -101,9 +101,21 @@ General sources docs: https://posthog.com/docs/cdp/sources
 
 ## General considerations
 
-1. **Special events**. Some `$`-prefixed events are NOT billed in product analytics but in
-   their respective products: `$feature_flag_called` (feature flags), `$exception`
-   (error tracking), `$survey_*` events (surveys).
+1. **Special events**. Several events are excluded from the billable events product and
+   billed in their own product instead:
+   - `$feature_flag_called` → `feature_flag_requests`
+   - `$exception` → error tracking
+   - `survey sent`, `survey shown`, `survey dismissed` → surveys (note: no `$` prefix,
+     spaces in the name)
+   - `$ai_generation`, `$ai_embedding`, `$ai_span`, `$ai_trace`, `$ai_metric`,
+     `$ai_feedback`, `$ai_evaluation`, `$ai_trace_summary`, `$ai_generation_summary`,
+     `$ai_trace_clusters`, `$ai_generation_clusters` → `llm_analytics` / `ai_credits`
+
+   Do not recommend disabling any of these as an events-product cost reduction lever —
+   they already don't count toward that product. See
+   `references/billing-nuances.md` and `posthog/tasks/usage_report.py` for the source
+   of truth.
+
 2. **Billing limits**. Custom spending limits per product prevent unexpected costs.
 3. **Quota limiting timing**. After increasing or removing spending limits, it can take
    15-30 minutes for the limit to reset. The quota-limiting job runs every 15 minutes.
