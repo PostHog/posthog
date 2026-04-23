@@ -31,9 +31,7 @@ def _mock_response(status_code: int = 200, json_payload: dict | None = None) -> 
 
     def _raise_for_status():
         if not response.ok:
-            import requests
-
-            raise requests.HTTPError(f"{status_code} Client Error")
+            raise Exception(f"{status_code} Client Error")
 
     response.raise_for_status.side_effect = _raise_for_status
     return response
@@ -112,7 +110,7 @@ class TestEmailsPagination:
         assert sum(t.num_rows for t in tables) == 4
         assert mock_get.call_count == 2
 
-        second_call_params = mock_get.call_args_list[1].kwargs.get("params")
+        second_call_params = mock_get.call_args_list[1].kwargs["params"]
         assert second_call_params["after"] == "e1"
 
         manager.save_state.assert_called_once()
@@ -128,7 +126,7 @@ class TestEmailsPagination:
 
         list(get_rows("re_test", "emails", logger, manager))
 
-        first_call_params = mock_get.call_args_list[0].kwargs.get("params")
+        first_call_params = mock_get.call_args_list[0].kwargs["params"]
         assert first_call_params["after"] == "e41"
 
     @patch("posthog.temporal.data_imports.sources.resend.resend.requests.get")
