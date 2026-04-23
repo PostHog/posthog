@@ -14028,6 +14028,11 @@ export namespace Schemas {
        * @nullable
        */
       sync_frequency?: string | null;
+      /**
+       * UUID of the underlying saved query backing this materialization. Only populated when the version is materialized.
+       * @nullable
+       */
+      saved_query_id?: string | null;
     }
 
     export type EndpointRefreshMode = typeof EndpointRefreshMode[keyof typeof EndpointRefreshMode];
@@ -14153,6 +14158,11 @@ export namespace Schemas {
       is_materialized: boolean;
       /** Latest version number. */
       current_version: number;
+      /**
+       * UUID of the current EndpointVersion row.
+       * @nullable
+       */
+      current_version_id?: string | null;
       /** Total number of versions for this endpoint. */
       versions_count: number;
       /**
@@ -14299,6 +14309,11 @@ export namespace Schemas {
       is_materialized: boolean;
       /** Latest version number. */
       current_version: number;
+      /**
+       * UUID of the current EndpointVersion row.
+       * @nullable
+       */
+      current_version_id?: string | null;
       /** Total number of versions for this endpoint. */
       versions_count: number;
       /**
