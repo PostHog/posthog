@@ -546,11 +546,10 @@ export interface PatchedExternalDataSchemaApi {
  * `BuildBetter` - BuildBetter
  * `Convex` - Convex
  * `ClickHouse` - ClickHouse
- * `Plain` - Plain
  */
-export type SourceTypeEe8EnumApi = (typeof SourceTypeEe8EnumApi)[keyof typeof SourceTypeEe8EnumApi]
+export type SourceTypeF0aEnumApi = (typeof SourceTypeF0aEnumApi)[keyof typeof SourceTypeF0aEnumApi]
 
-export const SourceTypeEe8EnumApi = {
+export const SourceTypeF0aEnumApi = {
     Ashby: 'Ashby',
     Supabase: 'Supabase',
     CustomerIO: 'CustomerIO',
@@ -693,7 +692,6 @@ export const SourceTypeEe8EnumApi = {
     BuildBetter: 'BuildBetter',
     Convex: 'Convex',
     ClickHouse: 'ClickHouse',
-    Plain: 'Plain',
 } as const
 
 /**
@@ -736,7 +734,7 @@ export interface ExternalDataSourceSerializersApi {
     readonly status: string
     client_secret: string
     account_id: string
-    readonly source_type: SourceTypeEe8EnumApi
+    readonly source_type: SourceTypeF0aEnumApi
     /** @nullable */
     readonly latest_error: string | null
     /**
@@ -926,9 +924,8 @@ export interface ExternalDataSourceCreateApi {
 * `Granola` - Granola
 * `BuildBetter` - BuildBetter
 * `Convex` - Convex
-* `ClickHouse` - ClickHouse
-* `Plain` - Plain */
-    source_type: SourceTypeEe8EnumApi
+* `ClickHouse` - ClickHouse */
+    source_type: SourceTypeF0aEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
     payload: ExternalDataSourceCreateApiPayload
     /**
@@ -963,7 +960,7 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly status?: string
     client_secret?: string
     account_id?: string
-    readonly source_type?: SourceTypeEe8EnumApi
+    readonly source_type?: SourceTypeF0aEnumApi
     /** @nullable */
     readonly latest_error?: string | null
     /**
@@ -1062,11 +1059,12 @@ export interface PaginatedExternalDataSourceConnectionOptionListApi {
 }
 
 /**
- * Validate credentials and preview available tables from a remote database.
+ * Connection credentials. Keys depend on source_type. Use external-data-sources-wizard to see required fields.
+ */
+export type DatabaseSchemaRequestApiPayload = { [key: string]: unknown }
 
-The request body contains source_type plus flat source-specific credential fields
-(e.g. host, port, database, user, password, schema for Postgres). The credential
-fields vary per source_type and are validated dynamically by the source registry.
+/**
+ * Validate credentials and preview available tables from a remote database.
  */
 export interface DatabaseSchemaRequestApi {
     /** The source type to validate against.
@@ -1212,103 +1210,15 @@ export interface DatabaseSchemaRequestApi {
 * `Granola` - Granola
 * `BuildBetter` - BuildBetter
 * `Convex` - Convex
-* `ClickHouse` - ClickHouse
-* `Plain` - Plain */
-    source_type: SourceTypeEe8EnumApi
-}
+* `ClickHouse` - ClickHouse */
+    source_type: SourceTypeF0aEnumApi
+    /** Connection credentials. Keys depend on source_type. Use external-data-sources-wizard to see required fields. */
+    payload: DatabaseSchemaRequestApiPayload
+    /** Connection mode: 'warehouse' (import) or 'direct' (live query).
 
-/**
- * * `String` - String
- * `Number` - Number
- * `Boolean` - Boolean
- * `List` - List
- * `Date` - Date
- */
-export type InsightVariableTypeEnumApi = (typeof InsightVariableTypeEnumApi)[keyof typeof InsightVariableTypeEnumApi]
-
-export const InsightVariableTypeEnumApi = {
-    String: 'String',
-    Number: 'Number',
-    Boolean: 'Boolean',
-    List: 'List',
-    Date: 'Date',
-} as const
-
-export interface InsightVariableApi {
-    /** UUID of the SQL variable. */
-    readonly id: string
-    /**
-     * Human-readable name for the SQL variable.
-     * @maxLength 400
-     */
-    name: string
-    /** Variable type. Controls how the value is rendered and substituted in HogQL.
-
-* `String` - String
-* `Number` - Number
-* `Boolean` - Boolean
-* `List` - List
-* `Date` - Date */
-    type: InsightVariableTypeEnumApi
-    /** Default value used when a query references this variable. */
-    default_value?: unknown | null
-    /**
-     * ID of the user who created the SQL variable.
-     * @nullable
-     */
-    readonly created_by: number | null
-    /** Timestamp when the SQL variable was created. */
-    readonly created_at: string
-    /**
-     * Generated code-safe name used in HogQL as {variables.code_name}. Derived from name.
-     * @nullable
-     */
-    readonly code_name: string | null
-    /** Allowed values for List variables. Null for other variable types. */
-    values?: unknown | null
-}
-
-export interface PaginatedInsightVariableListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: InsightVariableApi[]
-}
-
-export interface PatchedInsightVariableApi {
-    /** UUID of the SQL variable. */
-    readonly id?: string
-    /**
-     * Human-readable name for the SQL variable.
-     * @maxLength 400
-     */
-    name?: string
-    /** Variable type. Controls how the value is rendered and substituted in HogQL.
-
-* `String` - String
-* `Number` - Number
-* `Boolean` - Boolean
-* `List` - List
-* `Date` - Date */
-    type?: InsightVariableTypeEnumApi
-    /** Default value used when a query references this variable. */
-    default_value?: unknown | null
-    /**
-     * ID of the user who created the SQL variable.
-     * @nullable
-     */
-    readonly created_by?: number | null
-    /** Timestamp when the SQL variable was created. */
-    readonly created_at?: string
-    /**
-     * Generated code-safe name used in HogQL as {variables.code_name}. Derived from name.
-     * @nullable
-     */
-    readonly code_name?: string | null
-    /** Allowed values for List variables. Null for other variable types. */
-    values?: unknown | null
+* `warehouse` - warehouse
+* `direct` - direct */
+    access_method?: AccessMethodEnumApi
 }
 
 export interface QueryTabStateApi {
@@ -1730,7 +1640,7 @@ export interface SimpleExternalDataSourceSerializersApi {
     /** @nullable */
     readonly created_by: number | null
     readonly status: string
-    readonly source_type: SourceTypeEe8EnumApi
+    readonly source_type: SourceTypeF0aEnumApi
 }
 
 export type TableApiColumnsItem = { [key: string]: unknown }
@@ -1903,13 +1813,6 @@ export type ExternalDataSourcesConnectionsListParams = {
      * A search term.
      */
     search?: string
-}
-
-export type InsightVariablesListParams = {
-    /**
-     * A page number within the paginated result set.
-     */
-    page?: number
 }
 
 export type QueryTabStateListParams = {
