@@ -469,9 +469,9 @@ const scheduledChangesDelete = (): ToolBase<typeof ScheduledChangesDeleteSchema,
     },
 })
 
-const FeatureFlagsTestEvaluationCreateSchema = FeatureFlagsTestEvaluationCreateParams.omit({ project_id: true }).extend(
-    FeatureFlagsTestEvaluationCreateBody.shape
-)
+const FeatureFlagsTestEvaluationCreateSchema = FeatureFlagsTestEvaluationCreateParams.omit({ project_id: true })
+    .extend(FeatureFlagsTestEvaluationCreateBody.shape)
+    .refine((v) => !(v.distinct_id && v.person_id), { message: 'distinct_id and person_id are mutually exclusive' })
 
 const featureFlagsTestEvaluationCreate = (): ToolBase<
     typeof FeatureFlagsTestEvaluationCreateSchema,
@@ -492,9 +492,7 @@ const featureFlagsTestEvaluationCreate = (): ToolBase<
             if (params.timestamp !== undefined) {
                 body['timestamp'] = params.timestamp
             }
-            if (params.groups !== undefined) {
-                body['groups'] = params.groups
-            }
+            body['groups'] = params.groups
             const result = await context.api.request<Schemas.FeatureFlagTestEvaluationResponse>({
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/test_evaluation/`,

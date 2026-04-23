@@ -3,7 +3,9 @@ export { FeatureFlagListView, type FeatureFlagListData, type FeatureFlagListView
 export {
     FeatureFlagTestingView,
     type FeatureFlagTestingData,
+    type FeatureFlagTestEvaluationResult,
     type FeatureFlagTestingViewProps,
+    type ConditionAnalysis,
 } from './FeatureFlagTestingView'
 export { RolloutBar, type RolloutBarProps } from './RolloutBar'
 export { PropertyFilterList, type PropertyFilter, type PropertyFilterListProps } from './PropertyFilterList'
