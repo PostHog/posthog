@@ -38,6 +38,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         selected_breakdown_value: str | list[str] | int | None = None,
     ) -> ast.SelectQuery:
         event_filters = self._event_filters()
+        is_valid_start_interval = self._is_valid_start_interval_expr()
         start_entity_is_dwh = self.start_event.type == EntityType.DATA_WAREHOUSE
 
         start_actor_column_name = (
@@ -319,13 +320,13 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 },
             )
             # interval must be same as first interval of in which start event happened
-            is_valid_start_interval = parse_expr("start_event_timestamps[1] = interval_date")
+            is_valid_start_interval = self._is_valid_start_interval_expr()
             is_first_interval_after_start_event = parse_expr(
                 "start_event_timestamps[1] = date_range[start_interval_index + 1]"
             )
         else:
             # start event must have happened in the interval
-            is_valid_start_interval = parse_expr("has(start_event_timestamps, interval_date)")
+            is_valid_start_interval = self._is_valid_start_interval_expr()
             is_first_interval_after_start_event = parse_expr(
                 "has(start_event_timestamps, date_range[start_interval_index + 1])"
             )
@@ -634,6 +635,12 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 )
 
         return event_filters
+
+    def _is_valid_start_interval_expr(self) -> ast.Expr:
+        if self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence:
+            return parse_expr("start_event_timestamps[1] = interval_date")
+
+        return parse_expr("has(start_event_timestamps, interval_date)")
 
     def _get_return_event_timestamps_expr(
         self, minimum_occurrences: int, start_of_interval_sql: ast.Expr, return_entity_expr: ast.Expr
