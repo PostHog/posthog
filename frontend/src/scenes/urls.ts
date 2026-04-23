@@ -120,14 +120,6 @@ export const urls = {
     variableEdit: (id: string | ':id'): string => `/data-management/variables/${id}/edit`,
     resourceTransfer: (resourceKind: string, resourceId: string | number): string =>
         `/resource-transfer/${resourceKind}/${resourceId}`,
-    dashboardTemplateCopyToProject: (templateId: string | ':sourceTemplateId', sourceTeamId?: number): string => {
-        const path = `/dashboard/templates/${templateId}/copy-to-project`
-        return sourceTeamId === undefined
-            ? path
-            : combineUrl(path, {
-                  source_team: sourceTeamId,
-              }).url
-    },
     organizationCreateFirst: (): string => '/create-organization',
     projectCreateFirst: (): string => '/organization/create-project',
     projectRoot: (): string => '/',
@@ -265,7 +257,8 @@ export const urls = {
     health: (): string => '/health',
     healthCategory: (category: string): string => `/health/${category}`,
     inbox: (reportId?: string): string => `/inbox${reportId ? `/${reportId}` : ''}`,
-    webAnalyticsBotAnalytics: (): string => '/web/bot-analytics',
+    webAnalyticsBotAnalytics: (): string => '/web/bots',
+    webAnalyticsBotDetail: (botName: string): string => `/web/bots/${botName}`,
     webAnalyticsHealth: (): string => '/web/health',
     pipelineStatus: (): string => '/health/pipeline-status',
     sdkDoctor: (): string => '/health/sdk-doctor',

@@ -28,7 +28,8 @@ import MaxTool from 'scenes/max/MaxTool'
 import { Scene } from 'scenes/sceneTypes'
 
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
-import { PropertyFilterType, PropertyMathType } from '~/types'
+import { WebAnalyticsPropertyFilters } from '~/queries/schema/schema-general'
+import { PropertyFilterType, PropertyMathType, PropertyOperator } from '~/types'
 
 import { BotTrafficFilter, ProductTab, faviconUrl } from './common'
 import { webAnalyticsDateMapping } from './constants'
@@ -64,6 +65,230 @@ const BotTrafficToggle = (): JSX.Element | null => {
                 { value: 'all', label: 'All' },
             ]}
             size="small"
+        />
+    )
+}
+
+interface BotDef {
+    name: string
+    operator: string
+    category: string
+}
+
+const BOT_DEFINITIONS_LIST: BotDef[] = [
+    { name: 'Ahrefs', operator: 'Ahrefs', category: 'seo_crawler' },
+    { name: 'Ahrefs Site Audit', operator: 'Ahrefs', category: 'seo_crawler' },
+    { name: 'Amazon', operator: 'Amazon', category: 'ai_crawler' },
+    { name: 'Anthropic', operator: 'Anthropic', category: 'ai_crawler' },
+    { name: 'Apache HTTP', operator: 'Apache', category: 'http_client' },
+    { name: 'Apple AI', operator: 'Apple', category: 'ai_search' },
+    { name: 'Applebot', operator: 'Apple', category: 'ai_search' },
+    { name: 'Axios', operator: 'axios', category: 'http_client' },
+    { name: 'Baidu', operator: 'Baidu', category: 'search_crawler' },
+    { name: 'Barkrowler', operator: 'Babbar', category: 'seo_crawler' },
+    { name: 'Bingbot', operator: 'Microsoft', category: 'search_crawler' },
+    { name: 'Brightbot', operator: 'Bright Data', category: 'ai_crawler' },
+    { name: 'ByteDance', operator: 'ByteDance', category: 'ai_crawler' },
+    { name: 'ChatGPT', operator: 'OpenAI', category: 'ai_assistant' },
+    { name: 'Chrome Prefetch Proxy', operator: 'Google', category: 'http_client' },
+    { name: 'Claude', operator: 'Anthropic', category: 'ai_crawler' },
+    { name: 'Claude Search', operator: 'Anthropic', category: 'ai_search' },
+    { name: 'Claude User', operator: 'Anthropic', category: 'ai_assistant' },
+    { name: 'Claude Web', operator: 'Anthropic', category: 'ai_crawler' },
+    { name: 'Cohere', operator: 'Cohere', category: 'ai_crawler' },
+    { name: 'Common Crawl', operator: 'Common Crawl', category: 'ai_crawler' },
+    { name: 'curl', operator: 'curl', category: 'http_client' },
+    { name: 'Datadog', operator: 'Datadog', category: 'monitoring' },
+    { name: 'Diffbot', operator: 'Diffbot', category: 'ai_crawler' },
+    { name: 'DuckDuckGo', operator: 'DuckDuckGo', category: 'search_crawler' },
+    { name: 'DuckDuckGo AI', operator: 'DuckDuckGo', category: 'ai_assistant' },
+    { name: 'Facebook', operator: 'Meta', category: 'social_crawler' },
+    { name: 'Facebook Bot', operator: 'Meta', category: 'social_crawler' },
+    { name: 'Go HTTP', operator: 'Go', category: 'http_client' },
+    { name: 'Google AI', operator: 'Google', category: 'ai_crawler' },
+    { name: 'Google Ads', operator: 'Google', category: 'search_crawler' },
+    { name: 'Google Cloud Vertex', operator: 'Google', category: 'ai_crawler' },
+    { name: 'Google Inspection', operator: 'Google', category: 'search_crawler' },
+    { name: 'GoogleOther', operator: 'Google', category: 'ai_crawler' },
+    { name: 'Googlebot', operator: 'Google', category: 'search_crawler' },
+    { name: 'GPTBot', operator: 'OpenAI', category: 'ai_crawler' },
+    { name: 'Headless Chrome', operator: 'Google', category: 'headless_browser' },
+    { name: 'LinkedIn', operator: 'LinkedIn', category: 'social_crawler' },
+    { name: 'LWP', operator: 'Perl', category: 'http_client' },
+    { name: 'Majestic', operator: 'Majestic', category: 'seo_crawler' },
+    { name: 'Meta AI', operator: 'Meta', category: 'ai_crawler' },
+    { name: 'Meta Fetcher', operator: 'Meta', category: 'ai_assistant' },
+    { name: 'Mistral AI', operator: 'Mistral', category: 'ai_assistant' },
+    { name: 'Moz', operator: 'Moz', category: 'seo_crawler' },
+    { name: 'Mozlila Typo Bot', operator: 'Unknown', category: 'headless_browser' },
+    { name: 'Node Fetch', operator: 'Node.js', category: 'http_client' },
+    { name: 'OkHttp', operator: 'Square', category: 'http_client' },
+    { name: 'OpenAI Search', operator: 'OpenAI', category: 'ai_search' },
+    { name: 'Perplexity', operator: 'Perplexity', category: 'ai_search' },
+    { name: 'Perplexity User', operator: 'Perplexity', category: 'ai_assistant' },
+    { name: 'Petal', operator: 'Huawei', category: 'ai_crawler' },
+    { name: 'PhantomJS', operator: 'PhantomJS', category: 'headless_browser' },
+    { name: 'Pingdom', operator: 'SolarWinds', category: 'monitoring' },
+    { name: 'Pinterest', operator: 'Pinterest', category: 'social_crawler' },
+    { name: 'Playwright', operator: 'Microsoft', category: 'headless_browser' },
+    { name: 'Puppeteer', operator: 'Google', category: 'headless_browser' },
+    { name: 'Python Requests', operator: 'Python', category: 'http_client' },
+    { name: 'Scrapy', operator: 'Scrapy', category: 'http_client' },
+    { name: 'Selenium', operator: 'Selenium', category: 'headless_browser' },
+    { name: 'Semrush', operator: 'Semrush', category: 'seo_crawler' },
+    { name: 'Site24x7', operator: 'Zoho', category: 'monitoring' },
+    { name: 'Slack', operator: 'Salesforce', category: 'social_crawler' },
+    { name: 'StatusCake', operator: 'StatusCake', category: 'monitoring' },
+    { name: 'Telegram', operator: 'Telegram', category: 'social_crawler' },
+    { name: 'TikTok AI', operator: 'ByteDance', category: 'ai_crawler' },
+    { name: 'Timpi', operator: 'Timpi', category: 'ai_crawler' },
+    { name: 'Twitter', operator: 'X', category: 'social_crawler' },
+    { name: 'UptimeRobot', operator: 'UptimeRobot', category: 'monitoring' },
+    { name: 'Webz.io', operator: 'Webz.io', category: 'ai_crawler' },
+    { name: 'Webz.io Extended', operator: 'Webz.io', category: 'ai_crawler' },
+    { name: 'Wget', operator: 'GNU', category: 'http_client' },
+    { name: 'WhatsApp', operator: 'Meta', category: 'social_crawler' },
+    { name: 'Yahoo', operator: 'Yahoo', category: 'search_crawler' },
+    { name: 'Yandex', operator: 'Yandex', category: 'search_crawler' },
+]
+
+const CATEGORY_LABELS: Record<string, string> = {
+    ai_crawler: 'AI crawler',
+    ai_search: 'AI search',
+    ai_assistant: 'AI assistant',
+    search_crawler: 'Search crawler',
+    seo_crawler: 'SEO crawler',
+    social_crawler: 'Social crawler',
+    monitoring: 'Monitoring',
+    http_client: 'HTTP client',
+    headless_browser: 'Headless browser',
+}
+
+function getFilteredBotOptions(
+    selectedCategory: string | null,
+    selectedCrawler: string | null,
+    selectedOperator: string | null
+): {
+    categories: { label: string; value: string | null }[]
+    crawlers: { label: string; value: string | null }[]
+    operators: { label: string; value: string | null }[]
+} {
+    let filtered = BOT_DEFINITIONS_LIST
+
+    if (selectedCategory) {
+        filtered = filtered.filter((b) => b.category === selectedCategory)
+    }
+    if (selectedCrawler) {
+        filtered = filtered.filter((b) => b.name === selectedCrawler)
+    }
+    if (selectedOperator) {
+        filtered = filtered.filter((b) => b.operator === selectedOperator)
+    }
+
+    const categoryValues = [...new Set(filtered.map((b) => b.category))].sort()
+    const crawlerValues = [...new Set(filtered.map((b) => b.name))].sort()
+    const operatorValues = [...new Set(filtered.map((b) => b.operator))].sort()
+
+    return {
+        categories: [
+            { label: 'All categories', value: null },
+            ...categoryValues.map((c) => ({ label: CATEGORY_LABELS[c] || c, value: c })),
+        ],
+        crawlers: [{ label: 'All crawlers', value: null }, ...crawlerValues.map((n) => ({ label: n, value: n }))],
+        operators: [{ label: 'All operators', value: null }, ...operatorValues.map((o) => ({ label: o, value: o }))],
+    }
+}
+
+function getBotFilterValue(filters: WebAnalyticsPropertyFilters, key: string): string | null {
+    const filter = filters.find((f) => 'key' in f && f.key === key)
+    return filter && 'value' in filter ? ((filter.value as string[])?.[0] ?? null) : null
+}
+
+const BotPropertySelect = ({
+    propertyKey,
+    placeholder,
+    options,
+}: {
+    propertyKey: string
+    placeholder: string
+    options: { label: string; value: string | null }[]
+}): JSX.Element => {
+    const { rawWebAnalyticsFilters } = useValues(webAnalyticsLogic)
+    const { setWebAnalyticsFilters } = useActions(webAnalyticsLogic)
+
+    const currentValue = getBotFilterValue(rawWebAnalyticsFilters, propertyKey)
+
+    const onChange = (value: string | null): void => {
+        const otherFilters = rawWebAnalyticsFilters.filter((f) => !('key' in f && f.key === propertyKey))
+        if (value) {
+            setWebAnalyticsFilters([
+                ...otherFilters,
+                {
+                    key: propertyKey,
+                    value: [value],
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Event,
+                },
+            ])
+        } else {
+            setWebAnalyticsFilters(otherFilters)
+        }
+    }
+
+    return (
+        <LemonSelect
+            size="small"
+            value={currentValue}
+            onChange={onChange}
+            options={options}
+            placeholder={placeholder}
+            dropdownMatchSelectWidth={false}
+        />
+    )
+}
+
+export const BotAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
+    const {
+        dateFilter: { dateTo, dateFrom },
+        rawWebAnalyticsFilters,
+    } = useValues(webAnalyticsLogic)
+    const { setDates } = useActions(webAnalyticsLogic)
+
+    const selectedCategory = getBotFilterValue(rawWebAnalyticsFilters, '$virt_traffic_category')
+    const selectedCrawler = getBotFilterValue(rawWebAnalyticsFilters, '$virt_bot_name')
+    const selectedOperator = getBotFilterValue(rawWebAnalyticsFilters, '$virt_bot_operator')
+    const { categories, crawlers, operators } = getFilteredBotOptions(
+        selectedCategory,
+        selectedCrawler,
+        selectedOperator
+    )
+
+    return (
+        <FilterBar
+            top={tabs}
+            left={
+                <>
+                    <ReloadAll iconOnly />
+                    <DateFilter
+                        dateOptions={webAnalyticsDateMapping}
+                        allowTimePrecision
+                        dateFrom={dateFrom}
+                        dateTo={dateTo}
+                        onChange={setDates}
+                    />
+                    <BotPropertySelect
+                        propertyKey="$virt_traffic_category"
+                        placeholder="All categories"
+                        options={categories}
+                    />
+                    <BotPropertySelect propertyKey="$virt_bot_name" placeholder="All crawlers" options={crawlers} />
+                    <BotPropertySelect
+                        propertyKey="$virt_bot_operator"
+                        placeholder="All operators"
+                        options={operators}
+                    />
+                </>
+            }
         />
     )
 }

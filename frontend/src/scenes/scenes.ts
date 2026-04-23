@@ -438,11 +438,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Copy to project',
         layout: 'app-container',
     },
-    [Scene.DashboardTemplateCopy]: {
-        projectBased: true,
-        name: 'Copy template to project',
-        layout: 'app-container',
-    },
     [Scene.RevenueAnalytics]: {
         projectBased: true,
         name: 'Revenue analytics',
@@ -729,7 +724,6 @@ export const redirects: Record<
 export const routes: Record<string, [Scene | string, string]> = {
     [urls.newTab()]: [Scene.NewTab, 'newTab'],
     [urls.dashboards()]: [Scene.Dashboards, 'dashboards'],
-    [urls.dashboardTemplateCopyToProject(':sourceTemplateId')]: [Scene.DashboardTemplateCopy, 'dashboardTemplateCopy'],
     [urls.dashboard(':id')]: [Scene.Dashboard, 'dashboard'],
     [urls.dashboardTextTile(':id', ':textTileId')]: [Scene.Dashboard, 'dashboardTextTile'],
     [urls.dashboardButtonTile(':id', ':buttonTileId')]: [Scene.Dashboard, 'dashboardButtonTile'],
@@ -751,6 +745,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.webAnalytics()]: [Scene.WebAnalytics, 'webAnalytics'],
     [urls.webAnalyticsWebVitals()]: [Scene.WebAnalytics, 'webAnalyticsWebVitals'],
     [urls.webAnalyticsBotAnalytics()]: [Scene.WebAnalytics, 'webAnalyticsBotAnalytics'],
+    [urls.webAnalyticsBotDetail(':botName')]: [Scene.WebAnalytics, 'webAnalyticsBotDetail'],
     [urls.webAnalyticsHealth()]: [Scene.WebAnalyticsHealth, 'webAnalyticsHealth'],
     [urls.webAnalyticsLive()]: [Scene.WebAnalyticsLive, 'webAnalyticsLive'],
     [urls.webAnalyticsPageReports()]: [Scene.WebAnalytics, 'webAnalyticsPageReports'],
