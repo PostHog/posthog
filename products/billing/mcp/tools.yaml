@@ -1,0 +1,67 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Billing
+feature: billing
+url_prefix: /billing
+tools:
+    billing-list:
+        operation: billing_list
+        enabled: false
+    billing-partial-update:
+        operation: billing_partial_update
+        enabled: false
+    billing-activate-create:
+        operation: billing_activate_create
+        enabled: false
+    billing-activate-authorize-create:
+        operation: billing_activate_authorize_create
+        enabled: false
+    billing-activate-authorize-status-create:
+        operation: billing_activate_authorize_status_create
+        enabled: false
+    billing-coupons-claim-create:
+        operation: billing_coupons_claim_create
+        enabled: false
+    billing-coupons-overview-retrieve:
+        operation: billing_coupons_overview_retrieve
+        enabled: false
+    billing-credits-overview-retrieve:
+        operation: billing_credits_overview_retrieve
+        enabled: false
+    billing-credits-purchase-create:
+        operation: billing_credits_purchase_create
+        enabled: false
+    billing-deactivate-create:
+        operation: billing_deactivate_create
+        enabled: false
+    billing-get-invoices-retrieve:
+        operation: billing_get_invoices_retrieve
+        enabled: false
+    billing-license-partial-update:
+        operation: billing_license_partial_update
+        enabled: false
+    billing-portal-retrieve:
+        operation: billing_portal_retrieve
+        enabled: false
+    billing-spend-retrieve:
+        operation: billing_spend_retrieve
+        enabled: false
+    billing-startups-apply-create:
+        operation: billing_startups_apply_create
+        enabled: false
+    billing-subscription-switch-plan-create:
+        operation: billing_subscription_switch_plan_create
+        enabled: false
+    billing-trials-activate-create:
+        operation: billing_trials_activate_create
+        enabled: false
+    billing-trials-cancel-create:
+        operation: billing_trials_cancel_create
+        enabled: false
+    billing-usage-retrieve:
+        operation: billing_usage_retrieve
+        enabled: false
