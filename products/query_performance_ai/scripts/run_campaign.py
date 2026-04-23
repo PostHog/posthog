@@ -296,8 +296,16 @@ def _print_pi_event(line: str) -> None:
 
     kind = event.get("type", "event")
 
-    # Pi has lots of scaffolding events that add no operator signal.
-    if kind in ("agent_start", "agent_end", "turn_start", "turn_end", "tool_execution_start"):
+    # Scaffolding + per-chunk updates add no operator signal — the matching
+    # *_end event carries the complete result cleanly.
+    if kind in (
+        "agent_start",
+        "agent_end",
+        "turn_start",
+        "turn_end",
+        "tool_execution_start",
+        "tool_execution_update",
+    ):
         return
 
     if kind == "session":
