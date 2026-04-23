@@ -263,7 +263,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             {
                 "start_of_interval_sql": start_of_interval_sql,
                 "start_entity_expr": self.start_entity_expr,
-                "filter_timestamp": self.events_timestamp_filter,
+                "filter_timestamp": self.events_timestamp_filter(),
             },
         )
 
@@ -295,7 +295,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                     "start_of_interval_sql": start_of_interval_sql,
                     "property_aggregation_expr": self.property_aggregation_expr,
                     "start_entity_expr": self.start_entity_expr,
-                    "filter_timestamp": self.events_timestamp_filter,
+                    "filter_timestamp": self.events_timestamp_filter(),
                 },
             )
             return_event_data = self._get_return_event_timestamps_expr(
@@ -610,7 +610,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 {
                     "start_of_interval_timestamp": start_of_interval_sql,
                     "returning_entity_expr": return_entity_expr,
-                    "filter_timestamp": self.events_timestamp_filter,
+                    "filter_timestamp": self.events_timestamp_filter(),
                 },
             ),
         )
@@ -645,7 +645,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                     "start_of_interval_timestamp": start_of_interval_sql,
                     "property_aggregation_expr": self.property_aggregation_expr,
                     "returning_entity_expr": return_entity_expr,
-                    "filter_timestamp": self.events_timestamp_filter,
+                    "filter_timestamp": self.events_timestamp_filter(),
                 },
             )
 
@@ -676,7 +676,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             {
                 "start_of_interval_timestamp": start_of_interval_sql,
                 "returning_entity_expr": return_entity_expr,
-                "filter_timestamp": self.events_timestamp_filter,
+                "filter_timestamp": self.events_timestamp_filter(),
             },
         )
 
