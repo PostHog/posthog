@@ -1,0 +1,70 @@
+name: CI telemetry daily stats
+
+on:
+    schedule:
+        - cron: '17 6 * * *' # daily at 06:17 UTC
+    workflow_dispatch: {}
+
+permissions: {}
+
+jobs:
+    commit-activity:
+        name: Capture commit activity to DevEx PostHog
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        if: github.repository == 'PostHog/posthog'
+        steps:
+            - name: Get telemetry app token
+              id: telemetry-app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  app-id: ${{ secrets.GH_APP_TELEMETRY_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_TELEMETRY_PRIVATE_KEY }}
+
+            # /stats/commit_activity may return 202 while GitHub computes stats asynchronously.
+            # Retry a few times before giving up.
+            - name: Fetch commit activity
+              env:
+                  GH_TOKEN: ${{ steps.telemetry-app-token.outputs.token }}
+                  REPO: ${{ github.repository }}
+              run: |
+                  set -euo pipefail
+                  for attempt in 1 2 3 4 5; do
+                      if gh api "repos/$REPO/stats/commit_activity" > activity.json 2>/dev/null \
+                          && [ "$(jq 'length' activity.json)" -gt 0 ]; then
+                          exit 0
+                      fi
+                      sleep 15
+                  done
+                  echo "Failed to fetch commit activity after 5 attempts"
+                  exit 1
+
+            - name: Send weekly events to DevEx PostHog
+              env:
+                  POSTHOG_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  REPO: ${{ github.repository }}
+              run: |
+                  set -euo pipefail
+                  CAPTURED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                  jq -c \
+                      --arg token "$POSTHOG_TOKEN" \
+                      --arg repo "$REPO" \
+                      --arg captured_at "$CAPTURED_AT" '
+                      {
+                          api_key: $token,
+                          batch: map({
+                              event: "posthog-ci-commit-activity-weekly",
+                              distinct_id: "posthog-github-action",
+                              timestamp: (.week | todate),
+                              properties: {
+                                  total: .total,
+                                  days: .days,
+                                  week_start: (.week | todate),
+                                  captured_at: $captured_at,
+                                  repository: $repo
+                              }
+                          })
+                      }' activity.json > payload.json
+                  curl -sf -X POST https://us.i.posthog.com/batch/ \
+                      -H 'Content-Type: application/json' \
+                      --data @payload.json
