@@ -4,8 +4,8 @@ import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { IconKey } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 
 import { cimdVerificationTokensLogic, CIMDVerificationToken } from './cimdVerificationTokensLogic'
@@ -147,6 +147,7 @@ export function CIMDVerificationTokens(): JSX.Element {
             <LemonModal
                 isOpen={!!justCreatedToken}
                 onClose={() => setJustCreatedToken(null)}
+                closable={false}
                 title="Token created"
                 footer={
                     <LemonButton type="primary" onClick={() => setJustCreatedToken(null)}>
@@ -156,14 +157,14 @@ export function CIMDVerificationTokens(): JSX.Element {
             >
                 {justCreatedToken && (
                     <div className="space-y-3">
+                        <LemonBanner type="warning">
+                            Copy this token now - you won't be able to see it again. If you lose it, you'll need to
+                            revoke and create a new one.
+                        </LemonBanner>
                         <p className="text-secondary">
-                            Copy this token now — you won't be able to see it again. Add it to your CIMD metadata
-                            document as the <code>posthog_verification_token</code> field.
+                            Add it to your CIMD metadata document as the <code>posthog_verification_token</code> field.
                         </p>
                         <CodeSnippet language={Language.Text}>{justCreatedToken.value}</CodeSnippet>
-                        <CopyToClipboardInline description="verification token">
-                            {justCreatedToken.value}
-                        </CopyToClipboardInline>
                     </div>
                 )}
             </LemonModal>
