@@ -18115,7 +18115,8 @@
                 "BuildBetter",
                 "Convex",
                 "ClickHouse",
-                "Plain"
+                "Plain",
+                "Resend"
             ],
             "type": "string"
         },
