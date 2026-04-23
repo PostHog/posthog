@@ -35,12 +35,12 @@ _RSA_KEY = _generate_rsa_key()
 
 @pytest.mark.requires_secrets
 @override_settings(
-    STRIPE_APP_SECRET_KEY=HMAC_SECRET,
+    STRIPE_SIGNING_SECRET=HMAC_SECRET,
     STRIPE_POSTHOG_OAUTH_CLIENT_ID=TEST_STRIPE_OAUTH_CLIENT_ID,
     OIDC_RSA_PRIVATE_KEY=_RSA_KEY,
     OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _RSA_KEY},
 )
-class StripeProvisioningTestBase(APIBaseTest):
+class ProvisioningTestBase(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.client = APIClient()

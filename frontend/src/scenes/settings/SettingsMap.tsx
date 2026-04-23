@@ -15,7 +15,6 @@ import { GoalsConfiguration } from '@posthog/products-revenue-analytics/frontend
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
@@ -42,6 +41,7 @@ import { ApiSection } from 'products/conversations/frontend/scenes/settings/ApiS
 import { EmailSection } from 'products/conversations/frontend/scenes/settings/EmailSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
 import { SlackSection } from 'products/conversations/frontend/scenes/settings/SlackSection'
+import { TeamsSection } from 'products/conversations/frontend/scenes/settings/TeamsSection'
 import { WidgetSection } from 'products/conversations/frontend/scenes/settings/WidgetSection'
 import { WorkflowsSection } from 'products/conversations/frontend/scenes/settings/WorkflowsSection'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
@@ -62,6 +62,7 @@ import { DataAttributes } from './environment/DataAttributes'
 import { DataColorThemes } from './environment/DataColorThemes'
 import { DefaultExperimentConfidenceLevel } from './environment/DefaultExperimentConfidenceLevel'
 import { DefaultExperimentStatsMethod } from './environment/DefaultExperimentStatsMethod'
+import { DefaultOnlyCountMaturedUsers } from './environment/DefaultOnlyCountMaturedUsers'
 import { DiscussionMentionNotifications } from './environment/DiscussionSettings'
 import { ErrorTrackingConfigurationMovedBanner } from './environment/ErrorTrackingConfigurationMovedBanner'
 import { ErrorTrackingIntegrations } from './environment/ErrorTrackingIntegrations'
@@ -121,6 +122,7 @@ import {
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
 import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
 import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
+import { AIHipaaDisclaimer, getExternalAIProvidersTooltipTitle } from './organization/aiConsentCopy'
 import { ApprovalPolicies } from './organization/Approvals/ApprovalPolicies'
 import { ChangeRequestsList } from './organization/Approvals/ChangeRequestsList'
 import { Invites } from './organization/Invites'
@@ -395,7 +397,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'mcp-servers-manage',
                 title: 'MCP servers',
-                description: 'Install and manage MCP servers for your AI agents.',
+                description: 'Install and manage MCP servers for your PostHog AI and PostHog Code agents.',
                 component: <McpStoreSettings />,
                 keywords: ['mcp', 'server', 'install', 'oauth', 'ai', 'agent'],
             },
@@ -451,6 +453,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['conversation', 'ticket', 'message', 'support'],
             },
             {
+                id: 'conversations-email',
+                title: 'Email channel',
+                component: <EmailSection />,
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: ['conversation', 'ticket', 'message', 'support'],
+            },
+            {
                 id: 'conversations-slack',
                 title: 'Slack channel',
                 component: <SlackSection />,
@@ -458,11 +467,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['conversation', 'ticket', 'message', 'support'],
             },
             {
-                id: 'conversations-email',
-                title: 'Email channel',
-                component: <EmailSection />,
+                id: 'conversations-teams',
+                title: 'Microsoft Teams',
+                component: <TeamsSection />,
+                flag: 'PRODUCT_SUPPORT_TEAMS_ENABLED',
                 allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: ['conversation', 'ticket', 'message', 'support'],
+                keywords: ['conversation', 'ticket', 'message', 'support', 'teams', 'microsoft'],
             },
             {
                 id: 'conversations-workflows',
@@ -635,6 +645,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <ExperimentRecalculationTime />,
                 keywords: ['schedule', 'refresh', 'update', 'time'],
             },
+            {
+                id: 'environment-experiment-matured-users',
+                title: 'Default conversion window filter',
+                description:
+                    'When enabled, new experiments will only count participants whose full conversion window has elapsed. Can be overridden per experiment.',
+                component: <DefaultOnlyCountMaturedUsers />,
+                keywords: ['matured', 'conversion', 'window', 'filter'],
+            },
         ],
     },
     {
@@ -769,7 +787,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Remove or mask common personally identifiable information from log payloads during ingestion.',
                 component: <LogsPiiScrubSettings />,
-                flag: 'LOGS_SETTINGS',
+                flag: 'LOGS_SETTINGS_PII_SCRUB',
                 keywords: ['pii', 'privacy', 'gdpr', 'redact', 'mask', 'scrub', 'sensitive'],
             },
             {
@@ -1338,7 +1356,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'integration-other',
                 title: 'Other integrations',
                 description: 'Browse and manage additional third-party integrations.',
-                component: <IntegrationsList omitKinds={['slack', 'github', 'linear']} />,
+                component: <IntegrationsList omitKinds={['slack', 'slack-posthog-code', 'github', 'linear']} />,
                 keywords: ['integration', 'connect', 'third-party', 'app'],
             },
             {
@@ -1428,10 +1446,9 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'organization-ai-consent',
                 title: 'PostHog AI data analysis',
                 description: (
-                    // Note: Sync the copy below with AIConsentPopoverWrapper.tsx
                     <>
                         PostHog AI features, such as the PostHog AI chat, use{' '}
-                        <Tooltip title={`As of ${dayjs().format('MMMM YYYY')}: Anthropic and OpenAI`}>
+                        <Tooltip title={getExternalAIProvidersTooltipTitle()}>
                             <dfn>external AI services</dfn>
                         </Tooltip>{' '}
                         for data analysis.
@@ -1440,6 +1457,9 @@ export const SETTINGS_MAP: SettingSection[] = [
                         below.
                         <br />
                         <strong>Your data will not be used for training models.</strong>
+                        <br />
+                        <br />
+                        <AIHipaaDisclaimer />
                     </>
                 ),
                 component: <OrganizationAI />,
@@ -1580,6 +1600,16 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'Billing',
         to: urls.organizationBilling(),
         settings: [],
+    },
+    {
+        level: 'organization',
+        id: 'organization-legal-documents',
+        hideSelfHost: true,
+        title: 'Legal documents',
+        to: urls.legalDocuments(),
+        settings: [],
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        flag: 'LEGAL_DOCUMENTS',
     },
     {
         level: 'organization',

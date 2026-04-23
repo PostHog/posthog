@@ -100,7 +100,7 @@ class HealthIssueViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMi
             return Response({"detail": "Could not resolve health issue."}, status=HTTP_400_BAD_REQUEST)
         return Response(HealthIssueSerializer(issue).data)
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["health_issue:read"])
     def summary(self, request: Request, **kwargs) -> Response:
         active_issues = self.get_queryset().filter(status=HealthIssue.Status.ACTIVE, dismissed=False)
 

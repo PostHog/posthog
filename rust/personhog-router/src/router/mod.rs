@@ -8,10 +8,12 @@ use std::time::Instant;
 use metrics::{counter, histogram};
 use personhog_common::grpc::{current_client_name, ClientInFlightGuard};
 use personhog_proto::personhog::types::v1::{
-    CheckCohortMembershipRequest, CohortMembershipResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
-    DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
-    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
+    CheckCohortMembershipRequest, CohortMembershipResponse, CountCohortMembersRequest,
+    CountCohortMembersResponse, DeleteCohortMemberRequest, DeleteCohortMemberResponse,
+    DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
+    DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
+    DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
+    DeletePersonsResponse, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
     GetGroupResponse, GetGroupTypeMappingsByProjectIdRequest,
     GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
@@ -20,9 +22,10 @@ use personhog_proto::personhog::types::v1::{
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
-    PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest,
-    UpsertHashKeyOverridesResponse,
+    InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
+    ListCohortMemberIdsResponse, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
+    PersonsResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use tonic::Status;
 
@@ -334,6 +337,46 @@ impl PersonHogRouter {
             check_cohort_membership,
             request
         )
+    }
+
+    pub async fn count_cohort_members(
+        &self,
+        request: CountCohortMembersRequest,
+    ) -> Result<CountCohortMembersResponse, Status> {
+        call_backend!(self, "CountCohortMembers", count_cohort_members, request)
+    }
+
+    pub async fn delete_cohort_member(
+        &self,
+        request: DeleteCohortMemberRequest,
+    ) -> Result<DeleteCohortMemberResponse, Status> {
+        call_backend!(self, "DeleteCohortMember", delete_cohort_member, request)
+    }
+
+    pub async fn delete_cohort_members_bulk(
+        &self,
+        request: DeleteCohortMembersBulkRequest,
+    ) -> Result<DeleteCohortMembersBulkResponse, Status> {
+        call_backend!(
+            self,
+            "DeleteCohortMembersBulk",
+            delete_cohort_members_bulk,
+            request
+        )
+    }
+
+    pub async fn insert_cohort_members(
+        &self,
+        request: InsertCohortMembersRequest,
+    ) -> Result<InsertCohortMembersResponse, Status> {
+        call_backend!(self, "InsertCohortMembers", insert_cohort_members, request)
+    }
+
+    pub async fn list_cohort_member_ids(
+        &self,
+        request: ListCohortMemberIdsRequest,
+    ) -> Result<ListCohortMemberIdsResponse, Status> {
+        call_backend!(self, "ListCohortMemberIds", list_cohort_member_ids, request)
     }
 
     // ============================================================

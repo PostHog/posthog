@@ -111,7 +111,7 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
             name=SchemaExternalDataSourceType.GOOGLE_ADS,
             label="Google Ads",
             caption="Ensure you have granted PostHog access to your Google Ads account, learn how to do this in [the docs](https://posthog.com/docs/cdp/sources/google-ads).",
-            betaSource=True,
+            releaseStatus="beta",
             iconPath="/static/services/google-ads.png",
             docsUrl="https://posthog.com/docs/cdp/sources/google-ads",
             fields=cast(

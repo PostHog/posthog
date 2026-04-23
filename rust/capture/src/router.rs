@@ -22,6 +22,8 @@ use crate::test_endpoint;
 use crate::v0_request::DataType;
 use crate::{ai_endpoint, sinks, time::TimeSource, v0_endpoint};
 use common_redis::Client;
+use limiters::overflow::OverflowLimiter;
+use limiters::redis::RedisLimiter;
 use limiters::token_dropper::TokenDropper;
 
 use crate::config::CaptureMode;
@@ -50,6 +52,27 @@ pub struct State {
     pub ai_blob_storage: Option<Arc<dyn BlobStorage>>,
     pub body_chunk_read_timeout: Option<Duration>,
     pub body_read_chunk_size_kb: usize,
+    /// In-process overflow limiter (governor-backed) for `DataType::AnalyticsMain`
+    /// events. When present, every handler that emits analytics events runs
+    /// the shared `events::overflow_stamping::stamp_overflow_reason` helper,
+    /// which calls `is_limited` per event and stamps
+    /// `ProcessedEventMetadata::overflow_reason` with `ForceLimited` or
+    /// `RateLimited { .. }` so the kafka sink can route to the overflow topic.
+    /// Call sites that consult this limiter:
+    /// * `events::analytics::process_events` (analytics batch path)
+    /// * `ai_endpoint::ai_handler` (`/i/v0/ai`)
+    /// * `otel::otel_handler` (`/i/v0/ai/otel`)
+    ///
+    /// This lives in `State` (not in the sink) so routing policy sits in the
+    /// pipeline alongside every other routing decision, and so the sink stays
+    /// a pure mechanism layer with cheap Arc-based clones.
+    pub overflow_limiter: Option<Arc<OverflowLimiter>>,
+    /// Redis-backed replay overflow limiter for session recording sessions.
+    /// When present, the recordings pipeline calls `is_limited(session_id)`
+    /// and stamps `ProcessedEventMetadata::overflow_reason = ReplayLimited` so
+    /// the kafka sink can route to the replay overflow topic. Same rationale
+    /// as `overflow_limiter` above.
+    pub replay_overflow_limiter: Option<Arc<RedisLimiter>>,
 }
 
 #[derive(Clone)]
@@ -113,6 +136,8 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     request_timeout_seconds: Option<u64>,
     body_chunk_read_timeout_ms: Option<u64>,
     body_read_chunk_size_kb: usize,
+    overflow_limiter: Option<Arc<OverflowLimiter>>,
+    replay_overflow_limiter: Option<Arc<RedisLimiter>>,
 ) -> Router {
     let state = State {
         sink,
@@ -133,6 +158,8 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         ai_blob_storage,
         body_chunk_read_timeout: body_chunk_read_timeout_ms.map(Duration::from_millis),
         body_read_chunk_size_kb,
+        overflow_limiter,
+        replay_overflow_limiter,
     };
 
     // Very permissive CORS policy, as old SDK versions

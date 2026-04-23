@@ -1,6 +1,9 @@
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import extend_schema
 from rest_framework import pagination, serializers, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
+
+from posthog.schema import ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
@@ -14,6 +17,18 @@ class InsightVariableSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "type", "default_value", "created_by", "created_at", "code_name", "values"]
 
         read_only_fields = ["id", "code_name", "created_by", "created_at"]
+        extra_kwargs = {
+            "id": {"help_text": "UUID of the SQL variable."},
+            "name": {"help_text": "Human-readable name for the SQL variable."},
+            "type": {"help_text": "Variable type. Controls how the value is rendered and substituted in HogQL."},
+            "default_value": {"help_text": "Default value used when a query references this variable."},
+            "created_by": {"help_text": "ID of the user who created the SQL variable."},
+            "created_at": {"help_text": "Timestamp when the SQL variable was created."},
+            "code_name": {
+                "help_text": "Generated code-safe name used in HogQL as {variables.code_name}. Derived from name."
+            },
+            "values": {"help_text": "Allowed values for List variables. Null for other variable types."},
+        }
 
     def validate(self, attrs):
         variable_type = attrs.get("type", getattr(self.instance, "type", None))
@@ -44,6 +59,7 @@ class InsightVariablePagination(pagination.PageNumberPagination):
     page_size = 500
 
 
+@extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
 class InsightVariableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "insight_variable"
     queryset = InsightVariable.objects.all()

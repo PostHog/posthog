@@ -7,14 +7,20 @@ import contextvars
 from collections.abc import Generator
 from contextlib import contextmanager, suppress
 from enum import StrEnum
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
 
 # from posthog.clickhouse.client.connection import Workload
 # from posthog.schema import PersonsOnEventsMode
+import structlog
 from cachetools import cached
 from pydantic import BaseModel, ConfigDict
 
 from posthog.schema import ProductKey
+
+logger = structlog.get_logger(__name__)
 
 
 class AccessMethod(StrEnum):
@@ -70,6 +76,7 @@ class Feature(StrEnum):
     USAGE_REPORT = "usage_report"
     BILLING_ETL = "billing_etl"
     QUOTA_LIMITING = "quota_limiting"
+    MIGRATION = "migration"
 
 
 class TemporalTags(BaseModel):
@@ -168,6 +175,8 @@ class QueryTags(BaseModel):
     # ai events rollout
     ai_query_source: Optional[str] = None
 
+    ai_data_processing_approved: Optional[bool] = None
+
     # experiments
     experiment_feature_flag_key: Optional[str] = None
     experiment_id: Optional[int] = None
@@ -175,6 +184,7 @@ class QueryTags(BaseModel):
     experiment_is_data_warehouse_query: Optional[bool] = None
     experiment_metric_uuid: Optional[str] = None
     experiment_metric_name: Optional[str] = None
+    experiment_metric_type: Optional[str] = None  # "mean", "funnel", "ratio", "retention"
     experiment_execution_path: Optional[str] = None  # "direct_scan" or "precomputed"
     experiment_actors_query_step: Optional[int] = None  # funnel step for actors query
     experiment_actors_query_variant: Optional[str] = None  # variant filter for actors query
@@ -304,6 +314,19 @@ def tag_queries(**kwargs) -> None:
     updated_tags = current_tags.model_copy(deep=True)
     updated_tags.update(**kwargs)
     query_tags.set(updated_tags)
+
+
+def get_team_query_tags(team: "Team") -> dict[str, Any]:
+    from posthog.models.organization import Organization
+
+    tags: dict[str, Any] = {"team_id": team.pk}
+    try:
+        organization = team.organization
+        tags["org_id"] = organization.pk
+        tags["ai_data_processing_approved"] = organization.is_ai_data_processing_approved
+    except Organization.DoesNotExist:
+        logger.warning("get_team_query_tags_org_not_found", team_id=team.pk)
+    return tags
 
 
 def clear_tag(key):

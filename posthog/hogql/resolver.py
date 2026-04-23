@@ -58,6 +58,11 @@ POSTGRES_KEYWORD_TYPES: dict[str, PostgresKeywordType] = {
     "localtimestamp": ast.DateTimeType,
 }
 
+# Dialects that share Postgres's SQL surface (feature support, keyword set, syntax quirks).
+# DuckDB is Postgres-wire compatible and accepts nearly all PG-specific constructs, so it
+# takes the PG code path in the resolver.
+_POSTGRES_FAMILY: frozenset[HogQLDialect] = frozenset({"postgres", "duckdb"})
+
 
 def resolve_constant_data_type(constant: Any) -> ConstantType:
     if constant is None:
@@ -173,9 +178,6 @@ class Resolver(CloningVisitor):
         parent_ctes = self.ctes
         self.ctes = dict(parent_ctes)
 
-        if node.limit_with_ties and self.dialect == "postgres":
-            raise QueryError("WITH TIES is not supported in postgres dialect")
-
         initial = self.visit(node.initial_select_query)
 
         # Root WITH propagates to all subsequent branches. Branch-level CTEs shadow root CTEs.
@@ -233,7 +235,7 @@ class Resolver(CloningVisitor):
         return result
 
     def visit_unpivot_expr(self, node: ast.UnpivotExpr):
-        if self.dialect != "postgres":
+        if self.dialect not in _POSTGRES_FAMILY:
             raise QueryError(f"UNPIVOT is not allowed in {self.dialect} dialect")
 
         node = cast(ast.UnpivotExpr, clone_expr(node))
@@ -420,7 +422,7 @@ class Resolver(CloningVisitor):
             self.scopes.pop()
 
     def visit_pivot_expr(self, node: ast.PivotExpr):
-        if self.dialect != "postgres":
+        if self.dialect not in _POSTGRES_FAMILY:
             raise QueryError(f"PIVOT is not allowed in {self.dialect} dialect")
 
         node = cast(ast.PivotExpr, clone_expr(node))
@@ -594,8 +596,6 @@ class Resolver(CloningVisitor):
 
     def visit_select_query(self, node: ast.SelectQuery):
         """Visit each SELECT query or subquery."""
-        if node.limit_with_ties and self.dialect == "postgres":
-            raise QueryError("WITH TIES is not supported in postgres dialect")
         # This "SelectQueryType" is also a new scope for variables in the SELECT query.
         # We will add fields to it when we encounter them. This is used to resolve fields later.
         node_type = ast.SelectQueryType()
@@ -633,7 +633,7 @@ class Resolver(CloningVisitor):
         # Visit the FROM clauses first. This resolves all table aliases onto self.scopes[-1]
         new_node.select_from = self.visit(node.select_from)
 
-        if node.limit_percent and self.dialect != "postgres":
+        if node.limit_percent and self.dialect not in _POSTGRES_FAMILY:
             if self.dialect == "clickhouse":
                 if not (isinstance(node.limit, ast.Constant) and isinstance(node.limit.value, (int, float))):
                     raise QueryError("LIMIT percent with expressions is not supported in clickhouse dialect")
@@ -682,7 +682,7 @@ class Resolver(CloningVisitor):
             else:
                 select_nodes.append(new_expr)
 
-        columns_with_visible_alias = {}
+        columns_with_visible_alias: dict[str, bool] = {}
         for new_expr in select_nodes:
             if isinstance(new_expr.type, ast.FieldAliasType):
                 alias = new_expr.type.alias
@@ -703,10 +703,10 @@ class Resolver(CloningVisitor):
                 # Make a reference of the first visible or last hidden expr for each unique alias name.
                 if isinstance(new_expr, ast.Alias) and new_expr.hidden:
                     if alias not in node_type.columns or not columns_with_visible_alias.get(alias, False):
-                        node_type.columns[alias] = new_expr.type
+                        node_type.columns[alias] = new_expr.type or ast.UnknownType()
                         columns_with_visible_alias[alias] = False
                 else:
-                    node_type.columns[alias] = new_expr.type
+                    node_type.columns[alias] = new_expr.type or ast.UnknownType()
                     columns_with_visible_alias[alias] = True
 
             # add the column to the new select query
@@ -730,6 +730,8 @@ class Resolver(CloningVisitor):
         new_node.group_by_mode = node.group_by_mode
         if node.order_by:
             new_node.order_by = [self.visit(expr) for expr in node.order_by]
+        if node.interpolate is not None:
+            new_node.interpolate = [self.visit(expr) for expr in node.interpolate]
         new_node.limit_by = self.visit(node.limit_by)
         new_node.limit = self.visit(node.limit)
         new_node.limit_with_ties = node.limit_with_ties
@@ -1195,7 +1197,7 @@ class Resolver(CloningVisitor):
                 # For non-postgres dialects, bake column aliases into the inner
                 # SELECT as AS aliases so ClickHouse/HogQL (which don't support
                 # the ``AS t(col1, col2)`` syntax) get correct column names.
-                if self.dialect != "postgres":
+                if self.dialect not in _POSTGRES_FAMILY:
                     inner_query = cast(ast.SelectQuery, inner_select)
                     new_select: list[ast.Expr] = []
                     for i, expr in enumerate(inner_query.select):
@@ -1524,21 +1526,21 @@ class Resolver(CloningVisitor):
         return new_node
 
     def visit_try_cast(self, node: ast.TryCast):
-        if self.dialect != "postgres":
+        if self.dialect not in _POSTGRES_FAMILY:
             raise QueryError(f"TRY_CAST is not allowed in {self.dialect} dialect")
         node = cast(ast.TryCast, clone_expr(node))
         node.expr = self.visit(node.expr)
         return node
 
     def visit_positional_ref(self, node: ast.PositionalRef):
-        if self.dialect != "postgres":
+        if self.dialect not in _POSTGRES_FAMILY:
             raise QueryError(f"Positional references are not allowed in {self.dialect} dialect")
         node = cast(ast.PositionalRef, clone_expr(node))
         node.type = ast.UnknownType()
         return node
 
     def visit_array_slice(self, node: ast.ArraySlice):
-        if self.dialect not in {"postgres", "clickhouse"}:
+        if self.dialect not in _POSTGRES_FAMILY and self.dialect != "clickhouse":
             raise QueryError(f"Array slices are not allowed in {self.dialect} dialect")
         node = cast(ast.ArraySlice, clone_expr(node))
         node.array = self.visit(node.array)
@@ -1556,7 +1558,7 @@ class Resolver(CloningVisitor):
         scope = self._get_scope()
         name = str(node.chain[0])
 
-        if self.dialect == "postgres" and len(node.chain) == 1:
+        if self.dialect in _POSTGRES_FAMILY and len(node.chain) == 1:
             keyword = name.lower()
             if keyword in POSTGRES_KEYWORD_TYPES and name not in scope.columns and name not in scope.aliases:
                 keyword_type = POSTGRES_KEYWORD_TYPES[keyword]
@@ -1599,7 +1601,7 @@ class Resolver(CloningVisitor):
         if (
             not type
             and len(node.chain) == 1
-            and self.dialect == "postgres"
+            and self.dialect in _POSTGRES_FAMILY
             and name.lower() in POSTGRES_KEYWORD_TYPES
             and name in scope.columns
         ):
@@ -1648,7 +1650,7 @@ class Resolver(CloningVisitor):
         if not type:
             if self.context.globals is not None and name in self.context.globals:
                 parsed_chain: list[str] = []
-                value = self.context.globals
+                value: Any = self.context.globals
                 for link in node.chain:
                     parsed_chain.append(str(link))
                     if isinstance(value, dict):
@@ -1824,46 +1826,42 @@ class Resolver(CloningVisitor):
 
     def visit_between_expr(self, node: ast.BetweenExpr):
         node = super().visit_between_expr(node)
-        if node is None:
-            return None
         node.type = ast.BooleanType(nullable=False)
         return node
 
     def visit_is_distinct_from(self, node: ast.IsDistinctFrom):
         node = super().visit_is_distinct_from(node)
-        if node is None:
-            return None
         node.type = ast.BooleanType(nullable=False)
         return node
 
     def visit_constant(self, node: ast.Constant):
         node = super().visit_constant(node)
-        if node is None:
-            return None
         node.type = resolve_constant_data_type(node.value)
         return node
 
     def visit_and(self, node: ast.And):
         node = super().visit_and(node)
-        if node is None:
-            return None
         node.type = ast.BooleanType(
-            nullable=any(expr.type.resolve_constant_type(self.context).nullable for expr in node.exprs)
+            nullable=any(
+                (expr.type or ast.UnknownType()).resolve_constant_type(self.context).nullable for expr in node.exprs
+            )
         )
         return node
 
     def visit_or(self, node: ast.Or):
         node = super().visit_or(node)
-        if node is None:
-            return None
         node.type = ast.BooleanType(
-            nullable=any(expr.type.resolve_constant_type(self.context).nullable for expr in node.exprs)
+            nullable=any(
+                (expr.type or ast.UnknownType()).resolve_constant_type(self.context).nullable for expr in node.exprs
+            )
         )
         return node
 
     def visit_not(self, node: ast.Not):
         node = super().visit_not(node)
-        node.type = ast.BooleanType(nullable=node.expr.type.resolve_constant_type(self.context).nullable)
+        node.type = ast.BooleanType(
+            nullable=(node.expr.type or ast.UnknownType()).resolve_constant_type(self.context).nullable
+        )
         return node
 
     def visit_compare_operation(self, node: ast.CompareOperation):

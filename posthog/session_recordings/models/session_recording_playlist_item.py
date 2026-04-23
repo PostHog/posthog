@@ -24,3 +24,9 @@ class SessionRecordingPlaylistItem(models.Model):
 
     class Meta:
         unique_together = ("recording", "playlist")
+        # The unique_together above indexes (recording, playlist) leading with recording,
+        # which cannot serve lookups by playlist alone. The playlist-only index is needed
+        # by the list API to batch-count items across a page of playlists.
+        indexes = [
+            models.Index(fields=["playlist"], name="srpi_playlist_idx"),
+        ]

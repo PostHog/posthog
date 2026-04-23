@@ -978,6 +978,10 @@ export class ApiRequest {
         return this.dashboardTemplates(teamId).addPathComponent(dashboardTemplateId)
     }
 
+    public dashboardTemplatesCopyBetweenProjects(teamId?: TeamType['id']): ApiRequest {
+        return this.dashboardTemplates(teamId).addPathComponent('copy_between_projects')
+    }
+
     public dashboardTemplateSchema(): ApiRequest {
         return this.dashboardTemplates().addPathComponent('json_schema')
     }
@@ -1582,6 +1586,10 @@ export class ApiRequest {
         return this.organizations().current().addPathComponent('integrations')
     }
 
+    public organizationIntegrationsDetail(id: IntegrationType['id']): ApiRequest {
+        return this.organizationIntegrations().addPathComponent(id)
+    }
+
     // # Organization OAuth Applications
     public organizationOAuthApplications(): ApiRequest {
         return this.organizations().current().addPathComponent('oauth_applications')
@@ -1874,6 +1882,14 @@ export class ApiRequest {
 
     public messagingCategoriesRemoveWebhookConfig(): ApiRequest {
         return this.messagingCategories().addPathComponent('remove_webhook_config')
+    }
+
+    public messagingCategoriesSaveTrackConfig(): ApiRequest {
+        return this.messagingCategories().addPathComponent('save_track_config')
+    }
+
+    public messagingCategoriesRemoveTrackConfig(): ApiRequest {
+        return this.messagingCategories().addPathComponent('remove_track_config')
     }
 
     public messagingPreferences(): ApiRequest {
@@ -3219,10 +3235,6 @@ const api = {
             return new ApiRequest().dashboardsDetail(id).get()
         },
 
-        async generateMetadata(id: number): Promise<{ name: string; description: string }> {
-            return await new ApiRequest().dashboardsDetail(id).withAction('generate_metadata').create({ data: {} })
-        },
-
         async createUnlistedDashboard(tag: string): Promise<DashboardType> {
             return new ApiRequest().dashboards().withAction('create_unlisted_dashboard').create({ data: { tag } })
         },
@@ -3303,8 +3315,11 @@ const api = {
             return await new ApiRequest().dashboardTemplates().withQueryString(toParams(params)).get()
         },
 
-        async get(dashboardTemplateId: DashboardTemplateType['id']): Promise<DashboardTemplateType> {
-            return await new ApiRequest().dashboardTemplatesDetail(dashboardTemplateId).get()
+        async get(
+            dashboardTemplateId: DashboardTemplateType['id'],
+            teamId?: TeamType['id']
+        ): Promise<DashboardTemplateType> {
+            return await new ApiRequest().dashboardTemplatesDetail(dashboardTemplateId, teamId).get()
         },
 
         async create(dashboardTemplateData: DashboardTemplateEditorType): Promise<DashboardTemplateType> {
@@ -3327,6 +3342,14 @@ const api = {
                     deleted: true,
                 },
             })
+        },
+        async copyBetweenProjects(
+            targetTeamId: TeamType['id'],
+            sourceTemplateId: DashboardTemplateType['id']
+        ): Promise<DashboardTemplateType> {
+            return await new ApiRequest()
+                .dashboardTemplatesCopyBetweenProjects(targetTeamId)
+                .create({ data: { source_template_id: sourceTemplateId } })
         },
         async getSchema(): Promise<Record<string, any>> {
             return await new ApiRequest().dashboardTemplateSchema().get()
@@ -3796,8 +3819,37 @@ const api = {
             auth_type: string
             api_key?: string
             description?: string
+            client_id?: string
+            client_secret?: string
         }): Promise<Record<string, any>> {
             return await new ApiRequest().mcpServerInstallations().withAction('install_custom').create({ data })
+        },
+        async installTemplate(data: { template_id: string; api_key?: string }): Promise<Record<string, any>> {
+            return await new ApiRequest().mcpServerInstallations().withAction('install_template').create({ data })
+        },
+        async listTools(
+            id: string,
+            params?: { include_removed?: boolean }
+        ): Promise<{ results: Record<string, any>[] }> {
+            return await new ApiRequest()
+                .mcpServerInstallation(id)
+                .withAction('tools')
+                .withQueryString(params?.include_removed ? { include_removed: '1' } : undefined)
+                .get()
+        },
+        async updateToolApproval(
+            id: string,
+            toolName: string,
+            approvalState: 'approved' | 'needs_approval' | 'do_not_use'
+        ): Promise<Record<string, any>> {
+            return await new ApiRequest()
+                .mcpServerInstallation(id)
+                .withAction('tools')
+                .withAction(encodeURIComponent(toolName))
+                .update({ data: { approval_state: approvalState } })
+        },
+        async refreshTools(id: string): Promise<{ results: Record<string, any>[] }> {
+            return await new ApiRequest().mcpServerInstallation(id).withAction('tools/refresh').create({ data: {} })
         },
     },
 
@@ -3925,6 +3977,10 @@ const api = {
                     .errorTrackingSymbolSets()
                     .withAction('bulk_delete')
                     .create({ data: { ids } })
+            },
+
+            async download(id: ErrorTrackingSymbolSet['id']): Promise<{ url: string }> {
+                return await new ApiRequest().errorTrackingSymbolSet(id).withAction('download').get()
             },
         },
 
@@ -5201,6 +5257,24 @@ const api = {
         async refreshSchemas(sourceId: ExternalDataSource['id']): Promise<{ added: number; deleted: number }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('refresh_schemas').create()
         },
+        async bulkUpdateSchemas(
+            sourceId: ExternalDataSource['id'],
+            schemas: Pick<
+                ExternalDataSourceSchema,
+                | 'id'
+                | 'should_sync'
+                | 'sync_type'
+                | 'incremental_field'
+                | 'incremental_field_type'
+                | 'sync_frequency'
+                | 'sync_time_of_day'
+                | 'cdc_table_mode'
+            >[]
+        ): Promise<ExternalDataSourceSchema[]> {
+            return await new ApiRequest().externalDataSource(sourceId).withAction('bulk_update_schemas').update({
+                data: { schemas },
+            })
+        },
         async update(
             sourceId: ExternalDataSource['id'],
             data: Partial<ExternalDataSource>
@@ -5629,6 +5703,9 @@ const api = {
         async list(): Promise<PaginatedResponse<IntegrationType>> {
             return await new ApiRequest().organizationIntegrations().get()
         },
+        async delete(id: IntegrationType['id']): Promise<void> {
+            await new ApiRequest().organizationIntegrationsDetail(id).delete()
+        },
     },
 
     organizationOAuthApplications: {
@@ -5703,8 +5780,25 @@ const api = {
     },
 
     alerts: {
-        async get(alertId: AlertType['id']): Promise<AlertType> {
-            return await new ApiRequest().alert(alertId).get()
+        /**
+         * Retrieve includes check history; pass `checksLimit` / `checksOffset` for pagination (newest first).
+         *
+         * Only forwarded when explicitly provided — omitting both lets the backend skip the `COUNT(*)` it runs
+         * for "X of Y" totals (see `AlertViewSet.retrieve`), so callers that only need a chart window or the
+         * default slice shouldn't pay for pagination bookkeeping.
+         */
+        async get(
+            alertId: AlertType['id'],
+            options?: { checksLimit?: number; checksOffset?: number }
+        ): Promise<AlertType> {
+            const params: Record<string, number> = {}
+            if (options?.checksLimit !== undefined) {
+                params.checks_limit = options.checksLimit
+            }
+            if (options?.checksOffset !== undefined) {
+                params.checks_offset = options.checksOffset
+            }
+            return await new ApiRequest().alert(alertId).withQueryString(params).get()
         },
         async create(data: Partial<AlertTypeWrite>): Promise<AlertType> {
             return await new ApiRequest().alerts().create({ data })

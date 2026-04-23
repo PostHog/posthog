@@ -60,6 +60,12 @@
             "default": "RetentionQuery",
             "type": "string"
         },
+        "output_format": {
+            "default": "optimized",
+            "description": "Output format. \"optimized\" returns a human-readable summary from server-side formatters (recommended for analysis). \"json\" returns the raw query results as JSON.",
+            "enum": ["optimized", "json"],
+            "type": "string"
+        },
         "properties": {
             "default": [],
             "description": "Property filters for all series",
@@ -605,8 +611,12 @@
                                     "description": "Custom name for the event if it is needed to be renamed.",
                                     "type": "string"
                                 },
+                                "id": {
+                                    "description": "The event name from the plan as a string. This is the field the retention query engine uses to match events, so it must be populated exactly as the event appears in the plan. For actions use `AssistantRetentionActionsNode` instead, where `id` is the numeric action ID.",
+                                    "type": "string"
+                                },
                                 "name": {
-                                    "description": "Event name from the plan.",
+                                    "description": "Optional human-readable label for the event, used for display only. Defaults to `id` if omitted and is never used for event matching.",
                                     "type": "string"
                                 },
                                 "properties": {
@@ -1127,17 +1137,17 @@
                                     "type": "string"
                                 }
                             },
-                            "required": ["name"],
+                            "required": ["id"],
                             "type": "object"
                         },
                         {
                             "properties": {
                                 "id": {
-                                    "description": "Action ID from the plan.",
+                                    "description": "The numeric action ID from the plan. This is the field the retention query engine uses to look up the action definition. For events use `AssistantRetentionEventsNode` instead, where `id` is the event name string.",
                                     "type": "number"
                                 },
                                 "name": {
-                                    "description": "Action name from the plan.",
+                                    "description": "Optional human-readable label for the action, used for display only. Defaults to the action's stored name if omitted and is never used for action matching.",
                                     "type": "string"
                                 },
                                 "properties": {
@@ -1658,7 +1668,7 @@
                                     "type": "string"
                                 }
                             },
-                            "required": ["id", "name"],
+                            "required": ["id"],
                             "type": "object"
                         }
                     ],
@@ -1672,8 +1682,12 @@
                                     "description": "Custom name for the event if it is needed to be renamed.",
                                     "type": "string"
                                 },
+                                "id": {
+                                    "description": "The event name from the plan as a string. This is the field the retention query engine uses to match events, so it must be populated exactly as the event appears in the plan. For actions use `AssistantRetentionActionsNode` instead, where `id` is the numeric action ID.",
+                                    "type": "string"
+                                },
                                 "name": {
-                                    "description": "Event name from the plan.",
+                                    "description": "Optional human-readable label for the event, used for display only. Defaults to `id` if omitted and is never used for event matching.",
                                     "type": "string"
                                 },
                                 "properties": {
@@ -2194,17 +2208,17 @@
                                     "type": "string"
                                 }
                             },
-                            "required": ["name"],
+                            "required": ["id"],
                             "type": "object"
                         },
                         {
                             "properties": {
                                 "id": {
-                                    "description": "Action ID from the plan.",
+                                    "description": "The numeric action ID from the plan. This is the field the retention query engine uses to look up the action definition. For events use `AssistantRetentionEventsNode` instead, where `id` is the event name string.",
                                     "type": "number"
                                 },
                                 "name": {
-                                    "description": "Action name from the plan.",
+                                    "description": "Optional human-readable label for the action, used for display only. Defaults to the action's stored name if omitted and is never used for action matching.",
                                     "type": "string"
                                 },
                                 "properties": {
@@ -2725,7 +2739,7 @@
                                     "type": "string"
                                 }
                             },
-                            "required": ["id", "name"],
+                            "required": ["id"],
                             "type": "object"
                         }
                     ],

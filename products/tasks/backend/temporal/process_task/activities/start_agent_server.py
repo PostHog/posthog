@@ -17,6 +17,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     format_allowed_domains_for_log,
     get_sandbox_ph_mcp_configs,
     get_user_mcp_server_configs,
+    mark_mcp_token_issued,
 )
 
 from .get_task_processing_context import TaskProcessingContext
@@ -120,7 +121,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         sandbox_url = input.sandbox_url
         connect_token = input.sandbox_connect_token
 
-        emit_agent_log(ctx.run_id, "info", "Starting agent server")
+        emit_agent_log(ctx.run_id, "debug", "Starting agent server")
 
         sandbox = Sandbox.get_by_id(input.sandbox_id)
 
@@ -142,6 +143,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
             token=access_token,
             project_id=ctx.team_id,
             scopes=scopes,
+            interaction_origin=ctx.interaction_origin,
         )
         if task.created_by_id:
             user_mcp_configs = get_user_mcp_server_configs(
@@ -197,6 +199,11 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 allowed_domains=ctx.allowed_domains,
             )
 
+            # Mark startup-time token issuance so follow-ups within the next
+            # 30m window skip the redundant refresh.
+            if mcp_configs:
+                mark_mcp_token_issued(ctx.run_id)
+
             # emit agentsh logs
             if ctx.allowed_domains:
                 _emit_agentsh_log_tail(ctx, sandbox)
@@ -224,7 +231,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         # domains are restricted so we can verify the env wrapper + DNS proxy work.
         _run_connectivity_diagnostics(ctx, sandbox)
 
-        emit_agent_log(ctx.run_id, "info", f"Agent server started at {sandbox_url}")
+        emit_agent_log(ctx.run_id, "debug", f"Agent server started at {sandbox_url}")
         activity.logger.info(f"Agent server started at {sandbox_url} for task {ctx.task_id}")
 
         return StartAgentServerOutput(sandbox_url=sandbox_url, connect_token=connect_token)
