@@ -141,6 +141,15 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             assert response.json()["results"][0]["content"] == "comment other reply"
             assert response.json()["results"][1]["content"] == "comment reply"
 
+    def test_list_returns_400_when_source_comment_is_not_a_uuid(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/comments?source_comment=not-a-uuid")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "source_comment"
+
+    def test_thread_returns_400_when_pk_is_not_a_uuid(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/comments/not-a-uuid/thread")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     @parameterized.expand(
         [
             ("no_comments", [], "", 0),

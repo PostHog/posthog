@@ -1,3 +1,5 @@
+import uuid
+
 from typing import Any, cast
 
 from django.db import transaction
@@ -155,7 +157,7 @@ class CommentListQueryParamsSerializer(serializers.Serializer):
     )
     item_id = serializers.CharField(required=False, help_text="Filter by the ID of the resource being commented on.")
     search = serializers.CharField(required=False, help_text="Full-text search within comment content.")
-    source_comment = serializers.CharField(required=False, help_text="Filter replies to a specific parent comment.")
+    source_comment = serializers.UUIDField(required=False, help_text="Filter replies to a specific parent comment.")
 
 
 @extend_schema(tags=["core", "platform_features"])
@@ -173,31 +175,36 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         params = self.request.GET.dict()
 
+        non_empty_params = {k: v for k, v in params.items() if v != ""}
+        query_params_serializer = CommentListQueryParamsSerializer(data=non_empty_params)
+        query_params_serializer.is_valid(raise_exception=True)
+        validated_params = query_params_serializer.validated_data
+
         if params.get("user"):
             queryset = queryset.filter(user=params.get("user"))
 
         if self.action != "partial_update" and params.get("deleted", "false") == "false":
             queryset = queryset.filter(deleted=False)
 
-        if params.get("scope"):
-            queryset = queryset.filter(scope=params.get("scope"))
+        if validated_params.get("scope"):
+            queryset = queryset.filter(scope=validated_params["scope"])
         else:
             # Exclude conversations_ticket comments by default - they use rich content
             # from SupportEditor and should only be viewed in the conversations product
             queryset = queryset.exclude(scope="conversations_ticket")
 
-        if params.get("item_id"):
-            queryset = queryset.filter(item_id=params.get("item_id"))
+        if validated_params.get("item_id"):
+            queryset = queryset.filter(item_id=validated_params["item_id"])
 
-        if params.get("search"):
-            queryset = queryset.filter(content__search=params.get("search"))
+        if validated_params.get("search"):
+            queryset = queryset.filter(content__search=validated_params["search"])
 
         if params.get("exclude_emoji_reactions") == "true":
             queryset = queryset.filter(
                 Q(item_context__isnull=True) | ~Q(item_context__has_key="is_emoji") | Q(item_context__is_emoji=False)
             )
 
-        source_comment = params.get("source_comment")
+        source_comment = validated_params.get("source_comment")
         if self.action == "thread":
             source_comment = self.kwargs.get("pk")
 
@@ -208,6 +215,11 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
 
     @action(methods=["GET"], detail=True)
     def thread(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        pk = self.kwargs.get("pk")
+        try:
+            uuid.UUID(str(pk))
+        except (TypeError, ValueError):
+            raise exceptions.ValidationError({"pk": "Must be a valid UUID."})
         return self.list(request, *args, **kwargs)
 
     @action(methods=["GET"], detail=False)
