@@ -25,11 +25,7 @@ type SourceDisplayStatus = {
     descriptionEl: string | JSX.Element
 }
 
-function getSourceDisplayStatus(
-    connector: SourceConfig,
-    unreleased: boolean,
-    featureFlag: boolean | undefined
-): SourceDisplayStatus {
+function getSourceDisplayStatus(unreleased: boolean, featureFlag: boolean | undefined): SourceDisplayStatus {
     const unreleasedDescriptionEl = 'Get notified when this source is available to connect'
     const releasedDescriptionEl = (
         <>
@@ -40,7 +36,7 @@ function getSourceDisplayStatus(
     // regardless of release status, those passing the feature flag should see a released source
     if (featureFlag === true) {
         return {
-            status: connector.betaSource ? 'beta' : 'stable',
+            status: 'stable',
             descriptionEl: releasedDescriptionEl,
         }
     }
@@ -53,7 +49,7 @@ function getSourceDisplayStatus(
     }
     // undefined feature flag should see whatever the release status is
     return {
-        status: unreleased ? 'coming_soon' : connector.betaSource ? 'beta' : 'stable',
+        status: unreleased ? 'coming_soon' : 'stable',
         descriptionEl: unreleased ? unreleasedDescriptionEl : releasedDescriptionEl,
     }
 }
@@ -85,11 +81,7 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                         featureFlagValue = !!featureFlagRaw
                     }
                     const unreleasedValue = !!connector.unreleasedSource
-                    const { status, descriptionEl } = getSourceDisplayStatus(
-                        connector,
-                        unreleasedValue,
-                        featureFlagValue
-                    )
+                    const { status, descriptionEl } = getSourceDisplayStatus(unreleasedValue, featureFlagValue)
 
                     return {
                         id: `managed-${connector.name}`,
@@ -106,6 +98,7 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                         masking: null,
                         free: true,
                         featured: connector.featured ?? false,
+                        releaseStatus: connector.releaseStatus,
                     }
                 })
                 const selfManaged = manualConnectors.map(

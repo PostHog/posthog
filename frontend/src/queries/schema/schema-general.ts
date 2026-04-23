@@ -5434,7 +5434,7 @@ export interface SourceConfig {
     disabledReason?: string | null
     existingSource?: boolean
     unreleasedSource?: boolean
-    betaSource?: boolean
+    releaseStatus?: 'alpha' | 'beta' | 'ga'
     iconPath: string
     featureFlag?: string
     iconClassName?: string

@@ -35013,9 +35013,6 @@
         "SourceConfig": {
             "additionalProperties": false,
             "properties": {
-                "betaSource": {
-                    "type": "boolean"
-                },
                 "caption": {
                     "anyOf": [
                         {
@@ -35060,6 +35057,10 @@
                     "$ref": "#/definitions/ExternalDataSourceType"
                 },
                 "permissionsCaption": {
+                    "type": "string"
+                },
+                "releaseStatus": {
+                    "enum": ["alpha", "beta", "ga"],
                     "type": "string"
                 },
                 "suggestedTables": {
