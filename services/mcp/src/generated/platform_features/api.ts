@@ -333,7 +333,7 @@ export const CommentsListQueryParams = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay).'),
     search: zod.string().min(1).optional().describe('Full-text search within comment content.'),
-    source_comment: zod.string().min(1).optional().describe('Filter replies to a specific parent comment.'),
+    source_comment: zod.string().optional().describe('Filter replies to a specific parent comment.'),
 })
 
 export const CommentsRetrieveParams = /* @__PURE__ */ zod.object({

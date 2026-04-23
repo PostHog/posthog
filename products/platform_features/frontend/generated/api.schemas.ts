@@ -1071,7 +1071,6 @@ export type CommentsListParams = {
     search?: string
     /**
      * Filter replies to a specific parent comment.
-     * @minLength 1
      */
     source_comment?: string
 }
