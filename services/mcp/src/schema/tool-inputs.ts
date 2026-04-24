@@ -356,6 +356,21 @@ export const QueryRunInputSchema = z.object({
     query: QueryRunQuerySchema,
 })
 
+export const QueryValidateInputSchema = z.object({
+    query: z
+        .string()
+        .min(1)
+        .describe(
+            'The HogQL (ClickHouse-flavored SQL) query to validate. Parsed and type-checked without executing, so there is no ClickHouse cost.'
+        ),
+    language: z
+        .enum(['hog_ql', 'hog_ql_expr', 'hog', 'hog_template'])
+        .default('hog_ql')
+        .describe(
+            "Language to validate. Defaults to 'hog_ql' (full SELECT statements). Use 'hog_ql_expr' for a bare expression, 'hog' or 'hog_template' for Hog source."
+        ),
+})
+
 // Entity Search
 export const EntitySearchSchema = z.object({
     query: z.string().min(1).describe('Search query to find entities by name or description'),
