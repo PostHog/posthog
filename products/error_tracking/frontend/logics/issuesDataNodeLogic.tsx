@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, props, selectors } from 'kea'
 import posthog from 'posthog-js'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -48,16 +48,6 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
         reloadData: () => ({}),
     }),
 
-    reducers({
-        loadStartTime: [
-            null as number | null,
-            {
-                loadData: () => performance.now(),
-                loadDataFailure: () => null,
-            },
-        ],
-    }),
-
     selectors({
         results: [
             (s) => [s.response],
@@ -65,13 +55,15 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
         ],
     }),
 
-    listeners(({ values, actions, props }) => ({
+    listeners(({ values, actions, props, cache }) => ({
+        loadData: () => {
+            cache.loadStartTime = performance.now()
+        },
         reloadData: () => {
             actions.loadData('force_blocking')
         },
         loadDataSuccess: () => {
-            const durationMs =
-                values.loadStartTime !== null ? Math.round(performance.now() - values.loadStartTime) : null
+            const durationMs = cache.loadStartTime != null ? Math.round(performance.now() - cache.loadStartTime) : null
 
             const response = values.response as Record<string, any> | null
             const results = response && 'results' in response ? response.results : []
@@ -209,7 +201,8 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
         mutationFailure: () => actions.reloadData(),
     })),
 
-    afterMount(({ values, actions }) => {
+    afterMount(({ values, actions, cache }) => {
+        cache.loadStartTime = performance.now()
         if (values.needsReload) {
             actions.clearNeedsReload()
             actions.reloadData()
