@@ -24,9 +24,9 @@ from products.event_definitions.backend.models.event_definition import EventDefi
 from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.models.web_experiment import WebExperiment
+from products.experiments.backend.presentation.saved_metric_serializers import ExperimentToSavedMetricSerializer
 
 from ee.api.test.base import APILicensedTest
-from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
 
 class TestExperimentCRUD(APILicensedTest):

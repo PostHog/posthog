@@ -803,10 +803,10 @@ register_grandfathered_environment_nested_viewset(r"saved", SavedHeatmapViewSet,
 register_grandfathered_environment_nested_viewset(r"sessions", SessionViewSet, "environment_sessions", ["team_id"])
 
 if EE_AVAILABLE:
+    from products.experiments.backend.presentation.saved_metrics import ExperimentSavedMetricViewSet
     from products.experiments.backend.presentation.views import EnterpriseExperimentsViewSet
 
     from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutViewSet
-    from ee.clickhouse.views.experiment_saved_metrics import ExperimentSavedMetricViewSet
     from ee.clickhouse.views.groups import GroupsTypesViewSet, GroupsViewSet, GroupUsageMetricViewSet
     from ee.clickhouse.views.insights import EnterpriseInsightsViewSet
     from ee.clickhouse.views.person import EnterprisePersonViewSet, LegacyEnterprisePersonViewSet

@@ -3,9 +3,6 @@ Tests for experiment facade API.
 
 These tests verify that the facade correctly wraps the existing
 ExperimentService and converts between Django models and DTOs.
-
-NOTE: Tests for feature_flag_filters format were removed in PR #4
-to keep the facade simple. Only the parameters format is tested here.
 """
 
 import pytest

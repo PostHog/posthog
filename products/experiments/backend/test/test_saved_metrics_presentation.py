@@ -1,3 +1,4 @@
+from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from rest_framework import status
@@ -5,10 +6,8 @@ from rest_framework import status
 from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService
 from products.experiments.backend.models.experiment import Experiment, ExperimentToSavedMetric
 
-from ee.api.test.base import APILicensedTest
 
-
-class TestExperimentSavedMetricsCRUD(APILicensedTest):
+class TestExperimentSavedMetricsCRUD(APIBaseTest):
     def test_http_saved_metric_validation_runs_once(self) -> None:
         original_validate_query = ExperimentSavedMetricService.validate_query
         validate_query_call_count = 0

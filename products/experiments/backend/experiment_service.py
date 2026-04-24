@@ -44,8 +44,7 @@ from products.experiments.backend.models.experiment import (
     holdout_filters_for_flag,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-
-from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
+from products.experiments.backend.presentation.saved_metric_serializers import ExperimentToSavedMetricSerializer
 
 logger = structlog.get_logger(__name__)
 

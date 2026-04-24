@@ -3,10 +3,6 @@ Tests for experiment contracts (DTOs).
 
 These tests verify that our frozen dataclasses are immutable,
 hashable, and have the correct structure.
-
-NOTE: Tests for FeatureFlagVariant and CreateFeatureFlagInput were removed
-in PR #4 to keep the facade simple. The facade only supports the old
-parameters format for now.
 """
 
 from datetime import UTC, datetime
