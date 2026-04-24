@@ -36,6 +36,7 @@ import {
     PathsFilter,
     PathsQuery,
     ProductAnalyticsInsightQueryNode,
+    ProductKey,
     RetentionFilter,
     RetentionQuery,
     StickinessFilter,
@@ -518,11 +519,12 @@ export const insightNavLogic = kea<insightNavLogicType>([
             if (isDataVisualizationNode(query)) {
                 router.actions.push(urls.sqlEditor({ query: query.source.query }))
             } else if (isInsightVizNode(query)) {
+                const source = values.queryPropertyCache
+                    ? mergeCachedProperties(query.source, values.queryPropertyCache)
+                    : query.source
                 actions.setQuery({
                     ...query,
-                    source: values.queryPropertyCache
-                        ? mergeCachedProperties(query.source, values.queryPropertyCache)
-                        : query.source,
+                    source: { ...source, tags: { productKey: ProductKey.PRODUCT_ANALYTICS } },
                 } as InsightVizNode)
             } else {
                 actions.setQuery(query)
