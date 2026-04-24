@@ -3,6 +3,7 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import {
     TraceTreeNode,
     getEffectiveEventId,
+    getHighlightedEventId,
     getInitialFocusEventId,
     getSingleTraceLoadTiming,
     resolveTraceEventById,
@@ -412,6 +413,36 @@ describe('resolveTraceEventById', () => {
 
     it('returns null when no event matches', () => {
         expect(resolveTraceEventById(showableEvents, 'missing')).toBeNull()
+    })
+})
+
+describe('getHighlightedEventId', () => {
+    it('returns event.id when event is an LLMTraceEvent', () => {
+        const event: LLMTraceEvent = {
+            id: 'internal-uuid',
+            event: '$ai_generation',
+            properties: { $ai_span_id: 'my-span' },
+            createdAt: '2024-01-01T00:00:00Z',
+        }
+        expect(getHighlightedEventId(event, 'my-span')).toBe('internal-uuid')
+    })
+
+    it('returns effectiveEventId when event is an LLMTrace', () => {
+        const trace: LLMTrace = {
+            id: 'trace-id',
+            distinctId: 'user-1',
+            events: [],
+            createdAt: '2024-01-01T00:00:00Z',
+        }
+        expect(getHighlightedEventId(trace, 'fallback-id')).toBe('fallback-id')
+    })
+
+    it('returns effectiveEventId when event is null', () => {
+        expect(getHighlightedEventId(null, 'fallback-id')).toBe('fallback-id')
+    })
+
+    it('returns null when both event and effectiveEventId are null', () => {
+        expect(getHighlightedEventId(null, null)).toBeNull()
     })
 })
 
