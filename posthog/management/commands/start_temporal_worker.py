@@ -532,8 +532,8 @@ class Command(BaseCommand):
 
         with asyncio.Runner() as runner:
             loop = runner.get_loop()
-
             configure_logger(loop=loop)
+
             logger = LOGGER.bind(
                 host=temporal_host,
                 port=temporal_port,

@@ -839,6 +839,7 @@ class SignalUserAutonomyConfigView(APIView):
     DELETE /api/users/<id>/signal_autonomy/ → remove (opt out)
     """
 
+    serializer_class = SignalUserAutonomyConfigSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "user"
@@ -856,6 +857,7 @@ class SignalUserAutonomyConfigView(APIView):
         except User.DoesNotExist:
             raise exceptions.NotFound()
 
+    @extend_schema(responses={200: SignalUserAutonomyConfigSerializer})
     def get(self, request, user_id, **kwargs):
         user = self._resolve_user(request, user_id)
         config = SignalUserAutonomyConfig.objects.filter(user=user).first()
@@ -863,6 +865,7 @@ class SignalUserAutonomyConfigView(APIView):
             return Response(status=status.HTTP_404_NOT_FOUND)
         return Response(SignalUserAutonomyConfigSerializer(config).data)
 
+    @extend_schema(responses={200: SignalUserAutonomyConfigSerializer})
     def post(self, request, user_id, **kwargs):
         from products.signals.backend.serializers import SignalUserAutonomyConfigCreateSerializer
 
@@ -875,6 +878,7 @@ class SignalUserAutonomyConfigView(APIView):
         )
         return Response(SignalUserAutonomyConfigSerializer(config).data)
 
+    @extend_schema(responses={204: None})
     def delete(self, request, user_id, **kwargs):
         user = self._resolve_user(request, user_id)
         SignalUserAutonomyConfig.objects.filter(user=user).delete()

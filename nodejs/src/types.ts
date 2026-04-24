@@ -874,6 +874,7 @@ export interface EventHeaders {
     now?: Date
     force_disable_person_processing: boolean
     historical_migration: boolean
+    skip_heatmap_processing: boolean
 }
 
 export interface IncomingEvent {

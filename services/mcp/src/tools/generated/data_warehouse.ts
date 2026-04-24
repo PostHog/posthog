@@ -52,17 +52,7 @@ import {
     WarehouseSavedQueriesRunCreateParams,
     WarehouseSavedQueriesRunHistoryRetrieveParams,
 } from '@/generated/data_warehouse/api'
-import {
-    ExternalDataSchemaCdcTableModeSchema,
-    ExternalDataSchemaIncrementalFieldSchema,
-    ExternalDataSchemaIncrementalFieldTypeSchema,
-    ExternalDataSchemaPrimaryKeyColumnsSchema,
-    ExternalDataSchemaSyncFrequencySchema,
-    ExternalDataSchemaSyncTimeOfDaySchema,
-    ExternalDataSchemaSyncTypeSchema,
-    ExternalDataSourcePayloadSchema,
-    ExternalDataSourceTypeSchema,
-} from '@/schema/tool-inputs'
+import { ExternalDataSourcePayloadSchema, ExternalDataSourceTypeSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -866,17 +856,9 @@ const externalDataSchemasRetrieve = (): ToolBase<
     },
 })
 
-const ExternalDataSchemasPartialUpdateSchema = ExternalDataSchemasPartialUpdateParams.omit({ project_id: true })
-    .extend(ExternalDataSchemasPartialUpdateBody.shape)
-    .extend({
-        sync_type: ExternalDataSchemaSyncTypeSchema.optional(),
-        sync_frequency: ExternalDataSchemaSyncFrequencySchema.optional(),
-        sync_time_of_day: ExternalDataSchemaSyncTimeOfDaySchema.optional(),
-        incremental_field: ExternalDataSchemaIncrementalFieldSchema.optional(),
-        incremental_field_type: ExternalDataSchemaIncrementalFieldTypeSchema.optional(),
-        primary_key_columns: ExternalDataSchemaPrimaryKeyColumnsSchema.optional(),
-        cdc_table_mode: ExternalDataSchemaCdcTableModeSchema.optional(),
-    })
+const ExternalDataSchemasPartialUpdateSchema = ExternalDataSchemasPartialUpdateParams.omit({ project_id: true }).extend(
+    ExternalDataSchemasPartialUpdateBody.shape
+)
 
 const externalDataSchemasPartialUpdate = (): ToolBase<
     typeof ExternalDataSchemasPartialUpdateSchema,

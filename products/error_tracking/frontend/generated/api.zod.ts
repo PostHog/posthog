@@ -296,25 +296,22 @@ export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod.object({
     ),
 })
 
-export const ErrorTrackingReleasesCreateBody = /* @__PURE__ */ zod.object({
-    hash_id: zod.string(),
-    metadata: zod.unknown().nullish(),
-    version: zod.string(),
-    project: zod.string(),
-})
-
-export const ErrorTrackingReleasesUpdateBody = /* @__PURE__ */ zod.object({
-    hash_id: zod.string(),
-    metadata: zod.unknown().nullish(),
-    version: zod.string(),
-    project: zod.string(),
-})
-
-export const ErrorTrackingReleasesPartialUpdateBody = /* @__PURE__ */ zod.object({
-    hash_id: zod.string().optional(),
-    metadata: zod.unknown().nullish(),
-    version: zod.string().optional(),
-    project: zod.string().optional(),
+export const ErrorTrackingSpikeDetectionConfigUpdateConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
+    snooze_duration_minutes: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('Time to wait before alerting again for the same issue after a spike is detected.'),
+    multiplier: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('The factor by which the current exception count must exceed the baseline to be considered a spike.'),
+    threshold: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('The minimum number of exceptions required in a 5-minute window before a spike can be detected.'),
 })
 
 export const ErrorTrackingStackFramesBatchGetCreateBody = /* @__PURE__ */ zod.object({
@@ -369,6 +366,27 @@ export const ErrorTrackingSuppressionRulesReorderPartialUpdateBody = /* @__PURE_
     sampling_rate: zod.number().optional(),
 })
 
+export const ErrorTrackingReleasesCreateBody = /* @__PURE__ */ zod.object({
+    hash_id: zod.string(),
+    metadata: zod.unknown().nullish(),
+    version: zod.string(),
+    project: zod.string(),
+})
+
+export const ErrorTrackingReleasesUpdateBody = /* @__PURE__ */ zod.object({
+    hash_id: zod.string(),
+    metadata: zod.unknown().nullish(),
+    version: zod.string(),
+    project: zod.string(),
+})
+
+export const ErrorTrackingReleasesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    hash_id: zod.string().optional(),
+    metadata: zod.unknown().nullish(),
+    version: zod.string().optional(),
+    project: zod.string().optional(),
+})
+
 export const ErrorTrackingSymbolSetsCreateBody = /* @__PURE__ */ zod.object({
     ref: zod.string(),
     last_used: zod.iso.datetime({}).nullish(),
@@ -419,83 +437,6 @@ export const ErrorTrackingSymbolSetsBulkStartUploadCreateBody = /* @__PURE__ */ 
 })
 
 export const ErrorTrackingSymbolSetsStartUploadCreateBody = /* @__PURE__ */ zod.object({
-    ref: zod.string(),
-    last_used: zod.iso.datetime({}).nullish(),
-    storage_ptr: zod.string().nullish(),
-    failure_reason: zod.string().nullish(),
-})
-
-export const ErrorTrackingReleasesCreate2Body = /* @__PURE__ */ zod.object({
-    hash_id: zod.string(),
-    metadata: zod.unknown().nullish(),
-    version: zod.string(),
-    project: zod.string(),
-})
-
-export const ErrorTrackingReleasesUpdate2Body = /* @__PURE__ */ zod.object({
-    hash_id: zod.string(),
-    metadata: zod.unknown().nullish(),
-    version: zod.string(),
-    project: zod.string(),
-})
-
-export const ErrorTrackingReleasesPartialUpdate2Body = /* @__PURE__ */ zod.object({
-    hash_id: zod.string().optional(),
-    metadata: zod.unknown().nullish(),
-    version: zod.string().optional(),
-    project: zod.string().optional(),
-})
-
-export const ErrorTrackingSymbolSetsCreate2Body = /* @__PURE__ */ zod.object({
-    ref: zod.string(),
-    last_used: zod.iso.datetime({}).nullish(),
-    storage_ptr: zod.string().nullish(),
-    failure_reason: zod.string().nullish(),
-})
-
-export const ErrorTrackingSymbolSetsUpdate2Body = /* @__PURE__ */ zod.object({
-    ref: zod.string(),
-    last_used: zod.iso.datetime({}).nullish(),
-    storage_ptr: zod.string().nullish(),
-    failure_reason: zod.string().nullish(),
-})
-
-export const ErrorTrackingSymbolSetsPartialUpdate2Body = /* @__PURE__ */ zod.object({
-    ref: zod.string().optional(),
-    last_used: zod.iso.datetime({}).nullish(),
-    storage_ptr: zod.string().nullish(),
-    failure_reason: zod.string().nullish(),
-})
-
-export const ErrorTrackingSymbolSetsFinishUploadUpdate2Body = /* @__PURE__ */ zod.object({
-    ref: zod.string(),
-    last_used: zod.iso.datetime({}).nullish(),
-    storage_ptr: zod.string().nullish(),
-    failure_reason: zod.string().nullish(),
-})
-
-export const ErrorTrackingSymbolSetsBulkDeleteCreate2Body = /* @__PURE__ */ zod.object({
-    ref: zod.string(),
-    last_used: zod.iso.datetime({}).nullish(),
-    storage_ptr: zod.string().nullish(),
-    failure_reason: zod.string().nullish(),
-})
-
-export const ErrorTrackingSymbolSetsBulkFinishUploadCreate2Body = /* @__PURE__ */ zod.object({
-    ref: zod.string(),
-    last_used: zod.iso.datetime({}).nullish(),
-    storage_ptr: zod.string().nullish(),
-    failure_reason: zod.string().nullish(),
-})
-
-export const ErrorTrackingSymbolSetsBulkStartUploadCreate2Body = /* @__PURE__ */ zod.object({
-    ref: zod.string(),
-    last_used: zod.iso.datetime({}).nullish(),
-    storage_ptr: zod.string().nullish(),
-    failure_reason: zod.string().nullish(),
-})
-
-export const ErrorTrackingSymbolSetsStartUploadCreate2Body = /* @__PURE__ */ zod.object({
     ref: zod.string(),
     last_used: zod.iso.datetime({}).nullish(),
     storage_ptr: zod.string().nullish(),
