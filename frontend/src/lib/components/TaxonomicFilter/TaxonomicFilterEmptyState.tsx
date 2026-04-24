@@ -177,6 +177,23 @@ const PageviewUrlsEmptyState = (): JSX.Element => {
     )
 }
 
+const PageviewEventsEmptyState = (): JSX.Element => {
+    const { hasPageview } = getProjectEventExistence()
+    const pageviewLabel = labelFor('$pageview', TaxonomicFilterGroupType.Events, 'Pageview')
+    const urlLabel = labelFor('$current_url', TaxonomicFilterGroupType.EventProperties, 'Current URL')
+    return (
+        <DescriptiveEmptyState
+            heading={`${pageviewLabel} events narrowed to one ${urlLabel}`}
+            explanation={`Picking a URL creates a ${pageviewLabel} event already filtered to that ${urlLabel} — handy for series like "${pageviewLabel.toLowerCase()}s of /pricing".`}
+            hint={
+                hasPageview
+                    ? 'Type at least 3 characters to search URLs we have seen.'
+                    : `No ${pageviewLabel} events have been ingested yet. Once your app sends them, URLs will appear here.`
+            }
+        />
+    )
+}
+
 const ScreensEmptyState = (): JSX.Element => {
     const { hasScreen } = getProjectEventExistence()
     const screenLabel = labelFor('$screen', TaxonomicFilterGroupType.Events, 'Screen')
@@ -194,12 +211,42 @@ const ScreensEmptyState = (): JSX.Element => {
     )
 }
 
-const EmailAddressesEmptyState = (): JSX.Element => {
+const ScreenEventsEmptyState = (): JSX.Element => {
+    const { hasScreen } = getProjectEventExistence()
+    const screenLabel = labelFor('$screen', TaxonomicFilterGroupType.Events, 'Screen')
+    const screenNameLabel = labelFor('$screen_name', TaxonomicFilterGroupType.EventProperties, 'Screen name')
     return (
         <DescriptiveEmptyState
-            heading="Events filtered by email address"
-            explanation="Pick an email to match events whose user email equals it — a shortcut for 'events, but only by this person'."
-            hint="Type at least 5 characters to search email addresses we have seen."
+            heading={`${screenLabel} events narrowed to one ${screenNameLabel}`}
+            explanation={`Picking a screen name creates a ${screenLabel} event already filtered to that ${screenNameLabel} — handy for series like "views of Settings".`}
+            hint={
+                hasScreen
+                    ? 'Type at least 3 characters to search screens we have seen.'
+                    : `No ${screenLabel} events have been ingested yet. Once your app sends them, screen names will appear here.`
+            }
+        />
+    )
+}
+
+const AutocaptureEventsEmptyState = (): JSX.Element => {
+    const autocaptureLabel = labelFor('$autocapture', TaxonomicFilterGroupType.Events, 'Autocapture')
+    const elementTextLabel = labelFor('$el_text', TaxonomicFilterGroupType.EventProperties, 'Element text')
+    return (
+        <DescriptiveEmptyState
+            heading={`${autocaptureLabel} events narrowed to one ${elementTextLabel}`}
+            explanation={`Picking an element creates an ${autocaptureLabel} event already filtered to that ${elementTextLabel.toLowerCase()} — handy for series like "clicks of Sign up".`}
+            hint="Type at least 3 characters to search element text we have seen."
+        />
+    )
+}
+
+const EmailAddressesEmptyState = (): JSX.Element => {
+    const emailLabel = labelFor('email', TaxonomicFilterGroupType.PersonProperties, 'Email address')
+    return (
+        <DescriptiveEmptyState
+            heading={`Persons filtered by ${emailLabel.toLowerCase()}`}
+            explanation={`Pick an email to match events by the person whose ${emailLabel.toLowerCase()} equals it — a shortcut for "events, but only by this person".`}
+            hint="Type at least 5 characters to search emails we have seen on person properties."
         />
     )
 }
@@ -215,7 +262,10 @@ const EMPTY_STATES: Partial<Record<TaxonomicFilterGroupType, React.ComponentType
     [TaxonomicFilterGroupType.RecentFilters]: RecentFiltersEmptyState,
     [TaxonomicFilterGroupType.PinnedFilters]: PinnedFiltersEmptyState,
     [TaxonomicFilterGroupType.PageviewUrls]: PageviewUrlsEmptyState,
+    [TaxonomicFilterGroupType.PageviewEvents]: PageviewEventsEmptyState,
     [TaxonomicFilterGroupType.Screens]: ScreensEmptyState,
+    [TaxonomicFilterGroupType.ScreenEvents]: ScreenEventsEmptyState,
+    [TaxonomicFilterGroupType.AutocaptureEvents]: AutocaptureEventsEmptyState,
     [TaxonomicFilterGroupType.EmailAddresses]: EmailAddressesEmptyState,
 } as const
 
