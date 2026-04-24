@@ -44,7 +44,16 @@ MAX_PROCESSING_WAIT_SECONDS = 300
 async def upload_video_to_gemini_activity(
     inputs: VideoSummarySingleSessionInputs, asset_id: int
 ) -> UploadVideoToGeminiOutput:
-    """Upload full video to Gemini for analysis and return file reference with duration, plus team name"""
+    """Upload full video to Gemini for analysis and return file reference with duration, plus team name.
+
+    If the activity fails any time after ``files.upload`` succeeded (e.g. the processing poll
+    times out or the final state isn't ``ACTIVE``), the orphaned Gemini file is deleted in a
+    ``finally`` block. Without this, Temporal's activity-level retries would upload a fresh
+    file on each attempt while the previous ones sit in Gemini storage for the full 48h TTL.
+    """
+    uploaded_file_name: str | None = None
+    raw_client: RawGenAIClient | None = None
+    succeeded = False
     try:
         # Fetch team name once here to avoid fetching it 100+ times in parallel segment analysis
         team_name = (await Team.objects.only("name").aget(id=inputs.team_id)).name
@@ -82,6 +91,8 @@ async def upload_video_to_gemini_activity(
             uploaded_file = await sync_to_async(raw_client.files.upload, thread_sensitive=False)(
                 file=tmp_file.name, config=types.UploadFileConfig(mime_type=asset.export_format)
             )
+            if uploaded_file.name:
+                uploaded_file_name = uploaded_file.name
             # Wait for file to be ready
             wait_start_time = time.time()
             while uploaded_file.state and uploaded_file.state.name == "PROCESSING":
@@ -106,6 +117,8 @@ async def upload_video_to_gemini_activity(
                 uploaded_file = await sync_to_async(raw_client.files.get, thread_sensitive=False)(
                     name=uploaded_file.name
                 )
+                if uploaded_file.name:
+                    uploaded_file_name = uploaded_file.name
             final_state_name = uploaded_file.state.name if uploaded_file.state else None
             if final_state_name != "ACTIVE":
                 raise RuntimeError(f"File processing failed. State: {final_state_name}")
@@ -127,7 +140,7 @@ async def upload_video_to_gemini_activity(
             )
             # Extract inactivity periods from export_context if available to avoid analyzing inactive segments
             inactivity_periods = asset.export_context.get("inactivity_periods") if asset.export_context else None
-            return UploadVideoToGeminiOutput(
+            result = UploadVideoToGeminiOutput(
                 uploaded_video=uploaded_video,
                 team_name=team_name,
                 # Converting to use proper types in calculations
@@ -137,6 +150,8 @@ async def upload_video_to_gemini_activity(
                     else [ReplayInactivityPeriod.model_validate(p) for p in inactivity_periods]
                 ),
             )
+            succeeded = True
+            return result
 
     except Exception as e:
         logger.exception(
@@ -145,3 +160,24 @@ async def upload_video_to_gemini_activity(
             signals_type="session-summaries",
         )
         raise
+    finally:
+        # If we uploaded a file but the activity didn't return it successfully (raise,
+        # cancellation, etc.), delete the orphan so Temporal retries don't stack up files
+        # in Gemini storage. Best-effort: failures here are logged but never swallow the
+        # original exception.
+        if not succeeded and uploaded_file_name and raw_client is not None:
+            try:
+                await sync_to_async(raw_client.files.delete, thread_sensitive=False)(name=uploaded_file_name)
+                logger.info(
+                    f"Deleted orphaned Gemini file {uploaded_file_name} for session {inputs.session_id}",
+                    gemini_file_name=uploaded_file_name,
+                    session_id=inputs.session_id,
+                    signals_type="session-summaries",
+                )
+            except Exception:
+                logger.exception(
+                    f"Failed to delete orphaned Gemini file {uploaded_file_name} for session {inputs.session_id}",
+                    gemini_file_name=uploaded_file_name,
+                    session_id=inputs.session_id,
+                    signals_type="session-summaries",
+                )

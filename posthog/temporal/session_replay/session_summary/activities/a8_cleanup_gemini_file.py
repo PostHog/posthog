@@ -15,20 +15,25 @@ logger = structlog.get_logger(__name__)
 
 @temporalio.activity.defn
 async def cleanup_gemini_file_activity(gemini_file_name: str, session_id: str) -> None:
-    """Delete an uploaded file from Gemini. Best-effort: logs failures but never raises."""
+    """Delete an uploaded file from Gemini.
+
+    Raises on failure so Temporal retries the activity — the workflow's ``RetryPolicy``
+    controls total attempts.
+    """
+    raw_client = RawGenAIClient(api_key=settings.GEMINI_API_KEY)
     try:
-        raw_client = RawGenAIClient(api_key=settings.GEMINI_API_KEY)
         await sync_to_async(raw_client.files.delete, thread_sensitive=False)(name=gemini_file_name)
-        logger.info(
-            f"Deleted Gemini file {gemini_file_name} for session {session_id}",
-            gemini_file_name=gemini_file_name,
-            session_id=session_id,
-            signals_type="session-summaries",
-        )
     except Exception:
         logger.exception(
-            f"Failed to delete Gemini file {gemini_file_name} for session {session_id}",
+            f"Failed to delete Gemini file {gemini_file_name} for session {session_id} — will be retried",
             gemini_file_name=gemini_file_name,
             session_id=session_id,
             signals_type="session-summaries",
         )
+        raise
+    logger.info(
+        f"Deleted Gemini file {gemini_file_name} for session {session_id}",
+        gemini_file_name=gemini_file_name,
+        session_id=session_id,
+        signals_type="session-summaries",
+    )

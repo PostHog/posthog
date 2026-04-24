@@ -575,16 +575,18 @@ async def ensure_llm_single_session_summary(
     team_name = upload_result["team_name"]
     inactivity_periods = upload_result["inactivity_periods"]
 
-    # Calculate segment specs based on video duration and activity periods
-    segment_specs = calculate_video_segment_specs(
-        video_duration=uploaded_video.duration,
-        chunk_duration=SESSION_VIDEO_CHUNK_DURATION_S,
-        inputs=inputs,
-        inactivity_periods=inactivity_periods,
-    )
-
-    # Activity 8 (cleanup) must run even if activities 3-7 fail
+    # Activity 8 (cleanup) must run even if anything after the upload fails, including
+    # video segment planning — ``calculate_video_segment_specs`` can raise on missing or
+    # invalid inactivity data and previously left orphaned files in Gemini storage.
     try:
+        # Calculate segment specs based on video duration and activity periods
+        segment_specs = calculate_video_segment_specs(
+            video_duration=uploaded_video.duration,
+            chunk_duration=SESSION_VIDEO_CHUNK_DURATION_S,
+            inputs=inputs,
+            inactivity_periods=inactivity_periods,
+        )
+
         # Activity 3: Analyze all segments in parallel (max 100 concurrent to limit blast radius)
         _set_phase(progress, "analyzing_segments")
         if progress is not None:
@@ -713,13 +715,22 @@ async def ensure_llm_single_session_summary(
             retry_policy=retry_policy,
         )
     finally:
-        # Activity 8: Delete uploaded video from Gemini to free storage quota
+        # Activity 8: Delete uploaded video from Gemini to free storage quota.
+        # ``asyncio.shield`` keeps the cleanup activity running even if the workflow is
+        # cancelled, and the higher retry count ensures transient delete failures don't
+        # leave the 20 GB project quota pinned until the 48h TTL kicks in.
         _set_phase(progress, "cleanup")
-        await temporalio.workflow.execute_activity(
-            cleanup_gemini_file_activity,
-            args=(uploaded_video.gemini_file_name, inputs.session_id),
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=2),
+        await asyncio.shield(
+            temporalio.workflow.execute_activity(
+                cleanup_gemini_file_activity,
+                args=(uploaded_video.gemini_file_name, inputs.session_id),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(
+                    maximum_attempts=5,
+                    initial_interval=timedelta(seconds=2),
+                    maximum_interval=timedelta(seconds=30),
+                ),
+            )
         )
 
 
