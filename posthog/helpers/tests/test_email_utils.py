@@ -390,8 +390,8 @@ class TestValidateMessageBody(SimpleTestCase):
         value = "Indented:\n\tline"
         self.assertEqual(validate_message_body(value), value)
 
-    def test_blank_normalises_to_none(self) -> None:
+    def test_blank_passes_through(self) -> None:
         self.assertIsNone(validate_message_body(None))
-        self.assertIsNone(validate_message_body(""))
-        self.assertIsNone(validate_message_body("   \n\t  "))
+        self.assertEqual(validate_message_body(""), "")
         self.assertEqual(validate_message_body("   "), "   ")
+        self.assertEqual(validate_message_body("   \n\t  "), "   \n\t  ")

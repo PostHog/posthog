@@ -28,7 +28,7 @@ logger = structlog.get_logger(__name__)
 
 _URL_RE = re.compile(r"\w+://|www\.", re.IGNORECASE)
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f\u0085\u2028\u2029]")
-_NON_NEWLINE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u0085\u2028\u2029]")
+_NON_NEWLINE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f\u0085\u2028\u2029]")
 _BRACKET_RE = re.compile(r"[<>]")
 _INVISIBLE_CHAR_RE = re.compile(r"[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]")
 
@@ -77,9 +77,8 @@ def validate_message_body(value: str | None) -> str | None:
     Validate a free-text message body. Newlines allowed; URLs, non-newline
     control chars, angle brackets, and invisible chars are not.
     """
-    if value is None or not value.strip():
+    if value is None:
         return None
-
     if _NON_NEWLINE_CONTROL_RE.search(value):
         raise serializers.ValidationError(_CONTROL_ERROR, code="invalid_control_char")
     if _INVISIBLE_CHAR_RE.search(value):
@@ -88,7 +87,6 @@ def validate_message_body(value: str | None) -> str | None:
         raise serializers.ValidationError(_BRACKET_ERROR, code="invalid_bracket")
     if _URL_RE.search(value):
         raise serializers.ValidationError(_URL_ERROR, code="invalid_url")
-
     return value
 
 
