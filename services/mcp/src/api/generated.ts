@@ -9383,6 +9383,128 @@ export namespace Schemas {
     }
 
     /**
+     * * `property_removal` - Property Removal
+    * `event_removal` - Event Removal
+    * `person_removal` - Person Removal
+     */
+    export type DataDeletionRequestRequestTypeEnum = typeof DataDeletionRequestRequestTypeEnum[keyof typeof DataDeletionRequestRequestTypeEnum];
+
+
+    export const DataDeletionRequestRequestTypeEnum = {
+      PropertyRemoval: 'property_removal',
+      EventRemoval: 'event_removal',
+      PersonRemoval: 'person_removal',
+    } as const;
+
+    /**
+     * * `draft` - Draft
+    * `pending` - Pending
+    * `approved` - Approved
+    * `in_progress` - In Progress
+    * `queued` - Queued
+    * `completed` - Completed
+    * `failed` - Failed
+     */
+    export type DataDeletionRequestStatusEnum = typeof DataDeletionRequestStatusEnum[keyof typeof DataDeletionRequestStatusEnum];
+
+
+    export const DataDeletionRequestStatusEnum = {
+      Draft: 'draft',
+      Pending: 'pending',
+      Approved: 'approved',
+      InProgress: 'in_progress',
+      Queued: 'queued',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * * `immediate` - Immediate
+    * `deferred` - Deferred
+     */
+    export type ExecutionModeEnum = typeof ExecutionModeEnum[keyof typeof ExecutionModeEnum];
+
+
+    export const ExecutionModeEnum = {
+      Immediate: 'immediate',
+      Deferred: 'deferred',
+    } as const;
+
+    export interface DataDeletionRequest {
+      readonly id: string;
+      /** property_removal: remove specific properties from matching events. event_removal: delete entire events matching the criteria.
+
+    * `property_removal` - Property Removal
+    * `event_removal` - Event Removal
+    * `person_removal` - Person Removal */
+      request_type: DataDeletionRequestRequestTypeEnum;
+      /** @nullable */
+      start_time?: string | null;
+      /** @nullable */
+      end_time?: string | null;
+      /** Event names to match. May be empty only when delete_all_events is true. */
+      events?: string[];
+      /** Opt in to deleting every event for the team in the given time range. Only honored for event_removal requests. Requires events to be empty. */
+      delete_all_events?: boolean;
+      /** Optional HogQL boolean expression to further narrow matching events. Validated against the events table at save time. Combined with the other filters (team/timestamp/events) via AND. Example: properties.$browser = 'Chrome'. */
+      hogql_predicate?: string;
+      /** Property names to remove. Required for property_removal requests. */
+      properties?: string[];
+      notes?: string;
+      readonly status: DataDeletionRequestStatusEnum;
+      readonly approved: boolean;
+      /** @nullable */
+      readonly approved_at: string | null;
+      /** Picked by ClickHouse Team at approval time. Immediate: run a dedicated delete mutation now. Deferred: queue event UUIDs into adhoc_events_deletion so the scheduled deletes_job drains them. Only honored for event_removal.
+
+    * `immediate` - Immediate
+    * `deferred` - Deferred */
+      readonly execution_mode: ExecutionModeEnum;
+      /**
+       * Number of events matching criteria
+       * @nullable
+       */
+      readonly count: number | null;
+      /**
+       * Earliest timestamp of matching events.
+       * @nullable
+       */
+      readonly min_timestamp: string | null;
+      /**
+       * Latest timestamp of matching events.
+       * @nullable
+       */
+      readonly max_timestamp: string | null;
+      /** @nullable */
+      readonly stats_calculated_at: string | null;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    /**
+     * * `event_removal` - event_removal
+    * `property_removal` - property_removal
+     */
+    export type DataDeletionRequestPreviewInputRequestTypeEnum = typeof DataDeletionRequestPreviewInputRequestTypeEnum[keyof typeof DataDeletionRequestPreviewInputRequestTypeEnum];
+
+
+    export const DataDeletionRequestPreviewInputRequestTypeEnum = {
+      EventRemoval: 'event_removal',
+      PropertyRemoval: 'property_removal',
+    } as const;
+
+    export interface DataDeletionRequestPreviewInput {
+      request_type: DataDeletionRequestPreviewInputRequestTypeEnum;
+      start_time: string;
+      end_time: string;
+      events?: string[];
+      delete_all_events?: boolean;
+      hogql_predicate?: string;
+      properties?: string[];
+    }
+
+    /**
      * * `Cancelled` - Cancelled
     * `Completed` - Completed
     * `Failed` - Failed
@@ -22520,6 +22642,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: DataColorTheme[];
+    }
+
+    export interface PaginatedDataDeletionRequestList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DataDeletionRequest[];
     }
 
     export interface PaginatedDataModelingJobList {
@@ -39404,6 +39535,17 @@ export namespace Schemas {
     };
 
     export type CustomerProfileConfigsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type DataDeletionRequestsListParams = {
     /**
      * Number of results to return per page.
      */
