@@ -55,12 +55,7 @@ class ExperimentViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, views
         # Call facade API
         # Type assertion: request.user is authenticated (enforced by DRF authentication)
         assert not request.user.is_anonymous
-        try:
-            experiment_dto = create_experiment(team=self.team, user=request.user, input_dto=input_dto)
-        except Exception:
-            # Let Django's exception handling deal with this
-            # (will be caught by DRF's exception handler)
-            raise
+        experiment_dto = create_experiment(team=self.team, user=request.user, input_dto=input_dto)
 
         # Convert DTO to response format using data from the facade
         # The experiment_dto already has all the data we need
