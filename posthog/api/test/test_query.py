@@ -22,17 +22,21 @@ from posthog.schema import (
     CachedRetentionQueryResponse,
     CohortPropertyFilter,
     EventPropertyFilter,
+    EventsNode,
     EventsQuery,
     HogLanguage,
     HogQLAutocomplete,
     HogQLPropertyFilter,
     HogQLQuery,
+    HogQLQueryModifiers,
+    InsightVizNode,
     MeanRetentionCalculation,
     PersonPropertyFilter,
     ProductKey,
     PropertyOperator,
     QueryLogTags,
     RetentionQuery,
+    TrendsQuery,
 )
 
 from posthog.hogql.constants import LimitContext
@@ -41,7 +45,9 @@ from posthog.api.monitoring import Feature
 from posthog.api.query import _infer_query_tags
 from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.clickhouse.query_tagging import QueryTags
+from posthog.models import Project
 from posthog.models.insight_variable import InsightVariable
+from posthog.models.organization import OrganizationMembership
 from posthog.models.utils import UUIDT
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
@@ -49,6 +55,32 @@ from products.event_definitions.backend.models.property_definition import Proper
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
     ENDPOINT = "query"
+
+    def test_insight_query_can_run_across_projects_when_enabled(self):
+        _, other_team = Project.objects.create_with_team(organization=self.organization, initiating_user=self.user)
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+            level=OrganizationMembership.Level.ADMIN
+        )
+        self.team.can_query_across_organization_projects = True
+        self.team.save()
+
+        _create_event(team=other_team, event="$pageview", distinct_id="other-user")
+        flush_persons_and_events()
+
+        query = InsightVizNode(
+            source=TrendsQuery(
+                series=[EventsNode(event="$pageview", name="Pageview")],
+                modifiers=HogQLQueryModifiers(teamsToQuery="all"),
+            )
+        )
+
+        response = process_query_model(self.team, query, user=self.user)
+
+        assert response.results is not None
+        assert len(response.results) == 1
+        assert "data" in response.results[0]
+        assert response.modifiers is not None
+        assert response.modifiers.teamsToQuery == "all"
 
     @snapshot_clickhouse_queries
     def test_select_hogql_expressions(self):

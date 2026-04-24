@@ -174,6 +174,7 @@ class CalendarHeatmapQueryRunner(AnalyticsQueryRunner[CalendarHeatmapResponse]):
             query_type="calendar_heatmap_query",
             query=query,
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
         )

@@ -10,6 +10,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.types import InsightQueryNode
 
 
@@ -20,6 +21,7 @@ class QueryContext(ABC):
     modifiers: HogQLQueryModifiers
     limit_context: LimitContext
     hogql_context: HogQLContext
+    user: User | None
     now: datetime
 
     def __init__(
@@ -29,10 +31,12 @@ class QueryContext(ABC):
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
+        user: User | None = None,
         now: Optional[datetime] = None,
     ):
         self.query = query
         self.team = team
+        self.user = user
         self.timings = timings or HogQLTimings()
         self.limit_context = limit_context or LimitContext.QUERY
         self.modifiers = create_default_modifiers_for_team(team, modifiers)
@@ -41,6 +45,7 @@ class QueryContext(ABC):
             enable_select_queries=True,
             timings=self.timings,
             modifiers=self.modifiers,
+            user=self.user,
         )
         self.now = now or datetime.now()
 

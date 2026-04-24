@@ -80,6 +80,7 @@ QUERY_VALIDATION_ERROR_TOTAL = Counter(
 # which is the signal to register them.
 _SCENE_TO_TAGS: dict[str, dict[str, Product | ProductKey | Feature]] = {
     "Cohort": {"product": ProductKey.COHORTS, "feature": Feature.COHORT},
+    "Insight": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.QUERY},
 }
 
 

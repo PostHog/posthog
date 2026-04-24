@@ -24,6 +24,7 @@ export function QueryTeamsToQueryToggle({ disabledReason }: QueryTeamsToQueryTog
 
     return (
         <LemonSwitch
+            bordered
             checked={sourceQuery.source.modifiers?.teamsToQuery === 'all'}
             onChange={(checked) => {
                 setSourceQuery({
@@ -40,7 +41,6 @@ export function QueryTeamsToQueryToggle({ disabledReason }: QueryTeamsToQueryTog
             }}
             disabledReason={disabledReason}
             label="Query all projects in this organization"
-            size="small"
         />
     )
 }

@@ -222,7 +222,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
     def _calculate_internal(self) -> tuple[list[EventOddsRatio], bool, str, HogQLQueryResponse]:
         query = self.to_query()
 
-        hogql = to_printed_hogql(query, self.team)
+        hogql = to_printed_hogql(query, self.team, user=self.user)
 
         response = execute_hogql_query(
             query_type="FunnelsQuery",

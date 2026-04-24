@@ -301,6 +301,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     query_type="TrendsActorsQueryOptions",
                     query=query,
                     team=self.team,
+                    user=self.user,
                     # timings=timings,
                     # modifiers=modifiers,
                 )
@@ -349,7 +350,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
     def _calculate(self):
         queries = self.to_queries()
-        response_hogql = get_response_hogql(queries, team=self.team, timings=self.timings, modifiers=self.modifiers)
+        response_hogql = get_response_hogql(
+            queries, team=self.team, timings=self.timings, modifiers=self.modifiers, user=self.user
+        )
 
         res_matrix: list[list[Any] | Any | None] = [None] * len(queries)
         timings_matrix: list[list[QueryTiming] | None] = [None] * (2 + len(queries))
@@ -373,6 +376,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     query_type="TrendsQuery",
                     query=query,
                     team=self.team,
+                    user=self.user,
                     timings=timings,
                     modifiers=self.modifiers,
                     limit_context=self.limit_context,

@@ -19,6 +19,7 @@ from posthog.hogql.timings import HogQLTimings
 
 from posthog.hogql_queries.utils.query_date_range import compare_interval_length
 from posthog.models.team.team import Team, WeekStartDay
+from posthog.models.user import User
 from posthog.queries.util import get_trunc_func_ch
 
 
@@ -75,6 +76,7 @@ def get_response_hogql(
     team: Team,
     timings: HogQLTimings,
     modifiers: Optional[HogQLQueryModifiers] = None,
+    user: User | None = None,
 ) -> str:
     if len(queries) == 0:
         return ""
@@ -82,4 +84,4 @@ def get_response_hogql(
     response_hogql_query = ast.SelectSetQuery.create_from_queries(queries, "UNION ALL")
 
     with timings.measure("printing_hogql_for_response"):
-        return to_printed_hogql(response_hogql_query, team, modifiers)
+        return to_printed_hogql(response_hogql_query, team, modifiers, user=user)

@@ -18,6 +18,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.query_context import QueryContext
 from posthog.models.property.util import box_value
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 
 class FunnelQueryContext(QueryContext):
@@ -38,12 +39,15 @@ class FunnelQueryContext(QueryContext):
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
+        user: User | None = None,
         include_timestamp: Optional[bool] = None,
         include_preceding_timestamp: Optional[bool] = None,
         include_properties: Optional[list[str]] = None,
         include_final_matching_events: Optional[bool] = None,
     ):
-        super().__init__(query=query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
+        super().__init__(
+            query=query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user
+        )
 
         self.includeTimestamp = include_timestamp
         self.includePrecedingTimestamp = include_preceding_timestamp

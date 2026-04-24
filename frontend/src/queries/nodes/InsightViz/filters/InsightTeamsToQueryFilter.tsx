@@ -30,6 +30,7 @@ export function InsightTeamsToQueryFilter({
 
     return (
         <LemonSwitch
+            bordered
             checked={modifiers.teamsToQuery === 'all'}
             onChange={(checked) =>
                 setQuery({
@@ -42,7 +43,6 @@ export function InsightTeamsToQueryFilter({
             }
             disabledReason={disabledReason}
             label="Query all projects in this organization"
-            size="small"
         />
     )
 }
