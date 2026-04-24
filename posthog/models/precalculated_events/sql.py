@@ -96,7 +96,7 @@ def KAFKA_PRECALCULATED_EVENTS_TABLE_SQL():
 CREATE TABLE IF NOT EXISTS {table_name}
 (
     team_id Int64,
-    date Date,
+    date Nullable(Date),
     distinct_id String,
     person_id UUID,
     condition String,
@@ -115,7 +115,7 @@ def PRECALCULATED_EVENTS_MV_SQL():
 CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} TO {writable_table_name}
 AS SELECT
     team_id,
-    if(date = toDate('1970-01-01'), toDate(_timestamp), date) AS date,
+    ifNull(date, toDate(_timestamp)) AS date,
     distinct_id,
     person_id,
     condition,
@@ -148,7 +148,7 @@ def KAFKA_PRECALCULATED_EVENTS_WS_TABLE_SQL():
 CREATE TABLE IF NOT EXISTS {table_name}
 (
     team_id Int64,
-    date Date,
+    date Nullable(Date),
     distinct_id String,
     person_id UUID,
     condition String,
@@ -171,7 +171,7 @@ def PRECALCULATED_EVENTS_WS_MV_SQL():
 CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} TO {writable_table_name}
 AS SELECT
     team_id,
-    if(date = toDate('1970-01-01'), toDate(_timestamp), date) AS date,
+    ifNull(date, toDate(_timestamp)) AS date,
     distinct_id,
     person_id,
     condition,

@@ -583,7 +583,7 @@
   CREATE TABLE IF NOT EXISTS kafka_precalculated_events
   (
       team_id Int64,
-      date Date,
+      date Nullable(Date),
       distinct_id String,
       person_id UUID,
       condition String,
@@ -2297,7 +2297,7 @@
   CREATE TABLE IF NOT EXISTS kafka_precalculated_events
   (
       team_id Int64,
-      date Date,
+      date Nullable(Date),
       distinct_id String,
       person_id UUID,
       condition String,
@@ -3299,7 +3299,7 @@
   CREATE MATERIALIZED VIEW IF NOT EXISTS precalculated_events_mv TO writable_precalculated_events
   AS SELECT
       team_id,
-      if(date = toDate('1970-01-01'), toDate(_timestamp), date) AS date,
+      ifNull(date, toDate(_timestamp)) AS date,
       distinct_id,
       person_id,
       condition,
