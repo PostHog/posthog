@@ -10,6 +10,7 @@ import {
     LemonInput,
     LemonInputSelect,
     LemonSelect,
+    LemonModal,
     LemonTable,
     LemonTableColumns,
     LemonTag,
