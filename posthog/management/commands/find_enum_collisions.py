@@ -64,9 +64,9 @@ class Command(BaseCommand):
         gen = SchemaGenerator()
 
         orig_hooks = list(spectacular_settings.POSTPROCESSING_HOOKS)
-        spectacular_settings.POSTPROCESSING_HOOKS = []
+        spectacular_settings.POSTPROCESSING_HOOKS = []  # type: ignore[attr-defined]
         schema = gen.get_schema(request=None, public=True)
-        spectacular_settings.POSTPROCESSING_HOOKS = orig_hooks
+        spectacular_settings.POSTPROCESSING_HOOKS = orig_hooks  # type: ignore[attr-defined]
 
         schemas = schema.get("components", {}).get("schemas", {})
         overrides = load_enum_name_overrides()
