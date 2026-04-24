@@ -80,9 +80,9 @@ export const OutputTypeEnumApi = {
  * `openrouter` - Openrouter
  * `fireworks` - Fireworks
  */
-export type Provider2f4EnumApi = (typeof Provider2f4EnumApi)[keyof typeof Provider2f4EnumApi]
+export type LLMProviderEnumApi = (typeof LLMProviderEnumApi)[keyof typeof LLMProviderEnumApi]
 
-export const Provider2f4EnumApi = {
+export const LLMProviderEnumApi = {
     Openai: 'openai',
     Anthropic: 'anthropic',
     Gemini: 'gemini',
@@ -94,7 +94,7 @@ export const Provider2f4EnumApi = {
  * Nested serializer for model configuration.
  */
 export interface ModelConfigurationApi {
-    provider: Provider2f4EnumApi
+    provider: LLMProviderEnumApi
     /** @maxLength 100 */
     model: string
     /** @nullable */
@@ -800,7 +800,7 @@ export const LLMProviderKeyStateEnumApi = {
 
 export interface LLMProviderKeyApi {
     readonly id: string
-    provider: Provider2f4EnumApi
+    provider: LLMProviderEnumApi
     /** @maxLength 255 */
     name: string
     readonly state: LLMProviderKeyStateEnumApi
@@ -826,7 +826,7 @@ export interface PaginatedLLMProviderKeyListApi {
 
 export interface PatchedLLMProviderKeyApi {
     readonly id?: string
-    provider?: Provider2f4EnumApi
+    provider?: LLMProviderEnumApi
     /** @maxLength 255 */
     name?: string
     readonly state?: LLMProviderKeyStateEnumApi
@@ -925,9 +925,9 @@ export interface PatchedReviewQueueUpdateApi {
  * `numeric` - numeric
  * `boolean` - boolean
  */
-export type KindD08EnumApi = (typeof KindD08EnumApi)[keyof typeof KindD08EnumApi]
+export type ExperimentMetricKindEnumApi = (typeof ExperimentMetricKindEnumApi)[keyof typeof ExperimentMetricKindEnumApi]
 
-export const KindD08EnumApi = {
+export const ExperimentMetricKindEnumApi = {
     Categorical: 'categorical',
     Numeric: 'numeric',
     Boolean: 'boolean',
@@ -1013,7 +1013,7 @@ export interface ScoreDefinitionApi {
     readonly id: string
     readonly name: string
     readonly description: string
-    readonly kind: KindD08EnumApi
+    readonly kind: ExperimentMetricKindEnumApi
     readonly archived: boolean
     /** Current immutable configuration version number. */
     readonly current_version: number
@@ -1052,7 +1052,7 @@ export interface ScoreDefinitionCreateApi {
 * `categorical` - categorical
 * `numeric` - numeric
 * `boolean` - boolean */
-    kind: KindD08EnumApi
+    kind: ExperimentMetricKindEnumApi
     /** New scorers are always created as active. */
     archived?: boolean
     /** Initial immutable scorer configuration. */
@@ -1146,9 +1146,9 @@ export const SummarizeTypeEnumApi = {
  * * `minimal` - minimal
  * `detailed` - detailed
  */
-export type ModeE35EnumApi = (typeof ModeE35EnumApi)[keyof typeof ModeE35EnumApi]
+export type DetailModeValueEnumApi = (typeof DetailModeValueEnumApi)[keyof typeof DetailModeValueEnumApi]
 
-export const ModeE35EnumApi = {
+export const DetailModeValueEnumApi = {
     Minimal: 'minimal',
     Detailed: 'detailed',
 } as const
@@ -1163,7 +1163,7 @@ export interface SummarizeRequestApi {
 
 * `minimal` - minimal
 * `detailed` - detailed */
-    mode?: ModeE35EnumApi
+    mode?: DetailModeValueEnumApi
     /** Data to summarize. For traces: {trace, hierarchy}. For events: {event}. Not required when using trace_id or generation_id. */
     data?: unknown
     /** Force regenerate summary, bypassing cache */
@@ -1229,7 +1229,7 @@ export interface BatchCheckRequestApi {
 
 * `minimal` - minimal
 * `detailed` - detailed */
-    mode?: ModeE35EnumApi
+    mode?: DetailModeValueEnumApi
     /**
      * LLM model used for cached summaries
      * @nullable
@@ -1443,6 +1443,19 @@ export interface PatchedTraceReviewUpdateApi {
      * @nullable
      */
     queue_id?: string | null
+}
+
+export interface TranslateRequestApi {
+    /**
+     * The text to translate
+     * @maxLength 10000
+     */
+    text: string
+    /**
+     * Target language code (default: 'en' for English)
+     * @maxLength 10
+     */
+    target_language?: string
 }
 
 export interface LLMPromptOutlineEntryApi {
@@ -1983,6 +1996,8 @@ export interface PatchedDatasetApi {
     readonly team?: number
 }
 
+export type EvaluationRunsCreate200 = { [key: string]: unknown }
+
 export type EvaluationsListParams = {
     /**
      * Filter by enabled status
@@ -2017,6 +2032,10 @@ export type EvaluationsListParams = {
     search?: string
 }
 
+export type LlmAnalyticsClusteringConfigRetrieve200 = { [key: string]: unknown }
+
+export type LlmAnalyticsClusteringConfigSetEventFiltersCreate200 = { [key: string]: unknown }
+
 export type LlmAnalyticsClusteringJobsListParams = {
     /**
      * Number of results to return per page.
@@ -2027,6 +2046,10 @@ export type LlmAnalyticsClusteringJobsListParams = {
      */
     offset?: number
 }
+
+export type LlmAnalyticsEvaluationConfigRetrieve200 = { [key: string]: unknown }
+
+export type LlmAnalyticsEvaluationConfigSetActiveKeyCreate200 = { [key: string]: unknown }
 
 export type LlmAnalyticsEvaluationReportsListParams = {
     /**
@@ -2057,6 +2080,10 @@ export type LlmAnalyticsEvaluationSummaryCreate403 = { [key: string]: unknown }
 export type LlmAnalyticsEvaluationSummaryCreate404 = { [key: string]: unknown }
 
 export type LlmAnalyticsEvaluationSummaryCreate500 = { [key: string]: unknown }
+
+export type LlmAnalyticsModelsRetrieve200 = { [key: string]: unknown }
+
+export type LlmAnalyticsProviderKeyValidationsCreate200 = { [key: string]: unknown }
 
 export type LlmAnalyticsProviderKeysListParams = {
     /**
@@ -2201,6 +2228,8 @@ export type LlmAnalyticsTraceReviewsListParams = {
      */
     trace_id__in?: string
 }
+
+export type LlmAnalyticsTranslateCreate200 = { [key: string]: unknown }
 
 export type LlmPromptsListParams = {
     /**

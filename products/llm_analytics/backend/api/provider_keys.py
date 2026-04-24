@@ -3,11 +3,14 @@ import logging
 from django.db import transaction
 from django.db.models import Q, QuerySet
 
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -421,8 +424,10 @@ class LLMProviderKeyValidationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Validate LLM provider API keys without persisting them"""
 
     scope_object = "llm_provider_key"
+    serializer_class = _FallbackSerializer
     permission_classes = [TeamMemberStrictManagementPermission]
 
+    @extend_schema(responses={200: OpenApiTypes.OBJECT})
     @llma_track_latency("llma_provider_key_validations_create")
     @monitor(feature=None, endpoint="llma_provider_key_validations_create", method="POST")
     def create(self, request: Request, **_kwargs) -> Response:

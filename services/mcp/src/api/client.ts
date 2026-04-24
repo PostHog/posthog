@@ -949,7 +949,7 @@ export class ApiClient {
                         const recordingLinks = (row[2] ?? [])
                             .map((r: any) => r.session_id)
                             .filter(Boolean)
-                            .map((sessionId: string) => `${baseUrl}/replay/home?sessionRecordingId=${sessionId}`)
+                            .map((sessionId: string) => `${baseUrl}/replay/${sessionId}`)
                         return [...base, recordingLinks]
                     }
                     return base

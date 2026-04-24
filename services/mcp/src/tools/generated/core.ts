@@ -3,9 +3,9 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
-    PartialUpdate2Body,
-    PartialUpdate2Params,
-    Retrieve2Params,
+    OrganizationsProjectsPartialUpdateBody,
+    OrganizationsProjectsPartialUpdateParams,
+    OrganizationsProjectsRetrieveParams,
     SubscriptionsCreateBody,
     SubscriptionsDeliveriesListParams,
     SubscriptionsDeliveriesListQueryParams,
@@ -22,8 +22,10 @@ import {
 import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const ProjectGetSchema = Retrieve2Params.omit({ organization_id: true }).extend({
-    id: Retrieve2Params.shape['id'].describe("Project ID, or `@current` to fetch the caller's active project."),
+const ProjectGetSchema = OrganizationsProjectsRetrieveParams.omit({ organization_id: true }).extend({
+    id: OrganizationsProjectsRetrieveParams.shape['id'].describe(
+        "Project ID, or `@current` to fetch the caller's active project."
+    ),
 })
 
 const projectGet = (): ToolBase<typeof ProjectGetSchema, Schemas.ProjectBackwardCompat> => ({
@@ -45,10 +47,10 @@ const projectGet = (): ToolBase<typeof ProjectGetSchema, Schemas.ProjectBackward
     },
 })
 
-const ProjectSettingsUpdateSchema = PartialUpdate2Params.omit({ organization_id: true })
-    .extend(PartialUpdate2Body.shape)
+const ProjectSettingsUpdateSchema = OrganizationsProjectsPartialUpdateParams.omit({ organization_id: true })
+    .extend(OrganizationsProjectsPartialUpdateBody.shape)
     .extend({
-        id: PartialUpdate2Params.shape['id'].describe(
+        id: OrganizationsProjectsPartialUpdateParams.shape['id'].describe(
             "Project ID, or `@current` to target the caller's active project."
         ),
     })
