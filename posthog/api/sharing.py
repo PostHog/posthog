@@ -763,8 +763,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             exported_data.update({"themes": get_themes_for_team(resource.team)})
             dashboard_insights = [
                 tile.insight
-                for tile in resource.dashboard.tiles.all()
-                if tile.insight is not None and not tile.insight.deleted
+                for tile in resource.dashboard.tiles.select_related("insight").filter(insight__deleted=False)
+                if tile.insight is not None
             ]
             exported_data.update({"cohorts": _collect_cohorts_for_sharing(dashboard_insights, resource.team)})
         elif (
