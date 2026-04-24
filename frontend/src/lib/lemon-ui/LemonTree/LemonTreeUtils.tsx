@@ -220,37 +220,52 @@ export const TreeNodeDroppable = (props: DroppableProps): JSX.Element => {
     }
 
     const isReorder = props.dropMode === 'reorder' && props.isDroppable
+    const onPositionChange = props.onPositionChange
+    const propsId = props.id
 
-    const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>): void => {
-        if (!isReorder || !nodeRef.current) {
+    // While the user is hovering this row mid-drag, track the pointer at the document
+    // level so we reliably know whether they're over the top or bottom half — React's
+    // onPointerMove on the node can miss updates if the pointer barely moves or the
+    // drag preview briefly covers the row.
+    useEffect(() => {
+        if (!isReorder || !isOver) {
+            setReorderSide(null)
             return
         }
-        const rect = nodeRef.current.getBoundingClientRect()
-        const side: 'before' | 'after' = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
-        if (side !== reorderSide) {
-            setReorderSide(side)
-            props.onPositionChange?.(props.id, side)
+        const updateFromClientY = (clientY: number): void => {
+            if (!nodeRef.current) {
+                return
+            }
+            const rect = nodeRef.current.getBoundingClientRect()
+            const side: 'before' | 'after' = clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+            setReorderSide((prev) => {
+                if (prev !== side) {
+                    onPositionChange?.(propsId, side)
+                    return side
+                }
+                return prev
+            })
         }
-    }
-
-    useEffect(() => {
-        if (!isOver) {
-            setReorderSide(null)
-        }
-    }, [isOver])
+        const handleMove = (e: PointerEvent): void => updateFromClientY(e.clientY)
+        document.addEventListener('pointermove', handleMove)
+        return () => document.removeEventListener('pointermove', handleMove)
+    }, [isReorder, isOver, onPositionChange, propsId])
 
     const showRing = props.isDroppable && isOver && !isReorder
     const showLineBefore = isReorder && isOver && reorderSide === 'before'
     const showLineAfter = isReorder && isOver && reorderSide === 'after'
+    // While in reorder mode and hovered but the side hasn't been resolved yet,
+    // render a neutral full-height halo so there's always some visible affordance.
+    const showReorderPending = isReorder && isOver && reorderSide === null
 
     return (
         <div
             ref={setRefs}
-            onPointerMove={isReorder ? handlePointerMove : undefined}
             className={cn(
                 'flex flex-col transition-all duration-150 rounded relative z-2 ',
                 props.className,
                 showRing && 'ring-2 ring-inset ring-accent bg-accent-highlight-secondary',
+                showReorderPending && 'bg-accent-highlight-secondary',
                 // If the item is a root item and it's dragging, make it take up the full height
                 props.isRoot && props.isDragging && 'h-full'
             )}
