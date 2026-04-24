@@ -138,6 +138,7 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
         loadFileContents: true,
         setFileContentsLoading: (loading: boolean) => ({ loading }),
         toggleOutlineExpanded: true,
+        setCompareVersion: (compareVersion: number | null) => ({ compareVersion }),
     }),
 
     reducers(({ props }) => ({
@@ -182,6 +183,20 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                 setMode: (_, { mode }) => mode,
             },
         ],
+        compareVersion: [
+            null as number | null,
+            {
+                setCompareVersion: (_, { compareVersion }) => compareVersion,
+                loadSkillSuccess: () => null,
+            },
+        ],
+        compareSkill: [
+            null as LLMSkillApi | null,
+            {
+                setCompareVersion: () => null,
+                loadSkillSuccess: () => null,
+            },
+        ],
     })),
 
     loaders(({ props }) => ({
@@ -191,6 +206,13 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                 fetchResolvedSkill(props.skillName, {
                     version: props.selectedVersion ?? undefined,
                 }),
+        },
+        compareSkill: {
+            __default: null as LLMSkillApi | null,
+            loadCompareSkill: async (version: number) => {
+                const resolved = await fetchResolvedSkill(props.skillName, { version, limit: 1 })
+                return resolved as LLMSkillApi
+            },
         },
     })),
 
@@ -359,6 +381,25 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
         versions: [(s) => [s.skill], (skill): LLMSkillVersionSummaryApi[] => (isSkill(skill) ? skill.versions : [])],
 
         canLoadMoreVersions: [(s) => [s.skill], (skill) => (isSkill(skill) ? skill.has_more : false)],
+
+        isDiffVisible: [(s) => [s.compareVersion], (compareVersion): boolean => compareVersion !== null],
+
+        canCompareVersions: [(s) => [s.skill], (skill): boolean => isSkill(skill) && skill.version_count > 1],
+
+        compareVersionOptions: [
+            (s) => [s.skill, s.versions],
+            (skill, versions: LLMSkillVersionSummaryApi[]): Array<{ value: number; label: string }> => {
+                if (!isSkill(skill)) {
+                    return []
+                }
+                return versions
+                    .filter((v) => v.version !== skill.version)
+                    .map((v) => ({
+                        value: v.version,
+                        label: `v${v.version}${v.is_latest ? ' (latest)' : ''}`,
+                    }))
+            },
+        ],
     }),
 
     listeners(({ actions, props, values }) => ({
@@ -451,6 +492,16 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                 actions.resetSkillForm()
                 actions.setSkillFormValues(getSkillFormDefaults(skill))
             }
+        },
+
+        setCompareVersion: ({ compareVersion }) => {
+            if (compareVersion !== null) {
+                actions.loadCompareSkill(compareVersion)
+            }
+        },
+
+        loadCompareSkillFailure: () => {
+            lemonToast.error('Failed to load comparison version')
         },
     })),
 

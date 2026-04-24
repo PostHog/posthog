@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from django.db import transaction
 from django.db.models.query import QuerySet
 from django.http import JsonResponse
@@ -23,22 +25,47 @@ from posthog.models.cohort.cohort import Cohort
 from posthog.models.organization import OrganizationMembership
 from posthog.tasks.email import send_error_tracking_issue_assigned
 
+from products.error_tracking.backend.facade import api as facade_api
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueCohort,
-    ErrorTrackingIssueFingerprintV2,
     sync_issues_to_clickhouse,
 )
 
 from .external_references import ErrorTrackingExternalReferenceSerializer
 from .utils import ErrorTrackingIssueAssignmentSerializer
 
+IssueNotFoundError = facade_api.IssueNotFoundError
+
 DEFAULT_EMBEDDING_MODEL_NAME = "text-embedding-3-large"
 DEFAULT_EMBEDDING_VERSION = 1
 DEFAULT_MIN_DISTANCE_THRESHOLD = 0.10
 
 logger = structlog.get_logger(__name__)
+
+
+class ErrorTrackingIssueAssigneeReadSerializer(serializers.Serializer):
+    id = serializers.CharField(allow_null=True)
+    type = serializers.CharField()
+
+
+class ErrorTrackingIssueCohortReadSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+
+
+class ErrorTrackingIssueReadSerializer(serializers.Serializer):
+    """Read-only serializer for issue contract types returned by the facade."""
+
+    id = serializers.UUIDField()
+    status = serializers.CharField()
+    name = serializers.CharField(allow_null=True)
+    description = serializers.CharField(allow_null=True)
+    first_seen = serializers.DateTimeField(allow_null=True)
+    assignee = ErrorTrackingIssueAssigneeReadSerializer(allow_null=True)
+    external_issues = ErrorTrackingExternalReferenceSerializer(many=True)
+    cohort = ErrorTrackingIssueCohortReadSerializer(allow_null=True)
 
 
 class ErrorTrackingIssuePreviewSerializer(serializers.ModelSerializer):
@@ -198,27 +225,21 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         return Response({"exists": has_issues})
 
     def retrieve(self, request, *args, **kwargs):
+        issue_id = UUID(str(kwargs["pk"]))
         fingerprint = self.request.GET.get("fingerprint")
+
         if fingerprint:
-            fingerprint_queryset = ErrorTrackingIssueFingerprintV2.objects.select_related("issue").filter(
-                team=self.team
-            )
-            record = fingerprint_queryset.filter(fingerprint=fingerprint).first()
+            resolved_id = facade_api.get_issue_id_for_fingerprint(team_id=self.team.id, fingerprint=fingerprint)
+            if resolved_id and resolved_id != issue_id:
+                return JsonResponse({"issue_id": resolved_id}, status=status.HTTP_308_PERMANENT_REDIRECT)
 
-            if record:
-                if not str(record.issue_id) == self.kwargs.get("pk"):
-                    return JsonResponse({"issue_id": record.issue_id}, status=status.HTTP_308_PERMANENT_REDIRECT)
+        try:
+            issue = facade_api.get_issue(issue_id=issue_id, team_id=self.team.id)
+        except IssueNotFoundError:
+            raise NotFound("Issue not found")
 
-                issue = (
-                    ErrorTrackingIssue.objects.with_first_seen()
-                    .select_related("assignment")
-                    .prefetch_related("external_issues__integration")
-                    .get(id=record.issue_id, team=self.team)
-                )
-                serializer = self.get_serializer(issue)
-                return Response(serializer.data)
-
-        return super().retrieve(request, *args, **kwargs)
+        serializer = ErrorTrackingIssueReadSerializer(issue)
+        return Response(serializer.data)
 
     @validated_request(
         request_serializer=ErrorTrackingIssueMergeRequestSerializer,

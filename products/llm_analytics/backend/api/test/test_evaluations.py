@@ -119,6 +119,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
             evaluation_config={"prompt": "Prompt 1"},
             output_type="boolean",
             output_config={},
+            conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
             team=self.team,
             created_by=self.user,
         )
@@ -139,6 +140,45 @@ class TestEvaluationConfigsApi(APIBaseTest):
         evaluation_names = [evaluation["name"] for evaluation in response.data["results"]]
         self.assertIn("Evaluation 1", evaluation_names)
         self.assertIn("Evaluation 2", evaluation_names)
+
+        # Default (non-MCP) list keeps the full payload the web UI relies on.
+        first = next(e for e in response.data["results"] if e["name"] == "Evaluation 1")
+        self.assertIn("evaluation_config", first)
+        self.assertIn("conditions", first)
+        self.assertIn("output_config", first)
+        self.assertIn("model_configuration", first)
+        self.assertEqual(first["evaluation_config"], {"prompt": "Prompt 1"})
+
+    def test_mcp_list_returns_slim_payload(self):
+        Evaluation.objects.create(
+            name="Evaluation 1",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Prompt 1"},
+            output_type="boolean",
+            output_config={},
+            conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
+            team=self.team,
+            created_by=self.user,
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/evaluations/",
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 1)
+        first = response.data["results"][0]
+        for dropped in (
+            "evaluation_config",
+            "output_config",
+            "conditions",
+            "model_configuration",
+            "created_by",
+            "deleted",
+        ):
+            self.assertNotIn(dropped, first)
+        self.assertIn("name", first)
+        self.assertIn("evaluation_type", first)
 
     def test_can_get_single_evaluation_config(self):
         evaluation_config = Evaluation.objects.create(

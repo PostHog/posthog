@@ -204,10 +204,34 @@ tools:
             simulate external calls like fetch() without making real HTTP requests.
     cdp-functions-logs-retrieve:
         operation: hog_functions_logs_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - hog_function:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get function logs
+        description: >
+            Retrieve execution logs for a specific CDP function by ID. Returns log entries with timestamp,
+            level (DEBUG, LOG, INFO, WARN, ERROR), and message. Use to debug why a destination or
+            transformation is failing or not producing expected results. Supports filtering by log level,
+            text search, time range (after/before), and pagination via limit.
     cdp-functions-metrics-retrieve:
         operation: hog_functions_metrics_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - hog_function:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get function metrics
+        description: >
+            Retrieve execution metrics for a specific CDP function by ID. Returns time-series data showing
+            success and failure counts over a configurable interval (hour, day, or week). Use to understand
+            function health, identify failure spikes, and monitor delivery reliability. Supports breakdown
+            by metric kind (success/failure) or name, and time range filtering.
     cdp-functions-metrics-totals-retrieve:
         operation: hog_functions_metrics_totals_retrieve
         enabled: false

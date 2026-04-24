@@ -1,4 +1,3 @@
-import ssl
 import json
 import time
 import uuid
@@ -32,12 +31,7 @@ from posthog.clickhouse.log_entries import (
     TRUNCATE_LOG_ENTRIES_TABLE_SQL,
 )
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
-from posthog.temporal.common.logger import (
-    BACKGROUND_LOGGER_TASKS,
-    configure_default_ssl_context,
-    configure_logger,
-    resolve_log_source,
-)
+from posthog.temporal.common.logger import BACKGROUND_LOGGER_TASKS, configure_logger, resolve_log_source
 
 pytestmark = pytest.mark.asyncio
 
@@ -96,51 +90,60 @@ async def queue():
 
 
 class CaptureKafkaProducer:
-    """A test aiokafka.AIOKafkaProducer that captures calls to send_and_wait."""
+    """A test producer matching the `_AsyncKafkaProducer` surface that captures calls to `produce`."""
 
     def __init__(self, *args, **kwargs):
         self.entries = []
         self._producer: None | aiokafka.AIOKafkaProducer = None
+        self._is_closed = False
 
     @property
     def producer(self) -> aiokafka.AIOKafkaProducer:
         if self._producer is None:
             self._producer = aiokafka.AIOKafkaProducer(
-                bootstrap_servers=[*settings.KAFKA_HOSTS, "localhost:9092"],
-                security_protocol=settings.KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
+                bootstrap_servers=[*settings.KAFKA_PROFILES["default"].hosts, "localhost:9092"],
+                security_protocol=settings.KAFKA_PROFILES["default"].security_protocol or "PLAINTEXT",
                 acks="all",
                 request_timeout_ms=1000000,
                 api_version="2.5.0",
             )
         return self._producer
 
-    async def send(self, topic, value=None, key=None, partition=None, timestamp_ms=None, headers=None):
+    async def produce(self, *, topic, data, key=None, value_serializer=None, headers=None):
         """Append an entry and delegate to aiokafka.AIOKafkaProducer."""
+        if value_serializer is not None:
+            data = value_serializer(data)
 
         self.entries.append(
             {
                 "topic": topic,
-                "value": value,
+                "value": data,
                 "key": key,
-                "partition": partition,
-                "timestamp_ms": timestamp_ms,
+                # `_AsyncKafkaProducer.produce` doesn't expose partition/timestamp_ms;
+                # kept as None so assertions from the prior aiokafka-based fixture still hold.
+                "partition": None,
+                "timestamp_ms": None,
                 "headers": headers,
             }
         )
-        return await self.producer.send(topic, value, key, partition, timestamp_ms, headers)
+        if not self._is_closed and self._producer is None:
+            await self.producer.start()
+        return await self.producer.send(topic, data, key, headers=headers)
 
-    async def start(self):
-        await self.producer.start()
+    async def flush(self, timeout=None):
+        if self._producer is not None:
+            await self._producer.flush()
 
-    async def stop(self):
-        await self.producer.stop()
-
-    async def flush(self):
-        await self.producer.flush()
+    async def close(self):
+        if self._is_closed:
+            return
+        if self._producer is not None:
+            await self._producer.stop()
+        self._is_closed = True
 
     @property
     def _closed(self):
-        return self.producer._closed
+        return self._is_closed
 
 
 @pytest_asyncio.fixture(scope="function")
@@ -150,12 +153,12 @@ async def producer():
     After usage, we ensure the producer was closed to avoid leaking/warnings.
     """
     loop = asyncio.get_running_loop()
-    producer = CaptureKafkaProducer(bootstrap_servers=settings.KAFKA_HOSTS, loop=loop)
+    producer = CaptureKafkaProducer(bootstrap_servers=settings.KAFKA_PROFILES["default"].hosts, loop=loop)
 
     yield producer
 
     if producer._closed is False:
-        await producer.stop()
+        await producer.close()
 
 
 @pytest_asyncio.fixture(autouse=True, scope="function")
@@ -200,15 +203,6 @@ def structlog_context():
 
     structlog.contextvars.clear_contextvars()
     structlog.contextvars.bind_contextvars(**ctx)
-
-
-def test_configure_default_ssl_context_uses_modern_defaults():
-    """Kafka SSL contexts should rely on the modern TLS client defaults."""
-    context = configure_default_ssl_context()
-
-    assert context.protocol is ssl.PROTOCOL_TLS_CLIENT
-    assert context.verify_mode is ssl.CERT_OPTIONAL
-    assert context.check_hostname is False
 
 
 async def test_logger_context(log_capture):

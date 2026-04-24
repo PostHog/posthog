@@ -177,10 +177,8 @@ impl Cohort {
         for cohort_values in &inner.values {
             for filter in &cohort_values.values {
                 if filter.is_cohort() {
-                    // Assuming the value is a single integer CohortId
-                    if let Some(cohort_id) = filter.value.as_ref().and_then(|value| value.as_i64())
-                    {
-                        dependencies.insert(cohort_id as CohortId);
+                    if let Some(cohort_id) = filter.get_cohort_id() {
+                        dependencies.insert(cohort_id);
                     } else {
                         return Err(FlagError::CohortFiltersParsingError);
                     }

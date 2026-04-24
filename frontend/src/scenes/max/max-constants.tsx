@@ -915,7 +915,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     summarize_sessions: {
         name: 'Summarize sessions',
         description: 'Summarize sessions to analyze real user behavior',
-        flag: 'max-session-summarization',
         icon: iconForType('session_replay'),
         beta: true,
         modes: [AgentMode.SessionReplay],

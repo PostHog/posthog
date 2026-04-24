@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
@@ -19,6 +20,7 @@ import {
     HogFunctionInvocationGlobals,
     HogFunctionType,
     HogFunctionTypeType,
+    LogEntry,
     MinimalAppMetric,
 } from '../types'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
@@ -303,6 +305,29 @@ export class CdpEventsConsumer<
                             },
                             'hog_flow'
                         )
+
+                        const eventUuid = item.state?.event?.uuid
+                        const personId = item.person?.id
+
+                        const logEntry: LogEntry = {
+                            timestamp: DateTime.now(),
+                            level: 'warn',
+                            message: `Workflow invocation dropped due to rate limiting for [Person:${personId ?? 'unknown'}] on [Event:${eventUuid ?? 'unknown'}]`,
+                            team_id: item.teamId,
+                            log_source: 'hog_flow',
+                            log_source_id: item.functionId,
+                            instance_id: item.id,
+                        }
+                        this.hogFunctionMonitoringService.queueLogs([logEntry], 'hog_flow')
+
+                        logger.warn('⚠️', 'Hogflow invocation rate limited', {
+                            teamId: item.teamId,
+                            hogFlowId: item.functionId,
+                            hogFlowName: item.hogFlow.name,
+                            eventUuid,
+                            personId,
+                        })
+
                         return
                     }
                 } catch (e) {

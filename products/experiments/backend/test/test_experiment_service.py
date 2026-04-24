@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import timedelta
 from decimal import Decimal
 from typing import Any
@@ -189,6 +190,38 @@ class TestExperimentService(APIBaseTest):
 
         assert experiment.stats_config is not None
         assert experiment.stats_config["bayesian"]["ci_level"] == 0.99
+
+    # ------------------------------------------------------------------
+    # Only count matured users defaults
+    # ------------------------------------------------------------------
+
+    def test_only_count_matured_users_defaults_from_team(self):
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config.default_only_count_matured_users = True
+        config.save()
+
+        self._create_flag(key="matured-default")
+        service = self._service()
+
+        experiment = service.create_experiment(name="Matured Default", feature_flag_key="matured-default")
+
+        assert experiment.only_count_matured_users is True
+
+    def test_only_count_matured_users_explicit_override(self):
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config.default_only_count_matured_users = True
+        config.save()
+
+        self._create_flag(key="matured-override")
+        service = self._service()
+
+        experiment = service.create_experiment(
+            name="Matured Override",
+            feature_flag_key="matured-override",
+            only_count_matured_users=False,
+        )
+
+        assert experiment.only_count_matured_users is False
 
     # ------------------------------------------------------------------
     # Metric fingerprints
@@ -1100,6 +1133,80 @@ class TestExperimentService(APIBaseTest):
         metrics = getattr(updated, field)
         assert metrics[0]["uuid"] == "explicit-uuid"
         assert "explicit-uuid" in (getattr(updated, ordering_attr) or [])
+
+    @parameterized.expand(
+        [
+            ("primary", "metrics"),
+            ("secondary", "metrics_secondary"),
+        ]
+    )
+    def test_create_experiment_does_not_mutate_input_metrics(self, _name, field):
+        self._create_flag(key=f"no-mutate-create-flag-{_name}")
+        service = self._service()
+
+        input_metrics = [
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            }
+        ]
+        snapshot = deepcopy(input_metrics)
+        metric_kwargs: dict[str, Any] = {field: input_metrics}
+
+        service.create_experiment(
+            name=f"No Mutate Create {_name}",
+            feature_flag_key=f"no-mutate-create-flag-{_name}",
+            allow_unknown_events=True,
+            **metric_kwargs,
+        )
+
+        assert input_metrics == snapshot
+
+    @parameterized.expand(
+        [
+            ("primary", "metrics"),
+            ("secondary", "metrics_secondary"),
+        ]
+    )
+    def test_update_experiment_does_not_mutate_input_metrics(self, _name, field):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+
+        input_metrics = [
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            }
+        ]
+        snapshot = deepcopy(input_metrics)
+
+        service.update_experiment(experiment, {field: input_metrics}, allow_unknown_events=True)
+
+        assert input_metrics == snapshot
+
+    def test_update_experiment_does_not_mutate_flag_filters_in_place(self):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+
+        original_filters = experiment.feature_flag.filters
+        snapshot = deepcopy(original_filters)
+
+        service.update_experiment(
+            experiment,
+            {
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ],
+                    "rollout_percentage": 75,
+                }
+            },
+        )
+
+        assert original_filters == snapshot
 
     def test_update_experiment_replaces_saved_metrics(self):
         experiment = self._create_draft_experiment()
@@ -2844,6 +2951,37 @@ class TestExperimentService(APIBaseTest):
                 feature_flag_key="bad-variant-flag-2",
                 parameters={"feature_flag_variants": ["control", "test"]},
             )
+
+    def test_variant_missing_both_percentages_raises_validation_error(self):
+        """Variant without split_percent or rollout_percentage should be rejected."""
+        service = self._service()
+        with self.assertRaises(ValidationError) as ctx:
+            service.create_experiment(
+                name="Missing Percentages",
+                feature_flag_key="missing-pct-flag",
+                parameters={
+                    "feature_flag_variants": [
+                        {"key": "control"},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                },
+            )
+        assert "split_percent" in str(ctx.exception)
+
+    def test_variant_with_only_rollout_percentage_succeeds(self):
+        """Legacy clients sending only rollout_percentage must still work (deprecated but accepted)."""
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Legacy rollout only",
+            feature_flag_key="legacy-rollout-flag",
+            parameters={
+                "feature_flag_variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50},
+                ]
+            },
+        )
+        assert experiment.id is not None
 
     def test_duplicate_metric_uuids_raises_validation_error(self):
         """Metrics with duplicate UUIDs should be rejected."""

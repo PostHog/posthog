@@ -28,6 +28,7 @@ from webauthn.helpers import base64url_to_bytes
 from zxcvbn import zxcvbn
 
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.constants import AvailableFeature
 from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
@@ -457,6 +458,18 @@ class ExportRendererAuthentication(authentication.BaseAuthentication):
         return self.keyword
 
 
+def _organization_disallows_public_sharing(sharing_configuration: SharingConfiguration) -> bool:
+    """Returns True when the organization has disabled public sharing under the
+    ORGANIZATION_SECURITY_SETTINGS feature. Sharing tokens must fail closed in that case,
+    even though individual `SharingConfiguration` rows remain `enabled=True`.
+    """
+    organization = sharing_configuration.team.organization
+    return (
+        organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
+        and not organization.allow_publicly_shared_resources
+    )
+
+
 class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
     """Limited access for sharing views e.g. insights/dashboards for refreshing.
     Remember to add access restrictions based on `sharing_configuration` using `SharingTokenPermission` or manually.
@@ -481,6 +494,9 @@ class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
             except SharingConfiguration.DoesNotExist:
                 raise AuthenticationFailed(detail="Sharing access token is invalid.")
             else:
+                if _organization_disallows_public_sharing(sharing_configuration):
+                    raise AuthenticationFailed(detail="Sharing access token is invalid.")
+
                 self.sharing_configuration = sharing_configuration
                 return (AnonymousUser(), None)
         return None
@@ -539,6 +555,9 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
             if sharing_configuration.access_token != payload.get("access_token"):
                 return None
 
+            if _organization_disallows_public_sharing(sharing_configuration):
+                raise AuthenticationFailed(detail="Sharing access token is invalid.")
+
             self.sharing_configuration = sharing_configuration
             self.share_password = share_password
             return (AnonymousUser(), None)
@@ -547,6 +566,10 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
             # Expected: JWT decode failed (likely a personal API key was passed)
             # Let the next authenticator (PersonalAPIKeyAuthentication) handle it
             return None
+        except AuthenticationFailed:
+            # Intentional auth failures (e.g. organization kill switch) must propagate,
+            # not be swallowed by the generic Exception handler below.
+            raise
         except Exception as e:
             # Unexpected: Database issues, programming errors, etc.
             # Log for debugging but still fail gracefully

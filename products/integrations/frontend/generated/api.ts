@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     GitHubBranchesResponseApi,
+    GitHubReposRefreshResponseApi,
     GitHubReposResponseApi,
     IntegrationApi,
     IntegrationsGithubBranchesRetrieveParams,
@@ -385,6 +386,21 @@ export const integrationsGithubReposRetrieve = async (
     return apiMutator<GitHubReposResponseApi>(getIntegrationsGithubReposRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getIntegrationsGithubReposRefreshCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/github_repos/refresh/`
+}
+
+export const integrationsGithubReposRefreshCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<GitHubReposRefreshResponseApi> => {
+    return apiMutator<GitHubReposRefreshResponseApi>(getIntegrationsGithubReposRefreshCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

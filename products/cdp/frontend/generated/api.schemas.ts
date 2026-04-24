@@ -537,6 +537,22 @@ export interface HogFunctionInvocationApi {
     invocation_id?: string | null
 }
 
+export interface AppMetricSeriesApi {
+    name: string
+    values: number[]
+}
+
+export interface AppMetricsResponseApi {
+    labels: string[]
+    series: AppMetricSeriesApi[]
+}
+
+export type AppMetricsTotalsResponseApiTotals = { [key: string]: number }
+
+export interface AppMetricsTotalsResponseApi {
+    totals: AppMetricsTotalsResponseApiTotals
+}
+
 /**
  * Map of hog function UUIDs to their new execution_order values.
  */
@@ -593,6 +609,162 @@ export type HogFunctionsListParams = {
     type?: string[]
     updated_at?: string
 }
+
+export type HogFunctionsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string
+}
+
+export type HogFunctionsMetricsRetrieveParams = {
+    /**
+     * Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.
+     * @minLength 1
+     */
+    after?: string
+    /**
+     * End of the time range. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string
+    /**
+ * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+
+* `name` - name
+* `kind` - kind
+ * @minLength 1
+ */
+    breakdown_by?: HogFunctionsMetricsRetrieveBreakdownBy
+    /**
+     * Filter metrics to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string
+    /**
+ * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+
+* `hour` - hour
+* `day` - day
+* `week` - week
+ * @minLength 1
+ */
+    interval?: HogFunctionsMetricsRetrieveInterval
+    /**
+     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * @minLength 1
+     */
+    kind?: string
+    /**
+     * Comma-separated metric names to filter by.
+     * @minLength 1
+     */
+    name?: string
+}
+
+export type HogFunctionsMetricsRetrieveBreakdownBy =
+    (typeof HogFunctionsMetricsRetrieveBreakdownBy)[keyof typeof HogFunctionsMetricsRetrieveBreakdownBy]
+
+export const HogFunctionsMetricsRetrieveBreakdownBy = {
+    Name: 'name',
+    Kind: 'kind',
+} as const
+
+export type HogFunctionsMetricsRetrieveInterval =
+    (typeof HogFunctionsMetricsRetrieveInterval)[keyof typeof HogFunctionsMetricsRetrieveInterval]
+
+export const HogFunctionsMetricsRetrieveInterval = {
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+} as const
+
+export type HogFunctionsMetricsTotalsRetrieveParams = {
+    /**
+     * Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.
+     * @minLength 1
+     */
+    after?: string
+    /**
+     * End of the time range. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string
+    /**
+ * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+
+* `name` - name
+* `kind` - kind
+ * @minLength 1
+ */
+    breakdown_by?: HogFunctionsMetricsTotalsRetrieveBreakdownBy
+    /**
+     * Filter metrics to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string
+    /**
+ * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+
+* `hour` - hour
+* `day` - day
+* `week` - week
+ * @minLength 1
+ */
+    interval?: HogFunctionsMetricsTotalsRetrieveInterval
+    /**
+     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * @minLength 1
+     */
+    kind?: string
+    /**
+     * Comma-separated metric names to filter by.
+     * @minLength 1
+     */
+    name?: string
+}
+
+export type HogFunctionsMetricsTotalsRetrieveBreakdownBy =
+    (typeof HogFunctionsMetricsTotalsRetrieveBreakdownBy)[keyof typeof HogFunctionsMetricsTotalsRetrieveBreakdownBy]
+
+export const HogFunctionsMetricsTotalsRetrieveBreakdownBy = {
+    Name: 'name',
+    Kind: 'kind',
+} as const
+
+export type HogFunctionsMetricsTotalsRetrieveInterval =
+    (typeof HogFunctionsMetricsTotalsRetrieveInterval)[keyof typeof HogFunctionsMetricsTotalsRetrieveInterval]
+
+export const HogFunctionsMetricsTotalsRetrieveInterval = {
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+} as const
 
 export type PublicHogFunctionTemplatesListParams = {
     /**

@@ -248,6 +248,7 @@ jobs:
             DISABLE_SECURE_SSL_REDIRECT: 'True'
             CLICKHOUSE_LOGS_CLUSTER_SECURE: 'False'
             CELERY_METRICS_PORT: 8999
+            POSTHOG_FEATURE_FLAGS_FORCE_ENABLED: 'logs-alerting'
 
         steps:
             - uses: actions/checkout@v6

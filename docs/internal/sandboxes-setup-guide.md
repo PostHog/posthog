@@ -32,7 +32,7 @@ Steps:
    `http://localhost:8010/integrations/github/callback`
 3. Set the permissions above
 4. Generate and download a private key
-5. Install the app on your test repositories
+5. Install the app on your test repositories by going to `http://localhost:8010/project/1/settings/project-integrations` and installing the GitHub Integration
 6. Add to your `.env`:
 
 ```bash

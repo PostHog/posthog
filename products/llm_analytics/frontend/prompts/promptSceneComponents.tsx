@@ -210,6 +210,7 @@ function PromptDiffView(): JSX.Element {
                     >
                         <MonacoDiffEditor
                             original={original}
+                            value={modified}
                             modified={modified}
                             language="markdown"
                             options={{

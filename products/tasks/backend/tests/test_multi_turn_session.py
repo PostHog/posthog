@@ -2,12 +2,21 @@ import json
 from pathlib import Path
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+from asgiref.sync import sync_to_async
 from pydantic import BaseModel
 
+from posthog.models import Integration, Organization, Team
+from posthog.models.user import User
+
+from products.tasks.backend.models import TaskRun
 from products.tasks.backend.services.custom_prompt_multi_turn_runner import _EMPTY_TURN_RETRY_NUDGE, MultiTurnSession
-from products.tasks.backend.services.custom_prompt_runner import EmptyAgentTurnError, _poll_for_turn
+from products.tasks.backend.services.custom_prompt_runner import (
+    CustomPromptSandboxContext,
+    EmptyAgentTurnError,
+    _poll_for_turn,
+)
 from products.tasks.backend.tests.agent_log_fixtures import (
     FakeTaskRun,
     _agent_message_line,
@@ -276,3 +285,50 @@ class TestMultiTurnSessionRetry:
             await session.send_followup("x", _Resp, label="priority")
 
         assert captured_skip_lines == [5, 99]
+
+
+@pytest.mark.django_db(transaction=True)
+class TestMultiTurnSessionStartBranch:
+    """Regression: an earlier impl rewrote branch='master' to None as a sentinel for
+    'use repo default'. That sentinel was removed once callers stopped defaulting to
+    'master'. The branch arg must now reach TaskRun.branch unchanged so repos with
+    non-master defaults aren't forced into a failing checkout."""
+
+    @staticmethod
+    def _setup_team_and_user() -> tuple[Team, User]:
+        org = Organization.objects.create(name="Test Org")
+        team = Team.objects.create(organization=org, name="Test Team")
+        user = User.objects.create(email="branch-test@example.com")
+        Integration.objects.create(team=team, kind="github", config={})
+        return team, user
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("branch", [None, "master", "main", "feature/x"])
+    async def test_branch_passed_through_to_task_run(self, branch):
+        team, user = await sync_to_async(self._setup_team_and_user)()
+        context = CustomPromptSandboxContext(team_id=team.id, user_id=user.id, repository="posthog/posthog")
+        agent_response = json.dumps({"value": "ok"})
+
+        with (
+            patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"),
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.async_connect",
+                new=AsyncMock(return_value=MagicMock(get_workflow_handle=MagicMock(return_value=AsyncMock()))),
+            ),
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner._poll_for_turn",
+                new=AsyncMock(return_value=(agent_response, None, 1, 1)),
+            ),
+        ):
+            kwargs = {"branch": branch} if branch is not None else {}
+            session, _ = await MultiTurnSession.start(
+                prompt="hello",
+                context=context,
+                model=_Resp,
+                **kwargs,
+            )
+
+        # Re-fetch from DB to confirm the value was actually persisted, not just
+        # held in memory by the in-process Task object.
+        persisted = await sync_to_async(TaskRun.objects.get)(id=session.task_run.id)
+        assert persisted.branch == branch

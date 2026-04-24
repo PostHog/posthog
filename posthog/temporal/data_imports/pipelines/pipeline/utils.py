@@ -19,9 +19,7 @@ import pyarrow.compute as pc
 from arro3.core.types import ArrowSchemaExportable
 from circular_dict import CircularDict
 from dateutil import parser
-from dlt.common.data_types.typing import TDataType
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
-from dlt.sources import DltResource
 from structlog.types import FilteringBoundLogger
 
 from posthog.sync import database_sync_to_async_pool
@@ -102,30 +100,6 @@ def safe_parse_datetime(date_str: object | None) -> None | pa.TimestampScalar | 
         return None
     except (ValueError, OverflowError, TypeError):
         return None
-
-
-def _get_primary_keys(resource: DltResource) -> list[str] | None:
-    primary_keys = resource._hints.get("primary_key")
-
-    if primary_keys is None:
-        return None
-
-    if isinstance(primary_keys, str):
-        return [normalize_column_name(primary_keys)]
-
-    if isinstance(primary_keys, list | Sequence):
-        return [normalize_column_name(pk) for pk in primary_keys]
-
-    raise Exception(f"primary_keys of type {primary_keys.__class__.__name__} are not supported")
-
-
-def _get_column_hints(resource: DltResource) -> dict[str, TDataType | None] | None:
-    columns = resource._hints.get("columns")
-
-    if columns is None:
-        return None
-
-    return {key: value.get("data_type") for key, value in columns.items()}  # type: ignore
 
 
 def _handle_null_columns_with_definitions(table: pa.Table, source: SourceResponse) -> pa.Table:
