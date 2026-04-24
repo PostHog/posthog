@@ -1,5 +1,4 @@
 import json
-from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 
@@ -15,7 +14,11 @@ from temporalio.service import RPCError, RPCStatusCode
 from posthog.storage import object_storage
 from posthog.temporal.common.client import async_connect
 
-from products.signals.backend.temporal.grouping import _process_signal_batch
+from products.signals.backend.temporal.grouping import (
+    TYPE_EXAMPLES_CACHE_TTL,
+    FetchSignalTypeExamplesOutput,
+    _process_signal_batch,
+)
 from products.signals.backend.temporal.types import (
     EmitSignalInputs,
     ReadSignalsFromS3Input,
@@ -27,17 +30,6 @@ logger = structlog.get_logger(__name__)
 
 PAUSE_SLEEP_SECONDS = 30
 PAUSE_MAX_RUN_DURATION = timedelta(minutes=30)
-BATCH_COLLECT_MAX_SIGNALS = 20
-BATCH_COLLECT_TIMEOUT = timedelta(seconds=30)
-RETRY_BACKOFF = timedelta(seconds=10)
-
-
-@dataclass
-class CollectedBatch:
-    """Result of collecting signals from one or more S3 batches."""
-
-    signals: list[EmitSignalInputs] = field(default_factory=list)
-    object_keys: list[str] = field(default_factory=list)
 
 
 @activity.defn
@@ -65,6 +57,8 @@ class TeamSignalGroupingV2Workflow:
 
     def __init__(self) -> None:
         self._batch_key_buffer: list[str] = []
+        self._cached_type_examples: Optional[FetchSignalTypeExamplesOutput] = None
+        self._type_examples_fetched_at: Optional[datetime] = None
         self._paused_until: Optional[datetime] = None
         self._batch_buffer_size_gauge: Optional[MetricGauge] = None
 
@@ -106,41 +100,6 @@ class TeamSignalGroupingV2Workflow:
             )
         )
 
-    async def _collect_next_batch(self) -> CollectedBatch:
-        collected = CollectedBatch()
-        deadline = workflow.now() + BATCH_COLLECT_TIMEOUT
-
-        while len(collected.signals) < BATCH_COLLECT_MAX_SIGNALS:
-            if workflow.now() >= deadline:
-                break
-
-            if not self._batch_key_buffer:
-                try:
-                    await workflow.wait_condition(
-                        lambda: len(self._batch_key_buffer) > 0 or self._is_paused(),
-                        timeout=deadline - workflow.now(),
-                    )
-                except TimeoutError:
-                    break
-                if self._is_paused() or not self._batch_key_buffer:
-                    break
-
-            object_key = self._batch_key_buffer.pop(0)
-            if self._batch_buffer_size_gauge is not None:
-                self._batch_buffer_size_gauge.set(len(self._batch_key_buffer))
-            collected.object_keys.append(object_key)
-
-            read_result: ReadSignalsFromS3Output = await workflow.execute_activity(
-                read_signals_from_s3_activity,
-                ReadSignalsFromS3Input(object_key=object_key),
-                start_to_close_timeout=timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-
-            collected.signals.extend(read_result.signals)
-
-        return collected
-
     @temporalio.workflow.run
     async def run(self, input: TeamSignalGroupingV2Input) -> None:
         # Restore state carried over from continue_as_new
@@ -171,39 +130,44 @@ class TeamSignalGroupingV2Workflow:
 
             if self._is_paused():
                 self._continue_as_new(input)
-
-            # Collect signals from multiple batches until we hit the signal
-            # count threshold or the collection timeout expires.
-            collected = await self._collect_next_batch()
-
-            if not collected.signals:
-                # Could happen if we woke up due to pause; loop back around
                 continue
 
-            if self._is_paused():
-                # Paused while collecting; stash collected keys back and loop
-                self._batch_key_buffer = collected.object_keys + self._batch_key_buffer
-                if self._batch_buffer_size_gauge is not None:
-                    self._batch_buffer_size_gauge.set(len(self._batch_key_buffer))
-                continue
+            # Pop the next key
+            object_key = self._batch_key_buffer.pop(0)
+            self._batch_buffer_size_gauge.set(len(self._batch_key_buffer))
+
+            # Download the batch from S3
+            read_result: ReadSignalsFromS3Output = await workflow.execute_activity(
+                read_signals_from_s3_activity,
+                ReadSignalsFromS3Input(object_key=object_key),
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+
+            signals: list[EmitSignalInputs] = read_result.signals
+
+            # Invalidate type examples cache if stale
+            now = workflow.now()
+            cached = self._cached_type_examples
+            if (
+                self._type_examples_fetched_at is not None
+                and (now - self._type_examples_fetched_at) > TYPE_EXAMPLES_CACHE_TTL
+            ):
+                cached = None
 
             try:
-                _dropped, _type_examples = await _process_signal_batch(collected.signals)
+                dropped, type_examples = await _process_signal_batch(signals, cached_type_examples=cached)
+                self._cached_type_examples = type_examples
+                self._type_examples_fetched_at = self._type_examples_fetched_at if cached is not None else now
             except Exception:
                 logger.exception(
                     "Failed to process signal batch",
                     team_id=input.team_id,
-                    batch_size=len(collected.signals),
-                    batch_keys=collected.object_keys,
+                    batch_size=len(signals),
+                    object_key=object_key,
                 )
-                # Stash keys back so they're retried after continue_as_new.
-                # Sleep first to avoid hot-looping on deterministic failures.
-                self._batch_key_buffer = collected.object_keys + self._batch_key_buffer
-                if self._batch_buffer_size_gauge is not None:
-                    self._batch_buffer_size_gauge.set(len(self._batch_key_buffer))
-                await workflow.sleep(RETRY_BACKOFF)
 
-            # continue_as_new after each processing round to keep history bounded.
+            # continue_as_new after each batch to keep history bounded.
             # Carry over any pending keys that arrived while we were processing.
             self._continue_as_new(input)
 
