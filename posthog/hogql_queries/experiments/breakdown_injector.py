@@ -19,7 +19,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.visitor import TraversingVisitor
+from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.hogql_queries.insights.trends.utils import get_properties_chain
 
@@ -42,7 +42,10 @@ class _WindowFunctionPartitionSetter(TraversingVisitor):
         assert node.over_expr.partition_by is None, (
             "_WindowFunctionPartitionSetter: unexpected pre-existing PARTITION BY"
         )
-        node.over_expr.partition_by = [*self._partition_by]
+        # Clone each partition expression per window function so every site owns its own
+        # AST nodes (resolvers annotate nodes in-place; sharing would violate the
+        # one-parent-per-node expectation).
+        node.over_expr.partition_by = [clone_expr(expr) for expr in self._partition_by]
 
 
 class BreakdownInjector:
