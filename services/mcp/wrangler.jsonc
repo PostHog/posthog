@@ -35,13 +35,6 @@
             },
         ],
     },
-    "kv_namespaces": [
-        {
-            "binding": "FLAG_DEFS_KV",
-            "id": "00000000000000000000000000000000",
-            "preview_id": "00000000000000000000000000000000",
-        },
-    ],
     "triggers": {
         "crons": ["*/5 * * * *"],
     },
@@ -86,7 +79,15 @@
      * Static Assets
      * https://developers.cloudflare.com/workers/static-assets/binding/
      */
-    "assets": { "directory": "./public/" },
+    "assets": {
+        "directory": "./public/",
+    },
+    "kv_namespaces": [
+        {
+            "binding": "MCP_KV",
+            "id": "30a887fff4d04c4fbf979208293ce012",
+        },
+    ],
     /**
      * Service Bindings (communicate between multiple Workers)
      * https://developers.cloudflare.com/workers/wrangler/configuration/#service-bindings

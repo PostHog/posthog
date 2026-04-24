@@ -66,7 +66,7 @@ export class CloudflareKVFlagCacheWriter extends CloudflareKVFlagCache {
 }
 
 export function isLocalEvalConfigured(env: Env): boolean {
-    return !!env.FLAG_DEFS_KV && !!env.MCP_FLAG_LOCAL_EVAL_KEY && !!env.POSTHOG_ANALYTICS_API_KEY
+    return !!env.MCP_KV && !!env.MCP_FLAG_LOCAL_EVAL_KEY && !!env.POSTHOG_ANALYTICS_API_KEY
 }
 
 export function isLocalEvalEnabled(env: Env): boolean {

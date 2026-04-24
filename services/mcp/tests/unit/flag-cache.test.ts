@@ -105,19 +105,19 @@ describe('CloudflareKVFlagCacheWriter', () => {
 describe('env guards', () => {
     it('isLocalEvalConfigured requires KV, the secret, and the project key', () => {
         const base = {
-            FLAG_DEFS_KV: asKVNamespace(makeKV()),
+            MCP_KV: asKVNamespace(makeKV()),
             MCP_FLAG_LOCAL_EVAL_KEY: 'phs_test',
             POSTHOG_ANALYTICS_API_KEY: 'phc_test',
         } as unknown as Env
         expect(isLocalEvalConfigured(base)).toBe(true)
         expect(isLocalEvalConfigured({ ...base, MCP_FLAG_LOCAL_EVAL_KEY: '' } as Env)).toBe(false)
         expect(isLocalEvalConfigured({ ...base, POSTHOG_ANALYTICS_API_KEY: '' } as Env)).toBe(false)
-        expect(isLocalEvalConfigured({ ...base, FLAG_DEFS_KV: undefined } as unknown as Env)).toBe(false)
+        expect(isLocalEvalConfigured({ ...base, MCP_KV: undefined } as unknown as Env)).toBe(false)
     })
 
     it('isLocalEvalEnabled additionally requires MCP_LOCAL_EVAL_ENABLED=1', () => {
         const configured = {
-            FLAG_DEFS_KV: asKVNamespace(makeKV()),
+            MCP_KV: asKVNamespace(makeKV()),
             MCP_FLAG_LOCAL_EVAL_KEY: 'phs_test',
             POSTHOG_ANALYTICS_API_KEY: 'phc_test',
         } as unknown as Env

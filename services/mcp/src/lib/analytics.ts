@@ -74,7 +74,7 @@ function buildClient(): PostHog {
     // scheduled cron refreshes. Local eval for anything it can decide,
     // posthog-node falls back to remote /flags for anything it can't.
     const e = env as unknown as Env
-    const cache = new CloudflareKVFlagCacheReader(e.FLAG_DEFS_KV, env.POSTHOG_ANALYTICS_API_KEY)
+    const cache = new CloudflareKVFlagCacheReader(e.MCP_KV, env.POSTHOG_ANALYTICS_API_KEY)
     return new PostHog(env.POSTHOG_ANALYTICS_API_KEY, {
         ...baseOptions,
         personalApiKey: e.MCP_FLAG_LOCAL_EVAL_KEY,

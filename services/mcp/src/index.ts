@@ -375,7 +375,7 @@ async function refreshFlagDefinitionsCache(env: Env): Promise<void> {
     if (!isLocalEvalConfigured(env)) {
         return
     }
-    const cache = new CloudflareKVFlagCacheWriter(env.FLAG_DEFS_KV, env.POSTHOG_ANALYTICS_API_KEY)
+    const cache = new CloudflareKVFlagCacheWriter(env.MCP_KV, env.POSTHOG_ANALYTICS_API_KEY)
     // Polling interval is irrelevant here: we force one fetch via
     // `shouldFetchFlagDefinitions=true`, then call `shutdown()` before any
     // timer fires.
