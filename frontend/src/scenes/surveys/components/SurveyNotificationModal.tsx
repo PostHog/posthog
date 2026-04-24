@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 
-import { LemonButton, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
@@ -148,7 +148,6 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
         isNotificationFormSubmitting,
         selectedSlackIntegration,
         hasSlackIntegration,
-        canNotifyOnPartialResponses,
         templateGlobals,
         submitDisabledReason,
         notificationSubmissionError,
@@ -224,26 +223,9 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
                                 {destinationDeliveryDescription(notificationForm.destination)}
                             </div>
                             <div className="text-xs text-muted">
-                                Notifications send when a survey is completed or dismissed. If someone leaves the survey
-                                open and never submits or dismisses it, nothing is sent.
+                                Notifications send when a survey is completed or dismissed after at least one response.
+                                If someone closes it without answering or leaves it open forever, nothing is sent.
                             </div>
-                            {canNotifyOnPartialResponses ? (
-                                <>
-                                    <Field name="onlyCompletedResponses">
-                                        {({ value, onChange }) => (
-                                            <LemonSwitch
-                                                checked={value}
-                                                onChange={onChange}
-                                                label="Only notify on completed or dismissed surveys"
-                                            />
-                                        )}
-                                    </Field>
-                                    <div className="text-xs text-muted">
-                                        Turn this off to also notify on in-progress `survey sent` events before the
-                                        survey is finished.
-                                    </div>
-                                </>
-                            ) : null}
                         </div>
 
                         {notificationForm.destination === 'slack' ? (

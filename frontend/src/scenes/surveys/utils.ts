@@ -1116,10 +1116,7 @@ export function getSurveyDisplayConditionsSummary(survey: Survey | NewSurvey): S
     return parts
 }
 
-export function getSurveyNotificationFilters(
-    surveyId: string,
-    onlyCompletedResponses: boolean = true
-): CyclotronJobFiltersType {
+export function getSurveyNotificationFilters(surveyId: string): CyclotronJobFiltersType {
     const sentEventProperties: EventPropertyFilter[] = [
         {
             key: SurveyEventProperties.SURVEY_ID,
@@ -1127,16 +1124,13 @@ export function getSurveyNotificationFilters(
             value: surveyId,
             operator: PropertyOperator.Exact,
         },
-    ]
-
-    if (onlyCompletedResponses) {
-        sentEventProperties.push({
+        {
             key: SurveyEventProperties.SURVEY_COMPLETED,
             type: PropertyFilterType.Event,
             value: true,
             operator: PropertyOperator.Exact,
-        })
-    }
+        },
+    ]
 
     return {
         events: [
@@ -1153,6 +1147,12 @@ export function getSurveyNotificationFilters(
                         key: SurveyEventProperties.SURVEY_ID,
                         type: PropertyFilterType.Event,
                         value: surveyId,
+                        operator: PropertyOperator.Exact,
+                    },
+                    {
+                        key: SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED,
+                        type: PropertyFilterType.Event,
+                        value: true,
                         operator: PropertyOperator.Exact,
                     },
                 ],
