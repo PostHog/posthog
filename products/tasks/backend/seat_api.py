@@ -25,13 +25,14 @@ from ee.settings import BILLING_SERVICE_URL
 PRO_PLAN_PREFIXES = ("posthog-code-200", "posthog-code-pro-")
 
 
-def _seat_priority(seat: dict[str, Any]) -> int:
+def _seat_priority(seat: dict[str, Any]) -> tuple[bool, int]:
+    active = seat.get("status") == "active"
     plan_key = seat.get("plan_key") or ""
     if any(plan_key.startswith(p) for p in PRO_PLAN_PREFIXES):
-        return 2
+        return (active, 2)
     if plan_key:
-        return 1
-    return 0
+        return (active, 1)
+    return (active, 0)
 
 
 logger = structlog.get_logger(__name__)
@@ -262,24 +263,18 @@ class SeatViewSet(viewsets.ViewSet):
             if not headers:
                 return None
             resp = self._billing_request("GET", f"/api/v2/seats/{distinct_id}/", headers, query_params=query_params)
-            if resp is None or not resp.ok:
+            drf_resp = self._forward_response(resp)
+            if not 200 <= drf_resp.status_code < 300 or not isinstance(drf_resp.data, dict):
                 return None
-            try:
-                data = resp.json()
-                return data.get("seat", data) if isinstance(data, dict) else None
-            except ValueError:
-                return None
+            return drf_resp.data
 
         seats: list[dict[str, Any]] = []
         with ThreadPoolExecutor(max_workers=min(len(orgs), 5)) as pool:
             futures = {pool.submit(fetch_seat, org): org for org in orgs}
             for future in as_completed(futures):
-                try:
-                    seat = future.result()
-                    if seat:
-                        seats.append(seat)
-                except Exception:
-                    logger.exception("Failed to fetch seat for org", org_id=str(futures[future].id))
+                seat = future.result()
+                if seat:
+                    seats.append(seat)
 
         if not seats:
             return Response(status=status.HTTP_404_NOT_FOUND)
