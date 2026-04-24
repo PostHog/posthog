@@ -22,6 +22,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     setup_partitioning,
     table_from_py_list,
 )
+from posthog.temporal.data_imports.pipelines.test_mocks import mock_delta_table
 
 
 def test_table_from_py_list_uuid():
@@ -715,148 +716,81 @@ def _mock_resource(**overrides: Any) -> MagicMock:
     return resource
 
 
-def _mock_delta_table(*, schema_fields: list[pa.Field], partition_columns: list[str]) -> MagicMock:
-    """Build a mock DeltaTable whose schema and metadata().partition_columns are controllable."""
-    arrow_schema = pa.schema(schema_fields)
-    table = MagicMock()
-    table.schema = MagicMock(return_value=MagicMock(to_arrow=MagicMock(return_value=arrow_schema)))
-    table.metadata = MagicMock(return_value=MagicMock(partition_columns=list(partition_columns)))
-    return table
+# Regression coverage for the `DeltaError: Specified table partitioning does not match` bug.
+#
+# When an existing delta table contains `_ph_partition_key` in its *schema columns*
+# but not in its *partition columns* (e.g. left over from a write committed with
+# `partition_by=None`), subsequent writes with `partition_by=PARTITION_KEY` raise:
+#
+#     DeltaError: Generic error: Specified table partitioning does not match
+#     table partitioning: expected: [], got: ["_ph_partition_key"]
+#
+# The fix checks `delta_table.metadata().partition_columns` rather than the
+# table's schema columns when deciding whether to add the partition key.
+_COL_ID = pa.field("id", pa.int64())
+_COL_PARTITION = pa.field(PARTITION_KEY, pa.string())
 
 
-class TestSetupPartitioningExistingUnpartitionedTable:
-    """Regression tests for the `DeltaError: Specified table partitioning does not match` bug.
+@pytest.mark.parametrize(
+    "case,schema_fields,partition_columns,expect_key",
+    [
+        # Column in schema but NOT in partition_columns → skip (the exact bug scenario).
+        ("column_in_schema_not_partitioned", [_COL_ID, _COL_PARTITION], [], False),
+        # `metadata().partition_columns` returning None → skip defensively.
+        ("partition_columns_is_none", [_COL_ID, _COL_PARTITION], None, False),
+        # Truly partitioned by `_ph_partition_key` → happy path, partitioning applies.
+        ("table_partitioned_by_key", [_COL_ID, _COL_PARTITION], [PARTITION_KEY], True),
+        # Legacy unpartitioned table without the column at all → skip.
+        ("column_missing_entirely", [_COL_ID], [], False),
+    ],
+)
+@pytest.mark.asyncio
+async def test_setup_partitioning_respects_existing_delta_partition_columns(
+    case: str,
+    schema_fields: list[pa.Field],
+    partition_columns: list[str] | None,
+    expect_key: bool,
+):
+    logger: FilteringBoundLogger = structlog.get_logger()
+    pa_table = pa.table({"id": [1, 2, 3]})
+    delta_table = mock_delta_table(schema_fields=schema_fields, partition_columns=partition_columns)
 
-    When an existing delta table contains `_ph_partition_key` in its *schema columns*
-    but not in its *partition columns* (e.g. left over from a write committed with
-    `partition_by=None`), subsequent writes with `partition_by=PARTITION_KEY` raise:
+    # For the happy-path case we need the schema mock to look "already aligned" so that
+    # `set_partitioning_enabled` isn't invoked (which would require DB integration).
+    schema_kwargs: dict[str, Any] = {"partitioning_keys": ["id"]}
+    if expect_key:
+        schema_kwargs.update(partition_mode="md5", partition_format=None)
+    resource_kwargs: dict[str, Any] = {"partition_keys": ["id"]}
+    if expect_key:
+        resource_kwargs["partition_count"] = 10
 
-        DeltaError: Generic error: Specified table partitioning does not match
-        table partitioning: expected: [], got: ["_ph_partition_key"]
+    result = await setup_partitioning(
+        pa_table=pa_table,
+        existing_delta_table=delta_table,
+        schema=_mock_schema(**schema_kwargs),
+        resource=_mock_resource(**resource_kwargs),
+        logger=logger,
+    )
 
-    The fix checks `delta_table.metadata().partition_columns` rather than the
-    table's schema columns when deciding whether to add the partition key.
-    """
-
-    @pytest.mark.asyncio
-    async def test_skips_partitioning_when_column_in_schema_but_not_in_partition_columns(self):
-        """Existing delta table has `_ph_partition_key` in schema but is NOT partitioned by it."""
-        logger: FilteringBoundLogger = structlog.get_logger()
-        pa_table = pa.table({"id": [1, 2, 3]})
-
-        delta_table = _mock_delta_table(
-            schema_fields=[
-                pa.field("id", pa.int64()),
-                pa.field(PARTITION_KEY, pa.string()),  # column exists in schema
-            ],
-            partition_columns=[],  # but table is NOT actually partitioned
-        )
-
-        result = await setup_partitioning(
-            pa_table=pa_table,
-            existing_delta_table=delta_table,
-            schema=_mock_schema(partitioning_keys=["id"]),
-            resource=_mock_resource(partition_keys=["id"]),
-            logger=logger,
-        )
-
-        assert PARTITION_KEY not in result.column_names
-        assert result.equals(pa_table)
-
-    @pytest.mark.asyncio
-    async def test_skips_partitioning_when_table_has_no_partition_columns_attr(self):
-        """Defensive: `metadata().partition_columns` could be None on some delta-rs versions."""
-        logger: FilteringBoundLogger = structlog.get_logger()
-        pa_table = pa.table({"id": [1, 2, 3]})
-
-        delta_table = MagicMock()
-        delta_table.schema = MagicMock(
-            return_value=MagicMock(
-                to_arrow=MagicMock(
-                    return_value=pa.schema([pa.field("id", pa.int64()), pa.field(PARTITION_KEY, pa.string())])
-                )
-            )
-        )
-        delta_table.metadata = MagicMock(return_value=MagicMock(partition_columns=None))
-
-        result = await setup_partitioning(
-            pa_table=pa_table,
-            existing_delta_table=delta_table,
-            schema=_mock_schema(partitioning_keys=["id"]),
-            resource=_mock_resource(partition_keys=["id"]),
-            logger=logger,
-        )
-
-        assert PARTITION_KEY not in result.column_names
-
-    @pytest.mark.asyncio
-    async def test_applies_partitioning_when_partition_columns_matches(self):
-        """Happy path: table is truly partitioned by `_ph_partition_key` → partitioning continues."""
-        logger: FilteringBoundLogger = structlog.get_logger()
-        pa_table = pa.table({"id": [1, 2, 3]})
-
-        delta_table = _mock_delta_table(
-            schema_fields=[
-                pa.field("id", pa.int64()),
-                pa.field(PARTITION_KEY, pa.string()),
-            ],
-            partition_columns=[PARTITION_KEY],
-        )
-
-        schema = _mock_schema(partitioning_keys=["id"])
-        # database_sync_to_async_pool is only invoked if the schema's partitioning
-        # config changed. Reset the flag so set_partitioning_enabled isn't called.
-        schema.partitioning_enabled = True
-        schema.partition_mode = "md5"
-        schema.partition_format = None
-        schema.partitioning_keys = ["id"]
-
-        result = await setup_partitioning(
-            pa_table=pa_table,
-            existing_delta_table=delta_table,
-            schema=schema,
-            resource=_mock_resource(partition_keys=["id"], partition_count=10),
-            logger=logger,
-        )
-
-        assert PARTITION_KEY in result.column_names
-
-    @pytest.mark.asyncio
-    async def test_skips_partitioning_when_column_missing_entirely(self):
-        """Legacy unpartitioned table with no `_ph_partition_key` at all → still skip."""
-        logger: FilteringBoundLogger = structlog.get_logger()
-        pa_table = pa.table({"id": [1, 2, 3]})
-
-        delta_table = _mock_delta_table(
-            schema_fields=[pa.field("id", pa.int64())],
-            partition_columns=[],
-        )
-
-        result = await setup_partitioning(
-            pa_table=pa_table,
-            existing_delta_table=delta_table,
-            schema=_mock_schema(partitioning_keys=["id"]),
-            resource=_mock_resource(partition_keys=["id"]),
-            logger=logger,
-        )
-
-        assert PARTITION_KEY not in result.column_names
-        assert result.equals(pa_table)
+    if expect_key:
+        assert PARTITION_KEY in result.column_names, case
+    else:
+        assert PARTITION_KEY not in result.column_names, case
+        assert result.equals(pa_table), case
 
 
-class TestSetupPartitioningNoDeltaTable:
-    @pytest.mark.asyncio
-    async def test_first_sync_with_no_partition_keys_returns_unchanged(self):
-        logger: FilteringBoundLogger = structlog.get_logger()
-        pa_table = pa.table({"id": [1, 2, 3]})
+@pytest.mark.asyncio
+async def test_setup_partitioning_no_delta_table_no_partition_keys_returns_unchanged():
+    logger: FilteringBoundLogger = structlog.get_logger()
+    pa_table = pa.table({"id": [1, 2, 3]})
 
-        result = await setup_partitioning(
-            pa_table=pa_table,
-            existing_delta_table=None,
-            schema=_mock_schema(),
-            resource=_mock_resource(),
-            logger=logger,
-        )
+    result = await setup_partitioning(
+        pa_table=pa_table,
+        existing_delta_table=None,
+        schema=_mock_schema(),
+        resource=_mock_resource(),
+        logger=logger,
+    )
 
-        assert result.equals(pa_table)
-        assert PARTITION_KEY not in result.column_names
+    assert result.equals(pa_table)
+    assert PARTITION_KEY not in result.column_names
