@@ -1,8 +1,8 @@
+import pytest
 from unittest.mock import MagicMock, patch
 
 import httpx
 import openai
-import pytest
 from parameterized import parameterized
 from posthoganalytics.ai.openai import (
     AzureOpenAI as WrappedAzureOpenAI,
