@@ -714,12 +714,12 @@ function generateToolCode(
             // If the field was renamed, bf is the alias (used for params access)
             // and bodyKey is the original name (used as the HTTP body key).
             const bodyKey = composition.renamedFields[bf] ?? bf
-            handlerBody += `        if (params.${bf} !== undefined) body['${bodyKey}'] = params.${bf}\n`
+            handlerBody += `        if (params.${bf} !== undefined) body[${JSON.stringify(bodyKey)}] = params.${bf}\n`
         }
         // inject_body: hardcoded values that always override caller-supplied params.
         // Emitted last so they overwrite anything set above.
         for (const [key, value] of injectBodyEntries) {
-            handlerBody += `        body['${key}'] = ${JSON.stringify(value)}\n`
+            handlerBody += `        body[${JSON.stringify(key)}] = ${JSON.stringify(value)}\n`
         }
     }
 

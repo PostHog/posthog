@@ -393,16 +393,15 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     )
     access_method = serializers.ChoiceField(choices=ExternalDataSource.AccessMethod.choices, read_only=True)
     supports_webhooks = serializers.SerializerMethodField(read_only=True)
-    # Required-at-serializer would break PATCH (same serializer is reused for update
-    # with partial=False-compatible paths), so the field is optional here and the
-    # `create` viewset method below enforces presence + choice validity. The serializer
-    # keeps the ChoiceField so the value surfaces on reads and in the generated OpenAPI/
-    # MCP schemas; `update` strips it to make the field write-once.
+    # Optional on both create and update. On create, missing values default to `api`
+    # in the viewset to preserve backward compatibility with direct API callers that
+    # predate this field; the in-app UI and MCP tool always send it explicitly.
+    # `update` strips it to make the field write-once.
     created_via = serializers.ChoiceField(
         choices=ExternalDataSource.CreatedVia.choices,
         required=False,
         help_text=(
-            "How this source was created. Required on create. "
+            "How this source was created. Defaults to `api` on create when omitted. "
             "`web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. "
             "Ignored on update."
         ),
@@ -787,9 +786,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         source_type = request.data["source_type"]
         access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
 
-        created_via = request.data.get("created_via")
-        if not created_via:
-            raise ValidationError({"created_via": "This field is required."})
+        created_via = request.data.get("created_via") or ExternalDataSource.CreatedVia.API
         if created_via not in ExternalDataSource.CreatedVia.values:
             allowed = ", ".join(ExternalDataSource.CreatedVia.values)
             raise ValidationError({"created_via": f"Must be one of: {allowed}."})

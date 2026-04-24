@@ -209,8 +209,11 @@ class TestExternalDataSource(APIBaseTest):
         source = ExternalDataSource.objects.get(id=response.json()["id"])
         assert source.created_via == created_via
 
-    def test_create_external_data_source_rejects_missing_created_via(self):
-        # created_via is validated before credentials, so no StripeSource mock is needed here.
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_defaults_created_via_to_api_when_missing(self, _mock_validate):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
@@ -224,11 +227,12 @@ class TestExternalDataSource(APIBaseTest):
             },
         )
 
-        assert response.status_code == 400
-        assert "created_via" in response.json()
-        assert ExternalDataSource.objects.count() == 0
+        assert response.status_code == 201, response.json()
+        source = ExternalDataSource.objects.get(id=response.json()["id"])
+        assert source.created_via == ExternalDataSource.CreatedVia.API
 
     def test_create_external_data_source_rejects_invalid_created_via(self):
+        # created_via choice validation happens before credentials, so no StripeSource mock is needed here.
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
