@@ -34,6 +34,14 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.BINGADS
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "Failed to fetch customer ID": "PostHog could not fetch your Bing Ads customer ID. This usually means the connected Bing Ads account no longer has access or its OAuth credentials have been revoked or expired. Please reconnect your Bing Ads integration.",
+            "Bing Ads access token not found": "Bing Ads OAuth access token is missing. Please reconnect your Bing Ads integration.",
+            "Bing Ads refresh token not found": "Bing Ads OAuth refresh token is missing. Please reconnect your Bing Ads integration.",
+            "Bing Ads developer token not configured": None,
+        }
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
