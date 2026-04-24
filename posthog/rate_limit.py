@@ -144,6 +144,21 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         except KeyError:
             return None
 
+    @staticmethod
+    def safely_get_organization_id_from_view(view):
+        """
+        Gets the organization_id from a view without throwing.
+
+        `organization_id` on TeamAndOrgViewSetMixin is a @cached_property that can raise
+        `NotFound` when the caller has no current organization or the parent route has
+        no organization_id kwarg. Hence this method mirrors safely_get_team_id_from_view
+        but catches broader exceptions than KeyError.
+        """
+        try:
+            return getattr(view, "organization_id", None)
+        except Exception:
+            return None
+
     def load_team_rate_limit(self, team_id):
         # try loading from cache
         rate_limit_cache_key = f"team_ratelimit_{self.scope}_{team_id}"
@@ -835,35 +850,47 @@ class _OrganizationInviteRateThrottleBase(PersonalApiKeyOrUserRateThrottle):
     # num_requests * 20 invites per window. Subclasses define the window
     # (burst vs sustained); the counting logic lives here.
     def get_cache_key(self, request, view):
-        try:
-            organization_id = getattr(view, "organization_id", None)
-        except Exception:
-            organization_id = None
+        organization_id = self.safely_get_organization_id_from_view(view)
         if organization_id:
             return self.cache_format % {"scope": self.scope, "ident": f"org_{organization_id}"}
         return super().get_cache_key(request, view)
 
     def allow_request(self, request, view):
-        self._invite_count = _resolve_invite_count(request)
-        return super().allow_request(request, view)
+        if not is_rate_limit_enabled(round(time.time() / 60)):
+            return True
 
-    def throttle_success(self):
-        count = max(1, getattr(self, "_invite_count", 1))
-        # DRF's SimpleRateThrottle.allow_request only verified that the
-        # current history length is below num_requests before delegating
-        # here; enforce the stricter "history + count <= num_requests"
-        # condition so bulk calls can't burst past the limit.
-        assert self.num_requests is not None
-        if len(self.history) + count > self.num_requests:
-            return self.throttle_failure()
-        self.history = [self.now] * count + self.history
-        self.cache.set(self.key, self.history, self.duration)
-        return True
+        if self.rate is None:
+            return True
+
+        try:
+            self.key = self.get_cache_key(request, view)
+            if self.key is None:
+                return True
+
+            count = _resolve_invite_count(request)
+            self.history = self.cache.get(self.key, [])
+            self.now = self.timer()
+
+            while self.history and self.history[-1] <= self.now - self.duration:
+                self.history.pop()
+
+            if len(self.history) + count > self.num_requests:
+                return self.throttle_failure()
+
+            self.history = [self.now] * count + self.history
+            self.cache.set(self.key, self.history, self.duration)
+            return True
+        except Exception as e:
+            capture_exception(e)
+            return True
 
 
 def _resolve_invite_count(request) -> int:
     """Count invites being created by this request: 1 for single-create, len(data) for bulk."""
-    data = getattr(request, "data", None)
+    try:
+        data = getattr(request, "data", None)
+    except Exception:
+        return 1
     if isinstance(data, list):
         return max(1, len(data))
     return 1
