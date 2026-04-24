@@ -255,6 +255,13 @@ pub struct FlagsCanonicalLogLine {
     /// None when the header is missing or the computed delta is negative.
     pub queue_time_ms: Option<i64>,
 
+    /// Duration of the Redis HINCRBY billing increment call in milliseconds.
+    /// Only populated from endpoints that run inside a canonical log scope
+    /// (currently `/flags` and `/decide`). `None` when billing was skipped
+    /// (no billable flags or `skip_writes`), or when called from an endpoint
+    /// that does not emit a canonical log line (e.g. `/flags/definitions`).
+    pub billing_duration_ms: Option<u64>,
+
     // Cache sources (populated during data fetching)
     /// Where team metadata was fetched from: "redis", "s3", "fallback", or None if not fetched
     pub team_cache_source: Option<&'static str>,
@@ -302,6 +309,7 @@ impl Default for FlagsCanonicalLogLine {
             rate_limited: false,
             rate_limit_warned: false,
             queue_time_ms: None,
+            billing_duration_ms: None,
             team_cache_source: None,
             http_status: 200,
             error_code: None,
@@ -367,6 +375,7 @@ impl FlagsCanonicalLogLine {
             rate_limited = self.rate_limited,
             rate_limit_warned = self.rate_limit_warned,
             queue_time_ms = self.queue_time_ms,
+            billing_duration_ms = self.billing_duration_ms,
             team_cache_source = self.team_cache_source,
             error_code = self.error_code,
             "canonical_log_line"

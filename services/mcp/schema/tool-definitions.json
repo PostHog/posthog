@@ -458,5 +458,19 @@
             "openWorldHint": false,
             "readOnlyHint": true
         }
+    },
+    "external-data-sync-logs": {
+        "description": "Get sync job logs for a data warehouse table schema. Returns log entries from the log_entries ClickHouse table, filtered by schema ID and optionally by a specific job's workflow_run_id. Use external-data-sources-jobs to find job IDs and workflow_run_ids. Supports filtering by log level (DEBUG, INFO, WARNING, ERROR) and message search.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Get sync job logs for a data warehouse table.",
+        "title": "Get sync job logs",
+        "required_scopes": ["query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
     }
 }
