@@ -321,7 +321,9 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         values, sql = self._run_and_collect()
         assert "JSONExtractString(events.properties" in sql, sql
         assert "mat_$browser" not in sql, sql
-        assert values == {"set": "Chrome", "empty": "", "null_str": "null", "json_null": "null", "unset": ""}
+        # JSONExtractString returns '' for JSON null (type mismatch), not 'null'.
+        # Only JSONExtractRaw returns the literal string 'null' for JSON null.
+        assert values == {"set": "Chrome", "empty": "", "null_str": "null", "json_null": "", "unset": ""}
 
     def test_rewrite_value_semantics_non_nullable_mat_column(self):
         self._seed_edge_case_events()
