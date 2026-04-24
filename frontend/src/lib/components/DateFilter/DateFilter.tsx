@@ -223,7 +223,10 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         ) : view === DateFilterView.FixedDate ? (
             <PropertyFilterDatePicker
                 autoFocus
-                operator={PropertyOperator.Exact}
+                // IsDateExact (rather than Exact) so PropertyFilterDatePicker's auto-open gate
+                // — `operator && isOperatorDate(operator) && autoFocus` — opens the calendar
+                // immediately instead of waiting for a click on the input.
+                operator={PropertyOperator.IsDateExact}
                 value={rangeDateFrom ? rangeDateFrom.toString() : dayjs().toString()}
                 setValue={(date) => {
                     setDate(String(date), null)
