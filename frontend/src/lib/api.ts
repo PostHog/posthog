@@ -6719,10 +6719,22 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
     apiStatusLogic.findMounted()?.actions.onApiResponse(response?.clone(), error)
 
     if (error || !response) {
-        if (error && (error as any).name === 'AbortError') {
-            throw error
+        if (error instanceof Error) {
+            // Aborted requests and browser-level network failures (offline, blocked by an
+            // extension, CORS preflight, DNS failure) are not server errors — re-throw them
+            // unchanged so downstream code and error tracking can identify the native cause.
+            // Chrome reports "Failed to fetch", Firefox "NetworkError when attempting to
+            // fetch resource.", Safari "Load failed".
+            if (
+                error.name === 'AbortError' ||
+                (error.name === 'TypeError' && /failed to fetch|networkerror|load failed/i.test(error.message))
+            ) {
+                throw error
+            }
         }
-        throw new ApiError(error as any, response?.status)
+        const errorMessage =
+            error instanceof Error ? error.message || error.name : String(error ?? 'Network request failed')
+        throw new ApiError(errorMessage, response?.status)
     }
 
     if (!response.ok) {

@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 
-import api, { ApiConfig, ApiRequest } from 'lib/api'
+import api, { ApiConfig, ApiError, ApiRequest } from 'lib/api'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -145,6 +145,33 @@ describe('API helper', () => {
         await expect(api.get('/api/projects/null/dings')).rejects.toStrictEqual({
             detail: 'Cannot make request - project ID is unknown.',
             status: 0,
+        })
+    })
+
+    describe('network failure handling', () => {
+        it.each([
+            ['Chrome', 'Failed to fetch'],
+            ['Firefox', 'NetworkError when attempting to fetch resource.'],
+            ['Safari', 'Load failed'],
+        ])('re-throws %s network-level TypeError unchanged', async (_browser, message) => {
+            const networkError = new TypeError(message)
+            fakeFetch.mockRejectedValueOnce(networkError)
+
+            await expect(api.get('/api/something')).rejects.toBe(networkError)
+        })
+
+        it('re-throws AbortError unchanged', async () => {
+            const abortError = new DOMException('Aborted', 'AbortError')
+            fakeFetch.mockRejectedValueOnce(abortError)
+
+            await expect(api.get('/api/something')).rejects.toBe(abortError)
+        })
+
+        it('wraps non-network errors in ApiError with a readable message', async () => {
+            fakeFetch.mockRejectedValue(new Error('something totally unexpected'))
+
+            await expect(api.get('/api/something')).rejects.toBeInstanceOf(ApiError)
+            await expect(api.get('/api/something')).rejects.toHaveProperty('message', 'something totally unexpected')
         })
     })
 
