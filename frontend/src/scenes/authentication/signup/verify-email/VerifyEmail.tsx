@@ -10,7 +10,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { verifyEmailLogic } from './verifyEmailLogic'
+import { VERIFY_EMAIL_REDIRECT_DELAY_MS, verifyEmailLogic } from './verifyEmailLogic'
 
 export const scene: SceneExport = {
     component: VerifyEmail,
@@ -120,8 +120,6 @@ const GetHelp = (): JSX.Element => {
     )
 }
 
-const REDIRECT_DELAY_MS = 2000
-
 export function VerifyEmail(): JSX.Element {
     const { view } = useValues(verifyEmailLogic)
     const [progressActive, setProgressActive] = useState(false)
@@ -140,7 +138,7 @@ export function VerifyEmail(): JSX.Element {
         <div className="flex h-full flex-col">
             <div className="flex h-full">
                 <BridgePage view="verifyEmail" fixedWidth={false}>
-                    <div className="px-12 py-8 text-center flex flex-col items-center max-w-160 w-full">
+                    <div className="px-12 py-8 text-center flex flex-col items-center max-w-160 w-full relative">
                         {view === 'pending' ? (
                             <>
                                 <h2 className="text-lg">Welcome to PostHog!</h2>
@@ -185,9 +183,15 @@ export function VerifyEmail(): JSX.Element {
                         {view === 'success' && (
                             <div
                                 aria-hidden
-                                className="absolute bottom-0 left-0 right-0 h-1 overflow-hidden"
+                                className="absolute h-1 overflow-hidden"
+                                // Negative offsets cancel BridgePage__content's 2rem padding so the bar reaches
+                                // the card's rounded bottom edge, while the wrapper's own `relative` keeps the
+                                // anchor under our control rather than relying on BridgePage internals.
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
+                                    bottom: '-2rem',
+                                    left: '-2rem',
+                                    right: '-2rem',
                                     borderBottomLeftRadius: 'var(--radius)',
                                     borderBottomRightRadius: 'var(--radius)',
                                 }}
@@ -197,7 +201,7 @@ export function VerifyEmail(): JSX.Element {
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{
                                         width: progressActive ? '100%' : '0%',
-                                        transition: `width ${REDIRECT_DELAY_MS}ms linear`,
+                                        transition: `width ${VERIFY_EMAIL_REDIRECT_DELAY_MS}ms linear`,
                                     }}
                                 />
                             </div>

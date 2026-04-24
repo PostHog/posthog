@@ -9,6 +9,9 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { verifyEmailLogicType } from './verifyEmailLogicType'
 
+/** Delay between a successful verification and redirecting to the app — also drives the progress bar in VerifyEmail. */
+export const VERIFY_EMAIL_REDIRECT_DELAY_MS = 2000
+
 export interface ResponseType {
     success: boolean
     errorCode?: string
@@ -36,7 +39,7 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                     try {
                         await api.create(`api/users/verify_email/`, { token, uuid })
                         actions.setView('success')
-                        await breakpoint(2000)
+                        await breakpoint(VERIFY_EMAIL_REDIRECT_DELAY_MS)
 
                         const nextUrl = getRelativeNextPath(new URLSearchParams(location.search).get('next'), location)
 
@@ -51,7 +54,7 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                         const user = (values as any).user
                         if (user?.is_email_verified) {
                             actions.setView('success')
-                            await breakpoint(1000)
+                            await breakpoint(VERIFY_EMAIL_REDIRECT_DELAY_MS)
                             const nextUrl = getRelativeNextPath(
                                 new URLSearchParams(location.search).get('next'),
                                 location
