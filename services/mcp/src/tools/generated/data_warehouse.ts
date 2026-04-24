@@ -145,17 +145,20 @@ const externalDataSourcesCreate = (): ToolBase<
     handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.source_type !== undefined) {
+            body['source_type'] = params.source_type
+        }
+        if (params.payload !== undefined) {
+            body['payload'] = params.payload
+        }
         if (params.prefix !== undefined) {
             body['prefix'] = params.prefix
         }
         if (params.description !== undefined) {
             body['description'] = params.description
         }
-        if (params.source_type !== undefined) {
-            body['source_type'] = params.source_type
-        }
-        if (params.payload !== undefined) {
-            body['payload'] = params.payload
+        if (params.access_method !== undefined) {
+            body['access_method'] = params.access_method
         }
         const result = await context.api.request<Schemas.ExternalDataSourceSerializers>({
             method: 'POST',
@@ -280,21 +283,6 @@ const externalDataSourcesDbSchema = (): ToolBase<typeof ExternalDataSourcesDbSch
     handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesDbSchemaSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.client_secret !== undefined) {
-            body['client_secret'] = params.client_secret
-        }
-        if (params.account_id !== undefined) {
-            body['account_id'] = params.account_id
-        }
-        if (params.prefix !== undefined) {
-            body['prefix'] = params.prefix
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.job_inputs !== undefined) {
-            body['job_inputs'] = params.job_inputs
-        }
         if (params.source_type !== undefined) {
             body['source_type'] = params.source_type
         }
@@ -905,17 +893,17 @@ const externalDataSchemasPartialUpdate = (): ToolBase<
         if (params.sync_type !== undefined) {
             body['sync_type'] = params.sync_type
         }
-        if (params.sync_frequency !== undefined) {
-            body['sync_frequency'] = params.sync_frequency
-        }
-        if (params.sync_time_of_day !== undefined) {
-            body['sync_time_of_day'] = params.sync_time_of_day
-        }
         if (params.incremental_field !== undefined) {
             body['incremental_field'] = params.incremental_field
         }
         if (params.incremental_field_type !== undefined) {
             body['incremental_field_type'] = params.incremental_field_type
+        }
+        if (params.sync_frequency !== undefined) {
+            body['sync_frequency'] = params.sync_frequency
+        }
+        if (params.sync_time_of_day !== undefined) {
+            body['sync_time_of_day'] = params.sync_time_of_day
         }
         if (params.primary_key_columns !== undefined) {
             body['primary_key_columns'] = params.primary_key_columns
@@ -944,6 +932,27 @@ const externalDataSchemasCancel = (): ToolBase<typeof ExternalDataSchemasCancelS
         const body: Record<string, unknown> = {}
         if (params.should_sync !== undefined) {
             body['should_sync'] = params.should_sync
+        }
+        if (params.sync_type !== undefined) {
+            body['sync_type'] = params.sync_type
+        }
+        if (params.incremental_field !== undefined) {
+            body['incremental_field'] = params.incremental_field
+        }
+        if (params.incremental_field_type !== undefined) {
+            body['incremental_field_type'] = params.incremental_field_type
+        }
+        if (params.sync_frequency !== undefined) {
+            body['sync_frequency'] = params.sync_frequency
+        }
+        if (params.sync_time_of_day !== undefined) {
+            body['sync_time_of_day'] = params.sync_time_of_day
+        }
+        if (params.primary_key_columns !== undefined) {
+            body['primary_key_columns'] = params.primary_key_columns
+        }
+        if (params.cdc_table_mode !== undefined) {
+            body['cdc_table_mode'] = params.cdc_table_mode
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -985,6 +994,27 @@ const externalDataSchemasIncrementalFieldsCreate = (): ToolBase<
         if (params.should_sync !== undefined) {
             body['should_sync'] = params.should_sync
         }
+        if (params.sync_type !== undefined) {
+            body['sync_type'] = params.sync_type
+        }
+        if (params.incremental_field !== undefined) {
+            body['incremental_field'] = params.incremental_field
+        }
+        if (params.incremental_field_type !== undefined) {
+            body['incremental_field_type'] = params.incremental_field_type
+        }
+        if (params.sync_frequency !== undefined) {
+            body['sync_frequency'] = params.sync_frequency
+        }
+        if (params.sync_time_of_day !== undefined) {
+            body['sync_time_of_day'] = params.sync_time_of_day
+        }
+        if (params.primary_key_columns !== undefined) {
+            body['primary_key_columns'] = params.primary_key_columns
+        }
+        if (params.cdc_table_mode !== undefined) {
+            body['cdc_table_mode'] = params.cdc_table_mode
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/incremental_fields/`,
@@ -1007,6 +1037,27 @@ const externalDataSchemasReload = (): ToolBase<typeof ExternalDataSchemasReloadS
         if (params.should_sync !== undefined) {
             body['should_sync'] = params.should_sync
         }
+        if (params.sync_type !== undefined) {
+            body['sync_type'] = params.sync_type
+        }
+        if (params.incremental_field !== undefined) {
+            body['incremental_field'] = params.incremental_field
+        }
+        if (params.incremental_field_type !== undefined) {
+            body['incremental_field_type'] = params.incremental_field_type
+        }
+        if (params.sync_frequency !== undefined) {
+            body['sync_frequency'] = params.sync_frequency
+        }
+        if (params.sync_time_of_day !== undefined) {
+            body['sync_time_of_day'] = params.sync_time_of_day
+        }
+        if (params.primary_key_columns !== undefined) {
+            body['primary_key_columns'] = params.primary_key_columns
+        }
+        if (params.cdc_table_mode !== undefined) {
+            body['cdc_table_mode'] = params.cdc_table_mode
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/reload/`,
@@ -1028,6 +1079,27 @@ const externalDataSchemasResync = (): ToolBase<typeof ExternalDataSchemasResyncS
         const body: Record<string, unknown> = {}
         if (params.should_sync !== undefined) {
             body['should_sync'] = params.should_sync
+        }
+        if (params.sync_type !== undefined) {
+            body['sync_type'] = params.sync_type
+        }
+        if (params.incremental_field !== undefined) {
+            body['incremental_field'] = params.incremental_field
+        }
+        if (params.incremental_field_type !== undefined) {
+            body['incremental_field_type'] = params.incremental_field_type
+        }
+        if (params.sync_frequency !== undefined) {
+            body['sync_frequency'] = params.sync_frequency
+        }
+        if (params.sync_time_of_day !== undefined) {
+            body['sync_time_of_day'] = params.sync_time_of_day
+        }
+        if (params.primary_key_columns !== undefined) {
+            body['primary_key_columns'] = params.primary_key_columns
+        }
+        if (params.cdc_table_mode !== undefined) {
+            body['cdc_table_mode'] = params.cdc_table_mode
         }
         const result = await context.api.request<unknown>({
             method: 'POST',

@@ -11,6 +11,7 @@ use personhog_proto::personhog::types::v1::{
     UpdatePersonPropertiesResponse,
 };
 use tokio::sync::RwLock;
+use tonic::codec::CompressionEncoding;
 use tonic::transport::Channel;
 use tonic::{Request, Status};
 
@@ -120,7 +121,9 @@ impl LeaderBackend {
             .connect_lazy();
         let client = PersonHogLeaderClient::new(channel)
             .max_encoding_message_size(self.max_send_message_size)
-            .max_decoding_message_size(self.max_recv_message_size);
+            .max_decoding_message_size(self.max_recv_message_size)
+            .send_compressed(CompressionEncoding::Zstd)
+            .accept_compressed(CompressionEncoding::Zstd);
         self.clients.insert(address, client.clone());
         Ok(client)
     }
