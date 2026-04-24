@@ -159,14 +159,13 @@ class ExperimentCreateSerializer(serializers.Serializer):
 
         variants = value.get("feature_flag_variants", [])
 
-        if len(variants) >= 21:
-            raise serializers.ValidationError("Feature flag variants must be less than 21")
-
         if len(variants) > 0:
             if len(variants) < 2:
                 raise serializers.ValidationError(
                     "Feature flag must have at least 2 variants (control and at least one test variant)"
                 )
+            if len(variants) >= 21:
+                raise serializers.ValidationError("Feature flag variants must be less than 21")
 
             variant_keys = [variant["key"] for variant in variants]
             if "control" not in variant_keys:
