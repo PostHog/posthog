@@ -9,12 +9,18 @@ class TestAttioSource:
     def setup_method(self):
         self.source = AttioSource()
 
-    def test_non_retryable_errors_includes_auth_and_object_bad_request(self):
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            "401 Client Error: Unauthorized for url: https://api.attio.com",
+            "403 Client Error: Forbidden for url: https://api.attio.com",
+            "400 Client Error: Bad Request for url: https://api.attio.com/v2/objects/",
+        ],
+    )
+    def test_non_retryable_errors_includes_pattern(self, pattern):
         errors = self.source.get_non_retryable_errors()
 
-        assert "401 Client Error: Unauthorized for url: https://api.attio.com" in errors
-        assert "403 Client Error: Forbidden for url: https://api.attio.com" in errors
-        assert "400 Client Error: Bad Request for url: https://api.attio.com/v2/objects/" in errors
+        assert pattern in errors
 
     @pytest.mark.parametrize(
         "error_message",
