@@ -229,7 +229,7 @@ Created experiment 'Pricing page test':
 
 1. The `query-error-tracking-issues-list` tool fetches error groups sorted by occurrence count
 2. Returns compact issue details including affected user counts
-3. Use `query-error-tracking-issue` to drill into one issue's culprit, latest release, and optional sparkline
+3. Use `query-error-tracking-issue` to drill into one issue's top in_app application frame, latest release, and optional sparkline
 4. Use `query-error-tracking-issue-events` only when stack traces or sample exception events are needed
 
 **Expected output:**

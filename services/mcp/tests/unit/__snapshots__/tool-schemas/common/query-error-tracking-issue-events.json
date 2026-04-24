@@ -89,6 +89,7 @@
         },
         "filterTestAccounts": {
             "default": true,
+            "description": "When true, exclude internal/test account data from results. Defaults to true.",
             "type": "boolean"
         },
         "issueId": {
@@ -108,6 +109,11 @@
             "minimum": 0,
             "type": "integer"
         },
+        "onlyAppFrames": {
+            "default": true,
+            "description": "When true, include only stack frames marked in_app and suppress vendor/library frames. Defaults to true.",
+            "type": "boolean"
+        },
         "orderDirection": {
             "default": "DESC",
             "enum": ["ASC", "DESC"],
@@ -115,6 +121,12 @@
         },
         "searchQuery": {
             "maxLength": 500,
+            "type": "string"
+        },
+        "verbosity": {
+            "default": "summary",
+            "description": "Controls exception detail size: summary omits stack frames, stack includes parsed stack frames, raw preserves parsed exception fields. Defaults to summary.",
+            "enum": ["summary", "stack", "raw"],
             "type": "string"
         }
     },

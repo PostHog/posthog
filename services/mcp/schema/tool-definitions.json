@@ -490,7 +490,7 @@
         }
     },
     "query-error-tracking-issues-list": {
-        "description": "List error tracking issues to find, filter, and prioritize errors in the project. Returns compact issue rows with aggregate counts only, not stack traces or full event payloads. Defaults to active issues from the last 7 days, sorted by occurrences. Prefer typed filters like library, release, environment, fingerprint, user, url, filePath, and personId before using the advanced filterGroup escape hatch. Use query-error-tracking-issue for one issue's aggregate metadata, and query-error-tracking-issue-events only when stack traces or sample exception events are needed.",
+        "description": "List error tracking issues to find, filter, and prioritize errors in the project. Returns compact issue rows with aggregate counts only, not stack traces or full event payloads. Defaults to active issues from the last 7 days, sorted by occurrences. Prefer typed filters like library, release, environment, fingerprint hash, user, url, filePath, and personId before using the advanced filterGroup escape hatch. Use query-error-tracking-issue for one issue's aggregate metadata, and query-error-tracking-issue-events only when stack traces or sample exception events are needed.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "List compact error tracking issues with typed common filters.",
@@ -506,14 +506,14 @@
         }
     },
     "query-error-tracking-issue": {
-        "description": "Fetch compact details for one error tracking issue. Use this after query-error-tracking-issues-list returns an issue ID. Returns issue metadata, aggregate impact counts, a culprit/top-frame hint, latest release metadata when available, and an optional numeric sparkline. Use query-error-tracking-issue-events for full stack traces or sample exception payloads.",
+        "description": "Fetch compact JSON details for one error tracking issue. Use this after query-error-tracking-issues-list returns an issue ID. Returns issue metadata, aggregate impact counts, the top in_app application frame when available, latest release metadata, and an optional numeric sparkline. Use query-error-tracking-issue-events for full stack traces or sample exception payloads.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "Fetch compact enriched details for one error tracking issue.",
         "title": "Get error tracking issue",
         "required_scopes": ["error_tracking:read"],
         "new_mcp": true,
-        "system_prompt_hint": "Single error issue metadata, impact counts, culprit, latest release, optional sparkline",
+        "system_prompt_hint": "Single error issue metadata, impact counts, top in_app application frame, latest release, optional sparkline",
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -522,7 +522,7 @@
         }
     },
     "query-error-tracking-issue-events": {
-        "description": "Fetch sample exception events for a single error tracking issue. Use after query-error-tracking-issues-list or query-error-tracking-issue when you need stack trace, latest occurrence details, browser/SDK context, URL, Sentry link, or raw exception evidence. Defaults to the latest event only and caps limit at 20.",
+        "description": "Fetch sample exception events for a single error tracking issue. Use after query-error-tracking-issues-list or query-error-tracking-issue when you need latest occurrence details, browser/SDK context, URL, Sentry link, stack traces, or raw exception evidence. Defaults to one latest summary event, only app frames when frames are requested, and caps limit at 20. Set verbosity to stack for parsed stack frames or raw for parsed raw exception fields.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "Fetch compact exception event samples for one error tracking issue.",

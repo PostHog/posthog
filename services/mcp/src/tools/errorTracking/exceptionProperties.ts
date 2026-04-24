@@ -42,9 +42,19 @@ function parseJsonish(value: unknown): unknown {
     return parsed
 }
 
-function normalizeFrame(frame: unknown): Record<string, unknown> | undefined {
+export type ExceptionVerbosity = 'summary' | 'stack' | 'raw'
+
+type NormalizeOptions = {
+    verbosity?: ExceptionVerbosity
+    onlyAppFrames?: boolean
+}
+
+function normalizeFrame(frame: unknown, options: NormalizeOptions): Record<string, unknown> | undefined {
     const frameRecord = asRecord(parseJsonish(frame))
     if (!frameRecord) {
+        return undefined
+    }
+    if (options.onlyAppFrames !== false && frameRecord.in_app !== true) {
         return undefined
     }
 
@@ -57,14 +67,16 @@ function normalizeFrame(frame: unknown): Record<string, unknown> | undefined {
     })
 }
 
-function normalizeStacktrace(stacktrace: unknown): Record<string, unknown> | undefined {
+function normalizeStacktrace(stacktrace: unknown, options: NormalizeOptions): Record<string, unknown> | undefined {
     const stacktraceRecord = asRecord(parseJsonish(stacktrace))
     if (!stacktraceRecord) {
         return undefined
     }
 
     const frames = Array.isArray(stacktraceRecord.frames)
-        ? stacktraceRecord.frames.map(normalizeFrame).filter((frame): frame is Record<string, unknown> => !!frame)
+        ? stacktraceRecord.frames
+              .map((frame) => normalizeFrame(frame, options))
+              .filter((frame): frame is Record<string, unknown> => !!frame)
         : undefined
 
     return compactObject({
@@ -73,36 +85,58 @@ function normalizeStacktrace(stacktrace: unknown): Record<string, unknown> | und
     })
 }
 
-function normalizeException(exception: unknown): Record<string, unknown> | undefined {
+function normalizeException(exception: unknown, options: NormalizeOptions): Record<string, unknown> | undefined {
     const exceptionRecord = asRecord(parseJsonish(exception))
     if (!exceptionRecord) {
         return undefined
     }
 
-    return compactObject({
+    const summary = compactObject({
         type: exceptionRecord.type ?? exceptionRecord.exception_type,
         value: exceptionRecord.value ?? exceptionRecord.message ?? exceptionRecord.exception_message,
         module: exceptionRecord.module,
         mechanism: exceptionRecord.mechanism,
-        stacktrace: normalizeStacktrace(exceptionRecord.stacktrace),
+    })
+
+    if (options.verbosity === 'summary') {
+        return summary
+    }
+
+    const stacktrace = normalizeStacktrace(exceptionRecord.stacktrace, options)
+    if (options.verbosity === 'raw') {
+        return compactObject({
+            ...exceptionRecord,
+            stacktrace,
+        })
+    }
+
+    return compactObject({
+        ...summary,
+        stacktrace,
     })
 }
 
-export function normalizeExceptionList(value: unknown): unknown {
+export function normalizeExceptionList(value: unknown, options: NormalizeOptions = {}): unknown {
     const parsed = parseJsonish(value)
     const record = asRecord(parsed)
     const exceptions = Array.isArray(parsed) ? parsed : Array.isArray(record?.values) ? record.values : undefined
+    const normalizeOptions = {
+        verbosity: options.verbosity ?? 'summary',
+        onlyAppFrames: options.onlyAppFrames ?? true,
+    }
 
     if (!exceptions) {
         return parsed
     }
 
-    return exceptions.map(normalizeException).filter((exception): exception is Record<string, unknown> => !!exception)
+    return exceptions
+        .map((exception) => normalizeException(exception, normalizeOptions))
+        .filter((exception): exception is Record<string, unknown> => !!exception)
 }
 
-export function normalizeErrorTrackingProperty(name: string, value: unknown): unknown {
+export function normalizeErrorTrackingProperty(name: string, value: unknown, options: NormalizeOptions = {}): unknown {
     if (name === '$exception_list') {
-        return normalizeExceptionList(value)
+        return normalizeExceptionList(value, options)
     }
     if (name === '$exception_releases') {
         return parseJsonish(value)

@@ -35,7 +35,7 @@ Status | Description
 - The `name` field is typically auto-populated from the first exception's type/message
 - Use the `events` table with `event = '$exception'` and `issue_id` to query actual exception occurrences
 - Issues can be merged (combining fingerprints) or split (separating fingerprints into new issues)
-- In the MCP, use `query-error-tracking-issues-list` to find issues, `query-error-tracking-issue` for one issue's metadata, impact counts, culprit, latest release, and optional sparkline, and `query-error-tracking-issue-events` only when full stack traces or sample exception events are needed. Prefer the list tool's typed filters (`library`, `release`, `environment`, `fingerprint`, `user`, `url`, `filePath`, `personId`) before falling back to `filterGroup`.
+- In the MCP, use `query-error-tracking-issues-list` to find issues, `query-error-tracking-issue` for one issue's metadata, impact counts, top in_app application frame, latest release, and optional sparkline, and `query-error-tracking-issue-events` only when full stack traces or sample exception events are needed. Prefer the list tool's typed filters (`library`, `release`, `environment`, the `fingerprint` hash, `user`, `url`, `filePath`, `personId`) before falling back to `filterGroup`.
 
 ---
 

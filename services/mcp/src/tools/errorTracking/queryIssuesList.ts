@@ -59,7 +59,11 @@ const schema = z.object({
         ])
         .optional()
         .describe('Filter by issue assignee.'),
-    filterTestAccounts: z.coerce.boolean().default(true).optional(),
+    filterTestAccounts: z.coerce
+        .boolean()
+        .default(true)
+        .optional()
+        .describe('When true, exclude internal/test account data from results. Defaults to true.'),
     searchQuery: z
         .string()
         .max(500)
@@ -84,7 +88,9 @@ const schema = z.object({
         .max(200)
         .optional()
         .describe('Filter by runtime environment captured in event $environment.'),
-    fingerprint: stringOrStringsSchema.optional().describe('Filter by exception fingerprint.'),
+    fingerprint: stringOrStringsSchema
+        .optional()
+        .describe('Filter by exact exception fingerprint hash, usually a long hex-style hash, not fuzzy search.'),
     user: z.string().max(500).optional().describe('Search user/email text in exception event and person email fields.'),
     personId: z.string().max(100).optional().describe('Filter by exact PostHog person UUID.'),
     url: z.string().max(1000).optional().describe('Filter by current URL substring from event $current_url.'),
@@ -163,17 +169,14 @@ function buildSearchQuery(params: Params): string | undefined {
     return terms.map(searchTerm).join(' ')
 }
 
-function getNextOffset(
+function getPageInfo(
     data: Record<string, unknown>,
-    fallbackLimit: number,
-    fallbackOffset: number
-): number | undefined {
-    if (!data.hasMore) {
-        return undefined
-    }
-    const limit = typeof data.limit === 'number' ? data.limit : fallbackLimit
-    const offset = typeof data.offset === 'number' ? data.offset : fallbackOffset
-    return offset + limit
+    limit: number,
+    offset: number
+): { hasMore: boolean; nextOffset?: number } {
+    const rawRows = Array.isArray(data.results) ? data.results : []
+    const hasMore = Boolean(data.hasMore) || rawRows.length > limit
+    return hasMore ? { hasMore, nextOffset: offset + limit } : { hasMore }
 }
 
 export const queryIssuesListHandler: ToolBase<typeof schema>['handler'] = async (
@@ -184,6 +187,8 @@ export const queryIssuesListHandler: ToolBase<typeof schema>['handler'] = async 
     const projectId = await context.stateManager.getProjectId()
     const baseUrl = context.api.getProjectBaseUrl(projectId)
     const filterGroup = buildFilterGroup(params)
+    const limit = params.limit ?? 25
+    const offset = params.offset ?? 0
 
     const query: Record<string, unknown> = {
         kind: 'ErrorTrackingQuery',
@@ -195,8 +200,8 @@ export const queryIssuesListHandler: ToolBase<typeof schema>['handler'] = async 
         filterGroup: filterGroup.length > 0 ? filterGroup : undefined,
         orderBy: params.orderBy,
         orderDirection: params.orderDirection,
-        limit: params.limit,
-        offset: params.offset,
+        limit,
+        offset,
         volumeResolution: params.volumeResolution,
         personId: params.personId,
         withAggregations: true,
@@ -212,16 +217,16 @@ export const queryIssuesListHandler: ToolBase<typeof schema>['handler'] = async 
     }
 
     const data = await context.api.query({ projectId }).runQuery({ query })
-    const results = Array.isArray(data.results)
-        ? data.results.map((issue: unknown) => pickResponseFields(issue, ISSUE_FIELDS))
-        : []
+    const rawResults = Array.isArray(data.results) ? data.results : []
+    const results = rawResults.slice(0, limit).map((issue: unknown) => pickResponseFields(issue, ISSUE_FIELDS))
+    const pageInfo = getPageInfo(data as Record<string, unknown>, limit, offset)
 
     return {
         results,
-        hasMore: data.hasMore,
-        limit: data.limit ?? params.limit,
-        offset: data.offset ?? params.offset,
-        nextOffset: getNextOffset(data as Record<string, unknown>, params.limit ?? 25, params.offset ?? 0),
+        hasMore: pageInfo.hasMore,
+        limit,
+        offset,
+        nextOffset: pageInfo.nextOffset,
         _posthogUrl: `${baseUrl}/error_tracking`,
     }
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import queryIssue from '@/tools/errorTracking/queryIssue'
-import type { Context } from '@/tools/types'
+import { POSTHOG_META_KEY, type Context } from '@/tools/types'
 
 function createMockContext(runQueryMock: ReturnType<typeof vi.fn>): Context {
     return {
@@ -110,7 +110,7 @@ describe('query-error-tracking-issue', () => {
             source: 'fallback.js',
             function: 'fallbackFunction',
             aggregations: { occurrences: 3, users: 2, sessions: 1 },
-            culprit: {
+            top_in_app_frame: {
                 function: 'loadIssue',
                 source: 'app.js',
                 line: 42,
@@ -128,6 +128,7 @@ describe('query-error-tracking-issue', () => {
             impact: { occurrences: 3, users: 2, sessions: 1 },
             _posthogUrl: `http://localhost:8010/project/1/error_tracking/${issueId}`,
         })
+        expect(tool._meta?.[POSTHOG_META_KEY]?.outputFormat).toBe('json')
     })
 
     it('includes a compact sparkline only when requested', async () => {

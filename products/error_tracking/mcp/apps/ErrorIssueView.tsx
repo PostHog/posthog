@@ -13,7 +13,7 @@ export interface ErrorIssueImpact {
     sessions?: number
 }
 
-export interface ErrorIssueCulprit {
+export interface ErrorIssueTopInAppFrame {
     function?: string
     source?: string
     line?: number
@@ -41,7 +41,7 @@ export interface ErrorIssueData {
     source?: string
     function?: string
     impact?: ErrorIssueImpact
-    culprit?: ErrorIssueCulprit
+    top_in_app_frame?: ErrorIssueTopInAppFrame
     latest_release?: ErrorIssueRelease
     sparkline?: number[]
     assignee?: { id: string; type: string } | null
@@ -91,7 +91,7 @@ export function ErrorIssueView({ issue }: ErrorIssueViewProps): ReactElement {
         variant: 'neutral' as const,
     }
     const impact = issue.impact
-    const culprit = issue.culprit
+    const topInAppFrame = issue.top_in_app_frame
     const latestRelease = issue.latest_release
 
     return (
@@ -146,17 +146,19 @@ export function ErrorIssueView({ issue }: ErrorIssueViewProps): ReactElement {
                     </Card>
                 )}
 
-                {(hasValues(culprit) || hasValues(latestRelease)) && (
+                {(hasValues(topInAppFrame) || hasValues(latestRelease)) && (
                     <Card padding="md">
                         <DescriptionList
                             columns={2}
                             items={[
-                                ...(culprit?.function ? [{ label: 'Function', value: culprit.function }] : []),
-                                ...(culprit?.source
+                                ...(topInAppFrame?.function
+                                    ? [{ label: 'Top app frame', value: topInAppFrame.function }]
+                                    : []),
+                                ...(topInAppFrame?.source
                                     ? [
                                           {
                                               label: 'Source',
-                                              value: `${culprit.source}${culprit.line ? `:${culprit.line}` : ''}${culprit.column ? `:${culprit.column}` : ''}`,
+                                              value: `${topInAppFrame.source}${topInAppFrame.line ? `:${topInAppFrame.line}` : ''}${topInAppFrame.column ? `:${topInAppFrame.column}` : ''}`,
                                           },
                                       ]
                                     : []),

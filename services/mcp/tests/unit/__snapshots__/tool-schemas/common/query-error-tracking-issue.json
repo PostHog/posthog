@@ -24,6 +24,7 @@
         },
         "filterTestAccounts": {
             "default": true,
+            "description": "When true, exclude internal/test account data from results. Defaults to true.",
             "type": "boolean"
         },
         "includeSparkline": {

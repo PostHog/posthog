@@ -95,21 +95,6 @@ describe('query-error-tracking-issue-events', () => {
                             {
                                 type: 'TypeError',
                                 value: 'Cannot read properties of undefined',
-                                stacktrace: {
-                                    frames: [
-                                        {
-                                            filename: 'https://example.test/app.js',
-                                            function: 'loadIssue',
-                                            lineno: 42,
-                                            colno: 9,
-                                            in_app: true,
-                                            source: 'https://example.test/app.js',
-                                            mangled_name: 'loadIssue',
-                                            line: 42,
-                                            column: 9,
-                                        },
-                                    ],
-                                },
                             },
                         ],
                         $current_url: 'https://example.test/app',
@@ -129,5 +114,84 @@ describe('query-error-tracking-issue-events', () => {
         const tool = queryIssueEvents()
 
         await expect(tool.handler(context, { issueId, limit: 21 })).rejects.toThrow()
+    })
+
+    it('returns parsed stack frames only when requested and filters vendor frames by default', async () => {
+        const runQuery = vi.fn().mockResolvedValue({
+            columns: ['uuid', 'properties.$exception_list'],
+            results: [
+                [
+                    'event-uuid',
+                    JSON.stringify([
+                        {
+                            type: 'TypeError',
+                            value: 'Cannot read properties of undefined',
+                            noisy_extra: 'keep only in raw mode',
+                            stacktrace: {
+                                frames: [
+                                    {
+                                        filename: 'https://cdn.example.test/vendor.js',
+                                        function: 'vendorLoad',
+                                        lineno: 12,
+                                        colno: 3,
+                                        in_app: false,
+                                    },
+                                    {
+                                        filename: 'https://example.test/app.js',
+                                        function: 'loadIssue',
+                                        lineno: 42,
+                                        colno: 9,
+                                        in_app: true,
+                                    },
+                                ],
+                            },
+                        },
+                    ]),
+                ],
+            ],
+        })
+        const context = createMockContext(runQuery)
+        const tool = queryIssueEvents()
+
+        const stackResult = (await tool.handler(context, { issueId, verbosity: 'stack' })) as any
+        const rawResult = (await tool.handler(context, { issueId, verbosity: 'raw', onlyAppFrames: false })) as any
+
+        expect(stackResult.results[0].properties.$exception_list[0]).toEqual({
+            type: 'TypeError',
+            value: 'Cannot read properties of undefined',
+            stacktrace: {
+                frames: [
+                    {
+                        filename: 'https://example.test/app.js',
+                        function: 'loadIssue',
+                        lineno: 42,
+                        colno: 9,
+                        in_app: true,
+                        source: 'https://example.test/app.js',
+                        mangled_name: 'loadIssue',
+                        line: 42,
+                        column: 9,
+                    },
+                ],
+            },
+        })
+        expect(rawResult.results[0].properties.$exception_list[0].noisy_extra).toBe('keep only in raw mode')
+        expect(rawResult.results[0].properties.$exception_list[0].stacktrace.frames).toHaveLength(2)
+    })
+
+    it('trims limit-plus-one backend event pages to the requested limit', async () => {
+        const runQuery = vi.fn().mockResolvedValue({
+            columns: ['uuid'],
+            results: [['event-1'], ['event-2']],
+        })
+        const context = createMockContext(runQuery)
+        const tool = queryIssueEvents()
+
+        const result = (await tool.handler(context, { issueId, limit: 1 })) as any
+
+        expect(result.results).toEqual([{ uuid: 'event-1', properties: {} }])
+        expect(result.hasMore).toBe(true)
+        expect(result.limit).toBe(1)
+        expect(result.nextOffset).toBe(1)
     })
 })

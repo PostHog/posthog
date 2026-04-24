@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { pickResponseFields } from '@/tools/tool-utils'
-import type { Context, ToolBase } from '@/tools/types'
+import { POSTHOG_META_KEY, type Context, type ToolBase } from '@/tools/types'
 
 import { normalizeErrorTrackingProperty } from './exceptionProperties'
 
@@ -18,7 +18,11 @@ const schema = z.object({
         .regex(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/)
         .describe('Error tracking issue ID.'),
     dateRange: dateRangeSchema.default({ date_from: '-7d' }).optional(),
-    filterTestAccounts: z.coerce.boolean().default(true).optional(),
+    filterTestAccounts: z.coerce
+        .boolean()
+        .default(true)
+        .optional()
+        .describe('When true, exclude internal/test account data from results. Defaults to true.'),
     volumeResolution: z.coerce.number().int().min(0).default(0).optional(),
     includeSparkline: z.coerce
         .boolean()
@@ -107,7 +111,7 @@ function mapContextEventProperties(data: Record<string, unknown>): Record<string
         const value = values[i]
         if (value !== undefined && value !== null) {
             const prop = column.slice('properties.'.length)
-            properties[prop] = normalizeErrorTrackingProperty(prop, value)
+            properties[prop] = normalizeErrorTrackingProperty(prop, value, { verbosity: 'stack', onlyAppFrames: true })
         }
     }
 
@@ -141,26 +145,30 @@ function getFrames(exceptionList: unknown): Record<string, unknown>[] {
     return frames
 }
 
-function buildCulprit(
+function buildTopInAppFrame(
     issue: Record<string, unknown>,
     eventProperties: Record<string, unknown>
 ): Record<string, unknown> {
     const frames = getFrames(eventProperties.$exception_list)
-    const topFrame = [...frames].reverse().find((frame) => frame.in_app === true) ?? [...frames].reverse().find(Boolean)
+    const topFrame = [...frames].reverse().find((frame) => frame.in_app === true)
 
-    const frameFunction = topFrame ? getFrameValue(topFrame, ['function', 'mangled_name', 'name']) : undefined
+    if (!topFrame) {
+        return {}
+    }
+
+    const frameFunction = getFrameValue(topFrame, ['function', 'mangled_name', 'name'])
     const fallbackFunction = typeof issue.function === 'string' ? issue.function : undefined
     const fn = typeof frameFunction === 'string' && frameFunction !== '?' ? frameFunction : fallbackFunction
 
-    const frameSource = topFrame ? getFrameValue(topFrame, ['source', 'filename', 'abs_path', 'module']) : undefined
+    const frameSource = getFrameValue(topFrame, ['source', 'filename', 'abs_path', 'module'])
     const fallbackSource = typeof issue.source === 'string' ? issue.source : undefined
 
     return compactObject({
         function: fn,
         source: frameSource ?? fallbackSource,
-        line: topFrame ? getFrameValue(topFrame, ['line', 'lineno']) : undefined,
-        column: topFrame ? getFrameValue(topFrame, ['column', 'colno']) : undefined,
-        in_app: topFrame?.in_app,
+        line: getFrameValue(topFrame, ['line', 'lineno']),
+        column: getFrameValue(topFrame, ['column', 'colno']),
+        in_app: true,
     })
 }
 
@@ -273,7 +281,7 @@ export const queryIssueHandler: ToolBase<typeof schema>['handler'] = async (cont
 
     return compactObject({
         ...pickResponseFields(issueRecord, ISSUE_FIELDS),
-        culprit: buildCulprit(issueRecord, eventProperties),
+        top_in_app_frame: buildTopInAppFrame(issueRecord, eventProperties),
         latest_release: extractLatestRelease(eventProperties),
         impact: buildImpact(issueRecord),
         sparkline: params.includeSparkline ? buildSparkline(issueRecord) : undefined,
@@ -285,6 +293,9 @@ const tool = (): ToolBase<typeof schema> => ({
     name: 'query-error-tracking-issue',
     schema,
     handler: queryIssueHandler,
+    _meta: {
+        [POSTHOG_META_KEY]: { outputFormat: 'json' },
+    },
 })
 
 export default tool

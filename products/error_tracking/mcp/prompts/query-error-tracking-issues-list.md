@@ -1,6 +1,6 @@
 List error tracking issues to find, filter, and prioritize errors in the project. Returns compact issue rows with aggregate counts, not stack traces or full event payloads.
 
-Use `query-error-tracking-issue` with an issue ID from this tool to inspect one issue's metadata, impact, culprit, and latest release. Use `query-error-tracking-issue-events` only when you need a sample exception event or stack trace.
+Use `query-error-tracking-issue` with an issue ID from this tool to inspect one issue's metadata, impact, top in_app application frame, and latest release. Use `query-error-tracking-issue-events` only when you need a sample exception event or stack trace.
 
 CRITICAL: Be minimalist. Defaults are usually enough: active issues, last 7 days, sorted by occurrences, compact counts only.
 
@@ -25,7 +25,7 @@ Prefer these typed fields over `filterGroup` when they fit:
 - `library`: SDK/library from `$lib`, for example `posthog-js`, `posthog-node`, or `posthog-android`.
 - `release`: release/version text from `$exception_releases`.
 - `environment`: runtime environment from `$environment`.
-- `fingerprint`: exact `$exception_fingerprint`.
+- `fingerprint`: exact `$exception_fingerprint` hash.
 - `user`: user/email search text.
 - `personId`: exact PostHog person UUID.
 - `url`: substring match against `$current_url`.
@@ -94,7 +94,7 @@ Defaults to 25. Use `nextOffset` from the previous response to fetch the next pa
 
 ```json
 {
-  "fingerprint": "TypeError:checkout-button",
+  "fingerprint": "012a0ac2ab9ad1a858f753798c0e7d92ed2075bd861416a93faf4414021079af18873b1e07729870c94fe3fd4b789a29118772ce39eab9a7637e5d181d7fbc8e",
   "filePath": "src/components/Checkout.tsx"
 }
 ```

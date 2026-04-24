@@ -71,12 +71,14 @@ describe('query-error-tracking-issues-list', () => {
         const runQuery = vi.fn().mockResolvedValue({ results: [] })
         const context = createMockContext(runQuery)
         const tool = queryIssuesList()
+        const fingerprint =
+            '012a0ac2ab9ad1a858f753798c0e7d92ed2075bd861416a93faf4414021079af18873b1e07729870c94fe3fd4b789a29118772ce39eab9a7637e5d181d7fbc8e'
 
         await tool.handler(context, {
             library: ['posthog-js', 'posthog-node'],
             release: '2026.04.24',
             environment: 'production',
-            fingerprint: 'fingerprint-1',
+            fingerprint,
             user: 'alice@example.com',
             personId: 'person-uuid',
             url: '/checkout',
@@ -94,9 +96,25 @@ describe('query-error-tracking-issues-list', () => {
                 { type: 'event', key: '$lib', operator: 'exact', value: ['posthog-js', 'posthog-node'] },
                 { type: 'event', key: '$exception_releases', operator: 'icontains', value: '2026.04.24' },
                 { type: 'event', key: '$environment', operator: 'exact', value: ['production'] },
-                { type: 'event', key: '$exception_fingerprint', operator: 'exact', value: ['fingerprint-1'] },
+                { type: 'event', key: '$exception_fingerprint', operator: 'exact', value: [fingerprint] },
                 { type: 'event', key: '$current_url', operator: 'icontains', value: '/checkout' },
             ])
         )
+    })
+
+    it('trims limit-plus-one backend pages to the requested limit', async () => {
+        const runQuery = vi.fn().mockResolvedValue({
+            results: [{ id: 'issue-1' }, { id: 'issue-2' }, { id: 'issue-3' }],
+            offset: 0,
+        })
+        const context = createMockContext(runQuery)
+        const tool = queryIssuesList()
+
+        const result = (await tool.handler(context, { limit: 2 })) as any
+
+        expect(result.results).toEqual([{ id: 'issue-1' }, { id: 'issue-2' }])
+        expect(result.hasMore).toBe(true)
+        expect(result.limit).toBe(2)
+        expect(result.nextOffset).toBe(2)
     })
 })

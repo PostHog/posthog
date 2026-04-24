@@ -130,6 +130,7 @@
         },
         "filterTestAccounts": {
             "default": true,
+            "description": "When true, exclude internal/test account data from results. Defaults to true.",
             "type": "boolean"
         },
         "fingerprint": {
@@ -145,7 +146,7 @@
                     "type": "array"
                 }
             ],
-            "description": "Filter by exception fingerprint."
+            "description": "Filter by exact exception fingerprint hash, usually a long hex-style hash, not fuzzy search."
         },
         "library": {
             "anyOf": [

@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 import type { Context, ToolBase } from '@/tools/types'
 
-import { normalizeErrorTrackingProperty } from './exceptionProperties'
+import { type ExceptionVerbosity, normalizeErrorTrackingProperty } from './exceptionProperties'
 
 const dateRangeSchema = z
     .object({
@@ -47,15 +47,37 @@ const schema = z.object({
         .regex(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/)
         .describe('Error tracking issue ID.'),
     dateRange: dateRangeSchema.default({ date_from: '-7d' }).optional(),
-    filterTestAccounts: z.coerce.boolean().default(true).optional(),
+    filterTestAccounts: z.coerce
+        .boolean()
+        .default(true)
+        .optional()
+        .describe('When true, exclude internal/test account data from results. Defaults to true.'),
     filterGroup: z.array(propertyFilterSchema).default([]).optional(),
     searchQuery: z.string().max(500).optional(),
     orderDirection: z.enum(['ASC', 'DESC']).default('DESC').optional(),
     limit: z.coerce.number().int().min(1).max(20).default(1).optional(),
     offset: z.coerce.number().int().min(0).default(0).optional(),
+    verbosity: z
+        .enum(['summary', 'stack', 'raw'])
+        .default('summary')
+        .optional()
+        .describe(
+            'Controls exception detail size: summary omits stack frames, stack includes parsed stack frames, raw preserves parsed exception fields. Defaults to summary.'
+        ),
+    onlyAppFrames: z.coerce
+        .boolean()
+        .default(true)
+        .optional()
+        .describe(
+            'When true, include only stack frames marked in_app and suppress vendor/library frames. Defaults to true.'
+        ),
 })
 
 type Params = z.infer<typeof schema>
+type MapEventOptions = {
+    verbosity: ExceptionVerbosity
+    onlyAppFrames: boolean
+}
 
 const PROPERTY_SELECTS = [
     'properties.$exception_type',
@@ -110,7 +132,7 @@ function propertyName(select: string): string | null {
     return select.startsWith('properties.') ? select.slice('properties.'.length) : null
 }
 
-function mapEventRow(row: unknown, columns: string[]): Record<string, unknown> {
+function mapEventRow(row: unknown, columns: string[], options: MapEventOptions): Record<string, unknown> {
     const values = Array.isArray(row) ? row : columns.map((column) => (row as Record<string, unknown>)?.[column])
     const event: Record<string, unknown> = { properties: {} }
     const properties = event.properties as Record<string, unknown>
@@ -123,7 +145,7 @@ function mapEventRow(row: unknown, columns: string[]): Record<string, unknown> {
         }
         const prop = propertyName(column)
         if (prop) {
-            properties[prop] = normalizeErrorTrackingProperty(prop, value)
+            properties[prop] = normalizeErrorTrackingProperty(prop, value, options)
         } else {
             event[column] = value
         }
@@ -145,6 +167,16 @@ function buildWhere(params: Params): string[] {
     return where
 }
 
+function getPageInfo(
+    data: Record<string, unknown>,
+    limit: number,
+    offset: number
+): { hasMore: boolean; nextOffset?: number } {
+    const rawRows = Array.isArray(data.results) ? data.results : []
+    const hasMore = Boolean(data.hasMore) || rawRows.length > limit
+    return hasMore ? { hasMore, nextOffset: offset + limit } : { hasMore }
+}
+
 export const queryIssueEventsHandler: ToolBase<typeof schema>['handler'] = async (
     context: Context,
     rawParams: Params
@@ -152,6 +184,10 @@ export const queryIssueEventsHandler: ToolBase<typeof schema>['handler'] = async
     const params = schema.parse(rawParams)
     const projectId = await context.stateManager.getProjectId()
     const baseUrl = context.api.getProjectBaseUrl(projectId)
+    const limit = params.limit ?? 1
+    const offset = params.offset ?? 0
+    const verbosity = params.verbosity ?? 'summary'
+    const onlyAppFrames = params.onlyAppFrames ?? true
 
     const query = {
         kind: 'EventsQuery',
@@ -163,24 +199,27 @@ export const queryIssueEventsHandler: ToolBase<typeof schema>['handler'] = async
         after: params.dateRange?.date_from,
         before: params.dateRange?.date_to ?? undefined,
         orderBy: [`timestamp ${params.orderDirection}`],
-        limit: params.limit,
-        offset: params.offset,
+        limit,
+        offset,
         tags: { productKey: 'error_tracking' },
     }
 
     const data = await context.api.query({ projectId }).runQuery({ query })
     const columns = Array.isArray(data.columns) ? data.columns.map(normalizeColumn) : SELECTS
-    const results = Array.isArray(data.results) ? data.results.map((row: unknown) => mapEventRow(row, columns)) : []
-    const nextOffset = data.hasMore
-        ? (data.offset ?? params.offset ?? 0) + (data.limit ?? params.limit ?? 0)
-        : undefined
+    const rawResults = Array.isArray(data.results) ? data.results : []
+    const mapOptions = {
+        verbosity,
+        onlyAppFrames,
+    }
+    const results = rawResults.slice(0, limit).map((row: unknown) => mapEventRow(row, columns, mapOptions))
+    const pageInfo = getPageInfo(data as Record<string, unknown>, limit, offset)
 
     return {
         results,
-        hasMore: data.hasMore,
-        limit: data.limit ?? params.limit,
-        offset: data.offset ?? params.offset,
-        nextOffset,
+        hasMore: pageInfo.hasMore,
+        limit,
+        offset,
+        nextOffset: pageInfo.nextOffset,
         _posthogUrl: `${baseUrl}/error_tracking/${encodeURIComponent(params.issueId)}`,
     }
 }
