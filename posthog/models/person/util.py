@@ -724,9 +724,12 @@ def insert_cohort_members(team_id: int, cohort_id: int, person_ids: list[int], v
             INSERT INTO "{table}" ("person_id", "cohort_id", "version")
             SELECT pid, %s, %s
             FROM UNNEST(ARRAY[{placeholders}]) AS t(pid)
-            ON CONFLICT DO NOTHING
+            WHERE NOT EXISTS (
+                SELECT 1 FROM "{table}" AS cp
+                WHERE cp."person_id" = pid AND cp."cohort_id" = %s
+            )
         """
-        cursor.execute(query, [cohort_id, version, *person_ids])
+        cursor.execute(query, [cohort_id, version, *person_ids, cohort_id])
         return cursor.rowcount
 
     return _personhog_routed(

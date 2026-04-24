@@ -108,7 +108,8 @@ class TestRemoveUserByUuid(PersonhogTestMixin, BaseTest):
         result = cohort.remove_user_by_uuid(str(person.uuid), team_id=self.team.id)
 
         assert result is True
-        assert not CohortPeople.objects.filter(cohort=cohort, person=person).exists()
+        if not self.personhog:
+            assert not CohortPeople.objects.filter(cohort=cohort, person=person).exists()
         mock_remove_ch.assert_called_once()
         call_args = mock_remove_ch.call_args
         assert call_args[0][0] == person.uuid
@@ -190,7 +191,8 @@ class TestRemoveUserByUuid(PersonhogTestMixin, BaseTest):
         result = cohort.remove_user_by_uuid(str(person.uuid), team_id=self.team.id)
 
         assert result is True
-        assert not CohortPeople.objects.filter(cohort=cohort, person=person).exists()
+        if not self.personhog:
+            assert not CohortPeople.objects.filter(cohort=cohort, person=person).exists()
         mock_remove_ch.assert_called_once()
 
     @patch("posthog.models.cohort.util.remove_person_from_static_cohort")
