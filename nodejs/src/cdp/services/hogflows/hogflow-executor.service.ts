@@ -46,7 +46,7 @@ const DUPLICATE_OBSERVATION_TTL_SECONDS = 15 * 60
 
 const hogflowDuplicateInvocationDetectedTotal = new Counter({
     name: 'hogflow_duplicate_invocation_detected_total',
-    help: 'Workflow invocations created for a (workflow, event) pair already seen within the observation window',
+    help: 'Fired once per action reached by a duplicate invocation of the same (workflow, event). Inflated by N actions per duplicate pair - treat as trend signal, not exact count.',
     labelNames: ['workflow_id'],
 })
 
