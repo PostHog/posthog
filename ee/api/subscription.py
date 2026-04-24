@@ -189,21 +189,15 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             if not allowed:
                 raise ValidationError({"target_value": [f"Invalid webhook URL: {error}"]})
 
-        # Only validate / reject prompt-guide writes when the field is explicitly present
-        # in the payload. `attrs.get("summary_prompt_guide")` returns None for both
-        # "field absent" and "field set to null"; the `in attrs` check separates them so
-        # unrelated PATCHes don't trip the gate.
-        if "summary_prompt_guide" in attrs:
-            prompt_guide = attrs["summary_prompt_guide"]
-            if prompt_guide and len(prompt_guide) > 500:
+        # Only gate non-empty writes to `summary_prompt_guide`. Clearing (empty string)
+        # and field-absent PATCHes always pass through so users aren't stuck with a value
+        # they can no longer edit if the flag flips off after they set one.
+        prompt_guide = attrs.get("summary_prompt_guide")
+        if prompt_guide:
+            if len(prompt_guide) > 500:
                 raise ValidationError({"summary_prompt_guide": ["AI summary context must be 500 characters or fewer."]})
-            # Only gate on non-empty writes — clearing the field should always be allowed
-            # so users can't get stuck with a value they can no longer edit if the flag
-            # is flipped off after they set one.
-            if prompt_guide and not self._prompt_guide_feature_enabled():
-                raise exceptions.PermissionDenied(
-                    "Setting a custom AI summary context is not enabled for this organization."
-                )
+            if not self._prompt_guide_feature_enabled():
+                raise exceptions.PermissionDenied("Setting AI summary context is not enabled for this organization.")
 
         if attrs.get("summary_enabled"):
             organization = self.context["get_organization"]()
