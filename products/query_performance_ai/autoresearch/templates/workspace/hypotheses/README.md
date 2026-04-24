@@ -3,6 +3,7 @@
 Create one note per testable hypothesis.
 
 Recommended fields:
+
 - lane
 - source: operator / agent / hybrid
 - rationale

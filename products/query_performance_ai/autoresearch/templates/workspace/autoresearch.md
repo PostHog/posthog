@@ -1,17 +1,21 @@
-# Autoresearch: ClickHouse query __QUERY_ID__
+# Autoresearch: ClickHouse query **QUERY_ID**
 
 ## Objective
+
 Optimize the target ClickHouse query on this branch while preserving semantics relative to the saved baseline result set.
 
 ## Metrics
-- **Primary**: __PRIMARY_METRIC__ (__METRIC_UNIT__, __DIRECTION__ is better)
+
+- **Primary**: **PRIMARY_METRIC** (**METRIC_UNIT**, **DIRECTION** is better)
 - **Secondary**: rows_read, bytes_read, peak_memory_mb
 
 ## How to Run
+
 - Benchmark: `./autoresearch.py`
 - Checks: `./autoresearch_checks.py`
 
 ## Files in Scope
+
 - `query/original.sql` — original query snapshot
 - `query/current.sql` — candidate under test
 - `query/best.sql` — best kept query
@@ -53,12 +57,14 @@ If the target query times out during baseline capture:
 5. **Graduate**: when the original range completes, re-capture the baseline with the full range and continue optimizing from there
 
 ## Constraints
+
 - Do not change semantics unless explicitly exploring a bounded repair path.
 - Use operator hunches and agent-generated evidence together.
 - Reflect after every experiment.
 - Only campaign-level review may close the campaign.
 
 ## What's Been Tried
+
 - Baseline captured: pending
 - Initial lanes: pending
 - Key learning: pending

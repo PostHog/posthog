@@ -171,9 +171,9 @@ If the baseline times out, enter range narrowing (see `orchestration.md` § Time
 4. Repeat halving until the query completes in 1–10s
 5. Record narrowing state in `state.json`: `{ "narrowed": true, "original_range": "...", "working_range": "..." }`
 
-7. Read the baseline artifacts and seed the first lanes and hypotheses.
-8. Initialize the autoresearch session against the configured primary metric.
-9. Start the experiment loop using:
+6. Read the baseline artifacts and seed the first lanes and hypotheses.
+7. Initialize the autoresearch session against the configured primary metric.
+8. Start the experiment loop using:
 
 ```bash
 ./.clickhouse-autoresearch/autoresearch.py

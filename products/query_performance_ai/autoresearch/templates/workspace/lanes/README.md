@@ -8,6 +8,7 @@ Create one note per lane, for example:
 - `repair-duplicate-rows.md`
 
 Recommended fields:
+
 - status
 - core belief
 - supporting evidence

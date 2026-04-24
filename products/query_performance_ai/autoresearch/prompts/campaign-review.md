@@ -1,9 +1,11 @@
 ---
 description: Review the full ClickHouse campaign for continuation, pivot, or closure
 ---
+
 Review the full ClickHouse campaign.
 
 Read:
+
 - `.clickhouse-autoresearch/state.json`
 - `.clickhouse-autoresearch/autoresearch.md`
 - `.clickhouse-autoresearch/lanes/`
@@ -12,6 +14,7 @@ Read:
 - recent artifacts in `.clickhouse-autoresearch/runs/`
 
 Answer:
+
 - current best kept result
 - active, paused, repair, and exhausted lanes
 - whether recent iterations produced significant improvement

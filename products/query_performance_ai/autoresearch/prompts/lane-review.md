@@ -1,9 +1,11 @@
 ---
 description: Review one ClickHouse optimization lane for stagnation, exhaustion, split, merge, or continuation
 ---
+
 Review the ClickHouse campaign lane `${1}`.
 
 Read:
+
 - `.clickhouse-autoresearch/state.json`
 - `.clickhouse-autoresearch/autoresearch.md`
 - `.clickhouse-autoresearch/lanes/`
@@ -11,6 +13,7 @@ Read:
 - recent run artifacts in `.clickhouse-autoresearch/runs/`
 
 Answer:
+
 - what this lane believed
 - which hypotheses in this lane were validated
 - which were invalidated

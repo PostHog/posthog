@@ -1,11 +1,13 @@
 ---
 description: Choose the next ClickHouse experiment from the current campaign state
 ---
+
 Read `.clickhouse-autoresearch/state.json`, `.clickhouse-autoresearch/autoresearch.md`, `.clickhouse-autoresearch/operator-hunches.md`, and the latest artifacts in `.clickhouse-autoresearch/runs/` and `.clickhouse-autoresearch/runtime/`.
 
 Then decide the next experiment for the campaign.
 
 Required output:
+
 - active lane
 - chosen hypothesis
 - concise rationale
