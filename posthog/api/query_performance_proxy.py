@@ -82,6 +82,13 @@ class ExecuteResponseSerializer(serializers.Serializer):
     rows_returned = serializers.IntegerField(help_text="Rows in the `result` payload.")
 
 
+# `test_read` is a deliberately non-standard action verb. This scope is only
+# ever minted programmatically (see `run_autoresearch_smoke.py`) and handed to
+# the autoresearch sandbox so it can call this endpoint. It's never exposed in
+# the personal-API-key / OAuth-consent UI — that UI only knows `:read` / `:write`.
+# A regular end user can't mint this scope from the UI, which is the intent:
+# the proxy exists for the autoresearch system to talk to itself, not for
+# human operators.
 _ACTION_SCOPES: dict[str, list[str]] = {
     "execute_test": ["clickhouse_test_cluster_perf:test_read"],
 }
@@ -104,6 +111,9 @@ _QUERY_SETTINGS: dict[str, object] = {
 # We guard with a single `_QUERY_LOCK` held across the full `sync_execute` +
 # `last_query` read: one query at a time on the test cluster is what we want
 # anyway (single-tenant; concurrent workloads would be noisy neighbours).
+# Waiters time out slightly above the server-side cap so a stuck query can't
+# pile callers up indefinitely — they get a 503 and can retry.
+_LOCK_WAIT_TIMEOUT_SECONDS = MAX_EXECUTION_TIME_SECONDS + 10  # 310s
 _SYNC_CLIENT: SyncClient | None = None
 _SYNC_CLIENT_KEY: tuple | None = None
 _QUERY_LOCK = threading.Lock()
@@ -246,8 +256,17 @@ def _canonicalize_rows(rows: object) -> list[list[object]]:
 
 def _run_autoresearch_query(sql: str) -> Response:
     # Single global lock: protects `SyncClient` mutable state AND enforces the
-    # single-tenant test cluster's "one query at a time" invariant.
-    with _QUERY_LOCK:
+    # single-tenant test cluster's "one query at a time" invariant. Autoresearch
+    # runs one campaign at a time so genuine contention is rare; a stuck query
+    # (up to MAX_EXECUTION_TIME_SECONDS) shouldn't hold a waiter longer than
+    # that, so we time out at +10s and 503 rather than letting callers queue up.
+    acquired = _QUERY_LOCK.acquire(timeout=_LOCK_WAIT_TIMEOUT_SECONDS)
+    if not acquired:
+        return Response(
+            {"error": "query_performance_proxy is busy; retry shortly"},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    try:
         client = _get_sync_client()
         try:
             with tags_context(product=Product.INTERNAL, feature=Feature.AUTORESEARCH):
@@ -293,6 +312,8 @@ def _run_autoresearch_query(sql: str) -> Response:
         profile_info = getattr(last_query, "profile_info", None)
         elapsed_seconds = getattr(last_query, "elapsed", None)
         query_id = getattr(last_query, "query_id", None)
+    finally:
+        _QUERY_LOCK.release()
 
     canonical_rows = _canonicalize_rows(rows)
     return Response(

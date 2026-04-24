@@ -55,6 +55,22 @@ def _require_http_url(url: str) -> None:
         raise CampaignError(f"preflight URL scheme {scheme!r} not allowed (must be http/https): {url!r}")
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Refuse 3XX redirects on preflight calls.
+
+    The proxy and LLM gateway are fixed, well-known endpoints — neither
+    issues legitimate redirects. Following 3XX would let a 302 bypass
+    :func:`_require_http_url`'s scheme check (e.g. http→file://), so we
+    block all redirects instead.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+        raise urllib.error.HTTPError(req.full_url, code, f"refusing to follow redirect to {newurl!r}", headers, fp)
+
+
+_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler())
+
+
 def log(msg: str) -> None:
     print(f"[campaign] {msg}", file=sys.stderr, flush=True)  # noqa: T201
 
@@ -91,7 +107,7 @@ def check_proxy_reachable(posthog_url: str, token: str) -> None:
     )
     try:
         # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
-        with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
+        with _NO_REDIRECT_OPENER.open(req, timeout=15) as resp:  # noqa: S310
             status = resp.status
             raw = resp.read().decode("utf-8")
     except urllib.error.HTTPError as e:
@@ -444,7 +460,7 @@ def _preflight_anthropic_gateway(base_url: str, api_key: str) -> None:
     log(f"preflighting Anthropic-compat endpoint: {endpoint}")
     try:
         # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
-        with urllib.request.urlopen(req, timeout=20) as resp:  # noqa: S310
+        with _NO_REDIRECT_OPENER.open(req, timeout=20) as resp:  # noqa: S310
             log(f"gateway preflight OK (status={resp.status})")
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", "replace")[:500]

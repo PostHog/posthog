@@ -41,7 +41,7 @@ class TestPosthogProxyTransport:
 
         mock_ctx = MagicMock()
         mock_ctx.__enter__.return_value.read.return_value = proxy_response
-        with patch("transports.urllib.request.urlopen", return_value=mock_ctx) as mocked:
+        with patch("transports._NO_REDIRECT_OPENER.open", return_value=mock_ctx) as mocked:
             result = transport.run("SELECT 1")
 
         called_req = mocked.call_args.args[0]
@@ -69,7 +69,7 @@ class TestPosthogProxyTransport:
         proxy_response = b'{"result": [], "elapsed_ms": 1.0, "rows_read": 0, "bytes_read": null, "query_id": null}'
         mock_ctx = MagicMock()
         mock_ctx.__enter__.return_value.read.return_value = proxy_response
-        with patch("transports.urllib.request.urlopen", return_value=mock_ctx) as mocked:
+        with patch("transports._NO_REDIRECT_OPENER.open", return_value=mock_ctx) as mocked:
             transport.run("SELECT 1")
 
         called_req = mocked.call_args.args[0]
@@ -89,7 +89,7 @@ class TestPosthogProxyTransport:
         )
         err.read = lambda: b'{"error":"sql must begin with a read-only statement"}'  # type: ignore[method-assign,misc,assignment] # ty: ignore[invalid-assignment]
 
-        with patch("transports.urllib.request.urlopen", side_effect=err):
+        with patch("transports._NO_REDIRECT_OPENER.open", side_effect=err):
             with pytest.raises(TransportError) as excinfo:
                 transport.run("INSERT INTO t VALUES (1)")
         assert "400" in str(excinfo.value)
@@ -100,7 +100,7 @@ class TestPosthogProxyTransport:
 
         import urllib.error
 
-        with patch("transports.urllib.request.urlopen", side_effect=urllib.error.URLError("refused")):
+        with patch("transports._NO_REDIRECT_OPENER.open", side_effect=urllib.error.URLError("refused")):
             with pytest.raises(TransportError, match="refused"):
                 transport.run("SELECT 1")
 
@@ -109,6 +109,6 @@ class TestPosthogProxyTransport:
 
         mock_ctx = MagicMock()
         mock_ctx.__enter__.return_value.read.return_value = b"<html>oops</html>"
-        with patch("transports.urllib.request.urlopen", return_value=mock_ctx):
+        with patch("transports._NO_REDIRECT_OPENER.open", return_value=mock_ctx):
             with pytest.raises(TransportError, match="non-JSON"):
                 transport.run("SELECT 1")

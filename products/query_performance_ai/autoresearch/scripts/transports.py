@@ -35,6 +35,24 @@ def _require_http_url(url: str) -> None:
         raise ValueError(f"transport URL scheme {scheme!r} not allowed (must be http/https): {url!r}")
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Refuse all 3XX redirects.
+
+    Every endpoint these transports talk to is a PostHog API or a known
+    ClickHouse HTTP listener — none of them should ever redirect a legitimate
+    request. If a redirect happens it's a sign of misconfiguration or
+    attempted SSRF (e.g. a 302 to ``file:///etc/passwd`` after the initial
+    scheme check). `_require_http_url` only validates the caller-supplied URL;
+    this handler seals the redirect-based bypass.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+        raise urllib.error.HTTPError(req.full_url, code, f"refusing to follow redirect to {newurl!r}", headers, fp)
+
+
+_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler())
+
+
 @dataclass(frozen=True)
 class TransportResult:
     """Result of a single query execution.
@@ -85,10 +103,11 @@ class HttpTransport(Transport):
         {"type": "http", "url": "http://localhost:8123", "headers": {...}}
 
     SQL is POSTed as the raw request body. Resource caps and
-    ``FORMAT JSONEachRow`` are pushed down via URL query parameters so the
-    result file format matches what the PostHog proxy transport writes —
-    the comparator can diff a baseline captured by one transport against a
-    candidate run under the other.
+    ``FORMAT JSONCompactEachRow`` are pushed down via URL query parameters so
+    the result file format (positional JSON arrays, one per row) matches what
+    :class:`PosthogProxyTransport` writes — the comparator can diff a
+    baseline captured by one transport against a candidate run under the
+    other without format drift.
 
     X-ClickHouse-Summary is parsed for rows_read/bytes_read.
     """
@@ -98,7 +117,13 @@ class HttpTransport(Transport):
         self.headers = headers or {}
 
     def run(self, sql: str, *, timeout_s: int = 30) -> TransportResult:
-        params = {**_QUERY_SETTINGS, "default_format": "JSONEachRow"}
+        # `JSONCompactEachRow` emits each row as a JSON array (positional),
+        # matching what `PosthogProxyTransport._rows_to_jsonl_bytes` produces
+        # (clickhouse-driver returns tuples). Using `JSONEachRow` would emit
+        # objects with column names, which the comparator could not reconcile
+        # against the proxy's positional lists — baseline captured via one
+        # transport vs candidate via the other would always mismatch.
+        params = {**_QUERY_SETTINGS, "default_format": "JSONCompactEachRow"}
         endpoint = f"{self.url}/?{urllib.parse.urlencode(params)}"
         _require_http_url(endpoint)
         req = urllib.request.Request(
@@ -111,7 +136,7 @@ class HttpTransport(Transport):
         start = time.monotonic()
         try:
             # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
-            with urllib.request.urlopen(req, timeout=timeout_s) as resp:  # noqa: S310
+            with _NO_REDIRECT_OPENER.open(req, timeout=timeout_s) as resp:  # noqa: S310
                 body = resp.read()
                 summary_header = resp.headers.get("X-ClickHouse-Summary") or ""
                 stdout = "\n".join(f"{k}: {v}" for k, v in resp.headers.items())
@@ -246,7 +271,7 @@ class PosthogProxyTransport(Transport):
         start = time.monotonic()
         try:
             # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
-            with urllib.request.urlopen(req, timeout=timeout_s) as resp:  # noqa: S310
+            with _NO_REDIRECT_OPENER.open(req, timeout=timeout_s) as resp:  # noqa: S310
                 response_body = resp.read().decode("utf-8")
         except urllib.error.HTTPError as e:
             elapsed_ms = (time.monotonic() - start) * 1000.0
