@@ -131,26 +131,6 @@ async def emit_signal(
         }
     )
 
-    try:
-        posthoganalytics.capture(
-            event="signal_emitted",
-            distinct_id=str(team.uuid),
-            properties={
-                "source_product": source_product,
-                "source_type": source_type,
-                "source_id": source_id,
-            },
-            groups=groups(organization, team),
-        )
-    except Exception:
-        # Swallow the exception, to avoid breaking the flow over failed analytics event
-        logger.exception(
-            "Failed to capture signal_emitted event",
-            source_product=source_product,
-            source_type=source_type,
-            source_id=source_id,
-        )
-
     client = await async_connect()
 
     signal_input = EmitSignalInputs(
@@ -184,3 +164,25 @@ async def emit_signal(
         task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
         run_timeout=timedelta(minutes=10),
     )
+
+    # Fire the analytics event only after the signal is definitively queued so
+    # Temporal/connection failures don't inflate the "signals emitted" metric.
+    try:
+        posthoganalytics.capture(
+            event="signal_emitted",
+            distinct_id=str(team.uuid),
+            properties={
+                "source_product": source_product,
+                "source_type": source_type,
+                "source_id": source_id,
+            },
+            groups=groups(organization, team),
+        )
+    except Exception:
+        # Swallow the exception, to avoid breaking the flow over failed analytics event
+        logger.exception(
+            "Failed to capture signal_emitted event",
+            source_product=source_product,
+            source_type=source_type,
+            source_id=source_id,
+        )
