@@ -238,7 +238,6 @@ export function ViewsTab({ getViewUrl }: ViewsTabProps = {}): JSX.Element {
                                                 <AccessControlAction
                                                     resourceType={AccessControlResourceType.WarehouseObjects}
                                                     minAccessLevel={AccessControlLevel.Editor}
-                                                    userAccessLevel={view.user_access_level}
                                                 >
                                                     <LemonButton
                                                         onClick={() => runMaterialization(view.id)}
