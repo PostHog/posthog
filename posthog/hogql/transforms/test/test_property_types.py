@@ -306,11 +306,10 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
             properties={"tag": "unset"},
         )
 
-    def _run_and_collect(self) -> tuple[dict[str, Any], str]:
-        hogql = (
-            "SELECT properties.tag, JSONExtractString(properties, '$browser') "
-            "FROM events WHERE event = 'pageview' ORDER BY properties.tag"
-        )
+    def _run_and_collect(
+        self, extract_expr: str = "JSONExtractString(properties, '$browser')"
+    ) -> tuple[dict[str, Any], str]:
+        hogql = f"SELECT properties.tag, {extract_expr} FROM events WHERE event = 'pageview' ORDER BY properties.tag"
         response = execute_hogql_query(hogql, team=self.team)
         assert response.results is not None
         values = {row[0]: row[1] for row in response.results}
@@ -343,6 +342,14 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         assert "JSONExtractString(events.properties" not in sql, sql
         assert "mat_$browser" in sql, sql
         assert values == {"set": "Chrome", "empty": "", "null_str": "null", "json_null": None, "unset": None}
+
+    @parameterized.expand([("non_nullable", False), ("nullable", True)])
+    def test_jsonextractstring_synonym_of_properties_access(self, _name: str, is_nullable: bool):
+        self._seed_edge_case_events()
+        with materialized("events", "$browser", is_nullable=is_nullable):
+            extract_values, _ = self._run_and_collect("JSONExtractString(properties, '$browser')")
+            access_values, _ = self._run_and_collect("properties.$browser")
+        assert extract_values == access_values
 
 
 # ── Timezone index pruning tests ──────────────────────────────────────────────
