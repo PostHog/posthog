@@ -2714,6 +2714,10 @@ LIMIT 50`,
         return {
             '/web': toAction,
             '/web/page-reports': toAction,
+            '/web/bots': (_, searchParams) => {
+                toAction({ productTab: ProductTab.BOT_ANALYTICS }, searchParams)
+                actions.setBotDetailName(null)
+            },
             '/web/bots/:botName': (params, searchParams) => {
                 toAction({ productTab: ProductTab.BOT_ANALYTICS }, searchParams)
                 if (params.botName) {
@@ -2833,7 +2837,7 @@ LIMIT 50`,
                 if (tab === ProductTab.HEALTH) {
                     actions.trackTabViewed()
                 }
-                if (tab === ProductTab.BOT_ANALYTICS) {
+                if (tab === ProductTab.BOT_ANALYTICS && values.dateFilter.dateFrom === INITIAL_DATE_FROM) {
                     actions.setDates('-1d', null)
                 }
             },
