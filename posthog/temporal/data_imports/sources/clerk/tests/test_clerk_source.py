@@ -1,3 +1,4 @@
+import pytest
 from unittest import mock
 
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
@@ -32,14 +33,19 @@ class TestClerkSource:
         assert secret_key_field.type == SourceFieldInputConfigType.PASSWORD
         assert secret_key_field.required is True
 
-    def test_non_retryable_errors(self):
-        errors = self.source.get_non_retryable_errors()
+    @pytest.mark.parametrize(
+        "expected_key",
+        [
+            "401 Client Error: Unauthorized for url: https://api.clerk.com",
+            "403 Client Error: Forbidden for url: https://api.clerk.com",
+        ],
+    )
+    def test_non_retryable_errors_contains_key(self, expected_key):
+        assert expected_key in self.source.get_non_retryable_errors()
 
-        assert "401 Client Error: Unauthorized for url: https://api.clerk.com" in errors
-        assert "403 Client Error: Forbidden for url: https://api.clerk.com" in errors
-
+    def test_non_retryable_errors_matches_real_production_message(self):
         real_message = "401 Client Error: Unauthorized for url: https://api.clerk.com/v1/invitations?limit=100"
-        assert any(key in real_message for key in errors)
+        assert any(key in real_message for key in self.source.get_non_retryable_errors())
 
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
@@ -60,21 +66,19 @@ class TestClerkSource:
 
         assert schemas == []
 
+    @pytest.mark.parametrize(
+        "validate_return,expected_valid,expected_error",
+        [
+            ((True, None), True, None),
+            ((False, "Invalid Clerk credentials"), False, "Invalid Clerk credentials"),
+        ],
+    )
     @mock.patch("posthog.temporal.data_imports.sources.clerk.source.validate_clerk_credentials")
-    def test_validate_credentials_success(self, mock_validate):
-        mock_validate.return_value = (True, None)
+    def test_validate_credentials(self, mock_validate, validate_return, expected_valid, expected_error):
+        mock_validate.return_value = validate_return
 
         is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
-        assert is_valid is True
-        assert error_message is None
+        assert is_valid is expected_valid
+        assert error_message == expected_error
         mock_validate.assert_called_once_with(self.config.secret_key)
-
-    @mock.patch("posthog.temporal.data_imports.sources.clerk.source.validate_clerk_credentials")
-    def test_validate_credentials_failure(self, mock_validate):
-        mock_validate.return_value = (False, "Invalid Clerk credentials")
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
-
-        assert is_valid is False
-        assert error_message == "Invalid Clerk credentials"
