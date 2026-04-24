@@ -28,6 +28,7 @@ from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.functions.survey import get_survey_response, unique_survey_submissions_filter
 from posthog.hogql.functions.traffic_type import (
     get_bot_name,
+    get_bot_operator,
     get_bot_type,
     get_traffic_category,
     get_traffic_type,
@@ -1447,6 +1448,8 @@ class Resolver(CloningVisitor):
                 return self.visit(get_bot_type(node=node, args=node.args))
             if node.name == "__preview_getBotName":
                 return self.visit(get_bot_name(node=node, args=node.args))
+            if node.name == "__preview_getBotOperator":
+                return self.visit(get_bot_operator(node=node, args=node.args))
 
         node = super().visit_call(node)
         arg_types: list[ast.ConstantType] = []
