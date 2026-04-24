@@ -327,6 +327,7 @@ export type OnboardingSkippedReason = 'delegated' | 'later' | 'other' | null
 export interface UserType extends UserBaseType {
     date_joined: string
     notification_settings: NotificationSettings
+    active_realtime_notification_types?: readonly string[]
     events_column_config: ColumnConfig
     anonymize_data: boolean
     allow_impersonation: boolean
