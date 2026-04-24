@@ -229,7 +229,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
             }
         },
         handleOauthCallback: async ({ kind, searchParams }) => {
-            const { state, code, error } = searchParams
+            const { state, code, error, stripe_user_id, account_id, user_id } = searchParams
             const { next, token, source, server_id, kind: stateKind } = fromParamsGivenUrl(state)
             // slack-posthog-code reuses /integrations/slack/callback as its approved redirect URI,
             // so the real kind is carried in OAuth state and takes precedence over the URL path.
@@ -242,8 +242,13 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 return
             }
 
+            // Stripe marketplace installs redirect here without a PostHog-minted state —
+            // Stripe initiates OAuth itself on install (stripe_api_access_type: oauth). Skip
+            // the CSRF state check; the code is still validated server-side via Stripe exchange.
+            const isStripeMarketplaceInstall = resolvedKind === 'stripe' && !state && !!stripe_user_id && !!code
+
             try {
-                if (token !== getCookie('ph_oauth_state')) {
+                if (!isStripeMarketplaceInstall && token !== getCookie('ph_oauth_state')) {
                     throw new Error('Invalid state token')
                 }
 
@@ -253,7 +258,9 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 } else {
                     const integration = await api.integrations.create({
                         kind: resolvedKind,
-                        config: { state, code },
+                        config: isStripeMarketplaceInstall
+                            ? { code, stripe_user_id, account_id, user_id }
+                            : { state, code },
                     })
 
                     // Add the integration ID to the replaceUrl so that the landing page can use it

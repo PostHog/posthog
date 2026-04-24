@@ -341,6 +341,25 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             return instance
 
         elif validated_data["kind"] in OauthIntegration.supported_kinds:
+            # Stripe marketplace installs redirect to /integrations/stripe/callback without
+            # a PostHog-minted CSRF state token. Before exchanging the code, reject the
+            # request if a different Stripe account is already linked — prevents a forged
+            # code from relinking an attacker's account onto a victim's team.
+            if validated_data["kind"] == "stripe":
+                stripe_user_id = validated_data["config"].get("stripe_user_id")
+                state = validated_data["config"].get("state")
+                if stripe_user_id and not state:
+                    conflicting = (
+                        Integration.objects.filter(team_id=team_id, kind="stripe")
+                        .exclude(integration_id=stripe_user_id)
+                        .exists()
+                    )
+                    if conflicting:
+                        raise ValidationError(
+                            "A different Stripe account is already connected to this team. Disconnect it first.",
+                            code="stripe_integration_conflict",
+                        )
+
             try:
                 instance = OauthIntegration.integration_from_oauth_response(
                     validated_data["kind"], team_id, request.user, validated_data["config"]

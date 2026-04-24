@@ -1137,6 +1137,113 @@ class TestStripeIntegration:
 
         assert response.status_code == status.HTTP_201_CREATED
 
+    @patch("posthog.api.integration.StripeIntegration")
+    @patch("posthog.api.integration.OauthIntegration.integration_from_oauth_response")
+    def test_marketplace_callback_without_state_succeeds(
+        self, mock_oauth_response, MockStripeIntegration, stripe_settings, client: HttpClient
+    ):
+        created_integration = self._create_stripe_integration()
+        mock_oauth_response.return_value = created_integration
+        mock_instance = MagicMock()
+        MockStripeIntegration.return_value = mock_instance
+
+        client.force_login(self.user)
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "stripe",
+                "config": {
+                    "code": "oauth_code_123",
+                    "stripe_user_id": "acct_123",
+                    "account_id": "acct_123",
+                    "user_id": "usr_abc",
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        mock_instance.write_posthog_secrets.assert_called_once_with(self.team.pk, self.user)
+
+    @patch("posthog.api.integration.StripeIntegration")
+    @patch("posthog.api.integration.OauthIntegration.integration_from_oauth_response")
+    def test_marketplace_callback_rejects_when_different_stripe_account_connected(
+        self, mock_oauth_response, MockStripeIntegration, stripe_settings, client: HttpClient
+    ):
+        self._create_stripe_integration()
+
+        client.force_login(self.user)
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "stripe",
+                "config": {
+                    "code": "oauth_code_999",
+                    "stripe_user_id": "acct_999",
+                    "account_id": "acct_999",
+                    "user_id": "usr_xyz",
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "stripe_integration_conflict" in response.content.decode()
+        mock_oauth_response.assert_not_called()
+        MockStripeIntegration.assert_not_called()
+
+    @patch("posthog.api.integration.StripeIntegration")
+    @patch("posthog.api.integration.OauthIntegration.integration_from_oauth_response")
+    def test_marketplace_callback_allows_reinstall_of_same_stripe_account(
+        self, mock_oauth_response, MockStripeIntegration, stripe_settings, client: HttpClient
+    ):
+        existing = self._create_stripe_integration()
+        mock_oauth_response.return_value = existing
+        mock_instance = MagicMock()
+        MockStripeIntegration.return_value = mock_instance
+
+        client.force_login(self.user)
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "stripe",
+                "config": {
+                    "code": "oauth_code_123",
+                    "stripe_user_id": "acct_123",
+                    "account_id": "acct_123",
+                    "user_id": "usr_abc",
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        mock_oauth_response.assert_called_once()
+
+    @patch("posthog.api.integration.OauthIntegration.integration_from_oauth_response")
+    def test_stripe_oauth_exchange_failure_returns_error(
+        self, mock_oauth_response, stripe_settings, client: HttpClient
+    ):
+        mock_oauth_response.side_effect = Exception("Stripe returned invalid_grant")
+
+        client.force_login(self.user)
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "stripe",
+                "config": {
+                    "code": "ac_invalid",
+                    "stripe_user_id": "acct_123",
+                    "account_id": "acct_123",
+                    "user_id": "usr_abc",
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code >= 400
+        assert not Integration.objects.filter(team_id=self.team.pk, kind="stripe").exists()
+
 
 class TestStripeIntegrationOAuthTokens:
     @pytest.fixture(autouse=True)
