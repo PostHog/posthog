@@ -428,7 +428,6 @@ class RemoteConfig(UUIDTModel):
             full_domain = domain if domain.startswith("https://") else f"https://{domain}"
             data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/config"})
             data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/config.js"})
-            data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/array.js"})
 
         logger.info(f"Purging CDN for team {self.team_id}", {"data": data})
 

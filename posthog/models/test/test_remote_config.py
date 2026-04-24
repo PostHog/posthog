@@ -485,10 +485,8 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
                     "files": [
                         {"url": "https://cdn.posthog.com/array/phc_12345/config"},
                         {"url": "https://cdn.posthog.com/array/phc_12345/config.js"},
-                        {"url": "https://cdn.posthog.com/array/phc_12345/array.js"},
                         {"url": "https://cdn2.posthog.com/array/phc_12345/config"},
                         {"url": "https://cdn2.posthog.com/array/phc_12345/config.js"},
-                        {"url": "https://cdn2.posthog.com/array/phc_12345/array.js"},
                     ]
                 },
             )
