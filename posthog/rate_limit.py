@@ -761,6 +761,20 @@ class CodeInviteThrottle(UserRateThrottle):
     rate = "20000/hour"
 
 
+class OrganizationInviteBurstThrottle(UserRateThrottle):
+    """Per-user burst rate limit for sending organization invites."""
+
+    scope = "organization_invite_burst"
+    rate = "10/minute"
+
+
+class OrganizationInviteSustainedThrottle(UserRateThrottle):
+    """Per-user sustained rate limit for sending organization invites."""
+
+    scope = "organization_invite_sustained"
+    rate = "200/day"
+
+
 class RunSavedQueryRateThrottle(PersonalApiKeyRateThrottle):
     # Rate limit running a saved query per saved query per team.
     # Prevents agents from running the same query repeatedly without reason.

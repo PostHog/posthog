@@ -1,3 +1,4 @@
+import re
 import dataclasses
 from functools import cached_property
 from typing import Any, Union, cast
@@ -155,6 +156,11 @@ class OrganizationSerializer(
                 "required": False,
             },  # slug is not required here as it's generated automatically for new organizations
         }
+
+    def validate_name(self, name: str) -> str:
+        if re.search(r"https?://", name, re.IGNORECASE):
+            raise serializers.ValidationError("Organization name cannot contain URLs.")
+        return name
 
     def validate_logo_media_id(self, value: UploadedMedia | None) -> UploadedMedia | None:
         if value is None:

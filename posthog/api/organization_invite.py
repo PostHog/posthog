@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timedelta
 from typing import Any, Optional, cast
 from uuid import UUID
@@ -25,8 +26,11 @@ from posthog.permissions import (
     TimeSensitiveActionPermission,
     UserCanInvitePermission,
 )
+from posthog.rate_limit import OrganizationInviteBurstThrottle, OrganizationInviteSustainedThrottle
 from posthog.rbac.user_access_control import UserAccessControl, ordered_access_levels
 from posthog.tasks.email import send_invite
+
+URL_PATTERN = re.compile(r"https?://", re.IGNORECASE)
 
 
 class OrganizationInviteManager:
@@ -136,6 +140,11 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
 
     def validate_target_email(self, email: str):
         return EmailNormalizer.normalize(email)
+
+    def validate_message(self, message: str) -> str:
+        if message and URL_PATTERN.search(message):
+            raise exceptions.ValidationError("Invite messages cannot contain URLs.")
+        return message
 
     def validate_level(self, level: int) -> int:
         # Validate that the user can't invite someone with a higher permission level than their own
@@ -303,6 +312,7 @@ class OrganizationInviteViewSet(
     queryset = OrganizationInvite.objects.all()
     lookup_field = "id"
     ordering = "-created_at"
+    throttle_classes = [OrganizationInviteBurstThrottle, OrganizationInviteSustainedThrottle]
 
     def dangerously_get_permissions(self):
         if self.action in ["create", "bulk", "update", "partial_update"]:

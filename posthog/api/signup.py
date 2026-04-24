@@ -1,3 +1,4 @@
+import re
 import json
 import uuid as uuid_module
 from typing import Any, Optional, Union, cast
@@ -123,6 +124,16 @@ class SignupSerializer(serializers.Serializer):
             # To log in, a user just needs to attempt sign up with an email that's already in use
             fields.pop("password")
         return fields
+
+    def validate_organization_name(self, value: str) -> str:
+        if re.search(r"https?://", value, re.IGNORECASE):
+            raise exceptions.ValidationError("Organization name cannot contain URLs.")
+        return value
+
+    def validate_first_name(self, value: str) -> str:
+        if re.search(r"https?://", value, re.IGNORECASE):
+            raise exceptions.ValidationError("Name cannot contain URLs.")
+        return value
 
     def validate_password(self, value):
         if value is not None and value != "":
@@ -603,6 +614,11 @@ class SocialSignupSerializer(serializers.Serializer):
     referral_source_ai_prompt: serializers.Field = serializers.CharField(
         max_length=1000, required=False, allow_blank=True, default=""
     )
+
+    def validate_organization_name(self, value: str) -> str:
+        if re.search(r"https?://", value, re.IGNORECASE):
+            raise exceptions.ValidationError("Organization name cannot contain URLs.")
+        return value
 
     def create(self, validated_data, **kwargs):
         request = self.context["request"]
