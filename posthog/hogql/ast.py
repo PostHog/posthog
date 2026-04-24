@@ -726,10 +726,6 @@ class PropertyType(Type):
     # The property has been moved into a field we query from a joined subquery
     joined_subquery: Optional[SelectQueryAliasType] = field(default=None, init=False)
     joined_subquery_field_name: Optional[str] = field(default=None, init=False)
-    # When True, the printer emits the underlying materialized column raw,
-    # without the nullIf(nullIf(col, ''), 'null') wrap, preserving
-    # JSONExtractString semantics for rewrites that need them.
-    skip_nullable_wrap: Optional[bool] = field(default=None, init=False)
 
     def get_child(self, name: str | int, context: HogQLContext) -> Type:
         return PropertyType(chain=[*self.chain, name], field_type=self.field_type)

@@ -340,13 +340,11 @@ class PropertySwapper(CloningVisitor):
         if mat_col is None:
             return None
 
-        property_type = ast.PropertyType(chain=[property_name], field_type=field_type)
-        property_type.skip_nullable_wrap = True
         return ast.Field(
             start=node.start,
             end=node.end,
             chain=[*field_arg.chain, property_name],
-            type=property_type,
+            type=ast.PropertyType(chain=[property_name], field_type=field_type),
         )
 
     def visit_compare_operation(self, node: ast.CompareOperation):

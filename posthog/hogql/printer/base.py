@@ -1329,9 +1329,6 @@ class BasePrinter(Visitor[str]):
                 and isinstance(materialized_property_source, PrintableMaterializedColumn)
             ):
                 materialized_property_sql = str(materialized_property_source)
-            # Caller opted out of nullIf wrapping to preserve JSONExtractString semantics.
-            elif type.skip_nullable_wrap and isinstance(materialized_property_source, PrintableMaterializedColumn):
-                materialized_property_sql = str(materialized_property_source)
             elif (
                 isinstance(materialized_property_source, PrintableMaterializedColumn)
                 and not materialized_property_source.is_nullable
