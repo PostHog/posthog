@@ -33,6 +33,7 @@
 
     .Settings__sections__list {
         flex: 1;
+        min-height: 0;
         padding-right: 1rem;
         overflow-y: auto;
         overscroll-behavior: contain;
