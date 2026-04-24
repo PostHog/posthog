@@ -12,6 +12,7 @@ import { UUIDT } from '~/utils/utils'
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '../outputs/single-ingestion-output'
 import { ErrorTrackingConsumer, ErrorTrackingHogTransformer } from './error-tracking-consumer'
 
 /** Creates a mock KafkaConsumer for tests that don't need actual Kafka connections */
@@ -142,13 +143,13 @@ describe('ErrorTrackingConsumer', () => {
         const config = {
             groupId: hub.ERROR_TRACKING_CONSUMER_GROUP_ID,
             topic: hub.ERROR_TRACKING_CONSUMER_CONSUME_TOPIC,
-            dlqTopic: hub.ERROR_TRACKING_CONSUMER_DLQ_TOPIC,
-            overflowTopic: hub.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC,
-            outputTopic: hub.ERROR_TRACKING_CONSUMER_OUTPUT_TOPIC,
             cymbalBaseUrl: hub.ERROR_TRACKING_CYMBAL_BASE_URL,
             cymbalTimeoutMs: hub.ERROR_TRACKING_CYMBAL_TIMEOUT_MS,
             cymbalMaxBodyBytes: hub.ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES,
             lane: hub.INGESTION_LANE ?? ('main' as const),
+            overflowEnabled:
+                !!hub.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC &&
+                hub.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC !== hub.ERROR_TRACKING_CONSUMER_CONSUME_TOPIC,
             overflowBucketCapacity: hub.ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY,
             overflowBucketReplenishRate: hub.ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE,
             statefulOverflowEnabled: hub.ERROR_TRACKING_STATEFUL_OVERFLOW_ENABLED,
@@ -160,13 +161,26 @@ describe('ErrorTrackingConsumer', () => {
         mockHogTransformer = createMockHogTransformer()
         const deps = {
             outputs: new IngestionOutputs({
-                events: [{ topic: config.outputTopic, producer: hub.kafkaProducer, producerName: 'test' }],
-                ingestion_warnings: [
-                    { topic: 'clickhouse_ingestion_warnings_test', producer: hub.kafkaProducer, producerName: 'test' },
-                ],
-                dlq: [{ topic: config.dlqTopic, producer: hub.kafkaProducer, producerName: 'test' }],
-                overflow: [{ topic: config.overflowTopic || '', producer: hub.kafkaProducer, producerName: 'test' }],
-                tophog: [{ topic: 'clickhouse_tophog_test', producer: hub.kafkaProducer, producerName: 'test' }],
+                events: new SingleIngestionOutput(
+                    'events',
+                    hub.ERROR_TRACKING_CONSUMER_OUTPUT_TOPIC,
+                    hub.kafkaProducer,
+                    'test'
+                ),
+                ingestion_warnings: new SingleIngestionOutput(
+                    'ingestion_warnings',
+                    'clickhouse_ingestion_warnings_test',
+                    hub.kafkaProducer,
+                    'test'
+                ),
+                dlq: new SingleIngestionOutput('dlq', hub.ERROR_TRACKING_CONSUMER_DLQ_TOPIC, hub.kafkaProducer, 'test'),
+                overflow: new SingleIngestionOutput(
+                    'overflow',
+                    hub.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC || '',
+                    hub.kafkaProducer,
+                    'test'
+                ),
+                tophog: new SingleIngestionOutput('tophog', 'clickhouse_tophog_test', hub.kafkaProducer, 'test'),
             }),
             teamManager: hub.teamManager,
             hogTransformer: mockHogTransformer,
@@ -237,8 +251,6 @@ describe('ErrorTrackingConsumer', () => {
             expect(consumer['name']).toBe('error-tracking-consumer')
             expect(consumer['config'].groupId).toBe('ingestion-errortracking')
             expect(consumer['config'].topic).toBe('ingestion-errortracking-main_test')
-            expect(consumer['config'].dlqTopic).toBe('ingestion-errortracking-main-dlq_test')
-            expect(consumer['config'].outputTopic).toBe('clickhouse_events_json_test')
         })
     })
 

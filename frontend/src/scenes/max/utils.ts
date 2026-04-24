@@ -299,6 +299,7 @@ export function captureFeedback(
             $ai_feedback_text: feedbackText,
             $ai_session_id: conversationId,
             $ai_trace_id: traceId,
+            ai_product: 'posthog_ai',
         })
     }
 }

@@ -91,7 +91,7 @@ jobs:
         name: Wait for Docker image build
         needs: changes
         runs-on: ubuntu-24.04
-        timeout-minutes: 60
+        timeout-minutes: 90
         if: github.event_name == 'pull_request' && needs.changes.outputs.should_run == 'true'
         outputs:
             preview-mode: ${{ steps.check-preview.outputs.preview }}
@@ -320,7 +320,7 @@ jobs:
 
     hobby-test:
         runs-on: ubuntu-24.04
-        timeout-minutes: 75
+        timeout-minutes: 90
         name: Setup DO Hobby Instance and test
         needs: [wait-for-docker-image, changes]
         if: always() && ((needs.changes.outputs.should_run == 'true' && needs.wait-for-docker-image.outputs.conclusion == 'success') || github.event_name == 'push')
@@ -416,12 +416,12 @@ jobs:
                       });
 
                       console.log(`Updated deployment ${deploymentId} to in_progress`);
-            - name: Run smoke tests on DO
-              id: test
-              timeout-minutes: 60
+            - name: Wait for cloud-init
+              id: cloud-init
+              timeout-minutes: 40
               run: |
                   set +e
-                  uv run bin/hobby-ci.py test
+                  uv run bin/hobby-ci.py wait-for-cloud-init
                   echo "TEST_EXIT_CODE=$?" >> $GITHUB_ENV
                   exit 0
               env:
@@ -431,6 +431,29 @@ jobs:
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   RUN_ID: ${{ github.run_id }}
                   RUN_ATTEMPT: ${{ github.run_attempt }}
+            - name: Wait for health check
+              if: env.TEST_EXIT_CODE == '0'
+              id: health-check
+              timeout-minutes: 40
+              run: |
+                  set +e
+                  uv run bin/hobby-ci.py wait-for-health
+                  echo "TEST_EXIT_CODE=$?" >> $GITHUB_ENV
+                  exit 0
+              env:
+                  DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
+                  DIGITALOCEAN_SSH_PRIVATE_KEY: ${{ secrets.DO_DEPLOY_SSH_PRIVATE_KEY }}
+                  GH_TOKEN: ${{ github.token }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  RUN_ID: ${{ github.run_id }}
+                  RUN_ATTEMPT: ${{ github.run_attempt }}
+            - name: Smoke test event ingestion
+              if: env.TEST_EXIT_CODE == '0' && env.PREVIEW_MODE == 'false'
+              timeout-minutes: 5
+              run: uv run bin/hobby-ci.py smoke-test-ingestion
+              env:
+                  DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
+                  DIGITALOCEAN_SSH_PRIVATE_KEY: ${{ secrets.DO_DEPLOY_SSH_PRIVATE_KEY }}
             - name: Generate demo data
               if: env.TEST_EXIT_CODE == '0' && env.PREVIEW_MODE == 'true' && env.HOBBY_DROPLET_NEW == 'true'
               timeout-minutes: 15
@@ -601,7 +624,8 @@ jobs:
 
                       console.log(`Updated deployment ${deploymentId} to ${state}`);
             - name: Fetch logs after test
-              if: always()
+              if: env.TEST_EXIT_CODE != '0'
+              timeout-minutes: 5
               run: uv run bin/hobby-ci.py fetch-logs || echo "Could not fetch logs"
               env:
                   DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}

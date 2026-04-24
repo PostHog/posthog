@@ -10,9 +10,11 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     GitHubBranchesResponseApi,
+    GitHubReposRefreshResponseApi,
     GitHubReposResponseApi,
     IntegrationApi,
     IntegrationsGithubBranchesRetrieveParams,
+    IntegrationsGithubReposRetrieveParams,
     IntegrationsList2Params,
     IntegrationsListParams,
     OrganizationIntegrationApi,
@@ -42,12 +44,12 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
 /**
  * ViewSet for organization-level integrations.
 
-Provides read-only access to integrations that are scoped to the entire organization
+Provides access to integrations that are scoped to the entire organization
 (vs. project-level integrations). Examples include Vercel, AWS Marketplace, etc.
 
-This is read-only. Creation is handled by the integration installation flows
-(e.g., Vercel marketplace installation). Deletion requires contacting support
-due to billing implications.
+Creation is handled by the integration installation flows
+(e.g., Vercel marketplace installation). Users can disconnect integrations
+via the DELETE endpoint.
  */
 export const getIntegrationsListUrl = (organizationId: string, params?: IntegrationsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -79,12 +81,12 @@ export const integrationsList = async (
 /**
  * ViewSet for organization-level integrations.
 
-Provides read-only access to integrations that are scoped to the entire organization
+Provides access to integrations that are scoped to the entire organization
 (vs. project-level integrations). Examples include Vercel, AWS Marketplace, etc.
 
-This is read-only. Creation is handled by the integration installation flows
-(e.g., Vercel marketplace installation). Deletion requires contacting support
-due to billing implications.
+Creation is handled by the integration installation flows
+(e.g., Vercel marketplace installation). Users can disconnect integrations
+via the DELETE endpoint.
  */
 export const getIntegrationsRetrieveUrl = (organizationId: string, id: string) => {
     return `/api/organizations/${organizationId}/integrations/${id}/`
@@ -104,12 +106,37 @@ export const integrationsRetrieve = async (
 /**
  * ViewSet for organization-level integrations.
 
-Provides read-only access to integrations that are scoped to the entire organization
+Provides access to integrations that are scoped to the entire organization
 (vs. project-level integrations). Examples include Vercel, AWS Marketplace, etc.
 
-This is read-only. Creation is handled by the integration installation flows
-(e.g., Vercel marketplace installation). Deletion requires contacting support
-due to billing implications.
+Creation is handled by the integration installation flows
+(e.g., Vercel marketplace installation). Users can disconnect integrations
+via the DELETE endpoint.
+ */
+export const getOrganizationIntegrationsDestroyUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/integrations/${id}/`
+}
+
+export const organizationIntegrationsDestroy = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getOrganizationIntegrationsDestroyUrl(organizationId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+/**
+ * ViewSet for organization-level integrations.
+
+Provides access to integrations that are scoped to the entire organization
+(vs. project-level integrations). Examples include Vercel, AWS Marketplace, etc.
+
+Creation is handled by the integration installation flows
+(e.g., Vercel marketplace installation). Users can disconnect integrations
+via the DELETE endpoint.
  */
 export const getIntegrationsEnvironmentMappingPartialUpdateUrl = (organizationId: string, id: string) => {
     return `/api/organizations/${organizationId}/integrations/${id}/environment-mapping/`
@@ -330,18 +357,50 @@ export const integrationsGithubBranchesRetrieve = async (
     })
 }
 
-export const getIntegrationsGithubReposRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/integrations/${id}/github_repos/`
+export const getIntegrationsGithubReposRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: IntegrationsGithubReposRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/${id}/github_repos/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/${id}/github_repos/`
 }
 
 export const integrationsGithubReposRetrieve = async (
     projectId: string,
     id: number,
+    params?: IntegrationsGithubReposRetrieveParams,
     options?: RequestInit
 ): Promise<GitHubReposResponseApi> => {
-    return apiMutator<GitHubReposResponseApi>(getIntegrationsGithubReposRetrieveUrl(projectId, id), {
+    return apiMutator<GitHubReposResponseApi>(getIntegrationsGithubReposRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getIntegrationsGithubReposRefreshCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/github_repos/refresh/`
+}
+
+export const integrationsGithubReposRefreshCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<GitHubReposRefreshResponseApi> => {
+    return apiMutator<GitHubReposRefreshResponseApi>(getIntegrationsGithubReposRefreshCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

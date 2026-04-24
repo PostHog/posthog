@@ -4,13 +4,12 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, patch
 
+from django.conf import settings
 from django.test import override_settings
 
 import boto3
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
-
-from posthog.settings import settings
 
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.data_warehouse.backend.models import DataWarehouseTable
@@ -163,6 +162,8 @@ class TestTable(APIBaseTest):
         data: dict[str, Any] = response.json()
 
         table = DataWarehouseTable.objects.get(id=data["id"])
+        credential = table.credential
+        assert credential is not None
 
         assert table.name == "whatever"
         assert table.columns == {
@@ -170,8 +171,8 @@ class TestTable(APIBaseTest):
             "a_column": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
         }
 
-        assert table.credential.access_key, "_accesskey"
-        assert table.credential.access_secret, "_accesssecret"
+        assert credential.access_key, "_accesskey"
+        assert credential.access_secret, "_accesssecret"
 
     @patch(
         "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns",
@@ -202,6 +203,8 @@ class TestTable(APIBaseTest):
         data: dict[str, Any] = response.json()
 
         table = DataWarehouseTable.objects.get(id=data["id"])
+        credential = table.credential
+        assert credential is not None
 
         assert table.name == "whatever"
         assert table.columns == {
@@ -209,8 +212,8 @@ class TestTable(APIBaseTest):
             "a_column": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": False},
         }
 
-        assert table.credential.access_key, "_accesskey"
-        assert table.credential.access_secret, "_accesssecret"
+        assert credential.access_key, "_accesskey"
+        assert credential.access_secret, "_accesssecret"
 
     @patch("products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns")
     def test_credentialerror(self, patch_get_columns):
@@ -248,7 +251,9 @@ class TestTable(APIBaseTest):
         table.refresh_from_db()
 
         assert response.status_code == 200
-        assert table.columns["id"] == {"clickhouse": "Nullable(Float64)", "hogql": "FloatDatabaseField", "valid": True}
+        columns = table.columns
+        assert columns is not None
+        assert columns["id"] == {"clickhouse": "Nullable(Float64)", "hogql": "FloatDatabaseField", "valid": True}
 
     @patch(
         "products.data_warehouse.backend.models.table.DataWarehouseTable.validate_column_type",
@@ -269,7 +274,9 @@ class TestTable(APIBaseTest):
         table.refresh_from_db()
 
         assert response.status_code == 200
-        assert table.columns["id"] == {"clickhouse": "Nullable(Float64)", "hogql": "FloatDatabaseField", "valid": True}
+        columns = table.columns
+        assert columns is not None
+        assert columns["id"] == {"clickhouse": "Nullable(Float64)", "hogql": "FloatDatabaseField", "valid": True}
 
     def test_update_schema_200_no_updates(self):
         columns = {"id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"}}

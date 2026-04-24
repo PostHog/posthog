@@ -143,7 +143,7 @@ describe('logsViewerLogic', () => {
             expect(merged.find((g) => g.instanceId === 'c')?.entries).toHaveLength(1)
         })
 
-        it('preserves group order based on first appearance', () => {
+        it('returns groups in newest-first order', () => {
             const entries = [
                 makeEntry('a', '2024-01-15 10:00:00'),
                 makeEntry('b', '2024-01-15 10:01:00'),
@@ -152,7 +152,7 @@ describe('logsViewerLogic', () => {
 
             const groups = groupLogs(entries)
 
-            expect(groups.map((g) => g.instanceId)).toEqual(['a', 'b', 'c'])
+            expect(groups.map((g) => g.instanceId)).toEqual(['c', 'b', 'a'])
         })
     })
 })

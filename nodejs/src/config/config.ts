@@ -2,6 +2,7 @@ import { getDefaultCdpConfig } from '../cdp/config'
 import { getDefaultCommonConfig } from '../common/config'
 import { getDefaultIngestionConsumerConfig } from '../ingestion/config'
 import { getDefaultErrorTrackingConsumerConfig } from '../ingestion/error-tracking/config'
+import { getDefaultLlmAnalyticsConfig } from '../llm-analytics/config'
 import {
     getDefaultLogsIngestionConsumerConfig,
     getDefaultTracesIngestionConsumerConfig,
@@ -19,6 +20,7 @@ export function getDefaultConfig(): PluginsServerConfig {
     return {
         ...getDefaultCommonConfig(),
         ...getDefaultCdpConfig(),
+        ...getDefaultLlmAnalyticsConfig(),
         ...getDefaultIngestionConsumerConfig(),
         ...getDefaultLogsIngestionConsumerConfig(),
         ...getDefaultTracesIngestionConsumerConfig(),
@@ -79,6 +81,33 @@ export function overrideWithEnv(
     }
 
     return newConfig
+}
+
+/**
+ * Override config values from environment variables. Works on any config object —
+ * iterates its keys, reads matching env vars, and coerces based on the default value type.
+ *
+ * Unlike `overrideWithEnv`, this has no PluginsServerConfig-specific validation.
+ * Use for server-local config types (e.g. KafkaProducerEnvConfig, IngestionOutputsConfig).
+ */
+export function overrideConfigWithEnv<T extends Record<string, unknown>>(
+    config: T,
+    env: Record<string, string | undefined> = process.env
+): T {
+    const result: any = { ...config }
+    for (const key of Object.keys(config)) {
+        if (typeof env[key] !== 'undefined') {
+            const defaultValue = config[key]
+            if (typeof defaultValue === 'number') {
+                result[key] = env[key]?.indexOf('.') ? parseFloat(env[key]!) : parseInt(env[key]!)
+            } else if (typeof defaultValue === 'boolean') {
+                result[key] = stringToBoolean(env[key])
+            } else {
+                result[key] = env[key]
+            }
+        }
+    }
+    return result
 }
 
 export function buildIntegerMatcher(config: string | undefined, allowStar: boolean): ValueMatcher<number> {

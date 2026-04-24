@@ -122,3 +122,6 @@ tools:
     notebooks-recording-comments-retrieve:
         operation: notebooks_recording_comments_retrieve
         enabled: false
+    notebooks-collab-save-create:
+        operation: notebooks_collab_save_create
+        enabled: false

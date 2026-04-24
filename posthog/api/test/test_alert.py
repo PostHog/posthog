@@ -76,6 +76,9 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "skip_weekend": False,
             "schedule_restriction": None,
             "last_value": None,
+            "investigation_agent_enabled": False,
+            "investigation_gates_notifications": False,
+            "investigation_inconclusive_action": "notify",
         }
         assert response.status_code == status.HTTP_201_CREATED, response.content
         assert response.json() == expected_alert_json
@@ -176,7 +179,48 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}{query_param}")
         assert response.status_code == status.HTTP_200_OK
-        assert len(response.json()["checks"]) == expected_count
+        body = response.json()
+        assert len(body["checks"]) == expected_count
+        assert body["checks_total"] == total_checks
+
+    @parameterized.expand(
+        [
+            ("returns_newest_slice_first", 3, 0, [7.0, 6.0, 5.0]),
+            ("skips_newest_for_next_page", 3, 3, [4.0, 3.0, 2.0]),
+            ("negative_offset_clamped_to_first_page", 2, -1, [7.0, 6.0]),
+        ]
+    )
+    def test_retrieve_checks_offset_pagination(
+        self, _label: str, checks_limit: int, checks_offset: int, expected_values: list[float]
+    ) -> None:
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "name": "checks offset test",
+        }
+        alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
+        alert_obj = AlertConfiguration.objects.get(id=alert["id"])
+
+        now = datetime.now(UTC)
+        for i in range(8):
+            check = AlertCheck.objects.create(
+                alert_configuration=alert_obj,
+                calculated_value=float(i),
+                state=AlertState.NOT_FIRING,
+            )
+            AlertCheck.objects.filter(id=check.id).update(created_at=now - timedelta(seconds=8 - i))
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/alerts/{alert['id']}"
+            f"?checks_limit={checks_limit}&checks_offset={checks_offset}"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["checks_total"] == 8
+        assert [c["calculated_value"] for c in body["checks"]] == expected_values
 
     def test_retrieve_checks_with_date_from(self) -> None:
         creation_request = {
@@ -210,10 +254,12 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         # Without date_from — returns last 5 (all of them)
         response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
         assert len(response.json()["checks"]) == 5
+        assert response.json()["checks_total"] == 5
 
         # With date_from=-24h — only the 2 recent checks
         response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}?checks_date_from=-24h")
         assert response.status_code == status.HTTP_200_OK
+        assert response.json()["checks_total"] == 2
         checks = response.json()["checks"]
         assert len(checks) == 2
         for check in checks:
@@ -252,6 +298,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/alerts/{alert['id']}?checks_date_from=-4d&checks_date_to=-12h"
         )
         assert response.status_code == status.HTTP_200_OK
+        assert response.json()["checks_total"] == 3
         checks = response.json()["checks"]
         assert len(checks) == 3
         values = [c["calculated_value"] for c in checks]
@@ -781,6 +828,68 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         }
 
 
+class TestInvestigationAgentValidation(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.insight_data: dict[str, Any] = {
+            "query": {
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                "interval": "day",
+            },
+        }
+        self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.insight_data).json()
+
+    def _base_alert_body(self, *, detector_config: dict[str, Any] | None, enabled: bool) -> dict[str, Any]:
+        return {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "name": "investigation alert",
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "calculation_interval": "daily",
+            "detector_config": detector_config,
+            "investigation_agent_enabled": enabled,
+        }
+
+    @parameterized.expand(
+        [
+            ("enabled_without_detector_config", None, True, status.HTTP_400_BAD_REQUEST, "investigation_agent_enabled"),
+            ("disabled_without_detector_config", None, False, status.HTTP_201_CREATED, None),
+            (
+                "enabled_with_detector_config",
+                {"type": "zscore", "threshold": 0.95, "window": 30},
+                True,
+                status.HTTP_201_CREATED,
+                None,
+            ),
+        ]
+    )
+    def test_investigation_agent_enabled_validation(
+        self,
+        _name: str,
+        detector_config: dict[str, Any] | None,
+        enabled: bool,
+        expected_status: int,
+        expected_error_attr: str | None,
+    ) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            self._base_alert_body(detector_config=detector_config, enabled=enabled),
+        )
+        assert response.status_code == expected_status, response.content
+        if expected_error_attr:
+            assert expected_error_attr in response.json().get("attr", "")
+
+    def test_investigation_gates_notifications_rejected_without_agent_enabled(self) -> None:
+        body = self._base_alert_body(detector_config=None, enabled=False)
+        body["investigation_gates_notifications"] = True
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts", body)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "investigation_gates_notifications" in response.json().get("attr", "")
+
+
 class TestAlertSimulate(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -899,6 +1008,162 @@ class TestAlertSimulate(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK, response.content
         assert AlertCheck.objects.count() == checks_before
+
+
+class TestAlertEventProperties(APIBaseTest):
+    @parameterized.expand(
+        [
+            (
+                "threshold_absolute",
+                {"type": "absolute_value"},
+                None,
+                {
+                    "alert_mode": "threshold",
+                    "detector_type": None,
+                    "ensemble_operator": None,
+                    "ensemble_detector_types": None,
+                    "has_preprocessing": False,
+                },
+            ),
+            (
+                "single_detector_no_preprocessing",
+                {"type": "absolute_value"},
+                {"type": "zscore", "threshold": 0.95, "window": 30},
+                {
+                    "alert_mode": "detector",
+                    "detector_type": "zscore",
+                    "ensemble_operator": None,
+                    "ensemble_detector_types": None,
+                    "has_preprocessing": False,
+                },
+            ),
+            (
+                "single_detector_with_preprocessing",
+                {"type": "absolute_value"},
+                {"type": "zscore", "threshold": 0.95, "window": 30, "preprocessing": {"diffs_n": 1}},
+                {
+                    "alert_mode": "detector",
+                    "detector_type": "zscore",
+                    "ensemble_operator": None,
+                    "ensemble_detector_types": None,
+                    "has_preprocessing": True,
+                },
+            ),
+            (
+                "ensemble_and",
+                {"type": "absolute_value"},
+                {
+                    "type": "ensemble",
+                    "operator": "AND",
+                    "detectors": [
+                        {"type": "zscore", "threshold": 0.95, "window": 30, "preprocessing": {"diffs_n": 1}},
+                        {"type": "mad", "threshold": 0.95, "window": 30},
+                    ],
+                },
+                {
+                    "alert_mode": "detector",
+                    "detector_type": "ensemble",
+                    "ensemble_operator": "AND",
+                    "ensemble_detector_types": ["zscore", "mad"],
+                    "has_preprocessing": True,
+                },
+            ),
+            (
+                "ensemble_or_no_preprocessing",
+                {"type": "absolute_value"},
+                {
+                    "type": "ensemble",
+                    "operator": "OR",
+                    "detectors": [
+                        {"type": "iqr", "multiplier": 1.5, "window": 30},
+                        {"type": "threshold"},
+                    ],
+                },
+                {
+                    "alert_mode": "detector",
+                    "detector_type": "ensemble",
+                    "ensemble_operator": "OR",
+                    "ensemble_detector_types": ["iqr", "threshold"],
+                    "has_preprocessing": False,
+                },
+            ),
+        ]
+    )
+    def test_event_properties(
+        self,
+        _name: str,
+        condition: dict,
+        detector_config: dict | None,
+        expected_detector_fields: dict,
+    ) -> None:
+        alert = AlertConfiguration(
+            name="test alert",
+            condition=condition,
+            detector_config=detector_config,
+            calculation_interval="daily",
+        )
+        props = alert._get_event_properties()
+        assert props["alert_name"] == "test alert"
+        assert props["condition_type"] == condition["type"]
+        assert props["calculation_interval"] == "daily"
+        for key, value in expected_detector_fields.items():
+            assert props[key] == value, f"{key} expected {value}, got {props[key]}"
+
+
+class TestTriggerAlertHogFunctions(APIBaseTest):
+    @parameterized.expand(
+        [
+            (
+                "threshold_alert",
+                None,
+                {"alert_mode": "threshold", "detector_type": None, "ensemble_operator": None},
+            ),
+            (
+                "single_detector",
+                {"type": "zscore", "threshold": 0.95, "window": 30},
+                {"alert_mode": "detector", "detector_type": "zscore", "ensemble_operator": None},
+            ),
+            (
+                "ensemble_detector",
+                {
+                    "type": "ensemble",
+                    "operator": "AND",
+                    "detectors": [
+                        {"type": "zscore", "threshold": 0.95, "window": 30},
+                        {"type": "mad", "threshold": 0.95, "window": 30},
+                    ],
+                },
+                {"alert_mode": "detector", "detector_type": "ensemble", "ensemble_operator": "AND"},
+            ),
+        ]
+    )
+    @mock.patch("posthog.tasks.alerts.utils.produce_internal_event")
+    def test_insight_alert_firing_detector_props(
+        self,
+        _name: str,
+        detector_config: dict | None,
+        expected_props: dict,
+        mock_produce: mock.MagicMock,
+    ) -> None:
+        from posthog.tasks.alerts.utils import trigger_alert_hog_functions
+
+        alert = mock.MagicMock()
+        alert.id = "00000000-0000-0000-0000-000000000001"
+        alert.name = "test alert"
+        alert.insight.name = "test insight"
+        alert.insight.short_id = "abcd1234"
+        alert.state = AlertState.FIRING
+        alert.last_checked_at = None
+        alert.team_id = self.team.id
+        alert.detector_config = detector_config
+
+        trigger_alert_hog_functions(alert, properties={"breaches": "test breach"})
+
+        assert mock_produce.call_count == 1
+        event = mock_produce.call_args.kwargs["event"]
+        for key, value in expected_props.items():
+            assert event.properties[key] == value, f"{key} expected {value}, got {event.properties[key]}"
+        assert event.properties["breaches"] == "test breach"
 
 
 class TestAlertAPIKeyAccess(APIBaseTest):

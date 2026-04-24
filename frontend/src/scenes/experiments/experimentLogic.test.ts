@@ -1205,6 +1205,71 @@ describe('experimentLogic', () => {
         })
     })
 
+    describe('updateDistribution', () => {
+        beforeEach(() => {
+            jest.spyOn(api, 'update')
+            api.update.mockClear()
+        })
+
+        it('sends variant split and holdout via experiment update with update_feature_flag_params', async () => {
+            const updatedExperiment = {
+                ...experiment,
+                parameters: {
+                    ...experiment.parameters,
+                    feature_flag_variants: [
+                        { key: 'control', rollout_percentage: 75 },
+                        { key: 'test', rollout_percentage: 25 },
+                    ],
+                },
+            }
+            api.update.mockResolvedValue(updatedExperiment)
+
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.updateDistribution([
+                    { key: 'control', rollout_percentage: 75 },
+                    { key: 'test', rollout_percentage: 25 },
+                ])
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/experiments/'),
+                expect.objectContaining({
+                    parameters: expect.objectContaining({
+                        feature_flag_variants: [
+                            { key: 'control', rollout_percentage: 75 },
+                            { key: 'test', rollout_percentage: 25 },
+                        ],
+                    }),
+                    holdout_id: experiment.holdout_id,
+                    update_feature_flag_params: true,
+                })
+            )
+            // Should not send rollout_percentage — it's not editable in the distribution modal
+            const sentParams = (api.update.mock.calls[0][1] as Record<string, any>).parameters
+            expect(sentParams).not.toHaveProperty('rollout_percentage')
+        })
+
+        it('does not call feature flag API directly', async () => {
+            api.update.mockResolvedValue(experiment)
+
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.updateDistribution([
+                    { key: 'control', rollout_percentage: 60 },
+                    { key: 'test', rollout_percentage: 40 },
+                ])
+            }).toFinishAllListeners()
+
+            // Should only call the experiment endpoint, not the feature flag endpoint
+            for (const call of api.update.mock.calls) {
+                expect(call[0]).not.toContain('/feature_flags/')
+            }
+        })
+    })
+
     describe('experimentWarning', () => {
         const multivariantFilters = {
             groups: [{ properties: [], rollout_percentage: 100 }],

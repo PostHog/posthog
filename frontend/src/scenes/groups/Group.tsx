@@ -1,6 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useFeatureFlagVariantKey } from 'posthog-js/react'
+
+import { useFeatureFlagVariantKey } from '@posthog/react'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
@@ -39,6 +40,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { FeedbackButton } from 'products/customer_analytics/frontend/components/FeedbackButton'
 import { GroupProfileCanvas } from 'products/customer_analytics/frontend/components/GroupProfileCanvas'
 
 import { GroupDashboardCard } from './cards/GroupDashboardCard'
@@ -89,17 +91,20 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
                     path: urls.groups(groupTypeIndex),
                 }}
                 actions={
-                    <NotebookSelectButton
-                        size="small"
-                        type="secondary"
-                        resource={{
-                            type: NotebookNodeType.Group,
-                            attrs: {
-                                id: groupKey,
-                                groupTypeIndex: groupTypeIndex,
-                            },
-                        }}
-                    />
+                    <>
+                        <FeedbackButton id="customer-analytics-group-profile-feedback-button" />
+                        <NotebookSelectButton
+                            size="small"
+                            type="secondary"
+                            resource={{
+                                type: NotebookNodeType.Group,
+                                attrs: {
+                                    id: groupKey,
+                                    groupTypeIndex: groupTypeIndex,
+                                },
+                            }}
+                        />
+                    </>
                 }
             />
             <GroupCaption groupData={groupData} groupTypeName={groupTypeName} />

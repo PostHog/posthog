@@ -24,7 +24,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         STOPPED = "stopped", "Stopped"
 
     name = models.CharField(max_length=400)
-    description = models.CharField(max_length=400, null=True, blank=True)
+    description = models.CharField(max_length=3000, null=True, blank=True)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 
     # Filters define the target metric of an Experiment
@@ -70,7 +70,6 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     stats_config = models.JSONField(default=dict, null=True, blank=True)
     scheduling_config = models.JSONField(default=dict, null=True, blank=True)
 
-    exposure_preaggregation_enabled = models.BooleanField(default=False)
     only_count_matured_users = models.BooleanField(default=False)
 
     status = models.CharField(

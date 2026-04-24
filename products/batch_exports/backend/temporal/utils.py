@@ -267,7 +267,7 @@ def make_retryable_with_exponential_backoff(
     Arguments:
         func: The coroutine to retry.
         timeout: How long to wait for the coroutine to run.
-        max_attempts: Limit number of retry attempts. Set to 0 for no limit.
+        max_attempts: Limit number of retry attempts. Set to `None` for no limit.
         initial_retry_delay: Delay for the first retry.
         max_retry_delay: Maximum possible delay between any attempts.
         exponential_backoff_coefficient: Exponential factor used to scale
@@ -279,6 +279,21 @@ def make_retryable_with_exponential_backoff(
             example, the same exception class can be retried or not depending on a code
             or message attribute.
         max_delay_jitter: Maximum jitter added to every retry delay.
+
+    Examples:
+        Retry an error forever:
+
+        >>> class MyError(Exception):
+        ...     pass
+        >>> async def my_coro():
+        ...     raise MyError
+        >>> retryable_coro = make_retryable_with_exponential_backoff(my_coro, max_attempts=None, retryable_exceptions=(MyError,))
+
+        Filter which errors to retry on based on message contents:
+
+        >>> def _is_exception_retryable(exc: Exception):
+        ...     return "message" in str(exc)
+        >>> retryable_coro = make_retryable_with_exponential_backoff(my_coro, is_exception_retryable=_is_exception_retryable)
     """
 
     @functools.wraps(func)

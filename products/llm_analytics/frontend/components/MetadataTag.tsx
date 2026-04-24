@@ -6,9 +6,10 @@ interface MetadataTagProps {
     children: React.ReactNode
     label: string
     textToCopy?: string
+    tooltipContent?: React.ReactNode
 }
 
-export function MetadataTag({ children, label, textToCopy }: MetadataTagProps): JSX.Element {
+export function MetadataTag({ children, label, textToCopy, tooltipContent }: MetadataTagProps): JSX.Element {
     let wrappedChildren: React.ReactNode = children
     if (typeof textToCopy === 'string' && typeof children === 'string') {
         wrappedChildren = (
@@ -17,7 +18,7 @@ export function MetadataTag({ children, label, textToCopy }: MetadataTagProps): 
             </CopyToClipboardInline>
         )
     } else {
-        wrappedChildren = <Tooltip title={label}>{children}</Tooltip>
+        wrappedChildren = <Tooltip title={tooltipContent ?? label}>{children}</Tooltip>
     }
 
     return <LemonTag className="bg-surface-primary cursor-default">{wrappedChildren}</LemonTag>

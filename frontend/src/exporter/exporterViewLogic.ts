@@ -25,6 +25,7 @@ export const exporterViewLogic = kea<exporterViewLogicType>([
                 'setHeatmapFixedPositionMode',
                 'setHeatmapColorPalette',
                 'setCommonFilters',
+                'setWindowWidthOverride',
             ],
         ],
     })),
@@ -91,6 +92,9 @@ export const exporterViewLogic = kea<exporterViewLogicType>([
             }
             if (props.heatmap_context?.common_filters) {
                 actions.setCommonFilters(props.heatmap_context.common_filters)
+            }
+            if (props.heatmap_context?.width) {
+                actions.setWindowWidthOverride(props.heatmap_context.width)
             }
         }
     }),

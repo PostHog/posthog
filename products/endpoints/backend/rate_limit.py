@@ -2,6 +2,8 @@ from django.core.cache import cache
 
 from posthog.rate_limit import APIQueriesBurstThrottle, APIQueriesSustainedThrottle
 
+from products.endpoints.backend.metrics import ENDPOINT_RATE_LIMITED_TOTAL
+
 MATERIALIZED_ENDPOINT_CACHE_KEY = "endpoint_materialized_ready:{team_id}:{endpoint_name}"
 MATERIALIZED_ENDPOINT_CACHE_TTL = 3600  # 1 hour fallback TTL
 
@@ -102,7 +104,13 @@ class EndpointBurstThrottle(APIQueriesBurstThrottle):
             self.scope = "materialized_endpoint_burst"
             self.num_requests, self.duration = self.parse_rate(self.rate)
 
-        return super().allow_request(request, view)
+        allowed = super().allow_request(request, view)
+        if not allowed:
+            try:
+                ENDPOINT_RATE_LIMITED_TOTAL.labels(scope=self.scope).inc()
+            except Exception:
+                pass
+        return allowed
 
 
 class EndpointSustainedThrottle(APIQueriesSustainedThrottle):
@@ -118,4 +126,10 @@ class EndpointSustainedThrottle(APIQueriesSustainedThrottle):
             self.scope = "materialized_endpoint_sustained"
             self.num_requests, self.duration = self.parse_rate(self.rate)
 
-        return super().allow_request(request, view)
+        allowed = super().allow_request(request, view)
+        if not allowed:
+            try:
+                ENDPOINT_RATE_LIMITED_TOTAL.labels(scope=self.scope).inc()
+            except Exception:
+                pass
+        return allowed

@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    CopyExperimentToProjectApi,
     EndExperimentApi,
     ExperimentApi,
     ExperimentHoldoutApi,
@@ -409,6 +410,31 @@ export const experimentsArchiveCreate = async (
     return apiMutator<ExperimentApi>(getExperimentsArchiveCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+
+This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+on serializer methods and converts them into proper HTTP 409 Conflict responses with
+change request details.
+ */
+export const getExperimentsCopyToProjectCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/copy_to_project/`
+}
+
+export const experimentsCopyToProjectCreate = async (
+    projectId: string,
+    id: number,
+    copyExperimentToProjectApi: CopyExperimentToProjectApi,
+    options?: RequestInit
+): Promise<ExperimentApi> => {
+    return apiMutator<ExperimentApi>(getExperimentsCopyToProjectCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(copyExperimentToProjectApi),
     })
 }
 

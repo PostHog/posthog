@@ -8,7 +8,7 @@ function Accordion({ className, ...props }: AccordionPrimitive.Root.Props): Reac
     return (
         <AccordionPrimitive.Root
             data-slot="accordion"
-            className={cn('flex w-full flex-col overflow-hidden rounded-md border', className)}
+            className={cn('flex w-full flex-col overflow-hidden rounded-sm border', className)}
             {...props}
         />
     )
@@ -17,6 +17,7 @@ function Accordion({ className, ...props }: AccordionPrimitive.Root.Props): Reac
 function AccordionItem({ className, ...props }: AccordionPrimitive.Item.Props): React.ReactElement {
     return (
         <AccordionPrimitive.Item
+            data-quill
             data-slot="accordion-item"
             className={cn('not-last:border-b data-open:bg-muted/50', className)}
             {...props}
@@ -58,7 +59,7 @@ function AccordionContent({ className, children, ...props }: AccordionPrimitive.
         >
             <div
                 className={cn(
-                    'pt-0 pb-4 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground [&_p:not(:last-child)]:mb-4',
+                    'pt-0 pb-2 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground [&_p:not(:last-child)]:mb-4',
                     className
                 )}
             >

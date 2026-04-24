@@ -93,6 +93,11 @@ export interface EndpointMaterializationApi {
      * @nullable
      */
     sync_frequency?: string | null
+    /**
+     * UUID of the underlying saved query backing this materialization. Only populated when the version is materialized.
+     * @nullable
+     */
+    saved_query_id?: string | null
 }
 
 /**
@@ -155,6 +160,11 @@ export interface EndpointResponseApi {
     is_materialized: boolean
     /** Latest version number. */
     current_version: number
+    /**
+     * UUID of the current EndpointVersion row.
+     * @nullable
+     */
+    current_version_id?: string | null
     /** Total number of versions for this endpoint. */
     versions_count: number
     /**
@@ -301,6 +311,11 @@ export interface EndpointVersionResponseApi {
     is_materialized: boolean
     /** Latest version number. */
     current_version: number
+    /**
+     * UUID of the current EndpointVersion row.
+     * @nullable
+     */
+    current_version_id?: string | null
     /** Total number of versions for this endpoint. */
     versions_count: number
     /**
@@ -587,9 +602,9 @@ export interface PersonPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
-export type KeyApi = (typeof KeyApi)[keyof typeof KeyApi]
+export type Key10Api = (typeof Key10Api)[keyof typeof Key10Api]
 
-export const KeyApi = {
+export const Key10Api = {
     TagName: 'tag_name',
     Text: 'text',
     Href: 'href',
@@ -604,7 +619,7 @@ export const ElementPropertyFilterApiType = {
 } as const
 
 export interface ElementPropertyFilterApi {
-    key: KeyApi
+    key: Key10Api
     /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
@@ -905,6 +920,22 @@ export interface RevenueAnalyticsPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export type WorkflowVariablePropertyFilterApiType =
+    (typeof WorkflowVariablePropertyFilterApiType)[keyof typeof WorkflowVariablePropertyFilterApiType]
+
+export const WorkflowVariablePropertyFilterApiType = {
+    WorkflowVariable: 'workflow_variable',
+} as const
+
+export interface WorkflowVariablePropertyFilterApi {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: WorkflowVariablePropertyFilterApiType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export interface DashboardFilterApi {
     breakdown_filter?: BreakdownFilterApi | null
     /** @nullable */
@@ -935,6 +966,7 @@ export interface DashboardFilterApi {
               | LogPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
           )[]
         | null
 }

@@ -263,6 +263,8 @@ class TestTicketMessageSignals(BaseTest):
         )
 
         mock_delay.assert_called_once()
+        call_kwargs = mock_delay.call_args[1]
+        assert call_kwargs["author_email"] == self.user.email
 
     @patch("products.conversations.backend.tasks.post_reply_to_slack.delay")
     def test_private_slack_message_does_not_enqueue_slack_reply(self, mock_delay, mock_on_commit):

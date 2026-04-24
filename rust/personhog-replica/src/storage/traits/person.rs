@@ -52,4 +52,15 @@ pub trait PersonLookup: Send + Sync {
     /// 2. Deletes the posthog_person rows (posthog_featureflaghashkeyoverride cascades at DB level)
     /// Returns the number of deleted person records.
     async fn delete_persons(&self, team_id: i64, uuids: &[Uuid]) -> StorageResult<i64>;
+
+    /// Delete up to `batch_size` persons for a team. In a single transaction:
+    /// 1. Selects up to batch_size person IDs for the team
+    /// 2. Deletes their posthog_persondistinctid rows (FK is NO ACTION)
+    /// 3. Deletes the posthog_person rows (posthog_featureflaghashkeyoverride cascades at DB level)
+    /// Returns the number of deleted person records. 0 means no more persons to delete.
+    async fn delete_persons_batch_for_team(
+        &self,
+        team_id: i64,
+        batch_size: i64,
+    ) -> StorageResult<i64>;
 }

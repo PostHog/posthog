@@ -16,10 +16,11 @@ from posthog.models.js_snippet_versioning import (
     changed_pointers,
     compute_version_manifest,
     purge_changed_pointers,
+    s3_read,
+    s3_write,
     sync_manifest_from_s3,
     validate_version_artifacts,
 )
-from posthog.storage import object_storage
 
 # Usage:
 #
@@ -67,22 +68,14 @@ class Command(BaseCommand):
 
     def _read_manifest(self) -> list[VersionEntry]:
         try:
-            raw = object_storage.read(
-                S3_VERSIONS_KEY,
-                bucket=settings.POSTHOG_JS_S3_BUCKET,
-                missing_ok=True,
-            )
+            raw = s3_read(S3_VERSIONS_KEY, missing_ok=True)
             return json.loads(raw) if raw else []
         except Exception:
             return []
 
     def _write_manifest(self, entries: list[VersionEntry]) -> None:
         raw = json.dumps(entries, indent=2)
-        object_storage.write(
-            S3_VERSIONS_KEY,
-            raw,
-            bucket=settings.POSTHOG_JS_S3_BUCKET,
-        )
+        s3_write(S3_VERSIONS_KEY, raw)
         self.stdout.write(self.style.SUCCESS("S3 updated"))
 
     def _update_redis(self, manifest: VersionManifest) -> None:
@@ -92,7 +85,7 @@ class Command(BaseCommand):
 
         # Write validated manifest backup to S3 so that _recover_manifest_from_s3
         # can restore from it if Redis is flushed before the next periodic sync.
-        object_storage.write(S3_MANIFEST_KEY, manifest_json, bucket=settings.POSTHOG_JS_S3_BUCKET)
+        s3_write(S3_MANIFEST_KEY, manifest_json)
         self.stdout.write(self.style.SUCCESS("S3 manifest backup updated"))
 
     def _purge_changed(self, before: dict[str, str], after: dict[str, str]) -> None:

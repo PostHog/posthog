@@ -79,8 +79,10 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "dataset": "llm_analytics",
     "llm_provider_key": "llm_analytics",
     "llm_prompt": "llm_analytics",
+    "llm_skill": "llm_analytics",
     "customer_journey": "customer_analytics",
     "experiment_saved_metric": "experiment",
+    "dashboard_template": "dashboard",
 }
 
 
@@ -817,7 +819,7 @@ class UserAccessControl:
     # Filtering querysets
     # ------------------------------------------------------------
 
-    def filter_queryset_by_access_level(self, queryset: QuerySet, include_all_if_admin=False) -> QuerySet:
+    def filter_queryset_by_access_level(self, queryset: QuerySet, include_all_if_admin: bool = False) -> QuerySet:
         # Filter queryset based on access controls, handling cases where user has "none" resource access
         # but may have specific object access
 

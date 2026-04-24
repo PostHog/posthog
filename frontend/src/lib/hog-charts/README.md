@@ -65,3 +65,12 @@ dimensions, and hover state.
 
 For custom tooltip content, pass a component to the `tooltip` prop. It receives
 `TooltipContext` as props. Omit to use the built-in `DefaultTooltip`.
+
+### Series visibility flags
+
+- `hidden`: fully excludes the series — no rendering, no scale contribution, no
+  tooltip row, no hit-testing.
+- `hideFromTooltip`: the series still renders and participates in scales and
+  hit-testing, but is omitted from `TooltipContext.seriesData` so it doesn't
+  appear as a tooltip row. Useful for background/reference series that
+  shouldn't clutter the tooltip.

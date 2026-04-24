@@ -23,6 +23,7 @@ from posthog.hogql.timings import HogQLTimings
 
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.utils import get_properties_chain
+from posthog.hogql_queries.insights.utils.breakdowns import has_breakdown_filter, has_multi_breakdown
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
@@ -67,10 +68,7 @@ class Breakdown:
 
     @property
     def enabled(self) -> bool:
-        return self.query.breakdownFilter is not None and (
-            self.query.breakdownFilter.breakdown is not None
-            or (self.query.breakdownFilter.breakdowns is not None and len(self.query.breakdownFilter.breakdowns) > 0)
-        )
+        return has_breakdown_filter(self.query.breakdownFilter)
 
     @cached_property
     def is_histogram_breakdown(self) -> bool:
@@ -89,10 +87,7 @@ class Breakdown:
 
     @property
     def is_multiple_breakdown(self) -> bool:
-        if self.enabled:
-            breakdown_filter = self._breakdown_filter
-            return breakdown_filter.breakdowns is not None
-        return False
+        return has_multi_breakdown(self.query.breakdownFilter)
 
     @cached_property
     def field_exprs(self) -> list[ast.Field]:
@@ -133,10 +128,27 @@ class Breakdown:
             isinstance(breakdown_filter.breakdown, list)
             and self.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED
         ):
+            # `__in_cohort` is a LEFT JOIN of every cohort referenced anywhere in the
+            # query — breakdown cohorts *and* any cohort used in a series-level `person in cohort` filter.
+            # Reading `cohort_id` straight from it lets filter-only cohorts appear as extra breakdown bars.
+            # Restrict the column to the declared breakdown IDs.
+            # non-matches become NULL and are dropped by the outer `breakdown_value IS NOT NULL` filter.
+            breakdown_ids = ast.Array(
+                exprs=[
+                    ast.Constant(value=int(breakdown)) for breakdown in breakdown_filter.breakdown if breakdown != "all"
+                ]
+            )
+
             return [
                 ast.Alias(
                     alias=self.breakdown_alias,
-                    expr=hogql_to_string(ast.Field(chain=["__in_cohort", "cohort_id"])),
+                    expr=parse_expr(
+                        "if({cohort_id} IN {ids}, toString({cohort_id}), NULL)",
+                        placeholders={
+                            "cohort_id": ast.Field(chain=["__in_cohort", "cohort_id"]),
+                            "ids": breakdown_ids,
+                        },
+                    ),
                 )
             ]
 

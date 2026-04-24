@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 
 import { DataTableNode, EndpointRunRequest, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
-import { Breadcrumb, DataWarehouseSyncInterval, EndpointType, EndpointVersionType } from '~/types'
+import { Breadcrumb, DataModelingSyncInterval, EndpointType, EndpointVersionType } from '~/types'
 
 import { endpointLogic } from './endpointLogic'
 import type { endpointSceneLogicType } from './endpointSceneLogicType'
@@ -136,13 +136,14 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         setPayloadJson: (value: string) => ({ value }),
         setPayloadJsonError: (error: string | null) => ({ error }),
         setCacheAge: (cacheAge: number | null) => ({ cacheAge }),
-        setSyncFrequency: (syncFrequency: DataWarehouseSyncInterval | null) => ({ syncFrequency }),
+        setSyncFrequency: (syncFrequency: DataModelingSyncInterval | null) => ({ syncFrequency }),
         setIsMaterialized: (isMaterialized: boolean | null) => ({ isMaterialized }),
         setEndpointName: (name: string | null) => ({ name }),
         setViewingVersion: (version: EndpointVersionType | null) => ({ version }),
         setBucketOverride: (column: string, bucketFn: string) => ({ column, bucketFn }),
         resetBucketOverrides: (overrides: Record<string, string>) => ({ overrides }),
         setDebugMode: (debugMode: boolean) => ({ debugMode }),
+        setDebugInfoExpanded: (debugInfoExpanded: boolean) => ({ debugInfoExpanded }),
         loadMaterializationPreview: true,
         keepSqlEditorMounted: (editorTabId: string) => ({ editorTabId }),
     }),
@@ -185,7 +186,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             },
         ],
         syncFrequency: [
-            '24hour' as DataWarehouseSyncInterval | null,
+            '24hour' as DataModelingSyncInterval | null,
             {
                 setSyncFrequency: (_, { syncFrequency }) => syncFrequency,
                 loadEndpoint: () => null,
@@ -217,6 +218,13 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             false,
             {
                 setDebugMode: (_, { debugMode }: { debugMode: boolean }) => debugMode,
+                loadEndpoint: () => false,
+            },
+        ],
+        debugInfoExpanded: [
+            false,
+            {
+                setDebugInfoExpanded: (_, { debugInfoExpanded }: { debugInfoExpanded: boolean }) => debugInfoExpanded,
                 loadEndpoint: () => false,
             },
         ],

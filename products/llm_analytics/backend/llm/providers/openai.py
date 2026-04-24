@@ -293,7 +293,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             if supports_reasoning:
                 selected_effort: ReasoningEffort | None = None
                 if request.reasoning_level in ("minimal", "low", "medium", "high"):
-                    selected_effort = request.reasoning_level  # type: ignore[assignment]
+                    selected_effort = request.reasoning_level  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
                 elif reasoning_on:
                     selected_effort = OpenAIConfig.REASONING_EFFORT
                 stream = client.chat.completions.create(

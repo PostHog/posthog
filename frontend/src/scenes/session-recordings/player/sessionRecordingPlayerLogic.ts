@@ -24,7 +24,7 @@ import {
     COMMON_REPLAYER_CONFIG,
     CanvasReplayerPlugin,
     CorsPlugin,
-    HLSPlayerPlugin,
+    createHLSPlayerPlugin,
 } from '@posthog/replay-shared'
 import { ReplayPlugin, Replayer, playerConfig } from '@posthog/rrweb'
 import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-types'
@@ -1253,18 +1253,18 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
 
-            const plugins: ReplayPlugin[] = [HLSPlayerPlugin]
+            const hlsPlugin = createHLSPlayerPlugin()
+            const plugins: ReplayPlugin[] = [hlsPlugin]
 
             // We don't want non-cloud products to talk to our proxy as it likely won't work, but we _do_ want local testing to work
             if (values.preflight?.cloud || window.location.hostname === 'localhost') {
                 plugins.push(CorsPlugin)
             }
 
-            plugins.push(
-                CanvasReplayerPlugin(values.sessionPlayerData.snapshotsByWindowId[windowId], (error) =>
-                    posthog.captureException(error)
-                )
+            const canvasPlugin = CanvasReplayerPlugin(values.sessionPlayerData.snapshotsByWindowId[windowId], (error) =>
+                posthog.captureException(error)
             )
+            plugins.push(canvasPlugin)
             plugins.push(AudioMuteReplayerPlugin(values.isMuted))
 
             // we override the console in the player, with one which stores its data instead of logging
@@ -1406,6 +1406,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     actions.setPlayer({ replayer, windowId })
 
                     return () => {
+                        canvasPlugin.destroy()
+                        hlsPlugin.destroy()
+
                         if (replayer) {
                             for (const cleanup of iframeCleanups) {
                                 cleanup()
@@ -1796,7 +1799,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 const seekToPrevActivityEnd = (segment: RecordingSegment): void => {
                     const prevActivity = findPrevActivitySegment(findSegmentIndex(segment))
                     if (prevActivity) {
-                        targetTime = Math.max(0, prevActivity.endTimestamp - startTimestamp - amount)
+                        const prevStart = prevActivity.startTimestamp - startTimestamp
+                        const prevEnd = prevActivity.endTimestamp - startTimestamp
+                        targetTime = Math.max(prevStart, prevEnd - amount)
                     }
                 }
 
@@ -2233,6 +2238,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             if (hasSnapshotChanges) {
                 actions.syncSnapshotsWithPlayer()
+            }
+        },
+        isWaitingForPlayableFullSnapshot: (isWaiting: boolean, wasWaiting: boolean | undefined) => {
+            // Force a buffering re-check when the scheduler gives up on seek
+            // without loading new snapshots. checkBufferingCompleted normally
+            // fires via syncSnapshotsWithPlayer on new data, but a silent
+            // seek → buffer_ahead transition delivers none, so the player
+            // would stay stuck in BUFFER without this listener (#53893).
+            if (wasWaiting && !isWaiting) {
+                actions.checkBufferingCompleted()
             }
         },
         timestampChangeTracking: (value) => {

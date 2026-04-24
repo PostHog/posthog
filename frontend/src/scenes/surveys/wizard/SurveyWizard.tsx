@@ -42,7 +42,7 @@ export const scene: SceneExport<SurveyWizardLogicProps> = {
     paramsToProps: ({ params: { id } }): SurveyWizardLogicProps => ({ id: id || 'new' }),
 }
 
-function SurveyWizardComponent({ id }: SurveyWizardLogicProps): JSX.Element {
+export function SurveyWizardComponent({ id }: SurveyWizardLogicProps): JSX.Element {
     return (
         <BindLogic logic={surveyWizardLogic} props={{ id }}>
             <BindLogic logic={surveyLogic} props={{ id }}>
@@ -68,24 +68,21 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     const { survey, surveyWarnings } = useValues(surveyLogic)
     const { setSurveyValue, loadSurvey } = useActions(surveyLogic)
 
-    const { preferredEditor } = useValues(surveysLogic)
     const { setPreferredEditor } = useActions(surveysLogic)
 
-    // Redirect to the full editor when appropriate:
-    //  - brand-new survey + user prefers full editor (per-user preference)
-    //  - existing survey that uses wizard-unsupported fields (capability gate)
+    // Redirect existing surveys that use wizard-unsupported fields to the full
+    // editor. Brand-new surveys should always start on template selection,
+    // regardless of the user's editor preference.
     // Hash-carrying deep links (#fromTemplate, #preserveLocalChanges) are
     // respected and bypass the redirect.
     useEffect(() => {
         if (window.location.hash) {
             return
         }
-        if (!isEditing && preferredEditor === 'full') {
-            router.actions.replace(urls.survey('new'))
-        } else if (isEditing && !surveyLoading && !canUseSurveyWizard(survey)) {
+        if (isEditing && !surveyLoading && !canUseSurveyWizard(survey)) {
             router.actions.replace(`${urls.survey(id)}?edit=true`)
         }
-    }, [isEditing, preferredEditor, survey, surveyLoading, id])
+    }, [isEditing, survey, surveyLoading, id])
 
     // register tool so edits from AI will always reload the survey data on-page
     useMaxTool({

@@ -13,6 +13,7 @@
     "dependencies": {
         "@babel/core": "^7.22.10",
         "@babel/plugin-transform-class-properties": "^7.24.7",
+        "@babel/plugin-transform-class-static-block": "^7.24.7",
         "@babel/plugin-transform-nullish-coalescing-operator": "^7.24.7",
         "@babel/plugin-transform-private-property-in-object": "^7.24.7",
         "@babel/plugin-transform-react-jsx": "^7.22.5",

@@ -14,6 +14,7 @@ import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { flagsToolbarLogic } from '~/toolbar/flags/flagsToolbarLogic'
 import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
+import { surveysToolbarLogic } from '~/toolbar/surveys/surveysToolbarLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
@@ -39,6 +40,7 @@ export type MenuState =
     | 'experiments'
     | 'web-vitals'
     | 'product-tours'
+    | 'surveys'
 
 export type ToolbarPositionType =
     | 'top-left'
@@ -69,6 +71,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
             ['allExperimentsLoading'],
             webVitalsToolbarLogic,
             ['remoteWebVitalsLoading'],
+            surveysToolbarLogic,
+            ['allSurveysLoading'],
             hedgehogModeLogic,
             ['hedgehogMode'],
         ],
@@ -89,6 +93,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
             ['enableInspect', 'disableInspect', 'createAction'],
             productToursLogic,
             ['showButtonProductTours', 'hideButtonProductTours'],
+            surveysToolbarLogic,
+            ['showButtonSurveys', 'hideButtonSurveys'],
             heatmapToolbarMenuLogic,
             [
                 'enableHeatmap',
@@ -414,6 +420,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 s.userFlagsLoading,
                 s.allExperimentsLoading,
                 s.remoteWebVitalsLoading,
+                s.allSurveysLoading,
             ],
             (
                 elementStatsLoading,
@@ -422,7 +429,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 allActionsLoading,
                 userFlagsLoading,
                 allExperimentsLoading,
-                remoteWebVitalsLoading
+                remoteWebVitalsLoading,
+                allSurveysLoading
             ) =>
                 elementStatsLoading ||
                 rawHeatmapLoading ||
@@ -430,7 +438,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 allActionsLoading ||
                 userFlagsLoading ||
                 allExperimentsLoading ||
-                remoteWebVitalsLoading,
+                remoteWebVitalsLoading ||
+                allSurveysLoading,
         ],
         hedgehogModeAvailable: [
             (s) => [s.cspBlocksNewFunction],
@@ -455,6 +464,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
             actions.disableHeatmap()
             actions.hideButtonActions()
             actions.hideButtonProductTours()
+            actions.hideButtonSurveys()
 
             if (visibleMenu === 'heatmap') {
                 actions.enableHeatmap()
@@ -468,6 +478,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 actions.enableInspect()
             } else if (visibleMenu === 'product-tours') {
                 actions.showButtonProductTours()
+            } else if (visibleMenu === 'surveys') {
+                actions.showButtonSurveys()
             }
         },
 

@@ -2,8 +2,8 @@
 # name: TestStopSurveysReachedTarget.test_stop_surveys_with_enough_responses
   '''
   
-  SELECT JSONExtractString(properties, '$survey_id') as survey_id,
-         count(DISTINCT if(JSONHas(properties, '$survey_submission_id'), JSONExtractString(properties, '$survey_submission_id'), toString(uuid))) as unique_responses
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, '$survey_id'), '^"|"$', '') as survey_id,
+         count(DISTINCT if(coalesce(replaceRegexpAll(JSONExtractRaw(properties, '$survey_submission_id'), '^"|"$', ''), '') != '', replaceRegexpAll(JSONExtractRaw(properties, '$survey_submission_id'), '^"|"$', ''), toString(uuid))) as unique_responses
   FROM events
   WHERE event = 'survey sent'
     AND team_id = 99999
@@ -15,8 +15,8 @@
 # name: TestStopSurveysReachedTarget.test_stop_surveys_with_enough_responses.1
   '''
   
-  SELECT JSONExtractString(properties, '$survey_id') as survey_id,
-         count(DISTINCT if(JSONHas(properties, '$survey_submission_id'), JSONExtractString(properties, '$survey_submission_id'), toString(uuid))) as unique_responses
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, '$survey_id'), '^"|"$', '') as survey_id,
+         count(DISTINCT if(coalesce(replaceRegexpAll(JSONExtractRaw(properties, '$survey_submission_id'), '^"|"$', ''), '') != '', replaceRegexpAll(JSONExtractRaw(properties, '$survey_submission_id'), '^"|"$', ''), toString(uuid))) as unique_responses
   FROM events
   WHERE event = 'survey sent'
     AND team_id = 99999

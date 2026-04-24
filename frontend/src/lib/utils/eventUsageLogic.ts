@@ -49,6 +49,7 @@ import {
     ChartDisplayType,
     CohortType,
     DashboardMode,
+    DashboardTemplateScope,
     DashboardTile,
     DashboardWidgetType,
     DashboardType,
@@ -345,8 +346,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         // insights
         reportInsightMetadataAiGenerated: (queryKind: NodeKind) => ({ queryKind }),
         reportInsightMetadataAiGenerationFailed: (queryKind: NodeKind) => ({ queryKind }),
-        reportDashboardMetadataAiGenerated: (payload: { dashboardId: number }) => payload,
-        reportDashboardMetadataAiGenerationFailed: (payload: { dashboardId: number }) => payload,
         reportInsightCreated: (query: Node | null) => ({ query }),
         reportInsightSaved: (
             insight: Partial<QueryBasedInsightModel> | null,
@@ -425,6 +424,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         ) => ({ correlationType, action, props }),
         reportProjectCreationSubmitted: (projectCount: number, nameLength: number) => ({ projectCount, nameLength }),
         reportProjectNoticeDismissed: (key: string) => ({ key }),
+        reportProjectNoticeShown: (variant: string) => ({ variant }),
         reportPersonPropertyUpdated: (
             action: 'added' | 'updated' | 'removed',
             totalProperties: number,
@@ -558,6 +558,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             template_id: string
             template_name: string
             template_variable_count: number
+            template_scope: DashboardTemplateScope | null
         }) => payload,
         reportSavedInsightToDashboard: (
             insight: Partial<QueryBasedInsightModel> | null,
@@ -706,6 +707,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 is_retry: boolean
                 refresh_id: string
                 metric_kind: string
+                execution_mode: 'sync' | 'async'
             }
         ) => ({
             experimentId,
@@ -754,6 +756,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 experiment_duration_hours: number | null
                 experiment_status: string | null
                 total_metrics_count: number
+                execution_mode: 'sync' | 'async'
             }
         ) => ({
             experimentId,
@@ -1163,12 +1166,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportInsightMetadataAiGenerationFailed: async ({ queryKind }) => {
             posthog.capture('insight metadata ai generation failed', { query_kind: queryKind })
         },
-        reportDashboardMetadataAiGenerated: async ({ dashboardId }) => {
-            posthog.capture('dashboard metadata ai generated', { dashboard_id: dashboardId })
-        },
-        reportDashboardMetadataAiGenerationFailed: async ({ dashboardId }) => {
-            posthog.capture('dashboard metadata ai generation failed', { dashboard_id: dashboardId })
-        },
         reportInsightSaved: async ({ insight, query, isNewInsight, saveType }) => {
             // "insight saved" is a proxy for the new insight's results being valuable to the user
             posthog.capture('insight saved', {
@@ -1264,6 +1261,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportProjectNoticeDismissed: async ({ key }) => {
             // ProjectNotice was previously called DemoWarning
             posthog.capture('demo warning dismissed', { warning_key: key })
+        },
+        reportProjectNoticeShown: async ({ variant }) => {
+            posthog.capture('project notice shown', { variant })
         },
         reportFunnelCalculated: async ({ eventCount, actionCount, interval, funnelVizType, success, error }) => {
             posthog.capture('funnel result calculated', {

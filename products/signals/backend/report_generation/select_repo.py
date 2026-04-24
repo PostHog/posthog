@@ -29,32 +29,23 @@ class RepoSelectionResult(BaseModel):
     reason: str = Field(description="Why this repository was selected, or why none of the candidates matched.")
 
 
-_GITHUB_REPOS_PER_PAGE = 100
 _MAX_GITHUB_REPOS = 500
 
 
 def _list_candidate_repos(team_id: int) -> list[str]:
     """Fetch all repositories accessible via the team's GitHub integrations."""
-    # Not cached: it's instant if 1 repo attached (should happen often). Caching the list of repos
-    # doesn't make much sense (as we would need to provide these tokens inside the prompt anyway).
-    # If >1 repo -> the research per-signal can't be cached, as we need to pick one.
     integrations = Integration.objects.filter(team_id=team_id, kind="github")
     repos: set[str] = set()
     for integration in integrations:
         github = GitHubIntegration(integration)
-        page = 1
-        while True:
-            repo_entries = github.list_repositories(page=page)
-            for repo in repo_entries:
-                full_name = repo.get("full_name")
-                if full_name:
-                    repos.add(full_name.lower())
-                    if len(repos) >= _MAX_GITHUB_REPOS:
-                        logger.warning("repo_list_capped team_id=%s cap=%s", team_id, _MAX_GITHUB_REPOS)
-                        return sorted(repos)
-            if len(repo_entries) < _GITHUB_REPOS_PER_PAGE:
-                break
-            page += 1
+        repo_entries = github.list_all_cached_repositories(max_repos=_MAX_GITHUB_REPOS)
+        for repo in repo_entries:
+            full_name = repo.get("full_name")
+            if full_name:
+                repos.add(full_name.lower())
+                if len(repos) >= _MAX_GITHUB_REPOS:
+                    logger.warning("repo_list_capped team_id=%s cap=%s", team_id, _MAX_GITHUB_REPOS)
+                    return sorted(repos)
     return sorted(repos)
 
 

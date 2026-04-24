@@ -12,9 +12,9 @@ const buttonGroupVariants = cva(
         variants: {
             orientation: {
                 horizontal:
-                    '*:data-slot:rounded-e-none [&>[data-slot]:not(:has(~[data-slot]))]:rounded-e-md! [&>[data-slot]~[data-slot]]:rounded-s-none [&>[data-slot]~[data-slot]]:border-s-0',
+                    '*:data-slot:rounded-e-none [&>[data-slot]:not(:has(~[data-slot]))]:rounded-e-sm! [&>[data-slot]~[data-slot]]:rounded-s-none [&>[data-slot]~[data-slot]]:border-s-0',
                 vertical:
-                    'flex-col *:data-slot:rounded-b-none [&>[data-slot]:not(:has(~[data-slot]))]:rounded-b-md! [&>[data-slot]~[data-slot]]:rounded-t-none [&>[data-slot]~[data-slot]]:border-t-0',
+                    'flex-col *:data-slot:rounded-b-none [&>[data-slot]:not(:has(~[data-slot]))]:rounded-b-sm! [&>[data-slot]~[data-slot]]:rounded-t-none [&>[data-slot]~[data-slot]]:border-t-0',
             },
         },
         defaultVariants: {
@@ -31,6 +31,7 @@ function ButtonGroup({
     return (
         <div
             role="group"
+            data-quill
             data-slot="button-group"
             data-orientation={orientation}
             className={cn(buttonGroupVariants({ orientation }), className)}
@@ -45,7 +46,7 @@ function ButtonGroupText({ className, render, ...props }: useRender.ComponentPro
         props: mergeProps<'div'>(
             {
                 className: cn(
-                    "flex items-center gap-2 rounded-md text-xs/relaxed font-medium [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4",
+                    "flex items-center gap-2 rounded-sm text-xs/relaxed font-medium [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4",
                     className
                 ),
             },
@@ -68,7 +69,7 @@ function ButtonGroupSeparator({
             data-slot="button-group-separator"
             orientation={orientation}
             className={cn(
-                'relative self-stretch bg-border data-horizontal:mx-px data-horizontal:w-auto data-vertical:my-px data-vertical:h-auto',
+                'relative self-stretch bg-border data-[orientation=horizontal]:mx-px data-[orientation=horizontal]:w-auto data-[orientation=vertical]:my-px data-[orientation=vertical]:h-auto',
                 className
             )}
             {...props}

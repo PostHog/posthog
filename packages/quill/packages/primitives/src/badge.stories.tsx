@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
 import { Badge } from './badge'
+import { InfoIcon } from 'lucide-react'
+import { Spinner } from './spinner'
 
 const meta = {
     title: 'Primitives/Badge',

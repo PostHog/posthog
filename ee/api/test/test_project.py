@@ -11,7 +11,7 @@ from ee.api.test.test_team import team_enterprise_api_test_factory
 from ee.models.rbac.access_control import AccessControl
 
 
-class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):
+class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):  # type: ignore[misc]
     """
     We inherit from TestTeamEnterpriseAPI, as previously /api/projects/ referred to the Team model, which used to mean "project".
     Now as Team means "environment" and Project is separate, we must ensure backward compatibility of /api/projects/.

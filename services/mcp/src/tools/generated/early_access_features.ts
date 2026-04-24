@@ -25,7 +25,7 @@ const earlyAccessFeatureList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedEarlyAccessFeatureList>({
             method: 'GET',
-            path: `/api/projects/${projectId}/early_access_feature/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/early_access_feature/`,
             query: {
                 limit: params.limit,
                 offset: params.offset,
@@ -66,7 +66,7 @@ const earlyAccessFeatureCreate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.EarlyAccessFeatureSerializerCreateOnly>({
             method: 'POST',
-            path: `/api/projects/${projectId}/early_access_feature/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/early_access_feature/`,
             body,
         })
         return await withPostHogUrl(context, result, `/early_access_features/${result.id}`)
@@ -85,7 +85,7 @@ const earlyAccessFeatureRetrieve = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.EarlyAccessFeature>({
             method: 'GET',
-            path: `/api/projects/${projectId}/early_access_feature/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/early_access_feature/${encodeURIComponent(String(params.id))}/`,
         })
         return await withPostHogUrl(context, result, `/early_access_features/${result.id}`)
     },
@@ -118,7 +118,7 @@ const earlyAccessFeaturePartialUpdate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.EarlyAccessFeature>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/early_access_feature/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/early_access_feature/${encodeURIComponent(String(params.id))}/`,
             body,
         })
         return await withPostHogUrl(context, result, `/early_access_features/${result.id}`)
@@ -134,7 +134,7 @@ const earlyAccessFeatureDestroy = (): ToolBase<typeof EarlyAccessFeatureDestroyS
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
-            path: `/api/projects/${projectId}/early_access_feature/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/early_access_feature/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },

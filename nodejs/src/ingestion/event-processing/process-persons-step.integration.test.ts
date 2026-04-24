@@ -23,6 +23,7 @@ import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
 import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '../analytics/outputs'
 import { INGESTION_WARNINGS_OUTPUT } from '../common/outputs'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '../outputs/single-ingestion-output'
 import { EventPipelineRunnerOptions } from './event-pipeline-options'
 import { ProcessPersonsInput, createProcessPersonsStep } from './process-persons-step'
 
@@ -54,18 +55,27 @@ describe('createProcessPersonsStep', () => {
 
         personRepository = new PostgresPersonRepository(hub.postgres)
         personOutputs = new IngestionOutputs({
-            [PERSONS_OUTPUT]: [{ topic: KAFKA_PERSON, producer: hub.kafkaProducer, producerName: 'test' }],
-            [PERSON_DISTINCT_IDS_OUTPUT]: [
-                { topic: KAFKA_PERSON_DISTINCT_ID, producer: hub.kafkaProducer, producerName: 'test' },
-            ],
-            [INGESTION_WARNINGS_OUTPUT]: [
-                { topic: KAFKA_INGESTION_WARNINGS, producer: hub.kafkaProducer, producerName: 'test' },
-            ],
+            [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, hub.kafkaProducer, 'test'),
+            [PERSON_DISTINCT_IDS_OUTPUT]: new SingleIngestionOutput(
+                INGESTION_WARNINGS_OUTPUT,
+                KAFKA_PERSON_DISTINCT_ID,
+                hub.kafkaProducer,
+                'test'
+            ),
+            [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
+                INGESTION_WARNINGS_OUTPUT,
+                KAFKA_INGESTION_WARNINGS,
+                hub.kafkaProducer,
+                'test'
+            ),
         })
         const ingestionWarningsOutputs = new IngestionOutputs({
-            [INGESTION_WARNINGS_OUTPUT]: [
-                { topic: KAFKA_INGESTION_WARNINGS, producer: hub.kafkaProducer, producerName: 'test' },
-            ],
+            [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
+                INGESTION_WARNINGS_OUTPUT,
+                KAFKA_INGESTION_WARNINGS,
+                hub.kafkaProducer,
+                'test'
+            ),
         })
         personsStore = new BatchWritingPersonsStore(personRepository, ingestionWarningsOutputs)
 

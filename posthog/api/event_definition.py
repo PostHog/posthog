@@ -30,6 +30,7 @@ from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
+from posthog.taxonomy.taxonomy import CORE_EVENTS
 from posthog.utils import get_safe_cache, relative_date_parse
 
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
@@ -242,9 +243,16 @@ class EventDefinitionViewSet(
         verified_param = self.request.GET.get("verified")
         if verified_param is not None and EE_AVAILABLE:
             if verified_param.lower() == "true":
-                search_query = search_query + " AND verified = true"
+                search_query = (
+                    search_query + " AND (verified = true OR posthog_eventdefinition.name = ANY(%(core_events)s))"
+                )
+                params["core_events"] = CORE_EVENTS
             else:
-                search_query = search_query + " AND (verified IS NULL OR verified = false)"
+                search_query = (
+                    search_query
+                    + " AND (verified IS NULL OR verified = false) AND NOT posthog_eventdefinition.name = ANY(%(core_events)s)"
+                )
+                params["core_events"] = CORE_EVENTS
 
         excluded_properties = self.request.GET.get("excluded_properties")
 

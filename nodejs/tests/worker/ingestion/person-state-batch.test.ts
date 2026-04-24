@@ -6,6 +6,7 @@ import { KAFKA_INGESTION_WARNINGS, KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from
 import { ASYNC_OUTPUT, PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '~/ingestion/analytics/outputs'
 import { INGESTION_WARNINGS_OUTPUT } from '~/ingestion/common/outputs'
 import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '~/ingestion/outputs/single-ingestion-output'
 import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/pipelines/results'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
@@ -54,21 +55,30 @@ jest.setTimeout(30000)
 
 function createPersonOutputs(hub: Hub): PersonOutputs {
     return new IngestionOutputs({
-        [PERSONS_OUTPUT]: [{ topic: KAFKA_PERSON, producer: hub.kafkaProducer, producerName: 'test' }],
-        [PERSON_DISTINCT_IDS_OUTPUT]: [
-            { topic: KAFKA_PERSON_DISTINCT_ID, producer: hub.kafkaProducer, producerName: 'test' },
-        ],
-        [INGESTION_WARNINGS_OUTPUT]: [
-            { topic: KAFKA_INGESTION_WARNINGS, producer: hub.kafkaProducer, producerName: 'test' },
-        ],
+        [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, hub.kafkaProducer, 'test'),
+        [PERSON_DISTINCT_IDS_OUTPUT]: new SingleIngestionOutput(
+            INGESTION_WARNINGS_OUTPUT,
+            KAFKA_PERSON_DISTINCT_ID,
+            hub.kafkaProducer,
+            'test'
+        ),
+        [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
+            INGESTION_WARNINGS_OUTPUT,
+            KAFKA_INGESTION_WARNINGS,
+            hub.kafkaProducer,
+            'test'
+        ),
     })
 }
 
 function createIngestionWarningsOutputs(hub: Hub) {
     return new IngestionOutputs({
-        [INGESTION_WARNINGS_OUTPUT]: [
-            { topic: KAFKA_INGESTION_WARNINGS, producer: hub.kafkaProducer, producerName: 'test' },
-        ],
+        [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
+            INGESTION_WARNINGS_OUTPUT,
+            KAFKA_INGESTION_WARNINGS,
+            hub.kafkaProducer,
+            'test'
+        ),
     })
 }
 
