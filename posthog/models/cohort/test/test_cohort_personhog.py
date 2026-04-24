@@ -723,7 +723,7 @@ class TestDeleteCohortMembersBulkMaxIterations(BaseTest):
         max_iters = 5
         with (
             patch.object(person_util, "_DELETE_BULK_MAX_ITERATIONS", max_iters),
-            patch("posthog.models.person.util.get_personhog_client", return_value=mock_client),
+            patch("posthog.personhog_client.client.get_personhog_client", return_value=mock_client),
         ):
             total = person_util._delete_cohort_members_bulk_via_personhog([1], batch_size=100)
 
