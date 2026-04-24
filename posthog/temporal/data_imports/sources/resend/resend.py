@@ -111,11 +111,9 @@ def _iter_emails(
             break
 
         # Advance cursor from the last row's id (Resend keyset pagination on id).
-        cursor = items[-1].get("id")
-        if not cursor:
-            logger.warning("Resend /emails: has_more=True but last item has no id; stopping pagination")
-            break
-
+        # Use direct access so a missing id surfaces as a hard error rather than
+        # silently terminating pagination and producing a data gap.
+        cursor = items[-1]["id"]
         resumable_source_manager.save_state(ResendResumeConfig(next_cursor=cursor))
 
 
