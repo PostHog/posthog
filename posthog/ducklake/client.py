@@ -58,20 +58,28 @@ def _set_search_path(conn: psycopg.Connection[Any], extra_schemas: list[str] | N
     conn.execute(sql)
 
 
-def compile_hogql_to_ducklake_sql(team_id: int, query: HogQLQuery) -> tuple[str, str]:
+def compile_hogql_to_ducklake_sql(team_id: int, query: HogQLQuery) -> tuple[str, dict[str, object], str]:
     """Compile a HogQLQuery to Postgres-dialect SQL for DuckLake.
 
-    Returns (postgres_sql, hogql_pretty) tuple.
+    Returns ``(postgres_sql, values, hogql_pretty)``. The ``values`` dict holds
+    parameter bindings for ``psycopg``'s ``%(name)s`` placeholders embedded in
+    ``postgres_sql``; callers must pass it to ``cursor.execute(sql, values)`` or
+    the query will fail with an unbound-placeholder error.
     """
     from posthog.hogql.context import HogQLContext
     from posthog.hogql.parser import parse_select
     from posthog.hogql.printer.utils import prepare_and_print_ast
 
     parsed = parse_select(query.query)
-    context = HogQLContext(team_id=team_id, enable_select_queries=True)
-    postgres_sql, _ = prepare_and_print_ast(parsed, context, dialect="postgres")
-    hogql_pretty, _ = prepare_and_print_ast(parsed, context, dialect="hogql")
-    return postgres_sql, hogql_pretty
+    # Separate context for the Postgres print — the HogQL round-trip below shouldn't
+    # contribute to ``postgres_context.values``.
+    postgres_context = HogQLContext(team_id=team_id, enable_select_queries=True)
+    postgres_sql, _ = prepare_and_print_ast(parsed, postgres_context, dialect="postgres")
+
+    hogql_context = HogQLContext(team_id=team_id, enable_select_queries=True)
+    hogql_pretty, _ = prepare_and_print_ast(parsed, hogql_context, dialect="hogql")
+
+    return postgres_sql, dict(postgres_context.values), hogql_pretty
 
 
 def execute_ducklake_query(
@@ -91,8 +99,9 @@ def execute_ducklake_query(
         raise ValueError("Provide either sql or query")
 
     hogql_pretty: str | None = None
+    values: dict[str, object] = {}
     if query:
-        sql, hogql_pretty = compile_hogql_to_ducklake_sql(team_id, query)
+        sql, values, hogql_pretty = compile_hogql_to_ducklake_sql(team_id, query)
 
     assert sql is not None
 
@@ -100,7 +109,7 @@ def execute_ducklake_query(
     with psycopg.connect(conninfo) as conn:
         _set_search_path(conn)
         with conn.cursor() as cur:
-            cur.execute(sql)
+            cur.execute(sql, values or None)
             columns = [desc.name for desc in cur.description] if cur.description else []
             types = [str(desc.type_code) for desc in cur.description] if cur.description else []
             rows = cur.fetchall()
@@ -133,11 +142,21 @@ def _calculate_table_size(conninfo: str, safe_schema: str, safe_table: str) -> i
         return 0
 
 
-def execute_ducklake_create_table(team_id: int, sql: str, schema_name: str, table_name: str) -> DuckLakeTableResult:
+def execute_ducklake_create_table(
+    team_id: int,
+    sql: str,
+    schema_name: str,
+    table_name: str,
+    values: dict[str, object] | None = None,
+) -> DuckLakeTableResult:
     """Execute a query via duckgres and materialize the result as a DuckLake table.
 
     Creates or replaces a table in the given schema using CREATE OR REPLACE TABLE ... AS.
     The table is stored natively in DuckLake (Parquet on S3 + Postgres catalog metadata).
+
+    ``values`` carries parameter bindings for any ``%(name)s`` placeholders in ``sql``
+    (as produced by ``compile_hogql_to_ducklake_sql``). It is passed through to
+    ``psycopg`` so the SELECT body is executed with safe parameter binding.
     """
     safe_schema = sanitize_ducklake_identifier(schema_name, default_prefix="shadow")
     safe_table = sanitize_ducklake_identifier(table_name, default_prefix="model")
@@ -155,7 +174,8 @@ def execute_ducklake_create_table(team_id: int, sql: str, schema_name: str, tabl
                     CREATE OR REPLACE TABLE {} AS (
                         {}
                     )
-                """).format(qualified, psql.SQL(sql))
+                """).format(qualified, psql.SQL(sql)),
+                values or None,
             )
     row_count = 0
     try:

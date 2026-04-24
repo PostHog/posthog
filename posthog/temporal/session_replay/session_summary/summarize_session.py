@@ -54,6 +54,7 @@ from posthog.temporal.session_replay.session_summary.types.video import (
     VideoSegmentOutput,
     VideoSegmentSpec,
     VideoSummarySingleSessionInputs,
+    collect_session_problems,
 )
 
 from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_UNDERSTANDING_MODEL, SESSION_SUMMARIES_MODEL
@@ -645,36 +646,63 @@ async def ensure_llm_single_session_summary(
             retry_policy=retry_policy,
         )
 
-        # Activities 6a + 6b run in parallel:
-        # - 6a: Emit signals for issue-indicating segments
-        # - 6b: Store video-based summary in database
+        # Activities 6a + 6b run in parallel when some segment would emit a problem signal;
+        # otherwise skip 6a entirely.
         _set_phase(progress, "saving_summary")
-        emit_result, store_result = await asyncio.gather(
-            temporalio.workflow.execute_activity(
-                emit_session_problem_signals_activity,
-                args=(video_inputs, consolidated_analysis),
-                start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=retry_policy,
-            ),
-            temporalio.workflow.execute_activity(
+        problems = collect_session_problems(consolidated_analysis.segments)
+        logger.info(
+            "session problem signals pre-emission",
+            team_id=inputs.team_id,
+            session_id=inputs.session_id,
+            workflow_id=trace_id,
+            total_consolidated_segments=len(consolidated_analysis.segments),
+            problem_segment_count=len(problems),
+            problems=[p.model_dump(include={"problem_type", "start_time", "end_time"}) for p in problems[:30]],
+            will_run_emit_activity=bool(problems),
+            signals_type="session-summaries",
+        )
+        if problems:
+            emit_result, store_result = await asyncio.gather(
+                temporalio.workflow.execute_activity(
+                    emit_session_problem_signals_activity,
+                    args=(video_inputs, problems),
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=retry_policy,
+                ),
+                temporalio.workflow.execute_activity(
+                    store_video_session_summary_activity,
+                    args=(video_inputs, consolidated_analysis),
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=retry_policy,
+                ),
+                return_exceptions=True,
+            )
+            if isinstance(emit_result, Exception):
+                posthoganalytics.capture_exception(
+                    emit_result,
+                    distinct_id=inputs.user_distinct_id_to_log,
+                )
+                logger.exception(
+                    f"Error emitting session problem signals for session {inputs.session_id}: {emit_result}",
+                    signals_type="session-summaries",
+                )
+            if isinstance(store_result, BaseException):
+                raise store_result
+        else:
+            logger.info(
+                "Skipping session problem signals emission activity (no problems found)",
+                team_id=inputs.team_id,
+                session_id=inputs.session_id,
+                workflow_id=trace_id,
+                total_consolidated_segments=len(consolidated_analysis.segments),
+                signals_type="session-summaries",
+            )
+            await temporalio.workflow.execute_activity(
                 store_video_session_summary_activity,
                 args=(video_inputs, consolidated_analysis),
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=retry_policy,
-            ),
-            return_exceptions=True,
-        )
-        if isinstance(emit_result, Exception):
-            posthoganalytics.capture_exception(
-                emit_result,
-                distinct_id=inputs.user_distinct_id_to_log,
             )
-            logger.exception(
-                f"Error emitting session problem signals for session {inputs.session_id}: {emit_result}",
-                signals_type="session-summaries",
-            )
-        if isinstance(store_result, BaseException):
-            raise store_result
 
         # Activity 7: Write tags and highlight flag to ClickHouse via Kafka
         _set_phase(progress, "tagging")

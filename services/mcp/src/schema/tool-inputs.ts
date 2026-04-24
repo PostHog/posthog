@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { InsightQuerySchema, PropertyFilter } from './query'
+import { DataVisualizationNodeSchema, HogQLQuerySchema, InsightVizNodeSchema, PropertyFilter } from './query'
 
 export const ExternalDataSchemaSyncTypeSchema = z
     .enum(['incremental', 'full_refresh', 'append', 'cdc'])
@@ -378,8 +378,14 @@ export const ProjectSetActiveSchema = z.object({
 
 export const SurveyResponseCountsSchema = z.object({})
 
+const QueryRunQuerySchema = z.discriminatedUnion('kind', [
+    InsightVizNodeSchema,
+    DataVisualizationNodeSchema,
+    HogQLQuerySchema,
+])
+
 export const QueryRunInputSchema = z.object({
-    query: InsightQuerySchema,
+    query: QueryRunQuerySchema,
 })
 
 // Entity Search

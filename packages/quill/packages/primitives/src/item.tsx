@@ -71,6 +71,7 @@ function Item({
         defaultTagName: 'div',
         props: mergeProps<'div'>(
             {
+                'data-quill': '',
                 className: cn(itemVariants({ variant, size, className })),
                 role: variant === 'pressable' ? 'link' : undefined,
             },

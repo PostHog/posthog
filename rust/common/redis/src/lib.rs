@@ -204,12 +204,7 @@ pub trait Client: Send + Sync {
     /// Add a single (member, score) pair to a sorted set.
     async fn zadd(&self, k: String, member: String, score: i64) -> Result<(), CustomRedisError>;
 
-    async fn hincrby(
-        &self,
-        k: String,
-        v: String,
-        count: Option<i32>,
-    ) -> Result<(), CustomRedisError>;
+    async fn hincrby(&self, k: String, v: String, count: i64) -> Result<(), CustomRedisError>;
 
     async fn get(&self, k: String) -> Result<String, CustomRedisError>;
     async fn get_with_format(

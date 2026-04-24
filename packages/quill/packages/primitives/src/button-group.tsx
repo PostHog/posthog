@@ -31,6 +31,7 @@ function ButtonGroup({
     return (
         <div
             role="group"
+            data-quill
             data-slot="button-group"
             data-orientation={orientation}
             className={cn(buttonGroupVariants({ orientation }), className)}

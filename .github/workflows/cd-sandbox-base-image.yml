@@ -26,6 +26,7 @@ jobs:
               with:
                   filters: |
                       sandbox_image:
+                        - '.github/workflows/cd-sandbox-base-image.yml'
                         - 'products/tasks/backend/sandbox/images/**'
                         - 'products/*/skills/**'
                         - 'products/posthog_ai/scripts/**'
@@ -211,3 +212,16 @@ jobs:
                   tags: ${{ github.ref == 'refs/heads/master' && format('ghcr.io/posthog/posthog-sandbox-notebook:master,ghcr.io/posthog/posthog-sandbox-notebook:{0}', github.sha) || format('ghcr.io/posthog/posthog-sandbox-notebook:{0}', github.sha) }}
                   platforms: linux/arm64,linux/amd64
                   build-args: COMMIT_HASH=${{ github.sha }}
+
+            - name: Build and push container image (pi)
+              id: build-pi
+              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              with:
+                  context: . # use local checkout (includes downloaded artifact)
+                  file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-pi
+                  buildx-fallback: false # the fallback is so slow it's better to just fail
+                  push: true
+                  tags: ${{ github.ref == 'refs/heads/master' && format('ghcr.io/posthog/posthog-sandbox-pi:master,ghcr.io/posthog/posthog-sandbox-pi:{0}', github.sha) || format('ghcr.io/posthog/posthog-sandbox-pi:{0}', github.sha) }}
+                  platforms: linux/arm64,linux/amd64
+                  build-args: |
+                      BASE_IMAGE=ghcr.io/posthog/posthog-sandbox-base:${{ github.sha }}

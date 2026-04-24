@@ -128,10 +128,27 @@ class Breakdown:
             isinstance(breakdown_filter.breakdown, list)
             and self.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED
         ):
+            # `__in_cohort` is a LEFT JOIN of every cohort referenced anywhere in the
+            # query — breakdown cohorts *and* any cohort used in a series-level `person in cohort` filter.
+            # Reading `cohort_id` straight from it lets filter-only cohorts appear as extra breakdown bars.
+            # Restrict the column to the declared breakdown IDs.
+            # non-matches become NULL and are dropped by the outer `breakdown_value IS NOT NULL` filter.
+            breakdown_ids = ast.Array(
+                exprs=[
+                    ast.Constant(value=int(breakdown)) for breakdown in breakdown_filter.breakdown if breakdown != "all"
+                ]
+            )
+
             return [
                 ast.Alias(
                     alias=self.breakdown_alias,
-                    expr=hogql_to_string(ast.Field(chain=["__in_cohort", "cohort_id"])),
+                    expr=parse_expr(
+                        "if({cohort_id} IN {ids}, toString({cohort_id}), NULL)",
+                        placeholders={
+                            "cohort_id": ast.Field(chain=["__in_cohort", "cohort_id"]),
+                            "ids": breakdown_ids,
+                        },
+                    ),
                 )
             ]
 

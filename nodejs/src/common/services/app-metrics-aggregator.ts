@@ -1,6 +1,20 @@
+import { Counter } from 'prom-client'
+
 import { IngestionOutput } from '../../ingestion/outputs/ingestion-output'
 import { TimestampFormat } from '../../types'
 import { castTimestampOrNow } from '../../utils/utils'
+
+const appMetricsAggregatorQueuedCounter = new Counter({
+    name: 'app_metrics_aggregator_queued_total',
+    help: 'App metric items queued — counted before in-memory dedup.',
+    labelNames: ['app_source'],
+})
+
+const appMetricsAggregatorFlushedCounter = new Counter({
+    name: 'app_metrics_aggregator_flushed_total',
+    help: 'Unique app metric rows produced to Kafka after in-memory dedup. Dedup rate = 1 - (flushed / queued).',
+    labelNames: ['app_source'],
+})
 
 /**
  * One v2 app metric row, matching the ClickHouse `app_metrics2` schema.
@@ -31,6 +45,7 @@ export class AppMetricsAggregator {
     constructor(private readonly output: IngestionOutput) {}
 
     queue(metric: AppMetricInput): void {
+        appMetricsAggregatorQueuedCounter.inc({ app_source: metric.app_source })
         const key = makeKey(metric)
         const existing = this.buffer.get(key)
         if (existing) {
@@ -46,6 +61,10 @@ export class AppMetricsAggregator {
         }
         const drained = [...this.buffer.values()]
         this.buffer.clear()
+
+        for (const m of drained) {
+            appMetricsAggregatorFlushedCounter.inc({ app_source: m.app_source })
+        }
 
         const timestamp = castTimestampOrNow(null, TimestampFormat.ClickHouse)
         // No partition key — rows are re-aggregated by ClickHouse, ordering is
