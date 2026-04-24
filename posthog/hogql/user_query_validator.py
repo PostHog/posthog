@@ -10,7 +10,6 @@ and only invoke this for user-submitted queries.
 """
 
 import posthoganalytics
-from prometheus_client import Counter
 
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
@@ -31,11 +30,6 @@ OFFSET_NOT_ALLOWED_MESSAGE = (
 # customers (Fivetran/Runway/etc.) while they migrate to keyset pagination or
 # batch exports.
 HOGQL_PERSONAL_API_KEY_OFFSET_ALLOWED_FLAG = "hogql-personal-api-key-offset-allowed"
-
-PERSONAL_API_KEY_OFFSET_REJECTIONS = Counter(
-    "posthog_hogql_personal_api_key_offset_rejections_total",
-    "HogQL queries rejected because they used OFFSET with a personal API key.",
-)
 
 
 class _OffsetDetectingVisitor(TraversingVisitor):
@@ -94,8 +88,4 @@ def validate_user_query(node: ast.SelectQuery | ast.SelectSetQuery, team: Team) 
     """
     if _is_org_exempted_from_offset_block(team):
         return
-    try:
-        _OffsetDetectingVisitor().visit(node)
-    except QueryError:
-        PERSONAL_API_KEY_OFFSET_REJECTIONS.inc()
-        raise
+    _OffsetDetectingVisitor().visit(node)
