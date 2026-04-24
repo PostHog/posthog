@@ -1124,14 +1124,14 @@ def break_part(
                 check = client.execute(
                     "SELECT count() FROM system.parts "
                     "WHERE database = %(db)s AND table = %(table)s "
-                    "AND name = %(name)s AND active",
+                    "AND name = %(name)s",
                     {"db": database, "table": source_table, "name": dp},
                 )
                 if not check or check[0][0] == 0:
                     raise dagster.Failure(
                         description=f"ATTACH PART '{dp}' returned Ok but part did not land in "
                         f"system.parts. CH may have silently skipped it (block range outside "
-                        f"existing state). See staging detached dir for the stranded part."
+                        f"existing state). See source detached dir ({source_detached}) for the stranded part."
                     )
 
             # -- Step 11: Verify our parts exist by hash_of_all_files.
