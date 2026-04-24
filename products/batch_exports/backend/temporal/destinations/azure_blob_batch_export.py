@@ -4,6 +4,7 @@ import dataclasses
 
 from django.conf import settings
 
+from azure.core.exceptions import HttpResponseError
 from azure.storage.blob.aio import BlobServiceClient, ContainerClient, ExponentialRetry
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
@@ -40,12 +41,12 @@ from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_
 from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
 
 NON_RETRYABLE_ERROR_TYPES = (
-    "ResourceNotFoundError",
-    "ClientAuthenticationError",
     "AzureBlobIntegrationError",
     "AzureBlobIntegrationNotFoundError",
-    "UnsupportedFileFormatError",
+    "ClientAuthenticationError",
+    "MissingRequiredPermissionsErrorResourceNotFoundError",
     "UnsupportedCompressionError",
+    "UnsupportedFileFormatError",
 )
 
 FILE_FORMAT_EXTENSIONS = {
@@ -85,6 +86,13 @@ class AzureBlobIntegrationNotFoundError(Exception):
             super().__init__(f"Azure Blob integration ID not provided for team '{team_id}'")
         else:
             super().__init__(f"Azure Blob integration with ID '{integration_id}' not found for team '{team_id}'")
+
+
+class MissingRequiredPermissionsError(Exception):
+    """Raised when missing required permissions in Azure Blob."""
+
+    def __init__(self):
+        super().__init__("Missing required permissions to run this batch export")
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -211,11 +219,17 @@ class AzureBlobConsumer(Consumer):
 
         self.logger.debug("Blob upload started", blob_key=blob_key, size_bytes=len(self.current_buffer))
 
-        await blob_client.upload_blob(
-            bytes(self.current_buffer),
-            overwrite=True,
-            max_concurrency=self.max_concurrency,
-        )
+        try:
+            await blob_client.upload_blob(
+                bytes(self.current_buffer),
+                overwrite=True,
+                max_concurrency=self.max_concurrency,
+            )
+        except HttpResponseError as exc:
+            if exc.error is not None and exc.error.code == "AuthorizationFailure":
+                raise MissingRequiredPermissionsError()
+            else:
+                raise
 
         self.logger.debug("Blob upload completed", blob_key=blob_key)
         self.files_uploaded.append(blob_key)
