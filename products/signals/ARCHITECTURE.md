@@ -655,6 +655,7 @@ All events use `distinct_id = team.uuid` and `groups(organization, team)`. Per-s
 - `signal_emitted` — `emit_signal()` after Temporal dispatch succeeds
 - `signal_assigned_to_report` — grouping assigned the signal (+ `report_id`, `is_new_report`, `promoted`)
 - `signal_report_started` — report run began (+ `report_id`, `signal_count`, `run_count`, `source_products`)
+- `signals_repo_research_started` / `signals_repo_research_completed` — repo selection stage (+ `report_id`, `result`: `reused` | `selected` | `no_repo` | `failed`, optional `failure_reason`: `no_github_integration` | `agentic_activity_error`)
 - `signal_report_completed` — terminal per run (+ `result`: `ready` | `failed` | `pending_input` | `not_actionable`, optional `failure_reason`)
 
 **Tracing one signal:** filter on `properties.source_id = <id>` to follow it through the funnel, then pivot to `properties.report_id` from `signal_assigned_to_report` to see the report's lifecycle.
