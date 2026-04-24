@@ -136,6 +136,7 @@ rules:
                               |Insight
                               |InsightVariable
                               |Integration
+                              |LimitIncreaseRequest
                               |Link
                               |LiveDebuggerBreakpoint
                               |LogsAlertConfiguration
@@ -187,6 +188,7 @@ rules:
                               |Task
                               |TaskAutomation
                               |TaskRun
+                              |TeamLimitOverride
                               |EmailChannel
                               |EvaluationReport
                               |Text
@@ -335,6 +337,7 @@ rules:
                         |Insight
                         |InsightVariable
                         |Integration
+                        |LimitIncreaseRequest
                         |Link
                         |LiveDebuggerBreakpoint
                         |LLMModelConfiguration
@@ -383,6 +386,7 @@ rules:
                         |Task
                         |TaskAutomation
                         |TaskRun
+                        |TeamLimitOverride
                         |EmailChannel
                         |EvaluationReport
                         |Text
