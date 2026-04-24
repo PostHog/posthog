@@ -1,5 +1,6 @@
 from typing import Any, cast
 
+from django.db import IntegrityError
 from django.db.models import Q, QuerySet
 
 from drf_spectacular.utils import extend_schema
@@ -88,7 +89,12 @@ class RoleExternalReferenceSerializer(serializers.ModelSerializer):
     def create(self, validated_data: dict[str, Any]) -> RoleExternalReference:
         validated_data["organization"] = self.context["view"].organization
         validated_data["created_by"] = self.context["request"].user
-        return super().create(validated_data)
+        try:
+            return super().create(validated_data)
+        except IntegrityError as err:
+            raise serializers.ValidationError(
+                "A role external reference with this provider, organization, and role identifier already exists."
+            ) from err
 
 
 class RoleLookupQuerySerializer(serializers.Serializer):
@@ -157,5 +163,5 @@ class RoleExternalReferenceViewSet(
 
         reference = RoleExternalReference.objects.filter(base_q & match_q).select_related("created_by", "role").first()
 
-        serializer = RoleExternalReferenceSerializer(reference) if reference else None
+        serializer = self.get_serializer(reference) if reference else None
         return Response({"reference": serializer.data if serializer else None})
