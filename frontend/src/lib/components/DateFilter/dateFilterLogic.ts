@@ -206,6 +206,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                 (_, p) => p.placeholder,
                 (_, p) => p.allowTimePrecision,
                 (_, p) => p.showCustomRelativeRange,
+                (_, p) => p.allowSingleAndRange,
                 s.dateFromHasTimePrecision,
                 s.dateToHasTimePrecision,
             ],
@@ -221,6 +222,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                 placeholder,
                 allowTimePrecision,
                 showCustomRelativeRange,
+                allowSingleAndRange,
                 dateFromHasTimePrecision,
                 dateToHasTimePrecision
             ) => {
@@ -235,6 +237,21 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                     typeof dateTo === 'string'
                 ) {
                     return `${formatRelativeOffset(dateFrom)} to ${formatRelativeOffset(dateTo)}`
+                }
+                // When the consumer allows both single and range selections, render an absolute
+                // single-bound value as just the formatted date rather than "X to now" — picking
+                // a custom date should not visually imply a range.
+                if (
+                    allowSingleAndRange &&
+                    dateFrom &&
+                    !dateTo &&
+                    typeof dateFrom === 'string' &&
+                    !/^-\d+[hdwmqy]/.test(dateFrom) &&
+                    dayjs(dateFrom).isValid()
+                ) {
+                    return allowTimePrecision && dateFromHasTimePrecision
+                        ? formatDateTime(dayjs(dateFrom))
+                        : formatDate(dayjs(dateFrom))
                 }
                 const renderWithTime = allowTimePrecision && (dateFromHasTimePrecision || dateToHasTimePrecision)
                 return isFixedRange

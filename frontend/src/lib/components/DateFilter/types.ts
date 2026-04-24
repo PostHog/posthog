@@ -25,6 +25,7 @@ export type DateFilterLogicProps = {
     allowFixedRangeWithTime?: boolean
     explicitDate?: boolean
     showCustomRelativeRange?: boolean
+    allowSingleAndRange?: boolean
 }
 
 export const CUSTOM_OPTION_KEY = 'Custom'

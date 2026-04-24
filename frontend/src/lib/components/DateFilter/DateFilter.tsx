@@ -127,6 +127,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         allowTimePrecision,
         explicitDate,
         showCustomRelativeRange: effectiveShowCustomRelativeRange,
+        allowSingleAndRange,
     }
     const {
         open,
@@ -225,7 +226,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
                 operator={PropertyOperator.Exact}
                 value={rangeDateFrom ? rangeDateFrom.toString() : dayjs().toString()}
                 setValue={(date) => {
-                    setDate(String(date), '')
+                    setDate(String(date), null)
                 }}
             />
         ) : view === DateFilterView.JumpToTimestamp ? (
@@ -309,9 +310,11 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
                 )}
                 {(!isFixedDateMode || allowSingleAndRange) && (
                     <>
-                        <LemonButton onClick={openDateToNow} active={isDateToNow} fullWidth>
-                            From custom date until now…
-                        </LemonButton>
+                        {!allowSingleAndRange && (
+                            <LemonButton onClick={openDateToNow} active={isDateToNow} fullWidth>
+                                From custom date until now…
+                            </LemonButton>
+                        )}
                         <LemonButton onClick={openFixedRange} active={isFixedRange} fullWidth>
                             Custom fixed date range…
                         </LemonButton>
