@@ -37,7 +37,7 @@ export const InsightsListQueryParams = /* @__PURE__ */ zod.object({
     created_date_from: zod
         .string()
         .optional()
-        .describe('Filter by `created_at >= created_date_from`. Accepts absolute or relative dates.'),
+        .describe('Filter by `created_at > created_date_from`. Accepts absolute or relative dates.'),
     created_date_to: zod
         .string()
         .optional()
@@ -50,13 +50,16 @@ export const InsightsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            'Filter by `last_modified_at >= date_from`. Accepts absolute dates (`2025-04-23`) or relative strings (`-7d`, `-1m`).'
+            'Filter by `last_modified_at > date_from`. Accepts absolute dates (`2025-04-23`) or relative strings (`-7d`, `-1m`).'
         ),
     date_to: zod
         .string()
         .optional()
         .describe('Filter by `last_modified_at < date_to`. Accepts absolute dates or relative strings.'),
-    favorited: zod.boolean().optional().describe('When truthy, restricts results to insights marked as favorited.'),
+    favorited: zod
+        .boolean()
+        .optional()
+        .describe('Include this parameter (any value) to restrict results to insights marked as favorited.'),
     format: zod.enum(['csv', 'json']).optional(),
     insight: zod
         .enum(['FUNNELS', 'JSON', 'LIFECYCLE', 'PATHS', 'RETENTION', 'SQL', 'STICKINESS', 'TRENDS'])
@@ -67,7 +70,7 @@ export const InsightsListQueryParams = /* @__PURE__ */ zod.object({
     last_viewed_date_from: zod
         .string()
         .optional()
-        .describe('Filter by `last_viewed_at >= last_viewed_date_from`. Accepts absolute or relative dates.'),
+        .describe('Filter by `last_viewed_at > last_viewed_date_from`. Accepts absolute or relative dates.'),
     last_viewed_date_to: zod
         .string()
         .optional()
@@ -106,7 +109,9 @@ export const InsightsListQueryParams = /* @__PURE__ */ zod.object({
     user: zod
         .boolean()
         .optional()
-        .describe('When truthy, restricts results to insights created by the authenticated user.'),
+        .describe(
+            'Include this parameter (any value) to restrict results to insights created by the authenticated user.'
+        ),
 })
 
 /**

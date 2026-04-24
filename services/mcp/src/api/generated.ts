@@ -37149,7 +37149,7 @@ export namespace Schemas {
      */
     created_by?: string;
     /**
-     * Filter by `created_at >= created_date_from`. Accepts absolute or relative dates.
+     * Filter by `created_at > created_date_from`. Accepts absolute or relative dates.
      */
     created_date_from?: string;
     /**
@@ -37161,7 +37161,7 @@ export namespace Schemas {
      */
     dashboards?: string;
     /**
-     * Filter by `last_modified_at >= date_from`. Accepts absolute dates (`2025-04-23`) or relative strings (`-7d`, `-1m`).
+     * Filter by `last_modified_at > date_from`. Accepts absolute dates (`2025-04-23`) or relative strings (`-7d`, `-1m`).
      */
     date_from?: string;
     /**
@@ -37169,7 +37169,7 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * When truthy, restricts results to insights marked as favorited.
+     * Include this parameter (any value) to restrict results to insights marked as favorited.
      */
     favorited?: boolean;
     format?: EnvironmentsInsightsListFormat;
@@ -37178,7 +37178,7 @@ export namespace Schemas {
      */
     insight?: EnvironmentsInsightsListInsight;
     /**
-     * Filter by `last_viewed_at >= last_viewed_date_from`. Accepts absolute or relative dates.
+     * Filter by `last_viewed_at > last_viewed_date_from`. Accepts absolute or relative dates.
      */
     last_viewed_date_from?: string;
     /**
@@ -37219,7 +37219,7 @@ export namespace Schemas {
      */
     tags?: string;
     /**
-     * When truthy, restricts results to insights created by the authenticated user.
+     * Include this parameter (any value) to restrict results to insights created by the authenticated user.
      */
     user?: boolean;
     };
@@ -41377,7 +41377,7 @@ export namespace Schemas {
      */
     created_by?: string;
     /**
-     * Filter by `created_at >= created_date_from`. Accepts absolute or relative dates.
+     * Filter by `created_at > created_date_from`. Accepts absolute or relative dates.
      */
     created_date_from?: string;
     /**
@@ -41389,7 +41389,7 @@ export namespace Schemas {
      */
     dashboards?: string;
     /**
-     * Filter by `last_modified_at >= date_from`. Accepts absolute dates (`2025-04-23`) or relative strings (`-7d`, `-1m`).
+     * Filter by `last_modified_at > date_from`. Accepts absolute dates (`2025-04-23`) or relative strings (`-7d`, `-1m`).
      */
     date_from?: string;
     /**
@@ -41397,7 +41397,7 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * When truthy, restricts results to insights marked as favorited.
+     * Include this parameter (any value) to restrict results to insights marked as favorited.
      */
     favorited?: boolean;
     format?: InsightsListFormat;
@@ -41406,7 +41406,7 @@ export namespace Schemas {
      */
     insight?: InsightsListInsight;
     /**
-     * Filter by `last_viewed_at >= last_viewed_date_from`. Accepts absolute or relative dates.
+     * Filter by `last_viewed_at > last_viewed_date_from`. Accepts absolute or relative dates.
      */
     last_viewed_date_from?: string;
     /**
@@ -41447,7 +41447,7 @@ export namespace Schemas {
      */
     tags?: string;
     /**
-     * When truthy, restricts results to insights created by the authenticated user.
+     * Include this parameter (any value) to restrict results to insights created by the authenticated user.
      */
     user?: boolean;
     };
