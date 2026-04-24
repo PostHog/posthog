@@ -245,10 +245,18 @@ class AzureBlobConsumer(Consumer):
         manifest_content = json.dumps({"files": self.files_uploaded}, indent=2)
 
         blob_client = self.container_client.get_blob_client(manifest_key)
-        await blob_client.upload_blob(
-            manifest_content.encode("utf-8"),
-            overwrite=True,
-        )
+
+        try:
+            await blob_client.upload_blob(
+                manifest_content.encode("utf-8"),
+                overwrite=True,
+            )
+        except HttpResponseError as exc:
+            if exc.error is not None and exc.error.code == "AuthorizationFailure":
+                raise MissingRequiredPermissionsError()
+            else:
+                raise
+
         self.logger.info("Manifest uploaded", manifest_key=manifest_key, file_count=len(self.files_uploaded))
 
 
