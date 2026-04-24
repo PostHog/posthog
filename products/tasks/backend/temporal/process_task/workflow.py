@@ -272,6 +272,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             return False
 
     async def _dispatch_ci_follow_up(self) -> None:
+        # Rolling-deploy note (tasks-ci-follow-up-pr-context-cleanup): any
+        # behavior change here that must also preserve replay for in-flight
+        # histories needs a new patch gate. Do not "keep these in sync" by
+        # editing the legacy helper below.
         self._ci_repetitions += 1
         ci_message = self.context.ci_prompt or DEFAULT_CI_MESSAGE
         self._last_active_time = workflow.now()
@@ -282,6 +286,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
         This preserves the pre-rollout command shape for replay of histories
         that scheduled `send_followup_to_sandbox` directly on CI ticks.
+        Cleanup is tracked under `tasks-ci-follow-up-pr-context-cleanup`.
         """
         self._ci_repetitions += 1
         ci_message = self.context.ci_prompt or DEFAULT_CI_MESSAGE
