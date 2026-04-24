@@ -20272,6 +20272,63 @@ export namespace Schemas {
       PosthogAi: 'posthog_ai',
     } as const;
 
+    /**
+     * * `pending` - pending
+    * `approved` - approved
+    * `denied` - denied
+     */
+    export type LimitIncreaseRequestStatusEnum = typeof LimitIncreaseRequestStatusEnum[keyof typeof LimitIncreaseRequestStatusEnum];
+
+
+    export const LimitIncreaseRequestStatusEnum = {
+      Pending: 'pending',
+      Approved: 'approved',
+      Denied: 'denied',
+    } as const;
+
+    /**
+     * Customer-visible list/detail/patch for limit increase requests.
+
+    Approve/deny live in Django admin, not on this viewset.
+     */
+    export interface LimitIncreaseRequest {
+      readonly id: string;
+      readonly team_id: number;
+      readonly team_name: string;
+      /**
+       * Namespaced catalog key, e.g. analytics.max_dashboards_per_team.
+       * @maxLength 128
+       */
+      limit_key: string;
+      /** Human-readable description of the limit, sourced from the catalog. */
+      readonly limit_description: string;
+      readonly limit_at_first_hit: number;
+      readonly count_at_first_hit: number;
+      /**
+       * Optional customer hint for the new limit. Null means 'just raise it, PostHog picks'.
+       * @minimum -2147483648
+       * @maximum 2147483647
+       * @nullable
+       */
+      requested_value?: number | null;
+      /**
+       * The new limit granted after approval. Null means 'unlimited'; the field itself is only populated for approved requests.
+       * @nullable
+       */
+      readonly granted_value: number | null;
+      /** Free-text context the customer can edit while the request is pending. */
+      justification?: string;
+      readonly status: LimitIncreaseRequestStatusEnum;
+      readonly requested_by: UserBasic;
+      readonly hit_count: number;
+      readonly last_hit_at: string;
+      readonly resolved_by: UserBasic;
+      /** @nullable */
+      readonly resolved_at: string | null;
+      readonly resolution_note: string;
+      readonly created_at: string;
+    }
+
     export interface LiveDebuggerBreakpoint {
       readonly id: string;
       /** @nullable */
@@ -22320,6 +22377,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: LegalDocumentDTO[];
+    }
+
+    export interface PaginatedLimitIncreaseRequestList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: LimitIncreaseRequest[];
     }
 
     export interface PaginatedLiveDebuggerBreakpointList {
@@ -26671,6 +26737,49 @@ export namespace Schemas {
        * @minimum 1
        */
       base_version?: number;
+    }
+
+    /**
+     * Customer-visible list/detail/patch for limit increase requests.
+
+    Approve/deny live in Django admin, not on this viewset.
+     */
+    export interface PatchedLimitIncreaseRequest {
+      readonly id?: string;
+      readonly team_id?: number;
+      readonly team_name?: string;
+      /**
+       * Namespaced catalog key, e.g. analytics.max_dashboards_per_team.
+       * @maxLength 128
+       */
+      limit_key?: string;
+      /** Human-readable description of the limit, sourced from the catalog. */
+      readonly limit_description?: string;
+      readonly limit_at_first_hit?: number;
+      readonly count_at_first_hit?: number;
+      /**
+       * Optional customer hint for the new limit. Null means 'just raise it, PostHog picks'.
+       * @minimum -2147483648
+       * @maximum 2147483647
+       * @nullable
+       */
+      requested_value?: number | null;
+      /**
+       * The new limit granted after approval. Null means 'unlimited'; the field itself is only populated for approved requests.
+       * @nullable
+       */
+      readonly granted_value?: number | null;
+      /** Free-text context the customer can edit while the request is pending. */
+      justification?: string;
+      readonly status?: LimitIncreaseRequestStatusEnum;
+      readonly requested_by?: UserBasic;
+      readonly hit_count?: number;
+      readonly last_hit_at?: string;
+      readonly resolved_by?: UserBasic;
+      /** @nullable */
+      readonly resolved_at?: string | null;
+      readonly resolution_note?: string;
+      readonly created_at?: string;
     }
 
     export interface PatchedLiveDebuggerBreakpoint {
@@ -41385,6 +41494,17 @@ export namespace Schemas {
      * Optional case-insensitive repository name search query.
      */
     search?: string;
+    };
+
+    export type LimitIncreaseRequestsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type LiveDebuggerBreakpointsListParams = {
