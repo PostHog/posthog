@@ -157,8 +157,7 @@ class TeamSignalGroupingV2Workflow:
         """Legacy single-batch-per-iteration path for in-flight workflow replay."""
         # Pop the next key
         object_key = self._batch_key_buffer.pop(0)
-        if self._batch_buffer_size_gauge is not None:
-            self._batch_buffer_size_gauge.set(len(self._batch_key_buffer))
+        self._batch_buffer_size_gauge.set(len(self._batch_key_buffer))
 
         # Download the batch from S3
         read_result: ReadSignalsFromS3Output = await workflow.execute_activity(
