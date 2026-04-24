@@ -14,6 +14,7 @@ This skill helps identify when data the user needs lives outside PostHog and gui
 - The user wants to correlate PostHog analytics with business data (revenue, support tickets, CRM records, etc)
 - The user asks "how do I get my X data into PostHog?"
 - Analysis requires joining PostHog events with external data
+- The user asks about exporting PostHog data for comparison elsewhere (in a google sheet, external warehouse, etc)
 
 ## Workflow
 
