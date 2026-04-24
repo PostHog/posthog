@@ -366,16 +366,24 @@ class Database(BaseModel):
         Uses a relatively strict cutoff so common exact-text assertions on
         'Unknown table `...`.' stay stable when the mistyped name has no
         realistic neighbor in the catalog.
+
+        Builds the candidate list from the raw name caches rather than from
+        `get_all_table_names()` — the latter verifies each warehouse entry by
+        calling `get_table()`, which would recurse back into this helper when
+        a warehouse table fails to resolve.
         """
         import difflib
 
         try:
-            candidates = self.get_all_table_names()
+            candidates = set(self.get_posthog_table_names())
+            candidates.update(self._warehouse_table_names)
+            candidates.update(self._warehouse_self_managed_table_names)
+            candidates.update(self._view_table_names)
         except Exception:
             return []
         if not candidates:
             return []
-        return difflib.get_close_matches(name, candidates, n=limit, cutoff=0.7)
+        return difflib.get_close_matches(name, sorted(candidates), n=limit, cutoff=0.7)
 
     def get_all_table_names(self) -> list[str]:
         warehouse_table_names: list[str] = []

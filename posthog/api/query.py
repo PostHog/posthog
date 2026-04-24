@@ -101,6 +101,9 @@ def _enrich_hogql_validation_error(
                 kind="HogQLMetadata",
                 language=HogLanguage.HOG_QL,
                 query=query.query,
+                modifiers=query.modifiers,
+                filters=query.filters,
+                connectionId=query.connectionId,
             ),
             team=team,
             user=user,
@@ -110,7 +113,7 @@ def _enrich_hogql_validation_error(
 
     lines: list[str] = [original_detail]
 
-    for notice in [*metadata.errors, *metadata.notices]:
+    for notice in [*metadata.errors, *metadata.warnings, *metadata.notices]:
         if notice.fix and notice.fix not in lines:
             lines.append(f"Hint: {notice.fix}")
 
