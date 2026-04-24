@@ -463,14 +463,15 @@ describe('LogsIngestionConsumer', () => {
             const queueSpy = jest.fn().mockRejectedValue(new Error('Producer error'))
             mockProducer.queueMessages = queueSpy
 
-            // Producer errors are caught and logged, not thrown
-            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+            try {
+                // Producer errors are caught and logged, not thrown
+                await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
 
-            // Verify the producer was called and would have failed
-            expect(queueSpy).toHaveBeenCalled()
-
-            // Restore original method
-            mockProducer.queueMessages = originalQueueMessages
+                // Verify the producer was called and would have failed
+                expect(queueSpy).toHaveBeenCalled()
+            } finally {
+                mockProducer.queueMessages = originalQueueMessages
+            }
         })
 
         it('should send failed messages to DLQ', async () => {
@@ -482,34 +483,42 @@ describe('LogsIngestionConsumer', () => {
             const logMessageDlqCounterSpy = jest.spyOn(logMessageDlqCounter, 'inc')
 
             // Throw for the main logs topic but pass through to the real mock producer for the DLQ.
-            const originalQueueMessages = mockProducer.queueMessages.bind(mockProducer)
-            const queueSpy = jest.fn().mockImplementation(({ topic, messages }) => {
-                if (topic === 'clickhouse_logs_test') {
+            const originalQueueMessages = mockProducer.queueMessages
+            const passthrough = originalQueueMessages.bind(mockProducer)
+            const queueSpy = jest.fn().mockImplementation((topicMessages) => {
+                const t = Array.isArray(topicMessages) ? topicMessages[0]?.topic : topicMessages.topic
+                if (t === 'clickhouse_logs_test') {
                     throw new Error('Producer error')
                 }
-                return originalQueueMessages({ topic, messages })
+                return passthrough(topicMessages)
             })
             mockProducer.queueMessages = queueSpy
 
-            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+            try {
+                await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
 
-            // Check that DLQ counter was incremented with team_id
-            expect(logMessageDlqCounterSpy).toHaveBeenCalledWith({ reason: 'Error', team_id: team.id.toString() })
+                // Check that DLQ counter was incremented with team_id
+                expect(logMessageDlqCounterSpy).toHaveBeenCalledWith({
+                    reason: 'Error',
+                    team_id: team.id.toString(),
+                })
 
-            // Check that a message was produced to the DLQ topic
-            const dlqCalls = queueSpy.mock.calls.filter((call) => call[0].topic === 'logs_ingestion_dlq_test')
-            expect(dlqCalls.length).toBeGreaterThan(0)
+                // Check that a message was produced to the DLQ topic
+                const dlqCalls = queueSpy.mock.calls.filter((call) => {
+                    const t = Array.isArray(call[0]) ? call[0][0]?.topic : call[0].topic
+                    return t === 'logs_ingestion_dlq_test'
+                })
+                expect(dlqCalls.length).toBeGreaterThan(0)
 
-            // Verify DLQ message has error metadata in headers
-            if (dlqCalls.length > 0) {
-                const dlqMessage = dlqCalls[0][0].messages[0]
+                // Verify DLQ message has error metadata in headers
+                const dlqArg = dlqCalls[0][0]
+                const dlqMessage = (Array.isArray(dlqArg) ? dlqArg[0] : dlqArg).messages[0]
                 expect(dlqMessage.headers).toHaveProperty('error_message')
                 expect(dlqMessage.headers).toHaveProperty('error_name')
                 expect(dlqMessage.headers).toHaveProperty('failed_at')
+            } finally {
+                mockProducer.queueMessages = originalQueueMessages
             }
-
-            // Restore original method
-            mockProducer.queueMessages = originalQueueMessages
         })
     })
 

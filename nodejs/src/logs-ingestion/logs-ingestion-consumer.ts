@@ -322,7 +322,8 @@ export class LogsIngestionConsumer {
                     )
                     this.addPiiStatsIntoUsage(usageStats, message.teamId, pii)
 
-                    return this.deps.outputs.queueMessages(LOGS_OUTPUT, [
+                    // Await so a rejection here lands in the catch and routes to the DLQ.
+                    await this.deps.outputs.queueMessages(LOGS_OUTPUT, [
                         {
                             value: processedValue,
                             key: null,
