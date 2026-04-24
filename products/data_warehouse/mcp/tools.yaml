@@ -9,9 +9,6 @@ feature: data_warehouse
 url_prefix: /sql
 ui_apps: {}
 tools:
-    fix-hogql-retrieve:
-        operation: fix_hogql_retrieve
-        enabled: false
     fix-hogql-create:
         operation: fix_hogql_create
         enabled: false
@@ -343,9 +340,6 @@ tools:
         description: >
             Delete a SQL variable by ID. Queries that reference this variable by code_name may stop working after
             deletion.
-    warehouse-dag-retrieve:
-        operation: warehouse_dag_retrieve
-        enabled: false
     warehouse-model-paths-list:
         operation: warehouse_model_paths_list
         enabled: false
@@ -812,4 +806,10 @@ tools:
         enabled: false
     insight-variables-retrieve:
         operation: insight_variables_retrieve
+        enabled: false
+    fix-hogql-list:
+        operation: fix_hogql_list
+        enabled: false
+    warehouse-dag-list:
+        operation: warehouse_dag_list
         enabled: false

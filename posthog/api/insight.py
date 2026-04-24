@@ -1813,6 +1813,7 @@ When set, the specified dashboard's filters and date range override will be appl
 
         return Response(status=status.HTTP_201_CREATED)
 
+    @extend_schema(operation_id="insights_all_activity_retrieve")
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))

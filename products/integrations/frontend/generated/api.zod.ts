@@ -23,6 +23,41 @@ export const IntegrationsEnvironmentMappingPartialUpdateBody = /* @__PURE__ */ z
     .object({})
     .describe('Serializer for organization-level integrations.')
 
+export const roleExternalReferencesCreateBodyProviderMax = 32
+
+export const roleExternalReferencesCreateBodyProviderOrganizationIdMax = 255
+
+export const roleExternalReferencesCreateBodyProviderRoleIdMax = 255
+
+export const roleExternalReferencesCreateBodyProviderRoleSlugMax = 255
+
+export const roleExternalReferencesCreateBodyProviderRoleNameMax = 255
+
+export const RoleExternalReferencesCreateBody = /* @__PURE__ */ zod.object({
+    provider: zod
+        .string()
+        .max(roleExternalReferencesCreateBodyProviderMax)
+        .describe('Integration kind (e.g., github, linear, jira, slack).'),
+    provider_organization_id: zod
+        .string()
+        .max(roleExternalReferencesCreateBodyProviderOrganizationIdMax)
+        .describe('Provider organization/workspace/site identifier.'),
+    provider_role_id: zod
+        .string()
+        .max(roleExternalReferencesCreateBodyProviderRoleIdMax)
+        .describe('Stable provider role identifier.'),
+    provider_role_slug: zod
+        .string()
+        .max(roleExternalReferencesCreateBodyProviderRoleSlugMax)
+        .nullish()
+        .describe('Human-friendly provider role identifier.'),
+    provider_role_name: zod
+        .string()
+        .max(roleExternalReferencesCreateBodyProviderRoleNameMax)
+        .describe('Display name of the provider role.'),
+    role: zod.uuid().describe('PostHog role UUID this external role maps to.'),
+})
+
 export const IntegrationsCreateBody = /* @__PURE__ */ zod
     .object({
         kind: zod

@@ -16,9 +16,11 @@ from unittest.mock import patch
 from rest_framework import status
 
 from posthog.schema import (
+    ActorsQuery,
     CachedEventsQueryResponse,
     CachedHogQLQueryResponse,
     CachedRetentionQueryResponse,
+    CohortPropertyFilter,
     EventPropertyFilter,
     EventsQuery,
     HogLanguage,
@@ -27,12 +29,16 @@ from posthog.schema import (
     HogQLQuery,
     MeanRetentionCalculation,
     PersonPropertyFilter,
+    ProductKey,
     PropertyOperator,
+    QueryLogTags,
     RetentionQuery,
 )
 
 from posthog.hogql.constants import LimitContext
 
+from posthog.api.monitoring import Feature
+from posthog.api.query import _infer_query_tags
 from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.clickhouse.query_tagging import QueryTags
 from posthog.models.insight_variable import InsightVariable
@@ -1383,3 +1389,15 @@ class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
         data = response.json()
         self.assertIn("results", data)
         self.assertNotIn("formatted_results", data)
+
+
+class TestInferQueryTags(APIBaseTest):
+    def test_cohort_scene_infers_cohorts_product_and_cohort_feature(self):
+        # Mirrors the payload fired by the Cohort scene when listing members: the frontend's
+        # addTags attaches `tags.scene = "Cohort"` to every query issued from that scene.
+        query = ActorsQuery(
+            fixedProperties=[CohortPropertyFilter(value=1)],
+            select=["person_display_name -- Person", "id", "created_at"],
+            tags=QueryLogTags(scene="Cohort"),
+        )
+        assert _infer_query_tags(query) == {"product": ProductKey.COHORTS, "feature": Feature.COHORT}

@@ -745,8 +745,25 @@ class TaskListQuerySerializer(serializers.Serializer):
         required=False, help_text="Filter by repository name (can include org/repo format)"
     )
     created_by = serializers.IntegerField(required=False, help_text="Filter by creator user ID")
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Case-insensitive substring search over task title and description. A numeric value also matches the task number. An empty value disables the filter.",
+    )
+    status = serializers.ChoiceField(
+        required=False,
+        choices=[choice.value for choice in TaskRun.Status],
+        help_text="Filter tasks by the status of their most recent run.",
+    )
     internal = serializers.BooleanField(
         required=False, help_text="Filter by internal flag. Defaults to excluding internal tasks when not specified."
+    )
+
+
+class TaskRepositoriesResponseSerializer(serializers.Serializer):
+    repositories = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Distinct repositories in use by non-deleted, non-internal tasks for the current team.",
     )
 
 

@@ -175,9 +175,10 @@ export interface LogsAlertStateIntervalApi {
  * * `slack` - slack
  * `webhook` - webhook
  */
-export type DestinationTypesEnumApi = (typeof DestinationTypesEnumApi)[keyof typeof DestinationTypesEnumApi]
+export type NotificationDestinationTypeEnumApi =
+    (typeof NotificationDestinationTypeEnumApi)[keyof typeof NotificationDestinationTypeEnumApi]
 
-export const DestinationTypesEnumApi = {
+export const NotificationDestinationTypeEnumApi = {
     Slack: 'slack',
     Webhook: 'webhook',
 } as const
@@ -264,7 +265,7 @@ export interface LogsAlertConfigurationApi {
     /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
     readonly state_timeline: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
-    readonly destination_types: readonly DestinationTypesEnumApi[]
+    readonly destination_types: readonly NotificationDestinationTypeEnumApi[]
     /** When the alert was created. */
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -366,7 +367,7 @@ export interface PatchedLogsAlertConfigurationApi {
     /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
     readonly state_timeline?: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
-    readonly destination_types?: readonly DestinationTypesEnumApi[]
+    readonly destination_types?: readonly NotificationDestinationTypeEnumApi[]
     /** When the alert was created. */
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -377,23 +378,12 @@ export interface PatchedLogsAlertConfigurationApi {
     readonly updated_at?: string | null
 }
 
-/**
- * * `slack` - slack
- * `webhook` - webhook
- */
-export type TypeC34EnumApi = (typeof TypeC34EnumApi)[keyof typeof TypeC34EnumApi]
-
-export const TypeC34EnumApi = {
-    Slack: 'slack',
-    Webhook: 'webhook',
-} as const
-
 export interface LogsAlertCreateDestinationApi {
     /** Destination type — slack or webhook.
 
 * `slack` - slack
 * `webhook` - webhook */
-    type: TypeC34EnumApi
+    type: NotificationDestinationTypeEnumApi
     /** Integration ID for the Slack workspace. Required when type=slack. */
     slack_workspace_id?: number
     /** Slack channel ID. Required when type=slack. */
@@ -648,6 +638,29 @@ export const SeverityLevelsEnumApi = {
     Error: 'error',
     Fatal: 'fatal',
 } as const
+
+export interface _LogsCountBodyApi {
+    /** Date range for the count. Defaults to last hour. */
+    dateRange?: _DateRangeApi
+    /** Filter by log severity levels. */
+    severityLevels?: SeverityLevelsEnumApi[]
+    /** Filter by service names. */
+    serviceNames?: string[]
+    /** Full-text search term to filter log bodies. */
+    searchTerm?: string
+    /** Property filters for the query. */
+    filterGroup?: _LogPropertyFilterApi[]
+}
+
+export interface _LogsCountRequestApi {
+    /** The count query to execute. */
+    query: _LogsCountBodyApi
+}
+
+export interface _LogsCountResponseApi {
+    /** Number of log entries matching the filters. */
+    count: number
+}
 
 /**
  * * `latest` - latest
@@ -981,6 +994,10 @@ export const LogsAttributesRetrieveAttributeType = {
     Log: 'log',
     Resource: 'resource',
 } as const
+
+export type LogsExportCreate201 = { [key: string]: unknown }
+
+export type LogsHasLogsRetrieve200 = { [key: string]: unknown }
 
 export type LogsValuesRetrieveParams = {
     /**

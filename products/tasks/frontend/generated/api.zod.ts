@@ -80,24 +80,90 @@ export const TaskAutomationsCreateBody = /* @__PURE__ */ zod.object({
 /**
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
  */
-export const TasksCreateBody = /* @__PURE__ */ zod
-    .object({
-        title: zod.string(),
-        description: zod.string().optional(),
-        assignee: zod.string().nullish(),
-    })
-    .describe('Serializer for extracted tasks')
+export const tasksCreateBodyTitleMax = 255
+
+export const tasksCreateBodyRepositoryMax = 255
+
+export const TasksCreateBody = /* @__PURE__ */ zod.object({
+    title: zod.string().max(tasksCreateBodyTitleMax).optional(),
+    title_manually_set: zod.boolean().optional(),
+    description: zod.string().optional(),
+    origin_product: zod
+        .enum([
+            'error_tracking',
+            'eval_clusters',
+            'user_created',
+            'automation',
+            'slack',
+            'support_queue',
+            'session_summaries',
+            'signal_report',
+        ])
+        .optional()
+        .describe(
+            '* `error_tracking` - Error Tracking\n* `eval_clusters` - Eval Clusters\n* `user_created` - User Created\n* `automation` - Automation\n* `slack` - Slack\n* `support_queue` - Support Queue\n* `session_summaries` - Session Summaries\n* `signal_report` - Signal Report'
+        ),
+    repository: zod.string().max(tasksCreateBodyRepositoryMax).nullish(),
+    github_integration: zod.number().nullish().describe('GitHub integration for this task'),
+    signal_report: zod.uuid().nullish(),
+    signal_report_task_relationship: zod
+        .enum(['implementation'])
+        .describe('* `implementation` - Implementation')
+        .optional(),
+    json_schema: zod
+        .unknown()
+        .nullish()
+        .describe('JSON schema for the task. This is used to validate the output of the task.'),
+    internal: zod
+        .boolean()
+        .optional()
+        .describe('If true, this task is for internal use and should not be exposed to end users.'),
+    ci_prompt: zod.string().nullish().describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
+})
 
 /**
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
  */
-export const TasksUpdateBody = /* @__PURE__ */ zod
-    .object({
-        title: zod.string(),
-        description: zod.string().optional(),
-        assignee: zod.string().nullish(),
-    })
-    .describe('Serializer for extracted tasks')
+export const tasksUpdateBodyTitleMax = 255
+
+export const tasksUpdateBodyRepositoryMax = 255
+
+export const TasksUpdateBody = /* @__PURE__ */ zod.object({
+    title: zod.string().max(tasksUpdateBodyTitleMax).optional(),
+    title_manually_set: zod.boolean().optional(),
+    description: zod.string().optional(),
+    origin_product: zod
+        .enum([
+            'error_tracking',
+            'eval_clusters',
+            'user_created',
+            'automation',
+            'slack',
+            'support_queue',
+            'session_summaries',
+            'signal_report',
+        ])
+        .optional()
+        .describe(
+            '* `error_tracking` - Error Tracking\n* `eval_clusters` - Eval Clusters\n* `user_created` - User Created\n* `automation` - Automation\n* `slack` - Slack\n* `support_queue` - Support Queue\n* `session_summaries` - Session Summaries\n* `signal_report` - Signal Report'
+        ),
+    repository: zod.string().max(tasksUpdateBodyRepositoryMax).nullish(),
+    github_integration: zod.number().nullish().describe('GitHub integration for this task'),
+    signal_report: zod.uuid().nullish(),
+    signal_report_task_relationship: zod
+        .enum(['implementation'])
+        .describe('* `implementation` - Implementation')
+        .optional(),
+    json_schema: zod
+        .unknown()
+        .nullish()
+        .describe('JSON schema for the task. This is used to validate the output of the task.'),
+    internal: zod
+        .boolean()
+        .optional()
+        .describe('If true, this task is for internal use and should not be exposed to end users.'),
+    ci_prompt: zod.string().nullish().describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
+})
 
 /**
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.

@@ -128,25 +128,17 @@ class Breakdown:
             isinstance(breakdown_filter.breakdown, list)
             and self.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED
         ):
-            # `__in_cohort` is a LEFT JOIN of every cohort referenced anywhere in the
-            # query — breakdown cohorts *and* any cohort used in a series-level `person in cohort` filter.
-            # Reading `cohort_id` straight from it lets filter-only cohorts appear as extra breakdown bars.
-            # Restrict the column to the declared breakdown IDs.
-            # non-matches become NULL and are dropped by the outer `breakdown_value IS NOT NULL` filter.
-            breakdown_ids = ast.Array(
-                exprs=[
-                    ast.Constant(value=int(breakdown)) for breakdown in breakdown_filter.breakdown if breakdown != "all"
-                ]
-            )
-
+            # `__in_cohort` is a LEFT JOIN of every cohort referenced in the query — breakdown
+            # cohorts *and* any cohort used in a series-level `person in cohort` filter. Restrict
+            # to declared breakdown IDs via `get_trends_query_where_filter` so filter-only-cohort
+            # JOIN rows are dropped at the events WHERE level (before aggregation and ranking).
             return [
                 ast.Alias(
                     alias=self.breakdown_alias,
                     expr=parse_expr(
-                        "if({cohort_id} IN {ids}, toString({cohort_id}), NULL)",
+                        "toString({cohort_id})",
                         placeholders={
                             "cohort_id": ast.Field(chain=["__in_cohort", "cohort_id"]),
-                            "ids": breakdown_ids,
                         },
                     ),
                 )
@@ -217,11 +209,35 @@ class Breakdown:
         )
 
     def get_trends_query_where_filter(self) -> ast.Expr | None:
-        if self.is_cohort_breakdown:
-            assert self._breakdown_filter.breakdown is not None  # type checking
-            return self._get_cohort_filter(self._breakdown_filter.breakdown)
+        if not self.is_cohort_breakdown:
+            return None
 
-        return None
+        assert self._breakdown_filter.breakdown is not None  # type checking
+        base_filter = self._get_cohort_filter(self._breakdown_filter.breakdown)
+
+        # `__in_cohort` emits one row per cohort the person matches — including filter-only
+        # cohorts referenced elsewhere (e.g. a series `person in cohort X` filter). Drop those
+        # rows here so they can't compete for rank slots at the `breakdown_limit` truncation.
+        if (
+            isinstance(self._breakdown_filter.breakdown, list)
+            and self.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED
+        ):
+            breakdown_ids: list[ast.Expr] = [
+                ast.Constant(value=int(breakdown))
+                for breakdown in self._breakdown_filter.breakdown
+                if breakdown != "all"
+            ]
+            if breakdown_ids:
+                cohort_id_filter = parse_expr(
+                    "{cohort_id} IN {ids}",
+                    placeholders={
+                        "cohort_id": ast.Field(chain=["__in_cohort", "cohort_id"]),
+                        "ids": ast.Array(exprs=breakdown_ids),
+                    },
+                )
+                return ast.And(exprs=[base_filter, cohort_id_filter]) if base_filter is not None else cohort_id_filter
+
+        return base_filter
 
     def get_actors_query_where_filter(self, lookup_values: str | int | list[int | str] | list[str]) -> ast.Expr | None:
         if self.is_cohort_breakdown:

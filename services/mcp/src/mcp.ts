@@ -16,7 +16,7 @@ import {
 } from '@/lib/analytics'
 import { buildToolResultPayload, isToolCallPayload } from '@/lib/build-tool-result'
 import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
-import { isCodingAgentClient, isPostHogCodeConsumer } from '@/lib/client-detection'
+import { MCPClientProfile } from '@/lib/client-detection'
 import {
     CUSTOM_API_BASE_URL,
     POSTHOG_EU_BASE_URL,
@@ -514,6 +514,13 @@ export class MCP extends McpAgent<Env> {
             toolFlagsPromise,
             singleExecPromise,
         ])
+
+        const clientProfile = new MCPClientProfile({
+            clientName: this._mcpClientName,
+            clientVersion: this._mcpClientVersion,
+            consumer: this.requestProperties.mcpConsumer,
+        })
+
         // Restrict single-exec mode to coding agents only — Cursor and other clients that
         // render `structuredContent` in their UI need the full per-tool roster, not the
         // wrapped CLI. `_mcpClientName` is seeded from request properties at the top of
@@ -521,8 +528,7 @@ export class MCP extends McpAgent<Env> {
         // wrapper self-identifies via the `x-posthog-mcp-consumer` header and forces
         // single-exec regardless of the wrapped client's reported name.
         const useSingleExec =
-            singleExecFlagOn &&
-            (isCodingAgentClient(this._mcpClientName) || isPostHogCodeConsumer(this.requestProperties.mcpConsumer))
+            singleExecFlagOn && (clientProfile.isCodingAgent() || clientProfile.isPostHogCodeConsumer())
         const version = useSingleExec ? 2 : (flagVersion ?? clientVersion ?? 1)
 
         // Fetch group types and metadata in parallel (cache is now seeded)
@@ -587,7 +593,8 @@ export class MCP extends McpAgent<Env> {
                       queryToolInfos
                   )
                 : buildInstructionsV1(INSTRUCTIONS_TEMPLATE_V1, metadata)
-        const instructions = useSingleExec ? '' : standardInstructions
+        const instructions =
+            useSingleExec || !clientProfile.capabilities.supportsInstructions ? '' : standardInstructions
 
         this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
 

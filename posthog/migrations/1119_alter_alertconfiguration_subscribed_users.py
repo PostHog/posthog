@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1117_role_external_reference"),
+        ("posthog", "1118_subscriptiondelivery_change_summary"),
     ]
 
     operations = [

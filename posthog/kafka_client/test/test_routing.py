@@ -44,7 +44,7 @@ def _mock_kafka_backend():
             sync_producers[profile] = MagicMock(name=f"sync_producer[{profile}]")
         return sync_producers[profile]
 
-    def async_factory(profile: KafkaClusterProfile) -> MagicMock:
+    def async_factory(profile: KafkaClusterProfile, loop=None) -> MagicMock:
         producer = MagicMock(name=f"async_producer[{profile}]")
         producer.flush = mock.AsyncMock()
         producer.close = mock.AsyncMock()
@@ -252,7 +252,7 @@ class AsyncProducerScopeTest(TestCase):
 class NewAsyncProducerTest(TestCase):
     def test_returns_fresh_instance_per_call(self):
         with _mock_kafka_backend() as (_, async_build):
-            async_build.side_effect = lambda profile: MagicMock(name=f"fresh[{profile}]")
+            async_build.side_effect = lambda profile, loop: MagicMock(name=f"fresh[{profile}]")
             first = new_async_producer(profile=KafkaClusterProfile.DEFAULT)
             second = new_async_producer(profile=KafkaClusterProfile.DEFAULT)
         self.assertIsNot(first, second)

@@ -1,1 +1,1 @@
-1118_alter_alertconfiguration_subscribed_users
+1119_alter_alertconfiguration_subscribed_users

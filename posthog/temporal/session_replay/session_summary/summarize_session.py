@@ -671,7 +671,7 @@ async def ensure_llm_single_session_summary(
                 ),
                 temporalio.workflow.execute_activity(
                     store_video_session_summary_activity,
-                    args=(video_inputs, consolidated_analysis),
+                    args=(video_inputs, consolidated_analysis, export_result.team_api_token),
                     start_to_close_timeout=timedelta(minutes=5),
                     retry_policy=retry_policy,
                 ),
@@ -699,7 +699,7 @@ async def ensure_llm_single_session_summary(
             )
             await temporalio.workflow.execute_activity(
                 store_video_session_summary_activity,
-                args=(video_inputs, consolidated_analysis),
+                args=(video_inputs, consolidated_analysis, export_result.team_api_token),
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=retry_policy,
             )

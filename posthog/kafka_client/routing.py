@@ -16,6 +16,7 @@ Two lifecycle shapes:
   AIOProducer — caching would leave later callers with a closed instance.
 """
 
+import asyncio
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from threading import Lock
@@ -178,7 +179,9 @@ def _build_sync_producer(profile: KafkaClusterProfile) -> _KafkaProducer:
     )
 
 
-def _build_async_producer(profile: KafkaClusterProfile) -> _AsyncKafkaProducer:
+def _build_async_producer(
+    profile: KafkaClusterProfile, /, loop: asyncio.AbstractEventLoop | None = None
+) -> _AsyncKafkaProducer:
     p = settings.KAFKA_PROFILES[profile.value]
     producer_settings = p.producer_settings
     return _AsyncKafkaProducer(
@@ -190,6 +193,7 @@ def _build_async_producer(profile: KafkaClusterProfile) -> _AsyncKafkaProducer:
         max_request_size=producer_settings.get("max_request_size"),
         compression_type=producer_settings.get("compression_type"),
         producer_settings=producer_settings,
+        loop=loop,
     )
 
 
@@ -257,6 +261,7 @@ def new_async_producer(
     *,
     profile: Optional[KafkaClusterProfile] = None,
     topic: Optional[str] = None,
+    loop: Optional[asyncio.AbstractEventLoop] = None,
 ) -> _AsyncKafkaProducer:
     """Construct a fresh async producer the caller fully owns.
 
@@ -265,7 +270,7 @@ def new_async_producer(
     it. For per-call work prefer `async_producer_scope`.
     """
     resolved = resolve_profile_name(topic=topic, profile=profile)
-    return _build_async_producer(resolved)
+    return _build_async_producer(resolved, loop=loop)
 
 
 def flush_all_producers(timeout: Optional[float] = None) -> None:

@@ -886,6 +886,95 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(people[2].distinct_ids, ["3"])
         self.assertTrue(response.json()["success"])
 
+    def test_split_people_partial_moves_only_specified_ids(self) -> None:
+        person1 = _create_person(
+            team=self.team,
+            distinct_ids=["keep1", "move1", "keep2", "move2"],
+            properties={"$browser": "whatever", "$os": "Mac OS X"},
+            immediate=True,
+        )
+
+        response = self.client.post(
+            "/api/person/{}/split/".format(person1.pk),
+            {"distinct_ids_to_split": ["move1", "move2"]},
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertTrue(response.json()["success"])
+
+        original = Person.objects.get(team_id=self.team.id, pk=person1.pk)
+        self.assertCountEqual(original.distinct_ids, ["keep1", "keep2"])
+        self.assertEqual(original.properties, {"$browser": "whatever", "$os": "Mac OS X"})
+
+        # Two new persons, one per moved distinct_id.
+        other_people = Person.objects.filter(team_id=self.team.id).exclude(pk=person1.pk).order_by("id")
+        self.assertEqual(other_people.count(), 2)
+        moved_ids = {did for p in other_people for did in p.distinct_ids}
+        self.assertEqual(moved_ids, {"move1", "move2"})
+
+    def test_split_people_partial_rejects_unknown_distinct_id(self) -> None:
+        person1 = _create_person(
+            team=self.team,
+            distinct_ids=["a", "b"],
+            properties={},
+            immediate=True,
+        )
+
+        response = self.client.post(
+            "/api/person/{}/split/".format(person1.pk),
+            {"distinct_ids_to_split": ["a", "not_on_this_person"]},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("not_on_this_person", response.content.decode())
+
+        # Nothing should have moved.
+        original = Person.objects.get(team_id=self.team.id, pk=person1.pk)
+        self.assertCountEqual(original.distinct_ids, ["a", "b"])
+
+    def test_split_people_partial_rejects_combined_with_main_distinct_id(self) -> None:
+        person1 = _create_person(
+            team=self.team,
+            distinct_ids=["a", "b", "c"],
+            properties={},
+            immediate=True,
+        )
+
+        response = self.client.post(
+            "/api/person/{}/split/".format(person1.pk),
+            {"distinct_ids_to_split": ["b"], "main_distinct_id": "a"},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_split_people_partial_rejects_invalid_payload(self) -> None:
+        person1 = _create_person(
+            team=self.team,
+            distinct_ids=["a", "b"],
+            properties={},
+            immediate=True,
+        )
+
+        # Empty list.
+        response = self.client.post(
+            "/api/person/{}/split/".format(person1.pk),
+            {"distinct_ids_to_split": []},
+        )
+        self.assertEqual(response.status_code, 400)
+
+        # Wrong type for the field.
+        response = self.client.post(
+            "/api/person/{}/split/".format(person1.pk),
+            {"distinct_ids_to_split": "a"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+        # List with non-string entries.
+        response = self.client.post(
+            "/api/person/{}/split/".format(person1.pk),
+            {"distinct_ids_to_split": [1, 2]},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+
     def test_update_multiple_person_properties_validation(self) -> None:
         person = _create_person(
             team=self.team,
