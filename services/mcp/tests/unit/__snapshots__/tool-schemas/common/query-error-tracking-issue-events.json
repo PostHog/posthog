@@ -1,0 +1,123 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "dateRange": {
+            "default": {
+                "date_from": "-7d"
+            },
+            "properties": {
+                "date_from": {
+                    "type": "string"
+                },
+                "date_to": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "type": "object"
+        },
+        "filterGroup": {
+            "default": [],
+            "items": {
+                "properties": {
+                    "group_type_index": {
+                        "maximum": 9007199254740991,
+                        "minimum": -9007199254740991,
+                        "type": "integer"
+                    },
+                    "key": {
+                        "description": "Property key, for example $browser, $current_url, email, or a HogQL expression.",
+                        "type": "string"
+                    },
+                    "operator": {
+                        "description": "Comparison operator. Omit for hogql filters.",
+                        "enum": [
+                            "exact",
+                            "is_not",
+                            "icontains",
+                            "not_icontains",
+                            "regex",
+                            "not_regex",
+                            "gt",
+                            "lt",
+                            "is_date_exact",
+                            "is_date_before",
+                            "is_date_after",
+                            "is_set",
+                            "is_not_set",
+                            "in",
+                            "not_in",
+                            "flag_evaluates_to"
+                        ],
+                        "type": "string"
+                    },
+                    "type": {
+                        "description": "Property namespace to filter. Most exception event filters use event, person, or session.",
+                        "enum": ["event", "person", "session", "group", "cohort", "hogql", "feature", "flag"],
+                        "type": "string"
+                    },
+                    "value": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            }
+                        ]
+                    }
+                },
+                "required": ["key", "type"],
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "filterTestAccounts": {
+            "default": true,
+            "type": "boolean"
+        },
+        "issueId": {
+            "description": "Error tracking issue ID.",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+        },
+        "limit": {
+            "default": 1,
+            "maximum": 20,
+            "minimum": 1,
+            "type": "integer"
+        },
+        "offset": {
+            "default": 0,
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+        },
+        "orderDirection": {
+            "default": "DESC",
+            "enum": ["ASC", "DESC"],
+            "type": "string"
+        },
+        "searchQuery": {
+            "maxLength": 500,
+            "type": "string"
+        }
+    },
+    "required": ["issueId"],
+    "type": "object"
+}

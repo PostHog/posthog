@@ -4,6 +4,10 @@ import { hasScopes } from '@/lib/api'
 import debugMcpUiApps from './debug/debugMcpUiApps'
 // Documentation
 import searchDocs from './documentation/searchDocs'
+// Error tracking
+import queryErrorTrackingIssue from './errorTracking/queryIssue'
+import queryErrorTrackingIssueEvents from './errorTracking/queryIssueEvents'
+import queryErrorTrackingIssuesList from './errorTracking/queryIssuesList'
 // Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
 import getExperimentResults from './experiments/getResults'
 import experimentListDeprecated from './experiments/listDeprecated'
@@ -57,6 +61,11 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Documentation - handled separately due to env check
     // "docs-search": searchDocs,
+
+    // Error tracking
+    'query-error-tracking-issues-list': queryErrorTrackingIssuesList,
+    'query-error-tracking-issue': queryErrorTrackingIssue,
+    'query-error-tracking-issue-events': queryErrorTrackingIssueEvents,
 
     // Experiments (results is hand-written; CRUD + lifecycle are codegen)
     'experiment-results-get': getExperimentResults,

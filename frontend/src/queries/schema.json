@@ -1366,7 +1366,7 @@
                 }
             ]
         },
-        "AssistantErrorTrackingQuery": {
+        "AssistantErrorTrackingIssuesListQuery": {
             "additionalProperties": false,
             "properties": {
                 "assignee": {
@@ -1395,10 +1395,6 @@
                 "filterTestAccounts": {
                     "description": "Whether to filter out test accounts.",
                     "type": "boolean"
-                },
-                "issueId": {
-                    "description": "Filter to a specific error tracking issue by ID.",
-                    "type": "string"
                 },
                 "kind": {
                     "const": "ErrorTrackingQuery",
@@ -1429,7 +1425,7 @@
                 },
                 "volumeResolution": {
                     "$ref": "#/definitions/integer",
-                    "description": "Controls volume chart granularity. Use 1 for sparklines, 0 for counts only."
+                    "description": "Controls volume chart granularity. Use 0 for counts only, nonzero for volume buckets."
                 }
             },
             "required": ["kind"],

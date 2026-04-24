@@ -1292,10 +1292,8 @@ export interface AssistantHogQLQuery {
     query: string
 }
 
-export interface AssistantErrorTrackingQuery {
+export interface AssistantErrorTrackingIssuesListQuery {
     kind: NodeKind.ErrorTrackingQuery
-    /** Filter to a specific error tracking issue by ID. */
-    issueId?: string
     /** Field to sort results by. */
     orderBy?: ErrorTrackingOrderBy
     /** Sort direction. */
@@ -1316,7 +1314,7 @@ export interface AssistantErrorTrackingQuery {
      * @default []
      */
     filterGroup?: AssistantPropertyFilter[]
-    /** Controls volume chart granularity. Use 1 for sparklines, 0 for counts only. */
+    /** Controls volume chart granularity. Use 0 for counts only, nonzero for volume buckets. */
     volumeResolution?: integer
     limit?: integer
     offset?: integer

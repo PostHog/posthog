@@ -53,12 +53,12 @@ describe('Tool Filtering - Features', () => {
         {
             features: ['error_tracking'],
             description: 'error tracking tools (underscore)',
-            expectedTools: ['query-error-tracking-issues', 'error-tracking-issues-list'],
+            expectedTools: ['query-error-tracking-issues-list', 'query-error-tracking-issue'],
         },
         {
             features: ['error-tracking'],
             description: 'error tracking tools (hyphen, normalized)',
-            expectedTools: ['query-error-tracking-issues', 'error-tracking-issues-list'],
+            expectedTools: ['query-error-tracking-issues-list', 'query-error-tracking-issue'],
         },
         {
             features: ['experiments'],
@@ -108,6 +108,29 @@ describe('Tool Filtering - Features', () => {
             expect(tools).toContain('annotation-delete')
             expect(tools).toContain('annotations-list')
             expect(tools).toContain('annotation-retrieve')
+        })
+
+        it('should expose split error tracking read tools in v2', () => {
+            const tools = getToolsForFeatures({ features: ['error_tracking'], version: 2 })
+
+            expect(tools).toContain('query-error-tracking-issues-list')
+            expect(tools).toContain('query-error-tracking-issue')
+            expect(tools).toContain('query-error-tracking-issue-events')
+            expect(tools).not.toContain('query-error-tracking-issues')
+        })
+
+        it('should expose split error tracking read tools in v1', async () => {
+            const context = createMockContext(['*'])
+            const tools = (await getToolsFromContext(context, { features: ['error_tracking'] })).map(
+                (tool) => tool.name
+            )
+
+            expect(tools).toContain('query-error-tracking-issues-list')
+            expect(tools).toContain('query-error-tracking-issue')
+            expect(tools).toContain('query-error-tracking-issue-events')
+            expect(tools).not.toContain('query-error-tracking-issues')
+            expect(tools).toContain('error-tracking-issues-list')
+            expect(tools).toContain('error-tracking-issues-retrieve')
         })
     })
 })

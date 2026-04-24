@@ -227,8 +227,9 @@ Created experiment 'Pricing page test':
 
 **What happens:**
 
-1. The `query-error-tracking-issues` tool fetches error groups sorted by occurrence count
-2. Returns error details including affected user counts
+1. The `query-error-tracking-issues-list` tool fetches error groups sorted by occurrence count
+2. Returns compact issue details including affected user counts
+3. Use `query-error-tracking-issue-events` only when stack traces or sample exception events are needed
 
 **Expected output:**
 

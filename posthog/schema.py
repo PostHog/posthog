@@ -1463,7 +1463,7 @@ class OrderBy(StrEnum):
     TIMESTAMP = "timestamp"
 
 
-class OrderDirection1(StrEnum):
+class OrderDirection2(StrEnum):
     ASC = "asc"
     DESC = "desc"
 
@@ -1704,7 +1704,7 @@ class ErrorTrackingIssueCohort(BaseModel):
     name: str
 
 
-class OrderDirection2(StrEnum):
+class OrderDirection3(StrEnum):
     ASC = "ASC"
     DESC = "DESC"
 
@@ -9079,7 +9079,7 @@ class AnalyticsQueryResponseBase(BaseModel):
     )
 
 
-class AssistantErrorTrackingQuery(BaseModel):
+class AssistantErrorTrackingIssuesListQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9109,7 +9109,6 @@ class AssistantErrorTrackingQuery(BaseModel):
         | None
     ) = Field(default=[], description="Property filters for the query")
     filterTestAccounts: bool | None = Field(default=None, description="Whether to filter out test accounts.")
-    issueId: str | None = Field(default=None, description="Filter to a specific error tracking issue by ID.")
     kind: Literal["ErrorTrackingQuery"] = "ErrorTrackingQuery"
     limit: int | None = None
     offset: int | None = None
@@ -9126,7 +9125,7 @@ class AssistantErrorTrackingQuery(BaseModel):
     )
     volumeResolution: int | None = Field(
         default=None,
-        description=("Controls volume chart granularity. Use 1 for sparklines, 0 for counts only."),
+        description=("Controls volume chart granularity. Use 0 for counts only, nonzero for volume buckets."),
     )
 
 
@@ -13665,7 +13664,7 @@ class ErrorTrackingIssueFilteringToolOutput(BaseModel):
         | None
     ) = None
     orderBy: ErrorTrackingOrderBy = Field(..., description="Field to sort results by.")
-    orderDirection: OrderDirection2 | None = Field(default=None, description="Sort direction.")
+    orderDirection: OrderDirection3 | None = Field(default=None, description="Sort direction.")
     removedFilterIndexes: list[int] | None = None
     searchQuery: str | None = Field(
         default=None,
@@ -18821,7 +18820,7 @@ class DocumentSimilarityQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     order_by: OrderBy
-    order_direction: OrderDirection1
+    order_direction: OrderDirection2
     origin: EmbeddedDocument
     products: list[str]
     renderings: list[str]
@@ -20089,7 +20088,7 @@ class ErrorTrackingQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     orderBy: ErrorTrackingOrderBy = Field(..., description="Field to sort results by.")
-    orderDirection: OrderDirection2 | None = Field(default=None, description="Sort direction.")
+    orderDirection: OrderDirection3 | None = Field(default=None, description="Sort direction.")
     pendingFingerprintIssueStateUpdates: list[ErrorTrackingPendingFingerprintIssueStateUpdate] | None = Field(
         default=None,
         description=(

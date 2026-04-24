@@ -1,0 +1,226 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "assignee": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "id": {
+                            "anyOf": [
+                                {
+                                    "maximum": 9007199254740991,
+                                    "minimum": -9007199254740991,
+                                    "type": "integer"
+                                },
+                                {
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "type": {
+                            "enum": ["user", "role"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["id", "type"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Filter by issue assignee."
+        },
+        "dateRange": {
+            "default": {
+                "date_from": "-7d"
+            },
+            "properties": {
+                "date_from": {
+                    "type": "string"
+                },
+                "date_to": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "type": "object"
+        },
+        "environment": {
+            "description": "Filter by runtime environment captured in event $environment.",
+            "maxLength": 200,
+            "type": "string"
+        },
+        "filePath": {
+            "description": "Search stack-frame source/file path text captured in exception sources.",
+            "maxLength": 1000,
+            "type": "string"
+        },
+        "filterGroup": {
+            "default": [],
+            "description": "Advanced flat AND property filters. Prefer the typed shortcut fields when they fit.",
+            "items": {
+                "properties": {
+                    "group_type_index": {
+                        "maximum": 9007199254740991,
+                        "minimum": -9007199254740991,
+                        "type": "integer"
+                    },
+                    "key": {
+                        "description": "Property key, for example $browser, $current_url, email, or a HogQL expression.",
+                        "type": "string"
+                    },
+                    "operator": {
+                        "description": "Comparison operator. Omit for hogql filters.",
+                        "enum": [
+                            "exact",
+                            "is_not",
+                            "icontains",
+                            "not_icontains",
+                            "regex",
+                            "not_regex",
+                            "gt",
+                            "lt",
+                            "is_date_exact",
+                            "is_date_before",
+                            "is_date_after",
+                            "is_set",
+                            "is_not_set",
+                            "in",
+                            "not_in",
+                            "flag_evaluates_to"
+                        ],
+                        "type": "string"
+                    },
+                    "type": {
+                        "description": "Property namespace to filter. Most exception event filters use event, person, or session.",
+                        "enum": ["event", "person", "session", "group", "cohort", "hogql", "feature", "flag"],
+                        "type": "string"
+                    },
+                    "value": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            }
+                        ]
+                    }
+                },
+                "required": ["key", "type"],
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "filterTestAccounts": {
+            "default": true,
+            "type": "boolean"
+        },
+        "fingerprint": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "items": {
+                        "type": "string"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                }
+            ],
+            "description": "Filter by exception fingerprint."
+        },
+        "library": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "items": {
+                        "type": "string"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                }
+            ],
+            "description": "Filter by SDK/library value from event $lib, for example posthog-js or posthog-node."
+        },
+        "limit": {
+            "default": 25,
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+        },
+        "offset": {
+            "default": 0,
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+        },
+        "orderBy": {
+            "default": "occurrences",
+            "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
+            "type": "string"
+        },
+        "orderDirection": {
+            "default": "DESC",
+            "enum": ["ASC", "DESC"],
+            "type": "string"
+        },
+        "personId": {
+            "description": "Filter by exact PostHog person UUID.",
+            "maxLength": 100,
+            "type": "string"
+        },
+        "release": {
+            "description": "Filter by release/version text captured in $exception_releases.",
+            "maxLength": 500,
+            "type": "string"
+        },
+        "searchQuery": {
+            "description": "Free-text search across exception type, message, stack frames, and email fields.",
+            "maxLength": 500,
+            "type": "string"
+        },
+        "status": {
+            "default": "active",
+            "description": "Filter by issue status. Defaults to active.",
+            "enum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
+            "type": "string"
+        },
+        "url": {
+            "description": "Filter by current URL substring from event $current_url.",
+            "maxLength": 1000,
+            "type": "string"
+        },
+        "user": {
+            "description": "Search user/email text in exception event and person email fields.",
+            "maxLength": 500,
+            "type": "string"
+        },
+        "volumeResolution": {
+            "default": 0,
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+        }
+    },
+    "type": "object"
+}

@@ -34,7 +34,7 @@ describe('Feature Routing Integration', () => {
                 'dashboard-create',
                 'insights-list',
                 'organizations-list',
-                'query-error-tracking-issues',
+                'query-error-tracking-issues-list',
             ],
         },
         {
@@ -75,5 +75,16 @@ describe('Feature Routing Integration', () => {
         for (const tool of expectedTools) {
             expect(toolNames).toContain(tool)
         }
+    })
+
+    it('should route error tracking to split read tools', async () => {
+        const context = createMockContext()
+        const tools = await getToolsFromContext(context, { features: ['error_tracking'] })
+        const toolNames = tools.map((t) => t.name)
+
+        expect(toolNames).toContain('query-error-tracking-issues-list')
+        expect(toolNames).toContain('query-error-tracking-issue')
+        expect(toolNames).toContain('query-error-tracking-issue-events')
+        expect(toolNames).not.toContain('query-error-tracking-issues')
     })
 })
