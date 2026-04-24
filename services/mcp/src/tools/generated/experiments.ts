@@ -375,7 +375,18 @@ const experimentReset = (): ToolBase<typeof ExperimentResetSchema, WithPostHogUr
         },
     })
 
-const ExperimentTimeseriesResultsSchema = ExperimentsTimeseriesResultsRetrieveParams.omit({ project_id: true })
+const ExperimentTimeseriesResultsSchema = ExperimentsTimeseriesResultsRetrieveParams.omit({ project_id: true }).extend({
+    metric_uuid: z
+        .string()
+        .describe(
+            "UUID of the metric to fetch timeseries for. Available on each metric in the experiment's metrics array (each metric has a `uuid` field)."
+        ),
+    fingerprint: z
+        .string()
+        .describe(
+            "Fingerprint of the metric configuration. Available alongside `metric_uuid` on each metric in the experiment's metrics array."
+        ),
+})
 
 const experimentTimeseriesResults = (): ToolBase<typeof ExperimentTimeseriesResultsSchema, unknown> =>
     withUiApp('experiment-results', {
@@ -386,6 +397,10 @@ const experimentTimeseriesResults = (): ToolBase<typeof ExperimentTimeseriesResu
             const result = await context.api.request<unknown>({
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/timeseries_results/`,
+                query: {
+                    metric_uuid: params.metric_uuid,
+                    fingerprint: params.fingerprint,
+                },
             })
             return result
         },
