@@ -232,12 +232,19 @@ export const TreeNodeDroppable = (props: DroppableProps): JSX.Element => {
             setReorderSide(null)
             return
         }
+        // 2px deadband around the midpoint so hovering exactly on the line doesn't
+        // flip-flop the indicator back and forth on every sub-pixel of movement.
+        const DEADBAND = 2
         const updateFromClientY = (clientY: number): void => {
             if (!nodeRef.current) {
                 return
             }
             const rect = nodeRef.current.getBoundingClientRect()
-            const side: 'before' | 'after' = clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+            const midY = rect.top + rect.height / 2
+            if (Math.abs(clientY - midY) < DEADBAND) {
+                return
+            }
+            const side: 'before' | 'after' = clientY < midY ? 'before' : 'after'
             setReorderSide((prev) => {
                 if (prev !== side) {
                     onPositionChange?.(propsId, side)
@@ -273,11 +280,11 @@ export const TreeNodeDroppable = (props: DroppableProps): JSX.Element => {
             style={props.style}
         >
             {showLineBefore && (
-                <div className="pointer-events-none absolute -top-px left-0 right-0 h-0.5 bg-accent z-10" />
+                <div className="pointer-events-none absolute -top-px left-2 right-2 h-0.5 rounded-full bg-accent z-10" />
             )}
             {props.children}
             {showLineAfter && (
-                <div className="pointer-events-none absolute -bottom-px left-0 right-0 h-0.5 bg-accent z-10" />
+                <div className="pointer-events-none absolute -bottom-px left-2 right-2 h-0.5 rounded-full bg-accent z-10" />
             )}
         </div>
     )
