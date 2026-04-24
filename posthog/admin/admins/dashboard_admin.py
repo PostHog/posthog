@@ -2,6 +2,8 @@ from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
 
+from posthog.admin.filters import DeletedFilter
+
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
@@ -11,36 +13,6 @@ class DashboardTileInline(admin.TabularInline):
     model = DashboardTile
     autocomplete_fields = ("insight", "text")
     readonly_fields = ("filters_hash",)
-
-
-class DeletedDashboardFilter(admin.SimpleListFilter):
-    title = "deleted"
-    parameter_name = "deleted"
-
-    def lookups(self, request, model_admin):
-        return (
-            ("no", "No"),
-            ("yes", "Yes"),
-            ("all", "All"),
-        )
-
-    def choices(self, changelist):
-        # Override default "All" choice so "No" is the default selected option
-        value = self.value() or "no"
-        for lookup, title in self.lookup_choices:
-            yield {
-                "selected": value == lookup,
-                "query_string": changelist.get_query_string({self.parameter_name: lookup}),
-                "display": title,
-            }
-
-    def queryset(self, request, queryset):
-        value = self.value() or "no"
-        if value == "no":
-            return queryset.filter(deleted=False)
-        if value == "yes":
-            return queryset.filter(deleted=True)
-        return queryset
 
 
 class DashboardAdmin(admin.ModelAdmin):
@@ -54,7 +26,7 @@ class DashboardAdmin(admin.ModelAdmin):
         "deleted",
     )
     list_display_links = ("id", "name")
-    list_filter = (DeletedDashboardFilter,)
+    list_filter = (DeletedFilter,)
     list_select_related = ("team", "team__organization")
     search_fields = ("id", "name", "team__name", "team__organization__name")
     readonly_fields = (
