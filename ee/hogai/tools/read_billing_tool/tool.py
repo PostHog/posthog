@@ -323,7 +323,7 @@ class ReadBillingTool(MaxSubtool):
                 return usage_type["label"]
 
         # Fall back to formatting the product_type
-        return product_type.replace("_", " ").title()
+        return product_type.replace("_", " ").capitalize()
 
     def _format_single_team_table(self, items: list[UsageHistoryItem] | list[SpendHistoryItem], title: str) -> str:
         """Format a single table for a team or overall data."""
