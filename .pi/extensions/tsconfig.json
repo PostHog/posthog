@@ -11,6 +11,6 @@
         "esModuleInterop": true,
         "types": []
     },
-    "include": ["./**/*.ts"],
+    "include": ["./**/*.ts", "../ambient.d.ts"],
     "exclude": []
 }
