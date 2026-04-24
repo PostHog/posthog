@@ -228,11 +228,13 @@ export function VisualReviewRunScene(): JSX.Element {
     const loadedActionable = reviewPending + reviewApproved + reviewTolerated
     const hasMore = totalActionable > loadedActionable
 
-    // All changes are now covered by quarantine — gate would flip to success on recompute
+    // All changes are now covered by quarantine — gate would flip to success on recompute.
+    // Only reliable when all actionable snapshots are loaded (not paginated).
     const allChangesQuarantined =
         run.status === 'completed' &&
         !run.approved &&
         !run.is_stale &&
+        !hasMore &&
         totalActionable > 0 &&
         snapshots
             .filter((s: SnapshotApi) => s.result !== 'unchanged')

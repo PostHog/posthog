@@ -1424,7 +1424,7 @@ class TestRecomputeRun:
         result = logic.recompute_run(run.id, team_id=team.id)
 
         assert result["counts_changed"] is False
-        assert result["ci_rerun_error"] == "CI metadata not available (upgrade CLI to enable)"
+        assert "CI job ID not available" in result["ci_rerun_error"]
 
     def test_recompute_run_rejects_non_completed_run(self, repo, team, mocker):
         run, _ = logic.create_run(
@@ -1469,7 +1469,7 @@ class TestRecomputeRun:
         result = logic.recompute_run(run.id, team_id=team.id)
 
         assert result["ci_rerun_triggered"] is False
-        assert result["ci_rerun_error"] == "CI metadata not available (upgrade CLI to enable)"
+        assert "CI job ID not available" in result["ci_rerun_error"]
 
     def test_recompute_run_triggers_ci_rerun(self, repo, team, mocker):
         run = self._create_completed_run(
@@ -1477,7 +1477,7 @@ class TestRecomputeRun:
             mocker,
             identifiers_and_hashes=[("Button", "h1")],
             baseline={"Button": "old1"},
-            metadata={"github_run_id": "12345", "github_job": "visual-regression"},
+            metadata={"github_job_id": "72855643533"},
         )
 
         mocker.patch(
@@ -1496,18 +1496,18 @@ class TestRecomputeRun:
             mocker,
             identifiers_and_hashes=[("Button", "h1")],
             baseline={"Button": "old1"},
-            metadata={"github_run_id": "12345", "github_job": "visual-regression"},
+            metadata={"github_job_id": "72855643533"},
         )
 
         mocker.patch(
             "products.visual_review.backend.logic._rerun_github_job",
-            return_value=(False, "Job 'visual-regression' not found in workflow run 12345"),
+            return_value=(False, "GitHub API returned 403 when rerunning job"),
         )
 
         result = logic.recompute_run(run.id, team_id=team.id)
 
         assert result["ci_rerun_triggered"] is False
-        assert "not found" in result["ci_rerun_error"]
+        assert "403" in result["ci_rerun_error"]
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

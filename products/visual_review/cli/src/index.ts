@@ -281,12 +281,12 @@ function makeClient(options: { baseline: string; api?: string; team?: string; to
 function collectCIMetadata(): Record<string, string> {
     const metadata: Record<string, string> = {}
     const runId = process.env.GITHUB_RUN_ID
-    const job = process.env.GITHUB_JOB
     if (runId) {
         metadata.github_run_id = runId
     }
-    if (job) {
-        metadata.github_job = job
+    const jobId = process.env.JOB_CHECK_RUN_ID
+    if (jobId) {
+        metadata.github_job_id = jobId
     }
     return metadata
 }

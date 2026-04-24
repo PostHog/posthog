@@ -442,8 +442,8 @@ export function SnapshotDiffViewer({
                                             LemonDialog.open({
                                                 title: 'Re-trigger CI job?',
                                                 description: githubRunId
-                                                    ? `Re-evaluate quarantine and tolerance rules, update the commit status, and re-trigger CI run ${githubRunId} so the gate reflects the current state.`
-                                                    : 'Re-evaluate quarantine and tolerance rules and update the commit status. The CI job cannot be re-triggered automatically — upgrade the CLI to enable this.',
+                                                    ? `Re-evaluate quarantine rules, update snapshot counts and commit status, and re-trigger CI run ${githubRunId} so the gate reflects the current state.`
+                                                    : 'Re-evaluate quarantine rules and update snapshot counts and commit status. The CI job cannot be re-triggered automatically — upgrade the CLI to enable this.',
                                                 primaryButton: {
                                                     children: githubRunId ? `Re-trigger ${githubRunId}` : 'Recompute',
                                                     onClick: onRecompute,

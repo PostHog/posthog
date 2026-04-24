@@ -753,10 +753,7 @@ def complete_run(run_id: UUID) -> Run:
     Idempotent: returns immediately if already processing or completed.
     """
     run = get_run(run_id)
-    if run.status == RunStatus.COMPLETED:
-        _update_counts_and_post_status(run)
-        return run
-    if run.status == RunStatus.PROCESSING:
+    if run.status in (RunStatus.COMPLETED, RunStatus.PROCESSING):
         return run
 
     # Transition to PROCESSING early so late add_snapshots calls are rejected.
@@ -947,12 +944,13 @@ def finish_processing(run_id: UUID, error_message: str = "") -> Run:
     return run
 
 
+@transaction.atomic(using=WRITER_DB)
 def recompute_run(run_id: UUID, team_id: int | None = None) -> dict:
     """Re-evaluate quarantine and counts, update commit status, and optionally rerun the CI job.
 
     Returns a dict with counts_changed, ci_rerun_triggered, and ci_rerun_error.
     """
-    run = get_run(run_id, team_id=team_id)
+    run = _get_run_for_update(run_id, team_id=team_id)
 
     if run.status != RunStatus.COMPLETED:
         raise ValueError(f"Can only recompute completed runs (current status: {run.status})")
@@ -968,13 +966,12 @@ def recompute_run(run_id: UUID, team_id: int | None = None) -> dict:
     ci_rerun_triggered = False
     ci_rerun_error: str | None = None
 
-    github_run_id = (run.metadata or {}).get("github_run_id")
-    github_job = (run.metadata or {}).get("github_job")
+    github_job_id = (run.metadata or {}).get("github_job_id")
 
-    if not github_run_id or not github_job:
-        ci_rerun_error = "CI metadata not available (upgrade CLI to enable)"
+    if not github_job_id:
+        ci_rerun_error = "CI job ID not available (set JOB_CHECK_RUN_ID=${{ job.check_run_id }} in workflow)"
     else:
-        ci_rerun_triggered, ci_rerun_error = _rerun_github_job(run, github_run_id, github_job)
+        ci_rerun_triggered, ci_rerun_error = _rerun_github_job(run, github_job_id)
 
     return {
         "counts_changed": counts_changed,
@@ -983,57 +980,31 @@ def recompute_run(run_id: UUID, team_id: int | None = None) -> dict:
     }
 
 
-def _rerun_github_job(run: Run, github_run_id: str, github_job_name: str) -> tuple[bool, str | None]:
-    """Look up a GitHub Actions job by name and rerun it. Returns (success, error_message)."""
+def _rerun_github_job(run: Run, github_job_id: str) -> tuple[bool, str | None]:
+    """Rerun a specific GitHub Actions job by its numeric ID. Returns (success, error_message)."""
     repo = run.repo
     if not repo.repo_full_name:
         return False, "Repo has no GitHub full name configured"
 
     try:
-        jobs_response = _github_api_request(
-            "GET",
-            repo,
-            f"actions/runs/{github_run_id}/jobs",
-            params={"per_page": 100},
-            timeout=10,
-        )
-    except Exception:
-        return False, "Failed to fetch CI jobs from GitHub"
-
-    if jobs_response.status_code != 200:
-        return False, f"GitHub API returned {jobs_response.status_code} when fetching jobs"
-
-    jobs = jobs_response.json().get("jobs", [])
-    job_id: int | None = None
-    for job in jobs:
-        if job.get("name") == github_job_name:
-            job_id = job["id"]
-            break
-
-    if job_id is None:
-        return False, f"Job '{github_job_name}' not found in workflow run {github_run_id}"
-
-    try:
-        rerun_response = _github_api_request(
+        response = _github_api_request(
             "POST",
             repo,
-            f"actions/jobs/{job_id}/rerun",
+            f"actions/jobs/{github_job_id}/rerun",
             timeout=10,
         )
     except Exception:
         return False, "Failed to trigger job rerun"
 
-    if rerun_response.status_code == 201:
+    if response.status_code == 201:
         logger.info(
             "visual_review.ci_job_rerun_triggered",
             run_id=str(run.id),
-            github_run_id=github_run_id,
-            job_id=job_id,
-            job_name=github_job_name,
+            github_job_id=github_job_id,
         )
         return True, None
 
-    return False, f"GitHub API returned {rerun_response.status_code} when rerunning job"
+    return False, f"GitHub API returned {response.status_code} when rerunning job"
 
 
 def get_github_integration_for_repo(repo: Repo):
