@@ -179,7 +179,7 @@ func runStop(timeoutSec int) int {
 
 	// Fast path: if the socket isn't even there, check pidfile.
 	if _, err := os.Stat(sock); errors.Is(err, os.ErrNotExist) {
-		return cleanupIfStalePidfile()
+		return stopViaPidfile("", deadline)
 	}
 
 	resp, qerr := queryDetached(map[string]any{"cmd": "quit"}, 2*time.Second)
@@ -204,6 +204,25 @@ func runStop(timeoutSec int) int {
 			return 0
 		}
 		fmt.Fprintln(os.Stderr, "phrocs: detached phrocs did not exit in time; escalating")
+	}
+
+	return stopViaPidfile(sock, deadline)
+}
+
+// stopViaPidfile uses the pidfile fallback only if the detached lock is still
+// held. If the lock can be acquired, the pidfile is stale and its PID may have
+// been reused by an unrelated process.
+func stopViaPidfile(sock string, deadline time.Time) int {
+	lockHeld, err := pidfileLockHeld()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "phrocs: pidfile lock: %v\n", err)
+		return 1
+	}
+	if !lockHeld {
+		_ = os.Remove(pidFilePath())
+		_ = os.Remove(sock)
+		fmt.Println("no detached phrocs running")
+		return 0
 	}
 
 	// Fallback: SIGTERM via pidfile.
@@ -246,22 +265,25 @@ func runStop(timeoutSec int) int {
 	return 0
 }
 
-// cleanupIfStalePidfile handles the case where the socket is gone: either no
-// detached phrocs is running (exit 0), or there's a stale pidfile we should
-// remove.
-func cleanupIfStalePidfile() int {
-	pid, err := readPidfile()
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		fmt.Fprintf(os.Stderr, "phrocs: pidfile: %v\n", err)
-		return 1
+func pidfileLockHeld() (bool, error) {
+	lockFile, err := os.OpenFile(pidLockFilePath(), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
 	}
-	if pid > 0 && pidAlive(pid) {
-		// Socket gone but PID alive — unusual, try SIGTERM.
-		_ = syscall.Kill(pid, syscall.SIGTERM)
+	defer func() { _ = lockFile.Close() }()
+
+	err = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+	if err == nil {
+		_ = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
+		return false, nil
 	}
-	_ = os.Remove(pidFilePath())
-	fmt.Println("no detached phrocs running")
-	return 0
+	if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
+		return true, nil
+	}
+	return false, err
 }
 
 func readPidfile() (int, error) {

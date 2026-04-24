@@ -167,7 +167,12 @@ if [[ "$*" == *"--custom"* ]]; then
         echo "Error: --custom requires a config path"
         exit 1
     fi
-    "$PROCESS_MANAGER" --config "$config_path"
+    if [[ "$DETACHED" == "1" ]]; then
+        exec 9<&-
+        "$PROCESS_MANAGER" --detach --config "$config_path"
+    else
+        "$PROCESS_MANAGER" --config "$config_path"
+    fi
 else
     GENERATED_CONFIG="$REPOSITORY_ROOT/.posthog/.generated/mprocs.yaml"
 

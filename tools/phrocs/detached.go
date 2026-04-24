@@ -23,8 +23,9 @@ func generatedDir() string {
 	return filepath.Join(".posthog", ".generated")
 }
 
-func logDir() string      { return filepath.Join(generatedDir(), "logs") }
-func pidFilePath() string { return filepath.Join(generatedDir(), "phrocs.pid") }
+func logDir() string          { return filepath.Join(generatedDir(), "logs") }
+func pidFilePath() string     { return filepath.Join(generatedDir(), "phrocs.pid") }
+func pidLockFilePath() string { return pidFilePath() + ".lock" }
 
 // runDetached either forks into a detached child (when run from the user's shell)
 // or becomes the detached main loop (when re-exec'd with PHROCS_DETACHED_CHILD=1).
@@ -141,7 +142,7 @@ func detachedMain(configPath string) int {
 	// racing `phrocs --detach` invocations can't both succeed. The kernel
 	// releases the lock on process exit, so a SIGKILLed child doesn't leave
 	// the lock stranded. The fd stays open for the child's lifetime.
-	lockFile, err := os.OpenFile(pidPath+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	lockFile, err := os.OpenFile(pidLockFilePath(), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "phrocs: open lock: %v\n", err)
 		return 1

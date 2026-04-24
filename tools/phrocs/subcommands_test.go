@@ -3,8 +3,10 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"reflect"
 	"strings"
 	"testing"
@@ -94,5 +96,57 @@ func TestRunWait_shortTimeoutBeforeBindIsNotReachable(t *testing.T) {
 	}
 	if !strings.Contains(output, `"verdict":"not_reachable"`) {
 		t.Fatalf("output missing not_reachable verdict: %q", output)
+	}
+}
+
+func TestStopViaPidfile_doesNotSignalUnlockedPidfile(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll(generatedDir(), 0o755); err != nil {
+		t.Fatalf("mkdir generated dir: %v", err)
+	}
+
+	cmd := exec.Command("sleep", "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start sleep: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+
+	if err := os.WriteFile(pidFilePath(), []byte(fmt.Sprintf("%d\n", cmd.Process.Pid)), 0o644); err != nil {
+		t.Fatalf("write pidfile: %v", err)
+	}
+
+	code, output := captureStdout(t, func() int {
+		return stopViaPidfile("", time.Now().Add(time.Second))
+	})
+
+	if code != 0 {
+		t.Fatalf("exit code: got %d, want 0", code)
+	}
+	if !strings.Contains(output, "no detached phrocs running") {
+		t.Fatalf("output: got %q, want no detached message", output)
+	}
+	if !pidAlive(cmd.Process.Pid) {
+		t.Fatalf("stale pidfile process %d was signaled", cmd.Process.Pid)
+	}
+	if _, err := os.Stat(pidFilePath()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("pidfile should be removed, stat err=%v", err)
+	}
+}
+
+func TestStopViaPidfile_missingGeneratedDirIsIdempotent(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	code, output := captureStdout(t, func() int {
+		return stopViaPidfile("", time.Now().Add(time.Second))
+	})
+
+	if code != 0 {
+		t.Fatalf("exit code: got %d, want 0", code)
+	}
+	if !strings.Contains(output, "no detached phrocs running") {
+		t.Fatalf("output: got %q, want no detached message", output)
 	}
 }
