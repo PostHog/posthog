@@ -844,6 +844,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
         monkeypatch.setattr(devbox_cli, "_local_port_is_available", lambda port: True)
+        monkeypatch.setattr(devbox_cli, "port_is_listening_in_workspace", lambda name, port: True)
         monkeypatch.setattr(
             devbox_cli,
             "port_forward_replace",
@@ -855,19 +856,68 @@ class TestDevboxCommands:
         result = runner.invoke(cli, ["devbox:forward"])
 
         assert result.exit_code == 0
-        assert "Forwarding devbox-test-user:8010 -> localhost:8010" in result.output
-        assert captured == {"name": "devbox-test-user", "local_port": 8010, "remote_port": 8010}
+        assert "Forwarding devbox-test-user:8010 -> localhost:18010" in result.output
+        assert "PostHog backend at http://localhost:18010" in result.output
+        assert captured == {"name": "devbox-test-user", "local_port": 18010, "remote_port": 8010}
 
     def test_devbox_forward_fails_early_when_local_port_is_in_use(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
         monkeypatch.setattr(devbox_cli, "_local_port_is_available", lambda port: False)
 
-        result = runner.invoke(cli, ["devbox:forward", "--port", "8010"])
+        result = runner.invoke(cli, ["devbox:forward", "--port", "18010"])
 
         assert result.exit_code == 1
-        assert "Local port 8010 is already in use." in result.output
-        assert "hogli devbox:forward --port 8011" in result.output
+        assert "Local port 18010 is already in use." in result.output
+        assert "hogli devbox:forward --port 18011" in result.output
+
+    def test_devbox_forward_fails_when_remote_port_is_not_listening(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        port_forward_called = False
+
+        def _track_forward(*args: object, **kwargs: object) -> None:
+            nonlocal port_forward_called
+            port_forward_called = True
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "_local_port_is_available", lambda port: True)
+        monkeypatch.setattr(devbox_cli, "port_is_listening_in_workspace", lambda name, port: False)
+        monkeypatch.setattr(devbox_cli, "port_forward_replace", _track_forward)
+
+        result = runner.invoke(cli, ["devbox:forward"])
+
+        assert result.exit_code == 1
+        assert "PostHog isn't listening on port 8010 inside 'devbox-test-user'." in result.output
+        assert "hogli start" in result.output
+        assert "--no-preflight" in result.output
+        assert port_forward_called is False
+
+    def test_devbox_forward_bypasses_preflight_when_disabled(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: dict[str, object] = {}
+        probe_called = False
+
+        def _track_probe(*args: object, **kwargs: object) -> bool:
+            nonlocal probe_called
+            probe_called = True
+            return False
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "_local_port_is_available", lambda port: True)
+        monkeypatch.setattr(devbox_cli, "port_is_listening_in_workspace", _track_probe)
+        monkeypatch.setattr(
+            devbox_cli,
+            "port_forward_replace",
+            lambda name, local_port, remote_port: captured.update(
+                {"name": name, "local_port": local_port, "remote_port": remote_port}
+            ),
+        )
+
+        result = runner.invoke(cli, ["devbox:forward", "--no-preflight"])
+
+        assert result.exit_code == 0
+        assert probe_called is False
+        assert captured == {"name": "devbox-test-user", "local_port": 18010, "remote_port": 8010}
 
 
 class TestStartExistingWorkspace:

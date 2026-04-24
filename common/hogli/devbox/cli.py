@@ -52,6 +52,7 @@ from .coder import (
     open_web_ide,
     parse_workspace_target,
     port_forward_replace,
+    port_is_listening_in_workspace,
     print_setup_summary,
     restart_workspace,
     share_workspace,
@@ -819,11 +820,33 @@ def devbox_status(workspace: str | None) -> None:
         _print_connection_info(name)
 
 
-@cli.command(name="devbox:forward", help="Forward PostHog UI to localhost")
+DEVBOX_FORWARD_REMOTE_PORT = 8010
+DEVBOX_FORWARD_DEFAULT_LOCAL_PORT = 18010
+
+
+@cli.command(
+    name="devbox:forward",
+    help="Forward PostHog backend to localhost (for API/scripts/SDKs). For browser UI use devbox:open.",
+)
 @workspace_argument
-@click.option("--port", default=8010, type=int, help="Local port to forward to")
-def devbox_forward(workspace: str | None, port: int) -> None:
-    """Forward the PostHog UI port to localhost."""
+@click.option(
+    "--port",
+    default=DEVBOX_FORWARD_DEFAULT_LOCAL_PORT,
+    type=int,
+    help="Local port to bind (remote is always 8010).",
+)
+@click.option(
+    "--preflight/--no-preflight",
+    default=True,
+    help="Probe the remote port over SSH before starting the tunnel.",
+)
+def devbox_forward(workspace: str | None, port: int, preflight: bool) -> None:
+    """Forward the PostHog backend port to localhost.
+
+    Scoped to backend access (API, SDK tests, scripts, OAuth callbacks). Full
+    browser UI access belongs on ``hogli devbox:open``, which routes through
+    the workspace's wildcard subdomain and handles Vite module loading.
+    """
     ensure_runtime_ready()
     name, _ = resolve_workspace_name(workspace)
     if not _local_port_is_available(port):
@@ -832,11 +855,20 @@ def devbox_forward(workspace: str | None, port: int) -> None:
             f"Stop the process using that port or rerun with `hogli devbox:forward --port {port + 1}`."
         )
 
-    click.echo(f"Forwarding {name}:8010 -> localhost:{port}")
-    click.echo(f"PostHog UI at http://localhost:{port}")
+    if preflight and not port_is_listening_in_workspace(name, DEVBOX_FORWARD_REMOTE_PORT):
+        _fail(
+            f"PostHog isn't listening on port {DEVBOX_FORWARD_REMOTE_PORT} inside '{name}'.\n"
+            f"SSH in and start it:\n"
+            f"  hogli devbox:ssh{_workspace_arg_suffix(name)}\n"
+            f"  hogli start\n"
+            f"Skip this check with --no-preflight."
+        )
+
+    click.echo(f"Forwarding {name}:{DEVBOX_FORWARD_REMOTE_PORT} -> localhost:{port}")
+    click.echo(f"PostHog backend at http://localhost:{port} (for browser UI use `hogli devbox:open`)")
     click.echo("Ctrl+C to stop")
     click.echo()
-    port_forward_replace(name, port, 8010)
+    port_forward_replace(name, port, DEVBOX_FORWARD_REMOTE_PORT)
 
 
 def _gib(nbytes: int) -> str:

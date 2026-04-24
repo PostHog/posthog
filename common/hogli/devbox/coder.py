@@ -769,6 +769,23 @@ def port_forward_replace(name: str, local_port: int, remote_port: int) -> None:
     _run_or_exit(["coder", "port-forward", name, f"--tcp={local_port}:{remote_port}"])
 
 
+def port_is_listening_in_workspace(name: str, remote_port: int, *, timeout: int = 3) -> bool:
+    """Return whether a TCP port has a listener on 127.0.0.1 inside the workspace.
+
+    Uses `coder ssh` + bash's /dev/tcp to avoid depending on netcat or curl
+    being installed. Connection refused is the "service is down" signal we
+    want to catch before launching a port-forward that would surface it as an
+    opaque error.
+    """
+    probe = f"exec 3<>/dev/tcp/127.0.0.1/{remote_port} 2>/dev/null"
+    args = ["coder", "ssh", name, "--", "bash", "-c", f"timeout {timeout} bash -c {shlex.quote(probe)}"]
+    try:
+        result = subprocess.run(_resolve_coder(args), capture_output=True, text=True, timeout=timeout + 5)
+    except subprocess.TimeoutExpired:
+        return False
+    return result.returncode == 0
+
+
 def logs_replace(name: str, follow: bool) -> None:
     """Tail workspace logs and replace the current process."""
     args = ["coder", "logs", name]
