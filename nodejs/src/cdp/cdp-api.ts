@@ -28,16 +28,15 @@ import { BatchExportHogFunctionService, NotFoundError, ParseError } from './serv
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
+import { InvocationResultsService } from './services/invocation-results.service'
 import { CyclotronJobQueue } from './services/job-queue/job-queue'
 import { GroupsManagerService } from './services/managers/groups-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
-import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
-import { WarehouseWebhooksService } from './services/warehouse/warehouse-webhooks.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
 import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
 import { convertToHogFunctionInvocationGlobals, isNativeHogFunction, isSegmentPluginHogFunction } from './utils'
@@ -81,8 +80,7 @@ export class CdpApi {
     private hogFlowExecutor: HogFlowExecutorService
     private hogWatcher: HogWatcherService
     private hogTransformer: HogTransformerService
-    private hogFunctionMonitoringService: HogFunctionMonitoringService
-    private warehouseWebhooksService: WarehouseWebhooksService
+    private invocationResultsService: InvocationResultsService
     private cdpSourceWebhooksConsumer: CdpSourceWebhooksConsumer
     private cyclotronJobQueue: CyclotronJobQueue
     private emailTrackingService: EmailTrackingService
@@ -104,8 +102,7 @@ export class CdpApi {
         this.nativeDestinationExecutorService = services.nativeDestinationExecutorService
         this.segmentDestinationExecutorService = services.segmentDestinationExecutorService
         this.hogWatcher = services.hogWatcher
-        this.hogFunctionMonitoringService = services.hogFunctionMonitoringService
-        this.warehouseWebhooksService = services.warehouseWebhooksService
+        this.invocationResultsService = services.invocationResultsService
         this.outputs = services.outputs
 
         // API-only services. The hog-transformer's monitoring service reuses the same
@@ -119,7 +116,7 @@ export class CdpApi {
         this.emailTrackingService = new EmailTrackingService(
             this.hogFunctionManager,
             this.hogFlowManager,
-            this.hogFunctionMonitoringService,
+            services.hogFunctionMonitoringService,
             services.recipientsManager
         )
         this.batchExportHogFunctionService = new BatchExportHogFunctionService(
@@ -129,8 +126,7 @@ export class CdpApi {
             this.hogFunctionManager,
             this.hogExecutor,
             this.hogWatcher,
-            this.hogFunctionMonitoringService,
-            this.warehouseWebhooksService
+            this.invocationResultsService
         )
     }
 
@@ -454,7 +450,7 @@ export class CdpApi {
             console.error(e)
             res.status(500).json({ errors: [e.message] })
         } finally {
-            await Promise.all([this.hogFunctionMonitoringService.flush(), this.warehouseWebhooksService.flush()])
+            await this.invocationResultsService.flush()
         }
     }
 

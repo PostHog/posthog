@@ -18,11 +18,13 @@ import {
 } from './outputs/outputs'
 import { CdpProducerName } from './outputs/producers'
 import { createCdpOutputsRegistry } from './outputs/registry'
+import { CapturedEventsService } from './services/captured-events/captured-events.service'
 import { HogExecutorService } from './services/hog-executor.service'
 import { HogInputsService } from './services/hog-inputs.service'
 import { HogFlowExecutorService } from './services/hogflows/hogflow-executor.service'
 import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
+import { InvocationResultsService } from './services/invocation-results.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { HogFunctionTemplateManagerService } from './services/managers/hog-function-template-manager.service'
 import { IntegrationManagerService } from './services/managers/integration-manager.service'
@@ -61,7 +63,8 @@ export interface CdpCoreServices {
     recipientPreferencesService: RecipientPreferencesService
     hogFlowExecutor: HogFlowExecutorService
     hogFunctionMonitoringService: HogFunctionMonitoringService
-    warehouseWebhooksService: WarehouseWebhooksService
+    /** Fans `CyclotronJobInvocationResult` batches across monitoring / warehouse / captured-events. */
+    invocationResultsService: InvocationResultsService
     nativeDestinationExecutorService: NativeDestinationExecutorService
     segmentDestinationExecutorService: SegmentDestinationExecutorService
     recipientTokensService: RecipientTokensService
@@ -211,12 +214,14 @@ export function createCdpCoreServices(
 
     const outputs = createCdpOutputsRegistry().build(deps.cdpProducerRegistry, config)
 
-    const hogFunctionMonitoringService = new HogFunctionMonitoringService(
-        outputs,
-        deps.internalCaptureService,
-        deps.teamManager
-    )
+    const hogFunctionMonitoringService = new HogFunctionMonitoringService(outputs)
     const warehouseWebhooksService = new WarehouseWebhooksService(outputs)
+    const capturedEventsService = new CapturedEventsService(deps.internalCaptureService, deps.teamManager)
+    const invocationResultsService = new InvocationResultsService(
+        hogFunctionMonitoringService,
+        warehouseWebhooksService,
+        capturedEventsService
+    )
 
     const nativeDestinationExecutorService = new NativeDestinationExecutorService(config)
     const segmentDestinationExecutorService = new SegmentDestinationExecutorService(config)
@@ -233,7 +238,7 @@ export function createCdpCoreServices(
         recipientPreferencesService,
         hogFlowExecutor,
         hogFunctionMonitoringService,
-        warehouseWebhooksService,
+        invocationResultsService,
         nativeDestinationExecutorService,
         segmentDestinationExecutorService,
         recipientTokensService,

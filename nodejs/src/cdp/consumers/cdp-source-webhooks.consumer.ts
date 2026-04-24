@@ -411,8 +411,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             )
         }
 
-        await this.hogFunctionMonitoringService.queueInvocationResults([result])
-        this.warehouseWebhooksService.queueInvocationResults([result])
+        await this.invocationResultsService.queueInvocationResults([result])
         return result
     }
 
@@ -455,8 +454,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             : await this.executeHogFunction(req, hogFunction, hogFunctionState)
 
         void this.promiseScheduler.schedule(
-            this.hogFunctionMonitoringService.flush(),
-            this.warehouseWebhooksService.flush(),
+            this.invocationResultsService.flush(),
             this.hogWatcher.observeResultsBuffered(result)
         )
 

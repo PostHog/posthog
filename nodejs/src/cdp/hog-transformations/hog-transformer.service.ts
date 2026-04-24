@@ -7,7 +7,6 @@ import { PluginEvent } from '~/plugin-scaffold'
 import { CyclotronJobInvocationResult, HogFunctionInvocationGlobals, HogFunctionType } from '../../cdp/types'
 import { isLegacyPluginHogFunction } from '../../cdp/utils'
 import type { CommonConfig } from '../../common/config'
-import { InternalCaptureService } from '../../common/services/internal-capture'
 import { IngestionOutputs } from '../../ingestion/outputs/ingestion-outputs'
 import { PostgresRouter } from '../../utils/db/postgres'
 import { GeoIPService, GeoIp } from '../../utils/geoip'
@@ -105,10 +104,10 @@ export class HogTransformerService {
 
         const shouldRunHogWatcher = Math.random() < this.config.hogWatcherSampleRate
 
+        this.hogFunctionMonitoringService.queueInvocationResults(results)
+
         await Promise.allSettled([
-            this.hogFunctionMonitoringService
-                .queueInvocationResults(results)
-                .then(() => this.hogFunctionMonitoringService.flush()),
+            this.hogFunctionMonitoringService.flush(),
 
             shouldRunHogWatcher
                 ? this.hogWatcher.observeResults(results).catch((error) => {
@@ -412,7 +411,6 @@ export interface HogTransformerServiceDeps {
     integrationManager: IntegrationManagerService
     monitoringOutputs: IngestionOutputs<MonitoringOutput>
     teamManager: TeamManager
-    internalCaptureService: InternalCaptureService
 }
 
 export function createHogTransformerService(
@@ -458,11 +456,7 @@ export function createHogTransformerService(
         recipientTokensService
     )
     const pluginExecutor = new LegacyPluginExecutorService(deps.postgres, deps.geoipService)
-    const hogFunctionMonitoringService = new HogFunctionMonitoringService(
-        deps.monitoringOutputs,
-        deps.internalCaptureService,
-        deps.teamManager
-    )
+    const hogFunctionMonitoringService = new HogFunctionMonitoringService(deps.monitoringOutputs)
     const hogWatcher = new HogWatcherService(
         deps.teamManager,
         {

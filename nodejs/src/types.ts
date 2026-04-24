@@ -15,8 +15,6 @@ import type {
 import { IntegrationManagerService } from './cdp/services/managers/integration-manager.service'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import type { CommonConfig } from './common/config'
-import { InternalCaptureService } from './common/services/internal-capture'
-import { InternalFetchService } from './common/services/internal-fetch'
 import type { IngestionConsumerConfig } from './ingestion/config'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import type { ErrorTrackingConsumerConfig } from './ingestion/error-tracking/config'
@@ -142,8 +140,6 @@ export interface HubServices {
     pubSub: PubSub
     integrationManager: IntegrationManagerService
     quotaLimiting: QuotaLimiting
-    internalCaptureService: InternalCaptureService
-    internalFetchService: InternalFetchService
 }
 
 export interface Hub extends PluginsServerConfig, HubServices {}

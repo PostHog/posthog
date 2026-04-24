@@ -6,6 +6,7 @@ import {
     WAREHOUSE_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
 } from '../../src/cdp/outputs/producers'
+import { InternalCaptureService } from '../../src/common/services/internal-capture'
 import { KafkaProducerRegistry } from '../../src/ingestion/outputs/kafka-producer-registry'
 import { Hub } from '../../src/types'
 
@@ -29,7 +30,7 @@ export function createCdpConsumerDeps(hub: Hub): CdpConsumerBaseDeps {
         teamManager: hub.teamManager,
         integrationManager: hub.integrationManager,
         cdpProducerRegistry: buildTestCdpProducerRegistry(hub),
-        internalCaptureService: hub.internalCaptureService,
+        internalCaptureService: new InternalCaptureService(hub),
         personRepository: hub.personRepository,
         geoipService: hub.geoipService,
         groupRepository: hub.groupRepository,

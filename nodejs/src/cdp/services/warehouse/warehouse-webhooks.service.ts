@@ -69,10 +69,4 @@ export class WarehouseWebhooksService {
             )
         )
     }
-
-    /** Queue invocation result payloads and immediately flush them. */
-    async queueInvocationResultsAndFlush(results: CyclotronJobInvocationResult[]): Promise<void> {
-        this.queueInvocationResults(results)
-        await this.flush()
-    }
 }
