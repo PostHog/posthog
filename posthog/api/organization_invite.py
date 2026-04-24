@@ -141,6 +141,11 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
     def validate_target_email(self, email: str):
         return EmailNormalizer.normalize(email)
 
+    def validate_first_name(self, value: str) -> str:
+        if value and URL_PATTERN.search(value):
+            raise exceptions.ValidationError("Name cannot contain URLs.")
+        return value
+
     def validate_message(self, message: str) -> str:
         if message and URL_PATTERN.search(message):
             raise exceptions.ValidationError("Invite messages cannot contain URLs.")

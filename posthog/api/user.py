@@ -348,6 +348,11 @@ class UserSerializer(serializers.ModelSerializer):
             for invite in invites
         ]
 
+    def validate_first_name(self, value: str) -> str:
+        if re.search(r"https?://", value, re.IGNORECASE):
+            raise serializers.ValidationError("Name cannot contain URLs.")
+        return value
+
     def validate_set_current_organization(self, value: str) -> Organization:
         try:
             organization = Organization.objects.get(id=value)
