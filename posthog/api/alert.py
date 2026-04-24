@@ -313,11 +313,6 @@ class AlertSerializer(serializers.ModelSerializer):
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
         team = self.context["get_team"]()
-        # Count includes ``enabled=False`` rows on purpose — this is an infra
-        # cap on how many alert configuration rows exist per team, not a UX
-        # quota on "active" alerts. A disabled alert still occupies row storage
-        # and shows up in list/retrieve queries; the customer's cleanup path is
-        # delete, not disable.
         current_count = AlertConfiguration.objects.filter(team_id=team.id).count()
         check_count_limit(
             team=team,
