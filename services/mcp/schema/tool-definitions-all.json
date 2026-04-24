@@ -3815,6 +3815,21 @@
         },
         "system_prompt_hint": "Session replay metadata and activity"
     },
+    "sdk-doctor-get": {
+        "description": "Returns a pre-digested health report for the PostHog SDKs this project is using. Covers which SDKs are current vs outdated (smart-semver rules with grace periods and traffic-percentage thresholds), per-version breakdowns, and a human-readable reason for each assessment. Use when the user asks about PostHog SDK versions, outdated SDKs, SDK health, version upgrade recommendations, or why events may not be captured due to SDK issues.",
+        "category": "SDK Doctor",
+        "feature": "sdk_doctor",
+        "summary": "Get SDK health report",
+        "title": "Get SDK health report",
+        "required_scopes": ["project:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "skill-list": {
         "description": "List all agent skills stored for the current team. Returns skill names and descriptions for discovery — use descriptions to determine which skill to fetch for a given task. Does not return skill body content (use skill-get to fetch full content).",
         "category": "Skills",

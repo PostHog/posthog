@@ -774,6 +774,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 resp["Cache-Control"] = "max-age=10"
                 return resp
 
+            tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.QUERY)
             refresh = refresh_requested_by_client(request)
             runner = PropertyValuesQueryRunner(
                 team=self.team,
