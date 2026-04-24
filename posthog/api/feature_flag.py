@@ -755,13 +755,17 @@ class FeatureFlagSerializer(
 
     def get_is_used_in_replay_settings(self, feature_flag: FeatureFlag) -> bool:
         """Check if this feature flag is used in any team's session recording linked flag setting."""
-        # Use annotated value if available (set by queryset annotation)
+        # Prefer the precomputed set passed by the viewset for the list action — O(1) lookup.
+        replay_linked_flag_ids = self.context.get("replay_linked_flag_ids")
+        if replay_linked_flag_ids is not None:
+            return feature_flag.id in replay_linked_flag_ids
+        # Legacy queryset-annotation path (kept for callers that still set it).
         if hasattr(feature_flag, "is_used_in_replay_settings_annotation"):
             return bool(feature_flag.is_used_in_replay_settings_annotation)
-        # Return False if team is not available
         if not hasattr(feature_flag, "team") or feature_flag.team is None:
             return False
-        # Fallback to database query if annotation is not available
+        # Single-flag fallback: JSONB containment (`@>`) is GIN-indexable and avoids
+        # the JSON-cast subquery that previously ran on every detail request.
         return Team.objects.filter(
             project_id=feature_flag.team.project_id,
             session_recording_linked_flag__contains={"id": feature_flag.id},
@@ -2101,43 +2105,37 @@ class FeatureFlagViewSet(
         """Apply filters from request query params to queryset."""
         return self._apply_filters(request.GET.dict(), queryset)
 
+    # Actions whose response is the fully-serialized FeatureFlag (and therefore
+    # need experiment_set + flag_evaluation_contexts prefetched). Other detail
+    # actions like `status` skip the serializer entirely and shouldn't pay for
+    # these prefetches or list-only annotations.
+    _SERIALIZED_ACTIONS = frozenset({"list", "retrieve", "create", "update", "partial_update"})
+
     def safely_get_queryset(self, queryset) -> QuerySet:
-        from django.db.models import Exists, OuterRef
+        order = self.request.GET.get("order", None)
+        if order:
+            queryset = queryset.order_by(order)
+        else:
+            queryset = queryset.order_by("-created_at")
 
-        from posthog.models.evaluation_context import FeatureFlagEvaluationContext
+        queryset = queryset.select_related("created_by", "last_modified_by")
 
-        # Always prefetch experiment_set since it's used in both list and retrieve
-        queryset = queryset.prefetch_related(
-            Prefetch(
-                "experiment_set",
-                queryset=Experiment.objects.filter(deleted=False),
-                to_attr="_active_experiments",
-            )
-        )
+        if self.action in self._SERIALIZED_ACTIONS:
+            from posthog.models.evaluation_context import FeatureFlagEvaluationContext
 
-        # Prefetch evaluation contexts to avoid N+1 queries when serializing.
-        queryset = queryset.prefetch_related(
-            Prefetch(
-                "flag_evaluation_contexts",
-                queryset=FeatureFlagEvaluationContext.objects.select_related("evaluation_context"),
-            )
-        )
-
-        # Annotate with replay settings usage to avoid N+1 queries
-        # This checks if any team in the same project uses this flag for session recording
-        # Extract the 'id' key from the JSONB field and cast to integer for safe comparison
-        from django.db.models import IntegerField
-        from django.db.models.functions import Cast
-
-        queryset = queryset.annotate(
-            is_used_in_replay_settings_annotation=Exists(
-                Team.objects.filter(
-                    project_id=OuterRef("team__project_id"),
+            queryset = queryset.prefetch_related(
+                Prefetch(
+                    "experiment_set",
+                    queryset=Experiment.objects.filter(deleted=False),
+                    to_attr="_active_experiments",
                 )
-                .annotate(json_flag_id=Cast("session_recording_linked_flag__id", IntegerField()))
-                .filter(json_flag_id=OuterRef("id"))
             )
-        )
+            queryset = queryset.prefetch_related(
+                Prefetch(
+                    "flag_evaluation_contexts",
+                    queryset=FeatureFlagEvaluationContext.objects.select_related("evaluation_context"),
+                )
+            )
 
         if self.action == "list":
             queryset = (
@@ -2174,13 +2172,36 @@ class FeatureFlagViewSet(
             # add additional filters provided by the client
             queryset = self._filter_request(self.request, queryset)
 
-        order = self.request.GET.get("order", None)
-        if order:
-            queryset = queryset.order_by(order)
-        else:
-            queryset = queryset.order_by("-created_at")
+        return queryset
 
-        return queryset.select_related("created_by", "last_modified_by")
+    def _get_replay_linked_flag_ids(self) -> set[int]:
+        """Return the set of feature flag IDs referenced by any team's session_recording_linked_flag in this project.
+
+        Computed once per request and avoids the per-row JSONB-cast `Exists` subquery we
+        previously applied to every feature flag query (including detail endpoints).
+        """
+        linked_ids: set[int] = set()
+        for cfg in (
+            Team.objects.filter(project_id=self.project_id)
+            .exclude(session_recording_linked_flag__isnull=True)
+            .values_list("session_recording_linked_flag", flat=True)
+        ):
+            if isinstance(cfg, dict) and cfg.get("id") is not None:
+                try:
+                    linked_ids.add(int(cfg["id"]))
+                except (TypeError, ValueError):
+                    continue
+        return linked_ids
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        # Precompute replay-linked flag IDs only for the list action so the serializer
+        # can resolve `is_used_in_replay_settings` in O(1) without a per-row subquery.
+        # Detail actions fall back to a single cheap JSONB containment query in the
+        # serializer.
+        if self.action == "list":
+            context["replay_linked_flag_ids"] = self._get_replay_linked_flag_ids()
+        return context
 
     @extend_schema(
         parameters=[
