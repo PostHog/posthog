@@ -20,7 +20,7 @@ export function IntervalFilter({ disabled }: IntervalFilterProps): JSX.Element {
 
     return (
         <span className="flex items-center gap-2">
-            <span className="IntervalFilter__by">
+            <span className="@max-[780px]:hidden">
                 <span className="hidden md:inline">grouped </span>by
             </span>
             {isIntervalManuallySet ? (

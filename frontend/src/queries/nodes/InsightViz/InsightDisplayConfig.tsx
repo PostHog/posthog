@@ -342,7 +342,7 @@ export function InsightDisplayConfig(): JSX.Element {
 
     return (
         <div
-            className="InsightDisplayConfig flex justify-between items-center flex-wrap gap-2"
+            className="InsightDisplayConfig flex justify-between items-center flex-wrap gap-2 [&_.LemonButton--small]:[--lemon-button-gap:0.25rem] [&_.LemonButton--small]:[--lemon-button-padding-horizontal:0.375rem]"
             data-attr="insight-filters"
         >
             <div className="flex items-center gap-x-2 flex-wrap gap-y-2">
@@ -384,24 +384,34 @@ export function InsightDisplayConfig(): JSX.Element {
             </div>
             <div className="flex items-center gap-x-2">
                 {advancedOptions.length > 0 && (
-                    <LemonMenu items={advancedOptions} closeOnClickInside={false} placement="bottom-end">
-                        <LemonButton
-                            size="small"
-                            disabledReason={editingDisabledReason}
-                            icon={<IconEllipsis />}
-                            aria-label="Options"
-                            className="InsightDisplayConfig__options-btn"
-                        >
-                            <span className="font-medium whitespace-nowrap">
-                                Options
-                                {advancedOptionsCount ? (
-                                    <span className="ml-0.5 text-secondary ligatures-none">
-                                        ({advancedOptionsCount})
-                                    </span>
-                                ) : null}
-                            </span>
-                        </LemonButton>
-                    </LemonMenu>
+                    <>
+                        <LemonMenu items={advancedOptions} closeOnClickInside={false} placement="bottom-end">
+                            <LemonButton
+                                size="small"
+                                disabledReason={editingDisabledReason}
+                                aria-label="Options"
+                                className="@max-[780px]:hidden"
+                            >
+                                <span className="font-medium whitespace-nowrap">
+                                    Options
+                                    {advancedOptionsCount ? (
+                                        <span className="ml-0.5 text-secondary ligatures-none">
+                                            ({advancedOptionsCount})
+                                        </span>
+                                    ) : null}
+                                </span>
+                            </LemonButton>
+                        </LemonMenu>
+                        <LemonMenu items={advancedOptions} closeOnClickInside={false} placement="bottom-end">
+                            <LemonButton
+                                size="small"
+                                disabledReason={editingDisabledReason}
+                                icon={<IconEllipsis />}
+                                aria-label="Options"
+                                className="hidden @max-[780px]:flex order-[999]"
+                            />
+                        </LemonMenu>
+                    </>
                 )}
                 {supportsDisplay && (
                     <ConfigFilter>
