@@ -201,8 +201,11 @@ class GitProviderFileLinksViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if integration:
             github = GitHubIntegration(integration)
 
-            if github.access_token_expired():
-                github.refresh_access_token()
+            try:
+                if github.access_token_expired():
+                    github.refresh_access_token()
+            except Exception:
+                logger.warning("github_file_link_token_refresh_failed", exc_info=True)
 
             token = github.integration.sensitive_config.get("access_token")
             if token:
