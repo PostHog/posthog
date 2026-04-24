@@ -419,6 +419,15 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     }
 
                     const skipToEarliestEvent = (matchingEvents: MatchedRecordingEvent[]): void => {
+                        // If the user navigated away during the in-flight request the connected
+                        // logics may have torn down; accessing values.* or dispatching their
+                        // actions after that throws "Can not find path" from the Kea store.
+                        if (
+                            !sessionRecordingPlayerLogic.isMounted(props) ||
+                            !sessionRecordingDataCoordinatorLogic.isMounted(props)
+                        ) {
+                            return
+                        }
                         if (values.skipToFirstMatchingEvent && matchingEvents.length > 0) {
                             const earliestMatchingEvent = matchingEvents.reduce((previous, current) =>
                                 previous.timestamp < current.timestamp ? previous : current
