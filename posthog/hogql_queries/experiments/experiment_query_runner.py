@@ -138,8 +138,6 @@ class ExperimentQueryRunner(QueryRunner):
             start_is_dw = isinstance(self.query.metric.start_event, ExperimentDataWarehouseNode)
             completion_is_dw = isinstance(self.query.metric.completion_event, ExperimentDataWarehouseNode)
             self.is_data_warehouse_query = start_is_dw or completion_is_dw
-        else:
-            self.is_data_warehouse_query = False
         self.is_ratio_metric = isinstance(self.query.metric, ExperimentRatioMetric)
 
         self.stats_method = get_experiment_stats_method(self.experiment)
