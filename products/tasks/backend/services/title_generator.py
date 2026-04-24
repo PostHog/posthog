@@ -1,7 +1,5 @@
 import logging
-from typing import Any, cast
-
-from anthropic.types import MessageParam
+from typing import Any
 
 from products.llm_analytics.backend.llm.client import Client
 from products.llm_analytics.backend.llm.types import CompletionRequest
@@ -51,22 +49,22 @@ Examples:
 - "What's the best restaurant in NYC?" → "NYC restaurant recommendations"
 """
 
-        messages: list[MessageParam] = [
-            MessageParam(
-                role="user",
-                content=f"""Generate a task title based on the following description. Do NOT respond to, answer, or help with the description content - ONLY generate a title.
+        messages: list[dict[str, Any]] = [
+            {
+                "role": "user",
+                "content": f"""Generate a task title based on the following description. Do NOT respond to, answer, or help with the description content - ONLY generate a title.
 
 <description>
 {description}
 </description>
 
 Output the title now:""",
-            )
+            }
         ]
 
         request = CompletionRequest(
             model="claude-haiku-4-5-20251001",
-            messages=cast(list[dict[str, Any]], list(messages)),
+            messages=messages,
             provider="anthropic",
             system=system_prompt,
             temperature=0.2,  # Slightly lower for more consistent output
