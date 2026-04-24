@@ -1,1 +1,1 @@
-export { ActorsView, type ActorsData } from './ActorsView'
+export { InsightActorsView, type InsightActorsData } from './InsightActorsView'

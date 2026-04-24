@@ -182,6 +182,52 @@ async def postgres_connection(postgres_config, setup_postgres_test_db):
     await connection.close()
 
 
+@pytest.fixture
+def mock_paddle_client():
+    response_data: dict[str, Any] = {"items": []}
+
+    class MockResponse:
+        def __init__(self, json_data):
+            self.json_data = json_data
+            self.status_code = 200
+
+        def json(self):
+            return self.json_data
+
+        def raise_for_status(self):
+            pass
+
+    def set_response(items: Any) -> None:
+        response_data["items"] = items
+
+    def mock_paddle_request(
+        session: Any,
+        method: str,
+        url: str,
+        headers: Optional[dict[str, Any]] = None,
+        params: Optional[dict[str, Any]] = None,
+        **kwargs,
+    ):
+        return MockResponse(
+            {
+                "data": response_data["items"],
+                "meta": {"pagination": {"next": None}},
+            }
+        )
+
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.sources.paddle.paddle.paddle_request",
+            side_effect=mock_paddle_request,
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.sources.paddle.paddle.validate_credentials",
+            return_value=True,
+        ),
+    ):
+        yield set_response
+
+
 @pytest_asyncio.fixture(autouse=True)
 async def minio_client():
     """Manage an S3 client to interact with a MinIO bucket.
@@ -862,6 +908,36 @@ async def test_zendesk_ticket_metric_events(team, zendesk_ticket_metric_events):
             "email_address": "test@posthog.com",
         },
         mock_data_response=zendesk_ticket_metric_events["ticket_metric_events"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_paddle_customers(team, paddle_customers, mock_paddle_client):
+    mock_paddle_client(paddle_customers["data"])
+
+    await _run(
+        team=team,
+        schema_name="customers",
+        table_name="paddle_customers",
+        source_type="Paddle",
+        job_inputs={"paddle_api_key": "test_api_key"},
+        mock_data_response=paddle_customers["data"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_paddle_subscriptions(team, paddle_subscriptions, mock_paddle_client):
+    mock_paddle_client(paddle_subscriptions["data"])
+
+    await _run(
+        team=team,
+        schema_name="subscriptions",
+        table_name="paddle_subscriptions",
+        source_type="Paddle",
+        job_inputs={"paddle_api_key": "test_api_key"},
+        mock_data_response=paddle_subscriptions["data"],
     )
 
 

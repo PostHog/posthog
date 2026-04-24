@@ -51,6 +51,21 @@ def _get_query_kind_from_insight(insight: Insight) -> str:
     return source.get("kind", "Unknown")
 
 
+def _extract_columns(query_results: Any) -> list[str] | None:
+    """Coerce the raw `columns` payload to a trusted `list[str]`.
+
+    Keeping the isinstance filtering here means `_summarize_generic` downstream
+    can trust its input shape instead of re-validating each entry.
+    """
+    if not isinstance(query_results, dict):
+        return None
+    raw_columns = query_results.get("columns")
+    if not isinstance(raw_columns, list):
+        return None
+    cleaned = [c for c in raw_columns if isinstance(c, str)]
+    return cleaned or None
+
+
 def _build_states_from_content_snapshot(
     content_snapshot: dict,
     insight_query_kinds: dict[int, str] | None = None,
@@ -71,9 +86,10 @@ def _build_states_from_content_snapshot(
 
         query_kind = (insight_query_kinds or {}).get(insight_id, "Unknown")
         result_payload = query_results.get("result") if query_results else None
+        columns = _extract_columns(query_results)
 
         if query_results and result_payload:
-            results_summary = build_results_summary(query_kind, result_payload)
+            results_summary = build_results_summary(query_kind, result_payload, columns=columns)
             fallback_reason: str | None = None
         elif query_error:
             results_summary = "Query failed"
@@ -251,6 +267,21 @@ def _load_insight_images(exported_asset_ids: list[int], team_id: int) -> dict[in
 
 @temporalio.activity.defn
 async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> SnapshotInsightsResult:
+    try:
+        return await _run_snapshot_subscription_insights(inputs)
+    except Exception:
+        # The metric survives Kafka log producer init failure in `configure_logger`;
+        # the log emission may not, so both are deliberate.
+        SUBSCRIPTION_SUMMARY_FAILURE.labels(reason="activity_error").inc()
+        await LOGGER.aexception(
+            "snapshot_subscription_insights.failed",
+            subscription_id=inputs.subscription_id,
+            delivery_id=inputs.delivery_id,
+        )
+        raise
+
+
+async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> SnapshotInsightsResult:
     await LOGGER.ainfo(
         "snapshot_subscription_insights.starting",
         subscription_id=inputs.subscription_id,

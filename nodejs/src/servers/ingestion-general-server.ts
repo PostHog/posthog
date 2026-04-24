@@ -90,7 +90,6 @@ export type IngestionGeneralServerConfig = BaseServerConfig &
         | 'CAPTURE_INTERNAL_URL'
         | 'LAZY_LOADER_DEFAULT_BUFFER_MS'
         | 'LAZY_LOADER_MAX_SIZE'
-        | 'TASKS_PER_WORKER'
         | 'TASK_TIMEOUT'
         | 'POSTHOG_API_KEY'
         | 'POSTHOG_HOST_URL'

@@ -262,6 +262,9 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
     activity_score = serializers.SerializerMethodField()
     has_summary = serializers.SerializerMethodField()
     summary_outcome = serializers.SerializerMethodField()
+    # Dynamic attrs set on the model instance — not Django fields, so declare explicitly
+    expiry_time = serializers.DateTimeField(read_only=True, allow_null=True)
+    recording_ttl = serializers.IntegerField(read_only=True, allow_null=True)
 
     def get_ongoing(self, obj: SessionRecording) -> bool:
         # ongoing is a custom field that we add if loading from ClickHouse
@@ -1443,10 +1446,13 @@ class SessionRecordingViewSet(
             session_ids=[session_id],
             video_based=True,
         )
-        return StreamingHttpResponse(
+        response = StreamingHttpResponse(
             self._generate_video_based_summary(session_id, user),
             content_type=ServerSentEventRenderer.media_type,
         )
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
+        return response
 
     async def _stream_lts_blob_v2_to_client_async(
         self,

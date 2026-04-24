@@ -84,8 +84,8 @@ class TestProcessRunDiffs:
 
         # Classification happens at complete_run time
         with patch(
-            "products.visual_review.backend.logic._resolve_baselines",
-            return_value={"Button": "same_hash"},
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=({"Button": "same_hash"}, 0),
         ):
             logic.complete_run(create_result.run_id)
 
@@ -146,8 +146,8 @@ class TestProcessRunDiffs:
         # Classification happens at complete_run time
         with (
             patch(
-                "products.visual_review.backend.logic._resolve_baselines",
-                return_value={"Button": "old_hash"},
+                "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+                return_value=({"Button": "old_hash"}, 0),
             ),
             patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay"),
         ):

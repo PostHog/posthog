@@ -21,6 +21,7 @@ def make_context(
     end_user_id: str | None = None,
     plan_key: str | None = "posthog-code-200-20260301",
     seat_created_at: str | None = None,
+    billing_period_start: str | None = None,
 ) -> ThrottleContext:
     user = user or make_user()
     if end_user_id is None and user.auth_method == "oauth_access_token":
@@ -31,6 +32,7 @@ def make_context(
         end_user_id=end_user_id,
         plan_key=plan_key,
         seat_created_at=seat_created_at,
+        billing_period_start=billing_period_start,
     )
 
 
@@ -340,6 +342,43 @@ class TestUserCostSustainedThrottle:
             end_user_id="42",
             plan_key="posthog-code-free-20260301",
             seat_created_at=created,
+        )
+
+        key = throttle._get_cache_key(context)
+        assert key == "cost:user:user_cost_sustained:posthog_code:42:period:1"
+
+    def test_cache_key_uses_billing_period_start_over_seat_created_at(self) -> None:
+        from datetime import UTC, datetime, timedelta
+
+        from llm_gateway.rate_limiting.cost_throttles import UserCostSustainedThrottle
+
+        throttle = UserCostSustainedThrottle(redis=None)
+        old_seat = (datetime.now(tz=UTC) - timedelta(days=35)).isoformat()
+        recent_period = (datetime.now(tz=UTC) - timedelta(days=5)).isoformat()
+        context = make_context(
+            product="posthog_code",
+            end_user_id="42",
+            plan_key="posthog-code-pro-200-20260301",
+            seat_created_at=old_seat,
+            billing_period_start=recent_period,
+        )
+
+        key = throttle._get_cache_key(context)
+        assert key == "cost:user:user_cost_sustained:posthog_code:42:period:0"
+
+    def test_cache_key_falls_back_to_seat_created_at_without_billing_period(self) -> None:
+        from datetime import UTC, datetime, timedelta
+
+        from llm_gateway.rate_limiting.cost_throttles import UserCostSustainedThrottle
+
+        throttle = UserCostSustainedThrottle(redis=None)
+        old_seat = (datetime.now(tz=UTC) - timedelta(days=35)).isoformat()
+        context = make_context(
+            product="posthog_code",
+            end_user_id="42",
+            plan_key="posthog-code-pro-200-20260301",
+            seat_created_at=old_seat,
+            billing_period_start=None,
         )
 
         key = throttle._get_cache_key(context)
@@ -1081,6 +1120,28 @@ class TestPlanAwareThrottling:
 
         throttle = UserCostBurstThrottle(redis=None)
         context = make_context(product="posthog_code", plan_key="posthog-code-200-20260301")
+
+        await throttle.record_cost(context, 50.0)
+        result = await throttle.allow_request(context)
+        assert result.allowed is True
+
+    @pytest.mark.asyncio
+    async def test_renamed_pro_plan_allows_higher_usage(self) -> None:
+        from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
+
+        throttle = UserCostBurstThrottle(redis=None)
+        context = make_context(product="posthog_code", plan_key="posthog-code-pro-200-20260301")
+
+        await throttle.record_cost(context, 50.0)
+        result = await throttle.allow_request(context)
+        assert result.allowed is True
+
+    @pytest.mark.asyncio
+    async def test_zero_dollar_pro_plan_allows_higher_usage(self) -> None:
+        from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
+
+        throttle = UserCostBurstThrottle(redis=None)
+        context = make_context(product="posthog_code", plan_key="posthog-code-pro-0-20260422")
 
         await throttle.record_cost(context, 50.0)
         result = await throttle.allow_request(context)

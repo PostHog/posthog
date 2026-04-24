@@ -12,6 +12,18 @@ from posthog.temporal.llm_analytics.eval_reports.workflow import (
     GenerateAndDeliverEvalReportWorkflow,
     ScheduleAllEvalReportsWorkflow,
 )
+from posthog.temporal.llm_analytics.evaluation_clustering import (
+    LLMAEvaluationClusteringCoordinatorWorkflow,
+    LLMAEvaluationClusteringWorkflow,
+    LLMAEvaluationSamplerCoordinatorWorkflow,
+    LLMAEvaluationSamplerWorkflow,
+    compute_evaluation_cluster_aggregates_activity,
+    emit_evaluation_cluster_events_activity,
+    fetch_evaluation_metadata_activity,
+    generate_evaluation_cluster_labels_activity,
+    perform_evaluation_clustering_compute_activity,
+    sample_and_embed_for_job_activity,
+)
 from posthog.temporal.llm_analytics.metrics import EvalsMetricsInterceptor  # noqa: F401
 from posthog.temporal.llm_analytics.run_evaluation import (
     RunEvaluationWorkflow,
@@ -85,6 +97,11 @@ WORKFLOWS = [
     ScheduleAllEvalReportsWorkflow,
     CheckCountTriggeredReportsWorkflow,
     GenerateAndDeliverEvalReportWorkflow,
+    # Evaluation clustering (Stage A sampler + Stage B clustering)
+    LLMAEvaluationSamplerCoordinatorWorkflow,
+    LLMAEvaluationSamplerWorkflow,
+    LLMAEvaluationClusteringCoordinatorWorkflow,
+    LLMAEvaluationClusteringWorkflow,
     # Keep sentiment workflow registered here temporarily so orphaned workflows on general-purpose queue can complete
     ClassifySentimentWorkflow,
     # Keep eval workflow registered here temporarily so orphaned workflows on general-purpose queue can complete
@@ -114,6 +131,13 @@ ACTIVITIES = [
     store_report_run_activity,
     deliver_report_activity,
     update_next_delivery_date_activity,
+    # Evaluation clustering activities
+    sample_and_embed_for_job_activity,
+    perform_evaluation_clustering_compute_activity,
+    fetch_evaluation_metadata_activity,
+    generate_evaluation_cluster_labels_activity,
+    compute_evaluation_cluster_aggregates_activity,
+    emit_evaluation_cluster_events_activity,
     # Keep sentiment activity registered here temporarily so orphaned workflows on general-purpose queue can complete
     classify_sentiment_activity,
     # Keep eval activities registered here temporarily so orphaned workflows on general-purpose queue can complete

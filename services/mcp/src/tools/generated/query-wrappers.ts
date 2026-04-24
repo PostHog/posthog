@@ -1293,7 +1293,7 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         name: 'query-trends-actors',
         schema: QueryTrendsActorsSchema,
         kind: 'InsightActorsQuery',
-        uiResourceUri: 'ui://posthog/actors.html',
+        uiResourceUri: 'ui://posthog/insight-actors.html',
         outputFormat: 'optimized',
         mcpVersion: 2,
     }),
