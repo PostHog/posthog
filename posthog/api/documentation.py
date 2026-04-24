@@ -75,8 +75,8 @@ class PostHogAutoSchema(AutoSchema):
                 )
                 if not resolved:
                     resolved = resolve_regex_path_parameter(self.path_regex, variable)
-                if resolved and resolved.get("schema") is not None:
-                    schema = resolved["schema"]
+                if resolved and (resolved_schema := resolved.get("schema")) is not None:
+                    schema = resolved_schema
                 parameters.append(
                     build_parameter_type(
                         name=variable,
