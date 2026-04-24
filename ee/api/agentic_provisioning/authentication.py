@@ -4,7 +4,6 @@ import hmac
 import time
 import uuid
 
-from django.conf import settings
 from django.utils import timezone
 
 import structlog
@@ -13,7 +12,15 @@ from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 
-from posthog.api.oauth.cimd import get_application_by_client_id
+from posthog.api.oauth.cimd import (
+    CIMD_PROVISIONING_DEFAULTS,
+    get_application_by_client_id,
+    is_cimd_client_id,
+    is_cimd_registration_in_progress,
+    is_cimd_url_blocked,
+    register_cimd_provisioning_application_task,
+)
+from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import OAuthApplication, find_oauth_access_token
 
 from .signature import _compute_hmac, _get_raw_body, _parse_signature_header
@@ -35,8 +42,10 @@ class ProvisioningAuthentication(BaseAuthentication):
 
     Partners are identified from request signals (HMAC header, Bearer token, or
     client_id param) and dispatched to the matching auth strategy. Returns None
-    if no partner is identified, allowing Stripe Projects HMAC auth to handle the request.
+    if no partner is identified, allowing legacy HMAC auth to handle the request.
     """
+
+    cimd_registration_pending: bool = False
 
     def authenticate(self, request: Request):
         app = self._identify_partner(request)
@@ -130,6 +139,37 @@ class ProvisioningAuthentication(BaseAuthentication):
         return app if app.provisioning_active else None
 
     def _identify_pkce_partner(self, client_id: str) -> OAuthApplication | None:
+        if is_cimd_client_id(client_id):
+            if is_cimd_url_blocked(client_id):
+                return None
+
+            app = OAuthApplication.objects.filter(cimd_metadata_url=client_id).first()
+            if app is not None:
+                try:
+                    if not app.is_provisioning_partner:
+                        for field, value in CIMD_PROVISIONING_DEFAULTS.items():
+                            setattr(app, field, value)
+                        app.save(update_fields=list(CIMD_PROVISIONING_DEFAULTS.keys()))
+                except Exception as e:
+                    logger.warning(
+                        "provisioning_cimd_backfill_error",
+                        client_id=client_id,
+                        error=str(e),
+                        error_type=type(e).__name__,
+                    )
+                    capture_exception(e)
+                    try:
+                        app.refresh_from_db()
+                    except Exception:
+                        return None
+                return app if app.provisioning_active else None
+
+            # New CIMD URL: kick off background registration, don't block the worker
+            if not is_cimd_registration_in_progress(client_id):
+                register_cimd_provisioning_application_task.delay(client_id)
+            self.cimd_registration_pending = True
+            return None
+
         try:
             app = get_application_by_client_id(client_id)
             if not app.is_provisioning_partner or not app.provisioning_active:
@@ -196,35 +236,3 @@ def _capture_auth_event(app: OAuthApplication, outcome: str, **extra: object) ->
             **extra,
         },
     )
-
-
-# --- Stripe Projects HMAC auth (kept for backward compatibility) ---
-
-
-class StripeProvisioningBearerAuthentication(BaseAuthentication):
-    def authenticate(self, request: Request):
-        auth_header = request.META.get("HTTP_AUTHORIZATION", "")
-        if not auth_header.startswith(BEARER_PREFIX):
-            return None
-
-        token_value = auth_header[len(BEARER_PREFIX) :].strip()
-        if not token_value:
-            return None
-
-        access_token = find_oauth_access_token(token_value)
-        if access_token is None:
-            raise AuthenticationFailed("Invalid access token")
-
-        if access_token.expires and access_token.expires < timezone.now():
-            raise AuthenticationFailed("Access token expired")
-
-        if not _is_stripe_oauth_app(access_token.application):
-            raise AuthenticationFailed("Token not issued for Stripe provisioning")
-
-        return (access_token.user, access_token)
-
-
-def _is_stripe_oauth_app(app) -> bool:
-    if app is None:
-        return False
-    return app.client_id == settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID

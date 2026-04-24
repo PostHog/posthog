@@ -469,6 +469,7 @@ export const FEATURE_FLAGS = {
     TASK_SUMMARIES: 'task-summaries', // owner: #team-llm-analytics
     TASK_TOOL: 'phai-task-tool', // owner: @kappa90 #team-posthog-ai
     TASKS: 'tasks', // owner: #team-llm-analytics
+    TAXONOMIC_FILTER_CATEGORY_DROPDOWN: 'taxonomic-filter-category-dropdown', // owner: @pauldambra #team-product-analytics multivariate=control,pill,icon
     TOGGLE_PROPERTY_ARRAYS: 'toggle-property-arrays', // owner: @arthurdedeus #team-customer-analytics
     TRACING: 'tracing', // owner: #team-apm (@jonmcwest, @frankh)
     TRAFFIC_TYPE_VIRTUAL_PROPERTIES: 'traffic-type-virtual-properties', // owner: #team-web-analytics

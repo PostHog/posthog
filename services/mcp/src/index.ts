@@ -165,6 +165,17 @@ const handleRequest = async (
         })
     }
 
+    // Health endpoint for uptime probes and load-balancer checks.
+    // Public and unauthenticated so external monitors can hit it without a token.
+    if (url.pathname === '/health' || url.pathname === '/healthz') {
+        return new Response(JSON.stringify({ status: 'ok' }), {
+            headers: {
+                'Content-Type': 'application/json',
+                'Cache-Control': 'no-store',
+            },
+        })
+    }
+
     // Detect region from hostname (mcp-eu.posthog.com) or query param (?region=eu)
     // Hostname takes precedence as it's the workaround for Claude Code's OAuth bug
     const effectiveRegion = getRegionFromRequest(request)

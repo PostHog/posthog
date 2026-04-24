@@ -309,6 +309,9 @@ def property_to_Q(
     override_property_values: Optional[dict[str, Any]] = None,
     cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
     using_database: str = "default",
+    *,
+    person_id: Optional[int] = None,
+    team_id: Optional[int] = None,
 ) -> Q:
     if override_property_values is None:
         override_property_values = {}
@@ -342,6 +345,30 @@ def property_to_Q(
             return Q(pk__isnull=True)
 
         if cohort.is_static:
+            # When a concrete person is in scope, short-circuit the Exists subquery
+            # with a direct membership check — routes through personhog when enabled,
+            # falling back to the persons-DB ORM otherwise. Mirrors the override
+            # short-circuit below (returning Q(pk__isnull=False|True)).
+            if person_id is not None and team_id is not None:
+                from posthog.models.person.util import is_person_in_cohort
+
+                if is_person_in_cohort(team_id=team_id, person_id=person_id, cohort_id=cohort_id):
+                    return Q(pk__isnull=False)
+                return Q(pk__isnull=True)
+
+            # When team_id is available, list all member IDs and filter with
+            # Q(id__in=…) — routes through personhog when the gate is on,
+            # falling back to the CohortPeople table otherwise. This avoids
+            # the Exists(CohortPeople) subquery so the persons DB is not
+            # required on the personhog path.
+            if team_id is not None:
+                from posthog.models.person.util import list_cohort_member_ids
+
+                member_ids = list_cohort_member_ids(team_id=team_id, cohort_id=cohort_id)
+                if not member_ids:
+                    return Q(pk__isnull=True)
+                return Q(id__in=member_ids)
+
             return Q(
                 Exists(
                     CohortPeople.objects.db_manager(using_database)
@@ -362,6 +389,8 @@ def property_to_Q(
                 override_property_values,
                 cohorts_cache,
                 using_database,
+                person_id=person_id,
+                team_id=team_id,
             )
 
     # short circuit query if key exists in override_property_values
@@ -432,6 +461,9 @@ def property_group_to_Q(
     override_property_values: Optional[dict[str, Any]] = None,
     cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
     using_database: str = "default",
+    *,
+    person_id: Optional[int] = None,
+    team_id: Optional[int] = None,
 ) -> Q:
     if override_property_values is None:
         override_property_values = {}
@@ -448,6 +480,8 @@ def property_group_to_Q(
                 override_property_values,
                 cohorts_cache,
                 using_database,
+                person_id=person_id,
+                team_id=team_id,
             )
             if property_group.type == PropertyOperatorType.OR:
                 filters |= group_filter
@@ -457,7 +491,13 @@ def property_group_to_Q(
         for property in property_group.values:
             property = cast(Property, property)
             property_filter = property_to_Q(
-                project_id, property, override_property_values, cohorts_cache, using_database
+                project_id,
+                property,
+                override_property_values,
+                cohorts_cache,
+                using_database,
+                person_id=person_id,
+                team_id=team_id,
             )
             if property_group.type == PropertyOperatorType.OR:
                 if property.negation:
@@ -479,10 +519,18 @@ def properties_to_Q(
     override_property_values: Optional[dict[str, Any]] = None,
     cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
     using_database: str = "default",
+    *,
+    person_id: Optional[int] = None,
+    team_id: Optional[int] = None,
 ) -> Q:
     """
     Converts a filter to Q, for use in Django ORM .filter()
     If you're filtering a Person/Group QuerySet, use is_direct_query to avoid doing an unnecessary nested loop
+
+    When ``person_id`` and ``team_id`` are both provided, static-cohort
+    membership checks short-circuit through ``is_person_in_cohort`` (routed via
+    personhog when enabled) instead of emitting an ``Exists(CohortPeople)``
+    subquery — useful for per-person evaluation paths.
     """
     if override_property_values is None:
         override_property_values = {}
@@ -497,6 +545,8 @@ def properties_to_Q(
         override_property_values,
         cohorts_cache,
         using_database,
+        person_id=person_id,
+        team_id=team_id,
     )
 
 

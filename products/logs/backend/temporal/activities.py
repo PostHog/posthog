@@ -1,7 +1,6 @@
 """Temporal activities for logs alerting."""
 
 import time
-import asyncio
 import dataclasses
 from datetime import UTC, datetime, timedelta
 
@@ -13,6 +12,7 @@ import temporalio.activity
 
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.exceptions_capture import capture_exception
+from posthog.sync import database_sync_to_async_pool
 
 from products.logs.backend.alert_check_query import AlertCheckQuery, fetch_live_logs_checkpoint, resolve_alert_date_to
 from products.logs.backend.alert_error_classifier import (
@@ -60,8 +60,7 @@ class CheckAlertsOutput:
 @temporalio.activity.defn
 async def check_alerts_activity(input: CheckAlertsInput) -> CheckAlertsOutput:
     """Find all due alerts and evaluate them sequentially."""
-    result = await asyncio.to_thread(_check_alerts_sync)
-    return result
+    return await database_sync_to_async_pool(_check_alerts_sync)()
 
 
 def _check_alerts_sync() -> CheckAlertsOutput:

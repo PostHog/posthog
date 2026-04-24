@@ -815,6 +815,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                         )
         return JsonResponse({"results": comments})
 
+    @extend_schema(operation_id="notebooks_all_activity_retrieve")
     @action(methods=["GET"], url_path="activity", detail=False)
     def all_activity(self, request: Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
