@@ -84,8 +84,7 @@
         margin-left: 0.5rem;
     }
 
-    .Popover.Popover--enter-active &,
-    .Popover.Popover--enter-done & {
+    .Popover.Popover--enter-active & {
         opacity: 1;
         transform: none;
     }
