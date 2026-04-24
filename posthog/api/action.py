@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 from django.db import connection
+from django.db.backends.utils import CursorWrapper
 from django.db.models import Count
 
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema, extend_schema_field
@@ -427,7 +428,7 @@ def find_action_references(action_id: int, team: Team) -> list[dict[str, Any]]:
 _REFERENCE_COUNT_MAX_ACTIONS = 500
 
 
-def _count_insight_references(cursor, ids_array: list[int], team: Team) -> list[tuple[int, int]]:
+def _count_insight_references(cursor: CursorWrapper, ids_array: list[int], team: Team) -> list[tuple[int, int]]:
     insight_table = Insight._meta.db_table
     # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (parameterized via %s)
     cursor.execute(
@@ -449,7 +450,7 @@ def _count_insight_references(cursor, ids_array: list[int], team: Team) -> list[
     return cursor.fetchall()
 
 
-def _count_experiment_references(cursor, ids_array: list[int], team: Team) -> list[tuple[int, int]]:
+def _count_experiment_references(cursor: CursorWrapper, ids_array: list[int], team: Team) -> list[tuple[int, int]]:
     exp_conditions = []
     for field in _EXPERIMENT_JSON_FIELDS:
         exp_conditions.append(
@@ -476,7 +477,7 @@ def _count_experiment_references(cursor, ids_array: list[int], team: Team) -> li
     return cursor.fetchall()
 
 
-def _count_cohort_references(cursor, ids_array: list[int], team: Team) -> list[tuple[int, int]]:
+def _count_cohort_references(cursor: CursorWrapper, ids_array: list[int], team: Team) -> list[tuple[int, int]]:
     cohort_table = Cohort._meta.db_table
     team_table = Team._meta.db_table
     # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (parameterized via %s)
@@ -498,7 +499,7 @@ def _count_cohort_references(cursor, ids_array: list[int], team: Team) -> list[t
     return cursor.fetchall()
 
 
-def _count_hog_function_references(cursor, ids_array: list[int], team: Team) -> list[tuple[int, int]]:
+def _count_hog_function_references(cursor: CursorWrapper, ids_array: list[int], team: Team) -> list[tuple[int, int]]:
     hf_table = HogFunction._meta.db_table
     # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (parameterized via %s)
     cursor.execute(
@@ -516,12 +517,24 @@ def _count_hog_function_references(cursor, ids_array: list[int], team: Team) -> 
     return cursor.fetchall()
 
 
-_REFERENCE_COUNTERS: tuple[tuple[str, Any], ...] = (
-    ("insight", _count_insight_references),
-    ("experiment", _count_experiment_references),
-    ("cohort", _count_cohort_references),
-    ("hog_function", _count_hog_function_references),
-)
+def _safe_count(entity_type: str, ids_array: list[int], team: Team, counts: Counter[int]) -> None:
+    # Names are resolved at call time via globals() so tests can patch individual counters.
+    counter_fn = globals()[f"_count_{entity_type}_references"]
+    try:
+        with connection.cursor() as cursor:
+            rows = counter_fn(cursor, ids_array, team)
+        for aid, cnt in rows:
+            counts[aid] += cnt
+    except Exception as ex:
+        capture_exception(
+            ex,
+            additional_properties={
+                "feature": "action_reference_count",
+                "entity_type": entity_type,
+                "team_id": team.pk,
+                "action_count": len(ids_array),
+            },
+        )
 
 
 def count_action_references_bulk(action_ids: list[int], team: Team) -> dict[int, int]:
@@ -536,22 +549,8 @@ def count_action_references_bulk(action_ids: list[int], team: Team) -> dict[int,
     counts: Counter[int] = Counter()
     ids_array = list(action_ids[:_REFERENCE_COUNT_MAX_ACTIONS])
 
-    for entity_type, counter_fn in _REFERENCE_COUNTERS:
-        try:
-            with connection.cursor() as cursor:
-                rows = counter_fn(cursor, ids_array, team)
-            for aid, cnt in rows:
-                counts[aid] += cnt
-        except Exception as ex:
-            capture_exception(
-                ex,
-                additional_properties={
-                    "feature": "action_reference_count",
-                    "entity_type": entity_type,
-                    "team_id": team.pk,
-                    "action_count": len(ids_array),
-                },
-            )
+    for entity_type in ("insight", "experiment", "cohort", "hog_function"):
+        _safe_count(entity_type, ids_array, team, counts)
 
     return dict(counts)
 
