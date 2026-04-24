@@ -556,6 +556,15 @@ def send_hog_function_disabled(hog_function_id: str) -> None:
         message.add_user_recipient(membership.user)
     message.send()
 
+    dispatch_pipeline_failure_realtime(
+        team=team,
+        memberships=memberships_to_email,
+        title=f"Destination {hog_function.name} disabled",
+        body="Auto-disabled due to high error rate",
+        resource_id=str(hog_function.id),
+        source_url=f"/project/{team.project_id}/pipeline/destinations/hog-{hog_function.id}",
+    )
+
 
 def send_batch_export_run_failure(
     batch_export_run_id: str | UUIDT,
@@ -602,6 +611,15 @@ def send_batch_export_run_failure(
     for membership in memberships_to_email:
         message.add_user_recipient(membership.user)
     message.send()
+
+    dispatch_pipeline_failure_realtime(
+        team=team,
+        memberships=memberships_to_email,
+        title=f"Batch export {batch_export_run.batch_export.name} failed",
+        body=f"Last failure at {batch_export_run.last_updated_at.strftime('%I:%M%p %Z on %B %d')}",
+        resource_id=str(batch_export_run.batch_export.id),
+        source_url=f"/project/{team.project_id}/batch_exports/{batch_export_run.batch_export.id}",
+    )
 
 
 @shared_task(ignore_result=True)

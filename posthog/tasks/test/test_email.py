@@ -31,6 +31,7 @@ from posthog.tasks.email import (
     send_email_change_emails,
     send_email_verification,
     send_fatal_plugin_error,
+    send_hog_function_disabled,
     send_hog_functions_daily_digest,
     send_hog_functions_digest_email,
     send_invite,
@@ -437,6 +438,29 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         send_fatal_plugin_error(plugin_config.id, "20222-01-01", error="It exploded!", is_system_error=False)
         # should be sent to both
         assert len(mocked_email_messages[1].to) == 2
+
+    @patch("posthog.tasks.email.dispatch_pipeline_failure_realtime")
+    def test_send_hog_function_disabled_dispatches_realtime(
+        self, mock_realtime: MagicMock, MockEmailMessage: MagicMock
+    ) -> None:
+        mock_email_messages(MockEmailMessage)
+        hog_function = HogFunction.objects.create(
+            team=self.team,
+            name="My Destination",
+            type="destination",
+            enabled=True,
+            deleted=False,
+            hog="return event",
+        )
+
+        send_hog_function_disabled(str(hog_function.id))
+
+        mock_realtime.assert_called_once()
+        kwargs = mock_realtime.call_args.kwargs
+        assert kwargs["team"].id == self.team.id
+        assert "Destination" in kwargs["title"]
+        assert hog_function.name in kwargs["title"]
+        assert kwargs["resource_id"] == str(hog_function.id)
 
     def test_send_batch_export_run_failure(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
