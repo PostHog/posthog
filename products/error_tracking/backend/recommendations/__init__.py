@@ -1,9 +1,7 @@
 from .alerts import AlertsRecommendation
 from .base import Recommendation
-from .cross_sell import CrossSellRecommendation
 
 RECOMMENDATIONS: list[Recommendation] = [
-    CrossSellRecommendation(),
     AlertsRecommendation(),
 ]
 
