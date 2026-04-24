@@ -6,6 +6,7 @@ from posthog.temporal.data_imports.sources.google_ads.source import GoogleAdsSou
 class TestGoogleAdsNonRetryableErrors:
     def setup_method(self):
         self.source = GoogleAdsSource()
+        self.non_retryable = self.source.get_non_retryable_errors()
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -19,8 +20,7 @@ class TestGoogleAdsNonRetryableErrors:
         ],
     )
     def test_invalid_grant_is_non_retryable(self, error_msg):
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(pattern in error_msg for pattern in non_retryable), (
+        assert any(pattern in error_msg for pattern in self.non_retryable), (
             f"RefreshError message {error_msg!r} did not match any non-retryable pattern"
         )
 
@@ -36,4 +36,4 @@ class TestGoogleAdsNonRetryableErrors:
         ],
     )
     def test_documented_patterns_present(self, pattern):
-        assert pattern in self.source.get_non_retryable_errors()
+        assert pattern in self.non_retryable
