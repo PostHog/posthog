@@ -1,4 +1,4 @@
-from contextlib import AbstractContextManager
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -60,7 +60,7 @@ class TestGetSchemas:
 
 
 class TestShouldUseSearchPath:
-    def _patch_schema(self, initial_sync_complete: bool) -> AbstractContextManager[MagicMock]:
+    def _patch_schema(self, initial_sync_complete: bool) -> Any:
         schema = MagicMock()
         schema.initial_sync_complete = initial_sync_complete
         return patch(
