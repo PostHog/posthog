@@ -1653,12 +1653,49 @@ class TestPrinter(BaseTest):
             ast.SelectQuery,
             prepare_ast_for_printing(select_query, context=context, dialect="clickhouse", stack=[select_query]),
         )
-        result = print_prepared_ast(prepared, context=context, dialect="clickhouse", stack=[], settings=settings)
+        # Only allowlisted teams get enable_analyzer forced — older ClickHouse versions reject the setting.
+        with patch("posthog.settings.data_stores.is_enable_analyzer_team", return_value=True):
+            result = print_prepared_ast(prepared, context=context, dialect="clickhouse", stack=[], settings=settings)
 
         if expects_analyzer:
             self.assertIn("enable_analyzer=1", result)
         else:
             self.assertNotIn("enable_analyzer=1", result)
+
+    def test_non_equality_join_skips_analyzer_for_unlisted_team(self):
+        # Teams not in the enable_analyzer allowlist must not have the setting forced, because clusters on
+        # ClickHouse <24.8 reject `enable_analyzer` outright with CHQueryErrorUnknownSetting.
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        settings = HogQLGlobalSettings()
+
+        select_query = ast.SelectQuery(
+            select=[ast.Constant(value=1)],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"]),
+                next_join=ast.JoinExpr(
+                    join_type="LEFT JOIN",
+                    table=ast.Field(chain=["events"]),
+                    alias="e2",
+                    constraint=ast.JoinConstraint(
+                        expr=ast.CompareOperation(
+                            op=ast.CompareOperationOp.GtEq,
+                            left=ast.Field(chain=["events", "event"]),
+                            right=ast.Field(chain=["e2", "event"]),
+                        ),
+                        constraint_type="ON",
+                    ),
+                ),
+            ),
+        )
+
+        prepared = cast(
+            ast.SelectQuery,
+            prepare_ast_for_printing(select_query, context=context, dialect="clickhouse", stack=[select_query]),
+        )
+        with patch("posthog.settings.data_stores.is_enable_analyzer_team", return_value=False):
+            result = print_prepared_ast(prepared, context=context, dialect="clickhouse", stack=[], settings=settings)
+
+        self.assertNotIn("enable_analyzer", result)
 
     def test_select_array_join(self):
         self.assertEqual(

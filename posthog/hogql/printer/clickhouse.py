@@ -328,16 +328,21 @@ class ClickHousePrinter(BasePrinter):
             raise InternalHogQLError("Printing queries with a FROM clause is not permitted before type resolution")
 
         # ClickHouse requires enable_analyzer=1 for non-equality JOIN ON conditions (e.g. >=, <=, >, <, !=).
-        # Without it, queries with such conditions fail with INVALID_JOIN_ON_EXPRESSION.
+        # Without it, queries with such conditions fail with INVALID_JOIN_ON_EXPRESSION. We only force the
+        # setting for teams on the analyzer allowlist — older ClickHouse versions reject the setting outright
+        # (CHQueryErrorUnknownSetting), which would otherwise abort the whole query.
         if (
             node.constraint is not None
             and node.constraint.constraint_type == "ON"
             and _join_constraint_has_non_equality(node.constraint.expr)
         ):
-            if self.settings is None:
-                self.settings = HogQLGlobalSettings(enable_analyzer=True)
-            elif self.settings.enable_analyzer is None:
-                self.settings = self.settings.model_copy(update={"enable_analyzer": True})
+            from posthog.settings.data_stores import is_enable_analyzer_team
+
+            if is_enable_analyzer_team(self.context.team_id):
+                if self.settings is None:
+                    self.settings = HogQLGlobalSettings(enable_analyzer=True)
+                elif self.settings.enable_analyzer is None:
+                    self.settings = self.settings.model_copy(update={"enable_analyzer": True})
 
         return super().visit_join_expr(node)
 
