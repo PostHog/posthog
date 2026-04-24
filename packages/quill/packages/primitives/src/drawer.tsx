@@ -46,7 +46,9 @@ function DrawerContent({
                     {...props}
                 >
                     <DrawerHandle />
+                    <div className="w-full max-w-[32rem] mx-auto">
                     {children}
+                    </div>
                 </DrawerPrimitive.Popup>
             </DrawerPrimitive.Viewport>
         </DrawerPortal>

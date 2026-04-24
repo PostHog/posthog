@@ -27,6 +27,7 @@
         },
         "./tailwind.css": "./dist/tailwind.css",
         "./base.css": "./dist/base.css",
+        "./primitives.css": "./dist/primitives.css",
         "./tokens.css": "./dist/tokens.css",
         "./color-system.css": "./dist/color-system.css",
         "./tokens.scoped.css": "./dist/tokens.scoped.css",
