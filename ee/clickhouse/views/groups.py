@@ -809,6 +809,9 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         ResourceNotebook.objects.create(notebook=notebook, group=group.id)
 
 
+_DW_FILTER_REQUIRED_FIELDS = ("table_name", "timestamp_field", "group_key_field")
+
+
 class GroupUsageMetricSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     name = serializers.CharField(
         max_length=255,
@@ -859,13 +862,46 @@ class GroupUsageMetricSerializer(serializers.ModelSerializer, UserAccessControlS
 
         math = data.get("math", self.instance.math if self.instance else GroupUsageMetric.Math.COUNT)
         math_property = data.get("math_property", self.instance.math_property if self.instance else None)
+        filters = data.get("filters", self.instance.filters if self.instance else None)
 
+        source = (filters or {}).get("source") if isinstance(filters, dict) else None
+
+        if source == GroupUsageMetric.Source.DATA_WAREHOUSE:
+            self._validate_data_warehouse(filters, math, math_property)
+        elif source in (None, GroupUsageMetric.Source.EVENTS):
+            self._validate_events(math, math_property)
+        else:
+            raise serializers.ValidationError({"filters": f"Unknown source: {source!r}"})
+
+        return data
+
+    def _validate_events(self, math, math_property):
         if math == GroupUsageMetric.Math.SUM and not math_property:
             raise serializers.ValidationError({"math_property": "math_property is required when math is 'sum'."})
         if math == GroupUsageMetric.Math.COUNT and math_property:
             raise serializers.ValidationError({"math_property": "math_property must be empty when math is 'count'."})
 
-        return data
+    def _validate_data_warehouse(self, filters: dict, math, math_property):
+        from products.data_warehouse.backend.models import DataWarehouseTable
+
+        missing = [field for field in _DW_FILTER_REQUIRED_FIELDS if not filters.get(field)]
+        if missing:
+            raise serializers.ValidationError(
+                {"filters": f"Data warehouse metrics require {', '.join(_DW_FILTER_REQUIRED_FIELDS)}."}
+            )
+
+        if math == GroupUsageMetric.Math.SUM and not math_property:
+            raise serializers.ValidationError(
+                {"math_property": "math_property (column to sum) is required when math is 'sum'."}
+            )
+        if math == GroupUsageMetric.Math.COUNT and math_property:
+            raise serializers.ValidationError({"math_property": "math_property must be empty when math is 'count'."})
+
+        team = self.context["get_team"]()
+        if not DataWarehouseTable.objects.filter(team=team, name=filters["table_name"], deleted=False).exists():
+            raise serializers.ValidationError(
+                {"filters": f"Data warehouse table {filters['table_name']!r} does not exist."}
+            )
 
 
 @extend_schema_view(
