@@ -21,7 +21,7 @@ import {
     getDefaultKafkaWarpstreamIngestionProducerEnvConfig,
     getDefaultKafkaWarpstreamLogsProducerEnvConfig,
 } from '../logs-ingestion/outputs/producers'
-import { createOutputsRegistry } from '../logs-ingestion/outputs/registry'
+import { createTracesOutputsRegistry } from '../logs-ingestion/outputs/registry'
 import { TracesIngestionConsumer } from '../logs-ingestion/traces-ingestion-consumer'
 import { PluginServerService, RedisPool } from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
@@ -108,7 +108,7 @@ export class IngestionTracesServer implements NodeServer {
         const quotaLimiting = new QuotaLimiting(this.posthogRedisPool, teamManager)
 
         // 2. Resolve outputs (topic + producer per logical name, env-controlled)
-        const outputs = createOutputsRegistry().build(this.producerRegistry, this.config)
+        const outputs = createTracesOutputsRegistry().build(this.producerRegistry, this.config)
 
         // 3. Traces ingestion consumer
         const serviceLoaders: (() => Promise<PluginServerService>)[] = []
@@ -117,7 +117,6 @@ export class IngestionTracesServer implements NodeServer {
             const consumer = new TracesIngestionConsumer(this.config, {
                 teamManager,
                 quotaLimiting,
-                producerRegistry: this.producerRegistry!,
                 outputs,
             })
             await consumer.start()

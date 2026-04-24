@@ -10,10 +10,9 @@ import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/he
 import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
-import { KAFKA_APP_METRICS_2 } from '../config/kafka-topics'
+import { KAFKA_APP_METRICS_2, KAFKA_LOGS_CLICKHOUSE, KAFKA_LOGS_INGESTION_DLQ } from '../config/kafka-topics'
 import { APP_METRICS_OUTPUT, AppMetricsOutput } from '../ingestion/common/outputs'
 import { IngestionOutputs } from '../ingestion/outputs/ingestion-outputs'
-import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
 import { SingleIngestionOutput } from '../ingestion/outputs/single-ingestion-output'
 import { parseJSON } from '../utils/json-parse'
 import { LogRecord, encodeLogRecords } from './log-record-avro'
@@ -29,7 +28,7 @@ import {
     logsRecordsDroppedCounter,
     logsRecordsReceivedCounter,
 } from './logs-ingestion-consumer'
-import { WARPSTREAM_LOGS_PRODUCER, WarpstreamLogsProducer } from './outputs/producers'
+import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
 import { BASE_REDIS_KEY } from './services/logs-rate-limiter.service'
 
 const DEFAULT_TEST_TIMEOUT = 5000
@@ -120,13 +119,17 @@ describe('LogsIngestionConsumer', () => {
             hub,
             {
                 ...hub,
-                producerRegistry: new KafkaProducerRegistry<WarpstreamLogsProducer>({
-                    [WARPSTREAM_LOGS_PRODUCER]: mockProducer,
-                }),
-                outputs: new IngestionOutputs<AppMetricsOutput>({
+                outputs: new IngestionOutputs<AppMetricsOutput | LogsOutput | LogsDlqOutput>({
                     [APP_METRICS_OUTPUT]: new SingleIngestionOutput(
                         APP_METRICS_OUTPUT,
                         KAFKA_APP_METRICS_2,
+                        mockProducer,
+                        'test'
+                    ),
+                    [LOGS_OUTPUT]: new SingleIngestionOutput(LOGS_OUTPUT, KAFKA_LOGS_CLICKHOUSE, mockProducer, 'test'),
+                    [LOGS_DLQ_OUTPUT]: new SingleIngestionOutput(
+                        LOGS_DLQ_OUTPUT,
+                        KAFKA_LOGS_INGESTION_DLQ,
                         mockProducer,
                         'test'
                     ),

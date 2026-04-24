@@ -7,8 +7,6 @@ import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { AppMetricsOutput } from '~/ingestion/common/outputs'
 import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
-import { KafkaProducerRegistry } from '~/ingestion/outputs/kafka-producer-registry'
-import { KafkaProducerWrapper } from '~/kafka/producer'
 
 import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
 import { HealthCheckResult, PluginServerService } from '../types'
@@ -18,17 +16,20 @@ import { TeamManager } from '../utils/team-manager'
 import { LogsIngestionConsumerConfig } from './config'
 import { type PiiScrubStats } from './log-pii-scrub'
 import { processLogMessageBuffer } from './log-record-avro'
-import { WARPSTREAM_LOGS_PRODUCER, WarpstreamLogsProducer } from './outputs/producers'
+import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
 import { LogsRateLimiterService } from './services/logs-rate-limiter.service'
 import { LogsIngestionMessage } from './types'
 
 export interface LogsIngestionConsumerDeps {
     teamManager: TeamManager
     quotaLimiting: QuotaLimiting
-    /** Producer registry — must include `WARPSTREAM_LOGS_PRODUCER` for the log/DLQ data path. */
-    producerRegistry: KafkaProducerRegistry<WarpstreamLogsProducer>
-    /** Resolved outputs registry — must include `APP_METRICS_OUTPUT`. */
-    outputs: IngestionOutputs<AppMetricsOutput>
+    /**
+     * Resolved outputs registry — must include `LOGS_OUTPUT`, `LOGS_DLQ_OUTPUT`,
+     * and `APP_METRICS_OUTPUT`. The producer + topic for each is wired by the
+     * server via env vars — this consumer never touches a `KafkaProducerWrapper`
+     * directly.
+     */
+    outputs: IngestionOutputs<LogsOutput | LogsDlqOutput | AppMetricsOutput>
 }
 
 export type UsageStats = {
@@ -103,16 +104,12 @@ export const logsRecordsDroppedCounter = new Counter({
 export class LogsIngestionConsumer {
     protected name = 'LogsIngestionConsumer'
     protected kafkaConsumer: KafkaConsumer
-    private kafkaProducer: KafkaProducerWrapper
     private appMetricsAggregator: AppMetricsAggregator
     private redis: RedisV2
     private rateLimiter: LogsRateLimiterService
 
     protected groupId: string
     protected topic: string
-    protected clickhouseTopic: string
-    protected overflowTopic?: string
-    protected dlqTopic?: string
 
     constructor(
         config: LogsIngestionConsumerConfig,
@@ -122,13 +119,7 @@ export class LogsIngestionConsumer {
         // The group and topic are configurable allowing for multiple ingestion consumers to be run in parallel
         this.groupId = overrides.LOGS_INGESTION_CONSUMER_GROUP_ID ?? config.LOGS_INGESTION_CONSUMER_GROUP_ID
         this.topic = overrides.LOGS_INGESTION_CONSUMER_CONSUME_TOPIC ?? config.LOGS_INGESTION_CONSUMER_CONSUME_TOPIC
-        this.clickhouseTopic =
-            overrides.LOGS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC ?? config.LOGS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC
-        this.overflowTopic =
-            overrides.LOGS_INGESTION_CONSUMER_OVERFLOW_TOPIC ?? config.LOGS_INGESTION_CONSUMER_OVERFLOW_TOPIC
-        this.dlqTopic = overrides.LOGS_INGESTION_CONSUMER_DLQ_TOPIC ?? config.LOGS_INGESTION_CONSUMER_DLQ_TOPIC
 
-        this.kafkaProducer = deps.producerRegistry.getProducer(WARPSTREAM_LOGS_PRODUCER)
         this.appMetricsAggregator = new AppMetricsAggregator(deps.outputs)
 
         this.kafkaConsumer = new KafkaConsumer({ groupId: this.groupId, topic: this.topic })
@@ -331,18 +322,19 @@ export class LogsIngestionConsumer {
                     )
                     this.addPiiStatsIntoUsage(usageStats, message.teamId, pii)
 
-                    return this.kafkaProducer!.produce({
-                        topic: this.clickhouseTopic,
-                        value: processedValue,
-                        key: null,
-                        headers: {
-                            ...parseKafkaHeaders(message.message.headers),
-                            token: message.token,
-                            team_id: message.teamId.toString(),
-                            'json-parse': jsonParse.toString(),
-                            'retention-days': retentionDays.toString(),
+                    return this.deps.outputs.queueMessages(LOGS_OUTPUT, [
+                        {
+                            value: processedValue,
+                            key: null,
+                            headers: {
+                                ...parseKafkaHeaders(message.message.headers),
+                                token: message.token,
+                                team_id: message.teamId.toString(),
+                                'json-parse': jsonParse.toString(),
+                                'retention-days': retentionDays.toString(),
+                            },
                         },
-                    })
+                    ])
                 } catch (error) {
                     await this.produceToDlq(message, error)
                     throw error
@@ -360,29 +352,26 @@ export class LogsIngestionConsumer {
     }
 
     private async produceToDlq(message: LogsIngestionMessage, error: unknown): Promise<void> {
-        if (!this.dlqTopic) {
-            return
-        }
-
         const errorMessage = error instanceof Error ? error.message : String(error)
         const errorName = error instanceof Error ? error.name : 'UnknownError'
 
         logMessageDlqCounter.inc({ reason: errorName, team_id: message.teamId.toString() })
 
         try {
-            await this.kafkaProducer!.produce({
-                topic: this.dlqTopic,
-                value: message.message.value,
-                key: null,
-                headers: {
-                    ...parseKafkaHeaders(message.message.headers),
-                    token: message.token,
-                    team_id: message.teamId.toString(),
-                    error_message: errorMessage,
-                    error_name: errorName,
-                    failed_at: new Date().toISOString(),
+            await this.deps.outputs.queueMessages(LOGS_DLQ_OUTPUT, [
+                {
+                    value: message.message.value,
+                    key: null,
+                    headers: {
+                        ...parseKafkaHeaders(message.message.headers),
+                        token: message.token,
+                        team_id: message.teamId.toString(),
+                        error_message: errorMessage,
+                        error_name: errorName,
+                        failed_at: new Date().toISOString(),
+                    },
                 },
-            })
+            ])
         } catch (dlqError) {
             logger.error('Failed to produce message to DLQ', {
                 error: dlqError,
