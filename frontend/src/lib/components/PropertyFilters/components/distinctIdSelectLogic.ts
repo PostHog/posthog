@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -10,6 +10,8 @@ import { PersonType } from '~/types'
 import type { distinctIdSelectLogicType } from './distinctIdSelectLogicType'
 
 export interface DistinctIdSelectLogicProps {
+    /** Stable per-instance key so two pickers mounted side-by-side don't share state. */
+    instanceKey: string
     value: string[]
 }
 
@@ -36,7 +38,8 @@ export async function resolveDistinctIdNames(distinctIds: string[]): Promise<Rec
 
 export const distinctIdSelectLogic = kea<distinctIdSelectLogicType>([
     props({} as DistinctIdSelectLogicProps),
-    path(['lib', 'components', 'PropertyFilters', 'components', 'distinctIdSelectLogic']),
+    key((props) => props.instanceKey),
+    path((k) => ['lib', 'components', 'PropertyFilters', 'components', 'distinctIdSelectLogic', k]),
     connect(() => ({
         values: [teamLogic, ['currentTeamId']],
     })),

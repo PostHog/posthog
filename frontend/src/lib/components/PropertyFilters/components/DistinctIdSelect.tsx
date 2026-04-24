@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useId, useMemo } from 'react'
 
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { isOperatorMulti } from 'lib/utils'
@@ -25,12 +25,13 @@ export function DistinctIdSelect({
     autoFocus = false,
     forceSingleSelect = false,
 }: DistinctIdSelectProps): JSX.Element {
+    const instanceKey = useId()
     const currentValues = useMemo(
         () => (value === null || value === undefined ? [] : Array.isArray(value) ? value.map(String) : [String(value)]),
         [value]
     )
 
-    const logic = distinctIdSelectLogic({ value: currentValues })
+    const logic = distinctIdSelectLogic({ instanceKey, value: currentValues })
     const { personOptions, personsLoading, resolvedNames, searchQuery } = useValues(logic)
     const { setSearchQuery } = useActions(logic)
     const isMultiSelect = forceSingleSelect ? false : operator && isOperatorMulti(operator)
@@ -65,7 +66,7 @@ export function DistinctIdSelect({
             mode={isMultiSelect ? 'multiple' : 'single'}
             singleValueAsSnack
             allowCustomValues
-            onChange={(nextVal) => (isMultiSelect ? onChange(nextVal) : onChange(nextVal[0]))}
+            onChange={(nextVal) => (isMultiSelect ? onChange(nextVal) : onChange(nextVal[0] ?? null))}
             onInputChange={(input) => {
                 const trimmed = input.trim()
                 if (trimmed !== searchQuery) {

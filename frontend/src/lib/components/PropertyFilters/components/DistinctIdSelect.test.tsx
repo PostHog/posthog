@@ -130,6 +130,24 @@ describe('DistinctIdSelect', () => {
         })
     })
 
+    it('keeps state isolated when two pickers are mounted side by side', async () => {
+        const onChangeA = jest.fn()
+        const onChangeB = jest.fn()
+        render(
+            <Provider>
+                <DistinctIdSelect value="phil-distinct-id" operator={PropertyOperator.Exact} onChange={onChangeA} />
+                <DistinctIdSelect value="sarah-distinct-id" operator={PropertyOperator.Exact} onChange={onChangeB} />
+            </Provider>
+        )
+
+        // Both initial values should resolve to their respective display names,
+        // which only works if each instance has its own state.
+        await waitFor(() => {
+            expect(screen.getByText('phil@posthog.com')).toBeInTheDocument()
+            expect(screen.getByText('sarah@posthog.com')).toBeInTheDocument()
+        })
+    })
+
     it('supports multi-select with exact operator', async () => {
         const onChange = jest.fn()
         render(
