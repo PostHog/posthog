@@ -52,6 +52,32 @@ def _create_delivery(subscription: Subscription, content_snapshot: dict) -> Subs
     )
 
 
+class _FakePhClient:
+    """In-memory stand-in for the real PostHog client used by `ph_scoped_capture`.
+
+    Collects every `capture(...)` kwargs dict into `self.captured` so tests can
+    assert on events without hitting the network. `shutdown` is a no-op so the
+    `with ph_scoped_capture()` context manager exits cleanly.
+    """
+
+    def __init__(self) -> None:
+        self.captured: list[dict] = []
+
+    def capture(self, **kwargs) -> None:
+        self.captured.append(kwargs)
+
+    def shutdown(self) -> None:
+        pass
+
+
+def _install_fake_ph_client(monkeypatch) -> _FakePhClient:
+    """Mock the two seams (`is_cloud` + `get_client`) that gate `ph_scoped_capture`."""
+    client = _FakePhClient()
+    monkeypatch.setattr("posthog.ph_client.is_cloud", lambda: True)
+    monkeypatch.setattr("posthog.ph_client.get_client", lambda *a, **kw: client)
+    return client
+
+
 async def test_skips_summary_when_org_has_not_approved_ai(team, user):
     subscription = await _create_subscription(team, user)
     await _set_ai_consent(subscription, approved=False)
@@ -146,17 +172,7 @@ async def test_captures_analytics_event_when_summary_is_generated(team, user, mo
         lambda *a, **kw: "- Pageviews is trending up",
     )
 
-    captured: list[dict] = []
-
-    class _FakeClient:
-        def capture(self, **kwargs):
-            captured.append(kwargs)
-
-        def shutdown(self):
-            pass
-
-    monkeypatch.setattr("posthog.ph_client.is_cloud", lambda: True)
-    monkeypatch.setattr("posthog.ph_client.get_client", lambda *a, **kw: _FakeClient())
+    fake_client = _install_fake_ph_client(monkeypatch)
 
     await _run(
         SnapshotInsightsInputs(
@@ -166,8 +182,8 @@ async def test_captures_analytics_event_when_summary_is_generated(team, user, mo
         )
     )
 
-    events = [c for c in captured if c.get("event") == "subscription_ai_summary_generated"]
-    assert len(events) == 1, f"expected one capture, got {captured}"
+    events = [c for c in fake_client.captured if c.get("event") == "subscription_ai_summary_generated"]
+    assert len(events) == 1, f"expected one capture, got {fake_client.captured}"
     event = events[0]
     assert event["distinct_id"] == str(user.distinct_id)
     props = event["properties"]
@@ -186,17 +202,7 @@ async def test_does_not_capture_analytics_event_when_summary_skipped(team, user,
     subscription = await _create_subscription(team, user, summary_enabled=False)
     await _set_ai_consent(subscription, approved=True)
 
-    captured: list[dict] = []
-
-    class _FakeClient:
-        def capture(self, **kwargs):
-            captured.append(kwargs)
-
-        def shutdown(self):
-            pass
-
-    monkeypatch.setattr("posthog.ph_client.is_cloud", lambda: True)
-    monkeypatch.setattr("posthog.ph_client.get_client", lambda *a, **kw: _FakeClient())
+    fake_client = _install_fake_ph_client(monkeypatch)
 
     await _run(
         SnapshotInsightsInputs(
@@ -206,7 +212,7 @@ async def test_does_not_capture_analytics_event_when_summary_skipped(team, user,
         )
     )
 
-    events = [c for c in captured if c.get("event") == "subscription_ai_summary_generated"]
+    events = [c for c in fake_client.captured if c.get("event") == "subscription_ai_summary_generated"]
     assert events == []
 
 
@@ -231,17 +237,7 @@ async def test_does_not_capture_analytics_event_for_empty_summary(team, user, mo
         lambda *a, **kw: "",
     )
 
-    captured: list[dict] = []
-
-    class _FakeClient:
-        def capture(self, **kwargs):
-            captured.append(kwargs)
-
-        def shutdown(self):
-            pass
-
-    monkeypatch.setattr("posthog.ph_client.is_cloud", lambda: True)
-    monkeypatch.setattr("posthog.ph_client.get_client", lambda *a, **kw: _FakeClient())
+    fake_client = _install_fake_ph_client(monkeypatch)
 
     await _run(
         SnapshotInsightsInputs(
@@ -251,7 +247,7 @@ async def test_does_not_capture_analytics_event_for_empty_summary(team, user, mo
         )
     )
 
-    events = [c for c in captured if c.get("event") == "subscription_ai_summary_generated"]
+    events = [c for c in fake_client.captured if c.get("event") == "subscription_ai_summary_generated"]
     assert events == [], "empty-string summaries should not count as generated"
 
 
@@ -281,17 +277,7 @@ async def test_captures_event_with_team_prefixed_distinct_id_when_no_creator(tea
         lambda *a, **kw: "- Pageviews is trending up",
     )
 
-    captured: list[dict] = []
-
-    class _FakeClient:
-        def capture(self, **kwargs):
-            captured.append(kwargs)
-
-        def shutdown(self):
-            pass
-
-    monkeypatch.setattr("posthog.ph_client.is_cloud", lambda: True)
-    monkeypatch.setattr("posthog.ph_client.get_client", lambda *a, **kw: _FakeClient())
+    fake_client = _install_fake_ph_client(monkeypatch)
 
     await _run(
         SnapshotInsightsInputs(
@@ -301,7 +287,7 @@ async def test_captures_event_with_team_prefixed_distinct_id_when_no_creator(tea
         )
     )
 
-    events = [c for c in captured if c.get("event") == "subscription_ai_summary_generated"]
+    events = [c for c in fake_client.captured if c.get("event") == "subscription_ai_summary_generated"]
     assert len(events) == 1
     assert events[0]["distinct_id"] == f"team_{team.id}"
 
