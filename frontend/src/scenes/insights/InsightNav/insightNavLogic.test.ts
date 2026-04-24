@@ -830,6 +830,77 @@ describe('insightNavLogic', () => {
                 expect(funnelsQuery2.breakdownFilter?.breakdowns).toBeUndefined()
             })
 
+            it('drops session breakdown when switching from trends to funnels', async () => {
+                const trendsWithSessionBreakdown: InsightVizNode = {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                name: '$pageview',
+                                event: '$pageview',
+                            },
+                        ],
+                        version: 2,
+                        breakdownFilter: {
+                            breakdown: '$session_duration',
+                            breakdown_type: 'session',
+                            breakdown_histogram_bin_count: 4,
+                        },
+                    },
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsWithSessionBreakdown)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.FUNNELS)
+                }).toFinishAllListeners()
+
+                const funnelsQuery = (builtInsightDataLogic.values.query as InsightVizNode).source as FunnelsQuery
+                expect(funnelsQuery.breakdownFilter?.breakdown_type).toBeUndefined()
+                expect(funnelsQuery.breakdownFilter?.breakdown).toBeUndefined()
+                expect(funnelsQuery.breakdownFilter?.breakdown_histogram_bin_count).toBeUndefined()
+            })
+
+            it('drops session entries from multi-breakdowns when switching to funnels', async () => {
+                const trendsWithMixedBreakdowns: InsightVizNode = {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                name: '$pageview',
+                                event: '$pageview',
+                            },
+                        ],
+                        version: 2,
+                        breakdownFilter: {
+                            breakdowns: [
+                                { property: '$session_duration', type: 'session' },
+                                { property: '$browser', type: 'event' },
+                            ],
+                        },
+                    },
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsWithMixedBreakdowns)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.FUNNELS)
+                }).toFinishAllListeners()
+
+                const funnelsQuery = (builtInsightDataLogic.values.query as InsightVizNode).source as FunnelsQuery
+                expect(funnelsQuery.breakdownFilter?.breakdown).toBe('$browser')
+                expect(funnelsQuery.breakdownFilter?.breakdown_type).toBe('event')
+                expect(funnelsQuery.breakdownFilter?.breakdowns).toBeUndefined()
+            })
+
             it('preserves compareFilter through round-trip via unsupported type', async () => {
                 const trendsWithCompare: InsightVizNode = {
                     kind: NodeKind.InsightVizNode,

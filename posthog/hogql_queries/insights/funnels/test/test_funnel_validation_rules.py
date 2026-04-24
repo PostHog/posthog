@@ -5,6 +5,7 @@ from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
+    BreakdownFilter,
     EventsNode,
     FunnelExclusionEventsNode,
     FunnelsFilter,
@@ -15,6 +16,7 @@ from posthog.schema import (
 
 from posthog.hogql_queries.insights.funnels.funnel_validation_rules import (
     RequireAtLeastTwoFunnelSteps,
+    ValidateFunnelBreakdown,
     ValidateFunnelExclusions,
     ValidateFunnelStepRange,
     ValidateOptionalFunnelSteps,
@@ -111,6 +113,34 @@ class TestFunnelValidationRules(BaseTest):
 
         self.assertIn("Exclusion steps cannot contain an event that's part of funnel steps.", str(context.exception))
         self.assertEqual(context.exception.get_codes(), ["funnel_exclusions_invalid"])
+
+    def test_rejects_session_breakdown(self):
+        query = FunnelsQuery(
+            series=[EventsNode(event="step 1"), EventsNode(event="step 2")],
+            breakdownFilter=BreakdownFilter(breakdown="$session_duration", breakdown_type="session"),
+        )
+
+        with self.assertRaises(ValidationError) as context:
+            ValidateFunnelBreakdown().validate(self._context(query))
+
+        self.assertIn("Funnels do not support session breakdowns", str(context.exception))
+        self.assertEqual(context.exception.get_codes(), ["funnel_breakdown_invalid"])
+
+    @parameterized.expand(
+        [
+            ("no_breakdown_filter", None),
+            ("empty_breakdown_filter", BreakdownFilter()),
+            ("event_breakdown", BreakdownFilter(breakdown="$browser", breakdown_type="event")),
+            ("person_breakdown", BreakdownFilter(breakdown="email", breakdown_type="person")),
+        ]
+    )
+    def test_allows_non_session_breakdowns(self, _name, breakdown_filter):
+        query = FunnelsQuery(
+            series=[EventsNode(event="step 1"), EventsNode(event="step 2")],
+            breakdownFilter=breakdown_filter,
+        )
+
+        ValidateFunnelBreakdown().validate(self._context(query))
 
     @parameterized.expand(
         [

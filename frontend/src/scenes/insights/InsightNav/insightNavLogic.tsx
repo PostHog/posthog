@@ -241,11 +241,29 @@ interface InsightTypeCapabilities {
 
 const downgradeMinuteInterval = (interval: IntervalType): IntervalType => (interval === 'minute' ? 'hour' : interval)
 
-const truncateToSingleBreakdown = (bf: BreakdownFilter): BreakdownFilter => {
+// Funnels don't support session breakdowns — drop them when converting from another insight type.
+const dropSessionBreakdown = (bf: BreakdownFilter): BreakdownFilter => {
+    const filteredBreakdowns = bf.breakdowns?.filter((b) => b.type !== 'session')
+    const next: BreakdownFilter = { ...bf }
     if (bf.breakdowns?.length) {
-        const first = bf.breakdowns[0]
+        next.breakdowns = filteredBreakdowns?.length ? filteredBreakdowns : undefined
+    }
+    if (next.breakdown_type === 'session') {
+        next.breakdown_type = undefined
+        next.breakdown = undefined
+        next.breakdown_histogram_bin_count = undefined
+        next.breakdown_group_type_index = undefined
+        next.breakdown_normalize_url = undefined
+    }
+    return next
+}
+
+const truncateToSingleBreakdown = (bf: BreakdownFilter): BreakdownFilter => {
+    const cleaned = dropSessionBreakdown(bf)
+    if (cleaned.breakdowns?.length) {
+        const first = cleaned.breakdowns[0]
         return {
-            ...bf,
+            ...cleaned,
             breakdowns: undefined,
             breakdown: first.property,
             breakdown_type: first.type,
@@ -254,7 +272,7 @@ const truncateToSingleBreakdown = (bf: BreakdownFilter): BreakdownFilter => {
             breakdown_normalize_url: first.normalize_url,
         }
     }
-    return { ...bf, breakdowns: undefined }
+    return { ...cleaned, breakdowns: undefined }
 }
 
 const filterRetentionBreakdowns = (bf: BreakdownFilter): BreakdownFilter => {

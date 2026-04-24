@@ -24,6 +24,7 @@ from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQu
 from posthog.hogql_queries.insights.funnels.funnel_time_to_convert import FunnelTimeToConvertUDF
 from posthog.hogql_queries.insights.funnels.funnel_validation_rules import (
     RequireAtLeastTwoFunnelSteps,
+    ValidateFunnelBreakdown,
     ValidateFunnelExclusions,
     ValidateFunnelStepRange,
     ValidateOptionalFunnelSteps,
@@ -62,6 +63,7 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
             RequireAtLeastTwoFunnelSteps(),
             ValidateFunnelStepRange(),
             ValidateFunnelExclusions(),
+            ValidateFunnelBreakdown(),
             ValidateOptionalFunnelSteps(),
             DisallowUnsupportedDataWarehouseSettings(),
         )

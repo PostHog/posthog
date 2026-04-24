@@ -2,7 +2,7 @@ from itertools import pairwise
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import FunnelsQuery, FunnelVizType, StepOrderValue
+from posthog.schema import BreakdownType, FunnelsQuery, FunnelVizType, StepOrderValue
 
 from posthog.hogql_queries.insights.utils.entities import is_equal, is_superset
 from posthog.hogql_queries.validation.validation import QueryValidationContext
@@ -90,6 +90,23 @@ class ValidateFunnelExclusions:
                         "Exclusion steps cannot contain an event that's part of funnel steps.",
                         code=self.code,
                     )
+
+
+class ValidateFunnelBreakdown:
+    """Reject breakdown configurations that funnels cannot evaluate."""
+
+    code = "funnel_breakdown_invalid"
+
+    def validate(self, context: QueryValidationContext[FunnelsQuery]) -> None:
+        breakdown_filter = context.query.breakdownFilter
+        if breakdown_filter is None:
+            return
+
+        if breakdown_filter.breakdown_type == BreakdownType.SESSION:
+            raise ValidationError(
+                "Funnels do not support session breakdowns. Remove the breakdown or pick a different breakdown type.",
+                code=self.code,
+            )
 
 
 class ValidateOptionalFunnelSteps:
