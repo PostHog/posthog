@@ -211,8 +211,9 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
             if (cache.desiredTitle == null || document.title === cache.desiredTitle) {
                 return
             }
-            const isDefault = document.title === 'PostHog' || document.title === 'PostHog Demo'
-            if (document.visibilityState === 'visible' || isDefault) {
+            // Chrome treats background title updates as a reason to keep a tab alive,
+            // so we always defer syncing until the page is visible again.
+            if (document.visibilityState === 'visible') {
                 document.title = cache.desiredTitle
             }
         }

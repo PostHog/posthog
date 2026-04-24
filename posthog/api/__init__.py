@@ -149,6 +149,7 @@ from . import (
     query,
     quick_filters,
     resource_transfer,
+    role_external_reference,
     scheduled_change,
     schema_property_group,
     search,
@@ -697,6 +698,12 @@ organizations_router.register(
     r"resource_transfers",
     resource_transfer.ResourceTransferViewSet,
     "organization_resource_transfers",
+    ["organization_id"],
+)
+organizations_router.register(
+    r"role_external_references",
+    role_external_reference.RoleExternalReferenceViewSet,
+    "organization_role_external_references",
     ["organization_id"],
 )
 organizations_router.register(

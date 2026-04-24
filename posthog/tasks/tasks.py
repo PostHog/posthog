@@ -482,6 +482,104 @@ def redis_celery_queue_depth() -> None:
         return
 
 
+_TASKS_RUN_OPEN_STATUSES = ("not_started", "queued", "in_progress")
+_TASKS_RUN_AGE_STATUSES = ("queued", "in_progress")
+_TASKS_RUN_TERMINAL_STATUSES = ("completed", "failed", "cancelled")
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.STATS.value)
+def capture_task_run_state_metrics() -> None:
+    """Emit gauges describing the current state of the Tasks product's TaskRun table"""
+    from django.db.models import Count, Min
+
+    from products.tasks.backend.models import TaskRun
+
+    try:
+        with pushed_metrics_registry("tasks_run_state") as registry:
+            runs_in_status_gauge = Gauge(
+                "posthog_tasks_runs_in_status",
+                "Number of open TaskRun rows by status, origin_product, and environment.",
+                registry=registry,
+                labelnames=["status", "origin_product", "environment"],
+            )
+            oldest_age_gauge = Gauge(
+                "posthog_tasks_oldest_open_run_age_seconds",
+                "Age (seconds) of the oldest TaskRun still in a given non-terminal status, by origin_product and environment.",
+                registry=registry,
+                labelnames=["status", "origin_product", "environment"],
+            )
+            runs_created_1h_gauge = Gauge(
+                "posthog_tasks_runs_created_1h",
+                "Number of TaskRun rows created in the last hour, by origin_product and environment.",
+                registry=registry,
+                labelnames=["origin_product", "environment"],
+            )
+            runs_terminal_1h_gauge = Gauge(
+                "posthog_tasks_runs_terminal_1h",
+                "Number of TaskRun rows that reached a terminal status in the last hour, by status, origin_product, and environment.",
+                registry=registry,
+                labelnames=["status", "origin_product", "environment"],
+            )
+
+            counts = (
+                TaskRun.objects.filter(status__in=_TASKS_RUN_OPEN_STATUSES)
+                .values("status", "environment", "task__origin_product")
+                .annotate(count=Count("id"))
+            )
+            for row in counts:
+                runs_in_status_gauge.labels(
+                    status=row["status"],
+                    origin_product=row["task__origin_product"] or "unknown",
+                    environment=row["environment"],
+                ).set(row["count"])
+
+            oldest = (
+                TaskRun.objects.filter(status__in=_TASKS_RUN_AGE_STATUSES)
+                .values("status", "environment", "task__origin_product")
+                .annotate(oldest_created_at=Min("created_at"))
+            )
+            now = timezone.now()
+            for row in oldest:
+                age_seconds = (now - row["oldest_created_at"]).total_seconds()
+                oldest_age_gauge.labels(
+                    status=row["status"],
+                    origin_product=row["task__origin_product"] or "unknown",
+                    environment=row["environment"],
+                ).set(age_seconds)
+
+            created_1h = (
+                TaskRun.objects.filter(created_at__gte=now - datetime.timedelta(hours=1))
+                .values("environment", "task__origin_product")
+                .annotate(count=Count("id"))
+            )
+            for row in created_1h:
+                runs_created_1h_gauge.labels(
+                    origin_product=row["task__origin_product"] or "unknown",
+                    environment=row["environment"],
+                ).set(row["count"])
+
+            # Terminal runs: approximated by updated_at since completed_at can be null for FAILED/CANCELLED
+            # paths that didn't take the happy-path write.
+            terminal_1h = (
+                TaskRun.objects.filter(
+                    status__in=_TASKS_RUN_TERMINAL_STATUSES,
+                    updated_at__gte=now - datetime.timedelta(hours=1),
+                )
+                .values("status", "environment", "task__origin_product")
+                .annotate(count=Count("id"))
+            )
+            for row in terminal_1h:
+                runs_terminal_1h_gauge.labels(
+                    status=row["status"],
+                    origin_product=row["task__origin_product"] or "unknown",
+                    environment=row["environment"],
+                ).set(row["count"])
+
+    except Exception as err:
+        logger.exception("capture_task_run_state_metrics", exception=err)
+        capture_exception(err)
+
+
 @shared_task(ignore_result=True)
 def update_event_partitions() -> None:
     with connection.cursor() as cursor:

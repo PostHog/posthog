@@ -10,6 +10,7 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from products.tasks.backend.temporal.process_task.activities.get_pr_context import GetPrContextOutput
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (
     CreateSandboxForRepositoryOutput,
@@ -168,6 +169,7 @@ class TestFollowupDeliveryFailure:
 
 _ci_context_overrides: dict = {}
 _ci_followup_calls: list[str] = []
+_pr_context_overrides: dict = {}
 
 
 @activity.defn(name="get_task_processing_context")
@@ -193,6 +195,45 @@ def _mock_send_followup_records(input: SendFollowupToSandboxInput) -> None:
         _ci_followup_calls.append(input.message)
 
 
+@activity.defn(name="get_pr_context")
+def _mock_get_pr_context(_input) -> GetPrContextOutput | None:
+    behavior = _pr_context_overrides.get("behavior", "changing")
+    if behavior == "missing":
+        _pr_context_overrides["_call_count"] = _pr_context_overrides.get("_call_count", 0) + 1
+        return None
+    if behavior == "closed":
+        return GetPrContextOutput(
+            pr_url="https://github.com/org/repo/pull/1",
+            pr_state="closed",
+            fingerprint="closed-fp",
+        )
+    if behavior == "unchanged":
+        return GetPrContextOutput(
+            pr_url="https://github.com/org/repo/pull/1",
+            pr_state="open",
+            fingerprint="stable-fp",
+        )
+    if behavior == "sequence":
+        # Returns fingerprints from a configured list, repeating the last value
+        # once exhausted. Lets a test deterministically drive change-vs-unchanged
+        # transitions across CI ticks.
+        sequence: list[str] = _pr_context_overrides["sequence"]
+        idx = min(_pr_context_overrides.get("_call_count", 0), len(sequence) - 1)
+        _pr_context_overrides["_call_count"] = idx + 1
+        return GetPrContextOutput(
+            pr_url="https://github.com/org/repo/pull/1",
+            pr_state="open",
+            fingerprint=sequence[idx],
+        )
+    # Default "changing": unique fingerprint per call so CI follow-up always fires
+    _pr_context_overrides["_call_count"] = _pr_context_overrides.get("_call_count", 0) + 1
+    return GetPrContextOutput(
+        pr_url="https://github.com/org/repo/pull/1",
+        pr_state="open",
+        fingerprint=f"fp-{_pr_context_overrides['_call_count']}",
+    )
+
+
 def _make_worker(env, task_queue: str) -> Worker:
     return Worker(
         env.client,
@@ -210,6 +251,7 @@ def _make_worker(env, task_queue: str) -> Worker:
             _mock_track,
             _mock_read_logs,
             _mock_cleanup,
+            _mock_get_pr_context,
         ],
         workflow_runner=UnsandboxedWorkflowRunner(),
         activity_executor=ThreadPoolExecutor(max_workers=5),
@@ -222,10 +264,12 @@ class TestCIFollowUpLoop:
         _ci_context_overrides.clear()
         _ci_followup_calls.clear()
         _status_updates.clear()
+        _pr_context_overrides.clear()
         yield
         _ci_context_overrides.clear()
         _ci_followup_calls.clear()
         _status_updates.clear()
+        _pr_context_overrides.clear()
 
     @pytest.mark.timeout(60)
     async def test_runs_to_inactivity_timeout_after_max_ci_repetitions(self):
@@ -360,6 +404,18 @@ class TestCIFollowUpLoop:
 
 
 class TestFollowupGuards:
+    @pytest.fixture(autouse=True)
+    def _reset_state(self):
+        _ci_context_overrides.clear()
+        _ci_followup_calls.clear()
+        _status_updates.clear()
+        _pr_context_overrides.clear()
+        yield
+        _ci_context_overrides.clear()
+        _ci_followup_calls.clear()
+        _status_updates.clear()
+        _pr_context_overrides.clear()
+
     @pytest.mark.parametrize(
         "message,artifact_ids,expected",
         [
@@ -372,3 +428,137 @@ class TestFollowupGuards:
     )
     def test_should_skip_followup(self, message: str | None, artifact_ids: list[str], expected: bool):
         assert ProcessTaskWorkflow._should_skip_followup(message, artifact_ids) is expected
+
+    @pytest.mark.timeout(60)
+    async def test_skips_ci_follow_up_when_pr_context_missing(self):
+        _pr_context_overrides["behavior"] = "missing"
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            task_queue = f"test-{uuid.uuid4()}"
+            async with _make_worker(env, task_queue):
+                handle = await env.client.start_workflow(
+                    ProcessTaskWorkflow.run,
+                    ProcessTaskInput(run_id="run-1"),
+                    id=f"test-{uuid.uuid4()}",
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=timedelta(hours=2),
+                )
+                # The CI loop stops after finding no PR, then the workflow
+                # exits via inactivity timeout — no signal needed.
+                await handle.result()
+
+        assert _ci_followup_calls == []
+
+    @pytest.mark.timeout(60)
+    async def test_skips_ci_follow_up_when_pr_is_closed(self):
+        _pr_context_overrides["behavior"] = "closed"
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            task_queue = f"test-{uuid.uuid4()}"
+            async with _make_worker(env, task_queue):
+                handle = await env.client.start_workflow(
+                    ProcessTaskWorkflow.run,
+                    ProcessTaskInput(run_id="run-1"),
+                    id=f"test-{uuid.uuid4()}",
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=timedelta(hours=2),
+                )
+                await env.sleep(CI_FOLLOW_UP_DELAY.total_seconds() * 2 + 60)
+                await handle.signal(ProcessTaskWorkflow.complete_task, args=["completed", None])
+                await handle.result()
+
+        assert _ci_followup_calls == []
+
+    async def test_skips_ci_follow_up_when_fingerprint_unchanged(self):
+        # The first CI check runs (fingerprint moves from None → "stable-fp"),
+        # sending a single follow-up. Subsequent checks must see the stored
+        # fingerprint match and skip — so only one follow-up should ever be
+        # dispatched. We drive the workflow to inactivity timeout to exercise
+        # multiple CI cycles; if skipping were broken, _ci_followup_calls
+        # would grow past 1.
+        _pr_context_overrides["behavior"] = "unchanged"
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            task_queue = f"test-{uuid.uuid4()}"
+            async with _make_worker(env, task_queue):
+                handle = await env.client.start_workflow(
+                    ProcessTaskWorkflow.run,
+                    ProcessTaskInput(run_id="run-1"),
+                    id=f"test-{uuid.uuid4()}",
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=timedelta(hours=2),
+                )
+                # Sleep past the second CI deadline (30m) so a skip must fire.
+                await env.sleep(CI_FOLLOW_UP_DELAY.total_seconds() * 2)
+                await handle.signal(ProcessTaskWorkflow.complete_task, args=["completed", None])
+                await handle.result()
+
+        assert len(_ci_followup_calls) == 1
+
+    @pytest.mark.timeout(60)
+    async def test_ci_follow_up_fires_on_changed_fingerprint_and_persists(self):
+        # Once a follow-up fires for a new fingerprint, that fingerprint must
+        # persist on the workflow so the *next* tick observing the same
+        # fingerprint skips. Sequence drives CI to MAX_CI_REPETITIONS while
+        # including an unchanged tick in the middle:
+        #   tick 1: fp-A (vs None)  → fire        (persist fp-A)
+        #   tick 2: fp-A (vs fp-A)  → skip        ← only succeeds if persisted
+        #   tick 3: fp-B (vs fp-A)  → fire        (persist fp-B)
+        #   tick 4: fp-C (vs fp-B)  → fire        (hits MAX, disables CI)
+        # With broken persistence, tick 2 would also fire — MAX would be hit
+        # one tick earlier and only 3 get_pr_context calls would land. The call
+        # count is therefore the persistence signal.
+        _pr_context_overrides["behavior"] = "sequence"
+        _pr_context_overrides["sequence"] = ["fp-A", "fp-A", "fp-B", "fp-C"]
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            task_queue = f"test-{uuid.uuid4()}"
+            async with _make_worker(env, task_queue):
+                handle = await env.client.start_workflow(
+                    ProcessTaskWorkflow.run,
+                    ProcessTaskInput(run_id="run-1"),
+                    id=f"test-{uuid.uuid4()}",
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=timedelta(hours=4),
+                )
+                # Workflow ends naturally via inactivity once MAX_CI_REPETITIONS
+                # fires have happened — no signal needed.
+                await handle.result()
+
+        assert len(_ci_followup_calls) == MAX_CI_REPETITIONS
+        assert all(msg == DEFAULT_CI_MESSAGE for msg in _ci_followup_calls)
+        assert _pr_context_overrides.get("_call_count") == 4, (
+            f"expected 4 get_pr_context calls (fire, skip, fire, fire) — broken persistence "
+            f"would yield 3. Got {_pr_context_overrides.get('_call_count')}"
+        )
+
+    @pytest.mark.timeout(60)
+    async def test_stops_ci_loop_when_no_pr_and_agent_idle(self):
+        """When get_pr_context returns None and the agent is idle, the CI loop
+        should stop after a single check instead of polling all 3 repetitions."""
+        _pr_context_overrides["behavior"] = "missing"
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            task_queue = f"test-{uuid.uuid4()}"
+            async with _make_worker(env, task_queue):
+                handle = await env.client.start_workflow(
+                    ProcessTaskWorkflow.run,
+                    ProcessTaskInput(run_id="run-1"),
+                    id=f"test-{uuid.uuid4()}",
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=timedelta(hours=2),
+                )
+                # No heartbeats sent — agent is idle. The CI loop should stop
+                # after one check and the workflow exits via inactivity timeout.
+                await handle.result()
+
+        assert _ci_followup_calls == [], "no follow-up should be sent when no PR exists"
+        assert _pr_context_overrides.get("_call_count") == 1, (
+            f"expected exactly 1 get_pr_context call — loop should stop immediately after "
+            f"discovering no PR. Got {_pr_context_overrides.get('_call_count')}"
+        )
