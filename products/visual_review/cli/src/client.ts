@@ -26,19 +26,21 @@ export type {
     UploadTargetApi as UploadTarget,
 }
 
-const RETRY_STATUS_CODES = new Set([500, 502, 503, 504])
-const MAX_RETRIES = 3
-const BASE_DELAY_MS = 1_000
-
-function sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
 export interface ClientConfig {
     apiUrl: string
     teamId: string
     token?: string
     sessionCookie?: string
+}
+
+export class VisualReviewApiError extends Error {
+    constructor(
+        public status: number,
+        responseText: string
+    ) {
+        super(`API error ${status}: ${responseText}`)
+        this.name = 'VisualReviewApiError'
+    }
 }
 
 export class VisualReviewClient {
@@ -64,35 +66,20 @@ export class VisualReviewClient {
     }
 
     private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
-        for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-            const response = await fetch(this.url(path), {
-                ...options,
-                headers: {
-                    ...this.headers,
-                    ...options.headers,
-                },
-            })
+        const response = await fetch(this.url(path), {
+            ...options,
+            headers: {
+                ...this.headers,
+                ...options.headers,
+            },
+        })
 
-            if (response.ok) {
-                return response.json() as Promise<T>
-            }
-
+        if (!response.ok) {
             const text = await response.text()
-
-            if (RETRY_STATUS_CODES.has(response.status) && attempt < MAX_RETRIES) {
-                const jitter = 0.75 + Math.random() * 0.5
-                const delay = BASE_DELAY_MS * Math.pow(2, attempt) * jitter
-                console.error(
-                    `VR API returned ${response.status}, retrying in ${Math.round(delay)}ms (attempt ${attempt + 1}/${MAX_RETRIES})...`
-                )
-                await sleep(delay)
-                continue
-            }
-
-            throw new Error(`API error ${response.status}: ${text}`)
+            throw new VisualReviewApiError(response.status, text)
         }
 
-        throw new Error('Unexpected: exhausted retries')
+        return response.json() as Promise<T>
     }
 
     /**
