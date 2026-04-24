@@ -136,13 +136,14 @@ class LLMSkillViewSet(
 
         if view.action in ["get_by_name", "update_by_name"]:
             return ["llm_skill:write"] if request.method == "PATCH" else ["llm_skill:read"]
-        # delete_file shares get_file's URL via @get_file.mapping.delete and would otherwise
-        # inherit llm_skill:read. DELETE must require write scope. The `request.method` check
-        # and inclusion of `get_file` in the action list are belt-and-braces: in practice,
-        # `view.action == "delete_file"` only ever fires on DELETE, but we guard against any
-        # future dispatch reshuffle that could leave action=`get_file` on a DELETE request.
-        if view.action in ["get_file", "delete_file"] and request.method == "DELETE":
-            return ["llm_skill:write"]
+        # get_file and delete_file share a URL via @get_file.mapping.delete. We deliberately do
+        # NOT set required_scopes on get_file's @action — see the note there. Resolve per-method:
+        # GET (and HEAD, which DRF auto-routes to GET handlers) → read, DELETE → write.
+        if view.action in ["get_file", "delete_file"]:
+            if request.method == "DELETE":
+                return ["llm_skill:write"]
+            if request.method in ("GET", "HEAD"):
+                return ["llm_skill:read"]
         return None
 
     def _ensure_web_authenticated(self, request: Request) -> Response | None:
@@ -463,11 +464,15 @@ class LLMSkillViewSet(
         parameters=[LLMSkillFetchQuerySerializer],
         responses={200: LLMSkillFileSerializer},
     )
+    # NOTE: `required_scopes` is intentionally not set on @action here. delete_file is registered
+    # below via @get_file.mapping.delete and shares this URL pattern's initkwargs — setting
+    # required_scopes here would short-circuit ScopeBasePermission._get_required_scopes for DELETE
+    # too, granting llm_skill:read access to a destructive operation. Scopes are resolved per-method
+    # in dangerously_get_required_scopes instead.
     @action(
         methods=["GET"],
         detail=False,
         url_path=r"name/(?P<skill_name>[^/]+)/files/(?P<file_path>.+)",
-        required_scopes=["llm_skill:read"],
     )
     @llma_track_latency("llma_skills_get_file")
     @monitor(feature=None, endpoint="llma_skills_get_file", method="GET")

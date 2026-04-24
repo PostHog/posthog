@@ -520,9 +520,13 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     actions.saveEvaluationSuccess(response)
                     // Create the pending report before navigating away. The 'new'-keyed
                     // evaluationReportLogic unmounts when the component tears down, so
-                    // snapshot its draft now and fire the create directly.
-                    if (response?.id) {
-                        const draft = evaluationReportLogic({ evaluationId: 'new' }).values.configDraft
+                    // snapshot its draft now and fire the create directly. The logic is
+                    // only mounted when EvaluationReportConfig is rendered (gated on the
+                    // reports feature flag), so skip when it isn't — there's no draft to
+                    // forward and reading .values would throw a kea "path not found" error.
+                    const newReportLogic = evaluationReportLogic({ evaluationId: 'new' })
+                    if (response?.id && newReportLogic.isMounted()) {
+                        const draft = newReportLogic.values.configDraft
                         const targets = buildDeliveryTargets(draft)
                         if (draft.enabled && (targets.length > 0 || draft.reportPromptGuidance.trim().length > 0)) {
                             const body: Record<string, unknown> = {

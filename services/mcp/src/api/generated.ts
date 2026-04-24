@@ -3032,6 +3032,11 @@ export namespace Schemas {
     } as const;
 
     export interface RetentionEntity {
+      /**
+       * Data warehouse field used as the actor identifier
+       * @nullable
+       */
+      aggregation_target_field?: string | null;
       /** @nullable */
       custom_name?: string | null;
       id?: string | number | null;
@@ -3045,6 +3050,16 @@ export namespace Schemas {
        * @nullable
        */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      /**
+       * Data warehouse table name
+       * @nullable
+       */
+      table_name?: string | null;
+      /**
+       * Data warehouse timestamp field
+       * @nullable
+       */
+      timestamp_field?: string | null;
       type?: EntityType | null;
       /** @nullable */
       uuid?: string | null;
@@ -3070,6 +3085,11 @@ export namespace Schemas {
       aggregationType?: AggregationType | null;
       /** @nullable */
       cumulative?: boolean | null;
+      /**
+       * For data warehouse based retention insights when the aggregation target can't be mapped to persons or groups.
+       * @nullable
+       */
+      customAggregationTarget?: boolean | null;
       dashboardDisplay?: RetentionDashboardDisplayType | null;
       /** controls the display of the retention graph */
       display?: ChartDisplayType | null;
@@ -7696,6 +7716,7 @@ export namespace Schemas {
     * `acceptEdits` - acceptEdits
     * `plan` - plan
     * `bypassPermissions` - bypassPermissions
+    * `auto` - auto
      */
     export type ClaudeTaskRunCreateSchemaInitialPermissionModeEnum = typeof ClaudeTaskRunCreateSchemaInitialPermissionModeEnum[keyof typeof ClaudeTaskRunCreateSchemaInitialPermissionModeEnum];
 
@@ -7705,6 +7726,7 @@ export namespace Schemas {
       AcceptEdits: 'acceptEdits',
       Plan: 'plan',
       BypassPermissions: 'bypassPermissions',
+      Auto: 'auto',
     } as const;
 
     /**
@@ -7762,7 +7784,8 @@ export namespace Schemas {
     * `default` - default
     * `acceptEdits` - acceptEdits
     * `plan` - plan
-    * `bypassPermissions` - bypassPermissions */
+    * `bypassPermissions` - bypassPermissions
+    * `auto` - auto */
       initial_permission_mode?: ClaudeTaskRunCreateSchemaInitialPermissionModeEnum;
     }
 
@@ -12129,6 +12152,25 @@ export namespace Schemas {
       Desc: 'DESC',
     } as const;
 
+    export interface ErrorTrackingPendingFingerprintIssueStateUpdate {
+      /** @nullable */
+      assigned_role_id?: string | null;
+      /** @nullable */
+      assigned_user_id?: number | null;
+      fingerprint: string;
+      /** ISO 8601 datetime string. */
+      first_seen: string;
+      is_deleted: number;
+      /** @nullable */
+      issue_description?: string | null;
+      issue_id: string;
+      /** @nullable */
+      issue_name?: string | null;
+      issue_status: string;
+      /** Client-stamped monotonic version (`Date.now()` ms at mutation success). */
+      version: number;
+    }
+
     export interface ErrorTrackingQueryResponse {
       /** @nullable */
       columns?: string[] | null;
@@ -12192,6 +12234,11 @@ export namespace Schemas {
       orderBy: ErrorTrackingOrderBy;
       /** Sort direction. */
       orderDirection?: OrderDirection2 | null;
+      /**
+       * Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only). The backend caps the list at 50 entries; extras are dropped silently.
+       * @nullable
+       */
+      pendingFingerprintIssueStateUpdates?: ErrorTrackingPendingFingerprintIssueStateUpdate[] | null;
       /** @nullable */
       personId?: string | null;
       response?: ErrorTrackingQueryResponse | null;
@@ -13409,6 +13456,456 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    /**
+     * * `Ashby` - Ashby
+    * `Supabase` - Supabase
+    * `CustomerIO` - CustomerIO
+    * `Github` - Github
+    * `Stripe` - Stripe
+    * `Hubspot` - Hubspot
+    * `Postgres` - Postgres
+    * `Zendesk` - Zendesk
+    * `Snowflake` - Snowflake
+    * `Salesforce` - Salesforce
+    * `MySQL` - MySQL
+    * `MongoDB` - MongoDB
+    * `MSSQL` - MSSQL
+    * `Vitally` - Vitally
+    * `BigQuery` - BigQuery
+    * `Chargebee` - Chargebee
+    * `Clerk` - Clerk
+    * `GoogleAds` - GoogleAds
+    * `TemporalIO` - TemporalIO
+    * `DoIt` - DoIt
+    * `GoogleSheets` - GoogleSheets
+    * `MetaAds` - MetaAds
+    * `Klaviyo` - Klaviyo
+    * `Mailchimp` - Mailchimp
+    * `Braze` - Braze
+    * `Mailjet` - Mailjet
+    * `Redshift` - Redshift
+    * `Polar` - Polar
+    * `RevenueCat` - RevenueCat
+    * `LinkedinAds` - LinkedinAds
+    * `RedditAds` - RedditAds
+    * `TikTokAds` - TikTokAds
+    * `BingAds` - BingAds
+    * `Shopify` - Shopify
+    * `Attio` - Attio
+    * `SnapchatAds` - SnapchatAds
+    * `Linear` - Linear
+    * `Intercom` - Intercom
+    * `Amplitude` - Amplitude
+    * `Mixpanel` - Mixpanel
+    * `Jira` - Jira
+    * `ActiveCampaign` - ActiveCampaign
+    * `Marketo` - Marketo
+    * `Adjust` - Adjust
+    * `AppsFlyer` - AppsFlyer
+    * `Freshdesk` - Freshdesk
+    * `GoogleAnalytics` - GoogleAnalytics
+    * `Pipedrive` - Pipedrive
+    * `SendGrid` - SendGrid
+    * `Slack` - Slack
+    * `PagerDuty` - PagerDuty
+    * `Asana` - Asana
+    * `Notion` - Notion
+    * `Airtable` - Airtable
+    * `Greenhouse` - Greenhouse
+    * `BambooHR` - BambooHR
+    * `Lever` - Lever
+    * `GitLab` - GitLab
+    * `Datadog` - Datadog
+    * `Sentry` - Sentry
+    * `Pendo` - Pendo
+    * `FullStory` - FullStory
+    * `AmazonAds` - AmazonAds
+    * `PinterestAds` - PinterestAds
+    * `AppleSearchAds` - AppleSearchAds
+    * `QuickBooks` - QuickBooks
+    * `Xero` - Xero
+    * `NetSuite` - NetSuite
+    * `WooCommerce` - WooCommerce
+    * `BigCommerce` - BigCommerce
+    * `PayPal` - PayPal
+    * `Square` - Square
+    * `Zoom` - Zoom
+    * `Trello` - Trello
+    * `Monday` - Monday
+    * `ClickUp` - ClickUp
+    * `Confluence` - Confluence
+    * `Recurly` - Recurly
+    * `SalesLoft` - SalesLoft
+    * `Outreach` - Outreach
+    * `Gong` - Gong
+    * `Calendly` - Calendly
+    * `Typeform` - Typeform
+    * `Iterable` - Iterable
+    * `ZohoCRM` - ZohoCRM
+    * `Close` - Close
+    * `Oracle` - Oracle
+    * `DynamoDB` - DynamoDB
+    * `Elasticsearch` - Elasticsearch
+    * `Kafka` - Kafka
+    * `LaunchDarkly` - LaunchDarkly
+    * `Braintree` - Braintree
+    * `Recharge` - Recharge
+    * `HelpScout` - HelpScout
+    * `Gorgias` - Gorgias
+    * `Instagram` - Instagram
+    * `YouTubeAnalytics` - YouTubeAnalytics
+    * `FacebookPages` - FacebookPages
+    * `TwitterAds` - TwitterAds
+    * `Workday` - Workday
+    * `ServiceNow` - ServiceNow
+    * `Pardot` - Pardot
+    * `Copper` - Copper
+    * `Front` - Front
+    * `ChartMogul` - ChartMogul
+    * `Zuora` - Zuora
+    * `Paddle` - Paddle
+    * `CircleCI` - CircleCI
+    * `CockroachDB` - CockroachDB
+    * `Firebase` - Firebase
+    * `AzureBlob` - AzureBlob
+    * `GoogleDrive` - GoogleDrive
+    * `OneDrive` - OneDrive
+    * `SharePoint` - SharePoint
+    * `Box` - Box
+    * `SFTP` - SFTP
+    * `MicrosoftTeams` - MicrosoftTeams
+    * `Aircall` - Aircall
+    * `Webflow` - Webflow
+    * `Okta` - Okta
+    * `Auth0` - Auth0
+    * `Productboard` - Productboard
+    * `Smartsheet` - Smartsheet
+    * `Wrike` - Wrike
+    * `Plaid` - Plaid
+    * `SurveyMonkey` - SurveyMonkey
+    * `Eventbrite` - Eventbrite
+    * `RingCentral` - RingCentral
+    * `Twilio` - Twilio
+    * `Freshsales` - Freshsales
+    * `Shortcut` - Shortcut
+    * `ConvertKit` - ConvertKit
+    * `Drip` - Drip
+    * `CampaignMonitor` - CampaignMonitor
+    * `MailerLite` - MailerLite
+    * `Omnisend` - Omnisend
+    * `Brevo` - Brevo
+    * `Postmark` - Postmark
+    * `Granola` - Granola
+    * `BuildBetter` - BuildBetter
+    * `Convex` - Convex
+    * `ClickHouse` - ClickHouse
+    * `Plain` - Plain
+     */
+    export type SourceTypeEe8Enum = typeof SourceTypeEe8Enum[keyof typeof SourceTypeEe8Enum];
+
+
+    export const SourceTypeEe8Enum = {
+      Ashby: 'Ashby',
+      Supabase: 'Supabase',
+      CustomerIO: 'CustomerIO',
+      Github: 'Github',
+      Stripe: 'Stripe',
+      Hubspot: 'Hubspot',
+      Postgres: 'Postgres',
+      Zendesk: 'Zendesk',
+      Snowflake: 'Snowflake',
+      Salesforce: 'Salesforce',
+      MySQL: 'MySQL',
+      MongoDB: 'MongoDB',
+      Mssql: 'MSSQL',
+      Vitally: 'Vitally',
+      BigQuery: 'BigQuery',
+      Chargebee: 'Chargebee',
+      Clerk: 'Clerk',
+      GoogleAds: 'GoogleAds',
+      TemporalIO: 'TemporalIO',
+      DoIt: 'DoIt',
+      GoogleSheets: 'GoogleSheets',
+      MetaAds: 'MetaAds',
+      Klaviyo: 'Klaviyo',
+      Mailchimp: 'Mailchimp',
+      Braze: 'Braze',
+      Mailjet: 'Mailjet',
+      Redshift: 'Redshift',
+      Polar: 'Polar',
+      RevenueCat: 'RevenueCat',
+      LinkedinAds: 'LinkedinAds',
+      RedditAds: 'RedditAds',
+      TikTokAds: 'TikTokAds',
+      BingAds: 'BingAds',
+      Shopify: 'Shopify',
+      Attio: 'Attio',
+      SnapchatAds: 'SnapchatAds',
+      Linear: 'Linear',
+      Intercom: 'Intercom',
+      Amplitude: 'Amplitude',
+      Mixpanel: 'Mixpanel',
+      Jira: 'Jira',
+      ActiveCampaign: 'ActiveCampaign',
+      Marketo: 'Marketo',
+      Adjust: 'Adjust',
+      AppsFlyer: 'AppsFlyer',
+      Freshdesk: 'Freshdesk',
+      GoogleAnalytics: 'GoogleAnalytics',
+      Pipedrive: 'Pipedrive',
+      SendGrid: 'SendGrid',
+      Slack: 'Slack',
+      PagerDuty: 'PagerDuty',
+      Asana: 'Asana',
+      Notion: 'Notion',
+      Airtable: 'Airtable',
+      Greenhouse: 'Greenhouse',
+      BambooHR: 'BambooHR',
+      Lever: 'Lever',
+      GitLab: 'GitLab',
+      Datadog: 'Datadog',
+      Sentry: 'Sentry',
+      Pendo: 'Pendo',
+      FullStory: 'FullStory',
+      AmazonAds: 'AmazonAds',
+      PinterestAds: 'PinterestAds',
+      AppleSearchAds: 'AppleSearchAds',
+      QuickBooks: 'QuickBooks',
+      Xero: 'Xero',
+      NetSuite: 'NetSuite',
+      WooCommerce: 'WooCommerce',
+      BigCommerce: 'BigCommerce',
+      PayPal: 'PayPal',
+      Square: 'Square',
+      Zoom: 'Zoom',
+      Trello: 'Trello',
+      Monday: 'Monday',
+      ClickUp: 'ClickUp',
+      Confluence: 'Confluence',
+      Recurly: 'Recurly',
+      SalesLoft: 'SalesLoft',
+      Outreach: 'Outreach',
+      Gong: 'Gong',
+      Calendly: 'Calendly',
+      Typeform: 'Typeform',
+      Iterable: 'Iterable',
+      ZohoCRM: 'ZohoCRM',
+      Close: 'Close',
+      Oracle: 'Oracle',
+      DynamoDB: 'DynamoDB',
+      Elasticsearch: 'Elasticsearch',
+      Kafka: 'Kafka',
+      LaunchDarkly: 'LaunchDarkly',
+      Braintree: 'Braintree',
+      Recharge: 'Recharge',
+      HelpScout: 'HelpScout',
+      Gorgias: 'Gorgias',
+      Instagram: 'Instagram',
+      YouTubeAnalytics: 'YouTubeAnalytics',
+      FacebookPages: 'FacebookPages',
+      TwitterAds: 'TwitterAds',
+      Workday: 'Workday',
+      ServiceNow: 'ServiceNow',
+      Pardot: 'Pardot',
+      Copper: 'Copper',
+      Front: 'Front',
+      ChartMogul: 'ChartMogul',
+      Zuora: 'Zuora',
+      Paddle: 'Paddle',
+      CircleCI: 'CircleCI',
+      CockroachDB: 'CockroachDB',
+      Firebase: 'Firebase',
+      AzureBlob: 'AzureBlob',
+      GoogleDrive: 'GoogleDrive',
+      OneDrive: 'OneDrive',
+      SharePoint: 'SharePoint',
+      Box: 'Box',
+      Sftp: 'SFTP',
+      MicrosoftTeams: 'MicrosoftTeams',
+      Aircall: 'Aircall',
+      Webflow: 'Webflow',
+      Okta: 'Okta',
+      Auth0: 'Auth0',
+      Productboard: 'Productboard',
+      Smartsheet: 'Smartsheet',
+      Wrike: 'Wrike',
+      Plaid: 'Plaid',
+      SurveyMonkey: 'SurveyMonkey',
+      Eventbrite: 'Eventbrite',
+      RingCentral: 'RingCentral',
+      Twilio: 'Twilio',
+      Freshsales: 'Freshsales',
+      Shortcut: 'Shortcut',
+      ConvertKit: 'ConvertKit',
+      Drip: 'Drip',
+      CampaignMonitor: 'CampaignMonitor',
+      MailerLite: 'MailerLite',
+      Omnisend: 'Omnisend',
+      Brevo: 'Brevo',
+      Postmark: 'Postmark',
+      Granola: 'Granola',
+      BuildBetter: 'BuildBetter',
+      Convex: 'Convex',
+      ClickHouse: 'ClickHouse',
+      Plain: 'Plain',
+    } as const;
+
+    /**
+     * Validate credentials and preview available tables from a remote database.
+
+    The request body contains source_type plus flat source-specific credential fields
+    (e.g. host, port, database, user, password, schema for Postgres). The credential
+    fields vary per source_type and are validated dynamically by the source registry.
+     */
+    export interface DatabaseSchemaRequest {
+      /** The source type to validate against.
+
+    * `Ashby` - Ashby
+    * `Supabase` - Supabase
+    * `CustomerIO` - CustomerIO
+    * `Github` - Github
+    * `Stripe` - Stripe
+    * `Hubspot` - Hubspot
+    * `Postgres` - Postgres
+    * `Zendesk` - Zendesk
+    * `Snowflake` - Snowflake
+    * `Salesforce` - Salesforce
+    * `MySQL` - MySQL
+    * `MongoDB` - MongoDB
+    * `MSSQL` - MSSQL
+    * `Vitally` - Vitally
+    * `BigQuery` - BigQuery
+    * `Chargebee` - Chargebee
+    * `Clerk` - Clerk
+    * `GoogleAds` - GoogleAds
+    * `TemporalIO` - TemporalIO
+    * `DoIt` - DoIt
+    * `GoogleSheets` - GoogleSheets
+    * `MetaAds` - MetaAds
+    * `Klaviyo` - Klaviyo
+    * `Mailchimp` - Mailchimp
+    * `Braze` - Braze
+    * `Mailjet` - Mailjet
+    * `Redshift` - Redshift
+    * `Polar` - Polar
+    * `RevenueCat` - RevenueCat
+    * `LinkedinAds` - LinkedinAds
+    * `RedditAds` - RedditAds
+    * `TikTokAds` - TikTokAds
+    * `BingAds` - BingAds
+    * `Shopify` - Shopify
+    * `Attio` - Attio
+    * `SnapchatAds` - SnapchatAds
+    * `Linear` - Linear
+    * `Intercom` - Intercom
+    * `Amplitude` - Amplitude
+    * `Mixpanel` - Mixpanel
+    * `Jira` - Jira
+    * `ActiveCampaign` - ActiveCampaign
+    * `Marketo` - Marketo
+    * `Adjust` - Adjust
+    * `AppsFlyer` - AppsFlyer
+    * `Freshdesk` - Freshdesk
+    * `GoogleAnalytics` - GoogleAnalytics
+    * `Pipedrive` - Pipedrive
+    * `SendGrid` - SendGrid
+    * `Slack` - Slack
+    * `PagerDuty` - PagerDuty
+    * `Asana` - Asana
+    * `Notion` - Notion
+    * `Airtable` - Airtable
+    * `Greenhouse` - Greenhouse
+    * `BambooHR` - BambooHR
+    * `Lever` - Lever
+    * `GitLab` - GitLab
+    * `Datadog` - Datadog
+    * `Sentry` - Sentry
+    * `Pendo` - Pendo
+    * `FullStory` - FullStory
+    * `AmazonAds` - AmazonAds
+    * `PinterestAds` - PinterestAds
+    * `AppleSearchAds` - AppleSearchAds
+    * `QuickBooks` - QuickBooks
+    * `Xero` - Xero
+    * `NetSuite` - NetSuite
+    * `WooCommerce` - WooCommerce
+    * `BigCommerce` - BigCommerce
+    * `PayPal` - PayPal
+    * `Square` - Square
+    * `Zoom` - Zoom
+    * `Trello` - Trello
+    * `Monday` - Monday
+    * `ClickUp` - ClickUp
+    * `Confluence` - Confluence
+    * `Recurly` - Recurly
+    * `SalesLoft` - SalesLoft
+    * `Outreach` - Outreach
+    * `Gong` - Gong
+    * `Calendly` - Calendly
+    * `Typeform` - Typeform
+    * `Iterable` - Iterable
+    * `ZohoCRM` - ZohoCRM
+    * `Close` - Close
+    * `Oracle` - Oracle
+    * `DynamoDB` - DynamoDB
+    * `Elasticsearch` - Elasticsearch
+    * `Kafka` - Kafka
+    * `LaunchDarkly` - LaunchDarkly
+    * `Braintree` - Braintree
+    * `Recharge` - Recharge
+    * `HelpScout` - HelpScout
+    * `Gorgias` - Gorgias
+    * `Instagram` - Instagram
+    * `YouTubeAnalytics` - YouTubeAnalytics
+    * `FacebookPages` - FacebookPages
+    * `TwitterAds` - TwitterAds
+    * `Workday` - Workday
+    * `ServiceNow` - ServiceNow
+    * `Pardot` - Pardot
+    * `Copper` - Copper
+    * `Front` - Front
+    * `ChartMogul` - ChartMogul
+    * `Zuora` - Zuora
+    * `Paddle` - Paddle
+    * `CircleCI` - CircleCI
+    * `CockroachDB` - CockroachDB
+    * `Firebase` - Firebase
+    * `AzureBlob` - AzureBlob
+    * `GoogleDrive` - GoogleDrive
+    * `OneDrive` - OneDrive
+    * `SharePoint` - SharePoint
+    * `Box` - Box
+    * `SFTP` - SFTP
+    * `MicrosoftTeams` - MicrosoftTeams
+    * `Aircall` - Aircall
+    * `Webflow` - Webflow
+    * `Okta` - Okta
+    * `Auth0` - Auth0
+    * `Productboard` - Productboard
+    * `Smartsheet` - Smartsheet
+    * `Wrike` - Wrike
+    * `Plaid` - Plaid
+    * `SurveyMonkey` - SurveyMonkey
+    * `Eventbrite` - Eventbrite
+    * `RingCentral` - RingCentral
+    * `Twilio` - Twilio
+    * `Freshsales` - Freshsales
+    * `Shortcut` - Shortcut
+    * `ConvertKit` - ConvertKit
+    * `Drip` - Drip
+    * `CampaignMonitor` - CampaignMonitor
+    * `MailerLite` - MailerLite
+    * `Omnisend` - Omnisend
+    * `Brevo` - Brevo
+    * `Postmark` - Postmark
+    * `Granola` - Granola
+    * `BuildBetter` - BuildBetter
+    * `Convex` - Convex
+    * `ClickHouse` - ClickHouse
+    * `Plain` - Plain */
+      source_type: SourceTypeEe8Enum;
+    }
+
     export interface Dataset {
       readonly id: string;
       /** @maxLength 400 */
@@ -14005,6 +14502,11 @@ export namespace Schemas {
        * @nullable
        */
       sync_frequency?: string | null;
+      /**
+       * UUID of the underlying saved query backing this materialization. Only populated when the version is materialized.
+       * @nullable
+       */
+      saved_query_id?: string | null;
     }
 
     export type EndpointRefreshMode = typeof EndpointRefreshMode[keyof typeof EndpointRefreshMode];
@@ -14130,6 +14632,11 @@ export namespace Schemas {
       is_materialized: boolean;
       /** Latest version number. */
       current_version: number;
+      /**
+       * UUID of the current EndpointVersion row.
+       * @nullable
+       */
+      current_version_id?: string | null;
       /** Total number of versions for this endpoint. */
       versions_count: number;
       /**
@@ -14276,6 +14783,11 @@ export namespace Schemas {
       is_materialized: boolean;
       /** Latest version number. */
       current_version: number;
+      /**
+       * UUID of the current EndpointVersion row.
+       * @nullable
+       */
+      current_version_id?: string | null;
       /** Total number of versions for this endpoint. */
       versions_count: number;
       /**
@@ -14567,18 +15079,6 @@ export namespace Schemas {
       /** @nullable */
       hidden?: boolean | null;
     }
-
-    /**
-     * * `local` - Local
-    * `cloud` - Cloud
-     */
-    export type EnvironmentEnum = typeof EnvironmentEnum[keyof typeof EnvironmentEnum];
-
-
-    export const EnvironmentEnum = {
-      Local: 'local',
-      Cloud: 'cloud',
-    } as const;
 
     export interface ErrorResponse {
       /** Error message */
@@ -15626,6 +16126,11 @@ export namespace Schemas {
        * @nullable
        */
       minimum_detectable_effect?: number | null;
+      /**
+       * Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100.
+       * @nullable
+       */
+      rollout_percentage?: number | null;
     }
 
     export interface ExperimentToSavedMetric {
@@ -15808,7 +16313,7 @@ export namespace Schemas {
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort: number | null;
-      /** Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
+      /** Variant definitions and rollout configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set rollout_percentage (0-100, default 100) to limit what fraction of users enter the experiment. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
       parameters?: ExperimentParameters | null;
       secondary_metrics?: unknown | null;
       readonly saved_metrics: readonly ExperimentToSavedMetric[];
@@ -16048,6 +16553,13 @@ export namespace Schemas {
      */
     export type ExternalDataSchemaTable = {[key: string]: unknown} | null | null;
 
+    /**
+     * * `full_refresh` - full_refresh
+    * `incremental` - incremental
+    * `append` - append
+    * `webhook` - webhook
+    * `cdc` - cdc
+     */
     export type SyncTypeEnum = typeof SyncTypeEnum[keyof typeof SyncTypeEnum];
 
 
@@ -16057,6 +16569,56 @@ export namespace Schemas {
       Append: 'append',
       Webhook: 'webhook',
       Cdc: 'cdc',
+    } as const;
+
+    /**
+     * * `integer` - integer
+    * `numeric` - numeric
+    * `datetime` - datetime
+    * `date` - date
+    * `timestamp` - timestamp
+    * `objectid` - objectid
+     */
+    export type IncrementalFieldTypeEnum = typeof IncrementalFieldTypeEnum[keyof typeof IncrementalFieldTypeEnum];
+
+
+    export const IncrementalFieldTypeEnum = {
+      Integer: 'integer',
+      Numeric: 'numeric',
+      Datetime: 'datetime',
+      Date: 'date',
+      Timestamp: 'timestamp',
+      Objectid: 'objectid',
+    } as const;
+
+    /**
+     * * `never` - never
+    * `1min` - 1min
+    * `5min` - 5min
+    * `15min` - 15min
+    * `30min` - 30min
+    * `1hour` - 1hour
+    * `6hour` - 6hour
+    * `12hour` - 12hour
+    * `24hour` - 24hour
+    * `7day` - 7day
+    * `30day` - 30day
+     */
+    export type SyncFrequencyEnum = typeof SyncFrequencyEnum[keyof typeof SyncFrequencyEnum];
+
+
+    export const SyncFrequencyEnum = {
+      Never: 'never',
+      '1min': '1min',
+      '5min': '5min',
+      '15min': '15min',
+      '30min': '30min',
+      '1hour': '1hour',
+      '6hour': '6hour',
+      '12hour': '12hour',
+      '24hour': '24hour',
+      '7day': '7day',
+      '30day': '30day',
     } as const;
 
     export interface ExternalDataSchema {
@@ -16077,20 +16639,60 @@ export namespace Schemas {
       readonly incremental: boolean;
       /** @nullable */
       readonly status: string | null;
-      readonly sync_type: SyncTypeEnum | null;
-      /** @nullable */
-      readonly incremental_field: string | null;
-      /** @nullable */
-      readonly incremental_field_type: string | null;
-      /** @nullable */
-      readonly sync_frequency: string | null;
-      /** @nullable */
-      readonly sync_time_of_day: string | null;
+      /** Sync strategy: incremental, full_refresh, append, or cdc.
+
+    * `full_refresh` - full_refresh
+    * `incremental` - incremental
+    * `append` - append
+    * `webhook` - webhook
+    * `cdc` - cdc */
+      sync_type?: SyncTypeEnum | NullEnum | null;
+      /**
+       * Column name used to track sync progress.
+       * @nullable
+       */
+      incremental_field?: string | null;
+      /** Data type of the incremental field.
+
+    * `integer` - integer
+    * `numeric` - numeric
+    * `datetime` - datetime
+    * `date` - date
+    * `timestamp` - timestamp
+    * `objectid` - objectid */
+      incremental_field_type?: IncrementalFieldTypeEnum | NullEnum | null;
+      /** How often to sync.
+
+    * `never` - never
+    * `1min` - 1min
+    * `5min` - 5min
+    * `15min` - 15min
+    * `30min` - 30min
+    * `1hour` - 1hour
+    * `6hour` - 6hour
+    * `12hour` - 12hour
+    * `24hour` - 24hour
+    * `7day` - 7day
+    * `30day` - 30day */
+      sync_frequency?: SyncFrequencyEnum | NullEnum | null;
+      /**
+       * UTC time of day to run the sync (HH:MM:SS).
+       * @nullable
+       */
+      sync_time_of_day?: string | null;
       /** @nullable */
       readonly description: string | null;
-      /** @nullable */
-      readonly primary_key_columns: readonly string[] | null;
-      readonly cdc_table_mode: CdcTableModeEnum;
+      /**
+       * Column names for primary key deduplication.
+       * @nullable
+       */
+      primary_key_columns?: string[] | null;
+      /** For CDC syncs: consolidated, cdc_only, or both.
+
+    * `consolidated` - consolidated
+    * `cdc_only` - cdc_only
+    * `both` - both */
+      cdc_table_mode?: CdcTableModeEnum | NullEnum | null;
     }
 
     export interface ExternalDataSourceBulkUpdateSchema {
@@ -16145,15 +16747,15 @@ export namespace Schemas {
       readonly engine: EngineEnum | NullEnum | null;
     }
 
-    export interface ExternalDataSourceRevenueAnalyticsConfig {
-      enabled?: boolean;
-      include_invoiceless_charges?: boolean;
-    }
-
-    export type ExternalDataSourceSerializersSchemasItem = {[key: string]: unknown};
-
     /**
-     * * `Ashby` - Ashby
+     * Connection credentials and a 'schemas' array. Keys depend on source_type.
+     */
+    export type ExternalDataSourceCreatePayload = {[key: string]: unknown};
+
+    export interface ExternalDataSourceCreate {
+      /** The source type (e.g. 'Postgres', 'Stripe').
+
+    * `Ashby` - Ashby
     * `Supabase` - Supabase
     * `CustomerIO` - CustomerIO
     * `Github` - Github
@@ -16295,156 +16897,35 @@ export namespace Schemas {
     * `BuildBetter` - BuildBetter
     * `Convex` - Convex
     * `ClickHouse` - ClickHouse
-    * `Plain` - Plain
-     */
-    export type SourceTypeEe8Enum = typeof SourceTypeEe8Enum[keyof typeof SourceTypeEe8Enum];
+    * `Plain` - Plain */
+      source_type: SourceTypeEe8Enum;
+      /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
+      payload: ExternalDataSourceCreatePayload;
+      /**
+       * Table name prefix in HogQL.
+       * @maxLength 100
+       * @nullable
+       */
+      prefix?: string | null;
+      /**
+       * Human-readable description.
+       * @maxLength 400
+       * @nullable
+       */
+      description?: string | null;
+      /** Connection mode: 'warehouse' (import) or 'direct' (live query).
 
+    * `warehouse` - warehouse
+    * `direct` - direct */
+      access_method?: AccessMethodEnum;
+    }
 
-    export const SourceTypeEe8Enum = {
-      Ashby: 'Ashby',
-      Supabase: 'Supabase',
-      CustomerIO: 'CustomerIO',
-      Github: 'Github',
-      Stripe: 'Stripe',
-      Hubspot: 'Hubspot',
-      Postgres: 'Postgres',
-      Zendesk: 'Zendesk',
-      Snowflake: 'Snowflake',
-      Salesforce: 'Salesforce',
-      MySQL: 'MySQL',
-      MongoDB: 'MongoDB',
-      Mssql: 'MSSQL',
-      Vitally: 'Vitally',
-      BigQuery: 'BigQuery',
-      Chargebee: 'Chargebee',
-      Clerk: 'Clerk',
-      GoogleAds: 'GoogleAds',
-      TemporalIO: 'TemporalIO',
-      DoIt: 'DoIt',
-      GoogleSheets: 'GoogleSheets',
-      MetaAds: 'MetaAds',
-      Klaviyo: 'Klaviyo',
-      Mailchimp: 'Mailchimp',
-      Braze: 'Braze',
-      Mailjet: 'Mailjet',
-      Redshift: 'Redshift',
-      Polar: 'Polar',
-      RevenueCat: 'RevenueCat',
-      LinkedinAds: 'LinkedinAds',
-      RedditAds: 'RedditAds',
-      TikTokAds: 'TikTokAds',
-      BingAds: 'BingAds',
-      Shopify: 'Shopify',
-      Attio: 'Attio',
-      SnapchatAds: 'SnapchatAds',
-      Linear: 'Linear',
-      Intercom: 'Intercom',
-      Amplitude: 'Amplitude',
-      Mixpanel: 'Mixpanel',
-      Jira: 'Jira',
-      ActiveCampaign: 'ActiveCampaign',
-      Marketo: 'Marketo',
-      Adjust: 'Adjust',
-      AppsFlyer: 'AppsFlyer',
-      Freshdesk: 'Freshdesk',
-      GoogleAnalytics: 'GoogleAnalytics',
-      Pipedrive: 'Pipedrive',
-      SendGrid: 'SendGrid',
-      Slack: 'Slack',
-      PagerDuty: 'PagerDuty',
-      Asana: 'Asana',
-      Notion: 'Notion',
-      Airtable: 'Airtable',
-      Greenhouse: 'Greenhouse',
-      BambooHR: 'BambooHR',
-      Lever: 'Lever',
-      GitLab: 'GitLab',
-      Datadog: 'Datadog',
-      Sentry: 'Sentry',
-      Pendo: 'Pendo',
-      FullStory: 'FullStory',
-      AmazonAds: 'AmazonAds',
-      PinterestAds: 'PinterestAds',
-      AppleSearchAds: 'AppleSearchAds',
-      QuickBooks: 'QuickBooks',
-      Xero: 'Xero',
-      NetSuite: 'NetSuite',
-      WooCommerce: 'WooCommerce',
-      BigCommerce: 'BigCommerce',
-      PayPal: 'PayPal',
-      Square: 'Square',
-      Zoom: 'Zoom',
-      Trello: 'Trello',
-      Monday: 'Monday',
-      ClickUp: 'ClickUp',
-      Confluence: 'Confluence',
-      Recurly: 'Recurly',
-      SalesLoft: 'SalesLoft',
-      Outreach: 'Outreach',
-      Gong: 'Gong',
-      Calendly: 'Calendly',
-      Typeform: 'Typeform',
-      Iterable: 'Iterable',
-      ZohoCRM: 'ZohoCRM',
-      Close: 'Close',
-      Oracle: 'Oracle',
-      DynamoDB: 'DynamoDB',
-      Elasticsearch: 'Elasticsearch',
-      Kafka: 'Kafka',
-      LaunchDarkly: 'LaunchDarkly',
-      Braintree: 'Braintree',
-      Recharge: 'Recharge',
-      HelpScout: 'HelpScout',
-      Gorgias: 'Gorgias',
-      Instagram: 'Instagram',
-      YouTubeAnalytics: 'YouTubeAnalytics',
-      FacebookPages: 'FacebookPages',
-      TwitterAds: 'TwitterAds',
-      Workday: 'Workday',
-      ServiceNow: 'ServiceNow',
-      Pardot: 'Pardot',
-      Copper: 'Copper',
-      Front: 'Front',
-      ChartMogul: 'ChartMogul',
-      Zuora: 'Zuora',
-      Paddle: 'Paddle',
-      CircleCI: 'CircleCI',
-      CockroachDB: 'CockroachDB',
-      Firebase: 'Firebase',
-      AzureBlob: 'AzureBlob',
-      GoogleDrive: 'GoogleDrive',
-      OneDrive: 'OneDrive',
-      SharePoint: 'SharePoint',
-      Box: 'Box',
-      Sftp: 'SFTP',
-      MicrosoftTeams: 'MicrosoftTeams',
-      Aircall: 'Aircall',
-      Webflow: 'Webflow',
-      Okta: 'Okta',
-      Auth0: 'Auth0',
-      Productboard: 'Productboard',
-      Smartsheet: 'Smartsheet',
-      Wrike: 'Wrike',
-      Plaid: 'Plaid',
-      SurveyMonkey: 'SurveyMonkey',
-      Eventbrite: 'Eventbrite',
-      RingCentral: 'RingCentral',
-      Twilio: 'Twilio',
-      Freshsales: 'Freshsales',
-      Shortcut: 'Shortcut',
-      ConvertKit: 'ConvertKit',
-      Drip: 'Drip',
-      CampaignMonitor: 'CampaignMonitor',
-      MailerLite: 'MailerLite',
-      Omnisend: 'Omnisend',
-      Brevo: 'Brevo',
-      Postmark: 'Postmark',
-      Granola: 'Granola',
-      BuildBetter: 'BuildBetter',
-      Convex: 'Convex',
-      ClickHouse: 'ClickHouse',
-      Plain: 'Plain',
-    } as const;
+    export interface ExternalDataSourceRevenueAnalyticsConfig {
+      enabled?: boolean;
+      include_invoiceless_charges?: boolean;
+    }
+
+    export type ExternalDataSourceSerializersSchemasItem = {[key: string]: unknown};
 
     /**
      * Mixin for serializers to add user access control fields
@@ -19373,6 +19854,16 @@ export namespace Schemas {
       interval: number;
       name: string;
       previous: number;
+      /**
+       * Daily values over the current interval period. Only populated when display is 'sparkline'.
+       * @nullable
+       */
+      timeseries?: number[] | null;
+      /**
+       * ISO date strings for sparkline tooltip labels. Only populated when display is 'sparkline'.
+       * @nullable
+       */
+      timeseries_labels?: string[] | null;
       value: number;
     }
 
@@ -20787,6 +21278,8 @@ export namespace Schemas {
       readonly needs_reauth: boolean;
       readonly pending_oauth: boolean;
       readonly proxy_url: string;
+      /** Number of live (non-removed) tools exposed by this installation. */
+      readonly tool_count: number;
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
@@ -20821,16 +21314,39 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    /**
+     * * `business` - Business Operations
+    * `data` - Data & Analytics
+    * `design` - Design & Content
+    * `dev` - Developer Tools & APIs
+    * `infra` - Infrastructure
+    * `productivity` - Productivity & Collaboration
+     */
+    export type MCPServerTemplateCategoryEnum = typeof MCPServerTemplateCategoryEnum[keyof typeof MCPServerTemplateCategoryEnum];
+
+
+    export const MCPServerTemplateCategoryEnum = {
+      Business: 'business',
+      Data: 'data',
+      Design: 'design',
+      Dev: 'dev',
+      Infra: 'infra',
+      Productivity: 'productivity',
+    } as const;
+
     export interface MCPServerTemplate {
       readonly id: string;
       /** @maxLength 200 */
       name: string;
       /** @maxLength 2048 */
       url: string;
+      /** @maxLength 2048 */
+      docs_url?: string;
       description?: string;
       auth_type?: AuthType9cbEnum;
       /** @maxLength 100 */
       icon_key?: string;
+      category?: MCPServerTemplateCategoryEnum;
     }
 
     export interface MarkToleratedInput {
@@ -21217,6 +21733,30 @@ export namespace Schemas {
       _create_in_folder?: string;
     }
 
+    /**
+     * * `replay` - REPLAY
+    * `notebook` - NOTEBOOK
+    * `insight` - INSIGHT
+    * `feature_flag` - FEATURE_FLAG
+    * `dashboard` - DASHBOARD
+    * `survey` - SURVEY
+    * `experiment` - EXPERIMENT
+    * `error_tracking` - ERROR_TRACKING
+     */
+    export type NotificationEventSourceTypeEnum = typeof NotificationEventSourceTypeEnum[keyof typeof NotificationEventSourceTypeEnum];
+
+
+    export const NotificationEventSourceTypeEnum = {
+      Replay: 'replay',
+      Notebook: 'notebook',
+      Insight: 'insight',
+      FeatureFlag: 'feature_flag',
+      Dashboard: 'dashboard',
+      Survey: 'survey',
+      Experiment: 'experiment',
+      ErrorTracking: 'error_tracking',
+    } as const;
+
     export interface NotificationEvent {
       id: string;
       /** @nullable */
@@ -21232,8 +21772,7 @@ export namespace Schemas {
       resource_type: string | null;
       resource_id: string;
       source_url: string;
-      /** @nullable */
-      source_type: string | null;
+      source_type: NotificationEventSourceTypeEnum | NullEnum | null;
       /** @nullable */
       source_id: string | null;
       created_at: string;
@@ -23892,10 +24431,26 @@ export namespace Schemas {
       Cancelled: 'cancelled',
     } as const;
 
-    export type TaskRunDetailRuntimeAdapterEnum = typeof TaskRunDetailRuntimeAdapterEnum[keyof typeof TaskRunDetailRuntimeAdapterEnum];
+    /**
+     * * `local` - Local
+    * `cloud` - Cloud
+     */
+    export type TaskRunDetailEnvironmentEnum = typeof TaskRunDetailEnvironmentEnum[keyof typeof TaskRunDetailEnvironmentEnum];
 
 
-    export const TaskRunDetailRuntimeAdapterEnum = {
+    export const TaskRunDetailEnvironmentEnum = {
+      Local: 'local',
+      Cloud: 'cloud',
+    } as const;
+
+    /**
+     * * `claude` - claude
+    * `codex` - codex
+     */
+    export type RuntimeAdapterB33Enum = typeof RuntimeAdapterB33Enum[keyof typeof RuntimeAdapterB33Enum];
+
+
+    export const RuntimeAdapterB33Enum = {
       Claude: 'claude',
       Codex: 'codex',
     } as const;
@@ -23947,9 +24502,9 @@ export namespace Schemas {
 
     * `local` - Local
     * `cloud` - Cloud */
-      environment?: EnvironmentEnum;
+      environment?: TaskRunDetailEnvironmentEnum;
       /** Configured runtime adapter for this run, such as 'claude' or 'codex'. */
-      readonly runtime_adapter: TaskRunDetailRuntimeAdapterEnum | NullEnum | null;
+      readonly runtime_adapter: RuntimeAdapterB33Enum | NullEnum | null;
       /** Configured LLM provider for this run, such as 'anthropic' or 'openai'. */
       readonly provider: TaskRunDetailProviderEnum | NullEnum | null;
       /**
@@ -25921,7 +26476,7 @@ export namespace Schemas {
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort?: number | null;
-      /** Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
+      /** Variant definitions and rollout configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set rollout_percentage (0-100, default 100) to limit what fraction of users enter the experiment. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
       parameters?: ExperimentParameters | null;
       secondary_metrics?: unknown | null;
       readonly saved_metrics?: readonly ExperimentToSavedMetric[];
@@ -26041,20 +26596,60 @@ export namespace Schemas {
       readonly incremental?: boolean;
       /** @nullable */
       readonly status?: string | null;
-      readonly sync_type?: SyncTypeEnum | null;
-      /** @nullable */
-      readonly incremental_field?: string | null;
-      /** @nullable */
-      readonly incremental_field_type?: string | null;
-      /** @nullable */
-      readonly sync_frequency?: string | null;
-      /** @nullable */
-      readonly sync_time_of_day?: string | null;
+      /** Sync strategy: incremental, full_refresh, append, or cdc.
+
+    * `full_refresh` - full_refresh
+    * `incremental` - incremental
+    * `append` - append
+    * `webhook` - webhook
+    * `cdc` - cdc */
+      sync_type?: SyncTypeEnum | NullEnum | null;
+      /**
+       * Column name used to track sync progress.
+       * @nullable
+       */
+      incremental_field?: string | null;
+      /** Data type of the incremental field.
+
+    * `integer` - integer
+    * `numeric` - numeric
+    * `datetime` - datetime
+    * `date` - date
+    * `timestamp` - timestamp
+    * `objectid` - objectid */
+      incremental_field_type?: IncrementalFieldTypeEnum | NullEnum | null;
+      /** How often to sync.
+
+    * `never` - never
+    * `1min` - 1min
+    * `5min` - 5min
+    * `15min` - 15min
+    * `30min` - 30min
+    * `1hour` - 1hour
+    * `6hour` - 6hour
+    * `12hour` - 12hour
+    * `24hour` - 24hour
+    * `7day` - 7day
+    * `30day` - 30day */
+      sync_frequency?: SyncFrequencyEnum | NullEnum | null;
+      /**
+       * UTC time of day to run the sync (HH:MM:SS).
+       * @nullable
+       */
+      sync_time_of_day?: string | null;
       /** @nullable */
       readonly description?: string | null;
-      /** @nullable */
-      readonly primary_key_columns?: readonly string[] | null;
-      readonly cdc_table_mode?: CdcTableModeEnum;
+      /**
+       * Column names for primary key deduplication.
+       * @nullable
+       */
+      primary_key_columns?: string[] | null;
+      /** For CDC syncs: consolidated, cdc_only, or both.
+
+    * `consolidated` - consolidated
+    * `cdc_only` - cdc_only
+    * `both` - both */
+      cdc_table_mode?: CdcTableModeEnum | NullEnum | null;
     }
 
     export interface PatchedExternalDataSourceBulkUpdateSchemas {
@@ -29132,6 +29727,16 @@ export namespace Schemas {
       Cancelled: 'cancelled',
     } as const;
 
+    /**
+     * * `local` - local
+     */
+    export type TaskRunUpdateEnvironmentEnum = typeof TaskRunUpdateEnvironmentEnum[keyof typeof TaskRunUpdateEnvironmentEnum];
+
+
+    export const TaskRunUpdateEnvironmentEnum = {
+      Local: 'local',
+    } as const;
+
     export interface PatchedTaskRunUpdate {
       /** Current execution status
 
@@ -29163,6 +29768,10 @@ export namespace Schemas {
        * @nullable
        */
       error_message?: string | null;
+      /** Transition a cloud run to local. Use the resume_in_cloud action to move a run into cloud.
+
+    * `local` - local */
+      environment?: TaskRunUpdateEnvironmentEnum;
     }
 
     export type PatchedTeamDefaultModifiers = {[key: string]: unknown};
@@ -34741,6 +35350,102 @@ export namespace Schemas {
     }
 
     /**
+     * * `local` - local
+    * `cloud` - cloud
+     */
+    export type TaskRunBootstrapCreateRequestEnvironmentEnum = typeof TaskRunBootstrapCreateRequestEnvironmentEnum[keyof typeof TaskRunBootstrapCreateRequestEnvironmentEnum];
+
+
+    export const TaskRunBootstrapCreateRequestEnvironmentEnum = {
+      Local: 'local',
+      Cloud: 'cloud',
+    } as const;
+
+    /**
+     * * `default` - default
+    * `acceptEdits` - acceptEdits
+    * `plan` - plan
+    * `bypassPermissions` - bypassPermissions
+    * `auto` - auto
+    * `read-only` - read-only
+    * `full-access` - full-access
+     */
+    export type TaskRunBootstrapCreateRequestInitialPermissionModeEnum = typeof TaskRunBootstrapCreateRequestInitialPermissionModeEnum[keyof typeof TaskRunBootstrapCreateRequestInitialPermissionModeEnum];
+
+
+    export const TaskRunBootstrapCreateRequestInitialPermissionModeEnum = {
+      Default: 'default',
+      AcceptEdits: 'acceptEdits',
+      Plan: 'plan',
+      BypassPermissions: 'bypassPermissions',
+      Auto: 'auto',
+      ReadOnly: 'read-only',
+      FullAccess: 'full-access',
+    } as const;
+
+    /**
+     * Request body for creating a task run without starting execution yet.
+     */
+    export interface TaskRunBootstrapCreateRequest {
+      /** Execution environment for the new run. Use 'cloud' for remote sandbox runs and 'local' for desktop sessions.
+
+    * `local` - local
+    * `cloud` - cloud */
+      environment?: TaskRunBootstrapCreateRequestEnvironmentEnum;
+      /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
+
+    * `interactive` - interactive
+    * `background` - background */
+      mode?: Mode051Enum;
+      /**
+       * Git branch to checkout in the sandbox
+       * @maxLength 255
+       * @nullable
+       */
+      branch?: string | null;
+      /** Optional sandbox environment to apply for this cloud run. */
+      sandbox_environment_id?: string;
+      /** Whether pull requests for this run should be authored by the user or the bot.
+
+    * `user` - user
+    * `bot` - bot */
+      pr_authorship_mode?: PrAuthorshipModeEnum;
+      /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
+
+    * `manual` - manual
+    * `signal_report` - signal_report */
+      run_source?: RunSourceEnum;
+      /** Optional signal report identifier when this run was started from Inbox. */
+      signal_report_id?: string;
+      /** Agent runtime adapter to launch for this run. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime.
+
+    * `claude` - claude
+    * `codex` - codex */
+      runtime_adapter?: RuntimeAdapterB33Enum;
+      /** LLM model identifier to run in the selected runtime. */
+      model?: string;
+      /** Reasoning effort to request for models that expose an effort control.
+
+    * `low` - low
+    * `medium` - medium
+    * `high` - high
+    * `max` - max */
+      reasoning_effort?: ReasoningEffortEnum;
+      /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
+      github_user_token?: string;
+      /** Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'auto' and 'read-only'.
+
+    * `default` - default
+    * `acceptEdits` - acceptEdits
+    * `plan` - plan
+    * `bypassPermissions` - bypassPermissions
+    * `auto` - auto
+    * `read-only` - read-only
+    * `full-access` - full-access */
+      initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnum;
+    }
+
+    /**
      * Parameters for the command
      */
     export type TaskRunCommandRequestParams = {[key: string]: unknown};
@@ -34837,6 +35542,13 @@ export namespace Schemas {
       status: string;
       /** Relay workflow ID when accepted */
       relay_id?: string;
+    }
+
+    export interface TaskRunStartRequest {
+      /** Initial or follow-up user message to include in the run prompt. */
+      pending_user_message?: string;
+      /** Identifiers for run artifacts that should be attached to the next user message delivered to the sandbox. */
+      pending_user_artifact_ids?: string[];
     }
 
     export interface TaskStagedArtifactFinalizeUpload {
@@ -35463,6 +36175,56 @@ export namespace Schemas {
       date_to?: string | null;
     }
 
+    export interface _LogAttributeEntry {
+      name: string;
+      /** Property filter type: "log_attribute" or "log_resource_attribute". Use this as the `type` field when filtering. */
+      propertyFilterType: string;
+    }
+
+    export interface _LogAttributeValue {
+      /** Attribute value (used as the identifier). */
+      id: string;
+      /** Display name — currently identical to `id`. */
+      name: string;
+    }
+
+    /**
+     * Log-level attributes as a string-keyed map. Values are strings (numeric/datetime attributes are also accessible via materialized columns).
+     */
+    export type _LogEntryAttributes = {[key: string]: string};
+
+    /**
+     * Resource-level attributes (service.name, k8s.*, host.hostname, etc.) as a string-keyed map. Repeats across all logs from the same pod/host.
+     */
+    export type _LogEntryResourceAttributes = {[key: string]: string};
+
+    export interface _LogEntry {
+      uuid: string;
+      /** ISO 8601 timestamp of the original log event. */
+      timestamp: string;
+      /** ISO 8601 timestamp the log pipeline observed the event (may differ from `timestamp`). */
+      observed_timestamp: string;
+      body: string;
+      /** Log severity as a string (e.g. "info", "error"). Preferred over severity_number. */
+      severity_text: string;
+      /** Log severity as a numeric code. Redundant with severity_text; kept for OpenTelemetry compatibility. */
+      severity_number: number;
+      /** ClickHouse alias for severity_text. Redundant; prefer severity_text. */
+      level: string;
+      /** Trace ID. Returns "00000000000000000000000000000000" when not set (padding, not null). */
+      trace_id: string;
+      /** Span ID. Returns "0000000000000000" when not set (padding, not null). */
+      span_id: string;
+      /** OpenTelemetry trace flags. */
+      trace_flags?: number;
+      /** Log-level attributes as a string-keyed map. Values are strings (numeric/datetime attributes are also accessible via materialized columns). */
+      attributes: _LogEntryAttributes;
+      /** Resource-level attributes (service.name, k8s.*, host.hostname, etc.) as a string-keyed map. Repeats across all logs from the same pod/host. */
+      resource_attributes: _LogEntryResourceAttributes;
+      /** OpenTelemetry event name, if set. */
+      event_name?: string;
+    }
+
     /**
      * * `log` - log
     * `log_attribute` - log_attribute
@@ -35540,6 +36302,13 @@ export namespace Schemas {
       value?: unknown | null;
     }
 
+    export interface _LogsAttributesResponse {
+      /** Available attribute keys matching the filters. */
+      results: _LogAttributeEntry[];
+      /** Total attribute keys matched (not paginated). */
+      count: number;
+    }
+
     export interface _LogsQueryBody {
       /** Date range for the query. Defaults to last hour. */
       dateRange?: _DateRange;
@@ -35567,6 +36336,70 @@ export namespace Schemas {
       query: _LogsQueryBody;
     }
 
+    /**
+     * The parsed query that was executed, echoed back for confirmation.
+     */
+    export type _LogsQueryResponseQuery = {[key: string]: unknown};
+
+    export interface _LogsQueryResponse {
+      /** The parsed query that was executed, echoed back for confirmation. */
+      query: _LogsQueryResponseQuery;
+      /** Log entries matching the query. */
+      results: _LogEntry[];
+      /** True if more results exist beyond this page. */
+      hasMore: boolean;
+      /**
+       * Opaque cursor to pass as `after` in the next request to fetch the next page. Null when hasMore is false.
+       * @nullable
+       */
+      nextCursor?: string | null;
+      /** Maximum number of rows the `export` endpoint will produce — informational. */
+      maxExportableLogs: number;
+    }
+
+    export interface _LogsServiceAggregate {
+      /** Service name, or "(no value)" / "(no service)" placeholder for unset entries. */
+      service_name: string;
+      /** Total log entries from this service in the window. */
+      log_count: number;
+      /** Count of logs at severity "error" or "fatal". */
+      error_count: number;
+      /** Pre-computed error_count / log_count, rounded to 4 decimals. Useful for ranking noisy services. */
+      error_rate: number;
+    }
+
+    export interface _LogsServicesBody {
+      /** Date range for the services aggregation. Defaults to last hour. */
+      dateRange?: _DateRange;
+      /** Filter by log severity levels. */
+      severityLevels?: SeverityLevelsEnum[];
+      /** Restrict the aggregation to these service names. */
+      serviceNames?: string[];
+      /** Full-text search term to filter log bodies. */
+      searchTerm?: string;
+      /** Property filters for the query. */
+      filterGroup?: _LogPropertyFilter[];
+    }
+
+    export interface _LogsServicesRequest {
+      /** The services aggregation query to execute. */
+      query: _LogsServicesBody;
+    }
+
+    export interface _LogsServicesSparklineBucket {
+      /** Bucket start time (ISO 8601). */
+      time: string;
+      service_name: string;
+      count: number;
+    }
+
+    export interface _LogsServicesResponse {
+      /** Per-service aggregates, ordered by log_count descending. Capped at 25 services. */
+      services: _LogsServiceAggregate[];
+      /** Time-bucketed counts broken down by service, for plotting volume over time. */
+      sparkline: _LogsServicesSparklineBucket[];
+    }
+
     export interface _LogsSparklineBody {
       /** Date range for the sparkline. Defaults to last hour. */
       dateRange?: _DateRange;
@@ -35585,9 +36418,31 @@ export namespace Schemas {
       sparklineBreakdownBy?: SparklineBreakdownByEnum;
     }
 
+    export interface _LogsSparklineBucket {
+      /** Bucket start time (ISO 8601). */
+      time: string;
+      /** Severity label when sparklineBreakdownBy="severity". Present only for severity-broken-down sparklines. */
+      severity?: string;
+      /** Service name when sparklineBreakdownBy="service". Present only for service-broken-down sparklines. */
+      service?: string;
+      count: number;
+    }
+
     export interface _LogsSparklineRequest {
       /** The sparkline query to execute. */
       query: _LogsSparklineBody;
+    }
+
+    export interface _LogsSparklineResponse {
+      /** Time-bucketed log counts. Each bucket carries either `severity` or `service` depending on breakdown. */
+      results: _LogsSparklineBucket[];
+    }
+
+    export interface _LogsValuesResponse {
+      /** Distinct values observed for the requested attribute. */
+      results: _LogAttributeValue[];
+      /** Always false — reserved for future cached-value refresh signalling. */
+      refreshing: boolean;
     }
 
     export type EnvironmentsAlertsListParams = {
@@ -37080,6 +37935,10 @@ export namespace Schemas {
      * @minimum 0
      */
     offset?: number;
+    /**
+     * Optional case-insensitive repository name search query.
+     */
+    search?: string;
     };
 
     export type EnvironmentsLogsAlertsListParams = {
@@ -38063,6 +38922,11 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    /**
+     * Unspecified response body
+     */
+    export type ErrorTrackingSymbolSetsDownloadRetrieve200 = {[key: string]: unknown};
 
     export type EvaluationsListParams = {
     /**
@@ -39955,6 +40819,11 @@ export namespace Schemas {
     offset?: number;
     };
 
+    /**
+     * Unspecified response body
+     */
+    export type ErrorTrackingSymbolSetsDownloadRetrieve2200 = {[key: string]: unknown};
+
     export type EventDefinitionsListParams = {
     /**
      * Number of results to return per page.
@@ -41224,6 +42093,10 @@ export namespace Schemas {
      * @minimum 0
      */
     offset?: number;
+    /**
+     * Optional case-insensitive repository name search query.
+     */
+    search?: string;
     };
 
     export type LiveDebuggerBreakpointsListParams = {

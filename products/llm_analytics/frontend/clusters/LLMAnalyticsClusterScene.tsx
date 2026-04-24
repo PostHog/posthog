@@ -5,6 +5,7 @@ import { IconChevronDown, IconChevronLeft, IconChevronRight } from '@posthog/ico
 import { LemonButton, LemonSkeleton, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
+import { dayjs } from 'lib/dayjs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -17,6 +18,7 @@ import { BulletList, ClusterDescription, parseBullets } from './ClusterDescripti
 import { ClusterDetailLogicProps, clusterDetailLogic } from './clusterDetailLogic'
 import { ClusterDetailScatterPlot } from './ClusterDetailScatterPlot'
 import { TRACES_PER_PAGE } from './constants'
+import { formatEvalTitle } from './traceSummaryLoader'
 import { ClusterItemInfo, ClusterMetrics, ClusteringLevel, TraceSummary } from './types'
 
 export const scene: SceneExport<ClusterDetailLogicProps> = {
@@ -71,6 +73,9 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
         return <NotFound object="cluster" />
     }
 
+    const itemLabel =
+        clusteringLevel === 'generation' ? 'generations' : clusteringLevel === 'evaluation' ? 'evaluations' : 'traces'
+
     return (
         <SceneContent>
             <SceneTitleSection
@@ -93,7 +98,7 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
             >
                 <div className="flex flex-wrap items-center gap-3 mb-2">
                     <LemonTag type={isOutlierCluster ? 'caution' : 'primary'} size="medium">
-                        {totalTraces} traces
+                        {totalTraces} {itemLabel}
                     </LemonTag>
                     {windowStart && windowEnd && (
                         <span className="text-muted text-sm">
@@ -124,7 +129,7 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
                 <div className="flex justify-between items-center mb-4">
                     <span className="text-muted text-sm">
                         Showing {(currentPage - 1) * TRACES_PER_PAGE + 1}-
-                        {Math.min(currentPage * TRACES_PER_PAGE, totalTraces)} of {totalTraces} traces
+                        {Math.min(currentPage * TRACES_PER_PAGE, totalTraces)} of {totalTraces} {itemLabel}
                     </span>
                     <div className="flex items-center gap-2">
                         <LemonButton
@@ -155,7 +160,7 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
                 {traceSummariesLoading && paginatedTracesWithSummaries.length === 0 ? (
                     <div className="p-4 flex items-center justify-center">
                         <Spinner className="mr-2" captureTime />
-                        <span className="text-muted">Loading traces...</span>
+                        <span className="text-muted">Loading {itemLabel}...</span>
                     </div>
                 ) : (
                     paginatedTracesWithSummaries.map(
@@ -223,12 +228,21 @@ function ClusterMetricsChips({
     metricsLoading: boolean
     clusteringLevel: ClusteringLevel
 }): JSX.Element | null {
+    // Mirror ClusterCard.tsx: eval-specific metrics (passRate / naRate / dominantEvaluationName /
+    // dominantRuntime / avgJudgeCost) count as "has metrics" even when operational fields are
+    // all null — an eval cluster whose linked generations were purged still has a meaningful
+    // pass rate.
     const hasMetrics =
         metrics &&
         (metrics.avgCost !== null ||
             metrics.avgLatency !== null ||
             metrics.avgTokens !== null ||
-            metrics.errorRate !== null)
+            metrics.errorRate !== null ||
+            (metrics.passRate ?? null) !== null ||
+            (metrics.naRate ?? null) !== null ||
+            !!metrics.dominantEvaluationName ||
+            !!metrics.dominantRuntime ||
+            (metrics.avgJudgeCost ?? null) !== null)
 
     if (metricsLoading && !hasMetrics) {
         return (
@@ -244,26 +258,92 @@ function ClusterMetricsChips({
         return null
     }
 
-    const itemLabel = clusteringLevel === 'generation' ? 'generations' : 'traces'
+    const isEvalLevel = clusteringLevel === 'evaluation'
+    const itemLabel =
+        clusteringLevel === 'generation' ? 'generations' : clusteringLevel === 'evaluation' ? 'evaluations' : 'traces'
 
     return (
         <div className="flex flex-row flex-wrap items-center gap-2 mt-2">
+            {isEvalLevel && (metrics.passRate ?? null) !== null && (
+                <Tooltip
+                    title={`${Math.round((metrics.passRate as number) * 100)}% of evaluations in this cluster passed`}
+                >
+                    <LemonTag
+                        type={
+                            (metrics.passRate as number) >= 0.8
+                                ? 'success'
+                                : (metrics.passRate as number) <= 0.2
+                                  ? 'danger'
+                                  : 'warning'
+                        }
+                        size="small"
+                    >
+                        Pass rate: {Math.round((metrics.passRate as number) * 100)}%
+                    </LemonTag>
+                </Tooltip>
+            )}
+            {isEvalLevel && (metrics.naRate ?? null) !== null && (metrics.naRate as number) > 0 && (
+                <Tooltip title="Share of evaluations where the evaluator marked the criteria as not applicable">
+                    <LemonTag type="muted" size="small">
+                        N/A: {Math.round((metrics.naRate as number) * 100)}%
+                    </LemonTag>
+                </Tooltip>
+            )}
+            {isEvalLevel && metrics.dominantEvaluationName && (
+                <Tooltip title="Most common evaluator in this cluster">
+                    <LemonTag type="muted" size="small">
+                        Evaluator: {metrics.dominantEvaluationName}
+                    </LemonTag>
+                </Tooltip>
+            )}
+            {isEvalLevel && metrics.dominantRuntime && (
+                <Tooltip title="Most common evaluator runtime (llm_judge = LLM-as-judge, hog = deterministic rule-based)">
+                    <LemonTag type="muted" size="small">
+                        Runtime: {metrics.dominantRuntime}
+                    </LemonTag>
+                </Tooltip>
+            )}
+            {isEvalLevel && (metrics.avgJudgeCost ?? null) !== null && (
+                <Tooltip title="Average cost of running the LLM-as-judge evaluator per eval in this cluster">
+                    <LemonTag type="muted" size="small">
+                        Avg Judge Cost: {formatLLMCost(metrics.avgJudgeCost as number)}
+                    </LemonTag>
+                </Tooltip>
+            )}
             {metrics.avgCost !== null && (
-                <Tooltip title={`Average cost per ${clusteringLevel}`}>
+                <Tooltip
+                    title={
+                        isEvalLevel
+                            ? 'Average cost of the linked generation that each evaluation judged'
+                            : `Average cost per ${clusteringLevel}`
+                    }
+                >
                     <LemonTag type="muted" size="small">
                         Avg Cost: {formatLLMCost(metrics.avgCost)}
                     </LemonTag>
                 </Tooltip>
             )}
             {metrics.avgLatency !== null && (
-                <Tooltip title={`Average latency per ${clusteringLevel}`}>
+                <Tooltip
+                    title={
+                        isEvalLevel
+                            ? 'Average latency of the linked generation that each evaluation judged'
+                            : `Average latency per ${clusteringLevel}`
+                    }
+                >
                     <LemonTag type="muted" size="small">
                         Avg Latency: {formatLLMLatency(metrics.avgLatency)}
                     </LemonTag>
                 </Tooltip>
             )}
             {metrics.avgTokens !== null && (
-                <Tooltip title={`Average tokens (input + output) per ${clusteringLevel}`}>
+                <Tooltip
+                    title={
+                        isEvalLevel
+                            ? 'Average input + output tokens of the linked generation'
+                            : `Average tokens (input + output) per ${clusteringLevel}`
+                    }
+                >
                     <LemonTag type="muted" size="small">
                         Avg Tokens: {formatTokens(metrics.avgTokens)}
                     </LemonTag>
@@ -276,7 +356,7 @@ function ClusterMetricsChips({
                     </LemonTag>
                 </Tooltip>
             )}
-            {metrics.totalCost !== null && (
+            {!isEvalLevel && metrics.totalCost !== null && (
                 <Tooltip title={`Total cost across all ${itemLabel} in this cluster`}>
                     <LemonTag type="muted" size="small">
                         Total Cost: {formatLLMCost(metrics.totalCost)}
@@ -306,6 +386,42 @@ function TraceListItem({
 
     const bulletItems = summary?.bullets ? parseBullets(summary.bullets) : []
     const noteItems = summary?.interestingNotes ? parseBullets(summary.interestingNotes) : []
+    const isEvalLevel = clusteringLevel === 'evaluation'
+
+    // For eval list items, the link should jump to the *linked generation* that the
+    // evaluator was judging. traceId in summary is $ai_trace_id; generationId is the
+    // $ai_target_event_id of the eval. Only use summary.traceId — traceInfo.trace_id
+    // is the backend's eval-uuid fallback for items whose metadata couldn't be
+    // resolved, and routing to /traces/<eval_uuid> 404s.
+    const evalLinkedTraceId = summary?.traceId
+    const evalLinkedGenerationId = summary?.generationId
+
+    const linkHref = isEvalLevel
+        ? evalLinkedTraceId
+            ? urls.llmAnalyticsTrace(evalLinkedTraceId, {
+                  tab: 'summary',
+                  ...(evalLinkedGenerationId ? { event: evalLinkedGenerationId } : {}),
+                  ...(traceInfo.timestamp ? { timestamp: dayjs.utc(traceInfo.timestamp).toISOString() } : {}),
+              })
+            : null
+        : urls.llmAnalyticsTrace(clusteringLevel === 'generation' ? traceInfo.trace_id : traceId, {
+              tab: 'summary',
+              ...(clusteringLevel === 'generation' && traceInfo.generation_id
+                  ? { event: traceInfo.generation_id }
+                  : {}),
+              ...(traceInfo.timestamp ? { timestamp: traceInfo.timestamp } : {}),
+          })
+
+    const linkLabel = clusteringLevel === 'trace' ? 'View trace →' : 'View generation →'
+
+    const verdictTagType: 'success' | 'danger' | 'warning' | 'muted' =
+        summary?.evaluationVerdict === 'pass'
+            ? 'success'
+            : summary?.evaluationVerdict === 'fail'
+              ? 'danger'
+              : summary?.evaluationVerdict === 'n/a'
+                ? 'warning'
+                : 'muted'
 
     return (
         <div className="p-4 hover:bg-surface-secondary transition-colors">
@@ -314,26 +430,33 @@ function TraceListItem({
                 <LemonTag type="muted" size="small">
                     #{displayRank}
                 </LemonTag>
-                <span className="font-medium flex-1 min-w-0 truncate">{summary?.title || 'Loading...'}</span>
-                <Link
-                    to={urls.llmAnalyticsTrace(clusteringLevel === 'generation' ? traceInfo.trace_id : traceId, {
-                        tab: 'summary',
-                        // For generation-level, highlight the specific generation
-                        ...(clusteringLevel === 'generation' && traceInfo.generation_id
-                            ? { event: traceInfo.generation_id }
-                            : {}),
-                        // timestamp is the trace's first_timestamp for both levels
-                        ...(traceInfo.timestamp ? { timestamp: traceInfo.timestamp } : {}),
-                    })}
-                    className="text-sm text-link hover:underline shrink-0"
-                    data-attr="clusters-view-trace-link"
-                >
-                    {clusteringLevel === 'generation' ? 'View generation →' : 'View trace →'}
-                </Link>
+                {isEvalLevel && summary?.evaluationVerdict && (
+                    <LemonTag type={verdictTagType} size="small">
+                        {summary.evaluationVerdict}
+                    </LemonTag>
+                )}
+                <span className="font-medium flex-1 min-w-0 truncate">
+                    {isEvalLevel ? formatEvalTitle(summary, 100) || 'Loading...' : summary?.title || 'Loading...'}
+                </span>
+                {linkHref && (
+                    <Link
+                        to={linkHref}
+                        className="text-sm text-link hover:underline shrink-0"
+                        data-attr="clusters-view-trace-link"
+                    >
+                        {linkLabel}
+                    </Link>
+                )}
             </div>
 
             {summary ? (
                 <div className="space-y-2">
+                    {/* Inline short reasoning for eval items so the user sees the verdict
+                        context without expanding. Long reasoning still gets the collapsible
+                        button below. */}
+                    {isEvalLevel && summary.evaluationReasoning && summary.evaluationReasoning.length <= 220 && (
+                        <div className="text-sm text-muted whitespace-pre-wrap">{summary.evaluationReasoning}</div>
+                    )}
                     {/* Expandable buttons row */}
                     <div className="flex items-center gap-2">
                         {summary.flowDiagram && (
@@ -347,17 +470,22 @@ function TraceListItem({
                                 Flow
                             </LemonButton>
                         )}
-                        {bulletItems.length > 0 && (
-                            <LemonButton
-                                size="xsmall"
-                                type="secondary"
-                                icon={showBullets ? <IconChevronDown /> : <IconChevronRight />}
-                                onClick={() => setShowBullets(!showBullets)}
-                                data-attr="clusters-trace-summary-toggle"
-                            >
-                                Summary
-                            </LemonButton>
-                        )}
+                        {bulletItems.length > 0 &&
+                            !(
+                                isEvalLevel &&
+                                summary.evaluationReasoning &&
+                                summary.evaluationReasoning.length <= 220
+                            ) && (
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    icon={showBullets ? <IconChevronDown /> : <IconChevronRight />}
+                                    onClick={() => setShowBullets(!showBullets)}
+                                    data-attr="clusters-trace-summary-toggle"
+                                >
+                                    {isEvalLevel ? 'Reasoning' : 'Summary'}
+                                </LemonButton>
+                            )}
                         {noteItems.length > 0 && (
                             <LemonButton
                                 size="xsmall"
@@ -383,7 +511,7 @@ function TraceListItem({
                     {showNotes && noteItems.length > 0 && <BulletList items={noteItems} />}
                 </div>
             ) : (
-                <div className="text-muted text-sm">Loading summary...</div>
+                <div className="text-muted text-sm">{isEvalLevel ? 'Loading reasoning...' : 'Loading summary...'}</div>
             )}
         </div>
     )

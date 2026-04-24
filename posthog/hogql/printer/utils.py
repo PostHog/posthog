@@ -11,6 +11,7 @@ from posthog.hogql.errors import InternalHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team, set_default_in_cohort_via
 from posthog.hogql.printer.base import BasePrinter
 from posthog.hogql.printer.clickhouse import ClickHousePrinter
+from posthog.hogql.printer.duckdb import DuckDBPrinter
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.resolver import resolve_types
@@ -107,7 +108,7 @@ def prepare_ast_for_printing(
         with context.timings.measure("projection_pushdown"):
             node = pushdown_projections(node, context)
 
-    if dialect == "postgres":
+    if dialect in ("postgres", "duckdb"):
         with context.timings.measure("resolve_lazy_tables"):
             resolve_lazy_tables(node, dialect, stack, context)
 
@@ -182,6 +183,13 @@ def print_prepared_ast(
                 )
             case "postgres":
                 printer = PostgresPrinter(
+                    context=context,
+                    stack=printer_stack,
+                    settings=settings,
+                    pretty=pretty,
+                )
+            case "duckdb":
+                printer = DuckDBPrinter(
                     context=context,
                     stack=printer_stack,
                     settings=settings,

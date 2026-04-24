@@ -78,6 +78,13 @@ function UsageMetricsTable(): JSX.Element {
             dataIndex: 'interval',
         },
         {
+            title: 'Display',
+            key: 'display',
+            render: function Render(_, metric) {
+                return metric.display === 'sparkline' ? 'Sparkline' : 'Number'
+            },
+        },
+        {
             title: 'Calculation',
             key: 'math',
             render: function Render(_, metric) {
@@ -170,6 +177,15 @@ function UsageMetricsForm(): JSX.Element {
                             options={[
                                 { value: 'currency', label: 'Currency' },
                                 { value: 'numeric', label: 'Numeric' },
+                            ]}
+                        />
+                    </LemonField>
+
+                    <LemonField name="display" label="Display">
+                        <LemonSelect
+                            options={[
+                                { value: 'number', label: 'Number' },
+                                { value: 'sparkline', label: 'Sparkline' },
                             ]}
                         />
                     </LemonField>

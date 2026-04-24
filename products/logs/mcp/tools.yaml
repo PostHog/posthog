@@ -20,6 +20,7 @@ tools:
             idempotent: true
         title: Query logs
         description_file: ./prompts/query-logs.md
+        system_prompt_hint: Log filtering by severity/service/attribute
         response:
             include:
                 - results
