@@ -7,6 +7,7 @@ import { DEFAULT_Y_AXIS_ID, LineChart } from 'lib/hog-charts'
 import type { LineChartConfig, PointClickData, Series } from 'lib/hog-charts'
 import type { TooltipContext } from 'lib/hog-charts/core/types'
 import { ReferenceLines } from 'lib/hog-charts/overlays/ReferenceLine'
+import { movingAverage } from 'lib/statistics'
 import { hexToRGBA } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -57,6 +58,8 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
         hasPersonsModal,
         querySource,
         incompletenessOffsetFromEnd,
+        showMovingAverage,
+        movingAverageIntervals,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
@@ -82,11 +85,20 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
 
     const hogSeries: Series<TrendsSeriesMeta>[] = useMemo(
         () =>
-            (indexedResults ?? []).map((r: IndexedTrendResult, index: number) => {
+            (indexedResults ?? []).flatMap((r: IndexedTrendResult, index: number) => {
                 const isActiveSeries = !r.compare || r.compare_label !== 'previous'
                 const dashedFromIndex =
                     isInProgress && isActiveSeries ? r.data.length + incompletenessOffsetFromEnd : undefined
-                return {
+                const yAxisId = showMultipleYAxes && index > 0 ? `y${index}` : DEFAULT_Y_AXIS_ID
+                const meta: TrendsSeriesMeta = {
+                    action: r.action,
+                    breakdown_value: r.breakdown_value,
+                    compare_label: r.compare_label,
+                    days: r.days,
+                    order: r.action?.order ?? r.id,
+                    filter: r.filter,
+                }
+                const mainSeries: Series<TrendsSeriesMeta> = {
                     key: `${r.id}`,
                     label: r.label ?? '',
                     data: r.data,
@@ -94,16 +106,32 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
                     fillArea: display === ChartDisplayType.ActionsAreaGraph,
                     dashedFromIndex,
                     hidden: getTrendsHidden(r),
-                    yAxisId: showMultipleYAxes && index > 0 ? `y${index}` : DEFAULT_Y_AXIS_ID,
-                    meta: {
-                        action: r.action,
-                        breakdown_value: r.breakdown_value,
-                        compare_label: r.compare_label,
-                        days: r.days,
-                        order: r.action?.order ?? r.id,
-                        filter: r.filter,
-                    },
+                    yAxisId,
+                    meta,
                 }
+                const series: Series<TrendsSeriesMeta>[] = [mainSeries]
+
+                // Confidence intervals are intentionally not rendered here. hog-charts
+                // stacks every visible series whenever any series has fillArea:true
+                // (LineChart.tsx), so a filled CI band would also reposition the main
+                // line. Adding CI requires a library primitive for fill-between-series.
+
+                if (showMovingAverage && r.data.length >= movingAverageIntervals) {
+                    series.push({
+                        key: `${r.id}-ma`,
+                        label: `${r.label ?? ''} (Moving avg)`,
+                        data: movingAverage(r.data, movingAverageIntervals),
+                        color: r.compare_label === 'previous' ? hexToRGBA(getTrendsColor(r), 0.5) : getTrendsColor(r),
+                        fillArea: false,
+                        dashPattern: [10, 3],
+                        pointRadius: 0,
+                        hideFromTooltip: true,
+                        yAxisId,
+                        meta,
+                    })
+                }
+
+                return series
             }),
         [
             indexedResults,
@@ -113,6 +141,8 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
             isInProgress,
             incompletenessOffsetFromEnd,
             showMultipleYAxes,
+            showMovingAverage,
+            movingAverageIntervals,
         ]
     )
 

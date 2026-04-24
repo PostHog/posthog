@@ -58,6 +58,7 @@ class Product(StrEnum):
 
 
 class Feature(StrEnum):
+    ALERTING = "alerting"
     BACKFILL = "backfill"
     BEHAVIORAL_COHORTS = "behavioral_cohorts"
     COHORT = "cohort"
@@ -77,6 +78,7 @@ class Feature(StrEnum):
     BILLING_ETL = "billing_etl"
     QUOTA_LIMITING = "quota_limiting"
     MIGRATION = "migration"
+    MANAGEMENT_COMMAND = "management_command"
 
 
 class TemporalTags(BaseModel):

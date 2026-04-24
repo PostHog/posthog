@@ -19,6 +19,8 @@ import type {
     LogsAlertsEventsListParams,
     LogsAlertsListParams,
     LogsAttributesRetrieveParams,
+    LogsExportCreate201,
+    LogsHasLogsRetrieve200,
     LogsValuesRetrieveParams,
     LogsViewApi,
     LogsViewsListParams,
@@ -30,6 +32,8 @@ import type {
     PatchedLogsViewApi,
     PluginConfigsLogsListParams,
     _LogsAttributesResponseApi,
+    _LogsCountRequestApi,
+    _LogsCountResponseApi,
     _LogsQueryRequestApi,
     _LogsQueryResponseApi,
     _LogsServicesRequestApi,
@@ -443,12 +447,29 @@ export const logsAttributesRetrieve = async (
     })
 }
 
+export const getLogsCountCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/count/`
+}
+
+export const logsCountCreate = async (
+    projectId: string,
+    _logsCountRequestApi: _LogsCountRequestApi,
+    options?: RequestInit
+): Promise<_LogsCountResponseApi> => {
+    return apiMutator<_LogsCountResponseApi>(getLogsCountCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_logsCountRequestApi),
+    })
+}
+
 export const getLogsExportCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/logs/export/`
 }
 
-export const logsExportCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLogsExportCreateUrl(projectId), {
+export const logsExportCreate = async (projectId: string, options?: RequestInit): Promise<LogsExportCreate201> => {
+    return apiMutator<LogsExportCreate201>(getLogsExportCreateUrl(projectId), {
         ...options,
         method: 'POST',
     })
@@ -458,8 +479,11 @@ export const getLogsHasLogsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/logs/has_logs/`
 }
 
-export const logsHasLogsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLogsHasLogsRetrieveUrl(projectId), {
+export const logsHasLogsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<LogsHasLogsRetrieve200> => {
+    return apiMutator<LogsHasLogsRetrieve200>(getLogsHasLogsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

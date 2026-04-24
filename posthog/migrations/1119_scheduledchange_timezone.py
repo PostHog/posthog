@@ -4,9 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("posthog", "1116_datadeletionrequest_hogql_predicate"),
-    ]
+    dependencies = [("posthog", "1118_subscriptiondelivery_change_summary")]
 
     operations = [
         migrations.AddField(
