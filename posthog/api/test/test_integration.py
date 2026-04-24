@@ -17,6 +17,7 @@ from posthog.models.integration import (
     PRIVATE_CHANNEL_WITHOUT_ACCESS,
     EmailIntegration,
     GitHubIntegration,
+    GitHubIntegrationError,
     Integration,
     SlackIntegration,
     StripeIntegration,
@@ -745,15 +746,58 @@ class TestIntegrationAPIKeyAccess:
         assert data["has_more"] is False
         mock_list_repos.assert_called_once_with(search="posthog", limit=1, offset=1)
 
+    @pytest.mark.parametrize(
+        "query_string,mock_return,expected_call",
+        [
+            (
+                "",
+                (
+                    [
+                        {"id": 1, "slug": "frontend-team", "name": "Frontend Team"},
+                        {"id": 2, "slug": "platform", "name": "Platform"},
+                    ],
+                    False,
+                ),
+                {"search": "", "limit": 100, "offset": 0},
+            ),
+            (
+                "?search=front&limit=10&offset=20",
+                (
+                    [
+                        {"id": 1, "slug": "frontend-team", "name": "Frontend Team"},
+                    ],
+                    True,
+                ),
+                {"search": "front", "limit": 10, "offset": 20},
+            ),
+        ],
+    )
     @patch("posthog.models.integration.GitHubIntegration.list_teams")
-    def test_github_teams_with_scope_succeeds(self, mock_list_teams, client: HttpClient):
-        mock_list_teams.return_value = (
-            [
-                {"id": 1, "slug": "frontend-team", "name": "Frontend Team"},
-                {"id": 2, "slug": "platform", "name": "Platform"},
-            ],
-            False,
+    def test_github_teams(self, mock_list_teams, query_string, mock_return, expected_call, client: HttpClient):
+        mock_list_teams.return_value = mock_return
+
+        key_value = "test_key_123"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
         )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.github_integration.id}/github_teams/{query_string}",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["teams"] == mock_return[0]
+        assert data["has_more"] is mock_return[1]
+        mock_list_teams.assert_called_once_with(**expected_call)
+
+    @patch("posthog.models.integration.GitHubIntegration.list_teams")
+    def test_github_teams_errors_return_400(self, mock_list_teams, client: HttpClient):
+        mock_list_teams.side_effect = GitHubIntegrationError("GitHubIntegration: list_teams failed")
 
         key_value = "test_key_123"
         PersonalAPIKey.objects.create(
@@ -768,40 +812,8 @@ class TestIntegrationAPIKeyAccess:
             HTTP_AUTHORIZATION=f"Bearer {key_value}",
         )
 
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert len(data["teams"]) == 2
-        assert data["teams"][0]["slug"] == "frontend-team"
-        assert data["has_more"] is False
-        mock_list_teams.assert_called_once_with(search="", limit=100, offset=0)
-
-    @patch("posthog.models.integration.GitHubIntegration.list_teams")
-    def test_github_teams_passes_search_limit_offset(self, mock_list_teams, client: HttpClient):
-        mock_list_teams.return_value = (
-            [
-                {"id": 1, "slug": "frontend-team", "name": "Frontend Team"},
-            ],
-            True,
-        )
-
-        key_value = "test_key_123"
-        PersonalAPIKey.objects.create(
-            label="Test Key",
-            user=self.user,
-            secure_value=hash_key_value(key_value),
-            scopes=["integration:read"],
-        )
-
-        response = client.get(
-            f"/api/environments/{self.team.pk}/integrations/{self.github_integration.id}/github_teams/?search=front&limit=10&offset=20",
-            HTTP_AUTHORIZATION=f"Bearer {key_value}",
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert data["teams"][0]["name"] == "Frontend Team"
-        assert data["has_more"] is True
-        mock_list_teams.assert_called_once_with(search="front", limit=10, offset=20)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "GitHubIntegration: list_teams failed"
 
     @patch("posthog.models.integration.GitHubIntegration.sync_repository_cache")
     def test_refresh_github_repos_with_write_scope_succeeds(self, mock_sync_repository_cache, client: HttpClient):
