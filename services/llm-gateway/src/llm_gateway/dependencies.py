@@ -158,7 +158,7 @@ async def enforce_throttles(
     else:
         end_user_id = await _extract_end_user_id_from_body(request)
 
-    plan_info = await resolve_plan_info(request, user.user_id, product)
+    plan_info = await resolve_plan_info(request, user.user_id, product, team_id=user.team_id)
 
     context = ThrottleContext(
         user=user,

@@ -10,6 +10,7 @@ import {
     LogsAlertsPartialUpdateParams,
     LogsAlertsRetrieveParams,
     LogsAttributesRetrieveQueryParams,
+    LogsCountCreateBody,
     LogsQueryCreateBody,
     LogsSparklineCreateBody,
     LogsValuesRetrieveQueryParams,
@@ -338,6 +339,27 @@ const logsSparklineQuery = (): ToolBase<typeof LogsSparklineQuerySchema, Schemas
     },
 })
 
+const LogsCountSchema = LogsCountCreateBody
+
+const logsCount = (): ToolBase<typeof LogsCountSchema, Schemas._LogsCountResponse> => ({
+    name: 'logs-count',
+    schema: LogsCountSchema,
+    handler: async (context: Context, params: z.infer<typeof LogsCountSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        const result = await context.api.request<Schemas._LogsCountResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/count/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, ['count']) as typeof result
+        return filtered
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'query-logs': queryLogs,
     'logs-attributes-list': logsAttributesList,
@@ -348,4 +370,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'logs-alerts-partial-update': logsAlertsPartialUpdate,
     'logs-alerts-destroy': logsAlertsDestroy,
     'logs-sparkline-query': logsSparklineQuery,
+    'logs-count': logsCount,
 }

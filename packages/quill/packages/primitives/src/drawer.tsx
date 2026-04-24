@@ -1,35 +1,30 @@
+import { Drawer as DrawerPrimitive } from '@base-ui/react/drawer'
 import * as React from 'react'
-import { Drawer as DrawerPrimitive } from 'vaul'
 
+import './drawer.css'
 import { cn } from './lib/utils'
 
-function Drawer({ ...props }: React.ComponentProps<typeof DrawerPrimitive.Root>): React.ReactElement {
+function Drawer({ ...props }: DrawerPrimitive.Root.Props): React.ReactElement {
     return <DrawerPrimitive.Root data-slot="drawer" {...props} />
 }
 
-function DrawerTrigger({ ...props }: React.ComponentProps<typeof DrawerPrimitive.Trigger>): React.ReactElement {
+function DrawerTrigger({ ...props }: DrawerPrimitive.Trigger.Props): React.ReactElement {
     return <DrawerPrimitive.Trigger data-slot="drawer-trigger" {...props} />
 }
 
-function DrawerPortal({ ...props }: React.ComponentProps<typeof DrawerPrimitive.Portal>): React.ReactElement {
+function DrawerPortal({ ...props }: DrawerPrimitive.Portal.Props): React.ReactElement {
     return <DrawerPrimitive.Portal data-slot="drawer-portal" {...props} />
 }
 
-function DrawerClose({ ...props }: React.ComponentProps<typeof DrawerPrimitive.Close>): React.ReactElement {
+function DrawerClose({ ...props }: DrawerPrimitive.Close.Props): React.ReactElement {
     return <DrawerPrimitive.Close data-slot="drawer-close" {...props} />
 }
 
-function DrawerOverlay({
-    className,
-    ...props
-}: React.ComponentProps<typeof DrawerPrimitive.Overlay>): React.ReactElement {
+function DrawerBackdrop({ className, ...props }: DrawerPrimitive.Backdrop.Props): React.ReactElement {
     return (
-        <DrawerPrimitive.Overlay
-            data-slot="drawer-overlay"
-            className={cn(
-                'fixed inset-0 z-50 bg-black/80 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0',
-                className
-            )}
+        <DrawerPrimitive.Backdrop
+            data-slot="drawer-backdrop"
+            className={cn('quill-drawer__backdrop', className)}
             {...props}
         />
     )
@@ -39,23 +34,35 @@ function DrawerContent({
     className,
     children,
     ...props
-}: React.ComponentProps<typeof DrawerPrimitive.Content>): React.ReactElement {
+}: DrawerPrimitive.Popup.Props): React.ReactElement {
     return (
-        <DrawerPortal data-slot="drawer-portal">
-            <DrawerOverlay />
-            <DrawerPrimitive.Content
-                data-quill
-                data-slot="drawer-content"
-                className={cn(
-                    'group/drawer-content fixed z-50 flex h-auto flex-col bg-transparent p-2 text-xs/relaxed before:absolute before:inset-2 before:-z-10 before:rounded-xl before:border before:border-border before:bg-background data-[vaul-drawer-direction=bottom]:inset-x-0 data-[vaul-drawer-direction=bottom]:bottom-0 data-[vaul-drawer-direction=bottom]:mt-24 data-[vaul-drawer-direction=bottom]:max-h-[80vh] data-[vaul-drawer-direction=left]:inset-y-0 data-[vaul-drawer-direction=left]:start-0 data-[vaul-drawer-direction=left]:w-3/4 data-[vaul-drawer-direction=right]:inset-y-0 data-[vaul-drawer-direction=right]:end-0 data-[vaul-drawer-direction=right]:w-3/4 data-[vaul-drawer-direction=top]:inset-x-0 data-[vaul-drawer-direction=top]:top-0 data-[vaul-drawer-direction=top]:mb-24 data-[vaul-drawer-direction=top]:max-h-[80vh] data-[vaul-drawer-direction=left]:sm:max-w-sm data-[vaul-drawer-direction=right]:sm:max-w-sm',
-                    className
-                )}
-                {...props}
-            >
-                <div className="mx-auto mt-4 hidden h-1.5 w-[100px] shrink-0 rounded-full bg-muted group-data-[vaul-drawer-direction=bottom]/drawer-content:block" />
-                {children}
-            </DrawerPrimitive.Content>
+        <DrawerPortal>
+            <DrawerBackdrop />
+            <DrawerPrimitive.Viewport data-slot="drawer-viewport" className="quill-drawer__viewport">
+                <DrawerPrimitive.Popup
+                    data-quill
+                    data-slot="drawer-content"
+                    className={cn('quill-drawer__content group/drawer-content flex h-auto flex-col', className)}
+                    {...props}
+                >
+                    <DrawerHandle />
+                    <div className="w-full max-w-[32rem] mx-auto">
+                    {children}
+                    </div>
+                </DrawerPrimitive.Popup>
+            </DrawerPrimitive.Viewport>
         </DrawerPortal>
+    )
+}
+
+function DrawerHandle({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
+    return (
+        <div
+            data-slot="drawer-handle"
+            aria-hidden="true"
+            className={cn('quill-drawer__handle', className)}
+            {...props}
+        />
     )
 }
 
@@ -63,37 +70,37 @@ function DrawerHeader({ className, ...props }: React.ComponentProps<'div'>): Rea
     return (
         <div
             data-slot="drawer-header"
-            className={cn(
-                'flex flex-col gap-1 p-4 group-data-[vaul-drawer-direction=bottom]/drawer-content:text-center group-data-[vaul-drawer-direction=top]/drawer-content:text-center md:text-start',
-                className
-            )}
+            className={cn('quill-drawer__header flex flex-col gap-1 p-4', className)}
             {...props}
         />
     )
 }
 
 function DrawerFooter({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
-    return <div data-slot="drawer-footer" className={cn('mt-auto flex flex-col gap-2 p-4', className)} {...props} />
-}
-
-function DrawerTitle({ className, ...props }: React.ComponentProps<typeof DrawerPrimitive.Title>): React.ReactElement {
     return (
-        <DrawerPrimitive.Title
-            data-slot="drawer-title"
-            className={cn('text-sm font-medium text-foreground', className)}
+        <div
+            data-slot="drawer-footer"
+            className={cn('quill-drawer__footer mt-auto flex flex-col gap-2 p-4', className)}
             {...props}
         />
     )
 }
 
-function DrawerDescription({
-    className,
-    ...props
-}: React.ComponentProps<typeof DrawerPrimitive.Description>): React.ReactElement {
+function DrawerTitle({ className, ...props }: DrawerPrimitive.Title.Props): React.ReactElement {
+    return (
+        <DrawerPrimitive.Title
+            data-slot="drawer-title"
+            className={cn('quill-drawer__title', className)}
+            {...props}
+        />
+    )
+}
+
+function DrawerDescription({ className, ...props }: DrawerPrimitive.Description.Props): React.ReactElement {
     return (
         <DrawerPrimitive.Description
             data-slot="drawer-description"
-            className={cn('text-xs/relaxed text-muted-foreground', className)}
+            className={cn('quill-drawer__description', className)}
             {...props}
         />
     )
@@ -102,10 +109,11 @@ function DrawerDescription({
 export {
     Drawer,
     DrawerPortal,
-    DrawerOverlay,
+    DrawerBackdrop,
     DrawerTrigger,
     DrawerClose,
     DrawerContent,
+    DrawerHandle,
     DrawerHeader,
     DrawerFooter,
     DrawerTitle,

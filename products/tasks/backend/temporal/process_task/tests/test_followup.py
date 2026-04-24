@@ -470,7 +470,6 @@ class TestFollowupGuards:
 
         assert _ci_followup_calls == []
 
-    @pytest.mark.timeout(60)
     async def test_skips_ci_follow_up_when_fingerprint_unchanged(self):
         # The first CI check runs (fingerprint moves from None → "stable-fp"),
         # sending a single follow-up. Subsequent checks must see the stored

@@ -834,4 +834,37 @@ describe('TaxonomicFilter', () => {
             }
         })
     })
+
+    describe('enableKeywordShortcuts', () => {
+        it('threads the prop from TaxonomicFilter through to the shortcut row', async () => {
+            const user = userEvent.setup()
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                enableKeywordShortcuts: true,
+            })
+
+            const searchInput = await waitFor(() => screen.getByTestId('taxonomic-filter-searchfield'))
+            await user.type(searchInput, 'click')
+
+            // The shortcut row carries a unique data-attr so the assertion isn't fooled by the
+            // definition popover which renders the same label text.
+            await waitFor(() => {
+                expect(document.querySelector('[data-attr="taxonomic-shortcut-click-series"]')).not.toBeNull()
+            })
+        })
+
+        it('does not render shortcut rows when enableKeywordShortcuts is omitted', async () => {
+            const user = userEvent.setup()
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+            })
+
+            const searchInput = await waitFor(() => screen.getByTestId('taxonomic-filter-searchfield'))
+            await user.type(searchInput, 'click')
+
+            // Give the infinite list a moment to settle then assert the row is absent.
+            await waitFor(() => expect(searchInput).toHaveValue('click'))
+            expect(document.querySelector('[data-attr="taxonomic-shortcut-click-series"]')).toBeNull()
+        })
+    })
 })
