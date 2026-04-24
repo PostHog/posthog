@@ -332,6 +332,9 @@ class TestValidateDisplayName(SimpleTestCase):
         [
             ("https", "Visit https://evil.com", "invalid_url"),
             ("http", "http://phish.me", "invalid_url"),
+            ("ftp", "grab ftp://phish.me", "invalid_url"),
+            ("file", "see file:///etc/passwd", "invalid_url"),
+            ("custom_scheme", "go slack://hack", "invalid_url"),
             ("www", "www.scam.io", "invalid_url"),
             ("full_payload", "GET A GIFT https://hicerento.reamaze.com", "invalid_url"),
             ("newline", "Line1\nLine2", "invalid_control_char"),
