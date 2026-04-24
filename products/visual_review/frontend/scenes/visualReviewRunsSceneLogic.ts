@@ -6,10 +6,12 @@ import { teamLogic } from 'scenes/teamLogic'
 import { Breadcrumb } from '~/types'
 
 import { visualReviewReposList, visualReviewRunsCountsRetrieve, visualReviewRunsList } from '../generated/api'
-import type { RepoApi, ReviewStateCountsApi, RunApi } from '../generated/api.schemas'
+import type { PaginatedRunListApi, RepoApi, ReviewStateCountsApi } from '../generated/api.schemas'
 import type { visualReviewRunsSceneLogicType } from './visualReviewRunsSceneLogicType'
 
 export type ReviewState = 'needs_review' | 'clean' | 'processing' | 'stale'
+
+const RUNS_PAGE_SIZE = 20
 
 export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
     path(['products', 'visual_review', 'frontend', 'scenes', 'visualReviewRunsSceneLogic']),
@@ -20,6 +22,7 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
 
     actions({
         setActiveTab: (tab: ReviewState) => ({ tab }),
+        setPage: (page: number) => ({ page }),
     }),
 
     reducers({
@@ -29,17 +32,26 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
                 setActiveTab: (_, { tab }) => tab,
             },
         ],
+        page: [
+            1,
+            {
+                setPage: (_, { page }) => page,
+                setActiveTab: () => 1,
+            },
+        ],
     }),
 
     loaders(({ values }) => ({
-        runs: [
-            [] as RunApi[],
+        runsResponse: [
+            { count: 0, results: [] } as PaginatedRunListApi,
             {
                 loadRuns: async () => {
-                    const response = await visualReviewRunsList(String(values.currentProjectId), {
+                    const offset = (values.page - 1) * RUNS_PAGE_SIZE
+                    return await visualReviewRunsList(String(values.currentProjectId), {
                         review_state: values.activeTab,
+                        limit: RUNS_PAGE_SIZE,
+                        offset,
                     })
-                    return response.results
                 },
             },
         ],
@@ -62,7 +74,20 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
         ],
     })),
 
-    selectors({
+    selectors(({ actions }) => ({
+        runs: [(s) => [s.runsResponse], (runsResponse): PaginatedRunListApi['results'] => runsResponse.results],
+        runsLoading: [(s) => [s.runsResponseLoading], (loading): boolean => loading],
+        pagination: [
+            (s) => [s.page, s.runsResponse],
+            (page, runsResponse) => ({
+                controlled: true as const,
+                pageSize: RUNS_PAGE_SIZE,
+                currentPage: page,
+                entryCount: runsResponse.count ?? 0,
+                onBackward: () => actions.setPage(page - 1),
+                onForward: () => actions.setPage(page + 1),
+            }),
+        ],
         repoFullName: [(s) => [s.repo], (repo): string | undefined => repo?.repo_full_name || undefined],
         breadcrumbs: [
             () => [],
@@ -74,10 +99,13 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
                 },
             ],
         ],
-    }),
+    })),
 
     listeners(({ actions }) => ({
         setActiveTab: () => {
+            actions.loadRuns()
+        },
+        setPage: () => {
             actions.loadRuns()
         },
     })),

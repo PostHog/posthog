@@ -55,7 +55,7 @@ const TAB_COUNT_TYPES: Record<ReviewState, 'warning' | 'highlight' | 'default' |
 }
 
 export function VisualReviewRunsScene(): JSX.Element {
-    const { runs, runsLoading, activeTab, counts, repoFullName } = useValues(visualReviewRunsSceneLogic)
+    const { runs, runsLoading, activeTab, counts, repoFullName, pagination } = useValues(visualReviewRunsSceneLogic)
     const { loadRuns, loadCounts, setActiveTab } = useActions(visualReviewRunsSceneLogic)
 
     const columns: LemonTableColumns<RunApi> = [
@@ -172,7 +172,7 @@ export function VisualReviewRunsScene(): JSX.Element {
                 dataSource={runs}
                 columns={columns}
                 loading={runsLoading}
-                pagination={{ pageSize: 20 }}
+                pagination={pagination}
                 nouns={['run', 'runs']}
                 emptyState={EMPTY_MESSAGES[activeTab]}
                 onRow={(run) => ({

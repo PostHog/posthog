@@ -105,7 +105,9 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             [] as SnapshotApi[],
             {
                 loadSnapshots: async () => {
-                    const response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), props.runId)
+                    const response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), props.runId, {
+                        limit: 10000,
+                    })
                     return response.results
                 },
             },
