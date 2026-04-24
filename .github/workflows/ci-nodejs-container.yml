@@ -27,7 +27,6 @@ jobs:
             - name: Check out
               uses: actions/checkout@v6
 
-            # Dedicated app token — higher rate limit, separate from GITHUB_TOKEN bucket
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
