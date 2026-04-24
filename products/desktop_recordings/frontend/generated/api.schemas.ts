@@ -14,9 +14,9 @@
  * `desktop_audio` - Desktop audio
  * `slack` - Slack huddle
  */
-export type Platform0afEnumApi = (typeof Platform0afEnumApi)[keyof typeof Platform0afEnumApi]
+export type MeetingPlatformEnumApi = (typeof MeetingPlatformEnumApi)[keyof typeof MeetingPlatformEnumApi]
 
-export const Platform0afEnumApi = {
+export const MeetingPlatformEnumApi = {
     Zoom: 'zoom',
     Teams: 'teams',
     Meet: 'meet',
@@ -31,9 +31,10 @@ export const Platform0afEnumApi = {
  * `ready` - Ready
  * `error` - Error
  */
-export type StatusD05EnumApi = (typeof StatusD05EnumApi)[keyof typeof StatusD05EnumApi]
+export type DesktopRecordingStatusEnumApi =
+    (typeof DesktopRecordingStatusEnumApi)[keyof typeof DesktopRecordingStatusEnumApi]
 
-export const StatusD05EnumApi = {
+export const DesktopRecordingStatusEnumApi = {
     Recording: 'recording',
     Uploading: 'uploading',
     Processing: 'processing',
@@ -68,7 +69,7 @@ export interface TranscriptSegmentApi {
 /**
  * Serializer for extracted tasks
  */
-export interface TaskApi {
+export interface DesktopRecordingTaskApi {
     title: string
     description?: string
     /** @nullable */
@@ -83,7 +84,7 @@ export interface DesktopRecordingApi {
     readonly sdk_upload_id: string
     /** @nullable */
     recall_recording_id?: string | null
-    platform: Platform0afEnumApi
+    platform: MeetingPlatformEnumApi
     /**
      * @maxLength 255
      * @nullable
@@ -100,7 +101,7 @@ export interface DesktopRecordingApi {
      * @nullable
      */
     duration_seconds?: number | null
-    status?: StatusD05EnumApi
+    status?: DesktopRecordingStatusEnumApi
     /** @nullable */
     notes?: string | null
     /** @nullable */
@@ -124,7 +125,7 @@ export interface DesktopRecordingApi {
     /** @nullable */
     summary?: string | null
     /** AI-extracted tasks from transcript */
-    extracted_tasks?: TaskApi[]
+    extracted_tasks?: DesktopRecordingTaskApi[]
     /** @nullable */
     tasks_generated_at?: string | null
     /** @nullable */
@@ -188,7 +189,7 @@ export interface CreateRecordingResponseApi {
     readonly sdk_upload_id: string
     /** @nullable */
     recall_recording_id?: string | null
-    platform: Platform0afEnumApi
+    platform: MeetingPlatformEnumApi
     /**
      * @maxLength 255
      * @nullable
@@ -205,7 +206,7 @@ export interface CreateRecordingResponseApi {
      * @nullable
      */
     duration_seconds?: number | null
-    status?: StatusD05EnumApi
+    status?: DesktopRecordingStatusEnumApi
     /** @nullable */
     notes?: string | null
     /** @nullable */
@@ -229,7 +230,7 @@ export interface CreateRecordingResponseApi {
     /** @nullable */
     summary?: string | null
     /** AI-extracted tasks from transcript */
-    extracted_tasks?: TaskApi[]
+    extracted_tasks?: DesktopRecordingTaskApi[]
     /** @nullable */
     tasks_generated_at?: string | null
     /** @nullable */
@@ -251,7 +252,7 @@ export interface PatchedDesktopRecordingApi {
     readonly sdk_upload_id?: string
     /** @nullable */
     recall_recording_id?: string | null
-    platform?: Platform0afEnumApi
+    platform?: MeetingPlatformEnumApi
     /**
      * @maxLength 255
      * @nullable
@@ -268,7 +269,7 @@ export interface PatchedDesktopRecordingApi {
      * @nullable
      */
     duration_seconds?: number | null
-    status?: StatusD05EnumApi
+    status?: DesktopRecordingStatusEnumApi
     /** @nullable */
     notes?: string | null
     /** @nullable */
@@ -292,7 +293,7 @@ export interface PatchedDesktopRecordingApi {
     /** @nullable */
     summary?: string | null
     /** AI-extracted tasks from transcript */
-    extracted_tasks?: TaskApi[]
+    extracted_tasks?: DesktopRecordingTaskApi[]
     /** @nullable */
     tasks_generated_at?: string | null
     /** @nullable */

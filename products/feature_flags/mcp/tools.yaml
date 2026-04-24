@@ -47,7 +47,7 @@ tools:
                 - status
                 - tags
     feature-flag-get-definition:
-        operation: feature_flags_retrieve_2
+        operation: feature_flags_retrieve
         enabled: true
         scopes:
             - feature_flag:read
@@ -116,7 +116,7 @@ tools:
         operation: feature_flags_update
         enabled: false
     feature-flags-activity-retrieve:
-        operation: feature_flags_activity_retrieve_2
+        operation: feature_flags_activity_retrieve
         enabled: true
         scopes:
             - activity_log:read
@@ -303,9 +303,15 @@ tools:
         title: Delete a scheduled change
         description: |
             Delete a scheduled change by ID. This permanently removes the scheduled change and it will not be executed.
+    feature-flags-all-activity-retrieve:
+        operation: feature_flags_all_activity_retrieve
+        enabled: false
     feature-flags-bulk-update-tags-create:
         operation: feature_flags_bulk_update_tags_create
         enabled: false
     feature-flags-versions-retrieve:
         operation: feature_flags_versions_retrieve
+        enabled: false
+    org-feature-flags-retrieve:
+        operation: org_feature_flags_retrieve
         enabled: false

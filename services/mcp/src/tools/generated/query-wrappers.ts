@@ -1214,6 +1214,16 @@ const QueryLifecycleSchema = AssistantLifecycleQuery.extend({
         ),
 })
 
+const QueryTrendsActorsSchema = AssistantTrendsActorsQuery.extend({
+    output_format: z
+        .enum(['optimized', 'json'])
+        .default('optimized')
+        .optional()
+        .describe(
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+        ),
+})
+
 // --- Tool registrations ---
 
 export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrapper<ZodObjectAny>>> = {
@@ -1281,10 +1291,10 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
     }),
     'query-trends-actors': createQueryWrapper({
         name: 'query-trends-actors',
-        schema: AssistantTrendsActorsQuery,
+        schema: QueryTrendsActorsSchema,
         kind: 'InsightActorsQuery',
-        uiResourceUri: 'ui://posthog/query-results.html',
-        outputFormat: 'json',
+        uiResourceUri: 'ui://posthog/insight-actors.html',
+        outputFormat: 'optimized',
         mcpVersion: 2,
     }),
 }

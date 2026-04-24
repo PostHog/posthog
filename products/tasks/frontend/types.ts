@@ -77,6 +77,17 @@ export type TaskUpsertProps = Optional<
     'title' | 'description' | 'origin_product' | 'github_integration' | 'repository'
 >
 
+export interface TaskListParams {
+    created_by?: number
+    repository?: string
+    organization?: string
+    stage?: string
+    origin_product?: string
+    internal?: boolean
+    search?: string
+    status?: TaskRunStatus
+}
+
 export interface KanbanColumn {
     id: string
     title: string

@@ -373,7 +373,7 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const FeatureFlagsRetrieve2Params = /* @__PURE__ */ zod.object({
+export const FeatureFlagsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
     project_id: zod
         .string()
@@ -702,7 +702,7 @@ export const FeatureFlagsDestroyParams = /* @__PURE__ */ zod.object({
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const FeatureFlagsActivityRetrieve2Params = /* @__PURE__ */ zod.object({
+export const FeatureFlagsActivityRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
     project_id: zod
         .string()
@@ -711,17 +711,17 @@ export const FeatureFlagsActivityRetrieve2Params = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const featureFlagsActivityRetrieve2QueryLimitDefault = 10
+export const featureFlagsActivityRetrieveQueryLimitDefault = 10
 
-export const featureFlagsActivityRetrieve2QueryPageDefault = 1
+export const featureFlagsActivityRetrieveQueryPageDefault = 1
 
-export const FeatureFlagsActivityRetrieve2QueryParams = /* @__PURE__ */ zod.object({
+export const FeatureFlagsActivityRetrieveQueryParams = /* @__PURE__ */ zod.object({
     limit: zod
         .number()
         .min(1)
-        .default(featureFlagsActivityRetrieve2QueryLimitDefault)
+        .default(featureFlagsActivityRetrieveQueryLimitDefault)
         .describe('Number of items per page'),
-    page: zod.number().min(1).default(featureFlagsActivityRetrieve2QueryPageDefault).describe('Page number'),
+    page: zod.number().min(1).default(featureFlagsActivityRetrieveQueryPageDefault).describe('Page number'),
 })
 
 /**
