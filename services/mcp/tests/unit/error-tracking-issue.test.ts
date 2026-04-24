@@ -38,7 +38,7 @@ describe('query-error-tracking-issue', () => {
                 columns: ['properties.$exception_list', 'properties.$exception_releases'],
                 results: [
                     [
-                        [
+                        JSON.stringify([
                             {
                                 stacktrace: {
                                     frames: [
@@ -59,15 +59,15 @@ describe('query-error-tracking-issue', () => {
                                     ],
                                 },
                             },
-                        ],
-                        {
+                        ]),
+                        JSON.stringify({
                             release_a: {
                                 version: '2026.04.24',
                                 project: 'web',
                                 timestamp: '2026-04-24T12:00:00Z',
                                 metadata: { git: { commit_id: 'abc123', branch: 'main', repo_name: 'posthog' } },
                             },
-                        },
+                        }),
                     ],
                 ],
             })

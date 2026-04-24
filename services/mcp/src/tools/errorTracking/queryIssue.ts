@@ -3,6 +3,8 @@ import { z } from 'zod'
 import { pickResponseFields } from '@/tools/tool-utils'
 import type { Context, ToolBase } from '@/tools/types'
 
+import { normalizeErrorTrackingProperty } from './exceptionProperties'
+
 const dateRangeSchema = z
     .object({
         date_from: z.string().optional(),
@@ -104,7 +106,8 @@ function mapContextEventProperties(data: Record<string, unknown>): Record<string
         }
         const value = values[i]
         if (value !== undefined && value !== null) {
-            properties[column.slice('properties.'.length)] = value
+            const prop = column.slice('properties.'.length)
+            properties[prop] = normalizeErrorTrackingProperty(prop, value)
         }
     }
 

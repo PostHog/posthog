@@ -2,6 +2,8 @@ import { z } from 'zod'
 
 import type { Context, ToolBase } from '@/tools/types'
 
+import { normalizeErrorTrackingProperty } from './exceptionProperties'
+
 const dateRangeSchema = z
     .object({
         date_from: z.string().optional(),
@@ -121,7 +123,7 @@ function mapEventRow(row: unknown, columns: string[]): Record<string, unknown> {
         }
         const prop = propertyName(column)
         if (prop) {
-            properties[prop] = value
+            properties[prop] = normalizeErrorTrackingProperty(prop, value)
         } else {
             event[column] = value
         }

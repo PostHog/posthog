@@ -36,7 +36,24 @@ describe('query-error-tracking-issue-events', () => {
                     'user-1',
                     'TypeError',
                     'Cannot read properties of undefined',
-                    [{ stacktrace: { frames: [] } }],
+                    JSON.stringify([
+                        {
+                            type: 'TypeError',
+                            value: 'Cannot read properties of undefined',
+                            stacktrace: {
+                                frames: [
+                                    {
+                                        filename: 'https://example.test/app.js',
+                                        function: 'loadIssue',
+                                        lineno: 42,
+                                        colno: 9,
+                                        in_app: true,
+                                    },
+                                ],
+                            },
+                            noisy_extra: 'drop me',
+                        },
+                    ]),
                     'https://example.test/app',
                 ],
             ],
@@ -74,7 +91,27 @@ describe('query-error-tracking-issue-events', () => {
                     properties: {
                         $exception_type: 'TypeError',
                         $exception_message: 'Cannot read properties of undefined',
-                        $exception_list: [{ stacktrace: { frames: [] } }],
+                        $exception_list: [
+                            {
+                                type: 'TypeError',
+                                value: 'Cannot read properties of undefined',
+                                stacktrace: {
+                                    frames: [
+                                        {
+                                            filename: 'https://example.test/app.js',
+                                            function: 'loadIssue',
+                                            lineno: 42,
+                                            colno: 9,
+                                            in_app: true,
+                                            source: 'https://example.test/app.js',
+                                            mangled_name: 'loadIssue',
+                                            line: 42,
+                                            column: 9,
+                                        },
+                                    ],
+                                },
+                            },
+                        ],
                         $current_url: 'https://example.test/app',
                     },
                 },
