@@ -9,11 +9,11 @@ https://github.com/PostHog/posthog/pull/55299.
 
 from __future__ import annotations
 
-import socket
 import secrets
-import ipaddress
 from typing import Any
 from urllib.parse import urlparse
+
+from django.core.exceptions import ValidationError
 
 import structlog
 import posthoganalytics
@@ -24,17 +24,13 @@ from rest_framework.response import Response
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import OAuthApplication
 from posthog.rate_limit import PartnerRegistrationIPThrottle
+from posthog.security.url_validation import is_url_allowed
 from posthog.utils import get_ip_address
 
 logger = structlog.get_logger(__name__)
 
-
-def _is_private_ip(hostname: str) -> bool:
-    try:
-        addr = ipaddress.ip_address(hostname)
-    except ValueError:
-        return False
-    return addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved
+NAME_MAX_LENGTH = 100
+PARTNER_TYPE_MAX_LENGTH = 50
 
 
 def _validate_callback_url(url: str) -> str | None:
@@ -49,21 +45,9 @@ def _validate_callback_url(url: str) -> str | None:
     if parsed.scheme in OAuthApplication.DEFAULT_BLOCKED_SCHEMES:
         return f"URL scheme '{parsed.scheme}' is not allowed"
 
-    is_loopback = parsed.hostname in ("localhost", "127.0.0.1", "::1", "[::1]")
-    if not is_loopback and parsed.scheme != "https":
-        return "Only https:// URLs are allowed (except localhost for development)"
-
-    if parsed.hostname and not is_loopback and _is_private_ip(str(parsed.hostname)):
-        return "Callback URL must not point to a private/internal IP address"
-
-    if parsed.hostname and not is_loopback:
-        try:
-            resolved = socket.getaddrinfo(parsed.hostname, None)
-        except socket.gaierror:
-            return None
-        for _, _, _, _, sockaddr in resolved:
-            if _is_private_ip(str(sockaddr[0])):
-                return "Callback URL resolves to a private/internal IP address"
+    allowed, reason = is_url_allowed(url)
+    if not allowed:
+        return reason
 
     return None
 
@@ -81,8 +65,15 @@ def provisioning_register(request: Request) -> Response:
 
     if not name:
         return Response({"error": "name is required"}, status=400)
+    if len(name) > NAME_MAX_LENGTH:
+        return Response({"error": f"name must be {NAME_MAX_LENGTH} characters or fewer"}, status=400)
     if not callback_url:
         return Response({"error": "callback_url is required"}, status=400)
+    if len(partner_type) > PARTNER_TYPE_MAX_LENGTH:
+        return Response(
+            {"error": f"partner_type must be {PARTNER_TYPE_MAX_LENGTH} characters or fewer"},
+            status=400,
+        )
 
     if (url_error := _validate_callback_url(callback_url)) is not None:
         return Response({"error": f"Invalid callback_url: {url_error}"}, status=400)
@@ -93,24 +84,27 @@ def provisioning_register(request: Request) -> Response:
     client_secret = generate_token()
     signing_secret = secrets.token_hex(32)
 
-    app = OAuthApplication.objects.create(
-        name=name,
-        client_id=client_id,
-        client_secret=client_secret,
-        client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-        authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-        redirect_uris=callback_url,
-        algorithm="RS256",
-        logo_uri=logo_uri,
-        provisioning_auth_method="hmac",
-        provisioning_signing_secret=signing_secret,
-        provisioning_partner_type=partner_type,
-        provisioning_active=False,
-        provisioning_can_create_accounts=False,
-        provisioning_can_provision_resources=True,
-        organization=None,
-        user=None,
-    )
+    try:
+        app = OAuthApplication.objects.create(
+            name=name,
+            client_id=client_id,
+            client_secret=client_secret,
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris=callback_url,
+            algorithm="RS256",
+            logo_uri=logo_uri,
+            provisioning_auth_method="hmac",
+            provisioning_signing_secret=signing_secret,
+            provisioning_partner_type=partner_type,
+            provisioning_active=False,
+            provisioning_can_create_accounts=False,
+            provisioning_can_provision_resources=True,
+            organization=None,
+            user=None,
+        )
+    except ValidationError as e:
+        return Response({"error": "; ".join(e.messages) if e.messages else "Invalid registration"}, status=400)
 
     logger.info(
         "agentic_provisioning.partner_registered",

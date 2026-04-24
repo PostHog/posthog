@@ -95,47 +95,44 @@ class TestProvisioningRegister(APIBaseTest):
         assert "callback_url" in res.json()["error"]
 
     def test_register_rejects_private_ip(self) -> None:
-        for url in [
-            "https://10.0.0.1/callback",
-            "https://172.16.0.1/callback",
-            "https://192.168.1.1/callback",
-        ]:
-            res = self._register({"callback_url": url})
-            assert res.status_code == 400, f"Expected 400 for {url}"
-            assert "private" in res.json()["error"].lower() or "internal" in res.json()["error"].lower()
-
-    def test_register_allows_localhost_http(self) -> None:
-        res = self._register({"callback_url": "http://localhost:3000/callback"})
-        assert res.status_code == 201
-
-    def test_register_rejects_http_non_localhost(self) -> None:
-        res = self._register({"callback_url": "http://example.com/callback"})
+        res = self._register({"callback_url": "https://10.0.0.1/callback"})
         assert res.status_code == 400
-        assert "https" in res.json()["error"].lower()
 
-    def test_register_rejects_dangerous_schemes(self) -> None:
-        for url in ["javascript:alert(1)", "data:text/html,<h1>hi</h1>", "file:///etc/passwd"]:
-            res = self._register({"callback_url": url})
-            assert res.status_code == 400, f"Expected 400 for {url}"
+    def test_register_rejects_metadata_host(self) -> None:
+        res = self._register({"callback_url": "http://169.254.169.254/latest/meta-data/"})
+        assert res.status_code == 400
+
+    def test_register_rejects_localhost(self) -> None:
+        res = self._register({"callback_url": "http://localhost:3000/callback"})
+        assert res.status_code == 400
+
+    def test_register_rejects_dangerous_scheme(self) -> None:
+        res = self._register({"callback_url": "javascript:alert(1)"})
+        assert res.status_code == 400
+
+    def test_register_rejects_long_name(self) -> None:
+        res = self._register({"name": "x" * 101})
+        assert res.status_code == 400
+        assert "name" in res.json()["error"].lower()
+
+    def test_register_rejects_long_partner_type(self) -> None:
+        res = self._register({"partner_type": "x" * 51})
+        assert res.status_code == 400
+        assert "partner_type" in res.json()["error"].lower()
 
 
 class TestCallbackURLValidation(APIBaseTest):
     def test_valid_https_url(self) -> None:
         assert _validate_callback_url("https://example.com/callback") is None
 
-    def test_localhost_http_allowed(self) -> None:
-        assert _validate_callback_url("http://localhost:3000/callback") is None
-        assert _validate_callback_url("http://127.0.0.1:8000/callback") is None
-
-    def test_http_non_localhost_rejected(self) -> None:
-        result = _validate_callback_url("http://example.com/callback")
-        assert result is not None
-        assert "https" in result.lower()
-
     def test_private_ips_rejected(self) -> None:
         assert _validate_callback_url("https://10.0.0.1/callback") is not None
         assert _validate_callback_url("https://172.16.0.1/callback") is not None
         assert _validate_callback_url("https://192.168.1.1/callback") is not None
+
+    def test_metadata_host_rejected(self) -> None:
+        assert _validate_callback_url("http://169.254.169.254/latest/meta-data/") is not None
+        assert _validate_callback_url("http://metadata.google.internal/") is not None
 
     def test_blocked_schemes_rejected(self) -> None:
         assert _validate_callback_url("javascript:alert(1)") is not None
