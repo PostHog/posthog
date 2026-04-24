@@ -899,6 +899,36 @@ describe('TaxonomicFilter', () => {
             expect(screen.queryByTestId(/taxonomic-category-dropdown-trigger-/)).not.toBeInTheDocument()
         })
 
+        it('control variant: default suggested-filters label is "Suggestions"', async () => {
+            setVariant('control')
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+            })
+
+            await waitFor(() => {
+                expect(screen.getByTestId('taxonomic-tab-suggested_filters')).toHaveTextContent('Suggestions')
+            })
+        })
+
+        it.each(['pill', 'icon'] as const)(
+            '%s variant: default suggested-filters label is "All" (seen in the dropdown items)',
+            async (variant) => {
+                setVariant(variant)
+                renderFilter({
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+                })
+
+                await waitFor(() => {
+                    expect(screen.getByTestId(`taxonomic-category-dropdown-trigger-${variant}`)).toBeInTheDocument()
+                })
+
+                await userEvent.click(screen.getByTestId(`taxonomic-category-dropdown-trigger-${variant}`))
+
+                const item = await screen.findByTestId('taxonomic-category-dropdown-item-suggested_filters')
+                expect(item).toHaveTextContent('All')
+            }
+        )
+
         it.each(['pill', 'icon'] as const)(
             '%s variant: hides the categories column and renders the in-input affordance',
             async (variant) => {

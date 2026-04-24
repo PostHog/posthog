@@ -74,6 +74,13 @@ export function TaxonomicFilter({
     const searchInputRef = useRef<HTMLInputElement | null>(null)
     const focusInput = (): void => searchInputRef.current?.focus()
 
+    const { featureFlags } = useValues(featureFlagLogic)
+    const categoryDropdownVariant = resolveCategoryDropdownVariant(
+        featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
+    )
+    const resolvedSuggestedFiltersLabel =
+        suggestedFiltersLabel ?? (categoryDropdownVariant === 'control' ? 'Suggestions' : 'All')
+
     const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
         taxonomicFilterLogicKey,
         groupType,
@@ -100,17 +107,13 @@ export function TaxonomicFilter({
         hogQLGlobals,
         hogQLExpressionShowBreakdownLabelHint,
         minSearchQueryLength,
-        suggestedFiltersLabel,
+        suggestedFiltersLabel: resolvedSuggestedFiltersLabel,
         enableKeywordShortcuts,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
     const { activeTab } = useValues(logic)
     const { setSearchQuery } = useActions(logic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const categoryDropdownVariant = resolveCategoryDropdownVariant(
-        featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
-    )
     const [refReady, setRefReady] = useState(false)
 
     useEffect(() => {
