@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 
 import { HogQLQueryResponse, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, FilterLogicalOperator, PropertyFilterType, UniversalFiltersGroup } from '~/types'
@@ -94,9 +94,11 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
             {
                 loadSummaryStats: async (_, breakpoint) => {
                     await breakpoint(10)
-                    const response = await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: `
+                    let response: HogQLQueryResponse | null = null
+                    try {
+                        response = (await api.query({
+                            kind: NodeKind.HogQLQuery,
+                            query: `
                             SELECT
                                 countIf(event = '$exception') as total_exceptions,
                                 uniqIf(person_id, event = '$exception') as affected_users,
@@ -105,14 +107,26 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
                             FROM events
                             WHERE {filters}
                         `,
-                        filters: {
-                            dateRange: values.dateRange,
-                            filterTestAccounts: values.filterTestAccounts,
-                            properties: (values.insightsFilterGroup.values[0] as UniversalFiltersGroup)
-                                .values as AnyPropertyFilter[],
-                        },
-                    })
-                    const row = (response as HogQLQueryResponse)?.results?.[0]
+                            filters: {
+                                dateRange: values.dateRange,
+                                filterTestAccounts: values.filterTestAccounts,
+                                properties: (values.insightsFilterGroup.values[0] as UniversalFiltersGroup)
+                                    .values as AnyPropertyFilter[],
+                            },
+                        })) as HogQLQueryResponse
+                    } catch (error: unknown) {
+                        // Swallow expected access/rate-limit denials so the insights tab renders an empty state
+                        // instead of bubbling an unhandled exception up to the user.
+                        if (
+                            error instanceof ApiError &&
+                            error.status !== undefined &&
+                            [401, 403, 429].includes(error.status)
+                        ) {
+                            return null
+                        }
+                        throw error
+                    }
+                    const row = response?.results?.[0]
                     if (!row) {
                         return null
                     }
