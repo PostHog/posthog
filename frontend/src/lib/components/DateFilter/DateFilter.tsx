@@ -117,6 +117,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         placeholder,
         allowTimePrecision,
         explicitDate,
+        showCustomRelativeRange,
     }
     const {
         open,

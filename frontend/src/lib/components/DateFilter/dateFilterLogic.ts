@@ -205,6 +205,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                 (_, p) => p.isFixedDateMode,
                 (_, p) => p.placeholder,
                 (_, p) => p.allowTimePrecision,
+                (_, p) => p.showCustomRelativeRange,
                 s.dateFromHasTimePrecision,
                 s.dateToHasTimePrecision,
             ],
@@ -219,10 +220,20 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                 isFixedDateMode,
                 placeholder,
                 allowTimePrecision,
+                showCustomRelativeRange,
                 dateFromHasTimePrecision,
                 dateToHasTimePrecision
             ) => {
-                if (isCustomRelativeRange && typeof dateFrom === 'string' && typeof dateTo === 'string') {
+                // Only render the "N days ago to M days ago" label when the consumer has opted into
+                // the custom-relative-range picker — other call sites (e.g. trends) may legitimately
+                // store both dates as relative strings (e.g. "-0d"/"-0d" for "Today") without intending
+                // the two-offset semantic, and should fall through to dateFilterToText.
+                if (
+                    showCustomRelativeRange &&
+                    isCustomRelativeRange &&
+                    typeof dateFrom === 'string' &&
+                    typeof dateTo === 'string'
+                ) {
                     return `${formatRelativeOffset(dateFrom)} to ${formatRelativeOffset(dateTo)}`
                 }
                 const renderWithTime = allowTimePrecision && (dateFromHasTimePrecision || dateToHasTimePrecision)
