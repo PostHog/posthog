@@ -13,31 +13,21 @@ def clear_redis_key():
     redis.delete(RECENTLY_ACCESSED_TEAMS_REDIS_KEY)
 
 
-def test_is_team_active_hit():
+@pytest.mark.parametrize(
+    "members,expected",
+    [
+        pytest.param({"42": 10.0}, True, id="hit"),
+        # score 0 is a valid membership — guards against an `if score:` truthiness bug
+        pytest.param({"42": 0}, True, id="hit_score_zero"),
+        pytest.param({"99": 10.0}, False, id="miss_when_key_exists"),
+    ],
+)
+def test_is_team_active_with_existing_key(members, expected):
     redis = get_client()
-    redis.zadd(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, {"42": 10.0})
+    redis.zadd(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, members)
 
     with patch("posthog.caching.utils.sync_execute") as mock_sync_execute:
-        assert is_team_active(42) is True
-        mock_sync_execute.assert_not_called()
-
-
-def test_is_team_active_hit_score_zero():
-    redis = get_client()
-    # score 0 is a valid membership — guards against an `if score:` truthiness bug
-    redis.zadd(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, {"42": 0})
-
-    with patch("posthog.caching.utils.sync_execute") as mock_sync_execute:
-        assert is_team_active(42) is True
-        mock_sync_execute.assert_not_called()
-
-
-def test_is_team_active_miss_when_key_exists():
-    redis = get_client()
-    redis.zadd(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, {"99": 10.0})
-
-    with patch("posthog.caching.utils.sync_execute") as mock_sync_execute:
-        assert is_team_active(42) is False
+        assert is_team_active(42) is expected
         mock_sync_execute.assert_not_called()
 
 
