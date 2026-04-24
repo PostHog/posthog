@@ -32,19 +32,13 @@ export const queryValidateHandler: ToolBase<typeof schema, ValidateResult>['hand
 
     const projectId = await context.stateManager.getProjectId()
 
-    const result = await context.api.insights({ projectId }).query({
-        query: {
-            kind: 'HogQLMetadata',
-            language,
-            query,
-        },
-    })
+    const result = await context.api.insights({ projectId }).validate({ query, language })
 
     if (!result.success) {
         throw new Error(`Failed to validate query: ${result.error.message}`)
     }
 
-    const data = result.data as unknown as ValidateResult
+    const data = result.data
     return {
         isValid: data.isValid,
         query: data.query ?? query,

@@ -843,6 +843,35 @@ export class ApiClient {
                 })
             },
 
+            validate: async ({
+                query,
+                language,
+            }: {
+                query: string
+                language: 'hogQL' | 'hogQLExpr' | 'hog' | 'hogTemplate'
+            }): Promise<
+                Result<{
+                    isValid: boolean
+                    query: string
+                    errors: Array<{ message: string; start?: number | null; end?: number | null; fix?: string | null }>
+                    warnings: Array<{
+                        message: string
+                        start?: number | null
+                        end?: number | null
+                        fix?: string | null
+                    }>
+                    notices: Array<{ message: string; start?: number | null; end?: number | null; fix?: string | null }>
+                    table_names: string[]
+                    ch_table_names?: string[] | null
+                }>
+            > => {
+                const url = `${this.baseUrl}/api/environments/${projectId}/query/`
+                return this.fetchJson(url, {
+                    method: 'POST',
+                    body: JSON.stringify({ query: { kind: 'HogQLMetadata', language, query } }),
+                })
+            },
+
             schema: async (): Promise<
                 Result<{
                     tables: Array<{

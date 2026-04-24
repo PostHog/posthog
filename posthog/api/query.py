@@ -154,11 +154,11 @@ def _describe_field(field_or_table) -> dict | None:
     if isinstance(field_or_table, ExpressionField):
         return {"name": field_or_table.name, "type": "expression", "nullable": False}
     if isinstance(field_or_table, LazyJoin):
-        target = getattr(field_or_table, "join_table", None)
-        target_name = getattr(target, "to_printed_hogql", lambda: None)() if target is not None else None
+        target = field_or_table.join_table
+        target_name = target if isinstance(target, str) else target.to_printed_hogql()
         return {"name": None, "type": "join", "nullable": False, "join_table": target_name}
     if isinstance(field_or_table, FieldTraverser):
-        return {"name": None, "type": "alias", "nullable": False, "chain": list(field_or_table.chain)}
+        return {"name": None, "type": "alias", "nullable": False, "chain": [str(x) for x in field_or_table.chain]}
     if isinstance(field_or_table, Table):
         # Nested tables are surfaced as their own top-level entries by get_all_table_names.
         return None
