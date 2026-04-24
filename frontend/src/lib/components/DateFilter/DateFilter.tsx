@@ -170,7 +170,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
 
     const popoverOverlay =
         view === DateFilterView.FixedRange ? (
-            fixedRangeGranularity === 'minute' ? (
+            showFixedRangeTimeToggle && fixedRangeGranularity === 'minute' ? (
                 <FixedRangeWithTimePicker
                     rangeDateFrom={rangeDateFrom}
                     rangeDateTo={rangeDateTo}
