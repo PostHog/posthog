@@ -27,7 +27,7 @@ def main():
     # tags at their own boundaries, so this only effectively applies to direct CLI commands.
     from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 
-    with tags_context(product=Product.INTERNAL, feature=Feature.MIGRATION):
+    with tags_context(product=Product.INTERNAL, feature=Feature.MANAGEMENT_COMMAND):
         execute_from_command_line(sys.argv)
 
 
