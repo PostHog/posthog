@@ -167,6 +167,11 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                             x.id !== 'template-source-vercel-log-drain' ||
                             !!featureFlags[FEATURE_FLAGS.CDP_VERCEL_LOG_DRAIN]
                     )
+                    .filter(
+                        (x) =>
+                            x.id !== 'template-native-push' ||
+                            !!featureFlags[FEATURE_FLAGS.WORKFLOWS_PUSH_NOTIFICATIONS]
+                    )
                     .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
             },
         ],
