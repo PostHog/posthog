@@ -313,8 +313,8 @@ jobs:
                           echo "⚠️ Failed to connect to Storybook, retrying... ($retries retries left)"
                           # Kill the existing process whether alive or not — it may be
                           # stuck in a pre-bind state (alive but never listening on 6006).
-                          kill $server_pid 2>/dev/null
-                          wait $server_pid 2>/dev/null
+                          kill "$server_pid" 2>/dev/null || true
+                          wait "$server_pid" 2>/dev/null || true
                           echo "Restarting http-server..."
                           pnpm exec http-server common/storybook/dist --port 6006 --silent &
                           server_pid=$!
