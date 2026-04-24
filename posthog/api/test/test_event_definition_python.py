@@ -411,6 +411,14 @@ class TestPythonGeneratorAPI(APIBaseTest):
         self.assertNotIn("capture_money", code)
         self.assertIn("capture_pageview", code)
 
+    def test_python_endpoint_includes_custom_events_without_schema(self):
+        EventDefinition.objects.create(team=self.team, project=self.project, name="no_schema_event")
+
+        response = self.client.get(f"/api/projects/{self.project.id}/event_definitions/python")
+
+        code = response.json()["content"]
+        self.assertIn("def capture_no_schema_event(", code)
+
     @patch("posthog.api.event_definition_generators.base.report_user_action")
     def test_python_endpoint_handles_no_events(self, mock_report):
         EventDefinition.objects.filter(team=self.team).delete()

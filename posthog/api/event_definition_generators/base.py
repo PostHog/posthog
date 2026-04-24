@@ -1,7 +1,7 @@
 import hashlib
 from abc import ABC, abstractmethod
 
-from django.db.models import Exists, OuterRef, Q, QuerySet
+from django.db.models import Q, QuerySet
 
 import orjson
 
@@ -90,19 +90,13 @@ class EventDefinitionGenerator(ABC):
         Fetch event definitions and build schema map. The key of `schema_map` references a EventDefinition.ID
         from the returned event_definitions set.
         """
-        # Include core PostHog events (from the taxonomy), verified events, and
-        # custom events with a schema. This prevents spam events and events with
-        # personal information from being included in generated code.
-        has_schema = Exists(EventSchema.objects.filter(event_definition=OuterRef("pk")))
-
+        # Include core PostHog events, verified events, and custom non-system events.
         event_definitions = (
             EventDefinition.objects.filter(team__project_id=project_id)
             .filter(
                 Q(name__in=CORE_EVENTS)  # Core PostHog events from the taxonomy
                 | Q(enterpriseeventdefinition__verified=True)  # Any verified event
-                | (
-                    ~Q(name__startswith="$") & has_schema  # Custom events with a schema
-                )
+                | ~Q(name__startswith="$")  # Custom events (with or without schema)
             )
             .order_by("name")
         )

@@ -18,6 +18,7 @@ import pytest
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.event_definition_generators.typescript import TypeScriptGenerator
@@ -284,6 +285,37 @@ posthog.capture("a'a\\\\'b\\"c>?>%}}%%>c<[[?${{%}}cake'", {
             # This ensures any changes to the TypeScript generation are intentional and reviewed
             # Strip the dynamic timestamp so the snapshot is stable
             self.snapshot.assert_match(self._strip_dynamic_timestamp(ts_content))
+
+
+class TestTypeScriptGeneratorAPI(APIBaseTest):
+    def _setup_event_with_schema(self) -> None:
+        event = EventDefinition.objects.create(team=self.team, project=self.project, name="has_schema_event")
+        group = SchemaPropertyGroup.objects.create(team=self.team, project=self.project, name="G")
+        SchemaPropertyGroupProperty.objects.create(
+            property_group=group, name="some_field", property_type="String", is_required=True
+        )
+        EventSchema.objects.create(event_definition=event, property_group=group)
+
+    @parameterized.expand(
+        [
+            ("without_schema", False, ['"no_schema_event": Record<string, any>']),
+            ("with_schema", True, ['"has_schema_event"', '"some_field": string']),
+        ]
+    )
+    def test_typescript_endpoint_includes_custom_event(
+        self, _, with_schema: bool, expected_fragments: list[str]
+    ) -> None:
+        if with_schema:
+            self._setup_event_with_schema()
+        else:
+            EventDefinition.objects.create(team=self.team, project=self.project, name="no_schema_event")
+
+        response = self.client.get(f"/api/projects/{self.project.id}/event_definitions/typescript/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        content = response.json()["content"]
+
+        for fragment in expected_fragments:
+            self.assertIn(fragment, content)
 
 
 class TestTypeScriptGeneratorOptionalInTypes(BaseTest):
