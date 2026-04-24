@@ -132,7 +132,7 @@ tools:
             Delete a survey by ID (soft delete - marks as archived).
         soft_delete: archived
     survey-stats:
-        operation: surveys_stats_retrieve_2
+        operation: surveys_stats_retrieve
         enabled: true
         scopes:
             - survey:read
@@ -147,7 +147,7 @@ tools:
             unique respondents, conversion rates, and timing data. Supports optional date filtering.
         ui_app: survey-stats
     surveys-global-stats:
-        operation: surveys_stats_retrieve
+        operation: surveys_global_stats_retrieve
         enabled: true
         scopes:
             - survey:read
@@ -186,4 +186,7 @@ tools:
         enabled: false
     surveys-responses-count-retrieve:
         operation: surveys_responses_count_retrieve
+        enabled: false
+    surveys-all-activity-retrieve:
+        operation: surveys_all_activity_retrieve
         enabled: false

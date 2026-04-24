@@ -5,6 +5,7 @@ import datetime as dt
 
 from django.utils import timezone
 
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from opentelemetry import trace
 from pydantic import ValidationError
@@ -24,6 +25,7 @@ from posthog.schema import (
     PropertyGroupFilter,
 )
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -425,6 +427,7 @@ class _LogsValuesResponseSerializer(serializers.Serializer):
 @extend_schema(tags=["logs"])
 class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "logs"
+    serializer_class = _FallbackSerializer
 
     @staticmethod
     def _normalize_filter_group(filter_group: object) -> dict:
@@ -757,6 +760,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 status=status.HTTP_200_OK,
             )
 
+    @extend_schema(responses={200: OpenApiTypes.OBJECT})
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def has_logs(self, request: Request, *args, **kwargs) -> Response:
         has_logs = team_has_logs(self.team)
@@ -771,6 +775,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         return Response({"hasLogs": has_logs}, status=status.HTTP_200_OK)
 
+    @extend_schema(responses={201: OpenApiTypes.OBJECT})
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def export(self, request: Request, *args, **kwargs) -> Response:
         query_data = request.data.get("query", None)
