@@ -62,6 +62,29 @@ def delete_expired_exported_assets() -> None:
 
 
 @shared_task(ignore_result=True)
+def delete_expired_delegation_invites() -> None:
+    """Delete delegation invites that have passed their expiry.
+
+    The `pre_delete` receiver on OrganizationInvite handles un-suppressing onboarding
+    for the delegator, so this runs the existing cancellation path without bespoke
+    state-clearing logic here. Without this periodic sweep, natural expiry leaves
+    delegators stranded on the "waiting for teammate" screen indefinitely.
+    """
+    from datetime import timedelta
+
+    from posthog.constants import INVITE_DAYS_VALIDITY
+    from posthog.models import OrganizationInvite
+
+    cutoff = timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY)
+    expired = OrganizationInvite.objects.filter(is_setup_delegation=True, created_at__lt=cutoff)
+    # Delete per-row (not bulk) so `pre_delete` fires for each invite and the un-suppress
+    # receiver clears delegator state per-invite. Volume is tiny (one per expiring delegation);
+    # the per-row cost is not a concern at this rate.
+    for invite in expired.iterator():
+        invite.delete()
+
+
+@shared_task(ignore_result=True)
 def clear_expired_sessions() -> None:
     from django.contrib.sessions.models import Session
 

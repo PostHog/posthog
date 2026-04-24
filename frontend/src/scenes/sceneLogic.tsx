@@ -4,6 +4,7 @@ import { BuiltLogic, actions, afterMount, connect, kea, listeners, path, props, 
 import { combineUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
+import { useEffect, useState } from 'react'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
@@ -293,7 +294,12 @@ const pathPrefixesOnboardingNotRequiredFor = [
 ]
 
 const DelayedLoadingSpinner = (): JSX.Element => {
-    return <Spinner />
+    const [show, setShow] = useState(false)
+    useEffect(() => {
+        const timeout = window.setTimeout(() => setShow(true), 500)
+        return () => window.clearTimeout(timeout)
+    }, [])
+    return <>{show ? <Spinner /> : null}</>
 }
 
 const getMainContentElement = (): HTMLElement | null => document.getElementById('main-content')

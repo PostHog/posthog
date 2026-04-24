@@ -517,6 +517,11 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         # ForeignKey fields
         "current_organization",
         "current_team",
+        # The onboarding delegation FK is excluded here because the generic field-diffing
+        # path tries to serialize the related invite during the signal, which races the
+        # same transaction that created the invite. Forensic visibility for delegation
+        # state transitions is handled via explicit structlog entries from
+        # `set_delegated_state` / `clear_delegation_state` / the pre_delete receiver.
         "onboarding_delegated_to_invite",
         # With _id suffix for direct attribute access
         "current_organization_id",

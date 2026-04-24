@@ -213,6 +213,7 @@ class UserSerializer(serializers.ModelSerializer):
             "passkeys_enabled_for_2fa",
             "onboarding_skipped_at",
             "onboarding_skipped_reason",
+            "onboarding_skipped_organization_id",
             "onboarding_delegated_to_invite",
             "onboarding_delegated_to_organization_id",
             "onboarding_delegation_accepted_at",
@@ -239,6 +240,7 @@ class UserSerializer(serializers.ModelSerializer):
             "has_sso_enforcement",
             "onboarding_skipped_at",
             "onboarding_skipped_reason",
+            "onboarding_skipped_organization_id",
             "onboarding_delegated_to_invite",
             "onboarding_delegated_to_organization_id",
             "onboarding_delegation_accepted_at",
@@ -794,9 +796,19 @@ class UserViewSet(
             name="OnboardingSkipRequest",
             fields={
                 "reason": serializers.ChoiceField(
-                    choices=[OnboardingSkippedReason.LATER, OnboardingSkippedReason.OTHER], required=True
+                    choices=[OnboardingSkippedReason.LATER, OnboardingSkippedReason.OTHER],
+                    required=True,
+                    help_text=(
+                        "Why the user is leaving onboarding. 'later' keeps them able to return; "
+                        "'other' is a catch-all. 'delegated' is rejected here — use the delegate "
+                        "endpoint so the delegation invite is created atomically."
+                    ),
                 ),
-                "step_at_skip": serializers.CharField(required=False, allow_blank=True),
+                "step_at_skip": serializers.CharField(
+                    required=False,
+                    allow_blank=True,
+                    help_text="Onboarding step key the user was on when skipping, for analytics only.",
+                ),
             },
         ),
         responses=UserSerializer,
@@ -818,7 +830,7 @@ class UserViewSet(
         non_delegated_reasons = {OnboardingSkippedReason.LATER, OnboardingSkippedReason.OTHER}
         if reason not in non_delegated_reasons:
             raise serializers.ValidationError(
-                {"reason": "Must be 'later' or 'other'. Use the delegate endpoint to hand off setup."},
+                {"reason": "Must be 'later' or 'other'."},
                 code="invalid_input",
             )
 
@@ -840,6 +852,12 @@ class UserViewSet(
                 # Re-read the user since post_delete may have cleared some fields already.
                 locked.refresh_from_db()
 
+            # Org-scoped skip: pin to the user's current org so this doesn't suppress
+            # onboarding in other orgs they later join/create.
+            current_org_id = getattr(locked, "current_organization_id", None) or (
+                locked.organization.id if locked.organization else None
+            )
+
             # Idempotency: preserve the first skip timestamp and short-circuit repeat analytics.
             already_skipped_non_delegated = bool(
                 locked.onboarding_skipped_at and locked.onboarding_skipped_reason in non_delegated_reasons
@@ -851,6 +869,9 @@ class UserViewSet(
             if locked.onboarding_skipped_reason != reason:
                 locked.onboarding_skipped_reason = reason
                 update_fields.append("onboarding_skipped_reason")
+            if locked.onboarding_skipped_organization_id != current_org_id:
+                locked.onboarding_skipped_organization_id = current_org_id
+                update_fields.append("onboarding_skipped_organization_id")
             # A stale FK to a delegation invite the delegate already accepted can remain; clear it
             # so the "waiting on teammate" UI doesn't re-engage.
             had_delegation_state = any(
@@ -875,19 +896,26 @@ class UserViewSet(
             # Sync the in-memory instance that will be serialized back to the caller.
             instance.refresh_from_db()
 
-        if instance.distinct_id and not already_skipped_non_delegated:
-            import posthoganalytics
+            if instance.distinct_id and not already_skipped_non_delegated:
+                # Fire analytics only after the transaction commits, so a rolled-back
+                # request doesn't produce a skip event the DB doesn't back.
+                distinct_id = str(instance.distinct_id)
 
-            try:
-                # Single event name with `reason` as a property keeps dashboards simple —
-                # counting skips doesn't require unioning event names.
-                posthoganalytics.capture(
-                    distinct_id=str(instance.distinct_id),
-                    event="onboarding skipped",
-                    properties={"step_at_skip": step_at_skip or None, "reason": reason},
-                )
-            except Exception as exc:
-                capture_exception(exc)
+                def _fire_skip_analytics() -> None:
+                    import posthoganalytics
+
+                    try:
+                        # Single event name with `reason` as a property keeps dashboards simple —
+                        # counting skips doesn't require unioning event names.
+                        posthoganalytics.capture(
+                            distinct_id=distinct_id,
+                            event="onboarding skipped",
+                            properties={"step_at_skip": step_at_skip or None, "reason": reason},
+                        )
+                    except Exception as exc:
+                        capture_exception(exc)
+
+                transaction.on_commit(_fire_skip_analytics)
 
         return Response(self.get_serializer(instance=instance).data)
 

@@ -118,6 +118,10 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "approval_applied": "61",
     "conversation_restore": "63",
     "proxy_provisioned": "64",
+    # Customer.io template ID must be created in Customer.io and inserted here before rollout.
+    # Until then, SMTP-only instances still work via the Django template; cloud sends will raise
+    # from get_customer_io_template_id and retry via Celery's autoretry_for(Exception,).
+    "delegation_invite": "65",
 }
 
 
@@ -192,8 +196,13 @@ def _send_via_http(
                 record.save()
 
     except Exception as err:
+        # Re-raise so Celery's autoretry_for=(Exception,) handles transient failures and the
+        # calling task can mark delivery state correctly. Previously this swallowed all errors,
+        # causing silent drops on cloud (Customer.io) sends while callers believed the email
+        # was on its way.
         print("Could not send email via http:", err, file=sys.stderr)
         capture_exception(err)
+        raise
 
 
 def _send_via_smtp(

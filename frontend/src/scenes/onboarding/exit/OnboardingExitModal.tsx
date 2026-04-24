@@ -10,6 +10,11 @@ import { userLogic } from 'scenes/userLogic'
 
 import { onboardingExitLogic } from './onboardingExitLogic'
 
+// Keep in sync with `OrganizationInviteDelegateSerializer.message.max_length` on the backend
+// (posthog/api/organization_invite.py). Client-side limit mirrors the server cap so users
+// see the constraint as they type instead of after submit.
+const MESSAGE_MAX_LENGTH = 1000
+
 export function shouldSubmitDelegate(isComposing: boolean): boolean {
     return !isComposing
 }
@@ -97,10 +102,23 @@ export function OnboardingExitModal(): JSX.Element {
                         placeholder="Hey — can you get this set up? Thanks!"
                         data-attr="onboarding-exit-message-input"
                         minRows={3}
+                        maxLength={MESSAGE_MAX_LENGTH}
                     />
-                    <p className="text-secondary text-xs m-0 mt-1">
-                        They'll be added as an admin so they can complete onboarding.
-                    </p>
+                    <div className="flex items-start justify-between gap-2 mt-1">
+                        <p className="text-secondary text-xs m-0">
+                            They'll be added as an admin so they can finish setting up PostHog.
+                        </p>
+                        <p
+                            className={
+                                message.length >= MESSAGE_MAX_LENGTH
+                                    ? 'text-danger text-xs m-0 shrink-0'
+                                    : 'text-muted text-xs m-0 shrink-0'
+                            }
+                            aria-live="polite"
+                        >
+                            {message.length}/{MESSAGE_MAX_LENGTH}
+                        </p>
+                    </div>
                     <div className="flex justify-end gap-2 mt-2">
                         <LemonButton
                             type="secondary"
@@ -139,7 +157,7 @@ export function OnboardingExitModal(): JSX.Element {
                                 “{messagePreview}”
                             </div>
                             <p className="m-0 text-xs text-muted">
-                                You'll be added as an admin so you can install the SDK.
+                                You'll be added as an admin so you can finish setup.
                             </p>
                             <LemonButton
                                 type="primary"

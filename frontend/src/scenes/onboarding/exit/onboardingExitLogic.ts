@@ -118,35 +118,39 @@ export const onboardingExitLogic = kea<onboardingExitLogicType>([
                     step_at_delegation: values.stepKey || '',
                 })
                 delegationCommitted = true
-                // Honest wording: 201 means the invite row is persisted, not that SMTP has delivered.
-                lemonToast.success(`Invite created — we'll email ${values.targetEmail.trim()}`)
+                lemonToast.success(`Invitation sent to ${values.targetEmail.trim()}`)
 
                 // Seed the freshest user into userLogic BEFORE navigating, otherwise sceneLogic's
                 // onboarding-redirect check reads stale state and bounces us straight back to /onboarding.
                 // We hit `/api/users/@me/` — the same endpoint `loadUser` uses — so the response shape
                 // matches what the rest of the app (and `isOnboardingRedirectSuppressed`) expects, and
                 // `onboarding_skipped_at` reliably lands in state before the scene change fires.
+                let freshUserLoaded = false
                 try {
                     const freshUser = await api.get<UserType>('api/users/@me/')
                     actions.loadUserSuccess(freshUser)
+                    freshUserLoaded = Boolean(freshUser?.onboarding_delegated_to_invite)
                 } catch {
-                    // If the refresh fails, still trigger a load so the app eventually converges —
-                    // the delegation is already committed on the backend, the user just needs state.
+                    // If the refresh fails, trigger a background load so the app eventually converges.
                     actions.loadUser()
                 }
 
                 actions.closeExitModal()
-                // Match the normal post-onboarding redirect (`onboardingLogic.onCompleteOnboardingRedirectUrl`)
-                // — product-specific landing page if a product was selected, otherwise the default home.
-                // `replace` (not `push`) so the `/onboarding/…` URL is dropped from history and the
-                // back button doesn't take the user right back into onboarding.
-                router.actions.replace(values.onCompleteOnboardingRedirectUrl)
+                // If the fresh-user fetch didn't return hydrated delegation state, don't race
+                // sceneLogic's redirect back into /onboarding — stay on the onboarding route
+                // and let the background loadUser populate state. The scene will transition
+                // to the waiting screen automatically once the user object updates.
+                if (freshUserLoaded) {
+                    // Match the normal post-onboarding redirect: product-specific landing page if a
+                    // product was selected, otherwise the default home. `replace` (not `push`) so the
+                    // `/onboarding/…` URL is dropped from history.
+                    router.actions.replace(values.onCompleteOnboardingRedirectUrl)
+                }
             } catch (error: any) {
                 if (delegationCommitted) {
                     // POST succeeded but a follow-up step failed — don't show a scary error
                     // that would make the user re-submit into `existing_invite`.
                     actions.closeExitModal()
-                    router.actions.replace(values.onCompleteOnboardingRedirectUrl)
                     return
                 }
                 lemonToast.error(extractErrorDetail(error, "Couldn't send the invitation. Please try again."))

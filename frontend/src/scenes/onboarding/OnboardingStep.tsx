@@ -9,9 +9,15 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { OnboardingStepKey } from '~/types'
 
+import { OnboardingExitAction } from './exit/OnboardingExitAction'
 import { OnboardingBreadcrumbs } from './OnboardingBreadcrumbs'
-import { OnboardingExitAction } from './OnboardingExitAction'
 import { onboardingLogic, stepKeyToTitle } from './onboardingLogic'
+
+// Only surface the "hand off to teammate" CTA in the install step. Later steps
+// (session replay config, billing, etc.) are no longer about SDK handoff — showing
+// delegation there is confusing, and the teammate arriving fresh wouldn't know which
+// partial state to pick up from.
+const EXIT_CTA_ELIGIBLE_STEPS: readonly OnboardingStepKey[] = [OnboardingStepKey.INSTALL]
 
 export const OnboardingStep = ({
     stepKey,
@@ -113,7 +119,7 @@ export const OnboardingStep = ({
                         </LemonButton>
                     )}
                 </div>
-                <OnboardingExitAction />
+                {EXIT_CTA_ELIGIBLE_STEPS.includes(stepKey) && <OnboardingExitAction />}
             </div>
         </>
     )

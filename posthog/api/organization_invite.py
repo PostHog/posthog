@@ -32,6 +32,7 @@ from posthog.permissions import (
     TimeSensitiveActionPermission,
     UserCanInvitePermission,
 )
+from posthog.rate_limit import OnboardingDelegationThrottle
 from posthog.rbac.user_access_control import UserAccessControl, ordered_access_levels
 from posthog.tasks.email import send_invite
 
@@ -298,9 +299,25 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
 
 
 class OrganizationInviteDelegateSerializer(serializers.Serializer):
-    target_email = serializers.EmailField(required=True)
-    message = serializers.CharField(required=False, allow_blank=True, max_length=1000)
-    step_at_delegation = serializers.CharField(required=False, allow_blank=True, max_length=64)
+    target_email = serializers.EmailField(
+        required=True,
+        help_text=(
+            "Email of the teammate who should complete setup on the inviter's behalf. Receives a "
+            "PostHog-branded delegation invite granting admin-level membership on accept."
+        ),
+    )
+    message = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=1000,
+        help_text="Optional personal message included in the delegation email (up to 1000 characters).",
+    )
+    step_at_delegation = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=64,
+        help_text="Onboarding step key the delegator was on when delegating, for analytics only.",
+    )
 
 
 @extend_schema(tags=["core"])
@@ -364,6 +381,26 @@ class OrganizationInviteViewSet(
 
         return response.Response(serializer.data, status=status.HTTP_201_CREATED)
 
+    @staticmethod
+    def _delegation_flag_enabled(user: User) -> Optional[bool]:
+        # Wrap feature_enabled in a short timeout so a slow/down flag service can't block
+        # every delegation request. Timeout or exception → fail-open (None). Explicit False
+        # disables the flow.
+        import concurrent.futures
+
+        def _eval() -> Optional[bool]:
+            return posthoganalytics.feature_enabled(
+                "onboarding-delegation",
+                str(user.distinct_id) if user.distinct_id else str(user.uuid),
+                send_feature_flag_events=False,
+            )
+
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                return executor.submit(_eval).result(timeout=1.0)
+        except (concurrent.futures.TimeoutError, Exception):
+            return None
+
     @extend_schema(
         request=OrganizationInviteDelegateSerializer,
         responses=OrganizationInviteSerializer,
@@ -372,6 +409,7 @@ class OrganizationInviteViewSet(
         methods=["POST"],
         detail=False,
         required_scopes=["organization_member:write"],
+        throttle_classes=[OnboardingDelegationThrottle],
     )
     def delegate(self, request: request.Request, **kwargs) -> response.Response:
         """
@@ -380,31 +418,24 @@ class OrganizationInviteViewSet(
         """
         user = cast(User, self.request.user)
 
-        # Kill switch for the delegation flow. feature_enabled() is a synchronous call with
-        # no timeout; if the flag service is slow every delegation request blocks on it.
-        # The None-return-means-enabled fallback is load-bearing in two ways:
-        #   1. If the flag hasn't been created yet (ops haven't configured it), this stays
-        #      a no-op and doesn't 500.
-        #   2. If the flag service is down entirely and the SDK returns None, we fail open
-        #      (delegation still works) rather than blocking every request.
-        # Only an explicit False result disables the flow. Do not change the fallback
-        # without also plumbing local evaluation or a timeout.
-        flag_result = posthoganalytics.feature_enabled(
-            "onboarding-delegation",
-            str(user.distinct_id) if user.distinct_id else str(user.uuid),
-            send_feature_flag_events=False,
-        )
-        if flag_result is False:
-            raise exceptions.PermissionDenied(
-                "Onboarding delegation is currently disabled. Please complete setup yourself or contact your admin.",
-                code="delegation_disabled",
-            )
-
+        # Validate input first so malformed requests fail fast without paying the remote
+        # feature-flag lookup latency.
         input_serializer = OrganizationInviteDelegateSerializer(data=request.data)
         input_serializer.is_valid(raise_exception=True)
         target_email = EmailNormalizer.normalize(input_serializer.validated_data["target_email"])
         message = input_serializer.validated_data.get("message") or ""
         step_at_delegation = input_serializer.validated_data.get("step_at_delegation") or ""
+
+        # Kill switch for the delegation flow. Wrapped in a tight timeout so a slow/down
+        # flag service doesn't block every delegation request; a None or timeout result
+        # means fail-open (delegation still works). Only an explicit False disables it.
+        flag_enabled = self._delegation_flag_enabled(user)
+        if flag_enabled is False:
+            raise exceptions.PermissionDenied(
+                "Onboarding delegation is currently disabled. Please finish setup yourself, or contact "
+                "PostHog support if you need help.",
+                code="delegation_disabled",
+            )
 
         # Delegation invites grant ADMIN-level access on accept, so the caller must themselves
         # hold ADMIN or higher. Without this check, regular members could escalate an unrelated
@@ -418,20 +449,18 @@ class OrganizationInviteViewSet(
                 "Only organization admins can delegate setup, as delegation grants admin access."
             )
 
-        # Catch both primary-email self-delegation and the case where a user owns a secondary
-        # account with the target email — preventing an admin from granting themselves an
-        # extra admin seat via an alias.
-        user_email_matches = bool(user.email) and EmailNormalizer.normalize(user.email) == target_email
-        user_owns_target_email = User.objects.filter(email__iexact=target_email, id=user.id).exists()
-        if user_email_matches or user_owns_target_email:
+        # Self-delegation guard. `user.email == target_email` is sufficient: `target_email`
+        # has been normalized and the comparison is case-insensitive via the normalizer.
+        if bool(user.email) and EmailNormalizer.normalize(user.email) == target_email:
             raise exceptions.ValidationError("You cannot delegate setup to yourself.", code="self_delegation")
 
-        # Server-side gate: delegation only makes sense while the caller is still onboarding.
-        # Without this, an already-onboarded admin could replay the endpoint to escalate a
-        # stranger to admin via delegation-specific templates (they could do this via the
-        # regular invite endpoint too, but the dedicated template here is meant for first-run setup).
-        caller_team = user.team
-        if caller_team is not None and (caller_team.ingested_event or caller_team.completed_snippet_onboarding):
+        # Server-side gate: delegation only makes sense while the *target organization* is
+        # still in onboarding. `user.team` points at the caller's current_team (which could
+        # be in any org), so we query the teams of the organization we're delegating to.
+        target_org_teams = Team.objects.filter(organization_id=self.organization_id).only(
+            "ingested_event", "completed_snippet_onboarding"
+        )
+        if any(team.ingested_event or team.completed_snippet_onboarding for team in target_org_teams):
             raise exceptions.ValidationError(
                 "Setup has already been completed — delegation is only available during initial onboarding.",
                 code="onboarding_complete",

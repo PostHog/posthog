@@ -28,6 +28,11 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+# In ordinary use one delegation invite maps to one delegator; if we ever see more than this
+# being unsuppressed by a single invite delete, the logic invariant has drifted and ops should
+# investigate rather than silently bulk-update many User rows.
+_DELEGATION_UNSUPPRESS_WARN_THRESHOLD = 5
+
 
 def validate_private_project_access(value):
     from posthog.rbac.user_access_control import ACCESS_CONTROL_LEVELS_MEMBER
@@ -139,6 +144,12 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
         # cleanup in one atomic block so a crash mid-flow can't leave the membership without its
         # inviter, nor delete the invite before the membership is fully wired up.
         with transaction.atomic():
+            # Row-lock the invite so two concurrent accepts of the same link serialize on this
+            # row rather than racing each other into the membership/grant path. Without this
+            # lock the second transaction would see the invite row and proceed before the first
+            # had committed its membership / delegator-accepted updates.
+            OrganizationInvite.objects.select_for_update().get(pk=self.pk)
+
             membership = user.join(organization=self.organization, level=cast(OrganizationMembership.Level, self.level))
             if self.created_by_id is not None:
                 # Bypass ModelActivityMixin on this follow-up write: the membership row was just
@@ -169,9 +180,15 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
                     access_level=item["level"],
                 )
 
+            # Narrow the sibling-invite sweep to everything EXCEPT self; delete self via the
+            # instance method so ModelActivityMixin's "deleted" signal fires. This also avoids
+            # firing the pre_delete un-suppress side-effect on invites that share (org, email)
+            # but belong to a different delegator.
             OrganizationInvite.objects.filter(
-                organization=self.organization, target_email__iexact=self.target_email
-            ).delete()
+                organization=self.organization,
+                target_email__iexact=self.target_email,
+            ).exclude(pk=self.pk).delete()
+            self.delete()
 
         # Side effects that don't need the membership/invite rows are fine to run after commit.
         self._sync_user_product_list_for_accessible_teams(user)
@@ -253,15 +270,26 @@ def _unsuppress_delegator_onboarding_on_invite_delete(sender, instance: Organiza
         onboarding_delegated_to_invite_id=instance.id,
         onboarding_delegation_accepted_at__isnull=True,
     )
-    affected_count = pending_delegators.count()
-    if affected_count == 0:
-        return
-
-    pending_delegators.update(
+    # Single UPDATE — the return value is the affected row count, so we don't need a
+    # separate count(). In ordinary use this is a single row (one delegator per invite);
+    # the explicit assertion guards against a future change that lets many users point at
+    # the same delegation invite from blowing up the User hot table on one cancel.
+    affected_count = pending_delegators.update(
         onboarding_skipped_at=None,
         onboarding_skipped_reason=None,
+        onboarding_skipped_organization_id=None,
         onboarding_delegated_to_organization_id=None,
+        onboarding_delegation_accepted_at=None,
     )
+    if affected_count == 0:
+        return
+    if affected_count > _DELEGATION_UNSUPPRESS_WARN_THRESHOLD:
+        logger.warning(
+            "delegation_invite_delete_unsuppressed_many_users",
+            invite_id=str(instance.id),
+            organization_id=str(instance.organization_id) if instance.organization_id else None,
+            affected_count=affected_count,
+        )
     # Audit trail: bulk .update() bypasses ModelActivityMixin signals; log explicitly so ops
     # can trace why a delegator's onboarding state was cleared.
     logger.info(

@@ -251,6 +251,10 @@ def send_invite(invite_id: str) -> None:
         return
     message.add_recipient(email=invite.target_email, distinct_id=f"invite_{invite_id}")
     message.send()
+    # Mark emailing_attempt_made only after the send actually completes. Any upstream
+    # failure (SMTP reject, Customer.io error) raises before this line, so the flag
+    # stays False and the delegation re-submit path can retry email dispatch.
+    OrganizationInvite.objects.filter(pk=invite_id).update(emailing_attempt_made=True)
 
 
 @shared_task(**EMAIL_TASK_KWARGS)

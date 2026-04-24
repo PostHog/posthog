@@ -613,6 +613,14 @@ class UserEmailVerificationThrottle(UserOrEmailRateThrottle):
     rate = "6/day"
 
 
+class OnboardingDelegationThrottle(UserRateThrottle):
+    # Delegation sends PostHog-branded emails to caller-supplied recipients, so we cap it tightly
+    # to prevent a compromised admin session (or a misbehaving integration) from using the endpoint
+    # as a spam cannon.
+    scope = "onboarding_delegation"
+    rate = "10/hour"
+
+
 class SetupWizardAuthenticationRateThrottle(UserRateThrottle):
     # Throttle class that is applied for authenticating the setup wizard
     # This is more aggressive than other throttles because the wizard makes LLM calls
