@@ -204,6 +204,7 @@ export function ProjectTree({
     const showSortDropdown = root === 'project://'
 
     const isAIFirst = useFeatureFlag('AI_FIRST')
+    const isStarredReorderEnabled = useFeatureFlag('STARRED_REORDER')
 
     let treeData: TreeDataItem[] = [...fullFileSystemFiltered]
 
@@ -464,19 +465,26 @@ export function ProjectTree({
                 // Sibling reorder within the Starred (shortcuts://) list.
                 const oldShortcutEntryId = typeof oldId === 'string' ? shortcutEntryIdMap.get(oldId) : undefined
                 const newShortcutEntryId = typeof newId === 'string' ? shortcutEntryIdMap.get(newId) : undefined
-                if (oldShortcutEntryId && newShortcutEntryId) {
+                if (isStarredReorderEnabled && oldShortcutEntryId && newShortcutEntryId) {
                     if (oldShortcutEntryId === newShortcutEntryId) {
                         return false
                     }
                     const currentIds = shortcutData.map((s) => s.id).filter((id): id is string => !!id)
                     const fromIndex = currentIds.indexOf(oldShortcutEntryId)
-                    const toIndex = currentIds.indexOf(newShortcutEntryId)
+                    let toIndex = currentIds.indexOf(newShortcutEntryId)
                     if (fromIndex < 0 || toIndex < 0) {
                         return false
                     }
+                    // `position` describes which side of the target row the pointer was over.
+                    // Treat 'after' as "insert below the target," otherwise insert above it.
+                    if (dragEvent.position === 'after') {
+                        toIndex += 1
+                    }
                     const next = [...currentIds]
                     next.splice(fromIndex, 1)
-                    next.splice(toIndex, 0, oldShortcutEntryId)
+                    // After removing `fromIndex`, anything that was at a higher index shifts down by one.
+                    const adjustedToIndex = fromIndex < toIndex ? toIndex - 1 : toIndex
+                    next.splice(adjustedToIndex, 0, oldShortcutEntryId)
                     reorderShortcuts(next)
                     return
                 }
@@ -505,16 +513,17 @@ export function ProjectTree({
             }}
             isItemDraggable={(item) => {
                 if (shortcutEntryIdMap.has(item.id)) {
-                    return true
+                    return isStarredReorderEnabled
                 }
                 return (item.id.startsWith('project/') || item.id.startsWith('project://')) && item.record?.path
             }}
+            getItemDropMode={(item) => (shortcutEntryIdMap.has(item.id) ? 'reorder' : 'onto')}
             isItemDroppable={(item) => {
                 const path = item.record?.path || ''
 
                 // Allow dropping onto other top-level starred items to reorder them.
                 if (shortcutEntryIdMap.has(item.id)) {
-                    return true
+                    return isStarredReorderEnabled
                 }
 
                 // disable dropping for these IDS

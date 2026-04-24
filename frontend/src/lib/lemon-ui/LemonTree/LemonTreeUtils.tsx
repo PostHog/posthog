@@ -1,5 +1,5 @@
 import { useDraggable, useDroppable } from '@dnd-kit/core'
-import { CSSProperties, useRef } from 'react'
+import { CSSProperties, useEffect, useRef, useState } from 'react'
 
 import { IconChevronRight, IconCircleDashed, IconDocument, IconFolder, IconFolderOpenFilled } from '@posthog/icons'
 
@@ -195,31 +195,75 @@ export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
     )
 }
 
+export type TreeDropPosition = 'before' | 'after' | 'onto'
+
 type DroppableProps = DragAndDropProps & {
     isDroppable: boolean
     className?: string
     isDragging?: boolean
     isRoot?: boolean
     style?: CSSProperties
+    // When 'reorder', render an insertion line above/below the row based on pointer position
+    // and report which side was targeted. Defaults to 'onto' (ring highlight on the whole row).
+    dropMode?: 'onto' | 'reorder'
+    onPositionChange?: (id: string, position: TreeDropPosition) => void
 }
 
 export const TreeNodeDroppable = (props: DroppableProps): JSX.Element => {
     const { setNodeRef, isOver } = useDroppable({ id: props.id })
+    const nodeRef = useRef<HTMLDivElement | null>(null)
+    const [reorderSide, setReorderSide] = useState<'before' | 'after' | null>(null)
+
+    const setRefs = (el: HTMLDivElement | null): void => {
+        nodeRef.current = el
+        setNodeRef(el)
+    }
+
+    const isReorder = props.dropMode === 'reorder' && props.isDroppable
+
+    const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>): void => {
+        if (!isReorder || !nodeRef.current) {
+            return
+        }
+        const rect = nodeRef.current.getBoundingClientRect()
+        const side: 'before' | 'after' = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+        if (side !== reorderSide) {
+            setReorderSide(side)
+            props.onPositionChange?.(props.id, side)
+        }
+    }
+
+    useEffect(() => {
+        if (!isOver) {
+            setReorderSide(null)
+        }
+    }, [isOver])
+
+    const showRing = props.isDroppable && isOver && !isReorder
+    const showLineBefore = isReorder && isOver && reorderSide === 'before'
+    const showLineAfter = isReorder && isOver && reorderSide === 'after'
 
     return (
         <div
-            ref={setNodeRef}
+            ref={setRefs}
+            onPointerMove={isReorder ? handlePointerMove : undefined}
             className={cn(
                 'flex flex-col transition-all duration-150 rounded relative z-2 ',
                 props.className,
-                props.isDroppable && isOver && 'ring-2 ring-inset ring-accent bg-accent-highlight-secondary',
+                showRing && 'ring-2 ring-inset ring-accent bg-accent-highlight-secondary',
                 // If the item is a root item and it's dragging, make it take up the full height
                 props.isRoot && props.isDragging && 'h-full'
             )}
             // eslint-disable-next-line react/forbid-dom-props
             style={props.style}
         >
+            {showLineBefore && (
+                <div className="pointer-events-none absolute -top-px left-0 right-0 h-0.5 bg-accent z-10" />
+            )}
             {props.children}
+            {showLineAfter && (
+                <div className="pointer-events-none absolute -bottom-px left-0 right-0 h-0.5 bg-accent z-10" />
+            )}
         </div>
     )
 }
