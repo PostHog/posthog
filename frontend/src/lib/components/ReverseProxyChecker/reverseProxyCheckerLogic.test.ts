@@ -75,4 +75,24 @@ describe('reverseProxyCheckerLogic', () => {
                 hasReverseProxy: true,
             })
     })
+
+    it('should fall back to false when the query fetch fails', async () => {
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind': () => {
+                    throw new TypeError('Failed to fetch')
+                },
+            },
+        })
+
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.loadHasReverseProxy()
+        })
+            .toFinishAllListeners()
+            .toMatchValues({
+                hasReverseProxy: false,
+            })
+    })
 })

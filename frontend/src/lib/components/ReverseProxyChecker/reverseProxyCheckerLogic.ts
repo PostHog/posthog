@@ -34,11 +34,18 @@ export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
                         LIMIT 10`
 
                     const currentScene = sceneLogic.findMounted()?.values.activeSceneId ?? 'Onboarding'
-                    const res = await api.queryHogQL(query, {
-                        scene: currentScene,
-                        productKey: 'platform_and_support',
-                    })
-                    return !!res.results?.find((x) => !!x[0])
+                    try {
+                        const res = await api.queryHogQL(query, {
+                            scene: currentScene,
+                            productKey: 'platform_and_support',
+                        })
+                        return !!res?.results?.find((x) => !!x[0])
+                    } catch {
+                        // Background health check — transient fetch errors (ad blocker,
+                        // page unload mid-request, network blip) shouldn't surface as
+                        // uncaught exceptions. Fall back to the last known value.
+                        return values.hasReverseProxy ?? false
+                    }
                 },
             },
         ],
