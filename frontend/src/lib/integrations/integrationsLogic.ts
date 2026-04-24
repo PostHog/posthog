@@ -245,7 +245,10 @@ export const integrationsLogic = kea<integrationsLogicType>([
             // Stripe marketplace installs redirect here without a PostHog-minted state —
             // Stripe initiates OAuth itself on install (stripe_api_access_type: oauth). Skip
             // the CSRF state check; the code is still validated server-side via Stripe exchange.
-            const isStripeMarketplaceInstall = resolvedKind === 'stripe' && !state && !!stripe_user_id && !!code
+            // resolvedKind is typed as IntegrationKind which doesn't list 'stripe' in the enum,
+            // but the URL route (`/integrations/:kind/callback`) passes it through verbatim.
+            const isStripeMarketplaceInstall =
+                (resolvedKind as string) === 'stripe' && !state && !!stripe_user_id && !!code
 
             try {
                 if (!isStripeMarketplaceInstall && token !== getCookie('ph_oauth_state')) {
