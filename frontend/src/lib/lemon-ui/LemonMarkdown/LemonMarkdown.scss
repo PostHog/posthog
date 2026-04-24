@@ -27,11 +27,8 @@
         margin-bottom: 0.5em;
     }
 
-    // Inline <code>: monospace glyphs appear visually larger at the same em size,
-    // so render it about 1px smaller than surrounding proportional text.
-    // Keep the adjustment relative to the local text context, since LemonMarkdown
-    // is embedded at different sizes across the app.
-    // Block code is rendered by CodeSnippet (pre > code) and sets its own font-size.
+    // Inline <code>: monospace reads visually larger, so size it ~1px down.
+    // Keep it relative to local text; block code uses CodeSnippet sizing.
     :not(pre) > code {
         font-size: calc(1em - 1px);
     }
