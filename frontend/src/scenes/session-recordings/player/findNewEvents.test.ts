@@ -79,4 +79,21 @@ describe('findNewEvents', () => {
         const result = findNewEvents(all, current)
         expect(result.map((e) => e.timestamp)).toEqual(expected)
     })
+
+    // Regression test: very large `allSnapshots` arrays have caused
+    // `RangeError: Maximum call stack size exceeded` in the caller when the
+    // result was consumed via `arr.push(...findNewEvents(...))`. Callers must
+    // treat the returned array as a whole (assign or iterate) rather than
+    // spreading it into a variadic call.
+    it('handles a very large allSnapshots input without throwing', () => {
+        const size = 300_000
+        const all: eventWithTime[] = new Array(size)
+        for (let i = 0; i < size; i++) {
+            all[i] = evt(i)
+        }
+        const result = findNewEvents(all, [])
+        expect(result.length).toBe(size)
+        expect(result[0].timestamp).toBe(0)
+        expect(result[size - 1].timestamp).toBe(size - 1)
+    })
 })
