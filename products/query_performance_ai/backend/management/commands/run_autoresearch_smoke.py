@@ -221,12 +221,22 @@ class Command(BaseCommand):
                 env_values["ANTHROPIC_BASE_URL"] = anthropic_base_url
                 env_values["ANTHROPIC_API_KEY"] = gateway_token
 
-            env_assignments = " ".join(f"{name}={shlex.quote(value)}" for name, value in env_values.items())
+            # Write env vars into a file inside the sandbox and `set -a;
+            # source`-them rather than putting them on argv. The token values
+            # would otherwise end up in shell history / `/proc/*/cmdline` /
+            # docker_sandbox.py's debug-log line, which CodeQL flags as a
+            # clear-text credential leak even inside a single-tenant sandbox.
+            # `sandbox.write_file` pipes via stdin so no values touch argv.
+            env_file = "/tmp/autoresearch-campaign.env"
+            env_contents = "".join(f"{name}={shlex.quote(value)}\n" for name, value in env_values.items())
+            sandbox.write_file(env_file, env_contents.encode())
             # execute_stream only iterates stdout; merge stderr so the operator
             # sees run_campaign.py's progress markers alongside pi's output.
             command = (
                 f"cd {shlex.quote(repo_path)} && "
-                f"env {env_assignments} "
+                f"trap 'rm -f {shlex.quote(env_file)}' EXIT && "
+                f"chmod 600 {shlex.quote(env_file)} && "
+                f"set -a && . {shlex.quote(env_file)} && set +a && "
                 f"python3 products/query_performance_ai/scripts/run_campaign.py 2>&1"
             )
 
