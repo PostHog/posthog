@@ -40,10 +40,15 @@ async def publish_product_cost_gauges_loop(
     without tying freshness to request traffic.
     """
     logger.info("product_cost_gauge_publisher_started", interval_seconds=interval_seconds)
+
     while True:
-        await _publish_once(throttle)
         try:
-            await asyncio.sleep(interval_seconds)
+            await _publish_once(throttle)
         except asyncio.CancelledError:
             logger.info("product_cost_gauge_publisher_stopped")
             raise
+        except Exception:
+            logger.exception("product_cost_gauge_publish_loop_failed")
+
+        await asyncio.sleep(interval_seconds)
+
