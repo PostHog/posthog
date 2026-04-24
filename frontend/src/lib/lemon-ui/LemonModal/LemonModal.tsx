@@ -80,7 +80,7 @@ export const LemonModalContent = ({ children, className, embedded = false }: Lem
 
 export function LemonModal({
     width,
-    maxWidth = '65ch',
+    maxWidth,
     children,
     isOpen = true,
     onClose,
@@ -173,7 +173,7 @@ export function LemonModal({
     )
 
     width = !fullScreen ? width : undefined
-    maxWidth = !fullScreen ? maxWidth : undefined
+    maxWidth = !fullScreen ? (maxWidth ?? '65ch') : undefined
     const floatingContainer = useFloatingContainer()
 
     return inline ? (

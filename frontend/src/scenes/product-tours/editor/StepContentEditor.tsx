@@ -556,7 +556,7 @@ export function StepContentEditor({
                 <ResizableElement
                     defaultWidth={getWidthValue(selectedStep?.maxWidth)}
                     minWidth={200}
-                    maxWidth="48rem"
+                    maxWidth={768}
                     onResize={(width) => updateSelectedStep({ maxWidth: width })}
                     className="mx-auto"
                 >
