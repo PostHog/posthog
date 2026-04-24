@@ -10,12 +10,25 @@ from datetime import UTC, datetime
 
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase
 
 from posthog.models.person.point_in_time_properties import build_person_properties_at_time
 
 
-class TestPointInTimePropertiesIntegration(TestCase):
+def _prop_row(set_dict: dict | None = None, set_once_dict: dict | None = None, event: str = "$set") -> tuple:
+    return (
+        1,
+        json.dumps(set_dict) if set_dict is not None else "",
+        json.dumps(set_once_dict) if set_once_dict is not None else "",
+        event,
+    )
+
+
+def _existence_row() -> tuple:
+    return (0, "", "", "")
+
+
+class TestPointInTimePropertiesIntegration(SimpleTestCase):
     """
     Integration test examples showing how the point-in-time person properties
     building functionality would work in practice.
@@ -26,99 +39,65 @@ class TestPointInTimePropertiesIntegration(TestCase):
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
     def test_realistic_person_properties_timeline(self, mock_sync_execute):
-        """
-        Test a realistic scenario where a person's properties evolve over time
-        through multiple events and we want to see their state at a specific point.
-        """
         # Simulate a timeline of events for user "alice123" on team 1:
         # Day 1: User signs up with basic info
         # Day 2: User completes profile with more details
         # Day 3: User's location changes
         # Day 4: User updates their preferences
-
-        # ClickHouse toJSONString() returns double-encoded JSON
-        mock_events = [
-            # Day 1: Initial signup
+        timeline = [
             (
-                json.dumps(
-                    json.dumps({"$set": {"email": "alice@example.com", "name": "Alice", "signup_source": "google"}})
-                ),
+                _prop_row(set_dict={"email": "alice@example.com", "name": "Alice", "signup_source": "google"}),
                 datetime(2023, 1, 1, 10, 0, 0),
-                "$set",
             ),
-            # Day 2: Profile completion
             (
-                json.dumps(
-                    json.dumps(
-                        {
-                            "$set": {
-                                "name": "Alice Johnson",
-                                "age": 28,
-                                "occupation": "Software Engineer",
-                                "profile_complete": True,
-                            }
-                        }
-                    )
+                _prop_row(
+                    set_dict={
+                        "name": "Alice Johnson",
+                        "age": 28,
+                        "occupation": "Software Engineer",
+                        "profile_complete": True,
+                    }
                 ),
                 datetime(2023, 1, 2, 14, 30, 0),
-                "$set",
             ),
-            # Day 3: Location update
             (
-                json.dumps(
-                    json.dumps({"$set": {"city": "San Francisco", "state": "CA", "timezone": "America/Los_Angeles"}})
-                ),
+                _prop_row(set_dict={"city": "San Francisco", "state": "CA", "timezone": "America/Los_Angeles"}),
                 datetime(2023, 1, 3, 9, 15, 0),
-                "$set",
             ),
-            # Day 4: Preferences update
             (
-                json.dumps(
-                    json.dumps({"$set": {"newsletter_subscribed": True, "preferred_language": "en", "theme": "dark"}})
-                ),
+                _prop_row(set_dict={"newsletter_subscribed": True, "preferred_language": "en", "theme": "dark"}),
                 datetime(2023, 1, 4, 16, 45, 0),
-                "$set",
             ),
         ]
 
-        # Mock sync_execute to filter events based on timestamp parameter
         def mock_query_with_timestamp_filter(query, params, settings=None):
-            from datetime import datetime
-
-            # Parse the timestamp parameter
-            timestamp_str = params["timestamp"]
-            query_timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
-
-            # Filter events based on the timestamp
-            filtered_events = []
-            for event_props, event_timestamp, event_type in mock_events:
-                if event_timestamp <= query_timestamp:
-                    filtered_events.append((event_props, event_timestamp, event_type))
-
-            return filtered_events
+            query_timestamp = datetime.strptime(params["upper_bound"], "%Y-%m-%d %H:%M:%S")
+            filtered_rows = [row for row, ts in timeline if ts <= query_timestamp]
+            if filtered_rows:
+                filtered_rows.append(_existence_row())
+            return filtered_rows
 
         mock_sync_execute.side_effect = mock_query_with_timestamp_filter
 
-        # Test: What were Alice's properties at the end of Day 2?
         day_2_end = datetime(2023, 1, 2, 23, 59, 59, tzinfo=UTC)
-        properties_day_2 = build_person_properties_at_time(1, day_2_end, ["alice123"])
+        properties_day_2, existed_day_2 = build_person_properties_at_time(1, day_2_end, ["alice123"])
 
         expected_day_2 = {
             "email": "alice@example.com",
-            "name": "Alice Johnson",  # Updated from "Alice"
+            "name": "Alice Johnson",
             "signup_source": "google",
             "age": 28,
             "occupation": "Software Engineer",
             "profile_complete": True,
         }
         self.assertEqual(properties_day_2, expected_day_2)
+        self.assertTrue(existed_day_2)
 
-        # Test: What were Alice's properties at the end of Day 3?
         day_3_end = datetime(2023, 1, 3, 23, 59, 59, tzinfo=UTC)
-        properties_day_3 = build_person_properties_at_time(1, day_3_end, ["alice123"])
+        properties_day_3, _ = build_person_properties_at_time(1, day_3_end, ["alice123"])
 
         expected_day_3 = {
-            **expected_day_2,  # Everything from Day 2
+            **expected_day_2,
             "city": "San Francisco",
             "state": "CA",
             "timezone": "America/Los_Angeles",
@@ -127,96 +106,54 @@ class TestPointInTimePropertiesIntegration(TestCase):
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
     def test_set_once_behavior_demonstration(self, mock_sync_execute):
-        """
-        Demonstrate how $set_once operations work compared to regular $set operations.
-        """
-
-        # Scenario: A user has both $set and $set_once events
-        # $set_once should only set properties that haven't been set before
-        # ClickHouse toJSONString() returns double-encoded JSON
-        mock_events = [
-            # Initial user creation with $set_once (common pattern)
+        timeline = [
             (
-                json.dumps(
-                    json.dumps(
-                        {
-                            "$set_once": {
-                                "first_seen": "2023-01-01",
-                                "signup_source": "organic",
-                                "initial_referrer": "https://google.com",
-                            }
-                        }
-                    )
+                _prop_row(
+                    set_once_dict={
+                        "first_seen": "2023-01-01",
+                        "signup_source": "organic",
+                        "initial_referrer": "https://google.com",
+                    },
+                    event="$set_once",
                 ),
                 datetime(2023, 1, 1, 10, 0, 0),
-                "$set_once",
             ),
-            # Later signup completion with $set
             (
-                json.dumps(json.dumps({"$set": {"name": "Bob Smith", "email": "bob@example.com"}})),
+                _prop_row(set_dict={"name": "Bob Smith", "email": "bob@example.com"}, event="$set"),
                 datetime(2023, 1, 1, 10, 5, 0),
-                "$set",
             ),
-            # Attempt to overwrite signup_source with $set_once (should fail)
             (
-                json.dumps(
-                    json.dumps(
-                        {
-                            "$set_once": {
-                                "signup_source": "facebook",  # Should NOT overwrite
-                                "utm_campaign": "winter_2023",  # Should set (new property)
-                            }
-                        }
-                    )
+                _prop_row(
+                    set_once_dict={
+                        "signup_source": "facebook",  # should NOT overwrite the earlier $set_once value
+                        "utm_campaign": "winter_2023",
+                    },
+                    event="$set_once",
                 ),
                 datetime(2023, 1, 1, 10, 10, 0),
-                "$set_once",
             ),
-            # Update signup_source with regular $set (should work)
-            (
-                json.dumps(
-                    json.dumps(
-                        {
-                            "$set": {
-                                "signup_source": "facebook"  # Should overwrite
-                            }
-                        }
-                    )
-                ),
-                datetime(2023, 1, 1, 10, 15, 0),
-                "$set",
-            ),
+            (_prop_row(set_dict={"signup_source": "facebook"}, event="$set"), datetime(2023, 1, 1, 10, 15, 0)),
         ]
 
-        # Mock sync_execute to filter events based on timestamp parameter
         def mock_query_with_timestamp_filter_set_once(query, params, settings=None):
-            from datetime import datetime
-
-            # Parse the timestamp parameter
-            timestamp_str = params["timestamp"]
-            query_timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
-
-            # Filter events based on the timestamp
-            filtered_events = []
-            for event_props, event_timestamp, event_type in mock_events:
-                if event_timestamp <= query_timestamp:
-                    filtered_events.append((event_props, event_timestamp, event_type))
-
-            return filtered_events
+            query_timestamp = datetime.strptime(params["upper_bound"], "%Y-%m-%d %H:%M:%S")
+            filtered_rows = [row for row, ts in timeline if ts <= query_timestamp]
+            if filtered_rows:
+                filtered_rows.append(_existence_row())
+            return filtered_rows
 
         mock_sync_execute.side_effect = mock_query_with_timestamp_filter_set_once
 
-        # Test the final state
         final_timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        properties = build_person_properties_at_time(1, final_timestamp, ["bob123"], include_set_once=True)
+        properties, _ = build_person_properties_at_time(1, final_timestamp, ["bob123"], include_set_once=True)
 
         expected = {
             "first_seen": "2023-01-01",
-            "signup_source": "facebook",  # Overwritten by $set, not $set_once
+            "signup_source": "facebook",  # $set overrode earlier $set_once
             "initial_referrer": "https://google.com",
             "name": "Bob Smith",
             "email": "bob@example.com",
-            "utm_campaign": "winter_2023",  # Set by $set_once since it was new
+            "utm_campaign": "winter_2023",  # set by later $set_once since it was new
         }
 
         self.assertEqual(properties, expected)

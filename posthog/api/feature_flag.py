@@ -86,15 +86,15 @@ from posthog.models.feature_flag.version_history import (
 )
 from posthog.models.group.group import Group
 from posthog.models.person.point_in_time_properties import (
+    DEFAULT_LOWER_BOUND_WINDOW,
     build_person_properties_at_time,
     get_person_and_distinct_ids_for_identifier,
-    person_existed_at_timestamp,
 )
 from posthog.models.property import Property
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.permissions import ProjectSecretAPITokenPermission
 from posthog.queries.base import determine_parsed_date_for_property_matching
-from posthog.rate_limit import BurstRateThrottle
+from posthog.rate_limit import BurstRateThrottle, ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS, REMOTE_CONFIG_RATE_LIMITS
@@ -2013,6 +2013,12 @@ class FeatureFlagTestEvaluationResponseSerializer(serializers.Serializer):
     person_properties = serializers.DictField(
         help_text="Person properties at the time of evaluation (for historical evaluations)"
     )
+    evaluation_distinct_id = serializers.CharField(
+        help_text=(
+            "The distinct_id used for rollout/variant bucketing. Matches the caller-provided "
+            "distinct_id when given; otherwise the lexicographically smallest distinct_id of the person."
+        )
+    )
     conditions = FeatureFlagConditionAnalysisSerializer(
         many=True, help_text="Detailed analysis of each condition in the feature flag"
     )
@@ -3412,7 +3418,12 @@ class FeatureFlagViewSet(
             500: OpenApiResponse(description="Server error"),
         },
     )
-    @action(methods=["POST"], detail=True, required_scopes=["feature_flag:read"])
+    @action(
+        methods=["POST"],
+        detail=True,
+        required_scopes=["feature_flag:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
     def test_evaluation(self, request: request.Request, **kwargs):
         """
         Test feature flag evaluation against a specific user at an optional point in time.
@@ -3451,16 +3462,32 @@ class FeatureFlagViewSet(
 
         # Prefer the caller-provided distinct_id for evaluation when it resolves to this person,
         # since rollout/variant assignment can depend on the exact distinct_id used.
-        # If person_id was provided, use the first distinct_id associated with that person.
-        evaluation_distinct_id = distinct_id if distinct_id and distinct_id in distinct_ids else distinct_ids[0]
+        # If person_id was provided, pick the lexicographically smallest distinct_id so the
+        # choice is stable across calls — proto_person_to_model / the ORM don't guarantee order.
+        evaluation_distinct_id = distinct_id if distinct_id and distinct_id in distinct_ids else sorted(distinct_ids)[0]
         person_properties: dict[str, Any] = {}
 
         # Build person properties at timestamp if provided
         if timestamp:
             try:
-                # First check if the person actually existed at the timestamp
-                person_existed = person_existed_at_timestamp(
-                    team_id=self.team_id, timestamp=timestamp, distinct_ids=distinct_ids
+                # Bound the ClickHouse scan: don't look further back than the flag's
+                # own creation time (or 2 years, whichever is more recent).
+                default_window_start = timestamp - DEFAULT_LOWER_BOUND_WINDOW
+                lower_bound = (
+                    max(default_window_start, feature_flag.created_at)
+                    if feature_flag.created_at is not None
+                    else default_window_start
+                )
+                # Clamp in case the flag was created after the requested timestamp —
+                # flag reconstruction will surface that as VersionNotFound later.
+                lower_bound = min(lower_bound, timestamp)
+
+                person_properties, person_existed = build_person_properties_at_time(
+                    team_id=self.team_id,
+                    timestamp=timestamp,
+                    distinct_ids=distinct_ids,
+                    include_set_once=True,
+                    lower_bound=lower_bound,
                 )
 
                 if not person_existed:
@@ -3468,10 +3495,6 @@ class FeatureFlagViewSet(
                         {"error": "Person did not exist at the specified timestamp"},
                         status=status.HTTP_400_BAD_REQUEST,
                     )
-
-                person_properties = build_person_properties_at_time(
-                    team_id=self.team_id, timestamp=timestamp, distinct_ids=distinct_ids, include_set_once=True
-                )
             except Exception:
                 logger.exception("Failed to build person properties at timestamp for flag %s", feature_flag.key)
                 return Response(
@@ -3608,13 +3631,13 @@ class FeatureFlagViewSet(
                     condition_index = reason_data.get("condition_index") if reason_data else None
                     payload = metadata.get("payload") if metadata else None
                     # Extract conditions from flag result (only valid path per Rust FlagDetails contract)
-                    detailed_conditions = flag_result.get("conditions", [])
-                    if not detailed_conditions:
+                    if "conditions" not in flag_result:
                         # Log warning when expected conditions key is missing
                         logger.warning(
                             "Missing 'conditions' key in flag evaluation response",
                             extra={"flag_key": feature_flag.key, "response_keys": list(flag_result.keys())},
                         )
+                    detailed_conditions = flag_result.get("conditions", [])
 
                     # If there's a variant, use it as the result
                     if variant is not None:
@@ -3640,7 +3663,8 @@ class FeatureFlagViewSet(
                 "reason": reason,
                 "condition_index": condition_index,
                 "payload": payload,
-                "person_properties": _filter_person_properties_for_flag(feature_flag, person_properties),
+                "person_properties": _filter_person_properties_for_flag(evaluation_flag, person_properties),
+                "evaluation_distinct_id": evaluation_distinct_id,
                 "conditions": detailed_conditions,
             }
 

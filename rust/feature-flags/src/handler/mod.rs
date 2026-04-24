@@ -224,11 +224,7 @@ async fn process_request_inner(
                 context.request_id,
                 request.is_flags_disabled(),
                 request.flag_keys.clone(),
-                if context.meta.detailed_analysis.unwrap_or(false) && is_internal {
-                    Some(true)
-                } else {
-                    Some(false)
-                },
+                Some(is_internal && context.meta.detailed_analysis.unwrap_or(false)),
                 if is_internal {
                     context.meta.only_use_override_person_properties
                 } else {

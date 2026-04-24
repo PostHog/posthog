@@ -12473,20 +12473,13 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
     @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
     def test_test_evaluation_with_timestamp(self, mock_get_flags):
         """Test historical evaluation with timestamp."""
-        import logging
-
-        logger = logging.getLogger(__name__)
-        logger.info("Starting test_test_evaluation_with_timestamp")
-
         flag = FeatureFlag.objects.create(
             team=self.team,
             key="test-flag",
             filters={"groups": [{"properties": []}]},
         )
-        logger.info(f"Created flag: {flag.id}")
 
-        person = Person.objects.create(team=self.team, distinct_ids=["test-user"])
-        logger.info(f"Created person: {person.id}")
+        Person.objects.create(team=self.team, distinct_ids=["test-user"])
 
         # Mock successful flag evaluation response
         mock_get_flags.return_value = {
@@ -12500,15 +12493,9 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
                 }
             }
         }
-        logger.info("Set up mock_get_flags")
 
-        with (
-            patch("posthog.api.feature_flag.build_person_properties_at_time") as mock_build_props,
-            patch("posthog.api.feature_flag.person_existed_at_timestamp") as mock_person_existed,
-        ):
-            mock_build_props.return_value = {"email": "historical@example.com"}
-            mock_person_existed.return_value = True
-            logger.info("Set up mocks for historical evaluation")
+        with patch("posthog.api.feature_flag.build_person_properties_at_time") as mock_build_props:
+            mock_build_props.return_value = ({"email": "historical@example.com"}, True)
 
             # Use a recent timestamp that's after flag creation
             from datetime import datetime
@@ -12523,7 +12510,6 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_build_props.assert_called_once()
-        logger.info("Test completed successfully")
 
     def test_test_evaluation_distinct_id_person_id_conflict(self):
         """Test validation error when both distinct_id and person_id are provided."""
@@ -12551,8 +12537,8 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(response.json()["detail"], "Person not found for distinct_id: nonexistent-user")
 
-    @patch("posthog.api.feature_flag.person_existed_at_timestamp", return_value=False)
-    def test_test_evaluation_person_didnt_exist_at_timestamp(self, mock_person_existed):
+    @patch("posthog.api.feature_flag.build_person_properties_at_time", return_value=({}, False))
+    def test_test_evaluation_person_didnt_exist_at_timestamp(self, mock_build_props):
         """Test 400 when person didn't exist at specified timestamp."""
         flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
         Person.objects.create(team=self.team, distinct_ids=["test-user"])
@@ -12582,9 +12568,8 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertEqual(response.json()["error"], "Internal request token not configured")
 
-    @patch("posthog.api.feature_flag.person_existed_at_timestamp", return_value=True)
     @patch("posthog.api.feature_flag.build_person_properties_at_time")
-    def test_test_evaluation_build_properties_failure(self, mock_build_props, mock_person_existed):
+    def test_test_evaluation_build_properties_failure(self, mock_build_props):
         """Test 500 when build_person_properties_at_time raises exception."""
         flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
         Person.objects.create(team=self.team, distinct_ids=["test-user"])
