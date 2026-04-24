@@ -2,7 +2,7 @@ import './CohortField.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
@@ -14,7 +14,6 @@ import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { formatDate } from 'lib/utils'
 import { cohortFieldLogic } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import {
@@ -290,21 +289,6 @@ function computeLabelPrefix(dateFrom: string, dateTo: string | null): string {
     return 'within'
 }
 
-const SINGLE_DATE_OPTIONS = [
-    {
-        key: 'Last 7 days',
-        values: ['-7d'],
-        getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.subtract(7, 'd')),
-        defaultInterval: 'day' as const,
-    },
-    {
-        key: 'Last 30 days',
-        values: ['-30d'],
-        getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.subtract(30, 'd')),
-        defaultInterval: 'day' as const,
-    },
-]
-
 export function CohortRelativeAndExactTimeField({
     fieldKey,
     criteria,
@@ -322,54 +306,39 @@ export function CohortRelativeAndExactTimeField({
 
     const dateFromValue = String(value)
     const dateToValue = criteria.explicit_datetime_to || null
-    const hasPersistedRange = !!dateToValue
-    // Local UI mode — initialised from the persisted criteria but controlled by the user toggle
-    // so that entering Range mode keeps that intent even before the user has picked an upper bound.
-    const [isRangeMode, setIsRangeMode] = useState<boolean>(hasPersistedRange)
-    // Enter range mode automatically if a caller (or undo/redo) repopulates explicit_datetime_to.
-    useEffect(() => {
-        if (hasPersistedRange && !isRangeMode) {
-            setIsRangeMode(true)
-        }
-    }, [hasPersistedRange, isRangeMode])
-
-    const hasRange = isRangeMode && !!dateFromValue && !!dateToValue
+    const hasRange = !!dateFromValue && !!dateToValue
     const prefix = computeLabelPrefix(dateFromValue, dateToValue)
-
-    const handleModeChange = (mode: 'single' | 'range'): void => {
-        if (mode === 'single' && dateToValue) {
-            onChange({ explicit_datetime_to: null })
-        }
-        setIsRangeMode(mode === 'range')
-    }
 
     return (
         <div className="flex items-center gap-2">
-            <LemonSegmentedButton
-                size="small"
-                value={isRangeMode ? 'range' : 'single'}
-                onChange={handleModeChange}
-                options={[
-                    { value: 'single', label: 'Single' },
-                    { value: 'range', label: 'Range' },
-                ]}
-            />
             <span className={clsx('CohortField', 'CohortField__CohortTextField')}>{prefix}</span>
             <DateFilter
                 dateFrom={dateFromValue}
-                dateTo={isRangeMode ? dateToValue : null}
+                dateTo={dateToValue}
                 onChange={(fromDate, toDate) => {
                     onChange({
                         [fieldKey]: fromDate,
-                        explicit_datetime_to: isRangeMode ? (toDate ?? null) : null,
+                        explicit_datetime_to: toDate ?? null,
                     })
                 }}
                 max={1000}
-                isFixedDateMode={!isRangeMode}
                 allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
                 showCustom
-                showCustomRelativeRange={isRangeMode}
-                dateOptions={isRangeMode ? [] : SINGLE_DATE_OPTIONS}
+                allowSingleAndRange
+                dateOptions={[
+                    {
+                        key: 'Last 7 days',
+                        values: ['-7d'],
+                        getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.subtract(7, 'd')),
+                        defaultInterval: 'day',
+                    },
+                    {
+                        key: 'Last 30 days',
+                        values: ['-30d'],
+                        getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.subtract(30, 'd')),
+                        defaultInterval: 'day',
+                    },
+                ]}
                 size="medium"
                 makeLabel={(_, startOfRange, endOfRange) => (
                     <span className="hide-when-small">
