@@ -329,6 +329,160 @@ class TestSeatAPIResponseUnwrapping(BaseSeatAPITest):
         assert response.json() == payload
 
 
+MOCK_FREE_SEAT = {
+    "id": "seat_free",
+    "user_distinct_id": "user-abc",
+    "product_key": "posthog_code",
+    "plan_key": "posthog-code-free-20260301",
+    "status": "active",
+    "end_reason": None,
+    "created_at": "2026-04-01T00:00:00Z",
+    "active_until": None,
+    "active_from": "2026-04-01T00:00:00Z",
+}
+
+MOCK_PRO_SEAT = {
+    "id": "seat_pro",
+    "user_distinct_id": "user-abc",
+    "product_key": "posthog_code",
+    "plan_key": "posthog-code-200-20260301",
+    "status": "active",
+    "end_reason": None,
+    "created_at": "2026-04-01T00:00:00Z",
+    "active_until": None,
+    "active_from": "2026-04-01T00:00:00Z",
+}
+
+MOCK_PRO_V2_SEAT = {
+    "id": "seat_pro_v2",
+    "user_distinct_id": "user-abc",
+    "product_key": "posthog_code",
+    "plan_key": "posthog-code-pro-200-20260422",
+    "status": "active",
+    "end_reason": None,
+    "created_at": "2026-04-01T00:00:00Z",
+    "active_until": None,
+    "active_from": "2026-04-01T00:00:00Z",
+}
+
+
+@patch("products.tasks.backend.seat_api.get_cached_instance_license", return_value=MagicMock())
+class TestSeatAPIBestPlan(BaseSeatAPITest):
+    """``best=true`` returns the highest-tier seat across all orgs."""
+
+    org2: ClassVar[Organization]
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.org2 = Organization.objects.create(name="Second Org")
+        cls.org2.members.add(cls.user)
+
+    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+    def test_single_org_returns_that_seat(self, _mock_token, mock_request, _mock_license):
+        mock_request.return_value = _billing_response({"seat": MOCK_FREE_SEAT})
+        self._auth_as_admin()
+        response = self.client.get("/api/seats/me/?product_key=posthog_code&best=true")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["plan_key"] == "posthog-code-free-20260301"
+
+    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+    def test_multi_org_returns_pro_over_free(self, _mock_token, mock_request, _mock_license):
+        mock_request.side_effect = [
+            _billing_response({"seat": MOCK_FREE_SEAT}),
+            _billing_response({"seat": MOCK_PRO_SEAT}),
+        ]
+        self._auth_as_member()
+        response = self.client.get("/api/seats/me/?product_key=posthog_code&best=true")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["plan_key"] == "posthog-code-200-20260301"
+
+    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+    def test_multi_org_returns_pro_regardless_of_order(self, _mock_token, mock_request, _mock_license):
+        mock_request.side_effect = [
+            _billing_response({"seat": MOCK_PRO_SEAT}),
+            _billing_response({"seat": MOCK_FREE_SEAT}),
+        ]
+        self._auth_as_member()
+        response = self.client.get("/api/seats/me/?product_key=posthog_code&best=true")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["plan_key"] == "posthog-code-200-20260301"
+
+    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+    def test_all_billing_failures_returns_404(self, _mock_token, mock_request, _mock_license):
+        mock_request.return_value = _billing_response({"error": "fail"}, status_code=500, ok=False)
+        self._auth_as_member()
+        response = self.client.get("/api/seats/me/?product_key=posthog_code&best=true")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+    def test_partial_failure_returns_best_available(self, _mock_token, mock_request, _mock_license):
+        mock_request.side_effect = [
+            _billing_response({"error": "fail"}, status_code=500, ok=False),
+            _billing_response({"seat": MOCK_PRO_SEAT}),
+        ]
+        self._auth_as_member()
+        response = self.client.get("/api/seats/me/?product_key=posthog_code&best=true")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["plan_key"] == "posthog-code-200-20260301"
+
+    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+    def test_best_ignored_for_non_me_pk(self, _mock_token, mock_request, _mock_license):
+        mock_request.return_value = _billing_response({"seat": MOCK_SEAT})
+        self._auth_as_admin()
+        response = self.client.get(
+            f"/api/seats/{self.user.distinct_id}/?product_key=posthog_code&best=true"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_request.call_count == 1
+
+    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+    def test_without_best_param_does_single_call(self, _mock_token, mock_request, _mock_license):
+        mock_request.return_value = _billing_response({"seat": MOCK_SEAT})
+        self._auth_as_member()
+        response = self.client.get("/api/seats/me/?product_key=posthog_code")
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_request.call_count == 1
+
+    @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+    def test_no_orgs_returns_400(self, _mock_token, _mock_license):
+        self.client.force_authenticate(self.external_user)
+        response = self.client.get("/api/seats/me/?product_key=posthog_code&best=true")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+    def test_pro_v2_prefix_recognized(self, _mock_token, mock_request, _mock_license):
+        mock_request.side_effect = [
+            _billing_response({"seat": MOCK_FREE_SEAT}),
+            _billing_response({"seat": MOCK_PRO_V2_SEAT}),
+        ]
+        self._auth_as_member()
+        response = self.client.get("/api/seats/me/?product_key=posthog_code&best=true")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["plan_key"] == "posthog-code-pro-200-20260422"
+
+    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+    def test_no_plan_key_loses_to_free(self, _mock_token, mock_request, _mock_license):
+        no_plan_seat = {**MOCK_FREE_SEAT, "plan_key": None, "id": "seat_none"}
+        mock_request.side_effect = [
+            _billing_response({"seat": no_plan_seat}),
+            _billing_response({"seat": MOCK_FREE_SEAT}),
+        ]
+        self._auth_as_member()
+        response = self.client.get("/api/seats/me/?product_key=posthog_code&best=true")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["plan_key"] == "posthog-code-free-20260301"
+
+
 @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
 @patch("products.tasks.backend.seat_api.get_cached_instance_license", return_value=MagicMock())
 class TestSeatAPIKeyAccess(BaseSeatAPITest):
