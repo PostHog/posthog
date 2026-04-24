@@ -50,6 +50,7 @@ from posthog.models.integration import (
     FirebaseIntegration,
     GitHubInstallationAccess,
     GitHubIntegration,
+    GitHubIntegrationError,
     GitLabIntegration,
     GoogleAdsIntegration,
     GoogleCloudIntegration,
@@ -1266,7 +1267,10 @@ class IntegrationViewSet(
         offset = query_serializer.validated_data["offset"]
 
         github = GitHubIntegration(self.get_object())
-        teams, has_more = github.list_teams(search=search, limit=limit, offset=offset)
+        try:
+            teams, has_more = github.list_teams(search=search, limit=limit, offset=offset)
+        except GitHubIntegrationError as err:
+            raise ValidationError(str(err)) from err
 
         return Response({"teams": teams, "has_more": has_more})
 
