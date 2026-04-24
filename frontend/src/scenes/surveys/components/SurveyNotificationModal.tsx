@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 
-import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
