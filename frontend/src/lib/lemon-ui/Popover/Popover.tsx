@@ -210,6 +210,13 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                 cancelAnimationFrame(enterFrameRef.current)
                 enterFrameRef.current = null
             }
+            if (exitTimeoutRef.current !== null) {
+                // Covers the case where `delayMs` changes while `visible` is already
+                // false: without this, the previous timer would be orphaned rather
+                // than cancelled.
+                clearTimeout(exitTimeoutRef.current)
+                exitTimeoutRef.current = null
+            }
             setIsOpen(false)
             exitTimeoutRef.current = window.setTimeout(() => {
                 exitTimeoutRef.current = null
