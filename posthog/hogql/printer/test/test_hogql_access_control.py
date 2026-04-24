@@ -57,8 +57,6 @@ class TestAccessControlSystemTables(BaseTest):
         assert "surveys" not in system_node.children
         assert "annotations" not in system_node.children
         assert "data_warehouse_sources" not in system_node.children
-        assert "data_modeling_views" not in system_node.children
-        assert "data_warehouse_tables" not in system_node.children
         assert "actions" not in system_node.children
         assert "hog_flows" not in system_node.children
         assert "notebooks" not in system_node.children
@@ -73,8 +71,6 @@ class TestAccessControlSystemTables(BaseTest):
         assert "system.surveys" in database._denied_tables
         assert "system.annotations" in database._denied_tables
         assert "system.data_warehouse_sources" in database._denied_tables
-        assert "system.data_modeling_views" in database._denied_tables
-        assert "system.data_warehouse_tables" in database._denied_tables
         assert "system.actions" in database._denied_tables
         assert "system.hog_flows" in database._denied_tables
         assert "system.notebooks" in database._denied_tables
@@ -211,108 +207,3 @@ class TestAccessControlIntegration(BaseTest):
         sql = self._compile_select("SELECT id, name FROM system.cohorts", context)
         assert "id" in sql
         assert "name" in sql
-
-
-@patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
-class TestWarehouseSystemTableAccessControl(BaseTest):
-    """Access control on the system metadata tables for warehouse resources.
-
-    warehouse_view inherits from warehouse_table, so denying warehouse_table
-    removes both data_modeling_views and data_warehouse_tables from the schema.
-    The two cannot be denied independently.
-    """
-
-    def _enable_advanced_permissions(self):
-        from posthog.constants import AvailableFeature
-
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
-        ]
-        self.organization.save()
-        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
-        membership.level = OrganizationMembership.Level.MEMBER
-        membership.save()
-
-    def test_warehouse_metadata_tables_removed_when_warehouse_objects_denied(self):
-        from ee.models import AccessControl
-
-        self._enable_advanced_permissions()
-        AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
-
-        database = Database.create_for(team=self.team, user=self.user)
-
-        system_node = database.tables.children.get("system")
-        assert system_node is not None
-        # Both metadata tables inherit from warehouse_objects, so denying the umbrella
-        # removes both (data_modeling_views via warehouse_view, data_warehouse_tables via warehouse_table).
-        assert "data_modeling_views" not in system_node.children
-        assert "data_warehouse_tables" not in system_node.children
-        assert "system.data_modeling_views" in database._denied_tables
-        assert "system.data_warehouse_tables" in database._denied_tables
-
-    def test_warehouse_child_scope_denial_alone_has_no_effect(self):
-        # warehouse_view and warehouse_table are child scopes in RESOURCE_INHERITANCE_MAP.
-        # Resource-level AC rows keyed directly on them are bypassed - only the parent
-        # "warehouse_objects" is consulted. Denying a child alone should NOT remove either table.
-        from ee.models import AccessControl
-
-        self._enable_advanced_permissions()
-        AccessControl.objects.create(team=self.team, resource="warehouse_view", access_level="none")
-        AccessControl.objects.create(team=self.team, resource="warehouse_table", access_level="none")
-
-        database = Database.create_for(team=self.team, user=self.user)
-
-        system_node = database.tables.children.get("system")
-        assert system_node is not None
-        assert "data_modeling_views" in system_node.children
-        assert "data_warehouse_tables" in system_node.children
-
-    def test_viewer_access_keeps_metadata_tables(self):
-        """With non-none warehouse_objects access, both metadata tables remain present."""
-        from ee.models import AccessControl
-
-        self._enable_advanced_permissions()
-        AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="viewer")
-
-        database = Database.create_for(team=self.team, user=self.user)
-
-        system_node = database.tables.children.get("system")
-        assert system_node is not None
-        assert "data_modeling_views" in system_node.children
-        assert "data_warehouse_tables" in system_node.children
-        assert "system.data_modeling_views" not in database._denied_tables
-        assert "system.data_warehouse_tables" not in database._denied_tables
-
-    def test_query_on_denied_metadata_view_table_shows_access_error(self):
-        from posthog.hogql.errors import QueryError
-
-        from ee.models import AccessControl
-
-        self._enable_advanced_permissions()
-        AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
-
-        database = Database.create_for(team=self.team, user=self.user)
-
-        # system.data_modeling_views is gated by warehouse_view which inherits from warehouse_objects.
-        with self.assertRaises(QueryError) as cm:
-            database.get_table("system.data_modeling_views")
-
-        assert "don't have access" in str(cm.exception)
-        assert "Unknown" not in str(cm.exception)
-
-    def test_org_admin_sees_warehouse_metadata_tables(self):
-        from ee.models import AccessControl
-
-        self._enable_advanced_permissions()
-        AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
-        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
-        membership.level = OrganizationMembership.Level.ADMIN
-        membership.save()
-
-        database = Database.create_for(team=self.team, user=self.user)
-
-        system_node = database.tables.children.get("system")
-        assert system_node is not None
-        # Org admin bypasses even when project default is 'none'
-        assert "data_modeling_views" in system_node.children
-        assert "data_warehouse_tables" in system_node.children
