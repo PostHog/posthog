@@ -698,11 +698,12 @@ class KafkaLogProducerFromQueueAsync:
                 key=self.key,
                 value_serializer=lambda v: v,
             )
-            fut.add_done_callback(self.mark_queue_done)
-
         except Exception:
+            self.mark_queue_done()
             self.logger.exception("Failed to produce log to Kafka topic %s", self.topic)
             self.logger.debug("Message that couldn't be produced to Kafka topic %s: %s", self.topic, msg)
+        else:
+            fut.add_done_callback(self.mark_queue_done)
 
     async def flush(self):
         """Flush underlying producer, effectively producing any messages in the batch."""
