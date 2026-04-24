@@ -1,6 +1,7 @@
 import { Counter } from 'prom-client'
 
-import { IngestionOutput } from '../../ingestion/outputs/ingestion-output'
+import { APP_METRICS_OUTPUT, AppMetricsOutput } from '../../ingestion/common/outputs'
+import { IngestionOutputs } from '../../ingestion/outputs/ingestion-outputs'
 import { TimestampFormat } from '../../types'
 import { safeClickhouseString } from '../../utils/db/utils'
 import { castTimestampOrNow } from '../../utils/utils'
@@ -36,14 +37,15 @@ export interface AppMetricInput {
  * Dedupes v2 app metrics on `queue`, produces them on `flush`.
  *
  * The Kafka routing decision (which producer, which topic) is injected as an
- * `IngestionOutput` — callers build and hand in whichever output they want.
- * No background flushing, no lifecycle — caller is expected to `flush()` at
- * the end of whatever batch / cycle they want metrics emitted for.
+ * `IngestionOutputs` registry that must include `APP_METRICS_OUTPUT`. The
+ * aggregator pulls the resolved output by name on `flush`. No background
+ * flushing, no lifecycle — caller is expected to `flush()` at the end of
+ * whatever batch / cycle they want metrics emitted for.
  */
 export class AppMetricsAggregator {
     private buffer = new Map<string, AppMetricInput & { instance_id: string }>()
 
-    constructor(private readonly output: IngestionOutput) {}
+    constructor(private readonly outputs: IngestionOutputs<AppMetricsOutput>) {}
 
     queue(metric: AppMetricInput): void {
         appMetricsAggregatorQueuedCounter.inc({ app_source: metric.app_source })
@@ -86,7 +88,7 @@ export class AppMetricsAggregator {
             ),
             key: null,
         }))
-        await this.output.queueMessages(messages)
+        await this.outputs.queueMessages(APP_METRICS_OUTPUT, messages)
 
         // Increment after the await so a failed produce isn't counted as flushed —
         // dedup-rate = 1 - (flushed / queued) stays meaningful in error scenarios.

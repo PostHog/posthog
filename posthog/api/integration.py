@@ -10,7 +10,7 @@ from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -151,6 +151,7 @@ class GitHubBranchesResponseSerializer(serializers.Serializer):
     has_more = serializers.BooleanField(help_text="Whether more branches exist beyond the returned page")
 
 
+@extend_schema_serializer(component_name="IntegrationConfig")
 class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     """Standard Integration serializer."""
 

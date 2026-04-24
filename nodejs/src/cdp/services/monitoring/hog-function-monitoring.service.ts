@@ -4,7 +4,7 @@ import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { InternalCaptureEvent, InternalCaptureService } from '~/common/services/internal-capture'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { KAFKA_WAREHOUSE_SOURCE_WEBHOOKS } from '~/config/kafka-topics'
-import { APP_METRICS_OUTPUT, AppMetricsOutput, LOG_ENTRIES_OUTPUT, LogEntriesOutput } from '~/ingestion/common/outputs'
+import { AppMetricsOutput, LOG_ENTRIES_OUTPUT, LogEntriesOutput } from '~/ingestion/common/outputs'
 import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
 import { KafkaProducerWrapper } from '~/kafka/producer'
 
@@ -67,7 +67,7 @@ export class HogFunctionMonitoringService {
         private internalCaptureService: InternalCaptureService,
         private teamManager: TeamManager
     ) {
-        this.appMetricsAggregator = new AppMetricsAggregator(outputs.get(APP_METRICS_OUTPUT))
+        this.appMetricsAggregator = new AppMetricsAggregator(outputs)
     }
 
     setWarehouseKafkaProducer(producer: KafkaProducerWrapper): void {

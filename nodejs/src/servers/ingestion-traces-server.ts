@@ -3,12 +3,6 @@ import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'
 import { createPosthogRedisConnectionConfig } from '../config/redis-pools'
-import {
-    KafkaIngestionProducerEnvConfig,
-    KafkaProducerEnvConfig,
-    getDefaultKafkaIngestionProducerEnvConfig,
-    getDefaultKafkaProducerEnvConfig,
-} from '../ingestion/common/config'
 import { DatabaseConnectionConfig, KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
 import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
 import {
@@ -20,11 +14,14 @@ import {
 import { createProducerRegistry } from '../logs-ingestion/outputs/producer-registry'
 import {
     KafkaMskProducerEnvConfig,
+    KafkaWarpstreamIngestionProducerEnvConfig,
+    KafkaWarpstreamLogsProducerEnvConfig,
     LogsProducerName,
-    WARPSTREAM_LOGS_PRODUCER,
     getDefaultKafkaMskProducerEnvConfig,
+    getDefaultKafkaWarpstreamIngestionProducerEnvConfig,
+    getDefaultKafkaWarpstreamLogsProducerEnvConfig,
 } from '../logs-ingestion/outputs/producers'
-import { createOutputsRegistry } from '../logs-ingestion/outputs/registry'
+import { createTracesOutputsRegistry } from '../logs-ingestion/outputs/registry'
 import { TracesIngestionConsumer } from '../logs-ingestion/traces-ingestion-consumer'
 import { PluginServerService, RedisPool } from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
@@ -49,9 +46,9 @@ export type IngestionTracesServerConfig = BaseServerConfig &
     LogsIngestionConsumerConfig &
     TracesIngestionConsumerConfig &
     LogsIngestionOutputsConfig &
-    KafkaProducerEnvConfig &
+    KafkaWarpstreamLogsProducerEnvConfig &
     KafkaMskProducerEnvConfig &
-    KafkaIngestionProducerEnvConfig &
+    KafkaWarpstreamIngestionProducerEnvConfig &
     KafkaBrokerConfig &
     DatabaseConnectionConfig &
     RedisConnectionsConfig &
@@ -68,9 +65,9 @@ export class IngestionTracesServer implements NodeServer {
     constructor(config: Partial<IngestionTracesServerConfig> = {}) {
         this.config = {
             ...defaultConfig,
-            ...overrideConfigWithEnv(getDefaultKafkaProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaWarpstreamLogsProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaMskProducerEnvConfig()),
-            ...overrideConfigWithEnv(getDefaultKafkaIngestionProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaWarpstreamIngestionProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultLogsIngestionOutputsConfig()),
             ...config,
         }
@@ -111,7 +108,7 @@ export class IngestionTracesServer implements NodeServer {
         const quotaLimiting = new QuotaLimiting(this.posthogRedisPool, teamManager)
 
         // 2. Resolve outputs (topic + producer per logical name, env-controlled)
-        const outputs = createOutputsRegistry().build(this.producerRegistry, this.config)
+        const outputs = createTracesOutputsRegistry().build(this.producerRegistry, this.config)
 
         // 3. Traces ingestion consumer
         const serviceLoaders: (() => Promise<PluginServerService>)[] = []
@@ -120,7 +117,6 @@ export class IngestionTracesServer implements NodeServer {
             const consumer = new TracesIngestionConsumer(this.config, {
                 teamManager,
                 quotaLimiting,
-                kafkaProducer: this.producerRegistry!.getProducer(WARPSTREAM_LOGS_PRODUCER),
                 outputs,
             })
             await consumer.start()
