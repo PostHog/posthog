@@ -1,10 +1,15 @@
 """Anonymous opt-out telemetry for hogli CLI.
 
-Events are queued in-process and flushed as a single batch POST to
-PostHog's ``/batch/`` endpoint.
+Events are queued in-process and flushed as a single batch POST to a
+PostHog-compatible ``/batch/`` endpoint.
+
+Telemetry is **disabled** unless an API key is configured via the
+``telemetry.api_key`` section of ``hogli.yaml`` (or the
+``POSTHOG_TELEMETRY_API_KEY`` env var). Standalone users of the hogli
+framework never emit events to PostHog's project by default.
 
 Opt-out precedence:
-    CI=* -> POSTHOG_TELEMETRY_OPT_OUT=1 -> DO_NOT_TRACK=1 -> config enabled: false
+    CI=* -> POSTHOG_TELEMETRY_OPT_OUT=1 -> DO_NOT_TRACK=1 -> config enabled: false -> no api_key
 
 Config file: ~/.config/posthog/hogli_telemetry.json
 """
@@ -24,9 +29,8 @@ from typing import Any, TypedDict
 import click
 import requests
 
-# Write-only project token -- routes events to the correct PostHog project.
-# It cannot read data; safe to embed in source code.
-_DEFAULT_API_KEY = "phc_JYFXrbqdzueOYb0wFUTnCglFKZuC4xRXBW790ewdcvn"
+from hogli.manifest import get_manifest
+
 _DEFAULT_HOST = "https://us.i.posthog.com"
 
 
@@ -78,12 +82,22 @@ class TelemetryClient:
     # -- config-backed helpers --
 
     @property
+    def _telemetry_config(self) -> dict[str, Any]:
+        return get_manifest().config.get("telemetry", {}) or {}
+
+    @property
     def _host(self) -> str:
-        return os.environ.get("POSTHOG_TELEMETRY_HOST", _DEFAULT_HOST)
+        env_host = os.environ.get("POSTHOG_TELEMETRY_HOST")
+        if env_host:
+            return env_host
+        return self._telemetry_config.get("host", _DEFAULT_HOST)
 
     @property
     def _api_key(self) -> str:
-        return os.environ.get("POSTHOG_TELEMETRY_API_KEY", _DEFAULT_API_KEY)
+        env_key = os.environ.get("POSTHOG_TELEMETRY_API_KEY")
+        if env_key:
+            return env_key
+        return self._telemetry_config.get("api_key", "")
 
     def is_enabled(self) -> bool:
         if os.environ.get("CI"):
@@ -91,6 +105,9 @@ class TelemetryClient:
         if os.environ.get("POSTHOG_TELEMETRY_OPT_OUT") == "1":
             return False
         if os.environ.get("DO_NOT_TRACK") == "1":
+            return False
+        # No API key configured -> no destination to send events to.
+        if not self._api_key:
             return False
         return _load_config().get("enabled", True)
 

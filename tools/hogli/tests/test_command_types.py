@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import sys
 import subprocess
 
 import pytest
 from unittest.mock import MagicMock, patch
 
-from hogli.command_types import CompositeCommand, DirectCommand
+from hogli.command_types import CompositeCommand, DirectCommand, _find_hogli_executable
 
 
 class TestDirectCommandExecution:
@@ -250,9 +251,8 @@ class TestConfirmationFeature:
             "reset",
             {"steps": ["docker:services:down", "docker:services:up"], "prompt": True},
         )
-        cmd._confirmed = True
 
-        cmd.execute()
+        cmd.execute(confirmed=True)
 
         assert mock_run.call_count == 2
         calls = [call[0][0] for call in mock_run.call_args_list]
@@ -278,9 +278,8 @@ class TestConfirmationFeature:
         )
         # Simulate user confirming via prompt (not --yes flag)
         confirmed = cmd._confirm(yes=False)
-        cmd._confirmed = confirmed
 
-        cmd.execute()
+        cmd.execute(confirmed=confirmed)
 
         # Should pass --yes to child even though user didn't pass --yes flag
         mock_run.assert_called_once_with([bin_hogli, "docker:services:down", "--yes"], env={})
@@ -391,3 +390,32 @@ class TestPromptStep:
         call2 = mock_run.call_args
 
         assert call1 == call2 == (([bin_hogli, "migrations:run"],), {"env": {}})
+
+
+class TestFindHogliExecutable:
+    """Test _find_hogli_executable resolves correctly across environments."""
+
+    def test_prefers_bin_hogli_when_present(self, tmp_path: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
+        """If ``<repo>/bin/hogli`` exists it's used directly (PostHog monorepo case)."""
+        fake_repo = tmp_path
+        (fake_repo / "bin").mkdir()
+        (fake_repo / "bin" / "hogli").write_text("#!/bin/sh\n")
+        monkeypatch.setattr("hogli.command_types.REPO_ROOT", fake_repo)
+
+        assert _find_hogli_executable() == [str(fake_repo / "bin" / "hogli")]
+
+    def test_falls_back_to_path_when_bin_missing(self, tmp_path: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Without ``bin/hogli``, fall back to whatever ``hogli`` is on PATH."""
+        monkeypatch.setattr("hogli.command_types.REPO_ROOT", tmp_path)
+        monkeypatch.setattr("hogli.command_types.shutil.which", lambda name: "/opt/venv/bin/hogli")
+
+        assert _find_hogli_executable() == ["/opt/venv/bin/hogli"]
+
+    def test_falls_back_to_python_module_when_path_missing(
+        self, tmp_path: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Without ``bin/hogli`` or PATH entry, use ``python -m hogli``."""
+        monkeypatch.setattr("hogli.command_types.REPO_ROOT", tmp_path)
+        monkeypatch.setattr("hogli.command_types.shutil.which", lambda name: None)
+
+        assert _find_hogli_executable() == [sys.executable, "-m", "hogli"]

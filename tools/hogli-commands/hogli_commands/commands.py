@@ -46,7 +46,17 @@ from hogli.telemetry import _load_config, _save_config
 
 # Side-effect imports: these modules use @cli.command() decorators that register
 # commands with the CLI group when imported. The imports appear unused but are required.
-from . import build, devbox, doctor, hints, migrations, product, telemetry_commands, test_runner  # noqa: F401
+from . import (  # noqa: F401
+    build,
+    devbox,
+    doctor,
+    hints,
+    migrations,
+    product,
+    quickstart,
+    telemetry_commands,
+    test_runner,
+)
 from .devenv import cli as devenv_cli  # noqa: F401
 from .migrations import _compute_migration_diff, _get_cached_migration
 

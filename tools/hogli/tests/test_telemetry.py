@@ -51,6 +51,16 @@ def test_is_disabled(monkeypatch: pytest.MonkeyPatch, telemetry_config: Path, en
     assert telemetry.is_enabled() is False
 
 
+def test_is_disabled_when_no_api_key_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Standalone hogli users without a telemetry key get no-op telemetry by default."""
+
+    class _FakeManifest:
+        config: dict = {}
+
+    monkeypatch.setattr(telemetry, "get_manifest", lambda: _FakeManifest())
+    assert telemetry.is_enabled() is False
+
+
 class TestAnonymousId:
     def test_stable_across_calls(self):
         first = telemetry.get_anonymous_id()

@@ -11,6 +11,8 @@ import sys
 import time as _time
 import shutil
 import platform
+import importlib
+import importlib.util
 from collections import defaultdict
 from typing import Any
 
@@ -18,7 +20,11 @@ import click
 
 from hogli import telemetry
 from hogli.command_types import BinScriptCommand, CompositeCommand, DirectCommand, HogliCommand
-from hogli.manifest import get_category_for_command, get_manifest, load_manifest
+from hogli.hooks import post_command_hooks, telemetry_property_hooks
+from hogli.manifest import get_category_for_command, get_manifest, get_services_for_command, load_manifest
+from hogli.validate import auto_update_manifest, find_missing_manifest_entries
+
+_DEFAULT_HELP = "Developer CLI framework with YAML-based command definitions."
 
 
 class CategorizedGroup(click.Group):
@@ -51,11 +57,6 @@ class CategorizedGroup(click.Group):
 
     def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
         """Format commands grouped by category, git-style with extends tree."""
-        from hogli.manifest import (
-            get_category_for_command as get_cat_for_cmd,
-            get_manifest,
-        )
-
         manifest_obj = get_manifest()
         categories_list = manifest_obj.categories
 
@@ -77,7 +78,7 @@ class CategorizedGroup(click.Group):
             if cmd_name in child_commands:
                 continue
 
-            category_title = get_cat_for_cmd(cmd_name)
+            category_title = get_category_for_command(cmd_name)
             help_text = cmd.get_short_help_str(100) if hasattr(cmd, "get_short_help_str") else (cmd.help or "")
 
             # Find the key for this title
@@ -114,8 +115,6 @@ class CategorizedGroup(click.Group):
 
 def _auto_update_manifest() -> None:
     """Automatically update manifest with missing entries."""
-    from hogli.validate import auto_update_manifest
-
     added = auto_update_manifest()
     if added:
         click.secho(
@@ -127,12 +126,12 @@ def _auto_update_manifest() -> None:
 
 @click.group(
     cls=CategorizedGroup,
-    help="Unified developer experience for the PostHog monorepo.",
+    help=get_manifest().config.get("description", _DEFAULT_HELP),
     context_settings={"help_option_names": ["-h", "--help"]},
 )
 @click.pass_context
 def cli(ctx: click.Context) -> None:
-    """hogli - Developer CLI for PostHog."""
+    """hogli - YAML-driven developer CLI."""
     # Auto-update manifest on every invocation (but skip for meta:check and git hooks)
     # Skip during git hooks to prevent manifest modifications during lint-staged execution
     in_git_hook = os.environ.get("GIT_DIR") is not None or os.environ.get("HUSKY") is not None
@@ -149,40 +148,9 @@ def cli(ctx: click.Context) -> None:
         )
 
 
-@cli.command(name="quickstart", help="Show getting started with PostHog development")
-def quickstart() -> None:
-    """Display essential commands for getting up and running."""
-    click.echo("")
-    click.echo(click.style("🚀 PostHog Development Quickstart", fg="green", bold=True))
-    click.echo("")
-    click.echo("Get PostHog running locally:")
-    click.echo("")
-    click.echo("  hogli start")
-    click.echo("")
-    click.echo("  That's it! Starts Docker, runs migrations, launches all services.")
-    click.echo("  Opens http://localhost:8010 when ready.")
-    click.echo("")
-    click.echo("Optional:")
-    click.echo("  hogli dev:setup               configure which services to run")
-    click.echo("  hogli dev:demo-data           generate test data")
-    click.echo("  hogli dev:reset               full reset & reload")
-    click.echo("")
-    click.echo("Common commands:")
-    click.echo("  hogli format                  format all code")
-    click.echo("  hogli lint                    run quality checks")
-    click.echo("  hogli test:python <path>      run Python tests")
-    click.echo("  hogli test:js <path>          run JS tests")
-    click.echo("")
-    click.echo("For full command list:")
-    click.echo("  hogli --help")
-    click.echo("")
-
-
 @cli.command(name="meta:check", help="Validate manifest against bin scripts (for CI)")
 def meta_check() -> None:
     """Validate that all bin scripts are in the manifest."""
-    from hogli.validate import find_missing_manifest_entries
-
     missing = find_missing_manifest_entries()
 
     if not missing:
@@ -199,8 +167,6 @@ def meta_check() -> None:
 @cli.command(name="meta:concepts", help="Show services and infrastructure concepts")
 def concepts() -> None:
     """Display infrastructure concepts and services with descriptions and related commands."""
-    from hogli.manifest import get_services_for_command
-
     manifest = load_manifest()
     services_dict = manifest.get("metadata", {}).get("services", {})
 
@@ -310,12 +276,6 @@ def _import_custom_commands() -> None:
     1. config.commands_dir in hogli.yaml (e.g., tools/hogli-commands/hogli_commands)
     2. Default: hogli/ folder next to hogli.yaml
     """
-    import sys
-    import importlib
-    import importlib.util
-
-    from hogli.manifest import get_manifest
-
     manifest = get_manifest()
     commands_dir = manifest.commands_dir
 
@@ -340,7 +300,10 @@ def _import_custom_commands() -> None:
     try:
         importlib.import_module(package_name)
         return
-    except ImportError:
+    except ModuleNotFoundError:
+        # The package itself isn't importable via sys.path - fall back to file-spec load.
+        # Narrower than ImportError so that a broken import *inside* the package
+        # (e.g. a typo in one of its modules) still surfaces instead of being swallowed.
         pass
 
     # Fallback: manual load via file spec when the package isn't on sys.path in the normal sense
@@ -368,8 +331,6 @@ _import_custom_commands()
 
 def _env_properties(command: str | None = None) -> dict[str, Any]:
     """Static environment properties shared across telemetry events."""
-    from hogli.hooks import telemetry_property_hooks
-
     ci_env_vars = ("CI", "GITHUB_ACTIONS", "JENKINS_URL", "GITLAB_CI", "CIRCLECI", "BUILDKITE")
     props: dict[str, Any] = {
         "terminal_width": shutil.get_terminal_size().columns,
@@ -414,8 +375,6 @@ def _fire_telemetry(ctx: click.Context, exit_code: int) -> None:
 
 def _fire_post_command_hooks(command: str | None, exit_code: int) -> None:
     """Run registered post-command hooks. Never raises."""
-    from hogli.hooks import post_command_hooks
-
     for hook in post_command_hooks:
         try:
             hook(command, exit_code)

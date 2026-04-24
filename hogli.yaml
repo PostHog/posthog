@@ -1,10 +1,17 @@
 config:
+    description: Unified developer experience for the PostHog monorepo.
     commands_dir: tools/hogli-commands/hogli_commands
     scripts_exclude:
         - mprocs.yaml
         - mprocs-test.yaml
         - sandbox-entrypoint.py
         - lint-feature-flag-sorting.mjs
+    telemetry:
+        # Write-only project token for PostHog's internal hogli project.
+        # It cannot read data; safe to commit. Standalone hogli users get a blank
+        # default and telemetry stays disabled unless they set their own key.
+        api_key: phc_JYFXrbqdzueOYb0wFUTnCglFKZuC4xRXBW790ewdcvn
+        host: https://us.i.posthog.com
 
 metadata:
     devbox:
