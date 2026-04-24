@@ -145,6 +145,13 @@ def _normal_tokens(value: str) -> set[str]:
     return {token for token in tokens if len(token) > 2}
 
 
+def _tokens_from_name(value: str) -> set[str]:
+    tokens = set(_normal_tokens(value))
+    for part in value.replace("-", "_").split("_"):
+        tokens.update(_normal_tokens(part))
+    return tokens
+
+
 def _api_tokens_from_strings(strings: set[str]) -> tuple[str, ...]:
     tokens: set[str] = set()
     for value in strings:
@@ -183,6 +190,10 @@ def classify_test_file(path: str) -> TestFeatures:
     lower_imports = " ".join(sorted(imports)).lower()
     lower_path = path.lower()
 
+    api_tokens = set(_api_tokens_from_strings(strings))
+    if path.startswith("posthog/api/test/"):
+        api_tokens.update(_tokens_from_name(PurePosixPath(path).stem.removeprefix("test_")))
+
     return TestFeatures(
         path=path,
         imports_api_client=imports_api_client,
@@ -192,7 +203,7 @@ def classify_test_file(path: str) -> TestFeatures:
         uses_temporal="temporal" in lower_path or "temporalio" in lower_imports,
         uses_celery="celery" in lower_path or "celery" in lower_imports,
         uses_clickhouse="clickhouse" in lower_path or "clickhouse" in lower_imports,
-        api_tokens=_api_tokens_from_strings(strings),
+        api_tokens=tuple(sorted(api_tokens)),
     )
 
 
@@ -209,6 +220,16 @@ def changed_files_from_git(base_ref: str) -> list[str]:
         check=True,
     )
     return [line for line in result.stdout.splitlines() if line.strip()]
+
+
+def normalize_repo_path(path: str) -> str:
+    path_obj = Path(path)
+    if path_obj.is_absolute():
+        try:
+            return str(path_obj.resolve().relative_to(REPO_ROOT.resolve()))
+        except ValueError:
+            return path
+    return str(PurePosixPath(path))
 
 
 def _product_name(path: str) -> str | None:
@@ -230,7 +251,7 @@ def _is_api_surface_change(path: str) -> bool:
 def _tokens_for_changed_file(path: str) -> set[str]:
     pure = PurePosixPath(path)
     tokens: set[str] = set()
-    tokens.update(_normal_tokens(pure.stem.removeprefix("test_")))
+    tokens.update(_tokens_from_name(pure.stem.removeprefix("test_")))
     product = _product_name(path)
     if product:
         tokens.update(_normal_tokens(product))
@@ -282,10 +303,11 @@ def ast_select_tests(changed_files: list[str], features_by_path: dict[str, TestF
     product_api_changes: dict[str, set[str]] = {}
     posthog_api_tokens: set[str] = set()
     for path in changed_files:
-        for pattern in FULL_RUN_PATTERNS:
-            if pattern in path:
-                full_run_reasons.append(f"{path} matches full-run pattern {pattern}")
-                break
+        if not _is_test_file(path):
+            for pattern in FULL_RUN_PATTERNS:
+                if pattern in path:
+                    full_run_reasons.append(f"{path} matches full-run pattern {pattern}")
+                    break
 
         if not _is_api_surface_change(path):
             continue
@@ -362,7 +384,7 @@ def snob_select_tests(changed_files: list[str]) -> dict[str, object]:
         return {"status": "error", "error": f"could not import snob_lib: {exc}", "tests": [], "count": 0}
 
     try:
-        tests = sorted(str(test) for test in snob_lib.get_tests(changed_py_files))
+        tests = sorted(normalize_repo_path(str(test)) for test in snob_lib.get_tests(changed_py_files))
     except Exception as exc:
         return {"status": "error", "error": f"snob_lib.get_tests failed: {exc}", "tests": [], "count": 0}
 

@@ -82,32 +82,80 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
             )
             self.assertEqual(["products/feature_flags/backend/test/test_api.py"], result.tests)
 
+    def test_ast_selection_matches_posthog_api_test_by_filename(self) -> None:
+        selection = _load_selection_module()
+
+        result = selection.ast_select_tests(
+            ["posthog/api/project.py"],
+            {
+                "posthog/api/test/test_project.py": selection.TestFeatures(
+                    path="posthog/api/test/test_project.py",
+                    imports_api_client=True,
+                    api_tokens=("project",),
+                ),
+                "posthog/api/test/test_user.py": selection.TestFeatures(
+                    path="posthog/api/test/test_user.py",
+                    imports_api_client=True,
+                    api_tokens=("user",),
+                ),
+            },
+        )
+
+        self.assertEqual(
+            {
+                "conventional_neighbors": ["posthog/api/test/test_project.py"],
+                "posthog_api_route_tokens": ["posthog/api/test/test_project.py"],
+            },
+            result.groups,
+        )
+
     def test_snob_selection_filters_to_python_files(self) -> None:
         selection = _load_selection_module()
-        seen_changed_files: list[list[str]] = []
+        with tempfile.TemporaryDirectory() as root:
+            selection.REPO_ROOT = Path(root)
+            selected_test = selection.REPO_ROOT / "posthog" / "api" / "test" / "test_feature_flags.py"
+            selected_test.parent.mkdir(parents=True)
+            selected_test.write_text("def test_feature_flags():\n    pass\n")
 
-        fake_snob = ModuleType("snob_lib")
+            seen_changed_files: list[list[str]] = []
 
-        def get_tests(changed_files: list[str]) -> set[str]:
-            seen_changed_files.append(changed_files)
-            return {"posthog/api/test/test_feature_flags.py"}
+            fake_snob = ModuleType("snob_lib")
 
-        fake_snob.get_tests = get_tests  # type: ignore[attr-defined]
-        previous_snob = sys.modules.get("snob_lib")
-        sys.modules["snob_lib"] = fake_snob
-        try:
-            result = selection.snob_select_tests(["posthog/api/feature_flags.py", "frontend/src/index.ts"])
-        finally:
-            if previous_snob is None:
-                del sys.modules["snob_lib"]
-            else:
-                sys.modules["snob_lib"] = previous_snob
+            def get_tests(changed_files: list[str]) -> set[str]:
+                seen_changed_files.append(changed_files)
+                return {str(selected_test)}
 
-        self.assertEqual([["posthog/api/feature_flags.py"]], seen_changed_files)
-        self.assertEqual(
-            {"status": "ok", "tests": ["posthog/api/test/test_feature_flags.py"], "count": 1},
-            result,
+            fake_snob.get_tests = get_tests  # type: ignore[attr-defined]
+            previous_snob = sys.modules.get("snob_lib")
+            sys.modules["snob_lib"] = fake_snob
+            try:
+                result = selection.snob_select_tests(["posthog/api/feature_flags.py", "frontend/src/index.ts"])
+            finally:
+                if previous_snob is None:
+                    del sys.modules["snob_lib"]
+                else:
+                    sys.modules["snob_lib"] = previous_snob
+
+            self.assertEqual([["posthog/api/feature_flags.py"]], seen_changed_files)
+            self.assertEqual(
+                {"status": "ok", "tests": ["posthog/api/test/test_feature_flags.py"], "count": 1},
+                result,
+            )
+
+    def test_changed_tests_do_not_trigger_full_run_patterns(self) -> None:
+        selection = _load_selection_module()
+
+        result = selection.ast_select_tests(
+            ["posthog/test/test_version_requirement.py"],
+            {
+                "posthog/test/test_version_requirement.py": selection.TestFeatures(
+                    path="posthog/test/test_version_requirement.py"
+                )
+            },
         )
+
+        self.assertEqual([], result.full_run_reasons)
+        self.assertEqual({"changed_tests": ["posthog/test/test_version_requirement.py"]}, result.groups)
 
 
 if __name__ == "__main__":
