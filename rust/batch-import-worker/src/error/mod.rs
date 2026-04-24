@@ -121,7 +121,7 @@ pub fn is_transient_network_error(error: &anyhow::Error) -> bool {
 pub fn is_transient_server_error(error: &anyhow::Error) -> bool {
     error.chain().any(|err| {
         err.downcast_ref::<reqwest::Error>()
-            .is_some_and(|re| matches!(re.status().map(|s| s.as_u16()), Some(502 | 503 | 504)))
+            .is_some_and(|re| matches!(re.status().map(|s| s.as_u16()), Some(502..=504)))
     })
 }
 
