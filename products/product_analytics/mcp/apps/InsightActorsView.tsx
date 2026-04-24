@@ -2,7 +2,7 @@ import { type ReactElement, type ReactNode, useMemo } from 'react'
 
 import { Badge, DataTable, type DataTableColumn, Link, Stack } from '@posthog/mosaic'
 
-export interface ActorsData {
+export interface InsightActorsData {
     query: Record<string, unknown>
     results: {
         columns: string[]
@@ -21,7 +21,7 @@ interface ActorRow {
     recordings: string[]
 }
 
-function toActorRows(data: ActorsData): ActorRow[] {
+function toActorRows(data: InsightActorsData): ActorRow[] {
     const { columns, results } = data.results
     return results.map((row) => {
         const obj: Record<string, unknown> = {}
@@ -38,12 +38,12 @@ function toActorRows(data: ActorsData): ActorRow[] {
     })
 }
 
-interface ActorsViewProps {
-    data: ActorsData
+interface InsightActorsViewProps {
+    data: InsightActorsData
     openLink: (url: string) => void
 }
 
-export function ActorsView({ data, openLink }: ActorsViewProps): ReactElement {
+export function InsightActorsView({ data, openLink }: InsightActorsViewProps): ReactElement {
     const rows = useMemo(() => toActorRows(data), [data])
     const hasRecordings = data.results.columns.includes('recordings')
 
@@ -99,7 +99,7 @@ export function ActorsView({ data, openLink }: ActorsViewProps): ReactElement {
                                     }}
                                     className="text-xs"
                                 >
-                                    Recording {i + 1}
+                                    {i + 1}
                                 </Link>
                             ))}
                         </div>

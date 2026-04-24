@@ -2,7 +2,6 @@
 
 export const ACTION_RESOURCE_URI = 'ui://posthog/action.html'
 export const ACTION_LIST_RESOURCE_URI = 'ui://posthog/action-list.html'
-export const ACTORS_RESOURCE_URI = 'ui://posthog/actors.html'
 export const COHORT_RESOURCE_URI = 'ui://posthog/cohort.html'
 export const COHORT_LIST_RESOURCE_URI = 'ui://posthog/cohort-list.html'
 export const DEBUG_RESOURCE_URI = 'ui://posthog/debug.html'
@@ -14,6 +13,7 @@ export const EXPERIMENT_LIST_RESOURCE_URI = 'ui://posthog/experiment-list.html'
 export const EXPERIMENT_RESULTS_RESOURCE_URI = 'ui://posthog/experiment-results.html'
 export const FEATURE_FLAG_RESOURCE_URI = 'ui://posthog/feature-flag.html'
 export const FEATURE_FLAG_LIST_RESOURCE_URI = 'ui://posthog/feature-flag-list.html'
+export const INSIGHT_ACTORS_RESOURCE_URI = 'ui://posthog/insight-actors.html'
 export const LLM_COSTS_RESOURCE_URI = 'ui://posthog/llm-costs.html'
 export const QUERY_RESULTS_RESOURCE_URI = 'ui://posthog/query-results.html'
 export const SESSION_RECORDING_RESOURCE_URI = 'ui://posthog/session-recording.html'
@@ -27,7 +27,6 @@ export const WORKFLOW_LIST_RESOURCE_URI = 'ui://posthog/workflow-list.html'
 export type UiAppKey =
     | 'action'
     | 'action-list'
-    | 'actors'
     | 'cohort'
     | 'cohort-list'
     | 'debug'
@@ -39,6 +38,7 @@ export type UiAppKey =
     | 'experiment-results'
     | 'feature-flag'
     | 'feature-flag-list'
+    | 'insight-actors'
     | 'llm-costs'
     | 'query-results'
     | 'session-recording'
@@ -52,7 +52,6 @@ export type UiAppKey =
 export const URI_MAP: Record<UiAppKey, string> = {
     action: ACTION_RESOURCE_URI,
     'action-list': ACTION_LIST_RESOURCE_URI,
-    actors: ACTORS_RESOURCE_URI,
     cohort: COHORT_RESOURCE_URI,
     'cohort-list': COHORT_LIST_RESOURCE_URI,
     debug: DEBUG_RESOURCE_URI,
@@ -64,6 +63,7 @@ export const URI_MAP: Record<UiAppKey, string> = {
     'experiment-results': EXPERIMENT_RESULTS_RESOURCE_URI,
     'feature-flag': FEATURE_FLAG_RESOURCE_URI,
     'feature-flag-list': FEATURE_FLAG_LIST_RESOURCE_URI,
+    'insight-actors': INSIGHT_ACTORS_RESOURCE_URI,
     'llm-costs': LLM_COSTS_RESOURCE_URI,
     'query-results': QUERY_RESULTS_RESOURCE_URI,
     'session-recording': SESSION_RECORDING_RESOURCE_URI,
@@ -92,12 +92,6 @@ export const UI_APPS: Array<{
         uri: ACTION_LIST_RESOURCE_URI,
         description: 'Action List view',
         appDir: 'generated/action-list',
-    },
-    {
-        name: 'PostHog Actors',
-        uri: ACTORS_RESOURCE_URI,
-        description: 'Actors detail view',
-        appDir: 'generated/actors',
     },
     {
         name: 'PostHog Cohort',
@@ -164,6 +158,12 @@ export const UI_APPS: Array<{
         uri: FEATURE_FLAG_LIST_RESOURCE_URI,
         description: 'Feature Flag List view',
         appDir: 'generated/feature-flag-list',
+    },
+    {
+        name: 'PostHog Insight Actors',
+        uri: INSIGHT_ACTORS_RESOURCE_URI,
+        description: 'Insight Actors detail view',
+        appDir: 'generated/insight-actors',
     },
     {
         name: 'PostHog Llm Costs',
