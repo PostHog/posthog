@@ -39,6 +39,7 @@ from posthog.models.messaging import MessagingRecord, get_email_hash
 from posthog.models.utils import UUIDT
 from posthog.ph_client import get_client
 from posthog.scoping_audit import skip_team_scope_audit
+from posthog.tasks._notifications.pipeline_failure import dispatch_pipeline_failure_realtime
 from posthog.user_permissions import UserPermissions
 
 from products.conversations.backend.models import Ticket
@@ -522,6 +523,15 @@ def send_fatal_plugin_error(
     for membership in memberships_to_email:
         message.add_user_recipient(membership.user)
     message.send()
+
+    dispatch_pipeline_failure_realtime(
+        team=team,
+        memberships=memberships_to_email,
+        title=f"Plugin {plugin.name} disabled",
+        body=error,
+        resource_id=str(plugin_config_id),
+        source_url=f"/project/{team.project_id}/pipeline/transformations/{plugin_config_id}",
+    )
 
 
 @shared_task(**EMAIL_TASK_KWARGS)

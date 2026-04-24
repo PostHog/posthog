@@ -401,6 +401,22 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
 
+    @patch("posthog.tasks.email.dispatch_pipeline_failure_realtime")
+    def test_send_fatal_plugin_error_dispatches_realtime(
+        self, mock_realtime: MagicMock, MockEmailMessage: MagicMock
+    ) -> None:
+        mock_email_messages(MockEmailMessage)
+        plugin = Plugin.objects.create(organization=self.organization)
+        plugin_config = PluginConfig.objects.create(plugin=plugin, team=self.team, enabled=True, order=1)
+
+        send_fatal_plugin_error(plugin_config.id, "20222-01-01", error="boom", is_system_error=False)
+
+        mock_realtime.assert_called_once()
+        kwargs = mock_realtime.call_args.kwargs
+        assert kwargs["team"].id == self.team.id
+        assert "Plugin" in kwargs["title"]
+        assert kwargs["resource_id"] == str(plugin_config.id)
+
     def test_send_fatal_plugin_error_with_settings(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         plugin = Plugin.objects.create(organization=self.organization)
