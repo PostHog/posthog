@@ -1,5 +1,7 @@
+import './VerifyEmail.scss'
+
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { LemonButton, LemonCheckbox, LemonModal, Link } from '@posthog/lemon-ui'
 
@@ -122,24 +124,6 @@ const GetHelp = (): JSX.Element => {
 
 export function VerifyEmail(): JSX.Element {
     const { view } = useValues(verifyEmailLogic)
-    // In Storybook we want the progress bar fully filled and un-animated so visual regression
-    // snapshots are deterministic — real users always get the animation.
-    const isStorybook = !!process.env.STORYBOOK
-    const [progressActive, setProgressActive] = useState(isStorybook)
-
-    useEffect(() => {
-        if (view !== 'success') {
-            setProgressActive(isStorybook)
-            return
-        }
-        if (isStorybook) {
-            setProgressActive(true)
-            return
-        }
-        // Kick off the width transition on the next frame so the initial 0% state is painted first
-        const raf = requestAnimationFrame(() => setProgressActive(true))
-        return () => cancelAnimationFrame(raf)
-    }, [view, isStorybook])
 
     return (
         <div className="flex h-full flex-col">
@@ -205,13 +189,17 @@ export function VerifyEmail(): JSX.Element {
                             >
                                 <div
                                     className="h-full bg-accent"
+                                    // In Storybook render at full width with no animation so visual
+                                    // regression snapshots are deterministic — real users get the animation.
                                     // eslint-disable-next-line react/forbid-dom-props
-                                    style={{
-                                        width: progressActive ? '100%' : '0%',
-                                        transition: isStorybook
-                                            ? 'none'
-                                            : `width ${VERIFY_EMAIL_REDIRECT_DELAY_MS}ms linear`,
-                                    }}
+                                    style={
+                                        process.env.STORYBOOK
+                                            ? { width: '100%' }
+                                            : {
+                                                  width: '0%',
+                                                  animation: `VerifyEmail__Progress ${VERIFY_EMAIL_REDIRECT_DELAY_MS}ms linear forwards`,
+                                              }
+                                    }
                                 />
                             </div>
                         )}
