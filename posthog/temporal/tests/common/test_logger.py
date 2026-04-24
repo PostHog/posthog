@@ -13,7 +13,6 @@ import freezegun
 from django.conf import settings
 from django.test import override_settings
 
-import aiokafka
 import structlog
 import pytest_asyncio
 import temporalio.testing
@@ -30,6 +29,8 @@ from posthog.clickhouse.log_entries import (
     LOG_ENTRIES_TABLE_MV_SQL,
     TRUNCATE_LOG_ENTRIES_TABLE_SQL,
 )
+from posthog.kafka_client.client import _AsyncKafkaProducer
+from posthog.kafka_client.routing import new_async_producer
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 from posthog.temporal.common.logger import BACKGROUND_LOGGER_TASKS, configure_logger, resolve_log_source
 
@@ -90,26 +91,14 @@ async def queue():
 
 
 class CaptureKafkaProducer:
-    """A test producer matching the `_AsyncKafkaProducer` surface that captures calls to `produce`."""
+    """Wrap a `_AsyncKafkaProducer` to captures calls to `produce`."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, topic: str, loop: asyncio.AbstractEventLoop, **kwargs):
         self.entries = []
-        self._producer: None | aiokafka.AIOKafkaProducer = None
+        self.producer: _AsyncKafkaProducer = new_async_producer(topic=topic, loop=loop)
         self._is_closed = False
 
-    @property
-    def producer(self) -> aiokafka.AIOKafkaProducer:
-        if self._producer is None:
-            self._producer = aiokafka.AIOKafkaProducer(
-                bootstrap_servers=[*settings.KAFKA_PROFILES["default"].hosts, "localhost:9092"],
-                security_protocol=settings.KAFKA_PROFILES["default"].security_protocol or "PLAINTEXT",
-                acks="all",
-                request_timeout_ms=1000000,
-                api_version="2.5.0",
-            )
-        return self._producer
-
-    async def produce(self, *, topic, data, key=None, value_serializer=None, headers=None):
+    async def produce(self, *, topic, data, key=None, value_serializer=None):
         """Append an entry and delegate to aiokafka.AIOKafkaProducer."""
         if value_serializer is not None:
             data = value_serializer(data)
@@ -119,26 +108,18 @@ class CaptureKafkaProducer:
                 "topic": topic,
                 "value": data,
                 "key": key,
-                # `_AsyncKafkaProducer.produce` doesn't expose partition/timestamp_ms;
-                # kept as None so assertions from the prior aiokafka-based fixture still hold.
-                "partition": None,
-                "timestamp_ms": None,
-                "headers": headers,
             }
         )
-        if not self._is_closed and self._producer is None:
-            await self.producer.start()
-        return await self.producer.send(topic, data, key, headers=headers)
+        return await self.producer.produce(topic, data, key, value_serializer=lambda v: v)
 
     async def flush(self, timeout=None):
-        if self._producer is not None:
-            await self._producer.flush()
+        await self.producer.flush()
 
     async def close(self):
         if self._is_closed:
             return
-        if self._producer is not None:
-            await self._producer.stop()
+
+        await self.producer.close()
         self._is_closed = True
 
     @property
@@ -153,7 +134,9 @@ async def producer():
     After usage, we ensure the producer was closed to avoid leaking/warnings.
     """
     loop = asyncio.get_running_loop()
-    producer = CaptureKafkaProducer(bootstrap_servers=settings.KAFKA_PROFILES["default"].hosts, loop=loop)
+    producer = CaptureKafkaProducer(
+        topic=KAFKA_LOG_ENTRIES, bootstrap_servers=settings.KAFKA_PROFILES["default"].hosts, loop=loop
+    )
 
     yield producer
 
