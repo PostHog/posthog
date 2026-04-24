@@ -119,13 +119,13 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$pageview": {
             "label": "Pageview",
             "description": "When a user loads (or reloads) a page.",
-            "promoted_property": "$current_url",
+            "promoted_property": "$pathname",
         },
         "$pageleave": {
             "label": "Pageleave",
             "description": "When a user leaves a page.",
             "ignored_in_assistant": True,  # Pageleave confuses the LLM, it just can't use this event in a sensible way
-            "promoted_property": "$current_url",
+            "promoted_property": "$pathname",
         },
         "$autocapture": {
             "label": "Autocapture",

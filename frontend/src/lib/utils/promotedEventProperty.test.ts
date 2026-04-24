@@ -2,8 +2,8 @@ import { getPromotedPropertyForEvent } from './promotedEventProperty'
 
 describe('getPromotedPropertyForEvent', () => {
     it('returns the core taxonomy default for built-in events', () => {
-        expect(getPromotedPropertyForEvent('$pageview')).toBe('$current_url')
-        expect(getPromotedPropertyForEvent('$pageleave')).toBe('$current_url')
+        expect(getPromotedPropertyForEvent('$pageview')).toBe('$pathname')
+        expect(getPromotedPropertyForEvent('$pageleave')).toBe('$pathname')
         expect(getPromotedPropertyForEvent('$screen')).toBe('$screen_name')
         expect(getPromotedPropertyForEvent('$feature_flag_called')).toBe('$feature_flag')
     })
@@ -20,7 +20,7 @@ describe('getPromotedPropertyForEvent', () => {
     })
 
     it('prefers the team-configured override over the taxonomy default', () => {
-        expect(getPromotedPropertyForEvent('$pageview', { $pageview: '$pathname' })).toBe('$pathname')
+        expect(getPromotedPropertyForEvent('$pageview', { $pageview: '$current_url' })).toBe('$current_url')
     })
 
     it('uses the team-configured override for custom events with no taxonomy default', () => {
@@ -28,6 +28,6 @@ describe('getPromotedPropertyForEvent', () => {
     })
 
     it('falls back to the taxonomy default when the override map has no matching entry', () => {
-        expect(getPromotedPropertyForEvent('$pageview', { other_event: 'x' })).toBe('$current_url')
+        expect(getPromotedPropertyForEvent('$pageview', { other_event: 'x' })).toBe('$pathname')
     })
 })
