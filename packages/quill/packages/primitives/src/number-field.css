@@ -3,7 +3,7 @@
         height: 2rem;
         background-color: color-mix(in oklab, var(--input) 20%, transparent);
         border: 1px solid var(--input);
-        border-radius: var(--radius-md);
+        border-radius: var(--radius-sm);
         transition:
             color 0.15s ease,
             background-color 0.15s ease,

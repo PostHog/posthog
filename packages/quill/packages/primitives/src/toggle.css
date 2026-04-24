@@ -33,7 +33,7 @@
 
     .quill-toggle[aria-pressed='true'],
     .quill-toggle[data-state='on'] {
-        background-color: var(--accent);
+        background-color: color-mix(in oklab, var(--accent) 80%, transparent);
     }
 
     .quill-toggle svg {

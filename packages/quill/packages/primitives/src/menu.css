@@ -59,6 +59,50 @@
         padding-inline-start: 1.875rem;
     }
 
+    /*
+     * Checkbox / radio menu items get a stronger "active" background than the
+     * generic fill-selected (which is too subtle on white popover surfaces).
+     * Covers both Base UI's `aria-checked='true'` and `data-checked` hooks so
+     * the rule fires regardless of which state attribute is observed. Skipped
+     * while hovered/highlighted — those states own the hover fill.
+     */
+    :is(
+            [data-slot='dropdown-menu-checkbox-item'],
+            [data-slot='dropdown-menu-radio-item'],
+            [data-slot='context-menu-checkbox-item'],
+            [data-slot='context-menu-radio-item'],
+            [data-slot='menubar-checkbox-item'],
+            [data-slot='menubar-radio-item']
+        ):is([aria-checked='true'], [data-checked]):not(:hover, [data-highlighted]) {
+        background-color: var(--fill-selected);
+    }
+
+    /*
+     * Consecutive checked items merge corners into a seamless block — mirrors
+     * the aria-selected/aria-checked Button rules, scoped to menu items so the
+     * effect reads even when Base UI wraps items in a group/list container.
+     */
+    :is(
+            [data-slot='dropdown-menu-checkbox-item'],
+            [data-slot='dropdown-menu-radio-item'],
+            [data-slot='context-menu-checkbox-item'],
+            [data-slot='context-menu-radio-item']
+        ):is([aria-checked='true'], [data-checked]):has(+ :is([aria-checked='true'], [data-checked])) {
+        border-bottom-right-radius: 0;
+        border-bottom-left-radius: 0;
+    }
+
+    :is([aria-checked='true'], [data-checked])
+        + :is(
+            [data-slot='dropdown-menu-checkbox-item'],
+            [data-slot='dropdown-menu-radio-item'],
+            [data-slot='context-menu-checkbox-item'],
+            [data-slot='context-menu-radio-item']
+        ):is([aria-checked='true'], [data-checked]) {
+        border-top-left-radius: 0;
+        border-top-right-radius: 0;
+    }
+
     /* Menubar root */
     .quill-menubar {
         height: 2.25rem;

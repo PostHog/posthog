@@ -49,7 +49,7 @@
 
     .quill-tabs__indicator--variant-line {
         z-index: 0;
-        background-color: var(--foreground);
+        background-color: var(--primary);
     }
 
     .group\/tabs[data-orientation='horizontal'] .quill-tabs__indicator--variant-default {
@@ -113,6 +113,7 @@
 
     .quill-tabs__trigger[data-active] {
         color: var(--foreground);
+        background-color: var(--background) !important;
     }
 
     .quill-tabs__trigger[data-active]:hover,

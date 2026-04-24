@@ -81,11 +81,11 @@ const ToastCard = React.forwardRef<HTMLDivElement, ToastCardProps>(
                     </div>
                 </div>
                 {action && (
-                    <div className="flex items-center gap-1.5 mt-2">
+                    <div className="flex items-center gap-3 mt-2">
                         {icon && <span className="size-6 shrink-0" />}
-                        <button type="button" className="quill-toast-card__action" onClick={action.onClick}>
+                        <Button variant="outline" size="sm" className="quill-toast-card__action" onClick={action.onClick}>
                             {action.label}
-                        </button>
+                        </Button>
                     </div>
                 )}
                 {onDismiss && (
@@ -93,7 +93,7 @@ const ToastCard = React.forwardRef<HTMLDivElement, ToastCardProps>(
                         size="icon-sm"
                         className={cn(
                             'absolute right-2',
-                            (onlyTitle && 'top-1.5') || (onlyDescription && 'top-1.5') || 'top-2'
+                            (onlyTitle && 'top-1') || (onlyDescription && 'top-1') || 'top-2'
                         )}
                         onClick={onDismiss}
                     >
