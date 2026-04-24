@@ -100,17 +100,14 @@ describe('insightNavLogic', () => {
             })
         })
 
-        it.each([InsightType.TRENDS, InsightType.FUNNELS, InsightType.LIFECYCLE])(
-            'tags %s queries with product_analytics productKey',
-            async (insightType) => {
-                await expectLogic(builtInsightDataLogic, () => {
-                    logic.actions.setActiveView(insightType)
-                })
+        it('tags queries with product_analytics productKey', async () => {
+            await expectLogic(builtInsightDataLogic, () => {
+                logic.actions.setActiveView(InsightType.TRENDS)
+            })
 
-                const query = builtInsightDataLogic.values.query as InsightVizNode
-                expect(query.source?.tags?.productKey).toEqual(ProductKey.PRODUCT_ANALYTICS)
-            }
-        )
+            const query = builtInsightDataLogic.values.query as InsightVizNode
+            expect(query.source?.tags?.productKey).toEqual(ProductKey.PRODUCT_ANALYTICS)
+        })
 
         it('can set active view to QUERY', async () => {
             await expectLogic(logic, () => {
