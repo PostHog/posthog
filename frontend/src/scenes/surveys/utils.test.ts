@@ -180,6 +180,18 @@ describe('survey utils', () => {
                             },
                         ],
                     },
+                    {
+                        id: SurveyEventName.DISMISSED,
+                        type: 'events',
+                        properties: [
+                            {
+                                key: SurveyEventProperties.SURVEY_ID,
+                                type: PropertyFilterType.Event,
+                                value: 'survey-123',
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                    },
                 ],
             })
         })
@@ -189,6 +201,18 @@ describe('survey utils', () => {
                 events: [
                     {
                         id: SurveyEventName.SENT,
+                        type: 'events',
+                        properties: [
+                            {
+                                key: SurveyEventProperties.SURVEY_ID,
+                                type: PropertyFilterType.Event,
+                                value: 'survey-123',
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                    },
+                    {
+                        id: SurveyEventName.DISMISSED,
                         type: 'events',
                         properties: [
                             {

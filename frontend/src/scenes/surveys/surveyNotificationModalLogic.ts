@@ -18,7 +18,14 @@ import {
     getSurveyIdBasedResponseKey,
 } from 'scenes/surveys/utils'
 
-import { HogFunctionTemplateType, HogFunctionType, IntegrationType, Survey, SurveyQuestionType } from '~/types'
+import {
+    HogFunctionTemplateType,
+    HogFunctionType,
+    IntegrationType,
+    Survey,
+    SurveyEventProperties,
+    SurveyQuestionType,
+} from '~/types'
 
 import type { surveyNotificationModalLogicType } from './surveyNotificationModalLogicType'
 
@@ -63,9 +70,11 @@ type SurveyNotificationFormErrors = Partial<Record<keyof SurveyNotificationForm,
 const MAX_EXAMPLE_QUESTIONS = 3
 export const SURVEY_NAME_TOKEN = "{event.properties['$survey_name']}"
 export const SURVEY_ID_TOKEN = "{event.properties['$survey_id']}"
+export const SURVEY_EVENT_TOKEN = '{event.event}'
 export const RESPONDENT_NAME_TOKEN = '{person.name}'
 export const RESPONDENT_EMAIL_TOKEN = '{person.properties.email}'
 export const RESPONDENT_DETAILS_LINE = `${RESPONDENT_NAME_TOKEN} · ${RESPONDENT_EMAIL_TOKEN}`
+export const SURVEY_STATUS_TOKEN = `{event.event == 'survey dismissed' ? (event.properties['${SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}'] ? 'Dismissed after a partial response' : 'Dismissed before completion') : 'Completed response'}`
 
 function getResponseToken(questionId: string): string {
     return `{event.properties['${getSurveyIdBasedResponseKey(questionId)}']}`
@@ -85,7 +94,8 @@ export function getDefaultSurveyMessage(questions: SurveyQuestionForNotification
         .slice(0, MAX_EXAMPLE_QUESTIONS)
 
     return [
-        `*New response on ${SURVEY_NAME_TOKEN}*`,
+        `*Survey update on ${SURVEY_NAME_TOKEN}*`,
+        SURVEY_STATUS_TOKEN,
         RESPONDENT_DETAILS_LINE,
         ...(exampleQuestions.length > 0
             ? ['', '*Responses*', ...exampleQuestions.map((question, index) => getQuestionLine(question, index))]
@@ -163,6 +173,10 @@ function buildSlackBlocks(message: string, includeButtons: boolean): Record<stri
 
 function buildWebhookBodyTemplate(questions: SurveyQuestionForNotification[]): Record<string, unknown> {
     return {
+        event: {
+            name: SURVEY_EVENT_TOKEN,
+            status: SURVEY_STATUS_TOKEN,
+        },
         survey: {
             id: SURVEY_ID_TOKEN,
             name: SURVEY_NAME_TOKEN,

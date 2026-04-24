@@ -171,7 +171,7 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
             isOpen={isOpen}
             onClose={closeDialog}
             title="Add survey notification"
-            description="Send survey responses to Slack, Discord, Microsoft Teams, or a webhook."
+            description="Send survey updates to Slack, Discord, Microsoft Teams, or a webhook."
             width={720}
             footer={
                 <>
@@ -223,6 +223,10 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
                             <div className="text-xs text-muted">
                                 {destinationDeliveryDescription(notificationForm.destination)}
                             </div>
+                            <div className="text-xs text-muted">
+                                Notifications send when a survey is completed or dismissed. If someone leaves the survey
+                                open and never submits or dismisses it, nothing is sent.
+                            </div>
                             {canNotifyOnPartialResponses ? (
                                 <>
                                     <Field name="onlyCompletedResponses">
@@ -230,12 +234,13 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
                                             <LemonSwitch
                                                 checked={value}
                                                 onChange={onChange}
-                                                label="Only notify for full responses"
+                                                label="Only notify on completed or dismissed surveys"
                                             />
                                         )}
                                     </Field>
                                     <div className="text-xs text-muted">
-                                        Turn this off if partial responses matter for this survey.
+                                        Turn this off to also notify on in-progress `survey sent` events before the
+                                        survey is finished.
                                     </div>
                                 </>
                             ) : null}
@@ -406,8 +411,8 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
                                     <div className="space-y-1">
                                         <div className="text-sm font-medium text-default">Webhook request body</div>
                                         <div className="text-xs text-muted">
-                                            Survey webhooks send the survey metadata, person context, and one answer
-                                            field per question.
+                                            Survey webhooks send the trigger status, survey metadata, person context,
+                                            and one answer field per question.
                                         </div>
                                     </div>
                                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-4">

@@ -1120,7 +1120,7 @@ export function getSurveyNotificationFilters(
     surveyId: string,
     onlyCompletedResponses: boolean = true
 ): CyclotronJobFiltersType {
-    const properties: EventPropertyFilter[] = [
+    const sentEventProperties: EventPropertyFilter[] = [
         {
             key: SurveyEventProperties.SURVEY_ID,
             type: PropertyFilterType.Event,
@@ -1130,7 +1130,7 @@ export function getSurveyNotificationFilters(
     ]
 
     if (onlyCompletedResponses) {
-        properties.push({
+        sentEventProperties.push({
             key: SurveyEventProperties.SURVEY_COMPLETED,
             type: PropertyFilterType.Event,
             value: true,
@@ -1143,7 +1143,19 @@ export function getSurveyNotificationFilters(
             {
                 id: SurveyEventName.SENT,
                 type: 'events',
-                properties,
+                properties: sentEventProperties,
+            },
+            {
+                id: SurveyEventName.DISMISSED,
+                type: 'events',
+                properties: [
+                    {
+                        key: SurveyEventProperties.SURVEY_ID,
+                        type: PropertyFilterType.Event,
+                        value: surveyId,
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
             },
         ],
     }
