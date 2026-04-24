@@ -286,7 +286,7 @@ function collectCIMetadata(): Record<string, string> {
     }
     const jobId = process.env.JOB_CHECK_RUN_ID
     if (jobId) {
-        metadata.github_job_id = jobId
+        metadata.github_check_run_id = jobId
     }
     return metadata
 }

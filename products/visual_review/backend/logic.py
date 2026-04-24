@@ -966,12 +966,12 @@ def recompute_run(run_id: UUID, team_id: int | None = None) -> dict:
     ci_rerun_triggered = False
     ci_rerun_error: str | None = None
 
-    github_job_id = (run.metadata or {}).get("github_job_id")
+    check_run_id = (run.metadata or {}).get("github_check_run_id")
 
-    if not github_job_id:
+    if not check_run_id:
         ci_rerun_error = "CI job ID not available (set JOB_CHECK_RUN_ID=${{ job.check_run_id }} in workflow)"
     else:
-        ci_rerun_triggered, ci_rerun_error = _rerun_github_job(run, github_job_id)
+        ci_rerun_triggered, ci_rerun_error = _rerun_github_job(run, check_run_id)
 
     return {
         "counts_changed": counts_changed,
@@ -980,7 +980,7 @@ def recompute_run(run_id: UUID, team_id: int | None = None) -> dict:
     }
 
 
-def _rerun_github_job(run: Run, github_job_id: str) -> tuple[bool, str | None]:
+def _rerun_github_job(run: Run, check_run_id: str) -> tuple[bool, str | None]:
     """Rerun a specific GitHub Actions job by its numeric ID. Returns (success, error_message)."""
     repo = run.repo
     if not repo.repo_full_name:
@@ -990,7 +990,7 @@ def _rerun_github_job(run: Run, github_job_id: str) -> tuple[bool, str | None]:
         response = _github_api_request(
             "POST",
             repo,
-            f"actions/jobs/{github_job_id}/rerun",
+            f"actions/jobs/{check_run_id}/rerun",
             timeout=10,
         )
     except Exception:
@@ -1000,7 +1000,7 @@ def _rerun_github_job(run: Run, github_job_id: str) -> tuple[bool, str | None]:
         logger.info(
             "visual_review.ci_job_rerun_triggered",
             run_id=str(run.id),
-            github_job_id=github_job_id,
+            check_run_id=check_run_id,
         )
         return True, None
 

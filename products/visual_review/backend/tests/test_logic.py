@@ -1477,7 +1477,7 @@ class TestRecomputeRun:
             mocker,
             identifiers_and_hashes=[("Button", "h1")],
             baseline={"Button": "old1"},
-            metadata={"github_job_id": "72855643533"},
+            metadata={"github_check_run_id": "72855643533"},
         )
 
         mocker.patch(
@@ -1496,7 +1496,7 @@ class TestRecomputeRun:
             mocker,
             identifiers_and_hashes=[("Button", "h1")],
             baseline={"Button": "old1"},
-            metadata={"github_job_id": "72855643533"},
+            metadata={"github_check_run_id": "72855643533"},
         )
 
         mocker.patch(
