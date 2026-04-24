@@ -24,6 +24,7 @@ import type {
     TaskApi,
     TaskAutomationApi,
     TaskAutomationsListParams,
+    TaskRepositoriesResponseApi,
     TaskRunAppendLogRequestApi,
     TaskRunArtifactPresignRequestApi,
     TaskRunArtifactPresignResponseApi,
@@ -814,6 +815,24 @@ export const tasksRunsStreamRetrieve = async (
     options?: RequestInit
 ): Promise<TaskRunDetailApi> => {
     return apiMutator<TaskRunDetailApi>(getTasksRunsStreamRetrieveUrl(projectId, taskId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Return the set of repositories referenced by non-deleted, non-internal tasks in the current project. Used to populate repository filter pickers without being constrained by task list pagination.
+ * @summary List distinct task repositories
+ */
+export const getTasksRepositoriesRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/repositories/`
+}
+
+export const tasksRepositoriesRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<TaskRepositoriesResponseApi> => {
+    return apiMutator<TaskRepositoriesResponseApi>(getTasksRepositoriesRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

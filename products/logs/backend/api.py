@@ -37,6 +37,7 @@ from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks.exporter import export_asset
 
 from products.logs.backend.alerts_api import LogsAlertViewSet
+from products.logs.backend.count_query_runner import CountQueryRunner
 from products.logs.backend.explain import LogExplainViewSet
 from products.logs.backend.has_logs_query_runner import team_has_logs
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
@@ -272,6 +273,36 @@ class _LogsSparklineRequestSerializer(serializers.Serializer):
     query = _LogsSparklineBodySerializer(help_text="The sparkline query to execute.")
 
 
+class _LogsCountBodySerializer(serializers.Serializer):
+    dateRange = _DateRangeSerializer(
+        required=False,
+        help_text="Date range for the count. Defaults to last hour.",
+    )
+    severityLevels = serializers.ListField(
+        child=serializers.ChoiceField(choices=["trace", "debug", "info", "warn", "error", "fatal"]),
+        required=False,
+        default=list,
+        help_text="Filter by log severity levels.",
+    )
+    serviceNames = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=list,
+        help_text="Filter by service names.",
+    )
+    searchTerm = serializers.CharField(required=False, help_text="Full-text search term to filter log bodies.")
+    filterGroup = serializers.ListField(
+        child=_LogPropertyFilterSerializer(),
+        required=False,
+        default=list,
+        help_text="Property filters for the query.",
+    )
+
+
+class _LogsCountRequestSerializer(serializers.Serializer):
+    query = _LogsCountBodySerializer(help_text="The count query to execute.")
+
+
 class _LogsServicesBodySerializer(serializers.Serializer):
     dateRange = _DateRangeSerializer(
         required=False,
@@ -348,6 +379,10 @@ class _LogsQueryResponseSerializer(serializers.Serializer):
     maxExportableLogs = serializers.IntegerField(
         help_text="Maximum number of rows the `export` endpoint will produce — informational.",
     )
+
+
+class _LogsCountResponseSerializer(serializers.Serializer):
+    count = serializers.IntegerField(help_text="Number of log entries matching the filters.")
 
 
 class _LogsSparklineBucketSerializer(serializers.Serializer):
@@ -587,6 +622,44 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 "severity_levels_count": len(query_data.get("severityLevels", [])),
                 "service_names_count": len(query_data.get("serviceNames", [])),
                 "breakdown_by": query_data.get("sparklineBreakdownBy"),
+            },
+            team=self.team,
+            request=request,
+        )
+
+        return Response(response.results, status=status.HTTP_200_OK)
+
+    @extend_schema(request=_LogsCountRequestSerializer, responses={200: _LogsCountResponseSerializer})
+    @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
+    def count(self, request: Request, *args, **kwargs) -> Response:
+        query_data = request.data.get("query", {})
+
+        date_range_data = query_data.get("dateRange")
+        date_range = self.get_model(date_range_data, DateRange) if date_range_data else DateRange(date_from="-1h")
+
+        query = LogsQuery(
+            dateRange=date_range,
+            severityLevels=query_data.get("severityLevels", []),
+            serviceNames=query_data.get("serviceNames", []),
+            searchTerm=query_data.get("searchTerm", None),
+            filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
+        )
+
+        runner = CountQueryRunner(team=self.team, query=query)
+        response = runner.run(
+            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            analytics_props=get_request_analytics_properties(request),
+        )
+        assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
+
+        report_user_action(
+            request.user,
+            "logs count queried",
+            {
+                "has_search_term": bool(query_data.get("searchTerm")),
+                "has_filter_group": bool(query_data.get("filterGroup")),
+                "severity_levels_count": len(query_data.get("severityLevels", [])),
+                "service_names_count": len(query_data.get("serviceNames", [])),
             },
             team=self.team,
             request=request,

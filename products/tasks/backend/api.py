@@ -11,7 +11,7 @@ from typing import Any, cast
 from django.conf import settings
 from django.core.cache import cache
 from django.db import models, transaction
-from django.db.models import F
+from django.db.models import F, OuterRef, Q, Subquery
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 from django.utils import timezone
 
@@ -56,6 +56,7 @@ from .serializers import (
     SandboxEnvironmentSerializer,
     TaskAutomationSerializer,
     TaskListQuerySerializer,
+    TaskRepositoriesResponseSerializer,
     TaskRunAppendLogRequestSerializer,
     TaskRunArtifactPresignRequestSerializer,
     TaskRunArtifactPresignResponseSerializer,
@@ -180,6 +181,36 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
 
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=TaskRepositoriesResponseSerializer,
+                description="Distinct repositories used by tasks in the current project.",
+            ),
+        },
+        summary="List distinct task repositories",
+        description="Return the set of repositories referenced by non-deleted, non-internal tasks in the current project. Used to populate repository filter pickers without being constrained by task list pagination.",
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="repositories",
+        required_scopes=["task:read"],
+        pagination_class=None,
+        filter_backends=[],
+    )
+    def repositories(self, request, **kwargs):
+        repositories = (
+            Task.objects.filter(team=self.team, deleted=False, internal=False)
+            .exclude(repository__isnull=True)
+            .exclude(repository__exact="")
+            .values_list("repository", flat=True)
+            .distinct()
+            .order_by("repository")
+        )
+        serializer = TaskRepositoriesResponseSerializer({"repositories": list(repositories)})
+        return Response(serializer.data)
+
     @validated_request(
         query_serializer=RepositoryReadinessQuerySerializer,
         responses={
@@ -228,6 +259,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         organization = params.get("organization")
         repository = params.get("repository")
         created_by = params.get("created_by")
+        search = params.get("search")
+        status_filter = params.get("status")
 
         if repository:
             repo_str = repository.strip().lower()
@@ -243,8 +276,32 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if created_by:
             qs = qs.filter(created_by_id=created_by)
 
-        # Only filter by internal on list — retrieve should always work if you have the ID
+        # Only apply list-oriented filters on list — retrieve/update should always work if
+        # you have the ID. Without this guard, a client passing a query param while fetching
+        # a single task by ID would see an unexpected 404 when the task does not match.
         if self.action == "list":
+            if search:
+                search_term = search.strip()
+                if search_term:
+                    search_q = Q(title__icontains=search_term) | Q(description__icontains=search_term)
+                    # Slugs look like "<team-prefix>-<task_number>". If the search term is a bare
+                    # number, or looks like "<prefix>-<number>", also match by task_number so users
+                    # can find tasks by slug.
+                    number_part = search_term.split("-")[-1].strip()
+                    if number_part.isdigit():
+                        search_q |= Q(task_number=int(number_part))
+                    qs = qs.filter(search_q)
+
+            if status_filter:
+                # `-id` is a deterministic tiebreaker when two runs share a `created_at`
+                # timestamp (e.g. both seeded with `timezone.now()` in the same tick).
+                latest_run_status = (
+                    TaskRun.objects.filter(task=OuterRef("pk")).order_by("-created_at", "-id").values("status")[:1]
+                )
+                qs = qs.annotate(_latest_run_status=Subquery(latest_run_status)).filter(
+                    _latest_run_status=status_filter
+                )
+
             internal_param = getattr(self.request, "validated_query_data", {}).get("internal")
             if internal_param is True:
                 qs = qs.filter(internal=True)
@@ -253,6 +310,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # select_related to avoid N+1 on created_by (UserBasicSerializer) and team (slug property)
         qs = qs.select_related("created_by", "team").prefetch_related("runs")
+
+        # `stage` joins through `runs` and can produce duplicate task rows. If any other
+        # JOIN-producing filter is added above, broaden this guard (or move `.distinct()`
+        # to run unconditionally).
+        if stage:
+            qs = qs.distinct()
 
         return qs
 

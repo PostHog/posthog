@@ -35341,6 +35341,11 @@ export namespace Schemas {
       rates: SurveyStatsResponseRates;
     }
 
+    export interface TaskRepositoriesResponse {
+      /** Distinct repositories in use by non-deleted, non-internal tasks for the current team. */
+      repositories: string[];
+    }
+
     export type TaskRunAppendLogRequestEntriesItem = {[key: string]: unknown};
 
     export interface TaskRunAppendLogRequest {
@@ -36510,6 +36515,29 @@ export namespace Schemas {
       /** Available attribute keys matching the filters. */
       results: _LogAttributeEntry[];
       /** Total attribute keys matched (not paginated). */
+      count: number;
+    }
+
+    export interface _LogsCountBody {
+      /** Date range for the count. Defaults to last hour. */
+      dateRange?: _DateRange;
+      /** Filter by log severity levels. */
+      severityLevels?: SeverityLevelsEnum[];
+      /** Filter by service names. */
+      serviceNames?: string[];
+      /** Full-text search term to filter log bodies. */
+      searchTerm?: string;
+      /** Property filters for the query. */
+      filterGroup?: _LogPropertyFilter[];
+    }
+
+    export interface _LogsCountRequest {
+      /** The count query to execute. */
+      query: _LogsCountBody;
+    }
+
+    export interface _LogsCountResponse {
+      /** Number of log entries matching the filters. */
       count: number;
     }
 
@@ -43349,11 +43377,39 @@ export namespace Schemas {
      */
     repository?: string;
     /**
+     * Case-insensitive substring search over task title and description. A numeric value also matches the task number. An empty value disables the filter.
+     */
+    search?: string;
+    /**
      * Filter by task run stage
      * @minLength 1
      */
     stage?: string;
+    /**
+     * Filter tasks by the status of their most recent run.
+
+    * `not_started` - not_started
+    * `queued` - queued
+    * `in_progress` - in_progress
+    * `completed` - completed
+    * `failed` - failed
+    * `cancelled` - cancelled
+     * @minLength 1
+     */
+    status?: TasksListStatus;
     };
+
+    export type TasksListStatus = typeof TasksListStatus[keyof typeof TasksListStatus];
+
+
+    export const TasksListStatus = {
+      NotStarted: 'not_started',
+      Queued: 'queued',
+      InProgress: 'in_progress',
+      Completed: 'completed',
+      Failed: 'failed',
+      Cancelled: 'cancelled',
+    } as const;
 
     export type TasksRunsListParams = {
     /**
