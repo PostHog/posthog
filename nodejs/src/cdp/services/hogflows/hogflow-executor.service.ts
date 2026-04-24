@@ -47,6 +47,7 @@ const DUPLICATE_OBSERVATION_TTL_SECONDS = 15 * 60
 const hogflowDuplicateInvocationDetectedTotal = new Counter({
     name: 'hogflow_duplicate_invocation_detected_total',
     help: 'Workflow invocations created for a (workflow, event) pair already seen within the observation window',
+    labelNames: ['workflow_id'],
 })
 
 export function createHogFlowInvocation(
@@ -172,10 +173,12 @@ export class HogFlowExecutorService {
             .useClient({ name: 'hogflow-observe', failOpen: true }, async (client) => {
                 const wasSet = await client.set(key, invocation.id, 'EX', DUPLICATE_OBSERVATION_TTL_SECONDS, 'NX')
                 if (!wasSet) {
-                    hogflowDuplicateInvocationDetectedTotal.inc()
+                    hogflowDuplicateInvocationDetectedTotal.inc({ workflow_id: invocation.functionId })
                 }
             })
-            .catch(() => {})
+            .catch((error: unknown) => {
+                logger.debug('🦔', '[HogFlowExecutor] Duplicate observer skipped', { error: String(error) })
+            })
     }
 
     async execute(
