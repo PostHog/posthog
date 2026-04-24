@@ -9,6 +9,7 @@ function Card({
 }: React.ComponentProps<'div'> & { size?: 'default' | 'sm' }): React.ReactElement {
     return (
         <div
+            data-quill
             data-slot="card"
             data-size={size}
             className={cn(

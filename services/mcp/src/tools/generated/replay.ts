@@ -11,24 +11,26 @@ import {
     SessionRecordingsDestroyParams,
     SessionRecordingsRetrieveParams,
 } from '@/generated/replay/api'
+import { withUiApp } from '@/resources/ui-apps'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const SessionRecordingGetSchema = SessionRecordingsRetrieveParams.omit({ project_id: true })
 
-const sessionRecordingGet = (): ToolBase<typeof SessionRecordingGetSchema, Schemas.SessionRecording> => ({
-    name: 'session-recording-get',
-    schema: SessionRecordingGetSchema,
-    handler: async (context: Context, params: z.infer<typeof SessionRecordingGetSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.SessionRecording>({
-            method: 'GET',
-            path: `/api/projects/${projectId}/session_recordings/${params.id}/`,
-        })
-        return result
-    },
-})
+const sessionRecordingGet = (): ToolBase<typeof SessionRecordingGetSchema, WithPostHogUrl<Schemas.SessionRecording>> =>
+    withUiApp('session-recording', {
+        name: 'session-recording-get',
+        schema: SessionRecordingGetSchema,
+        handler: async (context: Context, params: z.infer<typeof SessionRecordingGetSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.SessionRecording>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recordings/${encodeURIComponent(String(params.id))}/`,
+            })
+            return await withPostHogUrl(context, result, `/replay/${result.id}`)
+        },
+    })
 
 const SessionRecordingDeleteSchema = SessionRecordingsDestroyParams.omit({ project_id: true })
 
@@ -39,7 +41,7 @@ const sessionRecordingDelete = (): ToolBase<typeof SessionRecordingDeleteSchema,
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
-            path: `/api/projects/${projectId}/session_recordings/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recordings/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -57,7 +59,7 @@ const sessionRecordingPlaylistsList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedSessionRecordingPlaylistList>({
             method: 'GET',
-            path: `/api/projects/${projectId}/session_recording_playlists/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recording_playlists/`,
             query: {
                 created_by: params.created_by,
                 limit: params.limit,
@@ -81,7 +83,7 @@ const sessionRecordingPlaylistGet = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SessionRecordingPlaylist>({
             method: 'GET',
-            path: `/api/projects/${projectId}/session_recording_playlists/${params.short_id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recording_playlists/${encodeURIComponent(String(params.short_id))}/`,
         })
         return result
     },
@@ -121,7 +123,7 @@ const sessionRecordingPlaylistCreate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.SessionRecordingPlaylist>({
             method: 'POST',
-            path: `/api/projects/${projectId}/session_recording_playlists/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recording_playlists/`,
             body,
         })
         return result
@@ -161,7 +163,7 @@ const sessionRecordingPlaylistUpdate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.SessionRecordingPlaylist>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/session_recording_playlists/${params.short_id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recording_playlists/${encodeURIComponent(String(params.short_id))}/`,
             body,
         })
         return result
@@ -597,7 +599,7 @@ const AssistantRecordingsQuery = z.object({
     properties: z
         .array(AssistantRecordingsQueryPropertyFilter)
         .describe(
-            'Property filters to narrow results. Each filter has a `key`, `value`, `operator`, and `type`.\n\nSupported types:\n- `person`: Filter by person properties (e.g. email, country).\n- `session`: Filter by session properties (e.g. $session_duration, $channel_type, $entry_current_url).\n- `event`: Filter by properties of events in the session (e.g. $current_url, $browser).\n- `recording`: Filter by recording metrics (e.g. console_error_count, click_count, activity_score).'
+            'Property filters to narrow results. Each filter has a `key`, `value`, `operator`, and `type`.\n\nSupported types:\n- `person`: Filter by person properties (e.g. email, country).\n- `session`: Filter by session properties (e.g. $session_duration, $channel_type, $entry_current_url).\n- `event`: Filter by properties of events in the session (e.g. $current_url, $browser).\n- `recording`: Filter by recording metrics (e.g. console_error_count, click_count, activity_score).\n- `cohort`: Filter recordings to persons belonging to a cohort. Example: `{ type: "cohort", key: "id", value: 42, operator: "in" }`.'
         )
         .optional(),
 })

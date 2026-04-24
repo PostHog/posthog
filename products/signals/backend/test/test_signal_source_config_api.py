@@ -10,7 +10,7 @@ from products.signals.backend.models import SignalSourceConfig
 
 class TestSignalSourceConfigAPI(APIBaseTest):
     def _url(self, config_id: str | None = None) -> str:
-        base = f"/api/projects/{self.team.id}/signal_source_configs/"
+        base = f"/api/projects/{self.team.id}/signals/source_configs/"
         if config_id:
             return f"{base}{config_id}/"
         return base

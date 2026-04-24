@@ -20,7 +20,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 
@@ -170,7 +170,13 @@ class AlertCheckQuery:
         )
 
     def _tag(self) -> None:
-        tag_queries(source="logs_alert", kind="temporal", alert_config_id=str(self.alert.id), team_id=str(self.team.id))
+        tag_queries(
+            product=Product.LOGS,
+            feature=Feature.ALERTING,
+            source="logs_alert",
+            alert_config_id=str(self.alert.id),
+            team_id=str(self.team.id),
+        )
 
     def _build_logs_query(self) -> LogsQuery:
         filters = self.alert.filters
@@ -190,6 +196,52 @@ class AlertCheckQuery:
             filterGroup=pg,
             kind="LogsQuery",
         )
+
+
+# Explicit per-partition `GROUP BY` is required on both the dev `MergeTree`
+# shard (no auto-merge at all) and the prod `AggregatingMergeTree` between
+# merges. A bare `min(max_observed_timestamp)` scans every raw insert and
+# returns the oldest value ever written.
+_LIVE_LOGS_CHECKPOINT_SQL = """
+    SELECT min(partition_checkpoint) FROM (
+        SELECT _topic, _partition, max(max_observed_timestamp) AS partition_checkpoint
+        FROM logs_kafka_metrics
+        GROUP BY _topic, _partition
+    )
+"""
+
+# Fall back to `now` when the checkpoint is older than this — a quiet partition
+# can pin `min(...)` hours behind while other partitions have fresh data.
+CHECKPOINT_MAX_STALENESS = dt.timedelta(minutes=5)
+
+
+def fetch_live_logs_checkpoint(team: Team) -> dt.datetime | None:
+    tag_queries(
+        product=Product.LOGS,
+        feature=Feature.ALERTING,
+        source="logs_alert",
+        team_id=str(team.id),
+    )
+    response = execute_hogql_query(
+        query_type="alert_check_checkpoint",
+        query=parse_select(_LIVE_LOGS_CHECKPOINT_SQL),
+        team=team,
+        workload=Workload.LOGS,
+        modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
+    )
+    if not response.results or response.results[0][0] is None:
+        return None
+    checkpoint = response.results[0][0]
+    if checkpoint.tzinfo is None:
+        checkpoint = checkpoint.replace(tzinfo=ZoneInfo("UTC"))
+    return checkpoint
+
+
+def resolve_alert_date_to(now: dt.datetime, checkpoint: dt.datetime | None) -> dt.datetime:
+    """Anchor `date_to` on the checkpoint when fresh, else fall back to `now`."""
+    if checkpoint is None or (now - checkpoint) > CHECKPOINT_MAX_STALENESS:
+        return now
+    return min(now, checkpoint)
 
 
 def is_projection_eligible(filters: dict) -> bool:

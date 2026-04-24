@@ -27,7 +27,6 @@ class BoxPlotTrendsQueryRunner(TrendsQueryRunner):
         if any(not s.math_property for s in self.query.series):
             return TrendsQueryResponse(
                 results=[],
-                boxplot_data=[],
                 modifiers=self.modifiers,
                 error="A numeric property must be selected for box plot.",
                 resolved_date_range=resolved_date_range,
@@ -79,7 +78,6 @@ class BoxPlotTrendsQueryRunner(TrendsQueryRunner):
             elif getattr(series_node, "math_property_type", None) == "session_properties":
                 return TrendsQueryResponse(
                     results=[],
-                    boxplot_data=[],
                     modifiers=self.modifiers,
                     error=f"Unsupported session property: {series_node.math_property}",
                     resolved_date_range=resolved_date_range,
@@ -155,8 +153,7 @@ class BoxPlotTrendsQueryRunner(TrendsQueryRunner):
                     )
 
         return TrendsQueryResponse(
-            results=[],
-            boxplot_data=all_boxplot_data,
+            results=[d.model_dump() for d in all_boxplot_data],
             timings=all_timings or None,
             hogql=response_hogql,
             error=". ".join(debug_errors) if debug_errors else None,

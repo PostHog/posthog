@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { Copy, MoreVertical, Pencil, TrashIcon } from 'lucide-react'
+import { Copy, ExpandIcon, MoreVertical, Pencil, TrashIcon } from 'lucide-react'
 import { useState } from 'react'
 
 import { Button } from './button'
@@ -81,6 +81,11 @@ export const Checkboxes: Story = {
                             Checkbox Item 2
                         </ContextMenuCheckboxItem>
                         <ContextMenuCheckboxItem disabled>Checkbox Item 2</ContextMenuCheckboxItem>
+                        <ContextMenuSeparator />
+                        <ContextMenuItem>
+                                <ExpandIcon />
+                                Expand
+                            </ContextMenuItem>
                     </ContextMenuGroup>
                 </ContextMenuContent>
             </ContextMenu>
@@ -103,6 +108,11 @@ export const Radios: Story = {
                             <ContextMenuRadioItem value="radioThree" disabled>
                                 Radio Item 3
                             </ContextMenuRadioItem>
+                            <ContextMenuSeparator />
+                            <ContextMenuItem>
+                                <ExpandIcon />
+                                Expand
+                            </ContextMenuItem>
                         </ContextMenuRadioGroup>
                     </ContextMenuGroup>
                 </ContextMenuContent>

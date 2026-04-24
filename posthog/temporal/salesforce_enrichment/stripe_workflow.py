@@ -337,7 +337,7 @@ class SalesforceStripeEnrichmentWorkflow(PostHogWorkflow):
             state.pending_watermark_org_id = page_result.next_cursor_org_id
 
         reached_max = inputs.max_rows is not None and state.total_rows_fetched >= inputs.max_rows
-        is_last_page = page_result.rows_fetched < page_size
+        is_last_page = page_result.rows_fetched == 0
         done = is_last_page or reached_max
 
         if done:

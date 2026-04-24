@@ -771,32 +771,21 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/")
         assert response.status_code == 200
 
-    def test_read_only_impersonation_allows_query_endpoint(self):
-        """Verify read-only impersonation allows POST to query endpoint."""
-        self.login_as_other_user_read_only()
-
-        # Verify we're logged in as the other user
-        assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
-
-        # POST to query endpoint - the query itself may fail but we shouldn't get blocked by the middleware
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/query/",
-            data={"query": {"kind": "EventsQuery", "select": ["event"]}},
-            content_type="application/json",
-        )
-
-        # Should not be blocked by impersonation middleware (might get other errors)
-        assert response.status_code != 403 or response.json().get("code") != "impersonation_read_only"
-
-    def test_read_only_impersonation_allows_query_kind_endpoint(self):
-        """POST to /query/<kind>/ must be allowlisted (same as /query/), not blocked as non-idempotent."""
+    @parameterized.expand(
+        [
+            ("query", "query/", {"query": {"kind": "EventsQuery", "select": ["event"]}}),
+            ("query_kind", "query/HogQLQuery/", {"query": {"kind": "HogQLQuery", "query": "select 1"}}),
+            ("endpoint_materialization_preview", "endpoints/some_endpoint/materialization_preview/", {}),
+        ]
+    )
+    def test_read_only_impersonation_allows_allowlisted_post(self, _name, path_suffix, body):
         self.login_as_other_user_read_only()
 
         assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/query/HogQLQuery/",
-            data={"query": {"kind": "HogQLQuery", "query": "select 1"}},
+            f"/api/projects/{self.team.id}/{path_suffix}",
+            data=body,
             content_type="application/json",
         )
 
@@ -1395,6 +1384,51 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
         self.assertEqual(response.status_code, expected_status)
         if expected_location:
             self.assertEqual(response.headers["Location"], expected_location)
+
+
+class TestActivityLoggingMiddleware(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        from django.test import RequestFactory
+
+        from posthog.middleware import ActivityLoggingMiddleware
+        from posthog.models.activity_logging.utils import activity_storage
+
+        self.activity_storage = activity_storage
+        self.factory = RequestFactory()
+        self.captured: dict[str, Any] = {}
+
+        def get_response(request):
+            self.captured["client"] = activity_storage.get_client()
+            self.captured["user"] = activity_storage.get_user()
+            from django.http import HttpResponse
+
+            return HttpResponse()
+
+        self.middleware = ActivityLoggingMiddleware(get_response)
+
+    def test_captures_x_posthog_client_header(self):
+        request = self.factory.get("/", HTTP_X_POSTHOG_CLIENT="posthog-js/1.234.0")
+        request.user = self.user
+        self.middleware(request)
+        self.assertEqual(self.captured["client"], "posthog-js/1.234.0")
+        # Storage is cleared after the request finishes
+        self.assertIsNone(self.activity_storage.get_client())
+
+    def test_missing_header_leaves_client_unset(self):
+        request = self.factory.get("/")
+        request.user = self.user
+        self.middleware(request)
+        self.assertIsNone(self.captured["client"])
+
+    def test_long_header_value_is_truncated(self):
+        from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_MAX_LENGTH
+
+        long_value = "x" * (ACTIVITY_LOG_CLIENT_MAX_LENGTH * 4)
+        request = self.factory.get("/", HTTP_X_POSTHOG_CLIENT=long_value)
+        request.user = self.user
+        self.middleware(request)
+        self.assertEqual(self.captured["client"], "x" * ACTIVITY_LOG_CLIENT_MAX_LENGTH)
 
 
 class TestCSPMiddleware(APIBaseTest):

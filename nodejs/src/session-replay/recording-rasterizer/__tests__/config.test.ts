@@ -114,6 +114,9 @@ describe('config', () => {
             it('includes MP4 baseline output opts by default', () => {
                 const config = buildCaptureConfig(baseInput())
                 expect(config.outputFormat).toBe('mp4')
+                expect(config.ffmpegOutputOpts).toContain('-f mp4')
+                expect(config.ffmpegOutputOpts).toContain('-c:v libx264')
+                expect(config.ffmpegOutputOpts).toContain('-preset veryfast')
                 expect(config.ffmpegOutputOpts).toContain('-crf 23')
                 expect(config.ffmpegOutputOpts).toContain('-pix_fmt yuv420p')
                 expect(config.ffmpegOutputOpts).toContain('-movflags +faststart')

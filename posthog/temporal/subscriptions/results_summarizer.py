@@ -16,6 +16,9 @@ def build_results_summary(query_kind: str, results: list[dict[str, Any]] | None)
 
 
 def _summarize_trends(results: list[dict[str, Any]]) -> str:
+    if _looks_like_boxplot_trend(results):
+        return _summarize_boxplot_trend(results)
+
     lines: list[str] = []
     for series in results:
         label = series.get("label", "Unknown")
@@ -40,6 +43,43 @@ def _summarize_trends(results: list[dict[str, Any]]) -> str:
             lines.append(f"- {label}: count={_fmt(series['count'])}")
         else:
             lines.append(f"- {label}: (no data)")
+
+    return "\n".join(lines) if lines else "No trend series"
+
+
+def _looks_like_boxplot_trend(results: list[dict[str, Any]]) -> bool:
+    # Boxplot TrendsQuery results have one row per (series × time bucket) with
+    # quantile stats (median/min/max/p25/p75) and no `data` array.
+    if not results or not isinstance(results[0], dict):
+        return False
+    first = results[0]
+    return "median" in first and "data" not in first
+
+
+def _summarize_boxplot_trend(results: list[dict[str, Any]]) -> str:
+    by_series: dict[str, list[dict[str, Any]]] = {}
+    for row in results:
+        label = row.get("series_label") or row.get("label") or "Unknown"
+        by_series.setdefault(label, []).append(row)
+
+    lines: list[str] = []
+    for label, rows in by_series.items():
+        medians = [
+            r["median"] for r in rows if isinstance(r.get("median"), (int, float)) and math.isfinite(r["median"])
+        ]
+        if not medians:
+            lines.append(f"- {label}: (no data)")
+            continue
+        maxes = [r["max"] for r in rows if isinstance(r.get("max"), (int, float)) and math.isfinite(r["max"])]
+        mins = [r["min"] for r in rows if isinstance(r.get("min"), (int, float)) and math.isfinite(r["min"])]
+        trend = _trend_direction(medians)
+        lines.append(
+            f"- {label} (boxplot): median latest={_fmt(medians[-1])}, "
+            f"median avg={_fmt(sum(medians) / len(medians))}, "
+            f"overall min={_fmt(min(mins) if mins else medians[-1])}, "
+            f"overall max={_fmt(max(maxes) if maxes else medians[-1])}, "
+            f"median trend={trend} ({len(medians)} points)"
+        )
 
     return "\n".join(lines) if lines else "No trend series"
 

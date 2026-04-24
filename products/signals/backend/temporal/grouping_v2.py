@@ -4,10 +4,11 @@ from typing import Optional
 
 from django.conf import settings
 
+import structlog
 import temporalio
 from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
-from temporalio.common import RetryPolicy
+from temporalio.common import MetricGauge, RetryPolicy
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.storage import object_storage
@@ -24,6 +25,8 @@ from products.signals.backend.temporal.types import (
     ReadSignalsFromS3Output,
     TeamSignalGroupingV2Input,
 )
+
+logger = structlog.get_logger(__name__)
 
 PAUSE_SLEEP_SECONDS = 30
 PAUSE_MAX_RUN_DURATION = timedelta(minutes=30)
@@ -57,6 +60,7 @@ class TeamSignalGroupingV2Workflow:
         self._cached_type_examples: Optional[FetchSignalTypeExamplesOutput] = None
         self._type_examples_fetched_at: Optional[datetime] = None
         self._paused_until: Optional[datetime] = None
+        self._batch_buffer_size_gauge: Optional[MetricGauge] = None
 
     @staticmethod
     def workflow_id_for(team_id: int) -> str:
@@ -66,6 +70,8 @@ class TeamSignalGroupingV2Workflow:
     async def submit_batch(self, object_key: str) -> None:
         """Receive an S3 object key containing a batch of signals."""
         self._batch_key_buffer.append(object_key)
+        if self._batch_buffer_size_gauge is not None:
+            self._batch_buffer_size_gauge.set(len(self._batch_key_buffer))
 
     @temporalio.workflow.signal
     async def set_paused_until(self, timestamp: datetime) -> None:
@@ -101,6 +107,13 @@ class TeamSignalGroupingV2Workflow:
         self._paused_until = input.paused_until
         start_time = workflow.now()
 
+        meter = workflow.metric_meter().with_additional_attributes({"team_id": str(input.team_id)})
+        self._batch_buffer_size_gauge = meter.create_gauge(
+            "signals_grouping_v2_batch_buffer_size",
+            "Current number of signal batches buffered for processing in grouping v2",
+        )
+        self._batch_buffer_size_gauge.set(len(self._batch_key_buffer))
+
         while True:
             # If paused, sleep in 30s increments until unpaused or pause expires
             if self._is_paused():
@@ -121,6 +134,7 @@ class TeamSignalGroupingV2Workflow:
 
             # Pop the next key
             object_key = self._batch_key_buffer.pop(0)
+            self._batch_buffer_size_gauge.set(len(self._batch_key_buffer))
 
             # Download the batch from S3
             read_result: ReadSignalsFromS3Output = await workflow.execute_activity(
@@ -146,7 +160,7 @@ class TeamSignalGroupingV2Workflow:
                 self._cached_type_examples = type_examples
                 self._type_examples_fetched_at = self._type_examples_fetched_at if cached is not None else now
             except Exception:
-                workflow.logger.exception(
+                logger.exception(
                     "Failed to process signal batch",
                     team_id=input.team_id,
                     batch_size=len(signals),

@@ -20,6 +20,7 @@ import { isUnhealthyProviderKeyState } from '../settings/providerKeyStateUtils'
 import { queryEvaluationRuns } from '../utils'
 import { evaluationErrorMessage } from './apiErrors'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
+import { buildDeliveryTargets, evaluationReportLogic } from './evaluationReportLogic'
 import type { llmEvaluationLogicType } from './llmEvaluationLogicType'
 import { EvaluationTemplateKey, defaultEvaluationTemplates } from './templates'
 import {
@@ -517,6 +518,41 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 if (props.evaluationId === 'new') {
                     const response = await api.create(`/api/environments/${teamId}/evaluations/`, values.evaluation!)
                     actions.saveEvaluationSuccess(response)
+                    // Create the pending report before navigating away. The 'new'-keyed
+                    // evaluationReportLogic unmounts when the component tears down, so
+                    // snapshot its draft now and fire the create directly. The logic is
+                    // only mounted when EvaluationReportConfig is rendered (gated on the
+                    // reports feature flag), so skip when it isn't — there's no draft to
+                    // forward and reading .values would throw a kea "path not found" error.
+                    const newReportLogic = evaluationReportLogic({ evaluationId: 'new' })
+                    if (response?.id && newReportLogic.isMounted()) {
+                        const draft = newReportLogic.values.configDraft
+                        const targets = buildDeliveryTargets(draft)
+                        if (draft.enabled && (targets.length > 0 || draft.reportPromptGuidance.trim().length > 0)) {
+                            const body: Record<string, unknown> = {
+                                evaluation: response.id,
+                                frequency: draft.frequency,
+                                delivery_targets: targets,
+                                report_prompt_guidance: draft.reportPromptGuidance,
+                                enabled: true,
+                            }
+                            if (draft.frequency === 'scheduled') {
+                                body.rrule = draft.rrule
+                                body.starts_at = draft.startsAt
+                                body.timezone_name = draft.timezoneName
+                            }
+                            if (draft.frequency === 'every_n') {
+                                body.trigger_threshold = draft.triggerThreshold
+                                body.cooldown_minutes = draft.cooldownHours * 60
+                            }
+                            try {
+                                await api.create(`api/environments/${teamId}/llm_analytics/evaluation_reports/`, body)
+                            } catch (reportError) {
+                                // Don't block navigation if the (optional) pending report fails
+                                posthog.captureException(reportError, { tag: 'eval-report-pending-create' })
+                            }
+                        }
+                    }
                 } else {
                     const response = await api.update(
                         `/api/environments/${teamId}/evaluations/${props.evaluationId}/`,

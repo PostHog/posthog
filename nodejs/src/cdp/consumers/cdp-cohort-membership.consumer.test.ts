@@ -1,5 +1,3 @@
-import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
-
 import { Message } from 'node-rdkafka'
 
 import { resetKafka } from '~/tests/helpers/kafka'
@@ -7,7 +5,7 @@ import { UUIDT } from '~/utils/utils'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import { resetBehavioralCohortsDatabase } from '../../../tests/helpers/sql'
-import { KAFKA_COHORT_MEMBERSHIP_CHANGED, KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER } from '../../config/kafka-topics'
+import { KAFKA_COHORT_MEMBERSHIP_CHANGED } from '../../config/kafka-topics'
 import { Hub } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { PostgresUse } from '../../utils/db/postgres'
@@ -38,13 +36,7 @@ describe('CdpCohortMembershipConsumer', () => {
         const personId2 = new UUIDT().toString()
         const personId3 = new UUIDT().toString()
 
-        beforeEach(() => {
-            // Reset the mock producer before each test to avoid message accumulation
-            mockProducerObserver.resetKafkaProducer()
-        })
-
         it('should process entered and left events and write to PostgreSQL correctly', async () => {
-            // Test data using helper functions
             const testEvents = createCohortMembershipEvents([
                 {
                     person_id: personId1,
@@ -66,16 +58,13 @@ describe('CdpCohortMembershipConsumer', () => {
                 },
             ])
 
-            // Create mock Kafka messages
             const messages = testEvents.map((event, index) =>
                 createKafkaMessage(event, { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, offset: index })
             )
 
             const cohortMembershipChanges = consumer['_parseAndValidateBatch'](messages)
             await consumer['persistCohortMembershipChanges'](cohortMembershipChanges)
-            await consumer['publishCohortMembershipTriggers'](cohortMembershipChanges)
 
-            // Verify data was written to PostgreSQL
             const result = await hub.postgres.query(
                 PostgresUse.BEHAVIORAL_COHORTS_RW,
                 'SELECT * FROM cohort_membership WHERE team_id = $1 ORDER BY person_id, cohort_id',
@@ -85,7 +74,6 @@ describe('CdpCohortMembershipConsumer', () => {
 
             expect(result.rows).toHaveLength(3)
 
-            // Verify first entered event
             expect(result.rows[0]).toMatchObject({
                 team_id: '1',
                 cohort_id: '456',
@@ -93,7 +81,6 @@ describe('CdpCohortMembershipConsumer', () => {
                 in_cohort: true,
             })
 
-            // Verify second entered event
             expect(result.rows[1]).toMatchObject({
                 team_id: '1',
                 cohort_id: '456',
@@ -101,33 +88,16 @@ describe('CdpCohortMembershipConsumer', () => {
                 in_cohort: true,
             })
 
-            // Verify left event
             expect(result.rows[2]).toMatchObject({
                 team_id: '1',
                 cohort_id: '457',
                 person_id: personId3,
                 in_cohort: false,
             })
-
-            // Verify trigger events were published to Kafka
-            const kafkaMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(
-                KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER
-            )
-            expect(kafkaMessages).toHaveLength(3)
-
-            // Verify each published message
-            expect(kafkaMessages[0].key).toBe(personId1)
-            expect(kafkaMessages[0].value).toEqual(testEvents[0])
-
-            expect(kafkaMessages[1].key).toBe(personId2)
-            expect(kafkaMessages[1].value).toEqual(testEvents[1])
-
-            expect(kafkaMessages[2].key).toBe(personId3)
-            expect(kafkaMessages[2].value).toEqual(testEvents[2])
         })
 
         it('should handle complete person lifecycle: enter -> leave -> re-enter cohort', async () => {
-            // Step 1: Person enters the cohort for the first time
+            // Step 1: Person enters the cohort
             const enterEvent = createCohortMembershipEvent({
                 person_id: personId1,
                 cohort_id: 456,
@@ -140,7 +110,6 @@ describe('CdpCohortMembershipConsumer', () => {
             ]
             const enterChanges = consumer['_parseAndValidateBatch'](enterMessages)
             await consumer['persistCohortMembershipChanges'](enterChanges)
-            await consumer['publishCohortMembershipTriggers'](enterChanges)
 
             let result = await hub.postgres.query(
                 PostgresUse.BEHAVIORAL_COHORTS_RW,
@@ -152,18 +121,9 @@ describe('CdpCohortMembershipConsumer', () => {
             expect(result.rows[0].in_cohort).toBe(true)
             const firstTimestamp = result.rows[0].last_updated
 
-            // Verify first trigger event
-            let kafkaMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(
-                KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER
-            )
-            expect(kafkaMessages).toHaveLength(1)
-            expect(kafkaMessages[0].value).toEqual(enterEvent)
-
-            // Wait to ensure timestamp difference
             await new Promise((resolve) => setTimeout(resolve, 10))
 
             // Step 2: Person leaves the cohort
-            mockProducerObserver.resetKafkaProducer()
             const leaveEvent = createCohortMembershipEvent({
                 person_id: personId1,
                 cohort_id: 456,
@@ -176,7 +136,6 @@ describe('CdpCohortMembershipConsumer', () => {
             ]
             const leaveChanges = consumer['_parseAndValidateBatch'](leaveMessages)
             await consumer['persistCohortMembershipChanges'](leaveChanges)
-            await consumer['publishCohortMembershipTriggers'](leaveChanges)
 
             result = await hub.postgres.query(
                 PostgresUse.BEHAVIORAL_COHORTS_RW,
@@ -185,23 +144,14 @@ describe('CdpCohortMembershipConsumer', () => {
                 'testQuery'
             )
 
-            expect(result.rows).toHaveLength(1) // Same record, just updated
+            expect(result.rows).toHaveLength(1)
             expect(result.rows[0].in_cohort).toBe(false)
             const secondTimestamp = result.rows[0].last_updated
             expect(new Date(secondTimestamp).getTime()).toBeGreaterThan(new Date(firstTimestamp).getTime())
 
-            // Verify leave trigger event
-            kafkaMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(
-                KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER
-            )
-            expect(kafkaMessages).toHaveLength(1)
-            expect(kafkaMessages[0].value).toEqual(leaveEvent)
-
-            // Wait to ensure timestamp difference
             await new Promise((resolve) => setTimeout(resolve, 10))
 
             // Step 3: Person re-enters the cohort
-            mockProducerObserver.resetKafkaProducer()
             const reEnterEvent = createCohortMembershipEvent({
                 person_id: personId1,
                 cohort_id: 456,
@@ -214,7 +164,6 @@ describe('CdpCohortMembershipConsumer', () => {
             ]
             const reEnterChanges = consumer['_parseAndValidateBatch'](reEnterMessages)
             await consumer['persistCohortMembershipChanges'](reEnterChanges)
-            await consumer['publishCohortMembershipTriggers'](reEnterChanges)
 
             result = await hub.postgres.query(
                 PostgresUse.BEHAVIORAL_COHORTS_RW,
@@ -223,17 +172,10 @@ describe('CdpCohortMembershipConsumer', () => {
                 'testQuery'
             )
 
-            expect(result.rows).toHaveLength(1) // Still same record, just updated again
-            expect(result.rows[0].in_cohort).toBe(true) // Back in the cohort
+            expect(result.rows).toHaveLength(1)
+            expect(result.rows[0].in_cohort).toBe(true)
             const thirdTimestamp = result.rows[0].last_updated
             expect(new Date(thirdTimestamp).getTime()).toBeGreaterThan(new Date(secondTimestamp).getTime())
-
-            // Verify re-enter trigger event
-            kafkaMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(
-                KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER
-            )
-            expect(kafkaMessages).toHaveLength(1)
-            expect(kafkaMessages[0].value).toEqual(reEnterEvent)
         })
 
         it('should deduplicate batch entries for the same (team_id, cohort_id, person_id), keeping last in Kafka order', async () => {
@@ -267,7 +209,7 @@ describe('CdpCohortMembershipConsumer', () => {
             )
 
             expect(result.rows).toHaveLength(1)
-            expect(result.rows[0].in_cohort).toBe(false) // Last event was 'left'
+            expect(result.rows[0].in_cohort).toBe(false)
         })
 
         it('should reject entire batch when invalid messages are present', async () => {
@@ -279,9 +221,7 @@ describe('CdpCohortMembershipConsumer', () => {
             }
 
             const messages: Message[] = [
-                // Valid message
                 createKafkaMessage(validEvent, { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, offset: 0 }),
-                // Invalid JSON (manually create this one since it's intentionally malformed)
                 {
                     value: Buffer.from('invalid json'),
                     topic: KAFKA_COHORT_MEMBERSHIP_CHANGED,
@@ -291,9 +231,7 @@ describe('CdpCohortMembershipConsumer', () => {
                     key: null,
                     size: 0,
                 },
-                // Missing required fields
                 createKafkaMessage({ person_id: 124 }, { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, offset: 2 }),
-                // Empty message (manually create this one since it has null value)
                 {
                     value: null,
                     topic: KAFKA_COHORT_MEMBERSHIP_CHANGED,
@@ -305,10 +243,8 @@ describe('CdpCohortMembershipConsumer', () => {
                 },
             ]
 
-            // Should throw due to invalid messages in batch
             expect(() => consumer['_parseAndValidateBatch'](messages)).toThrow()
 
-            // Verify NO data was inserted
             const result = await hub.postgres.query(
                 PostgresUse.BEHAVIORAL_COHORTS_RW,
                 'SELECT * FROM cohort_membership WHERE team_id = $1',
@@ -316,10 +252,10 @@ describe('CdpCohortMembershipConsumer', () => {
                 'testQuery'
             )
 
-            expect(result.rows).toHaveLength(0) // No data should be inserted
+            expect(result.rows).toHaveLength(0)
         })
 
-        it('should not publish to Kafka when database insertion fails', async () => {
+        it('should not produce side effects when database insertion fails', async () => {
             const testEvents = createCohortMembershipEvents([
                 {
                     person_id: personId1,
@@ -341,25 +277,15 @@ describe('CdpCohortMembershipConsumer', () => {
 
             const cohortMembershipChanges = consumer['_parseAndValidateBatch'](messages)
 
-            // Mock the database query to fail
             const originalQuery = hub.postgres.query.bind(hub.postgres)
             hub.postgres.query = jest.fn().mockRejectedValue(new Error('Database connection failed'))
 
-            // Attempt to persist changes (should fail)
             await expect(consumer['persistCohortMembershipChanges'](cohortMembershipChanges)).rejects.toThrow(
                 'Database connection failed'
             )
 
-            // Verify NO messages were published to Kafka since DB insertion failed
-            const kafkaMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(
-                KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER
-            )
-            expect(kafkaMessages).toHaveLength(0)
-
-            // Restore original query function
             hub.postgres.query = originalQuery
 
-            // Verify data was NOT written to PostgreSQL
             const result = await hub.postgres.query(
                 PostgresUse.BEHAVIORAL_COHORTS_RW,
                 'SELECT * FROM cohort_membership WHERE team_id = $1',

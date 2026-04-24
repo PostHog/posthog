@@ -38,6 +38,12 @@ pub const DB_CONNECTION_POOL_IDLE_COUNTER: &str = "flags_db_connection_pool_idle
 pub const DB_CONNECTION_POOL_MAX_COUNTER: &str = "flags_db_connection_pool_max_total";
 pub const DB_CONNECTION_POOL_SIZE_GAUGE: &str = "flags_db_connection_pool_size";
 
+// Flag billing timing
+// Duration of the Redis HINCRBY billing increment call. Labeled by
+// `outcome` ("ok" | "timeout" | "error") to isolate the happy path from
+// Redis timeouts — closes a sub-metric blind spot on the billing path.
+pub const FLAG_BILLING_INCREMENT_TIME: &str = "flags_billing_increment_time_ms";
+
 // Flag evaluation timing
 pub const FLAG_EVALUATION_TIME: &str = "flags_evaluation_time";
 pub const FLAG_HASH_KEY_PROCESSING_TIME: &str = "flags_hash_key_processing_time";

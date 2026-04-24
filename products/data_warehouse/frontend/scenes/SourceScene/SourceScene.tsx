@@ -1,4 +1,16 @@
-import { actions, kea, key, path, props, reducers, selectors, useActions, useValues } from 'kea'
+import {
+    actions,
+    BuiltLogic,
+    kea,
+    key,
+    LogicWrapper,
+    path,
+    props,
+    reducers,
+    selectors,
+    useActions,
+    useValues,
+} from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
 import { useEffect } from 'react'
 
@@ -6,6 +18,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { DataPipelinesSelfManagedSource } from 'scenes/data-pipelines/DataPipelinesSelfManagedSource'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -14,9 +27,9 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { ActivityScope, Breadcrumb } from '~/types'
+import { ActivityScope, Breadcrumb, ExternalDataSource } from '~/types'
 
-import { cleanSourceId, isManagedSourceId, isSelfManagedSourceId } from 'products/data_warehouse/frontend/utils'
+import { cleanSourceId, isSelfManagedSourceId } from 'products/data_warehouse/frontend/utils'
 
 import type { sourceSceneLogicType } from './SourceSceneType'
 import { ConfigurationTab } from './tabs/ConfigurationTab'
@@ -30,11 +43,27 @@ export type SourceSceneTab = (typeof SOURCE_SCENE_TABS)[number]
 
 export interface SourceSceneProps {
     id: string
+    tabId?: string
+}
+
+export function getDefaultDataWarehouseSourceSceneTab(id?: string): SourceSceneTab {
+    return id && isSelfManagedSourceId(id) ? 'configuration' : 'schemas'
+}
+
+export function isManagedSourceSceneId(id: string): boolean {
+    return !isSelfManagedSourceId(id)
+}
+
+export function shouldShowManagedSourceSyncsTab(
+    source: Pick<ExternalDataSource, 'access_method'> | null | undefined,
+    isDirectQueryEnabled: boolean
+): boolean {
+    return !!source && !(isDirectQueryEnabled && source.access_method === 'direct')
 }
 
 export const sourceSceneLogic = kea<sourceSceneLogicType>([
     props({} as SourceSceneProps),
-    key(({ id }: SourceSceneProps) => id),
+    key(({ id, tabId }: SourceSceneProps) => (tabId ? `${id}-${tabId}` : id)),
     path((key) => ['products', 'dataWarehouse', 'sourceSceneLogic', key]),
     actions({
         setCurrentTab: (tab: SourceSceneTab) => ({ tab }),
@@ -43,7 +72,7 @@ export const sourceSceneLogic = kea<sourceSceneLogicType>([
     }),
     reducers(() => ({
         currentTab: [
-            'configuration' as SourceSceneTab,
+            'schemas' as SourceSceneTab,
             {
                 setCurrentTab: (_, { tab }) => tab,
                 // dont trigger actionToUrl
@@ -86,7 +115,7 @@ export const sourceSceneLogic = kea<sourceSceneLogicType>([
                           activity_scope: ActivityScope.EXTERNAL_DATA_SOURCE,
                           activity_item_id: id,
                           // Only managed sources have access control, self-managed sources do not
-                          ...(isManagedSourceId(props.id)
+                          ...(isManagedSourceSceneId(props.id)
                               ? {
                                     access_control_resource: 'external_data_source',
                                     access_control_resource_id: id,
@@ -105,13 +134,14 @@ export const sourceSceneLogic = kea<sourceSceneLogicType>([
     urlToAction(({ actions, values }) => {
         return {
             [urls.dataWarehouseSource(':id', ':tab' as any)]: (params): void => {
-                let possibleTab = (params.tab ?? 'configuration') as SourceSceneTab
+                const defaultTab = getDefaultDataWarehouseSourceSceneTab(params.id)
+                let possibleTab = (params.tab ?? defaultTab) as SourceSceneTab
 
                 if (params.id && isSelfManagedSourceId(params.id)) {
                     possibleTab = 'configuration' // This only has one tab
                 }
 
-                const tab = SOURCE_SCENE_TABS.includes(possibleTab) ? possibleTab : 'configuration'
+                const tab = SOURCE_SCENE_TABS.includes(possibleTab) ? possibleTab : defaultTab
                 if (tab !== values.currentTab) {
                     actions._setCurrentTab(tab)
                 }
@@ -127,16 +157,17 @@ export const scene: SceneExport<(typeof sourceSceneLogic)['props']> = {
     paramsToProps: ({ params: { id } }) => ({ id }),
 }
 
-export function SourceScene(): JSX.Element {
-    const { currentTab, logicProps, breadcrumbName } = useValues(sourceSceneLogic)
-    const { setCurrentTab } = useActions(sourceSceneLogic)
-    const { id } = logicProps
+export function SourceScene({ id, tabId }: SourceSceneProps): JSX.Element {
+    const logic = sourceSceneLogic({ id, tabId })
+    const { currentTab, breadcrumbName } = useValues(logic)
+    const { setCurrentTab } = useActions(logic)
 
     if (!id) {
         return <NotFound object="Data warehouse source" />
     }
 
     const sourceId = cleanSourceId(id)
+    const isSelfManagedSource = isSelfManagedSourceId(id)
 
     return (
         <SceneContent>
@@ -145,11 +176,17 @@ export function SourceScene(): JSX.Element {
                 resourceType={{ type: 'data_pipeline' }}
                 isLoading={breadcrumbName === 'Source'}
             />
-            {isManagedSourceId(id) ? (
-                <ManagedSourceTabs sourceId={sourceId} currentTab={currentTab} setCurrentTab={setCurrentTab} />
+            {isManagedSourceSceneId(id) ? (
+                <ManagedSourceTabs
+                    sourceId={sourceId}
+                    currentTab={currentTab}
+                    setCurrentTab={setCurrentTab}
+                    attachTo={logic}
+                    tabId={tabId}
+                />
             ) : (
                 <LemonTabs
-                    activeKey={currentTab}
+                    activeKey={isSelfManagedSource ? 'configuration' : currentTab}
                     tabs={[
                         {
                             label: 'Configuration',
@@ -169,27 +206,35 @@ function ManagedSourceTabs({
     sourceId,
     currentTab,
     setCurrentTab,
+    attachTo,
+    tabId,
 }: {
     sourceId: string
     currentTab: SourceSceneTab
     setCurrentTab: (tab: SourceSceneTab) => void
+    attachTo: BuiltLogic | LogicWrapper
+    tabId?: string
 }): JSX.Element {
     const settingsLogic = sourceSettingsLogic({ id: sourceId, availableSources: {} })
     const { featureFlags } = useValues(featureFlagLogic)
     const { source } = useValues(settingsLogic)
 
-    const isDirectQuerySource =
-        !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && source?.access_method === 'direct'
+    useAttachedLogic(settingsLogic, attachTo)
+
+    const showSyncsTab = shouldShowManagedSourceSyncsTab(
+        source,
+        !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
+    )
     const showWebhookTab = !!featureFlags[FEATURE_FLAGS.WAREHOUSE_SOURCE_WEBHOOKS] && !!source?.supports_webhooks
 
     useEffect(() => {
-        if (isDirectQuerySource && currentTab === 'syncs') {
+        if (!showSyncsTab && currentTab === 'syncs') {
             setCurrentTab('schemas')
         }
         if (!showWebhookTab && currentTab === 'webhook') {
             setCurrentTab('schemas')
         }
-    }, [isDirectQuerySource, showWebhookTab, currentTab, setCurrentTab])
+    }, [showSyncsTab, showWebhookTab, currentTab, setCurrentTab])
 
     const tabs: LemonTab<SourceSceneTab>[] = [
         {
@@ -204,7 +249,7 @@ function ManagedSourceTabs({
         },
     ]
 
-    if (!isDirectQuerySource) {
+    if (showSyncsTab) {
         tabs.splice(1, 0, {
             label: 'Syncs',
             key: 'syncs',
@@ -216,7 +261,7 @@ function ManagedSourceTabs({
         tabs.push({
             label: 'Webhook',
             key: 'webhook',
-            content: <WebhookTab id={sourceId} />,
+            content: <WebhookTab id={sourceId} tabId={tabId} />,
         })
     }
 

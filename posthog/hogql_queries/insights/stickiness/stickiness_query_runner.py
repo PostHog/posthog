@@ -25,10 +25,6 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
-from posthog.hogql_queries.insights.stickiness.stickiness_validation_rules import (
-    ValidateIntervalCount,
-    ValidateStickinessCriteria,
-)
 from posthog.hogql_queries.insights.utils.utils import get_response_hogql
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
@@ -81,8 +77,6 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
         return (
             RequireAtLeastOneSeries(),
             DisallowUnsupportedDataWarehouseSettings(),
-            ValidateStickinessCriteria(),
-            ValidateIntervalCount(),
         )
 
     def update_hogql_modifiers(self) -> None:

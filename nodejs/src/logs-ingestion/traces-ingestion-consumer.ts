@@ -2,7 +2,7 @@ import { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from './co
 import { LogsIngestionConsumer, LogsIngestionConsumerDeps } from './logs-ingestion-consumer'
 
 export class TracesIngestionConsumer extends LogsIngestionConsumer {
-    protected name = 'TracesIngestionConsumer'
+    protected override name = 'TracesIngestionConsumer'
 
     constructor(config: LogsIngestionConsumerConfig & TracesIngestionConsumerConfig, deps: LogsIngestionConsumerDeps) {
         super(config, deps, {

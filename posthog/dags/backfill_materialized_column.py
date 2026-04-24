@@ -1,7 +1,7 @@
 import datetime
 import itertools
 from collections import defaultdict
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from typing import ClassVar, TypeVar, cast
 
 import dagster
@@ -19,11 +19,11 @@ V = TypeVar("V")
 
 
 def join_mappings(mappings: Mapping[K1, Mapping[K2, V]]) -> Mapping[K2, Mapping[K1, V]]:
-    outer_keys = set()
+    outer_keys: set[K2] = set()
     for inner_mapping in mappings.values():
         outer_keys.update(inner_mapping.keys())
 
-    result = {}
+    result: dict[K2, dict[K1, V]] = {}
     for outer_key in outer_keys:
         result[outer_key] = {}
         for inner_key, inner_mapping in mappings.items():
@@ -42,7 +42,7 @@ class PartitionRange(dagster.Config):
 
     FORMAT: ClassVar[str] = "%Y%m"
 
-    def iter_dates(self) -> Iterator[str]:
+    def iter_dates(self) -> Iterator[datetime.date]:
         date_lower = self.parse_date(self.lower)
         date_upper = self.parse_date(self.upper)
         seq = itertools.count()
@@ -189,8 +189,10 @@ def run_materialize_mutations(
     shard_mutations_to_run_by_partition = join_mappings(mutations_to_run_by_shard)
     for partition_id, shard_mutations in sorted(shard_mutations_to_run_by_partition.items(), reverse=True):
         context.log.info("Starting %s materializations for partition %r...", len(shard_mutations), partition_id)
-        shard_waiters = _convert_hostinfo_keys_to_shard_num(cluster.map_any_host_in_shards(shard_mutations).result())
-        cluster.map_all_hosts_in_shards(shard_waiters).result()
+        shard_waiters = dict(
+            _convert_hostinfo_keys_to_shard_num(cluster.map_any_host_in_shards(dict(shard_mutations)).result())
+        )
+        cluster.map_all_hosts_in_shards(cast(dict[int, Callable[[Client], None]], shard_waiters)).result()
         context.log.info("Completed materializations for partition %r!", partition_id)
 
 

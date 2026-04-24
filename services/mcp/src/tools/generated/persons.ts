@@ -18,14 +18,14 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const PersonsListSchema = PersonsListQueryParams.omit({ format: true, properties: true })
 
-const personsList = (): ToolBase<typeof PersonsListSchema, WithPostHogUrl<Schemas.PaginatedPersonList>> => ({
+const personsList = (): ToolBase<typeof PersonsListSchema, WithPostHogUrl<Schemas.PaginatedPersonRecordList>> => ({
     name: 'persons-list',
     schema: PersonsListSchema,
     handler: async (context: Context, params: z.infer<typeof PersonsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedPersonList>({
+        const result = await context.api.request<Schemas.PaginatedPersonRecordList>({
             method: 'GET',
-            path: `/api/projects/${projectId}/persons/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/persons/`,
             query: {
                 distinct_id: params.distinct_id,
                 email: params.email,
@@ -56,14 +56,14 @@ const personsList = (): ToolBase<typeof PersonsListSchema, WithPostHogUrl<Schema
 
 const PersonsRetrieveSchema = PersonsRetrieveParams.omit({ project_id: true })
 
-const personsRetrieve = (): ToolBase<typeof PersonsRetrieveSchema, WithPostHogUrl<Schemas.Person>> => ({
+const personsRetrieve = (): ToolBase<typeof PersonsRetrieveSchema, WithPostHogUrl<Schemas.PersonRecord>> => ({
     name: 'persons-retrieve',
     schema: PersonsRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof PersonsRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.Person>({
+        const result = await context.api.request<Schemas.PersonRecord>({
             method: 'GET',
-            path: `/api/projects/${projectId}/persons/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/persons/${encodeURIComponent(String(params.id))}/`,
         })
         const filtered = pickResponseFields(result, [
             'id',
@@ -94,7 +94,7 @@ const personsPropertyDelete = (): ToolBase<typeof PersonsPropertyDeleteSchema, u
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
-            path: `/api/projects/${projectId}/persons/${params.id}/delete_property/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/persons/${encodeURIComponent(String(params.id))}/delete_property/`,
             body,
         })
         return result
@@ -119,7 +119,7 @@ const personsPropertySet = (): ToolBase<typeof PersonsPropertySetSchema, unknown
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
-            path: `/api/projects/${projectId}/persons/${params.id}/update_property/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/persons/${encodeURIComponent(String(params.id))}/update_property/`,
             body,
         })
         return result
@@ -151,7 +151,7 @@ const personsBulkDelete = (): ToolBase<typeof PersonsBulkDeleteSchema, unknown> 
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
-            path: `/api/projects/${projectId}/persons/bulk_delete/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/persons/bulk_delete/`,
             body,
         })
         return result
@@ -167,7 +167,7 @@ const personsCohortsRetrieve = (): ToolBase<typeof PersonsCohortsRetrieveSchema,
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
-            path: `/api/projects/${projectId}/persons/cohorts/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/persons/cohorts/`,
             query: {
                 person_id: params.person_id,
             },
@@ -185,7 +185,7 @@ const personsValuesRetrieve = (): ToolBase<typeof PersonsValuesRetrieveSchema, u
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
-            path: `/api/projects/${projectId}/persons/values/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/persons/values/`,
             query: {
                 key: params.key,
                 value: params.value,

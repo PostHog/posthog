@@ -346,8 +346,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         // insights
         reportInsightMetadataAiGenerated: (queryKind: NodeKind) => ({ queryKind }),
         reportInsightMetadataAiGenerationFailed: (queryKind: NodeKind) => ({ queryKind }),
-        reportDashboardMetadataAiGenerated: (payload: { dashboardId: number }) => payload,
-        reportDashboardMetadataAiGenerationFailed: (payload: { dashboardId: number }) => payload,
         reportInsightCreated: (query: Node | null) => ({ query }),
         reportInsightSaved: (
             insight: Partial<QueryBasedInsightModel> | null,
@@ -670,32 +668,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             experiment,
             dashboardId,
         }),
-        reportExperimentMetricTimeout: (
-            experimentId: ExperimentIdType,
-            metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
-            teamId?: number | null,
-            queryId?: string | null
-        ) => ({
-            experimentId,
-            metric,
-            teamId,
-            queryId,
-        }),
-        reportExperimentMetricOutOfMemory: (
-            experimentId: ExperimentIdType,
-            metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
-            teamId?: number | null,
-            queryId?: string | null,
-            errorCode?: string | null,
-            errorMessage?: string | null
-        ) => ({
-            experimentId,
-            metric,
-            teamId,
-            queryId,
-            errorCode,
-            errorMessage,
-        }),
         reportExperimentMetricFinished: (
             experimentId: ExperimentIdType,
             metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
@@ -709,6 +681,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 is_retry: boolean
                 refresh_id: string
                 metric_kind: string
+                execution_mode: 'sync' | 'async'
             }
         ) => ({
             experimentId,
@@ -757,6 +730,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 experiment_duration_hours: number | null
                 experiment_status: string | null
                 total_metrics_count: number
+                execution_mode: 'sync' | 'async'
             }
         ) => ({
             experimentId,
@@ -1165,12 +1139,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportInsightMetadataAiGenerationFailed: async ({ queryKind }) => {
             posthog.capture('insight metadata ai generation failed', { query_kind: queryKind })
-        },
-        reportDashboardMetadataAiGenerated: async ({ dashboardId }) => {
-            posthog.capture('dashboard metadata ai generated', { dashboard_id: dashboardId })
-        },
-        reportDashboardMetadataAiGenerationFailed: async ({ dashboardId }) => {
-            posthog.capture('dashboard metadata ai generation failed', { dashboard_id: dashboardId })
         },
         reportInsightSaved: async ({ insight, query, isNewInsight, saveType }) => {
             // "insight saved" is a proxy for the new insight's results being valuable to the user
@@ -1695,26 +1663,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 experiment_name: experiment.name,
                 experiment_id: experiment.id,
                 dashboard_id: dashboardId,
-            })
-        },
-        reportExperimentMetricTimeout: ({ experimentId, metric, teamId, queryId }) => {
-            posthog.capture('experiment metric timeout', {
-                experiment_id: experimentId,
-                team_id: teamId,
-                query_id: queryId,
-                ...getEventPropertiesForMetric(metric),
-                metric,
-            })
-        },
-        reportExperimentMetricOutOfMemory: ({ experimentId, metric, teamId, queryId, errorCode, errorMessage }) => {
-            posthog.capture('experiment metric out of memory', {
-                experiment_id: experimentId,
-                team_id: teamId,
-                query_id: queryId,
-                error_code: errorCode,
-                error_message: errorMessage,
-                ...getEventPropertiesForMetric(metric),
-                metric,
             })
         },
         reportExperimentMetricFinished: ({ experimentId, metric, teamId, queryId, context }) => {

@@ -32,7 +32,7 @@ def table_name(ateam, interval):
 
 
 @pytest.fixture
-def snowflake_config(database, schema) -> dict[str, str]:
+def snowflake_config(database, schema) -> dict[str, str | None]:
     """Return a Snowflake configuration dictionary to use in tests.
 
     We set default configuration values to support tests against the Snowflake API

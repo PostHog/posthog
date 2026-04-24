@@ -30,7 +30,6 @@
             "type": "number"
         },
         "is_recurring": {
-            "default": false,
             "description": "Whether this schedule repeats. Only the 'update_status' operation supports recurring schedules.",
             "type": "boolean"
         },

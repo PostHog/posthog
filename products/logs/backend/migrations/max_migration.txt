@@ -1,1 +1,1 @@
-0003_alter_logsalertconfiguration_state
+0008_logsalertevent_logs_alert_event_alert_ts_idx
