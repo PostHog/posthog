@@ -79,7 +79,7 @@ import type {
 import { QueryContext } from '~/queries/types'
 
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
-import { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
+import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { PluginConfigSchema } from './legacy-plugin-scaffold'
 import { InferredSelector } from './toolbar/product-tours/elementInference'
@@ -350,6 +350,11 @@ export interface UserType extends UserBaseType {
     allow_sidebar_suggestions?: boolean
     role_at_organization?: UserRole | null
     passkeys_enabled_for_2fa?: boolean
+    onboarding_skipped_at?: string | null
+    onboarding_skipped_reason?: 'delegated' | 'later' | 'other' | null
+    onboarding_delegated_to_invite?: string | null
+    onboarding_delegated_to_organization_id?: string | null
+    onboarding_delegation_accepted_at?: string | null
     is_organization_first_user?: boolean
     pending_invites?: PendingInviteForCurrentUser[]
 }

@@ -517,9 +517,11 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         # ForeignKey fields
         "current_organization",
         "current_team",
+        "onboarding_delegated_to_invite",
         # With _id suffix for direct attribute access
         "current_organization_id",
         "current_team_id",
+        "onboarding_delegated_to_invite_id",
         # System/internal fields
         "distinct_id",
         "partial_notification_settings",

@@ -10,6 +10,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { OnboardingStepKey } from '~/types'
 
 import { OnboardingBreadcrumbs } from './OnboardingBreadcrumbs'
+import { OnboardingExitAction } from './OnboardingExitAction'
 import { onboardingLogic, stepKeyToTitle } from './onboardingLogic'
 
 export const OnboardingStep = ({
@@ -112,6 +113,7 @@ export const OnboardingStep = ({
                         </LemonButton>
                     )}
                 </div>
+                <OnboardingExitAction />
             </div>
         </>
     )

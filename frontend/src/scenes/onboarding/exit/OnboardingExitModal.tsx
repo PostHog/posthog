@@ -1,0 +1,159 @@
+import { useActions, useValues } from 'kea'
+import { useRef } from 'react'
+
+import { IconArrowRight } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
+
+import { MailHog } from 'lib/components/hedgehogs'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { userLogic } from 'scenes/userLogic'
+
+import { onboardingExitLogic } from './onboardingExitLogic'
+
+export function shouldSubmitDelegate(isComposing: boolean): boolean {
+    return !isComposing
+}
+
+export function OnboardingExitModal(): JSX.Element {
+    const { isExitModalOpen, targetEmail, message, canSubmitDelegation, isSubmitting } = useValues(onboardingExitLogic)
+    const { closeExitModal, setTargetEmail, setMessage, submitDelegation } = useActions(onboardingExitLogic)
+    const { user } = useValues(userLogic)
+
+    // Track IME composition on the email input. SubmitEvent doesn't carry `isComposing`, so
+    // we watch composition events directly — otherwise CJK users pressing Enter to confirm
+    // a character would submit the form mid-composition.
+    const isComposingRef = useRef(false)
+
+    const onDelegateSubmit = (e: React.FormEvent): void => {
+        e.preventDefault()
+        if (!shouldSubmitDelegate(isComposingRef.current)) {
+            return
+        }
+        submitDelegation()
+    }
+
+    // Block all close paths while a submit is in flight so we can't race the in-flight POST
+    // and leave the user with a committed delegation but a torn-down modal.
+    const handleClose = (): void => {
+        if (isSubmitting) {
+            return
+        }
+        closeExitModal()
+    }
+
+    const showEmailValidationError = targetEmail.length > 0 && !canSubmitDelegation
+
+    const senderName = user?.first_name?.trim() || 'Your teammate'
+    const recipientDisplay = targetEmail.trim() || 'their email'
+    const messagePreview = message.trim() || 'Hey — can you get this set up? Thanks!'
+
+    return (
+        <LemonModal
+            isOpen={isExitModalOpen}
+            onClose={handleClose}
+            closable={!isSubmitting}
+            maxWidth={720}
+            title="Hand off setup to a teammate"
+            description="We'll invite them as an admin and skip the rest of setup for you."
+        >
+            <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-6 md:gap-10">
+                <form onSubmit={onDelegateSubmit} className="flex flex-col gap-2" data-attr="onboarding-exit-modal">
+                    <label className="font-semibold" htmlFor="onboarding-exit-email">
+                        Teammate's email
+                    </label>
+                    <LemonInput
+                        id="onboarding-exit-email"
+                        type="email"
+                        autoFocus
+                        value={targetEmail}
+                        onChange={setTargetEmail}
+                        status={showEmailValidationError ? 'danger' : 'default'}
+                        placeholder="engineer@example.com"
+                        data-attr="onboarding-exit-email-input"
+                        onKeyDown={(e) => {
+                            // KeyboardEvent.isComposing is the right place to read IME state —
+                            // SubmitEvent doesn't carry it. Tracking here so the form submit
+                            // handler can skip while the user is mid-composition.
+                            isComposingRef.current = (e.nativeEvent as KeyboardEvent).isComposing
+                        }}
+                        onKeyUp={(e) => {
+                            // Ensure composition state clears after IME confirmation.
+                            isComposingRef.current = (e.nativeEvent as KeyboardEvent).isComposing
+                        }}
+                        onBlur={() => {
+                            isComposingRef.current = false
+                        }}
+                    />
+                    {showEmailValidationError ? (
+                        <p className="m-0 text-xs text-danger">Enter a valid email address</p>
+                    ) : null}
+                    <label className="font-semibold mt-2" htmlFor="onboarding-exit-message">
+                        Personal message (optional)
+                    </label>
+                    <LemonTextArea
+                        id="onboarding-exit-message"
+                        value={message}
+                        onChange={setMessage}
+                        placeholder="Hey — can you get this set up? Thanks!"
+                        data-attr="onboarding-exit-message-input"
+                        minRows={3}
+                    />
+                    <p className="text-secondary text-xs m-0 mt-1">
+                        They'll be added as an admin so they can complete onboarding.
+                    </p>
+                    <div className="flex justify-end gap-2 mt-2">
+                        <LemonButton
+                            type="secondary"
+                            onClick={handleClose}
+                            htmlType="button"
+                            disabledReason={isSubmitting ? 'Sending invitation…' : undefined}
+                        >
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            htmlType="submit"
+                            loading={isSubmitting}
+                            disabledReason={!canSubmitDelegation ? 'Enter a valid email address' : undefined}
+                            data-attr="onboarding-exit-send-invitation"
+                        >
+                            Send invitation
+                        </LemonButton>
+                    </div>
+                </form>
+
+                {/* Live invitation preview — renders what the teammate will receive. */}
+                <div className="flex flex-col gap-2">
+                    <p className="m-0 text-xs text-muted uppercase tracking-wide font-semibold">Preview</p>
+                    <div className="rounded-lg border border-primary bg-surface-primary overflow-hidden">
+                        <div className="flex items-center gap-2 px-3 py-2 border-b border-primary bg-surface-secondary">
+                            <MailHog className="w-8 h-6 object-contain shrink-0" />
+                            <span className="text-xs font-semibold">PostHog invitation</span>
+                        </div>
+                        <div className="p-3 flex flex-col gap-2">
+                            <p className="m-0 text-xs text-muted">To: {recipientDisplay}</p>
+                            <p className="m-0 text-sm font-semibold">
+                                {senderName} invited you to finish setting up PostHog
+                            </p>
+                            <div className="rounded bg-surface-secondary px-2 py-2 text-xs italic text-default">
+                                “{messagePreview}”
+                            </div>
+                            <p className="m-0 text-xs text-muted">
+                                You'll be added as an admin so you can install the SDK.
+                            </p>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                disabledReason="Preview only"
+                                sideIcon={<IconArrowRight />}
+                                fullWidth
+                            >
+                                Accept invitation
+                            </LemonButton>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </LemonModal>
+    )
+}

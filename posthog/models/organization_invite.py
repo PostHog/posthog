@@ -2,6 +2,8 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Optional, cast
 
 from django.db import models, transaction
+from django.db.models.signals import pre_delete
+from django.dispatch import receiver
 from django.utils import timezone
 
 import structlog
@@ -12,6 +14,7 @@ from posthog.email import is_email_available
 from posthog.helpers.email_utils import EmailNormalizer, EmailValidationHelper
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.file_system.user_product_list import backfill_user_product_list_for_new_user
+from posthog.models.onboarding_delegation import mark_delegators_accepted
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.utils import UUIDTModel, sane_repr
@@ -78,6 +81,13 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
         help_text="List of team IDs and corresponding access levels to private projects.",
         validators=[validate_private_project_access],
     )
+    is_setup_delegation = models.BooleanField(
+        default=False,
+        help_text=(
+            "True when this invite was created via the onboarding delegation flow. "
+            "Downstream logic routes the delegate through full onboarding on accept."
+        ),
+    )
 
     def validate(
         self,
@@ -137,6 +147,9 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
                 OrganizationMembership.objects.filter(pk=membership.pk).update(invited_by_id=self.created_by_id)
                 membership.invited_by_id = self.created_by_id
 
+            if self.is_setup_delegation:
+                self._mark_delegators_accepted(user)
+
             for item in self.private_project_access or []:
                 try:
                     team: Team = self.organization.teams.get(id=item["id"])
@@ -145,7 +158,7 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
                         user=user,
                     )
                 except self.organization.teams.model.DoesNotExist:
-                    # if the team doesn't exist, it was probably deleted. We can still continue with the invite.
+                    # If the team doesn't exist, it was probably deleted. We can still continue with the invite.
                     continue
 
                 AccessControl.objects.create(
@@ -172,6 +185,12 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
                     "organization_id": self.organization_id,
                 }
             )
+
+    def _mark_delegators_accepted(self, accepting_user: "User") -> None:
+        # Scope strictly to users who actually delegated through THIS invite. The accepting
+        # user is NOT a delegator of this invite — stamping them would corrupt the field's
+        # meaning for anyone who happens to be both a delegate here and a delegator elsewhere.
+        mark_delegators_accepted(invite_id=self.id)
 
     def _sync_user_product_list_for_accessible_teams(self, user: "User") -> None:
         """Sync UserProductList for all teams the user has access to."""
@@ -200,10 +219,55 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
             user=get_current_user(),
             was_impersonated=get_was_impersonated(),
         )
-
         return super().delete(*args, **kwargs)
 
     def __str__(self):
         return absolute_uri(f"/signup/{self.id}")
 
     __repr__ = sane_repr("organization", "target_email", "created_by")
+
+
+# pre_delete fires BEFORE Django's Collector runs the SET_NULL update on User FKs pointing
+# at this invite, so we can still see which users delegated through it. It fires for both
+# instance.delete() and QuerySet.delete() (bulk deletes from use(), admin panel, cascade,
+# or cleanup jobs all go through Collector). Matching on the FK alone (not on the
+# denormalized reason) avoids a stuck-forever bug if the two fields ever drift.
+@receiver(pre_delete, sender=OrganizationInvite)
+def _unsuppress_delegator_onboarding_on_invite_delete(sender, instance: OrganizationInvite, **kwargs) -> None:
+    """Re-enable onboarding only for delegators whose delegation is still pending.
+
+    Intent table:
+    - invite accepted -> do nothing here (accepted users keep onboarding suppressed)
+    - invite cancelled/expired/deleted before acceptance -> clear suppression so onboarding resumes
+    """
+    if not instance.is_setup_delegation:
+        return
+
+    from posthog.models.user import User
+
+    # Accepting a delegation invite marks delegators with onboarding_delegation_accepted_at.
+    # We only "un-suppress" users who still have a pending delegation (accepted_at is null),
+    # i.e. explicit cancellation/expiry paths. This avoids bouncing accepted delegators back
+    # into onboarding immediately after their teammate accepts.
+    pending_delegators = User.objects.filter(
+        onboarding_delegated_to_invite_id=instance.id,
+        onboarding_delegation_accepted_at__isnull=True,
+    )
+    affected_count = pending_delegators.count()
+    if affected_count == 0:
+        return
+
+    pending_delegators.update(
+        onboarding_skipped_at=None,
+        onboarding_skipped_reason=None,
+        onboarding_delegated_to_organization_id=None,
+    )
+    # Audit trail: bulk .update() bypasses ModelActivityMixin signals; log explicitly so ops
+    # can trace why a delegator's onboarding state was cleared.
+    logger.info(
+        "delegation_invite_deleted_unsuppressed_delegators",
+        invite_id=str(instance.id),
+        organization_id=str(instance.organization_id) if instance.organization_id else None,
+        affected_count=affected_count,
+        is_expired=instance.is_expired() if instance.created_at else False,
+    )

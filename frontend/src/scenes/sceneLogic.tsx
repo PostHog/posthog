@@ -4,7 +4,6 @@ import { BuiltLogic, actions, afterMount, connect, kea, listeners, path, props, 
 import { combineUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
-import { useEffect, useState } from 'react'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
@@ -43,6 +42,7 @@ import { AccessControlLevel } from '~/types'
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { billingLogic } from './billing/billingLogic'
 import { parseCouponCampaign } from './coupons/utils'
+import { isOnboardingRedirectSuppressed } from './onboarding/onboardingDelegationState'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import type { sceneLogicType } from './sceneLogicType'
@@ -293,12 +293,7 @@ const pathPrefixesOnboardingNotRequiredFor = [
 ]
 
 const DelayedLoadingSpinner = (): JSX.Element => {
-    const [show, setShow] = useState(false)
-    useEffect(() => {
-        const timeout = window.setTimeout(() => setShow(true), 500)
-        return () => window.clearTimeout(timeout)
-    }, [])
-    return <>{show ? <Spinner /> : null}</>
+    return <Spinner />
 }
 
 const getMainContentElement = (): HTMLElement | null => document.getElementById('main-content')
@@ -1221,6 +1216,11 @@ export const sceneLogic = kea<sceneLogicType>([
                         !teamLogic.values.currentTeam.is_demo &&
                         !teamLogic.values.hasOnboardedAnyProduct &&
                         !teamLogic.values.currentTeam?.ingested_event &&
+                        // Suppress the redirect when the user has explicitly exited onboarding
+                        // (skipped for later, or delegated to a teammate with a pending invite).
+                        // If the delegation invite is cancelled or expires, the backend clears
+                        // onboarding_delegated_to_invite and the redirect re-fires.
+                        !isOnboardingRedirectSuppressed(user) &&
                         !pathPrefixesOnboardingNotRequiredFor.some((path) =>
                             removeProjectIdIfPresent(location.pathname).startsWith(path)
                         )

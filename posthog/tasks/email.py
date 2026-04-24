@@ -215,15 +215,26 @@ def should_send_pipeline_error_notification(
 @shared_task(**EMAIL_TASK_KWARGS)
 def send_invite(invite_id: str) -> None:
     campaign_key: str = f"invite_email_{invite_id}"
-    invite: OrganizationInvite = OrganizationInvite.objects.select_related("created_by", "organization").get(
-        id=invite_id
+    invite = OrganizationInvite.objects.select_related("created_by", "organization").filter(id=invite_id).first()
+    if invite is None:
+        # Invite can be deleted (cancelled/accepted) before the worker picks up the task.
+        # Treat as terminal no-op instead of retrying.
+        return
+    inviter_name = (
+        invite.created_by.first_name.strip() if invite.created_by and invite.created_by.first_name else "Someone"
     )
-    inviter_name = invite.created_by.first_name if invite.created_by else "someone"
+    is_delegation = bool(invite.is_setup_delegation)
+    template_name = "delegation_invite" if is_delegation else "invite"
+    if is_delegation:
+        subject = f"{inviter_name} asked you to finish setting up PostHog for {invite.organization.name}"
+    else:
+        subject = f"{inviter_name} invited you to join {invite.organization.name} on PostHog"
+
     message = EmailMessage(
         use_http=True,
         campaign_key=campaign_key,
-        subject=f"{inviter_name} invited you to join {invite.organization.name} on PostHog",
-        template_name="invite",
+        subject=subject,
+        template_name=template_name,
         template_context={
             "invite": invite,
             "expiry_date": (timezone.now() + datetime.timedelta(days=INVITE_DAYS_VALIDITY)).strftime(

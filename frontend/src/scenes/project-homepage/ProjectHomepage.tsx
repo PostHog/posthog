@@ -14,6 +14,7 @@ import { cn } from 'lib/utils/css-classes'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { NewTabScene } from 'scenes/new-tab/NewTabScene'
+import { hasPendingDelegationForCurrentOrg } from 'scenes/onboarding/onboardingDelegationState'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
@@ -28,6 +29,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { DashboardPlacement } from '~/types'
 
 import { AiFirstHomepage } from './ai-first/AiFirstHomepage'
+import { OnboardingWaitingForTeammate } from './OnboardingWaitingForTeammate'
 
 /** Only mount the welcome dialog (and its kea logic) for users actually eligible to see it. */
 function MaybeWelcomeDialog(): JSX.Element | null {
@@ -118,6 +120,16 @@ function HomePageContent(): JSX.Element {
 export function ProjectHomepage(): JSX.Element {
     const { dashboardLogicProps } = useValues(projectHomepageLogic)
     const isAIFirst = useFeatureFlag('AI_FIRST')
+    const { user } = useValues(userLogic)
+
+    // If the current user has handed off onboarding to a teammate and is waiting for them to accept,
+    // replace the default empty landing state with a dedicated "waiting for teammate" view.
+    // Scope strictly to the org where the delegation was initiated — otherwise a user who switched
+    // orgs would see the waiting screen over another org's real homepage.
+    const isWaitingForDelegate = hasPendingDelegationForCurrentOrg(user)
+    if (isWaitingForDelegate) {
+        return <OnboardingWaitingForTeammate />
+    }
 
     if (isAIFirst) {
         return (

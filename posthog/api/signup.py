@@ -374,7 +374,11 @@ class InviteSignupSerializer(serializers.Serializer):
 
     def to_representation(self, instance):
         data = UserBasicSerializer(instance=instance).data
-        data["redirect_url"] = get_redirect_url(data["uuid"], data["is_email_verified"])
+        # Setup-delegation invites hand off onboarding to the invitee — route them straight into
+        # onboarding instead of the default post-signup landing page, otherwise the sceneLogic
+        # redirect race can drop them on the homepage.
+        next_url = "/onboarding" if self.context.get("delegated_onboarding") else None
+        data["redirect_url"] = get_redirect_url(data["uuid"], data["is_email_verified"], next_url)
         return data
 
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -506,6 +510,9 @@ class InviteSignupSerializer(serializers.Serializer):
                 invite.use(user)
             except ValueError as e:
                 raise serializers.ValidationError(str(e))
+
+            if invite.is_setup_delegation:
+                self.context["delegated_onboarding"] = True
 
             if passkey_credential:
                 WebauthnCredential.objects.create(
