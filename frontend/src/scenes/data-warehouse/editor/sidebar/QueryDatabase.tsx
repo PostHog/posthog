@@ -668,6 +668,16 @@ export const QueryDatabase = ({
                         item.name,
                         item.record.type === 'endpoint' ? item.record.tableName : undefined
                     )
+                    // Warehouse write actions (Edit view, Materialization) are per-object;
+                    // respect creator bypass via the view's own user_access_level.
+                    const viewAccessDisabledReason =
+                        item.record.type !== 'endpoint'
+                            ? getAccessControlDisabledReason(
+                                  AccessControlResourceType.WarehouseObjects,
+                                  AccessControlLevel.Editor,
+                                  item.record.view?.user_access_level
+                              )
+                            : null
 
                     return (
                         <DropdownMenuGroup>
@@ -678,10 +688,19 @@ export const QueryDatabase = ({
                                             asChild
                                             onClick={(e) => {
                                                 e.stopPropagation()
+                                                if (viewAccessDisabledReason) {
+                                                    return
+                                                }
                                                 openItemEditor(item)
                                             }}
                                         >
-                                            <ButtonPrimitive menuItem className="flex-1 rounded-r-none">
+                                            <ButtonPrimitive
+                                                menuItem
+                                                className="flex-1 rounded-r-none"
+                                                disabledReasons={
+                                                    viewAccessDisabledReason ? { [viewAccessDisabledReason]: true } : {}
+                                                }
+                                            >
                                                 {editLabel}
                                             </ButtonPrimitive>
                                         </DropdownMenuItem>
@@ -689,6 +708,9 @@ export const QueryDatabase = ({
                                             asChild
                                             onClick={(e) => {
                                                 e.stopPropagation()
+                                                if (viewAccessDisabledReason) {
+                                                    return
+                                                }
                                                 openItemEditor(item, true)
                                             }}
                                         >
@@ -697,6 +719,9 @@ export const QueryDatabase = ({
                                                 className="px-2 rounded-l-none"
                                                 iconOnly
                                                 tooltip={editLabel}
+                                                disabledReasons={
+                                                    viewAccessDisabledReason ? { [viewAccessDisabledReason]: true } : {}
+                                                }
                                             >
                                                 <IconExternal />
                                             </ButtonPrimitive>
@@ -749,10 +774,20 @@ export const QueryDatabase = ({
                                     asChild
                                     onClick={(e) => {
                                         e.stopPropagation()
+                                        if (viewAccessDisabledReason) {
+                                            return
+                                        }
                                         openMaterializationModal(item.record?.view)
                                     }}
                                 >
-                                    <ButtonPrimitive menuItem>Materialization</ButtonPrimitive>
+                                    <ButtonPrimitive
+                                        menuItem
+                                        disabledReasons={
+                                            viewAccessDisabledReason ? { [viewAccessDisabledReason]: true } : {}
+                                        }
+                                    >
+                                        Materialization
+                                    </ButtonPrimitive>
                                 </DropdownMenuItem>
                             ) : null}
                         </DropdownMenuGroup>
