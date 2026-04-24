@@ -1,4 +1,4 @@
-import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonTag, Link } from '@posthog/lemon-ui'
 import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/ErrorTrackingAlerting'
 import { AssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/assignment_rules/AssignmentRules'
 import { GroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/grouping_rules/GroupingRules'
@@ -122,7 +122,7 @@ import {
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
 import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
 import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
-import { AIHipaaDisclaimer, getExternalAIProvidersTooltipTitle } from './organization/aiConsentCopy'
+import { AIConsentSettingsDescription } from './organization/aiConsentCopy'
 import { ApprovalPolicies } from './organization/Approvals/ApprovalPolicies'
 import { ChangeRequestsList } from './organization/Approvals/ChangeRequestsList'
 import { Invites } from './organization/Invites'
@@ -1445,23 +1445,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'organization-ai-consent',
                 title: 'PostHog AI data analysis',
-                description: (
-                    <>
-                        PostHog AI features, such as the PostHog AI chat, use{' '}
-                        <Tooltip title={getExternalAIProvidersTooltipTitle()}>
-                            <dfn>external AI services</dfn>
-                        </Tooltip>{' '}
-                        for data analysis.
-                        <br />
-                        This <i>can</i> involve transfer of identifying user data, so we ask for your org-wide consent
-                        below.
-                        <br />
-                        <strong>Your data will not be used for training models.</strong>
-                        <br />
-                        <br />
-                        <AIHipaaDisclaimer />
-                    </>
-                ),
+                description: <AIConsentSettingsDescription />,
                 component: <OrganizationAI />,
                 keywords: ['llm', 'consent', 'opt-in', 'data sharing'],
                 searchDescription:

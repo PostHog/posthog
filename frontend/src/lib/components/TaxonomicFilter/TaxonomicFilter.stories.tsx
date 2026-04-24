@@ -299,7 +299,7 @@ const SUGGESTED_FILTERS_ARGS = {
 }
 
 const SUGGESTED_FILTERS_PARAMETERS = {
-    testOptions: { waitForSelector: '.taxonomic-infinite-list' },
+    testOptions: { waitForSelector: ['.taxonomic-infinite-list', '.definition-popover'] },
 }
 
 export const SuggestedFiltersNoRecents: Story = {

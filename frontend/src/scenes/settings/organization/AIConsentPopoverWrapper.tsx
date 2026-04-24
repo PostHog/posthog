@@ -2,11 +2,11 @@ import { useActions, useAsyncActions, useValues } from 'kea'
 import { useCallback } from 'react'
 
 import { IconArrowRight, IconLock } from '@posthog/icons'
-import { LemonButton, Popover, PopoverProps, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Popover, PopoverProps } from '@posthog/lemon-ui'
 
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
-import { getExternalAIProvidersTooltipTitle, openAIConsentLegalDialog } from './aiConsentCopy'
+import { AIConsentPopoverDescription, openAIConsentLegalDialog } from './aiConsentCopy'
 
 export function AIConsentPopoverContent({
     onApprove,
@@ -23,13 +23,7 @@ export function AIConsentPopoverContent({
 
     return (
         <div className="flex flex-col gap-2 m-1.5 max-w-prose">
-            <p className="font-medium text-pretty">
-                PostHog AI needs your approval to potentially process identifying user data with{' '}
-                <Tooltip title={getExternalAIProvidersTooltipTitle()}>
-                    <dfn>external AI providers</dfn>
-                </Tooltip>
-                . <i>Your data won't be used for training models.</i>
-            </p>
+            <AIConsentPopoverDescription />
             <div className="flex gap-1.5 self-end">
                 <LemonButton data-attr="ai-consent-cancel" type="secondary" size="xsmall" onClick={onDismiss}>
                     Cancel
