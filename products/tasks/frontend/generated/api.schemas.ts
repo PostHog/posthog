@@ -185,31 +185,6 @@ export interface PaginatedTaskAutomationListApi {
 }
 
 /**
- * Serializer for extracted tasks
- */
-export interface TaskApi {
-    title: string
-    description?: string
-    /** @nullable */
-    assignee?: string | null
-}
-
-export interface PaginatedTaskListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: TaskApi[]
-}
-
-/**
- * Latest run details for this task
- * @nullable
- */
-export type PatchedTaskApiLatestRun = { [key: string]: unknown } | null | null
-
-/**
  * * `error_tracking` - Error Tracking
  * `eval_clusters` - Eval Clusters
  * `user_created` - User Created
@@ -241,6 +216,69 @@ export type SignalReportTaskRelationshipEnumApi =
 export const SignalReportTaskRelationshipEnumApi = {
     Implementation: 'implementation',
 } as const
+
+/**
+ * Latest run details for this task
+ * @nullable
+ */
+export type TaskApiLatestRun = { [key: string]: unknown } | null | null
+
+export interface TaskApi {
+    readonly id: string
+    /** @nullable */
+    readonly task_number: number | null
+    readonly slug: string
+    /** @maxLength 255 */
+    title?: string
+    title_manually_set?: boolean
+    description?: string
+    origin_product?: OriginProductEnumApi
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    repository?: string | null
+    /**
+     * GitHub integration for this task
+     * @nullable
+     */
+    github_integration?: number | null
+    /** @nullable */
+    signal_report?: string | null
+    signal_report_task_relationship?: SignalReportTaskRelationshipEnumApi
+    /** JSON schema for the task. This is used to validate the output of the task. */
+    json_schema?: unknown | null
+    /** If true, this task is for internal use and should not be exposed to end users. */
+    internal?: boolean
+    /**
+     * Latest run details for this task
+     * @nullable
+     */
+    readonly latest_run: TaskApiLatestRun
+    readonly created_at: string
+    readonly updated_at: string
+    readonly created_by: UserBasicApi
+    /**
+     * Custom prompt for CI fixes. If blank, a default prompt will be used.
+     * @nullable
+     */
+    ci_prompt?: string | null
+}
+
+export interface PaginatedTaskListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TaskApi[]
+}
+
+/**
+ * Latest run details for this task
+ * @nullable
+ */
+export type PatchedTaskApiLatestRun = { [key: string]: unknown } | null | null
 
 export interface PatchedTaskApi {
     readonly id?: string
@@ -288,9 +326,9 @@ export interface PatchedTaskApi {
  * * `interactive` - interactive
  * `background` - background
  */
-export type Mode051EnumApi = (typeof Mode051EnumApi)[keyof typeof Mode051EnumApi]
+export type TaskExecutionModeEnumApi = (typeof TaskExecutionModeEnumApi)[keyof typeof TaskExecutionModeEnumApi]
 
-export const Mode051EnumApi = {
+export const TaskExecutionModeEnumApi = {
     Interactive: 'interactive',
     Background: 'background',
 } as const
@@ -320,10 +358,9 @@ export const RunSourceEnumApi = {
 /**
  * * `claude` - claude
  */
-export type ClaudeTaskRunCreateSchemaRuntimeAdapterEnumApi =
-    (typeof ClaudeTaskRunCreateSchemaRuntimeAdapterEnumApi)[keyof typeof ClaudeTaskRunCreateSchemaRuntimeAdapterEnumApi]
+export type ClaudeRuntimeAdapterEnumApi = (typeof ClaudeRuntimeAdapterEnumApi)[keyof typeof ClaudeRuntimeAdapterEnumApi]
 
-export const ClaudeTaskRunCreateSchemaRuntimeAdapterEnumApi = {
+export const ClaudeRuntimeAdapterEnumApi = {
     Claude: 'claude',
 } as const
 
@@ -368,7 +405,7 @@ export interface ClaudeTaskRunCreateSchemaApi {
 
 * `interactive` - interactive
 * `background` - background */
-    mode?: Mode051EnumApi
+    mode?: TaskExecutionModeEnumApi
     /**
      * Git branch to checkout in the sandbox
      * @maxLength 255
@@ -398,7 +435,7 @@ export interface ClaudeTaskRunCreateSchemaApi {
     /** Agent runtime adapter to launch for this run. Must be 'claude' for Claude runtimes.
 
 * `claude` - claude */
-    runtime_adapter: ClaudeTaskRunCreateSchemaRuntimeAdapterEnumApi
+    runtime_adapter: ClaudeRuntimeAdapterEnumApi
     /** LLM model identifier to run in the Claude runtime. */
     model: string
     /** Reasoning effort to request for models that expose an effort control.
@@ -423,10 +460,9 @@ export interface ClaudeTaskRunCreateSchemaApi {
 /**
  * * `codex` - codex
  */
-export type CodexTaskRunCreateSchemaRuntimeAdapterEnumApi =
-    (typeof CodexTaskRunCreateSchemaRuntimeAdapterEnumApi)[keyof typeof CodexTaskRunCreateSchemaRuntimeAdapterEnumApi]
+export type CodexRuntimeAdapterEnumApi = (typeof CodexRuntimeAdapterEnumApi)[keyof typeof CodexRuntimeAdapterEnumApi]
 
-export const CodexTaskRunCreateSchemaRuntimeAdapterEnumApi = {
+export const CodexRuntimeAdapterEnumApi = {
     Codex: 'codex',
 } as const
 
@@ -452,7 +488,7 @@ export interface CodexTaskRunCreateSchemaApi {
 
 * `interactive` - interactive
 * `background` - background */
-    mode?: Mode051EnumApi
+    mode?: TaskExecutionModeEnumApi
     /**
      * Git branch to checkout in the sandbox
      * @maxLength 255
@@ -482,7 +518,7 @@ export interface CodexTaskRunCreateSchemaApi {
     /** Agent runtime adapter to launch for this run. Must be 'codex' for Codex runtimes.
 
 * `codex` - codex */
-    runtime_adapter: CodexTaskRunCreateSchemaRuntimeAdapterEnumApi
+    runtime_adapter: CodexRuntimeAdapterEnumApi
     /** LLM model identifier to run in the Codex runtime. */
     model: string
     /** Reasoning effort to request for models that expose an effort control.
@@ -507,7 +543,7 @@ export interface TaskRunResumeRequestSchemaApi {
 
 * `interactive` - interactive
 * `background` - background */
-    mode?: Mode051EnumApi
+    mode?: TaskExecutionModeEnumApi
     /**
      * Git branch to checkout in the sandbox
      * @maxLength 255
@@ -550,9 +586,9 @@ export type TaskRunCreateRequestSchemaApi =
  * `tree_snapshot` - tree_snapshot
  * `user_attachment` - user_attachment
  */
-export type TypeE8eEnumApi = (typeof TypeE8eEnumApi)[keyof typeof TypeE8eEnumApi]
+export type TaskRunArtifactTypeEnumApi = (typeof TaskRunArtifactTypeEnumApi)[keyof typeof TaskRunArtifactTypeEnumApi]
 
-export const TypeE8eEnumApi = {
+export const TaskRunArtifactTypeEnumApi = {
     Plan: 'plan',
     Context: 'context',
     Reference: 'reference',
@@ -579,7 +615,7 @@ export interface TaskStagedArtifactFinalizeUploadApi {
 * `artifact` - artifact
 * `tree_snapshot` - tree_snapshot
 * `user_attachment` - user_attachment */
-    type: TypeE8eEnumApi
+    type: TaskRunArtifactTypeEnumApi
     /**
      * Optional source label for the artifact, such as agent_output or user_attachment
      * @maxLength 64
@@ -641,7 +677,7 @@ export interface TaskStagedArtifactPrepareUploadApi {
 * `artifact` - artifact
 * `tree_snapshot` - tree_snapshot
 * `user_attachment` - user_attachment */
-    type: TypeE8eEnumApi
+    type: TaskRunArtifactTypeEnumApi
     /**
      * Optional source label for the artifact, such as agent_output or user_attachment
      * @maxLength 64
@@ -738,9 +774,9 @@ export const TaskRunDetailEnvironmentEnumApi = {
  * * `claude` - claude
  * `codex` - codex
  */
-export type RuntimeAdapterB33EnumApi = (typeof RuntimeAdapterB33EnumApi)[keyof typeof RuntimeAdapterB33EnumApi]
+export type RuntimeAdapterEnumApi = (typeof RuntimeAdapterEnumApi)[keyof typeof RuntimeAdapterEnumApi]
 
-export const RuntimeAdapterB33EnumApi = {
+export const RuntimeAdapterEnumApi = {
     Claude: 'claude',
     Codex: 'codex',
 } as const
@@ -775,7 +811,7 @@ export interface TaskRunDetailApi {
 * `cloud` - Cloud */
     environment?: TaskRunDetailEnvironmentEnumApi
     /** Configured runtime adapter for this run, such as 'claude' or 'codex'. */
-    readonly runtime_adapter: RuntimeAdapterB33EnumApi | NullEnumApi | null
+    readonly runtime_adapter: RuntimeAdapterEnumApi | NullEnumApi | null
     /** Configured LLM provider for this run, such as 'anthropic' or 'openai'. */
     readonly provider: TaskRunDetailProviderEnumApi | NullEnumApi | null
     /**
@@ -862,7 +898,7 @@ export interface TaskRunBootstrapCreateRequestApi {
 
 * `interactive` - interactive
 * `background` - background */
-    mode?: Mode051EnumApi
+    mode?: TaskExecutionModeEnumApi
     /**
      * Git branch to checkout in the sandbox
      * @maxLength 255
@@ -887,7 +923,7 @@ export interface TaskRunBootstrapCreateRequestApi {
 
 * `claude` - claude
 * `codex` - codex */
-    runtime_adapter?: RuntimeAdapterB33EnumApi
+    runtime_adapter?: RuntimeAdapterEnumApi
     /** LLM model identifier to run in the selected runtime. */
     model?: string
     /** Reasoning effort to request for models that expose an effort control.
@@ -1010,7 +1046,7 @@ export interface TaskRunArtifactUploadApi {
 * `artifact` - artifact
 * `tree_snapshot` - tree_snapshot
 * `user_attachment` - user_attachment */
-    type: TypeE8eEnumApi
+    type: TaskRunArtifactTypeEnumApi
     /**
      * Optional source label for the artifact, such as agent_output or user_attachment
      * @maxLength 64
@@ -1065,7 +1101,7 @@ export interface TaskRunArtifactFinalizeUploadApi {
 * `artifact` - artifact
 * `tree_snapshot` - tree_snapshot
 * `user_attachment` - user_attachment */
-    type: TypeE8eEnumApi
+    type: TaskRunArtifactTypeEnumApi
     /**
      * Optional source label for the artifact, such as agent_output or user_attachment
      * @maxLength 64
@@ -1108,7 +1144,7 @@ export interface TaskRunArtifactPrepareUploadApi {
 * `artifact` - artifact
 * `tree_snapshot` - tree_snapshot
 * `user_attachment` - user_attachment */
-    type: TypeE8eEnumApi
+    type: TaskRunArtifactTypeEnumApi
     /**
      * Optional source label for the artifact, such as agent_output or user_attachment
      * @maxLength 64

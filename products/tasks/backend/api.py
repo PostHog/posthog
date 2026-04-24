@@ -1,6 +1,7 @@
 import os
 import json
 import uuid
+import asyncio
 import logging
 import builtins
 from collections.abc import AsyncGenerator
@@ -97,7 +98,15 @@ from .services.staged_artifacts import (
     get_task_staged_artifacts,
     tag_task_artifact,
 )
-from .stream.redis_stream import TaskRunRedisStream, TaskRunStreamError, get_task_run_stream_key
+from .stream.redis_stream import (
+    TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS,
+    TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS,
+    TASK_RUN_STREAM_WAIT_MAX_DELAY_SECONDS,
+    TASK_RUN_STREAM_WAIT_TIMEOUT_SECONDS,
+    TaskRunRedisStream,
+    TaskRunStreamError,
+    get_task_run_stream_key,
+)
 from .temporal.client import (
     execute_posthog_code_agent_relay_workflow,
     execute_task_processing_workflow,
@@ -2033,9 +2042,28 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         async def async_stream() -> AsyncGenerator[bytes, None]:
             redis_stream = TaskRunRedisStream(stream_key)
-            if not await redis_stream.wait_for_stream():
-                yield format_sse_event({"error": "Stream not available"}, event_name="error")
-                return
+            delay = TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS
+            wait_started_at = asyncio.get_running_loop().time()
+            last_keepalive_at = wait_started_at
+
+            while not await redis_stream.exists():
+                now = asyncio.get_running_loop().time()
+                if now - wait_started_at >= TASK_RUN_STREAM_WAIT_TIMEOUT_SECONDS:
+                    yield format_sse_event({"error": "Stream not available"}, event_name="error")
+                    return
+
+                if now - last_keepalive_at >= TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS:
+                    last_keepalive_at = now
+                    yield format_sse_event(
+                        TASK_RUN_STREAM_KEEPALIVE_PAYLOAD,
+                        event_name=TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME,
+                    )
+
+                await asyncio.sleep(delay)
+                delay = min(
+                    delay + TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS,
+                    TASK_RUN_STREAM_WAIT_MAX_DELAY_SECONDS,
+                )
 
             start_id = last_event_id or "0"
             if not last_event_id and start_latest:

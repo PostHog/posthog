@@ -323,21 +323,6 @@ const loadLegacyMetrics = async ({
 
                 erroredCount++
 
-                // Keep backwards-compatible events firing
-                if (errorType === 'timeout') {
-                    eventUsageLogic.actions.reportExperimentMetricTimeout(experimentId, metric, teamId, queryId)
-                } else if (errorType === 'out_of_memory') {
-                    eventUsageLogic.actions.reportExperimentMetricOutOfMemory(
-                        experimentId,
-                        metric,
-                        teamId,
-                        queryId,
-                        errorCode,
-                        errorMessage
-                    )
-                }
-
-                // Unified error event for all error types
                 eventUsageLogic.actions.reportExperimentMetricError(experimentId, metric, teamId, queryId, {
                     duration_ms: durationMs,
                     metric_index: metricIndex,

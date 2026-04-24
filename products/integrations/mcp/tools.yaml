@@ -10,7 +10,7 @@ url_prefix: /settings/integrations
 ui_apps: {}
 tools:
     integrations-list:
-        operation: integrations_list_2
+        operation: integrations_list
         enabled: true
         scopes:
             - integration:read
@@ -26,7 +26,7 @@ tools:
             github, hubspot, salesforce, and various ad platforms. When authenticated via personal API key, only GitHub
             integrations are returned.
     integration-get:
-        operation: integrations_retrieve_2
+        operation: integrations_retrieve
         enabled: true
         scopes:
             - integration:read
@@ -110,9 +110,6 @@ tools:
         enabled: false
     integrations-environment-mapping-partial-update:
         operation: integrations_environment_mapping_partial_update
-        enabled: false
-    organization-integrations-destroy:
-        operation: organization_integrations_destroy
         enabled: false
     integrations-github-repos-refresh-create:
         operation: integrations_github_repos_refresh_create

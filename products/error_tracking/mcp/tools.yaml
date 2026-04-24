@@ -223,9 +223,6 @@ tools:
     error-tracking-releases-hash-retrieve:
         operation: error_tracking_releases_hash_retrieve
         enabled: false
-    error-tracking-spike-detection-config-retrieve:
-        operation: error_tracking_spike_detection_config_retrieve
-        enabled: false
     error-tracking-spike-detection-config-update-config-partial-update:
         operation: error_tracking_spike_detection_config_update_config_partial_update
         enabled: false
@@ -362,6 +359,12 @@ tools:
         enabled: false
     error-tracking-recommendations-restore-create:
         operation: error_tracking_recommendations_restore_create
+        enabled: false
+    error-tracking-issues-all-activity-retrieve:
+        operation: error_tracking_issues_all_activity_retrieve
+        enabled: false
+    error-tracking-spike-detection-config-list:
+        operation: error_tracking_spike_detection_config_list
         enabled: false
     error-tracking-symbol-sets-download-retrieve:
         operation: error_tracking_symbol_sets_download_retrieve
