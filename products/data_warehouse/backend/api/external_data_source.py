@@ -63,6 +63,13 @@ from products.data_warehouse.backend.data_load.service import (
     sync_external_data_job_workflow,
     trigger_external_data_source_workflow,
 )
+from products.data_warehouse.backend.direct_clickhouse import (
+    clickhouse_columns_to_dwh_columns,
+    clickhouse_schema_metadata,
+    reconcile_direct_clickhouse_schemas,
+    rename_direct_clickhouse_schemas_to_match_source_schemas,
+    upsert_direct_clickhouse_table,
+)
 from products.data_warehouse.backend.direct_postgres import (
     get_direct_postgres_location,
     postgres_schema_metadata,
@@ -186,7 +193,7 @@ def strip_sensitive_from_dict(data: dict, nonsensitive: set[str], sensitive: set
     return result
 
 
-def get_direct_postgres_connection_metadata(
+def get_direct_connection_metadata(
     *,
     source_impl: Any,
     source_config: Config,
@@ -198,17 +205,39 @@ def get_direct_postgres_connection_metadata(
     if not callable(metadata_fetcher):
         return fallback or {}
 
-    from posthog.temporal.data_imports.sources.postgres.postgres import source_requires_ssl
-
-    require_ssl = source_model is not None and source_requires_ssl(source_model, source_config)
-
     try:
-        metadata = metadata_fetcher(source_config, team_id, require_ssl=require_ssl)
+        if source_model is not None and source_model.is_direct_postgres:
+            from posthog.temporal.data_imports.sources.postgres.postgres import source_requires_ssl
+
+            metadata = metadata_fetcher(
+                source_config,
+                team_id,
+                require_ssl=source_requires_ssl(source_model, source_config),
+            )
+        else:
+            metadata = metadata_fetcher(source_config, team_id)
     except Exception as error:
         capture_exception(error)
         return fallback or {}
 
     return metadata if isinstance(metadata, dict) else (fallback or {})
+
+
+def get_direct_postgres_connection_metadata(
+    *,
+    source_impl: Any,
+    source_config: Config,
+    team_id: int,
+    source_model: ExternalDataSource | None = None,
+    fallback: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return get_direct_connection_metadata(
+        source_impl=source_impl,
+        source_config=source_config,
+        team_id=team_id,
+        source_model=source_model,
+        fallback=fallback,
+    )
 
 
 def get_postgres_source_table_location(
@@ -251,7 +280,7 @@ class ExternalDataSourceConnectionMetadataSerializer(serializers.Serializer):
         read_only=True,
         required=False,
         allow_null=True,
-        choices=["duckdb", "postgres"],
+        choices=["clickhouse", "duckdb", "postgres"],
         help_text="Backend engine detected for the direct connection.",
     )
     function_source = serializers.CharField(
@@ -273,7 +302,7 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
         source="connection_metadata.engine",
         read_only=True,
         allow_null=True,
-        choices=["duckdb", "postgres"],
+        choices=["clickhouse", "duckdb", "postgres"],
         help_text="Backend engine detected for the direct connection.",
     )
 
@@ -385,7 +414,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         read_only=True,
         allow_null=True,
         required=False,
-        choices=["duckdb", "postgres"],
+        choices=["clickhouse", "duckdb", "postgres"],
         help_text="Backend engine detected for the direct connection.",
     )
     revenue_analytics_config = ExternalDataSourceRevenueAnalyticsConfigSerializer(
@@ -541,8 +570,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         validated_data.pop("access_method", None)
         incoming_prefix = validated_data.get("prefix", instance.prefix)
 
-        if instance.is_direct_postgres:
-            # For direct Postgres sources the prefix acts as the user-facing source name.
+        if instance.is_direct_database:
+            # For direct database sources the prefix acts as the user-facing source name.
             normalized_prefix = incoming_prefix.strip() if isinstance(incoming_prefix, str) else ""
             if not normalized_prefix:
                 raise ValidationError("Name is required for direct query sources")
@@ -628,9 +657,9 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 credentials_valid, credentials_error = source.validate_credentials(source_config, instance.team_id)
             if not credentials_valid:
                 raise ValidationError(credentials_error or "Invalid credentials")
-            if instance.is_direct_postgres:
+            if instance.is_direct_database:
                 discovered_schemas = source.get_schemas(source_config, instance.team_id)
-                validated_data["connection_metadata"] = get_direct_postgres_connection_metadata(
+                validated_data["connection_metadata"] = get_direct_connection_metadata(
                     source_impl=source,
                     source_config=source_config,
                     team_id=instance.team_id,
@@ -640,28 +669,42 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         updated_source: ExternalDataSource = super().update(instance, validated_data)
 
-        if updated_source.is_direct_postgres and discovered_schemas is not None:
+        if updated_source.is_direct_database and discovered_schemas is not None:
             schema_names = {schema.name: schema.label for schema in discovered_schemas}
             descriptions = {schema.name: schema.description for schema in discovered_schemas}
 
             with transaction.atomic():
                 ExternalDataSource._base_manager.filter(pk=updated_source.pk).select_for_update().get()
-                rename_direct_postgres_schemas_to_match_source_schemas(
-                    source=updated_source,
-                    source_schemas=discovered_schemas,
-                    team_id=instance.team_id,
-                )
+                if updated_source.is_direct_clickhouse:
+                    rename_direct_clickhouse_schemas_to_match_source_schemas(
+                        source=updated_source,
+                        source_schemas=discovered_schemas,
+                        team_id=instance.team_id,
+                    )
+                else:
+                    rename_direct_postgres_schemas_to_match_source_schemas(
+                        source=updated_source,
+                        source_schemas=discovered_schemas,
+                        team_id=instance.team_id,
+                    )
                 sync_old_schemas_with_new_schemas(
                     schema_names,
                     source_id=str(updated_source.id),
                     team_id=instance.team_id,
                     descriptions=descriptions,
                 )
-                reconcile_direct_postgres_schemas(
-                    source=updated_source,
-                    source_schemas=discovered_schemas,
-                    team_id=instance.team_id,
-                )
+                if updated_source.is_direct_clickhouse:
+                    reconcile_direct_clickhouse_schemas(
+                        source=updated_source,
+                        source_schemas=discovered_schemas,
+                        team_id=instance.team_id,
+                    )
+                else:
+                    reconcile_direct_postgres_schemas(
+                        source=updated_source,
+                        source_schemas=discovered_schemas,
+                        team_id=instance.team_id,
+                    )
 
             schemas = list(
                 ExternalDataSchema.objects.filter(team_id=instance.team_id, source_id=updated_source.id)
@@ -816,17 +859,18 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         description = serializer.validated_data.get("description")
         source_type = serializer.validated_data["source_type"]
         access_method = serializer.validated_data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
-        is_direct_postgres = (
-            access_method == ExternalDataSource.AccessMethod.DIRECT and source_type == ExternalDataSourceType.POSTGRES
+        direct_query_source_types = {ExternalDataSourceType.CLICKHOUSE, ExternalDataSourceType.POSTGRES}
+        is_direct_database = (
+            access_method == ExternalDataSource.AccessMethod.DIRECT and source_type in direct_query_source_types
         )
 
-        if access_method == ExternalDataSource.AccessMethod.DIRECT and source_type != ExternalDataSourceType.POSTGRES:
+        if access_method == ExternalDataSource.AccessMethod.DIRECT and source_type not in direct_query_source_types:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Direct query mode is currently supported only for Postgres sources."},
+                data={"message": "Direct query mode is currently supported only for Postgres and ClickHouse sources."},
             )
 
-        if is_direct_postgres:
+        if is_direct_database:
             prefix = prefix.strip() if isinstance(prefix, str) else ""
             if not prefix:
                 return Response(
@@ -905,8 +949,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 return cdc_result
 
         source_schemas = source.get_schemas(source_config, self.team_id)
-        if is_direct_postgres:
-            new_source_model.connection_metadata = get_direct_postgres_connection_metadata(
+        if is_direct_database:
+            new_source_model.connection_metadata = get_direct_connection_metadata(
                 source_impl=source,
                 source_config=source_config,
                 team_id=self.team_id,
@@ -915,7 +959,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             new_source_model.save(update_fields=["connection_metadata", "updated_at"])
         source_schemas_by_name = {schema.name: schema for schema in source_schemas}
         schema_names = [schema.name for schema in source_schemas]
-        default_source_schema = source_config.to_dict().get("schema")
+        source_config_dict = source_config.to_dict()
+        default_source_schema = source_config_dict.get("schema")
+        default_source_database = source_config_dict.get("database")
         schema_label_by_name = {s.name: s.label for s in source_schemas}
 
         payload_schemas = payload.get("schemas", None)
@@ -1002,26 +1048,43 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     default_schema=default_source_schema,
                 )
             )
-            resolved_source_catalog, resolved_source_schema, resolved_source_table_name = get_direct_postgres_location(
-                schema_name=schema_name,
-                schema_metadata={
-                    "source_catalog": source_schema.source_catalog if source_schema else None,
-                    "source_schema": source_schema.source_schema if source_schema else None,
-                    "source_table_name": source_schema.source_table_name if source_schema else None,
-                },
-                default_schema=default_source_schema,
-            )
-            schema_metadata = (
-                postgres_schema_metadata(
+            if source_type_model == ExternalDataSourceType.POSTGRES:
+                resolved_source_catalog, resolved_source_schema, resolved_source_table_name = (
+                    get_direct_postgres_location(
+                        schema_name=schema_name,
+                        schema_metadata={
+                            "source_catalog": source_schema.source_catalog if source_schema else None,
+                            "source_schema": source_schema.source_schema if source_schema else None,
+                            "source_table_name": source_schema.source_table_name if source_schema else None,
+                        },
+                        default_schema=default_source_schema,
+                    )
+                )
+                schema_metadata = postgres_schema_metadata(
                     source_schema.columns if source_schema else [],
                     source_schema.foreign_keys if source_schema else [],
                     source_catalog=resolved_source_catalog,
                     source_schema=resolved_source_schema,
                     source_table_name=resolved_source_table_name,
                 )
-                if source_type_model == ExternalDataSourceType.POSTGRES
-                else {}
-            )
+            elif source_type_model == ExternalDataSourceType.CLICKHOUSE and is_direct_database:
+                resolved_source_schema = (
+                    source_schema.source_schema
+                    if source_schema and source_schema.source_schema
+                    else default_source_database
+                )
+                resolved_source_table_name = (
+                    source_schema.source_table_name
+                    if source_schema and source_schema.source_table_name
+                    else schema_name
+                )
+                schema_metadata = clickhouse_schema_metadata(
+                    source_schema.columns if source_schema else [],
+                    source_database=resolved_source_schema,
+                    source_table_name=resolved_source_table_name,
+                )
+            else:
+                schema_metadata = {}
 
             is_cdc_schema = sync_type == "cdc"
             if requires_incremental_fields and new_source_model.supports_scheduled_sync:
@@ -1080,16 +1143,26 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                         resolved_source_table_name,
                     )
 
-            if new_source_model.is_direct_postgres and should_sync:
-                schema_model.table = upsert_direct_postgres_table(
-                    None,
-                    schema_name=schema_name,
-                    source=new_source_model,
-                    columns=postgres_columns_to_dwh_columns(source_schema.columns if source_schema else []),
-                    source_catalog=resolved_source_catalog,
-                    source_schema=resolved_source_schema,
-                    source_table_name=resolved_source_table_name,
-                )
+            if new_source_model.is_direct_database and should_sync:
+                if new_source_model.is_direct_clickhouse:
+                    schema_model.table = upsert_direct_clickhouse_table(
+                        None,
+                        schema_name=schema_name,
+                        source=new_source_model,
+                        columns=clickhouse_columns_to_dwh_columns(source_schema.columns if source_schema else []),
+                        source_database=resolved_source_schema,
+                        source_table_name=resolved_source_table_name,
+                    )
+                else:
+                    schema_model.table = upsert_direct_postgres_table(
+                        None,
+                        schema_name=schema_name,
+                        source=new_source_model,
+                        columns=postgres_columns_to_dwh_columns(source_schema.columns if source_schema else []),
+                        source_catalog=resolved_source_catalog,
+                        source_schema=resolved_source_schema,
+                        source_table_name=resolved_source_table_name,
+                    )
                 schema_model.save(update_fields=["table"])
 
             if should_sync and new_source_model.supports_scheduled_sync:
@@ -1371,14 +1444,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             config = source.parse_config(instance.job_inputs)
             schemas = source.get_schemas(config, self.team_id)
             connection_metadata = (
-                get_direct_postgres_connection_metadata(
+                get_direct_connection_metadata(
                     source_impl=source,
                     source_config=config,
                     team_id=self.team_id,
                     source_model=instance,
                     fallback=instance.connection_metadata,
                 )
-                if instance.is_direct_postgres
+                if instance.is_direct_database
                 else instance.connection_metadata
             )
             schema_names = {s.name: s.label for s in schemas}
@@ -1397,7 +1470,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         descriptions = {s.name: s.description for s in schemas}
         with transaction.atomic():
             ExternalDataSource._base_manager.filter(pk=instance.pk).select_for_update().get()
-            if instance.is_direct_postgres and connection_metadata != instance.connection_metadata:
+            if instance.is_direct_database and connection_metadata != instance.connection_metadata:
                 instance.connection_metadata = connection_metadata
                 instance.save(update_fields=["connection_metadata", "updated_at"])
             schemas_created, schemas_deleted = sync_old_schemas_with_new_schemas(
@@ -1407,11 +1480,19 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 descriptions=descriptions,
             )
 
-            if instance.is_direct_postgres:
-                reconciled_deleted_schemas = reconcile_direct_postgres_schemas(
-                    source=instance,
-                    source_schemas=schemas,
-                    team_id=self.team_id,
+            if instance.is_direct_database:
+                reconciled_deleted_schemas = (
+                    reconcile_direct_clickhouse_schemas(
+                        source=instance,
+                        source_schemas=schemas,
+                        team_id=self.team_id,
+                    )
+                    if instance.is_direct_clickhouse
+                    else reconcile_direct_postgres_schemas(
+                        source=instance,
+                        source_schemas=schemas,
+                        team_id=self.team_id,
+                    )
                 )
                 if reconciled_deleted_schemas:
                     schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
@@ -1591,12 +1672,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
         access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
+        direct_query_source_types = {ExternalDataSourceType.CLICKHOUSE, ExternalDataSourceType.POSTGRES}
 
         if access_method == ExternalDataSource.AccessMethod.DIRECT:
-            if source_type != ExternalDataSourceType.POSTGRES:
+            if source_type not in direct_query_source_types:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Direct query mode is currently supported only for Postgres sources."},
+                    data={
+                        "message": "Direct query mode is currently supported only for Postgres and ClickHouse sources."
+                    },
                 )
 
             normalized_prefix = prefix.strip() if isinstance(prefix, str) else ""
@@ -1697,7 +1781,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             ExternalDataSource._base_manager.filter(
                 team_id=self.team_id,
                 access_method=ExternalDataSource.AccessMethod.DIRECT,
-                source_type=ExternalDataSourceType.POSTGRES,
+                source_type__in=[ExternalDataSourceType.CLICKHOUSE, ExternalDataSourceType.POSTGRES],
             )
             .exclude(deleted=True)
             .only("id", "prefix", "connection_metadata")

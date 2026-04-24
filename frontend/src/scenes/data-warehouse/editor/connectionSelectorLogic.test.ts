@@ -21,6 +21,11 @@ describe('connectionSelectorLogic', () => {
                 prefix: 'warehouse',
                 engine: 'postgres',
             },
+            {
+                id: 'conn-456',
+                prefix: 'events',
+                engine: 'clickhouse',
+            },
         ] as any)
     })
 
@@ -48,6 +53,11 @@ describe('connectionSelectorLogic', () => {
                     value: 'conn-123',
                     label: 'warehouse (Postgres)',
                     managementUrl: urls.dataWarehouseSource('managed-conn-123'),
+                }),
+                expect.objectContaining({
+                    value: 'conn-456',
+                    label: 'events (ClickHouse)',
+                    managementUrl: urls.dataWarehouseSource('managed-conn-456'),
                 }),
             ])
         )

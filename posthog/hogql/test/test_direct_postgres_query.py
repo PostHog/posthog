@@ -1514,3 +1514,87 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertEqual(mock_connect.call_args.kwargs["sslcert"], "/tmp/no.txt")
         self.assertEqual(mock_connect.call_args.kwargs["sslkey"], "/tmp/no.txt")
         self.assertEqual(mock_connect.call_args.kwargs["sslrootcert"], "/tmp/no.txt")
+
+
+class TestDirectClickHouseQuery(APIBaseTest):
+    def test_generate_sql_for_direct_clickhouse_table_uses_direct_clickhouse_dialect(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="ClickHouse",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="analytics",
+            job_inputs={
+                "host": "localhost",
+                "port": 8123,
+                "database": "analytics",
+                "user": "default",
+                "password": "",
+                "secure": False,
+                "verify": True,
+            },
+        )
+
+        DataWarehouseTable.objects.create(
+            name="events",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="",
+            columns={
+                "id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True},
+                "event": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
+            },
+        )
+
+        executor = HogQLQueryExecutor(
+            query="SELECT directOnlyFunction(id), concat(event, '-seen') FROM events",
+            team=self.team,
+            connection_id=str(source.id),
+        )
+
+        sql, _context = executor.generate_clickhouse_sql()
+
+        self.assertIn("analytics.events", sql)
+        self.assertIn("directOnlyFunction(id)", sql)
+        self.assertIn("concat(event, '-seen')", sql)
+        self.assertNotIn(".team_id", sql)
+        self.assertEqual(executor.direct_clickhouse_source_id, str(source.id))
+        self.assertIsNone(executor.direct_postgres_sql)
+
+    @patch.object(HogQLQueryExecutor, "_execute_direct_clickhouse_query")
+    def test_raw_direct_clickhouse_query_dispatches_to_clickhouse_executor(self, mock_execute_direct_clickhouse_query):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="ClickHouse",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="analytics",
+            job_inputs={
+                "host": "localhost",
+                "port": 8123,
+                "database": "analytics",
+                "user": "default",
+                "password": "",
+                "secure": False,
+                "verify": True,
+            },
+        )
+
+        executor = HogQLQueryExecutor(
+            query="SELECT now()",
+            team=self.team,
+            connection_id=str(source.id),
+            send_raw_query=True,
+        )
+
+        executor._execute_raw_direct_connection_query()
+
+        mock_execute_direct_clickhouse_query.assert_called_once()
+        self.assertEqual(executor.direct_clickhouse_source_id, str(source.id))
+        self.assertEqual(executor.direct_clickhouse_sql, "SELECT now()")
+        self.assertIsNone(executor.direct_postgres_sql)

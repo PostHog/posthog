@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 import type { ExternalDataSourceConnectionOption } from '~/types'
 
 import IconPostHog from 'public/posthog-icon.svg'
+import IconClickHouse from 'public/services/clickhouse.png'
 import IconDuckDB from 'public/services/duckdb.svg'
 import IconPostgres from 'public/services/postgres.png'
 
@@ -18,6 +19,7 @@ import type { connectionSelectorLogicType } from './connectionSelectorLogicType'
 
 export const POSTHOG_WAREHOUSE = '__posthog_warehouse__'
 export const LOADING_CONNECTIONS = '__loading_connections__'
+export const ADD_CLICKHOUSE_DIRECT_CONNECTION = '__add_clickhouse_direct_connection__'
 export const ADD_POSTGRES_DIRECT_CONNECTION = '__add_postgres_direct_connection__'
 export const CONFIGURE_SOURCES = '__configure_sources__'
 
@@ -37,8 +39,27 @@ export interface ConnectionSelectOptionGroup {
     options: ConnectionSelectOption[]
 }
 
-function getConnectionEngine(source: Pick<ExternalDataSourceConnectionOption, 'engine'>): 'duckdb' | 'postgres' {
+function getConnectionEngine(
+    source: Pick<ExternalDataSourceConnectionOption, 'engine'>
+): 'clickhouse' | 'duckdb' | 'postgres' {
+    if (source.engine === 'clickhouse') {
+        return 'clickhouse'
+    }
     return source.engine === 'duckdb' ? 'duckdb' : 'postgres'
+}
+
+function getEngineLabel(engine: 'clickhouse' | 'duckdb' | 'postgres'): string {
+    if (engine === 'clickhouse') {
+        return 'ClickHouse'
+    }
+    return engine === 'duckdb' ? 'DuckDB' : 'Postgres'
+}
+
+function getEngineIcon(engine: 'clickhouse' | 'duckdb' | 'postgres'): string {
+    if (engine === 'clickhouse') {
+        return IconClickHouse
+    }
+    return engine === 'duckdb' ? IconDuckDB : IconPostgres
 }
 
 export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
@@ -84,8 +105,8 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
 
                           return {
                               value: source.id,
-                              label: `${source.prefix ? source.prefix : source.id} (${engine === 'duckdb' ? 'DuckDB' : 'Postgres'})`,
-                              iconSrc: engine === 'duckdb' ? IconDuckDB : IconPostgres,
+                              label: `${source.prefix ? source.prefix : source.id} (${getEngineLabel(engine)})`,
+                              iconSrc: getEngineIcon(engine),
                               managementUrl: urls.dataWarehouseSource(`managed-${source.id}`),
                           }
                       })
@@ -104,6 +125,7 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
                     {
                         options: [
                             { value: CONFIGURE_SOURCES, label: 'Configure sources' },
+                            { value: ADD_CLICKHOUSE_DIRECT_CONNECTION, label: '+ Add ClickHouse direct connection' },
                             { value: ADD_POSTGRES_DIRECT_CONNECTION, label: '+ Add postgres direct connection' },
                         ],
                     },

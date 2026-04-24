@@ -17,6 +17,7 @@ from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.models import DatabaseField, FieldOrTable, StructDatabaseField
 from posthog.hogql.database.s3_table import (
@@ -34,6 +35,10 @@ from posthog.settings import TEST
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 
+from products.data_warehouse.backend.direct_clickhouse import (
+    DIRECT_CLICKHOUSE_DATABASE_OPTION,
+    DIRECT_CLICKHOUSE_TABLE_OPTION,
+)
 from products.data_warehouse.backend.direct_postgres import (
     DIRECT_POSTGRES_CATALOG_OPTION,
     DIRECT_POSTGRES_SCHEMA_OPTION,
@@ -440,7 +445,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     def hogql_definition(
         self, modifiers: Optional[HogQLQueryModifiers] = None
-    ) -> HogQLDataWarehouseTable | DirectPostgresTable:
+    ) -> HogQLDataWarehouseTable | DirectClickHouseTable | DirectPostgresTable:
         columns = self.columns or {}
 
         fields: dict[str, FieldOrTable] = {}
@@ -499,6 +504,25 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 postgres_table_name=postgres_table_name,
                 external_data_source_id=str(self.external_data_source_id),
                 connection_metadata=self.external_data_source.connection_metadata,
+            )
+
+        if self.external_data_source and self.external_data_source.is_direct_clickhouse:
+            clickhouse_database = (
+                self.options.get(DIRECT_CLICKHOUSE_DATABASE_OPTION)
+                if isinstance(self.options.get(DIRECT_CLICKHOUSE_DATABASE_OPTION), str)
+                else (self.external_data_source.job_inputs or {}).get("database", "default")
+            )
+            clickhouse_table_name = (
+                self.options.get(DIRECT_CLICKHOUSE_TABLE_OPTION)
+                if isinstance(self.options.get(DIRECT_CLICKHOUSE_TABLE_OPTION), str)
+                else self.name
+            )
+            return DirectClickHouseTable(
+                name=self.name,
+                fields=fields,
+                clickhouse_database=clickhouse_database,
+                clickhouse_table_name=clickhouse_table_name,
+                external_data_source_id=str(self.external_data_source_id),
             )
 
         # Replace fields with any redefined fields if they exist

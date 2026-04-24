@@ -212,6 +212,8 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                     incremental_fields=incremental_fields,
                     row_count=row_counts.get(table_name),
                     columns=columns,
+                    source_schema=config.database,
+                    source_table_name=table_name,
                     detected_primary_keys=detected_pks.get(table_name),
                 )
             )

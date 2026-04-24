@@ -54,6 +54,7 @@ from products.data_warehouse.backend.api.external_data_source import (
     get_nonsensitive_and_sensitive_field_names,
     strip_sensitive_from_dict,
 )
+from products.data_warehouse.backend.direct_clickhouse import DIRECT_CLICKHOUSE_URL_PATTERN
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
@@ -1733,6 +1734,90 @@ class TestExternalDataSource(APIBaseTest):
         )
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_create_direct_clickhouse_creates_only_selected_tables(self, mock_get_source):
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 8443,
+            "database": "analytics",
+            "user": "default",
+            "password": "pass",
+            "secure": True,
+            "verify": True,
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_connection_metadata.return_value = {
+            "database": "analytics",
+            "version": "25.1.1",
+            "engine": "clickhouse",
+        }
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="events",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("amount", "Decimal(10,2)", False), ("tags", "Array(String)", False)],
+                source_schema="analytics",
+                source_table_name="events",
+            ),
+            SourceSchema(
+                name="users",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "UInt64", False)],
+                source_schema="analytics",
+                source_table_name="users",
+            ),
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "ClickHouse",
+                "access_method": "direct",
+                "prefix": "Analytics database",
+                "payload": {
+                    "host": "localhost",
+                    "port": 8443,
+                    "database": "analytics",
+                    "user": "default",
+                    "password": "pass",
+                    "secure": True,
+                    "verify": True,
+                    "schemas": [
+                        {"name": "events", "should_sync": True, "sync_type": None},
+                        {"name": "users", "should_sync": False, "sync_type": None},
+                    ],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        source = ExternalDataSource.objects.get(id=response.json()["id"])
+        self.assertTrue(source.is_direct_clickhouse)
+        self.assertEqual(source.connection_metadata["engine"], "clickhouse")
+
+        events_schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="events")
+        users_schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="users")
+        assert events_schema.table is not None
+        assert events_schema.sync_type_config is not None
+        assert events_schema.table.columns is not None
+
+        self.assertTrue(events_schema.should_sync)
+        self.assertFalse(users_schema.should_sync)
+        self.assertIsNone(users_schema.table)
+        self.assertEqual(events_schema.table.url_pattern, DIRECT_CLICKHOUSE_URL_PATTERN)
+        self.assertEqual(events_schema.table.options["direct_clickhouse_database"], "analytics")
+        self.assertEqual(events_schema.table.options["direct_clickhouse_table"], "events")
+        self.assertEqual(events_schema.table.columns["amount"]["hogql"], "numeric")
+        self.assertEqual(events_schema.table.columns["tags"]["hogql"], "array")
+        self.assertEqual(events_schema.sync_type_config["schema_metadata"]["source_database"], "analytics")
+        self.assertEqual(events_schema.sync_type_config["schema_metadata"]["source_table_name"], "events")
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_create_direct_postgres_blank_schema_prefixes_table_names_and_preserves_physical_schema(
         self, mock_get_source
     ):
@@ -2005,10 +2090,10 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {"message": "Direct query mode is currently supported only for Postgres sources."},
+            {"message": "Direct query mode is currently supported only for Postgres and ClickHouse sources."},
         )
 
-    def test_source_prefix_rejects_direct_non_postgres(self):
+    def test_source_prefix_rejects_direct_unsupported_source(self):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/source_prefix/",
             data={
@@ -2021,8 +2106,20 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {"message": "Direct query mode is currently supported only for Postgres sources."},
+            {"message": "Direct query mode is currently supported only for Postgres and ClickHouse sources."},
         )
+
+    def test_source_prefix_accepts_direct_clickhouse(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/source_prefix/",
+            data={
+                "source_type": "ClickHouse",
+                "access_method": "direct",
+                "prefix": "Analytics database",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_create_postgres_warehouse_source_requires_schema(self):
         response = self.client.post(

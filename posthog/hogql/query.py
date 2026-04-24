@@ -24,10 +24,12 @@ from posthog.hogql.constants import (
     get_default_limit_for_context,
 )
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.schema.logs import HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES
 from posthog.hogql.direct_connection import (
     get_direct_connection_source_none_or_raise,
+    validate_direct_clickhouse_source_config,
     validate_direct_postgres_source_config,
 )
 from posthog.hogql.errors import ExposedHogQLError, QueryError, ResolutionError
@@ -57,6 +59,7 @@ from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 tracer = trace.get_tracer(__name__)
 DIRECT_POSTGRES_CONNECT_TIMEOUT_SECONDS = 15
 DIRECT_POSTGRES_DEFAULT_STATEMENT_TIMEOUT_SECONDS = 600
+DIRECT_CLICKHOUSE_DEFAULT_STATEMENT_TIMEOUT_SECONDS = 600
 
 POSTGRES_OID_TO_CLICKHOUSE_TYPE: dict[int, str] = {
     16: "Bool",
@@ -131,6 +134,13 @@ def postgres_error_to_message(error: Exception) -> str:
     message = str(error).strip()
     if not message:
         return "Postgres query failed."
+    return message.splitlines()[0]
+
+
+def clickhouse_error_to_message(error: Exception) -> str:
+    message = str(error).strip()
+    if not message:
+        return "ClickHouse query failed."
     return message.splitlines()[0]
 
 
@@ -251,6 +261,10 @@ class HogQLQueryExecutor:
     direct_postgres_sql: Optional[str] = None
     direct_postgres_source_id: Optional[str] = None
     direct_postgres_values: dict[str, object] | None = None
+    direct_clickhouse_context: Optional[HogQLContext] = None
+    direct_clickhouse_sql: Optional[str] = None
+    direct_clickhouse_source_id: Optional[str] = None
+    direct_clickhouse_values: dict[str, object] | None = None
     connection_id: Optional[str] = None
     send_raw_query: bool = False
     user: Optional[User] = None
@@ -261,7 +275,7 @@ class HogQLQueryExecutor:
     class _PreparedExecution:
         sql: str
         context: HogQLContext
-        engine: Literal["clickhouse", "direct_postgres"]
+        engine: Literal["clickhouse", "direct_postgres", "direct_clickhouse"]
 
     @tracer.start_as_current_span("HogQLQueryExecutor.__post_init__")
     def __post_init__(self):
@@ -389,6 +403,7 @@ class HogQLQueryExecutor:
             modifiers=self.query_modifiers,
             limit_context=self.limit_context,
             database=database,
+            connection_function_passthrough=bool(source and source.is_direct_clickhouse),
         )
 
         self._apply_optimizers()
@@ -447,7 +462,7 @@ class HogQLQueryExecutor:
 
         return settings
 
-    def _prepare_direct_postgres_query(self) -> _PreparedExecution | None:
+    def _prepare_direct_connection_query(self) -> _PreparedExecution | None:
         try:
             query_type = self._get_select_query_type()
         except (QueryError, ResolutionError, AttributeError):
@@ -459,11 +474,12 @@ class HogQLQueryExecutor:
             return None
 
         base_table_types = extract_base_table_types(query_type)
-        direct_source_ids = {
-            table_type.table.external_data_source_id
-            for table_type in base_table_types
-            if isinstance(table_type.table, DirectPostgresTable)
-        }
+        direct_table_classes = (DirectPostgresTable, DirectClickHouseTable)
+        direct_table_types = [
+            table_type for table_type in base_table_types if isinstance(table_type.table, direct_table_classes)
+        ]
+        direct_source_ids = {table_type.table.external_data_source_id for table_type in direct_table_types}
+        direct_table_class_names = {table_type.table.__class__.__name__ for table_type in direct_table_types}
 
         direct_source_id: str | None = None
 
@@ -477,24 +493,48 @@ class HogQLQueryExecutor:
             direct_source_id = self.connection_id
 
         if len(direct_source_ids) > 1:
-            raise ExposedHogQLError("Direct Postgres queries can only reference a single source.")
+            raise ExposedHogQLError("Direct queries can only reference a single source.")
+
+        if len(direct_table_class_names) > 1:
+            raise ExposedHogQLError("Direct queries can only reference one database engine.")
 
         has_non_direct_tables = any(
-            not isinstance(table_type.table, DirectPostgresTable) for table_type in base_table_types
+            not isinstance(table_type.table, direct_table_classes) for table_type in base_table_types
         )
         if has_non_direct_tables:
             if self.connection_id is None:
                 return None
-            raise ExposedHogQLError("Direct Postgres queries cannot be joined with PostHog or warehouse-synced tables.")
+            raise ExposedHogQLError("Direct queries cannot be joined with PostHog or warehouse-synced tables.")
 
         if self.connection_id is None:
-            raise ExposedHogQLError("Direct Postgres queries require selecting a connection.")
+            raise ExposedHogQLError("Direct queries require selecting a connection.")
 
         if direct_source_id is None:
             direct_source_id = next(iter(direct_source_ids))
 
         if self.connection_id != direct_source_id:
             raise ExposedHogQLError("The query references a different source than the selected connection.")
+
+        selected_source = get_direct_connection_source_none_or_raise(
+            self.team,
+            self.connection_id,
+            error_factory=ExposedHogQLError,
+        )
+        if selected_source is None:
+            raise ExposedHogQLError("Direct queries require selecting a connection.")
+
+        if direct_table_class_names == {"DirectClickHouseTable"} or (
+            len(direct_table_class_names) == 0 and selected_source.is_direct_clickhouse
+        ):
+            direct_dialect: Literal["postgres", "direct_clickhouse"] = "direct_clickhouse"
+            direct_engine: Literal["direct_postgres", "direct_clickhouse"] = "direct_clickhouse"
+        elif direct_table_class_names == {"DirectPostgresTable"} or (
+            len(direct_table_class_names) == 0 and selected_source.is_direct_postgres
+        ):
+            direct_dialect = "postgres"
+            direct_engine = "direct_postgres"
+        else:
+            raise ExposedHogQLError("Invalid direct connection.")
 
         direct_context = dataclasses.replace(
             self.context,
@@ -505,29 +545,41 @@ class HogQLQueryExecutor:
             modifiers=self.query_modifiers,
             limit_context=self.limit_context,
             database=self.hogql_context.database if self.hogql_context else None,
+            connection_function_passthrough=direct_engine == "direct_clickhouse",
         )
 
         direct_prepared_ast = prepare_ast_for_printing(
             node=self.select_query,
             context=direct_context,
-            dialect="postgres",
+            dialect=direct_dialect,
         )
 
-        self.direct_postgres_sql = print_prepared_ast(
+        direct_sql = print_prepared_ast(
             node=cast(ast.SelectQuery | ast.SelectSetQuery, direct_prepared_ast),
             context=direct_context,
-            dialect="postgres",
+            dialect=direct_dialect,
             pretty=self.pretty if self.pretty is not None else True,
         )
-        self.direct_postgres_context = direct_context
-        self.direct_postgres_values = direct_context.values
-        self.direct_postgres_source_id = direct_source_id
+
+        if direct_engine == "direct_clickhouse":
+            self.direct_clickhouse_sql = direct_sql
+            self.direct_clickhouse_context = direct_context
+            self.direct_clickhouse_values = direct_context.values
+            self.direct_clickhouse_source_id = direct_source_id
+        else:
+            self.direct_postgres_sql = direct_sql
+            self.direct_postgres_context = direct_context
+            self.direct_postgres_values = direct_context.values
+            self.direct_postgres_source_id = direct_source_id
 
         return self._PreparedExecution(
-            sql=self.direct_postgres_sql,
+            sql=direct_sql,
             context=direct_context,
-            engine="direct_postgres",
+            engine=direct_engine,
         )
+
+    def _prepare_direct_postgres_query(self) -> _PreparedExecution | None:
+        return self._prepare_direct_connection_query()
 
     def _get_select_query_type(self) -> ast.SelectQueryType | ast.SelectSetQueryType | None:
         if self.select_query.type is not None:
@@ -631,6 +683,76 @@ class HogQLQueryExecutor:
         if not self.print_columns:
             self.print_columns = [column.name for column in description]
 
+    @tracer.start_as_current_span("HogQLQueryExecutor._execute_direct_clickhouse_query")
+    def _execute_direct_clickhouse_query(self) -> None:
+        assert self.direct_clickhouse_sql is not None
+        assert self.direct_clickhouse_source_id is not None
+
+        from clickhouse_connect.driver.exceptions import ClickHouseError
+
+        from posthog.temporal.data_imports.sources.clickhouse.clickhouse import ClickHouseConnectionError, _get_client
+
+        from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+
+        try:
+            source = ExternalDataSource.objects.get(team=self.team, id=self.direct_clickhouse_source_id)
+        except ExternalDataSource.DoesNotExist as e:
+            raise ExposedHogQLError("Connection not found or has been deleted") from e
+
+        clickhouse_source, source_config = validate_direct_clickhouse_source_config(source, self.team)
+        settings = self._effective_direct_postgres_settings()
+        statement_timeout_seconds = max(
+            settings.max_execution_time or DIRECT_CLICKHOUSE_DEFAULT_STATEMENT_TIMEOUT_SECONDS, 1
+        )
+
+        span = trace.get_current_span()
+        span.set_attribute("team_id", self.team.pk)
+        span.set_attribute("query_type", self.query_type)
+        span.set_attribute("source_id", self.direct_clickhouse_source_id)
+
+        try:
+            with self.timings.measure("clickhouse_direct_execute"):
+                with clickhouse_source.with_ssh_tunnel(source_config) as (host, port):
+                    client = _get_client(
+                        host=host,
+                        port=port,
+                        database=source_config.database,
+                        user=source_config.user,
+                        password=source_config.password,
+                        secure=source_config.secure,
+                        verify=source_config.verify,
+                        query_timeout=statement_timeout_seconds,
+                        settings={"readonly": 2},
+                    )
+                    try:
+                        result = client.query(
+                            self.direct_clickhouse_sql,
+                            parameters=self.direct_clickhouse_values or None,
+                        )
+                    finally:
+                        client.close()
+        except (ClickHouseConnectionError, ClickHouseError, ExposedHogQLError) as error:
+            span.set_attribute("error_type", error.__class__.__name__)
+            if self.debug:
+                self.results = []
+                self.error = clickhouse_error_to_message(error)
+                self.types = []
+                return
+            raise ExposedHogQLError(clickhouse_error_to_message(error)) from error
+
+        rows = list(result.result_rows)
+        column_names = [str(column_name) for column_name in (getattr(result, "column_names", None) or [])]
+        column_types = getattr(result, "column_types", None) or []
+
+        span.set_attribute("row_count", len(rows))
+        self.results = rows
+        self.types = [
+            (column_name, str(column_types[index]) if index < len(column_types) else "String")
+            for index, column_name in enumerate(column_names)
+        ]
+        if not self.print_columns:
+            self.print_columns = column_names
+
     @tracer.start_as_current_span("HogQLQueryExecutor._generate_clickhouse_sql")
     def _generate_clickhouse_sql(self):
         settings = get_default_hogql_global_settings(self.team.pk, self.settings)
@@ -704,7 +826,7 @@ class HogQLQueryExecutor:
         with self.timings.measure("_generate_hogql"):
             self._generate_hogql()
 
-        direct_execution = self._prepare_direct_postgres_query()
+        direct_execution = self._prepare_direct_connection_query()
         if direct_execution is not None:
             return direct_execution
 
@@ -719,7 +841,7 @@ class HogQLQueryExecutor:
             engine="clickhouse",
         )
 
-    def _execute_raw_direct_postgres_query(self) -> None:
+    def _execute_raw_direct_connection_query(self) -> None:
         if not isinstance(self.query, str):
             raise ExposedHogQLError("Sending a raw query requires a raw query string.")
 
@@ -731,9 +853,21 @@ class HogQLQueryExecutor:
         if source is None:
             raise ExposedHogQLError("Sending a raw query requires a valid connection.")
         self.connection_id = str(source.id)
-        self.direct_postgres_source_id = self.connection_id
-        self.direct_postgres_sql = str(self.query)
-        self._execute_direct_postgres_query()
+        if source.is_direct_clickhouse:
+            self.direct_clickhouse_source_id = self.connection_id
+            self.direct_clickhouse_sql = str(self.query)
+            self._execute_direct_clickhouse_query()
+            return
+        if source.is_direct_postgres:
+            self.direct_postgres_source_id = self.connection_id
+            self.direct_postgres_sql = str(self.query)
+            self._execute_direct_postgres_query()
+            return
+
+        raise ExposedHogQLError("Invalid direct connection.")
+
+    def _execute_raw_direct_postgres_query(self) -> None:
+        self._execute_raw_direct_connection_query()
 
     def _capture_send_raw_query_translation_error(self) -> None:
         """Try a post-success HogQL translation for raw queries.
@@ -850,20 +984,22 @@ class HogQLQueryExecutor:
     @tracer.start_as_current_span("HogQLQueryExecutor.execute")
     def execute(self) -> HogQLQueryResponse:
         if self.send_raw_query and self.connection_id is not None:
-            self._execute_raw_direct_postgres_query()
+            self._execute_raw_direct_connection_query()
             self._capture_send_raw_query_translation_error()
         else:
             prepared_execution = self._prepare_execution()
 
             if prepared_execution.engine == "direct_postgres":
                 self._execute_direct_postgres_query()
+            elif prepared_execution.engine == "direct_clickhouse":
+                self._execute_direct_clickhouse_query()
             elif self.clickhouse_sql is not None:
                 self._execute_clickhouse_query()
 
         return HogQLQueryResponse(
             query=self.query,
             hogql=self.hogql,
-            clickhouse=self.direct_postgres_sql or self.clickhouse_sql,
+            clickhouse=self.direct_postgres_sql or self.direct_clickhouse_sql or self.clickhouse_sql,
             error=self.error,
             timings=self.timings.to_list(),
             results=self.results,

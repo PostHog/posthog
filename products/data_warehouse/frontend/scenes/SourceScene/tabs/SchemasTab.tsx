@@ -161,7 +161,12 @@ export const SchemasTab = ({ id }: SchemasTabProps): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     const isDirectQuerySource =
         !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && source?.access_method === 'direct'
-    const directQueryDefaultSchema = typeof source?.job_inputs?.schema === 'string' ? source.job_inputs.schema : null
+    const directQueryDefaultSchema =
+        typeof source?.job_inputs?.schema === 'string'
+            ? source.job_inputs.schema
+            : typeof source?.job_inputs?.database === 'string'
+              ? source.job_inputs.database
+              : null
     const groupedDirectQuerySchemas = groupDirectQuerySourceSchemasBySchema(filteredSchemas, directQueryDefaultSchema)
 
     return (
@@ -436,10 +441,14 @@ export const SchemaTable = ({
     const { currentTeam } = useValues(teamLogic)
     const { schemaReloadingById } = useValues(sourceManagementLogic)
     const [initialLoad, setInitialLoad] = useState(true)
-    const directQueryDefaultSchema = typeof source?.job_inputs?.schema === 'string' ? source.job_inputs.schema : null
+    const directQueryDefaultSchema =
+        typeof source?.job_inputs?.schema === 'string'
+            ? source.job_inputs.schema
+            : typeof source?.job_inputs?.database === 'string'
+              ? source.job_inputs.database
+              : null
     const groupedDirectQuerySchemas = groupDirectQuerySourceSchemasBySchema(schemas, directQueryDefaultSchema)
-    const groupedSchemaKeys = groupedDirectQuerySchemas.map((group) => group.schemaName)
-    const groupedSchemaKeysFingerprint = groupedSchemaKeys.join('|')
+    const groupedSchemaKeysFingerprint = groupedDirectQuerySchemas.map((group) => group.schemaName).join('|')
     const [expandedSchemaKeys, setExpandedSchemaKeys] = useState<string[]>([])
 
     useEffect(() => {
@@ -452,6 +461,8 @@ export const SchemaTable = ({
         if (!isDirectQuerySource) {
             return
         }
+
+        const groupedSchemaKeys = groupedSchemaKeysFingerprint ? groupedSchemaKeysFingerprint.split('|') : []
 
         setExpandedSchemaKeys((currentKeys) => {
             const nextKeys = currentKeys.filter((key) => groupedSchemaKeys.includes(key))

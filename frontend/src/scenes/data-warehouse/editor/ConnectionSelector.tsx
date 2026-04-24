@@ -8,6 +8,7 @@ import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 
 import {
+    ADD_CLICKHOUSE_DIRECT_CONNECTION,
     ADD_POSTGRES_DIRECT_CONNECTION,
     CONFIGURE_SOURCES,
     POSTHOG_WAREHOUSE,
@@ -57,6 +58,11 @@ export function ConnectionSelector(): JSX.Element | null {
 
                 if (nextValue === ADD_POSTGRES_DIRECT_CONNECTION) {
                     router.actions.push(urls.dataWarehouseSourceNew('Postgres', undefined, undefined, 'direct'))
+                    return
+                }
+
+                if (nextValue === ADD_CLICKHOUSE_DIRECT_CONNECTION) {
+                    router.actions.push(urls.dataWarehouseSourceNew('ClickHouse', undefined, undefined, 'direct'))
                     return
                 }
 

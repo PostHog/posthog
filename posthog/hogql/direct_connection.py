@@ -12,7 +12,8 @@ from products.data_warehouse.backend.models import ExternalDataSource
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
-    from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
+    from posthog.temporal.data_imports.sources.clickhouse.source import ClickHouseSource
+    from posthog.temporal.data_imports.sources.generated_configs import ClickHouseSourceConfig, PostgresSourceConfig
     from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
 
@@ -96,3 +97,30 @@ def validate_direct_postgres_source_config(
         raise ExposedHogQLError(host_errors or "Invalid Postgres host.")
 
     return postgres_source, config
+
+
+def validate_direct_clickhouse_source_config(
+    source: ExternalDataSource, team: "Team"
+) -> tuple["ClickHouseSource", "ClickHouseSourceConfig"]:
+    from posthog.temporal.data_imports.sources import SourceRegistry
+    from posthog.temporal.data_imports.sources.clickhouse.source import ClickHouseSource
+
+    from products.data_warehouse.backend.types import ExternalDataSourceType
+
+    if not source.is_direct_clickhouse:
+        raise ExposedHogQLError("Invalid direct ClickHouse connection.")
+
+    clickhouse_source = cast(ClickHouseSource, SourceRegistry.get_source(ExternalDataSourceType.CLICKHOUSE))
+    config = clickhouse_source.parse_config(source.job_inputs or {})
+
+    is_ssh_valid, ssh_valid_errors = clickhouse_source.ssh_tunnel_is_valid(config, team.pk)
+    if not is_ssh_valid:
+        raise ExposedHogQLError(ssh_valid_errors or "Invalid SSH tunnel configuration.")
+
+    valid_host, host_errors = clickhouse_source.is_database_host_valid(
+        config.host, team.pk, using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False
+    )
+    if not valid_host:
+        raise ExposedHogQLError(host_errors or "Invalid ClickHouse host.")
+
+    return clickhouse_source, config

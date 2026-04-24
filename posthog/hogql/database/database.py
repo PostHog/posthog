@@ -30,6 +30,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
@@ -427,7 +428,7 @@ class Database(BaseModel):
     @staticmethod
     def _is_helper_function_table(table: object) -> bool:
         return isinstance(table, FunctionCallTable) and not isinstance(
-            table, (DirectPostgresTable, PostgresTable, S3Table)
+            table, (DirectClickHouseTable, DirectPostgresTable, PostgresTable, S3Table)
         )
 
     def _remove_lazy_joins_to_disallowed_tables(self, allowed_table_names: set[str]) -> None:

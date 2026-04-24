@@ -33,6 +33,12 @@ from products.data_warehouse.backend.data_load.service import (
     trigger_external_data_workflow,
     unpause_external_data_schedule,
 )
+from products.data_warehouse.backend.direct_clickhouse import (
+    clickhouse_schema_metadata_to_dwh_columns,
+    get_direct_clickhouse_location,
+    hide_direct_clickhouse_table,
+    upsert_direct_clickhouse_table,
+)
 from products.data_warehouse.backend.direct_postgres import (
     get_direct_postgres_location,
     hide_direct_postgres_table,
@@ -330,26 +336,44 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             validated_data["sync_type_config"]["reset_pipeline"] = True
             trigger_refresh = True
 
-        if source.is_direct_postgres:
+        if source.is_direct_database:
             # We use "should_sync" to determine if the table should be exposed or hidden.
             if should_sync is True and instance.should_sync is False:
-                source_catalog, source_schema, source_table_name = get_direct_postgres_location(
-                    schema_name=instance.name,
-                    schema_metadata=instance.schema_metadata,
-                    default_schema=(source.job_inputs or {}).get("schema"),
-                )
-                validated_data["table"] = upsert_direct_postgres_table(
-                    instance.table,
-                    schema_name=instance.name,
-                    source=source,
-                    columns=postgres_schema_metadata_to_dwh_columns(instance.schema_metadata),
-                    source_catalog=source_catalog,
-                    source_schema=source_schema,
-                    source_table_name=source_table_name,
-                )
+                if source.is_direct_clickhouse:
+                    source_database, source_table_name = get_direct_clickhouse_location(
+                        schema_name=instance.name,
+                        schema_metadata=instance.schema_metadata,
+                        default_database=(source.job_inputs or {}).get("database"),
+                    )
+                    validated_data["table"] = upsert_direct_clickhouse_table(
+                        instance.table,
+                        schema_name=instance.name,
+                        source=source,
+                        columns=clickhouse_schema_metadata_to_dwh_columns(instance.schema_metadata),
+                        source_database=source_database,
+                        source_table_name=source_table_name,
+                    )
+                else:
+                    source_catalog, source_schema, source_table_name = get_direct_postgres_location(
+                        schema_name=instance.name,
+                        schema_metadata=instance.schema_metadata,
+                        default_schema=(source.job_inputs or {}).get("schema"),
+                    )
+                    validated_data["table"] = upsert_direct_postgres_table(
+                        instance.table,
+                        schema_name=instance.name,
+                        source=source,
+                        columns=postgres_schema_metadata_to_dwh_columns(instance.schema_metadata),
+                        source_catalog=source_catalog,
+                        source_schema=source_schema,
+                        source_table_name=source_table_name,
+                    )
 
             if should_sync is False and instance.should_sync is True:
-                hide_direct_postgres_table(instance.table)
+                if source.is_direct_clickhouse:
+                    hide_direct_clickhouse_table(instance.table)
+                else:
+                    hide_direct_postgres_table(instance.table)
 
         # CDC publication management: add/remove table when toggling should_sync
         is_cdc = (sync_type == ExternalDataSchema.SyncType.CDC) or (
@@ -667,8 +691,11 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def delete_data(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
 
-        if instance.source.is_direct_postgres:
-            hide_direct_postgres_table(instance.table)
+        if instance.source.is_direct_database:
+            if instance.source.is_direct_clickhouse:
+                hide_direct_clickhouse_table(instance.table)
+            else:
+                hide_direct_postgres_table(instance.table)
             instance.should_sync = False
             instance.save(update_fields=["should_sync", "updated_at"])
             return Response(status=status.HTTP_200_OK)

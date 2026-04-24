@@ -709,12 +709,14 @@ export const AccessMethodEnumApi = {
 } as const
 
 /**
- * * `duckdb` - duckdb
+ * * `clickhouse` - clickhouse
+ * `duckdb` - duckdb
  * `postgres` - postgres
  */
 export type EngineEnumApi = (typeof EngineEnumApi)[keyof typeof EngineEnumApi]
 
 export const EngineEnumApi = {
+    Clickhouse: 'clickhouse',
     Duckdb: 'duckdb',
     Postgres: 'postgres',
 } as const
@@ -753,6 +755,7 @@ export interface ExternalDataSourceSerializersApi {
     readonly access_method: AccessMethodEnumApi
     /** Backend engine detected for the direct connection.
 
+* `clickhouse` - clickhouse
 * `duckdb` - duckdb
 * `postgres` - postgres */
     readonly engine: EngineEnumApi | NullEnumApi | null
@@ -980,6 +983,7 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly access_method?: AccessMethodEnumApi
     /** Backend engine detected for the direct connection.
 
+* `clickhouse` - clickhouse
 * `duckdb` - duckdb
 * `postgres` - postgres */
     readonly engine?: EngineEnumApi | NullEnumApi | null
@@ -1048,6 +1052,7 @@ export interface ExternalDataSourceConnectionOptionApi {
     readonly prefix: string | null
     /** Backend engine detected for the direct connection.
 
+* `clickhouse` - clickhouse
 * `duckdb` - duckdb
 * `postgres` - postgres */
     readonly engine: EngineEnumApi | NullEnumApi | null

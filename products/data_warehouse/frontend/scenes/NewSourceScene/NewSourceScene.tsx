@@ -38,7 +38,7 @@ import { availableSourcesLogic } from './availableSourcesLogic'
 import { BillingLimitNotice } from './components/BillingLimitNotice'
 import { SelfManagedSourceForm } from './components/SelfManagedSourceForm'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
-import { sourceWizardLogic } from './sourceWizardLogic'
+import { isDirectQuerySource, sourceWizardLogic } from './sourceWizardLogic'
 
 export const getEffectiveAccessMethod = (
     currentStep: number,
@@ -141,7 +141,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
     )
     const showAccessMethodSelector =
         currentStep === 2 &&
-        selectedConnector?.name === 'Postgres' &&
+        isDirectQuerySource(selectedConnector?.name) &&
         !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
     const { tableLoading: manualLinkIsLoading } = useValues(selfManagedSourceLogic)
 

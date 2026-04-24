@@ -1064,8 +1064,20 @@ class BasePrinter(Visitor[str]):
     def _render_connection_supported_function(self, node: "ast.Call") -> str | None:
         """Pass a function call through unchanged if the underlying connection supports it.
 
-        Only HogQL (used against a direct-Postgres connection) opts in; other dialects return None.
+        Direct connections can opt in via context metadata; other dialects return None.
         """
+        if self.context.connection_function_passthrough:
+            if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", node.name):
+                raise QueryError(f"Unsupported function call '{node.name}': function name contains invalid characters.")
+            params = [self.visit(param) for param in node.params] if node.params is not None else None
+            params_part = f"({', '.join(params)})" if params is not None else ""
+            order_by_part = f" ORDER BY {', '.join(self.visit(o) for o in node.order_by)}" if node.order_by else ""
+            filter_part = f" FILTER (WHERE {self.visit(node.filter_expr)})" if node.filter_expr else ""
+            distinct_part = "DISTINCT " if node.distinct else ""
+            return (
+                f"{node.name}{params_part}("
+                f"{distinct_part}{', '.join([self.visit(arg) for arg in node.args])}{order_by_part}){filter_part}"
+            )
         return None
 
     def _render_function_call(self, node: "ast.Call", func_meta) -> str:

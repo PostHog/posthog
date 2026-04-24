@@ -3,9 +3,18 @@ import {
     getDatabaseSchemaPayload,
     getErrorsForFields,
     getInitialSourceConnectionDetailsValues,
+    isDirectQuerySource,
 } from '../sourceWizardLogic'
 
 describe('sourceWizardLogic', () => {
+    describe('isDirectQuerySource', () => {
+        it('allows Postgres and ClickHouse direct query sources', () => {
+            expect(isDirectQuerySource('Postgres')).toBe(true)
+            expect(isDirectQuerySource('ClickHouse')).toBe(true)
+            expect(isDirectQuerySource('Stripe')).toBe(false)
+        })
+    })
+
     describe('getDatabaseSchemaPayload', () => {
         it('includes the selected access method for schema discovery', () => {
             expect(

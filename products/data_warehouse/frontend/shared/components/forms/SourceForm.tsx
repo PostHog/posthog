@@ -45,6 +45,11 @@ const CONNECTION_STRING_DEFAULT_PORT: Record<string, number> = {
     Redshift: 5439,
 }
 
+const DIRECT_QUERY_SOURCE_NAMES = new Set(['ClickHouse', 'Postgres'])
+
+const isDirectQuerySource = (sourceName?: string | null): boolean =>
+    !!sourceName && DIRECT_QUERY_SOURCE_NAMES.has(sourceName)
+
 export function SourceAccessMethodSelector({
     value,
     onChange,
@@ -81,7 +86,7 @@ export function SourceAccessMethodSelector({
                                     </LemonTag>
                                 </div>
                                 <div className="text-xs text-secondary">
-                                    Run queries live against this Postgres connection. Data from this source can&apos;t
+                                    Run queries live against this database connection. Data from this source can&apos;t
                                     be joined with PostHog data.
                                 </div>
                             </div>
@@ -641,10 +646,12 @@ export function SourceFormComponent({
     const [selectedAccessMethod, setSelectedAccessMethod] = React.useState<'warehouse' | 'direct'>(
         initialAccessMethod ?? 'warehouse'
     )
-    const isPostgresDirectQuery =
-        sourceConfig.name === 'Postgres' &&
+    const isDirectQueryMode =
+        isDirectQuerySource(sourceConfig.name) &&
         !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
         selectedAccessMethod === 'direct'
+    const directQuerySourceLabel = sourceConfig.label ?? sourceConfig.name
+    const jobInputsFingerprint = JSON.stringify(jobInputs)
 
     useEffect(() => {
         if (initialAccessMethod) {
@@ -658,7 +665,7 @@ export function SourceFormComponent({
                 setSourceConfigValue(['payload', input], jobInputs[input])
             }
         }
-    }, [JSON.stringify(jobInputs), setSourceConfigValue, jobInputs])
+    }, [jobInputsFingerprint, setSourceConfigValue, jobInputs])
 
     const isUpdateMode = !!setSourceConfigValue
 
@@ -669,7 +676,7 @@ export function SourceFormComponent({
     return (
         <div className="space-y-4 ph-no-capture">
             {!isUpdateMode &&
-                sourceConfig.name === 'Postgres' &&
+                isDirectQuerySource(sourceConfig.name) &&
                 showAccessMethodSelector &&
                 featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && (
                     <>
@@ -687,15 +694,15 @@ export function SourceFormComponent({
                         <LemonDivider />
                     </>
                 )}
-            {isPostgresDirectQuery && (
+            {isDirectQueryMode && (
                 <LemonField
                     name="prefix"
                     label="Name"
-                    help="Required. This name is shown in the query editor when selecting a Postgres connection."
+                    help={`Required. This name is shown in the query editor when selecting a ${directQuerySourceLabel} connection.`}
                 >
                     {({ value, onChange }) => {
                         const validationError = value && !value.trim() ? 'Name cannot be empty whitespace' : ''
-                        const displayValue = value?.trim() || 'My Postgres database'
+                        const displayValue = value?.trim() || `My ${directQuerySourceLabel} database`
 
                         return (
                             <>
@@ -709,7 +716,10 @@ export function SourceFormComponent({
                                 />
                                 {validationError && <p className="text-danger text-xs mt-1">{validationError}</p>}
                                 <p className="mb-0">
-                                    Shown as: <strong>{displayValue} (Postgres)</strong>
+                                    Shown as:{' '}
+                                    <strong>
+                                        {displayValue} ({directQuerySourceLabel})
+                                    </strong>
                                 </p>
                             </>
                         )
@@ -735,14 +745,14 @@ export function SourceFormComponent({
             )}
             <Group name="payload">
                 {availableSources[sourceConfig.name].fields
-                    .filter((field) => !(isPostgresDirectQuery && field.type === 'ssh-tunnel'))
+                    .filter((field) => !(isDirectQueryMode && field.type === 'ssh-tunnel'))
                     .map((field) => sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name], isUpdateMode))}
             </Group>
             {!isUpdateMode &&
                 sourceConfig.name === 'Postgres' &&
                 featureFlags[FEATURE_FLAGS.DWH_POSTGRES_CDC] &&
                 selectedAccessMethod === 'warehouse' && <CDCConfigSection />}
-            {showPrefix && !isPostgresDirectQuery && (
+            {showPrefix && !isDirectQueryMode && (
                 <LemonField
                     name="prefix"
                     label="Table prefix (optional)"

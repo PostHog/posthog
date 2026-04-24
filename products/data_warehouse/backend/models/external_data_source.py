@@ -79,6 +79,14 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return self.is_direct_query and self.source_type == ExternalDataSourceType.POSTGRES
 
     @property
+    def is_direct_clickhouse(self) -> bool:
+        return self.is_direct_query and self.source_type == ExternalDataSourceType.CLICKHOUSE
+
+    @property
+    def is_direct_database(self) -> bool:
+        return self.is_direct_postgres or self.is_direct_clickhouse
+
+    @property
     def supports_scheduled_sync(self) -> bool:
         return not self.is_direct_query
 

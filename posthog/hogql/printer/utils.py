@@ -11,6 +11,7 @@ from posthog.hogql.errors import InternalHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team, set_default_in_cohort_via
 from posthog.hogql.printer.base import BasePrinter
 from posthog.hogql.printer.clickhouse import ClickHousePrinter
+from posthog.hogql.printer.direct_clickhouse import DirectClickHousePrinter
 from posthog.hogql.printer.duckdb import DuckDBPrinter
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
@@ -176,6 +177,13 @@ def print_prepared_ast(
         match dialect:
             case "clickhouse":
                 printer = ClickHousePrinter(
+                    context=context,
+                    stack=printer_stack,
+                    settings=settings,
+                    pretty=pretty,
+                )
+            case "direct_clickhouse":
+                printer = DirectClickHousePrinter(
                     context=context,
                     stack=printer_stack,
                     settings=settings,

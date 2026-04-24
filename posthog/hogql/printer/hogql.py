@@ -57,4 +57,4 @@ class HogQLPrinter(BasePrinter):
     def _render_connection_supported_function(self, node: ast.Call) -> str | None:
         if node.name.lower() in self._get_connection_supported_functions():
             return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
-        return None
+        return super()._render_connection_supported_function(node)

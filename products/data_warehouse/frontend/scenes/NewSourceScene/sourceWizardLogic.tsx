@@ -136,6 +136,11 @@ export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
     ],
 }
 
+const DIRECT_QUERY_SOURCE_NAMES = new Set(['ClickHouse', 'Postgres'])
+
+export const isDirectQuerySource = (sourceName?: string | null): boolean =>
+    !!sourceName && DIRECT_QUERY_SOURCE_NAMES.has(sourceName)
+
 export const buildKeaFormDefaultFromSourceDetails = (
     sourceDetails: Record<string, SourceConfig>
 ): Record<string, any> => {
@@ -672,7 +677,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             (s) => [s.source, s.selectedConnector, s.featureFlags],
             (source, selectedConnector, featureFlags): boolean =>
                 source.access_method === 'direct' &&
-                selectedConnector?.name === 'Postgres' &&
+                isDirectQuerySource(selectedConnector?.name) &&
                 !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY],
         ],
         canGoBack: [
@@ -814,7 +819,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
         directQueryDefaultSchema: [
             (s) => [s.source],
-            (source): string | null => (typeof source.payload.schema === 'string' ? source.payload.schema : null),
+            (source): string | null => {
+                if (typeof source.payload.schema === 'string') {
+                    return source.payload.schema
+                }
+                if (typeof source.payload.database === 'string') {
+                    return source.payload.database
+                }
+                return null
+            },
         ],
         groupedDirectQueryDatabaseSchema: [
             (s) => [s.databaseSchema, s.directQueryDefaultSchema],
@@ -1435,7 +1448,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 if (values.selectedConnector) {
                     const isDirectQueryMode =
                         !!values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
-                        values.selectedConnector.name === 'Postgres' &&
+                        isDirectQuerySource(values.selectedConnector.name) &&
                         sourceValues.access_method === 'direct'
                     const payload: Record<string, any> = {
                         ...sourceValues,

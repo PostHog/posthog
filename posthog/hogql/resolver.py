@@ -62,6 +62,7 @@ POSTGRES_KEYWORD_TYPES: dict[str, PostgresKeywordType] = {
 # DuckDB is Postgres-wire compatible and accepts nearly all PG-specific constructs, so it
 # takes the PG code path in the resolver.
 _POSTGRES_FAMILY: frozenset[HogQLDialect] = frozenset({"postgres", "duckdb"})
+_CLICKHOUSE_FAMILY: frozenset[HogQLDialect] = frozenset({"clickhouse", "direct_clickhouse"})
 
 
 def resolve_constant_data_type(constant: Any) -> ConstantType:
@@ -634,7 +635,7 @@ class Resolver(CloningVisitor):
         new_node.select_from = self.visit(node.select_from)
 
         if node.limit_percent and self.dialect not in _POSTGRES_FAMILY:
-            if self.dialect == "clickhouse":
+            if self.dialect in _CLICKHOUSE_FAMILY:
                 if not (isinstance(node.limit, ast.Constant) and isinstance(node.limit.value, (int, float))):
                     raise QueryError("LIMIT percent with expressions is not supported in clickhouse dialect")
             else:
@@ -1540,7 +1541,7 @@ class Resolver(CloningVisitor):
         return node
 
     def visit_array_slice(self, node: ast.ArraySlice):
-        if self.dialect not in _POSTGRES_FAMILY and self.dialect != "clickhouse":
+        if self.dialect not in _POSTGRES_FAMILY and self.dialect not in _CLICKHOUSE_FAMILY:
             raise QueryError(f"Array slices are not allowed in {self.dialect} dialect")
         node = cast(ast.ArraySlice, clone_expr(node))
         node.array = self.visit(node.array)
@@ -1671,7 +1672,7 @@ class Resolver(CloningVisitor):
                     )
                 return ast.Constant(value=value, type=global_type)
 
-            if self.dialect == "clickhouse":
+            if self.dialect in _CLICKHOUSE_FAMILY:
                 # To debug, add a breakpoint() here and print self.context.database
                 #
                 # from rich.pretty import pprint
@@ -1726,7 +1727,7 @@ class Resolver(CloningVisitor):
 
         if isinstance(node.type, ast.ExpressionFieldType):
             # only swap out expression fields in ClickHouse
-            if self.dialect == "clickhouse":
+            if self.dialect in _CLICKHOUSE_FAMILY:
                 new_expr = clone_expr(node.type.expr)
                 new_node: ast.Expr = ast.Alias(alias=node.type.name, expr=new_expr, hidden=True)
 
@@ -1770,7 +1771,7 @@ class Resolver(CloningVisitor):
     def visit_array_access(self, node: ast.ArrayAccess):
         node = super().visit_array_access(node)
 
-        if self.dialect == "clickhouse" and isinstance(node.property, ast.Constant) and node.property.value == 0:
+        if self.dialect in _CLICKHOUSE_FAMILY and isinstance(node.property, ast.Constant) and node.property.value == 0:
             raise QueryError("SQL indexes start from one, not from zero. E.g: array[1]")
 
         array = node.array
@@ -1801,7 +1802,7 @@ class Resolver(CloningVisitor):
     def visit_tuple_access(self, node: ast.TupleAccess):
         node = super().visit_tuple_access(node)
 
-        if self.dialect == "clickhouse" and node.index == 0:
+        if self.dialect in _CLICKHOUSE_FAMILY and node.index == 0:
             raise QueryError("SQL indexes start from one, not from zero. E.g: array.1")
 
         tuple = node.tuple
