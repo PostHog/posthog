@@ -126,7 +126,21 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                posthog.captureException(error)
+                // Loaders can reject with plain objects (e.g. DRF-style `{detail, status, ...}` payloads
+                // thrown without going through `ApiError`). posthog-js emits a noisy synthetic exception
+                // when given non-Error values, so wrap those while preserving the original payload.
+                if (error instanceof Error) {
+                    posthog.captureException(error, { reducerKey, actionKey })
+                } else {
+                    const wrappedMessage =
+                        (typeof error === 'object' && error !== null && (error.detail || error.statusText)) ||
+                        `Loader ${reducerKey}.${actionKey} failed`
+                    posthog.captureException(new Error(String(wrappedMessage)), {
+                        reducerKey,
+                        actionKey,
+                        originalError: error,
+                    })
+                }
             },
         }),
         subscriptionsPlugin,
