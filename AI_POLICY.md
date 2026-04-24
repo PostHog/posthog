@@ -7,9 +7,15 @@ This policy exists because of a growing volume of low-quality, AI-generated cont
 
 **You own what you submit.**
 Understand your code, test it, and be ready to explain why it's correct and how it interacts with the rest of the system (without re-prompting an LLM).
-This is no different from what we'd expect of any contribution.
-AI just makes it easier to skip the work.
-Don't skip the work.
+This is no different from what we'd expect of any contribution; AI makes it easier to skip the work – please don't skip the work.
+
+**Prove it works.**
+Before submitting, please verify the change actually works end-to-end — don't rely on "it compiles" or "tests pass" alone.
+
+- **Frontend changes:** include a short demo (screenshot, screen recording, or GIF) of the feature working in the PR description. Ideally you demo more than just the happy path.
+- **Backend changes:** add tests for new behavior, and describe your test strategy in the PR description: what you tested, how you tested it, and what edge cases you considered.
+
+PRs that clearly weren't run or tested will be closed under this policy.
 
 **Disclose AI usage.**
 Our [PR template](.github/pull_request_template.md) includes an LLM context section — please use it (most agents will pick it up automatically).

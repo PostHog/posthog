@@ -1,6 +1,6 @@
 {
     "name": "@posthog/quill",
-    "version": "0.1.2-alpha.0",
+    "version": "0.3.0-beta.0",
     "description": "PostHog's unified design system — primitives, components, and blocks designed to be compiled by the consumer's Tailwind v4.",
     "license": "MIT",
     "repository": {
@@ -27,6 +27,7 @@
         },
         "./tailwind.css": "./dist/tailwind.css",
         "./base.css": "./dist/base.css",
+        "./primitives.css": "./dist/primitives.css",
         "./tokens.css": "./dist/tokens.css",
         "./color-system.css": "./dist/color-system.css",
         "./tokens.scoped.css": "./dist/tokens.scoped.css",
@@ -49,8 +50,7 @@
         "cmdk": "^1.1.1",
         "lucide-react": "^0.577.0",
         "react-resizable-panels": "^4.7.1",
-        "tailwind-merge": "^2.2.2",
-        "vaul": "^1.1.2"
+        "tailwind-merge": "^2.2.2"
     },
     "devDependencies": {
         "@posthog/quill-blocks": "workspace:*",

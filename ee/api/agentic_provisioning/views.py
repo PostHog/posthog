@@ -14,6 +14,7 @@ from django.conf import settings
 from django.contrib.auth import login as auth_login
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.http import HttpResponseRedirect
 from django.http.response import HttpResponseBase
@@ -47,6 +48,7 @@ from posthog.models.utils import (
     generate_random_token_personal,
     mask_key_value,
 )
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.tasks.email import send_provisioning_welcome
 from posthog.utils import get_instance_region
 
@@ -68,12 +70,22 @@ DEEP_LINK_RATE_LIMIT_PREFIX = "agentic_login_rate:"
 DEEP_LINK_RATE_LIMIT_MAX_ATTEMPTS = 10
 DEEP_LINK_RATE_LIMIT_WINDOW_SECONDS = 300
 
-ACCOUNT_REQUEST_PARTNER_RATE_LIMIT_PREFIX = "agentic_provisioning_account_requests_partner_rate:"
-ACCOUNT_REQUEST_PARTNER_RATE_LIMIT_WINDOW_SECONDS = 3600
-
 CIMD_DOMAIN_RATE_LIMIT_PREFIX = "cimd_registration_domain_rate:"
 CIMD_DOMAIN_RATE_LIMIT_MAX = 5
 CIMD_DOMAIN_RATE_LIMIT_WINDOW_SECONDS = 3600
+
+PARTNER_RATE_LIMIT_PREFIX = "provisioning_partner_rate:"
+PARTNER_RATE_LIMIT_WINDOW_SECONDS = 3600
+PARTNER_RATE_LIMIT_DEFAULTS: dict[str, int] = {
+    "account_requests": 10,
+    "token_exchanges": 20,
+    "resource_creates": 20,
+}
+PARTNER_RATE_LIMIT_EVENT_NAMES: dict[str, str] = {
+    "account_requests": "account_request",
+    "token_exchanges": "token_exchange",
+    "resource_creates": "resource_created",
+}
 
 _SAFE_STATE_RE = re.compile(r"^[A-Za-z0-9_\-]{1,256}$")
 
@@ -290,9 +302,6 @@ def account_requests(request: Request) -> Response:
             status=202,
         )
 
-    if partner and (error := _enforce_partner_account_request_rate_limit(partner)):
-        return error
-
     # --- Parse request ---
     data = request.data
     request_id = data.get("id", "")
@@ -360,6 +369,9 @@ def account_requests(request: Request) -> Response:
             },
             status=403,
         )
+
+    if partner and (error := _enforce_partner_rate_limit(partner, "account_requests")):
+        return error
 
     # PKCE: capture code_challenge for later verification
     code_challenge = data.get("code_challenge", "")
@@ -931,7 +943,20 @@ def _exchange_authorization_code(request: Request) -> Response:
         if error := _verify_hmac_if_present(request):
             return error
 
+    # Consume the code before rate limiting so a leaked auth code can't be replayed
+    # to burn the partner's bucket. Auth codes are single-use by spec, so the
+    # tradeoff (rate-limited client loses the code) is acceptable — clients can
+    # re-initiate the OAuth flow if rate-limited.
     cache.delete(cache_key)
+
+    partner_id = code_data.get("partner_id", "")
+    if partner_id:
+        try:
+            partner = OAuthApplication.objects.get(id=partner_id)
+            if error := _enforce_partner_rate_limit(partner, "token_exchanges"):
+                return error
+        except (OAuthApplication.DoesNotExist, ValidationError, ValueError):
+            logger.warning("partner_rate_limit_app_missing", partner_id=partner_id)
 
     user_id = code_data["user_id"]
     team_id = code_data["team_id"]
@@ -1006,6 +1031,13 @@ def _exchange_refresh_token(request: Request) -> Response:
     user = old_refresh.user
     scoped_teams = old_refresh.scoped_teams
     old_scope = old_refresh.access_token.scope if old_refresh.access_token else StripeIntegration.SCOPES
+
+    # provisioning_partner_type is a stable marker set at partner registration;
+    # checking it instead of is_provisioning_partner prevents a bypass when an admin
+    # clears provisioning_auth_method to disable a partner without revoking tokens.
+    if oauth_app and oauth_app.provisioning_partner_type:
+        if error := _enforce_partner_rate_limit(oauth_app, "token_exchanges"):
+            return error
 
     old_access = old_refresh.access_token
     old_refresh.access_token = None
@@ -1162,12 +1194,16 @@ def _resolve_or_create_project_team(
     user: User,
     configuration: dict,
     access_token: OAuthAccessToken,
-) -> tuple[Team, list[int]]:
+) -> tuple[Team | None, list[int]]:
     """Look up or create a team for the given project_id.
 
     Uses TeamProvisioningConfig (DB-backed with unique constraint) for the
     project_id → team_id mapping. This ensures idempotency even across cache
     evictions and handles race conditions via IntegrityError.
+
+    Returns (None, scoped_teams) when an existing team is resolved but the
+    authenticated user lacks team-level access (honors advanced permissions
+    / access controls on top of org membership).
     """
     from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 
@@ -1180,9 +1216,14 @@ def _resolve_or_create_project_team(
         .first()
     )
     if existing:
+        if not _user_can_access_team(user, existing.team):
+            return None, scoped_teams
         return _ensure_team_in_token_scopes(access_token, scoped_teams, existing.team)
 
     base_team = Team.objects.get(id=scoped_teams[0])
+    if not _user_can_access_team(user, base_team):
+        return None, scoped_teams
+
     project_name = configuration.get("project_name", "Default project")
     new_team = Team.objects.create_with_data(
         initiating_user=user,
@@ -1206,6 +1247,8 @@ def _resolve_or_create_project_team(
             .first()
         )
         if race_winner:
+            if not _user_can_access_team(user, race_winner.team):
+                return None, scoped_teams
             return _ensure_team_in_token_scopes(access_token, scoped_teams, race_winner.team)
         raise _ProjectIdCollisionError(project_id)
 
@@ -1227,6 +1270,17 @@ def _ensure_team_in_token_scopes(
         return team, scoped_teams
     _add_team_to_token_scopes(access_token, team.id)
     return team, [*scoped_teams, team.id]
+
+
+def _user_can_access_team(user: User, team: Team) -> bool:
+    """Verify the user has at least member-level access to the team.
+
+    Org membership alone does not prove access for advanced-permissions
+    orgs that restrict individual teams. Without this check the agentic
+    provisioning resolve flow could grant scoped access to a private team
+    as long as the user had any team in the same org.
+    """
+    return UserAccessControl(user=user, team=team).check_access_level_for_object(team, required_level="member")
 
 
 def _add_team_to_token_scopes(access_token: OAuthAccessToken, team_id: int) -> None:
@@ -1286,6 +1340,17 @@ def provisioning_resources_create(request: Request) -> Response:
     if error := verify_api_version(request):
         return error
 
+    app = access_token.application
+    if app and app.provisioning_partner_type:
+        if error := _enforce_partner_rate_limit(app, "resource_creates"):
+            # Resource endpoints use {"status": "error"} envelope, not {"type": "error"}
+            retry_after = error["Retry-After"] if "Retry-After" in error else "3600"
+            response = _error_response(
+                "rate_limited", "Rate limit exceeded for this partner. Try again later.", status=429
+            )
+            response["Retry-After"] = retry_after
+            return response
+
     service_id = request.data.get("service_id", "")
     if service_id and service_id not in VALID_SERVICE_IDS:
         _capture_provisioning_event("resource_created", "error", error_code="unknown_service")
@@ -1314,6 +1379,9 @@ def provisioning_resources_create(request: Request) -> Response:
                 "Project ID already linked to another organization",
                 status=409,
             )
+        if team is None:
+            _capture_provisioning_event("resource_created", "error", error_code="not_found", project_id=project_id)
+            return _error_response("not_found", "Resource not found", status=404)
     else:
         team_id = scoped_teams[0]
         try:
@@ -1804,39 +1872,59 @@ def _partner_label(partner: OAuthApplication | None) -> str:
     return "Stripe"
 
 
-def _enforce_partner_account_request_rate_limit(partner: OAuthApplication) -> Response | None:
-    """Enforce the partner's per-hour account_requests limit if one is configured.
+def _enforce_partner_rate_limit(partner: OAuthApplication, endpoint: str) -> Response | None:
+    """Enforce per-partner rate limit using the model's override or a conservative default.
 
-    Uses a fixed-window counter keyed on partner id + hour-of-epoch. Self-serve
-    CIMD partners get a low default on first registration; admins can raise it.
+    Returns a 429 Response if the limit is exceeded, or None if the request is allowed.
+    Setting the model field to 0 disables rate limiting for that endpoint.
+
+    Uses a fixed-window counter keyed on partner id + window-of-epoch. A partner can
+    burst up to 2x the limit across a window boundary (`limit` at :59:59 plus `limit`
+    at :00:00); switch to a sliding window if that matters.
     """
-    limit = partner.provisioning_rate_limit_account_requests
-    if not limit or limit <= 0:
+    if endpoint not in PARTNER_RATE_LIMIT_DEFAULTS:
+        raise ValueError(f"Unknown rate limit endpoint: {endpoint}")
+
+    field_name = f"provisioning_rate_limit_{endpoint}"
+    override = getattr(partner, field_name, None)
+
+    if override is not None:
+        limit = override
+    else:
+        limit = PARTNER_RATE_LIMIT_DEFAULTS.get(endpoint, 10)
+
+    if limit <= 0:
         return None
 
-    window_index = int(time.time()) // ACCOUNT_REQUEST_PARTNER_RATE_LIMIT_WINDOW_SECONDS
-    key = f"{ACCOUNT_REQUEST_PARTNER_RATE_LIMIT_PREFIX}{partner.id}:{window_index}"
+    window_index = int(time.time()) // PARTNER_RATE_LIMIT_WINDOW_SECONDS
+    cache_key = f"{PARTNER_RATE_LIMIT_PREFIX}{endpoint}:{partner.id}:{window_index}"
+
     try:
-        count = cache.incr(key)
-    except ValueError:
-        # cache.add is atomic set-if-not-exists; safe under concurrent initialization.
-        cache.add(key, 0, timeout=ACCOUNT_REQUEST_PARTNER_RATE_LIMIT_WINDOW_SECONDS)
-        count = cache.incr(key)
+        cache.add(cache_key, 0, timeout=PARTNER_RATE_LIMIT_WINDOW_SECONDS)
+        count = cache.incr(cache_key)
+    except (ValueError, ConnectionError, TimeoutError) as e:
+        logger.warning("partner_rate_limit_cache_error", endpoint=endpoint, partner_id=str(partner.id), error=str(e))
+        # cache.add preserves any counter a concurrent request already initialized,
+        # so a transient cache error doesn't reset the window for a partner at the limit.
+        cache.add(cache_key, 1, timeout=PARTNER_RATE_LIMIT_WINDOW_SECONDS)
+        count = 1
 
     if count > limit:
-        _capture_provisioning_event(
-            "account_request", "rate_limited", partner_id=str(partner.id), limit=limit, count=count
-        )
-        return Response(
+        event_name = PARTNER_RATE_LIMIT_EVENT_NAMES.get(endpoint, endpoint)
+        _capture_provisioning_event(event_name, "rate_limited", partner_id=str(partner.id), limit=limit, count=count)
+        retry_after = PARTNER_RATE_LIMIT_WINDOW_SECONDS - (int(time.time()) % PARTNER_RATE_LIMIT_WINDOW_SECONDS)
+        response = Response(
             {
                 "type": "error",
                 "error": {
                     "code": "rate_limited",
-                    "message": "Account request rate limit exceeded for this partner. Try again later.",
+                    "message": f"Rate limit exceeded for this partner ({endpoint}). Try again later.",
                 },
             },
             status=429,
         )
+        response["Retry-After"] = str(retry_after)
+        return response
     return None
 
 

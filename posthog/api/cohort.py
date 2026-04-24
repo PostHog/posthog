@@ -1371,6 +1371,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         )
         return Response({"success": True}, status=200)
 
+    @extend_schema(operation_id="cohorts_all_activity_retrieve")
     @action(
         methods=["GET"],
         url_path="activity",

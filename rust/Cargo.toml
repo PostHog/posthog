@@ -139,7 +139,7 @@ time = { version = "0.3.36", features = [
     "serde",
 ] }
 thiserror = { version = "2.0" }
-tokio = { version = "1.34.0", features = ["full"] }
+tokio = { version = "1.51.1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["time"] }
 tower = { version = "0.4.13", features = ["limit", "timeout", "util"] }
 tower-http = { version = "0.5.2", features = ["cors", "decompression-br", "decompression-deflate", "decompression-gzip", "decompression-zstd", "limit", "trace"] }
@@ -161,7 +161,7 @@ regex = "1.11.1"
 fancy-regex = "0.17"
 lz-str = "0.2.1"
 opentelemetry-proto = { version = "0.29.0", features = ["with-serde"] }
-tonic = "0.12.3"
+tonic = { version = "0.12.3", features = ["zstd"] }
 tonic-build = "0.12"
 clickhouse = { version = "0.13.2", features = [
     "uuid",

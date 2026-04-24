@@ -111,6 +111,7 @@ if settings.ADMIN_PORTAL_ENABLED:
         except NotRegistered:
             pass
 
+    from posthog.admin.admins.backfill_precalculated_events_admin import backfill_precalculated_events_view
     from posthog.admin.admins.backfill_precalculated_person_properties_admin import (
         backfill_precalculated_person_properties_view,
     )
@@ -172,6 +173,11 @@ if settings.ADMIN_PORTAL_ENABLED:
             "admin/resave-cohorts/",
             admin.site.admin_view(resave_cohorts_view),
             name="resave-cohorts",
+        ),
+        path(
+            "admin/backfill-precalculated-events/",
+            admin.site.admin_view(backfill_precalculated_events_view),
+            name="backfill-precalculated-events",
         ),
         path(
             "admin/backfill-precalculated-person-properties/",
