@@ -15,6 +15,16 @@ Use this when you want a remote PostHog dev environment instead of running the f
 **Connecting your IDE** —
 Open the workspace in VS Code (`hogli devbox:open --vscode`), Cursor (`--cursor`), or a browser-based editor (`--web`).
 
+**Running a background agent task** —
+Spin up a fresh devbox that runs a coding agent against a prompt, without taking over your current session:
+
+```bash
+hogli devbox:task "fix CI on PR #1234"
+cat prompt.txt | hogli devbox:task       # or pipe the prompt via stdin
+```
+
+See the upstream [Coder Tasks docs](https://coder.com/docs/ai-coder/tasks) for the execution model.
+
 **Sharing a workspace** —
 Grant a teammate access for pair debugging or to pick up where you left off:
 

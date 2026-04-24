@@ -7,7 +7,7 @@ from django.db.models import Q, QuerySet
 import structlog
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -35,6 +35,59 @@ from .metrics import llma_track_latency
 logger = structlog.get_logger(__name__)
 
 
+@extend_schema_field(
+    {
+        "oneOf": [
+            {
+                "type": "object",
+                "title": "LLM judge config",
+                "required": ["prompt"],
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.",
+                        "minLength": 1,
+                    }
+                },
+                "additionalProperties": False,
+            },
+            {
+                "type": "object",
+                "title": "Hog config",
+                "required": ["source"],
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "description": "Hog source code. Must return true (pass), false (fail), or null for N/A.",
+                        "minLength": 1,
+                    }
+                },
+                "additionalProperties": False,
+            },
+        ]
+    }
+)
+class _EvaluationConfigField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(
+    {
+        "type": "object",
+        "properties": {
+            "allows_na": {
+                "type": "boolean",
+                "description": "Whether the evaluation can return N/A for non-applicable generations.",
+                "default": False,
+            }
+        },
+        "additionalProperties": False,
+    }
+)
+class _OutputConfigField(serializers.JSONField):
+    pass
+
+
 class ModelConfigurationSerializer(serializers.Serializer):
     """Nested serializer for model configuration."""
 
@@ -60,6 +113,14 @@ class ModelConfigurationSerializer(serializers.Serializer):
 class EvaluationSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     model_configuration = ModelConfigurationSerializer(required=False, allow_null=True)
+    evaluation_config = _EvaluationConfigField(
+        required=False,
+        help_text="Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.",
+    )
+    output_config = _OutputConfigField(
+        required=False,
+        help_text="Output config. For 'boolean' output_type: {allows_na} to permit N/A results.",
+    )
 
     class Meta:
         model = Evaluation
@@ -91,11 +152,7 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "evaluation_type": {
                 "help_text": "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code."
             },
-            "evaluation_config": {
-                "help_text": "Configuration dict. For llm_judge: {'prompt': '...'}. For hog: {'source': '...'}."
-            },
             "output_type": {"help_text": "Output format. Currently only 'boolean' is supported."},
-            "output_config": {"help_text": "Optional output config, e.g. {'allows_na': true} to allow N/A results."},
             "conditions": {
                 "help_text": "Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each."
             },
@@ -262,6 +319,30 @@ class EvaluationFilter(django_filters.FilterSet):
         return queryset
 
 
+class EvaluationListSerializer(EvaluationSerializer):
+    """Slim list serializer for MCP callers — drops heavy per-item fields to save tokens.
+
+    Gated on the ``X-PostHog-Client: mcp`` header so the web UI keeps the full shape
+    it relies on (see `EvaluationViewSet.get_serializer_class`).
+    """
+
+    class Meta(EvaluationSerializer.Meta):
+        fields = [
+            f
+            for f in EvaluationSerializer.Meta.fields
+            if f
+            not in (
+                "evaluation_config",
+                "output_config",
+                "conditions",
+                "model_configuration",
+                "created_by",
+                "deleted",
+            )
+        ]
+        read_only_fields = [f for f in EvaluationSerializer.Meta.read_only_fields if f != "created_by"]
+
+
 class TestHogRequestSerializer(serializers.Serializer):
     source = serializers.CharField(
         required=True,
@@ -312,15 +393,24 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
     filter_backends = [DjangoFilterBackend]
     filterset_class = EvaluationFilter
 
+    @staticmethod
+    def _is_mcp_request(request: Request) -> bool:
+        return request.META.get("HTTP_X_POSTHOG_CLIENT") == "mcp"
+
+    def _wants_slim_list(self) -> bool:
+        return self.action == "list" and self._is_mcp_request(self.request)
+
+    def get_serializer_class(self):
+        if self._wants_slim_list():
+            return EvaluationListSerializer
+        return super().get_serializer_class()
+
     def safely_get_queryset(self, queryset: QuerySet[Evaluation]) -> QuerySet[Evaluation]:
-        queryset = (
-            queryset.filter(team_id=self.team_id)
-            .select_related("created_by", "model_configuration", "model_configuration__provider_key")
-            .order_by("-created_at")
-        )
+        queryset = queryset.filter(team_id=self.team_id).order_by("-created_at")
+        if not self._wants_slim_list():
+            queryset = queryset.select_related("created_by", "model_configuration", "model_configuration__provider_key")
         if not self.action.endswith("update"):
             queryset = queryset.filter(deleted=False)
-
         return queryset
 
     @staticmethod

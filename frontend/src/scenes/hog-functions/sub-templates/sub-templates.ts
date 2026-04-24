@@ -118,6 +118,13 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         filters: { events: [{ id: '$logs_alert_auto_disabled', type: 'events' }] },
         flag: FEATURE_FLAGS.LOGS_ALERTING,
     },
+    'logs-alert-errored': {
+        sub_template_id: 'logs-alert-errored',
+        type: 'internal_destination',
+        context_id: 'logs-alerting',
+        filters: { events: [{ id: '$logs_alert_errored', type: 'events' }] },
+        flag: FEATURE_FLAGS.LOGS_ALERTING,
+    },
 }
 
 export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, HogFunctionSubTemplateType[]> = {
@@ -973,6 +980,58 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
     ],
+    'logs-alert-errored': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['logs-alert-errored'],
+            template_id: 'template-webhook',
+            name: 'HTTP Webhook on log alert evaluation error',
+            description: 'Send a webhook when a log alert fails to evaluate',
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['logs-alert-errored'],
+            template_id: 'template-slack',
+            name: 'Post to Slack on log alert evaluation error',
+            description: 'Post to Slack when a log alert fails to evaluate',
+            inputs: {
+                blocks: {
+                    value: [
+                        {
+                            type: 'header',
+                            text: {
+                                type: 'plain_text',
+                                text: "Log alert '{event.properties.alert_name}' couldn't evaluate",
+                            },
+                        },
+                        {
+                            type: 'section',
+                            text: {
+                                type: 'mrkdwn',
+                                text: '*Reason:* {event.properties.error_message}\n*Failure count:* {event.properties.consecutive_failures}',
+                            },
+                        },
+                        {
+                            type: 'context',
+                            elements: [{ type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' }],
+                        },
+                        { type: 'divider' },
+                        {
+                            type: 'actions',
+                            elements: [
+                                {
+                                    url: '{project.url}/logs?alertId={event.properties.alert_id}',
+                                    text: { text: 'View alert', type: 'plain_text' },
+                                    type: 'button',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                text: {
+                    value: "Log alert '{event.properties.alert_name}' couldn't evaluate: {event.properties.error_message}",
+                },
+            },
+        },
+    ],
 }
 
 export const getSubTemplate = (
@@ -999,6 +1058,7 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
         case '$logs_alert_firing':
         case '$logs_alert_resolved':
         case '$logs_alert_auto_disabled':
+        case '$logs_alert_errored':
             return 'logs-alerting'
         default:
             return 'standard'

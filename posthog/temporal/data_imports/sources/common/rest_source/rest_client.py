@@ -1,6 +1,6 @@
 import copy
 import logging
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any, Optional
 from urllib.parse import urljoin
 
@@ -50,6 +50,8 @@ class RESTClient:
         paginator: Optional[BasePaginator] = None,
         data_selector: Optional[TJsonPath] = None,
         hooks: Optional[Hooks] = None,
+        resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = None,
+        initial_paginator_state: Optional[dict[str, Any]] = None,
     ) -> Iterator[list[Any]]:
         paginator = copy.deepcopy(paginator) if paginator else copy.deepcopy(self.paginator)
         hooks = hooks or {}
@@ -68,6 +70,8 @@ class RESTClient:
         )
 
         if paginator:
+            if initial_paginator_state is not None:
+                paginator.set_resume_state(initial_paginator_state)
             paginator.init_request(request)
 
         while True:
@@ -83,6 +87,9 @@ class RESTClient:
                 paginator.update_request(request)
 
             yield data
+
+            if resume_hook is not None:
+                resume_hook(paginator.get_resume_state() if paginator is not None and paginator.has_next_page else None)
 
             if paginator is None or not paginator.has_next_page:
                 break

@@ -95,7 +95,7 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
                     team_id=team_id,
                     redis_key_base=redis_key_base,
                     model_to_use=DEFAULT_VIDEO_UNDERSTANDING_MODEL,
-                    video_validation_enabled="full",
+                    video_based=True,
                 ),
                 id=SummarizeSingleSessionWorkflow.workflow_id_for(team_id, session_id),
                 task_queue=settings.SESSION_REPLAY_TASK_QUEUE,

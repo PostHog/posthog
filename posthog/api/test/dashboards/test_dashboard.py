@@ -357,15 +357,15 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 13):
+            with self.assertNumQueries(baseline + 11 + 12):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 13):
+            with self.assertNumQueries(baseline + 11 + 12):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
         self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-        with self.assertNumQueries(baseline + 11 + 13):
+        with self.assertNumQueries(baseline + 11 + 12):
             self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     @snapshot_postgres_queries
@@ -745,6 +745,31 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         ).data
         assert len(dashboard_data["tiles"]) == 1
 
+    def test_removing_already_soft_deleted_tile_is_idempotent(self):
+        """
+        Regression test: removing a tile whose underlying insight was already soft-deleted
+        (so the tile row itself has deleted=True via cascade) used to 500 with
+        IntegrityError on dash_tile_exactly_one_related_object, because update_or_create
+        looked up through the default manager that hides soft-deleted rows and then fell
+        through to CREATE with only {id, dashboard, deleted} fields set.
+        """
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "d"})
+        insight_id, _ = self.dashboard_api.create_insight(
+            {"filters": {"hello": "test"}, "dashboards": [dashboard_id], "name": "i"}
+        )
+        tile = DashboardTile.objects.get(insight_id=insight_id, dashboard_id=dashboard_id)
+
+        self.dashboard_api.soft_delete(insight_id, "insights")
+        tile.refresh_from_db()
+        assert tile.deleted is True, "cascade should mark the tile as soft-deleted when its insight is deleted"
+
+        _, body = self.dashboard_api.update_dashboard(
+            dashboard_id,
+            {"tiles": [{"id": tile.id, "deleted": True}]},
+        )
+        assert body["id"] == dashboard_id
+        assert DashboardTile.objects_including_soft_deleted.get(id=tile.id).deleted is True
+
     def test_dashboard_insight_tiles_can_be_loaded_correct_context(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
         insight_id, _ = self.dashboard_api.create_insight(
@@ -931,6 +956,53 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
         self.assertEqual(response["attr"], "use_template")
+
+    @parameterized.expand(
+        [
+            ("same_team_only_team", "self", "team", status.HTTP_201_CREATED),
+            ("global", "none", "global", status.HTTP_201_CREATED),
+            ("other_team_only_team", "other", "team", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_use_template_respects_team_scoping(self, _name: str, owner: str, scope: str, expected_status: int) -> None:
+        from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
+
+        if owner == "self":
+            template_team: Team | None = self.team
+        elif owner == "other":
+            other_org = Organization.objects.create(name="other org")
+            template_team = Team.objects.create(organization=other_org, name="other team")
+        else:
+            template_team = None
+
+        template_name = f"probe-{owner}"
+        DashboardTemplate.objects.create(
+            team=template_team,
+            template_name=template_name,
+            scope=scope,
+            dashboard_description="probe-description",
+            dashboard_filters={},
+            tiles=[{"type": "TEXT", "body": "probe-tile-body", "layouts": {}, "color": None}],
+            tags=["probe-tag"],
+        )
+
+        dashboard_id, response = self.dashboard_api.create_dashboard(
+            {"name": "probe", "use_template": template_name},
+            expected_status=expected_status,
+        )
+
+        if expected_status == status.HTTP_201_CREATED:
+            self.assertEqual(response["creation_mode"], "template")
+            dashboard = Dashboard.objects.get(id=dashboard_id, team=self.team)
+            self.assertEqual(dashboard.description, "probe-description")
+            tag_names = list(dashboard.tagged_items.values_list("tag__name", flat=True))
+            self.assertIn("probe-tag", tag_names)
+        else:
+            self.assertEqual(response["attr"], "use_template")
+            for dashboard in Dashboard.objects.filter(team=self.team, name="probe"):
+                self.assertNotIn("probe-description", dashboard.description or "")
+                tag_names = list(dashboard.tagged_items.values_list("tag__name", flat=True))
+                self.assertNotIn("probe-tag", tag_names)
 
     def test_dashboard_creation_validation(self):
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)

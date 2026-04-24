@@ -94,7 +94,7 @@ class TestFirebaseIntegration(BaseTest):
             sensitive_config={},
         )
 
-        with self.assertRaises(Exception, msg="FirebaseIntegration init called with Integration with wrong 'kind'"):
+        with self.assertRaisesMessage(Exception, "FirebaseIntegration init called with Integration with wrong 'kind'"):
             FirebaseIntegration(integration)
 
     @freeze_time("2024-01-01T00:00:00Z")

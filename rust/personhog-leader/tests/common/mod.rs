@@ -3,6 +3,8 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use dashmap::DashMap;
+
 use async_trait::async_trait;
 use common_kafka::config::KafkaConfig;
 use common_kafka::kafka_producer::{create_kafka_producer, KafkaContext};
@@ -30,6 +32,7 @@ use tonic::transport::{Channel, Server};
 
 pub const ETCD_ENDPOINT: &str = "http://localhost:2379";
 pub const KAFKA_BOOTSTRAP: &str = "localhost:9092";
+pub const PERSONS_DB_URL: &str = "postgres://posthog:posthog@localhost:5432/posthog_persons";
 pub const WAIT_TIMEOUT: Duration = Duration::from_secs(10);
 pub const POLL_INTERVAL: Duration = Duration::from_millis(100);
 pub const NUM_PARTITIONS: u32 = 4;
@@ -219,6 +222,8 @@ pub async fn start_leader_pod(
         Arc::clone(&cache),
         kafka_producer,
         CHANGELOG_TOPIC.to_string(),
+        None,
+        Arc::new(DashMap::new()),
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let leader_addr = listener.local_addr().unwrap();
@@ -274,6 +279,8 @@ pub async fn start_leader_pod_with_lease_ttl(
         Arc::clone(&cache),
         kafka_producer,
         CHANGELOG_TOPIC.to_string(),
+        None,
+        Arc::new(DashMap::new()),
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let leader_addr = listener.local_addr().unwrap();
@@ -324,4 +331,51 @@ pub fn test_cached_person() -> CachedPerson {
         version: 1,
         is_identified: false,
     }
+}
+
+/// Create a PG pool for the local persons database.
+pub async fn create_persons_pool() -> sqlx::postgres::PgPool {
+    sqlx::postgres::PgPool::connect(PERSONS_DB_URL)
+        .await
+        .expect("failed to connect to persons DB")
+}
+
+/// Start a leader service with PG fallback enabled (no etcd coordination).
+/// Returns the gRPC address and the shared cache for assertions.
+pub async fn start_leader_with_pg_fallback(
+    cancel: CancellationToken,
+) -> (
+    SocketAddr,
+    Arc<PartitionedCache>,
+    MockCluster<'static, DefaultProducerContext>,
+) {
+    let cache = Arc::new(PartitionedCache::new(100));
+    let (mock_cluster, kafka_producer) = create_test_kafka().await;
+    let pool = create_persons_pool().await;
+
+    let service = PersonHogLeaderService::new(
+        Arc::clone(&cache),
+        kafka_producer,
+        CHANGELOG_TOPIC.to_string(),
+        Some(pool),
+        Arc::new(DashMap::new()),
+    );
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let token = cancel.child_token();
+
+    tokio::spawn(async move {
+        Server::builder()
+            .add_service(PersonHogLeaderServer::new(service))
+            .serve_with_incoming_shutdown(
+                tokio_stream::wrappers::TcpListenerStream::new(listener),
+                token.cancelled(),
+            )
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    (addr, cache, mock_cluster)
 }

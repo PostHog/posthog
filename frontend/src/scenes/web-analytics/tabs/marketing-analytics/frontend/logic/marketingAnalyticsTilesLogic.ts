@@ -1,12 +1,14 @@
 import { connect, kea, path, selectors } from 'kea'
 
 import { isNotNil } from 'lib/utils'
+import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS, QueryTile, TileId, loadPriorityMap } from 'scenes/web-analytics/common'
 import { getDashboardItemId } from 'scenes/web-analytics/insightsUtils'
 
 import {
     CompareFilter,
     ConversionGoalFilter,
+    CurrencyCode,
     DataTableNode,
     DataWarehouseNode,
     IntegrationFilter,
@@ -51,6 +53,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 'tileColumnSelection',
                 'integrationFilter',
                 'drillDownLevel',
+                'baseCurrency',
             ],
             marketingAnalyticsTableLogic,
             ['query', 'defaultColumns'],
@@ -68,6 +71,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 s.draftConversionGoal,
                 s.integrationFilter,
                 s.drillDownLevel,
+                s.baseCurrency,
             ],
             (
                 compareFilter: CompareFilter | null,
@@ -82,7 +86,8 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 tileColumnSelection: validColumnsForTiles,
                 draftConversionGoal: ConversionGoalFilter | null,
                 integrationFilter: IntegrationFilter,
-                drillDownLevel: MarketingAnalyticsDrillDownLevel
+                drillDownLevel: MarketingAnalyticsDrillDownLevel,
+                baseCurrency: CurrencyCode
             ) => {
                 const createInsightProps = (tile: TileId, tab?: string): InsightLogicProps => {
                     return {
@@ -96,6 +101,8 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                     tileColumnSelection && isSchemaBackedMarketingColumn(tileColumnSelection)
                         ? MARKETING_ANALYTICS_SCHEMA[tileColumnSelection].isCurrency
                         : false
+
+                const { symbol: currencySymbol, isPrefix: currencyIsPrefix } = getCurrencySymbol(baseCurrency)
 
                 const tileColumnSelectionName = tileColumnSelection?.split('_').join(' ')
 
@@ -157,7 +164,9 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                                 trendsFilter: {
                                     display: chartDisplayType,
                                     aggregationAxisFormat: 'numeric',
-                                    aggregationAxisPrefix: isCurrency ? '$' : undefined,
+                                    aggregationAxisPrefix: isCurrency && currencyIsPrefix ? currencySymbol : undefined,
+                                    aggregationAxisPostfix:
+                                        isCurrency && !currencyIsPrefix ? ` ${currencySymbol}` : undefined,
                                 },
                             },
                         },

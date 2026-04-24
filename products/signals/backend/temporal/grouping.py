@@ -14,6 +14,7 @@ from django.utils import timezone
 import numpy as np
 import structlog
 import temporalio
+import posthoganalytics
 from pydantic import BaseModel, Field
 from temporalio import workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
@@ -22,6 +23,7 @@ from temporalio.workflow import ParentClosePolicy
 from posthog.schema import EmbeddingModelName
 
 from posthog.api.embedding_worker import async_generate_embedding, emit_embedding_request
+from posthog.event_usage import groups
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
@@ -750,11 +752,12 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             do_assign_and_emit, thread_sensitive=False
         )()
 
+        team = await Team.objects.select_related("organization").aget(pk=input.team_id)
+
         # If we matched a deleted report, soft-delete all its stale signals in ClickHouse.
         # This prevents data corruption where non-deleted signals for a deleted report
         # keep attracting new signals into the dead group.
         if matched_deleted:
-            team = await Team.objects.aget(pk=input.team_id)
             await database_sync_to_async(soft_delete_report_signals, thread_sensitive=False)(
                 report_id=report_id,
                 team_id=input.team_id,
@@ -766,6 +769,29 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 team_id=input.team_id,
                 signal_id=input.signal_id,
             )
+        else:
+            try:
+                posthoganalytics.capture(
+                    event="signal_assigned_to_report",
+                    distinct_id=str(team.uuid),
+                    properties={
+                        "source_product": input.source_product,
+                        "source_type": input.source_type,
+                        "source_id": input.source_id,
+                        "report_id": report_id,
+                        "is_new_report": isinstance(match_result, NewReportMatch),
+                        "promoted": promoted,
+                    },
+                    groups=groups(team.organization, team),
+                )
+            except Exception:
+                # Swallow the exception, to avoid breaking the flow over failed analytics event
+                logger.exception(
+                    "Failed to capture signal_assigned_to_report event",
+                    report_id=report_id,
+                    team_id=input.team_id,
+                    source_id=input.source_id,
+                )
 
         logger.debug(
             f"Assigned and emitted signal to report {report_id}",
@@ -1110,7 +1136,7 @@ async def _process_signal_batch(
 
         except Exception:
             dropped += 1
-            workflow.logger.exception(
+            logger.exception(
                 "Failed to process signal in batch",
                 team_id=team_id,
                 source_product=signal.source_product,
@@ -1241,7 +1267,7 @@ class TeamSignalGroupingWorkflow:
             except Exception:
                 # Parallel phase failed — all signals in batch dropped
                 self._signals_dropped_counter.add(len(batch))
-                workflow.logger.exception(
+                logger.exception(
                     "Failed to process signal batch",
                     team_id=input.team_id,
                     batch_size=len(batch),

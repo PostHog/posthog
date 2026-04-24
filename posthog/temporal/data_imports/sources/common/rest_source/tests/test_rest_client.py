@@ -119,6 +119,82 @@ class TestRESTClient:
         assert client._join_url("https://other.com/items") == "https://other.com/items"
 
     @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.requests.Session")
+    def test_paginate_invokes_resume_hook_after_each_page(self, MockSession) -> None:
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+
+        responses = [
+            _make_response([{"id": 1}]),
+            _make_response([{"id": 2}]),
+        ]
+        mock_session.send.side_effect = responses
+
+        class TwoPagePaginator(BasePaginator):
+            def __init__(self):
+                super().__init__()
+                self._page = 0
+
+            def update_state(self, response, data=None):
+                self._page += 1
+                self._has_next_page = self._page < 2
+
+            def update_request(self, request):
+                pass
+
+            def get_resume_state(self):
+                return {"page": self._page}
+
+        saved: list[Any] = []
+
+        client = RESTClient(base_url="https://api.example.com")
+        list(client.paginate(path="/items", paginator=TwoPagePaginator(), resume_hook=saved.append))
+
+        # Called once between page 1 and page 2 with the next-page state, and
+        # once on the terminal page with None (no more pages to resume to).
+        assert saved == [{"page": 1}, None]
+
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.requests.Session")
+    def test_paginate_seeds_initial_paginator_state(self, MockSession) -> None:
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+        mock_session.send.return_value = _make_response([{"id": 99}])
+
+        class ResumablePaginator(BasePaginator):
+            def __init__(self):
+                super().__init__()
+                self._resume_url: str | None = None
+                self._has_next_page = False
+
+            def init_request(self, request):
+                if self._resume_url is not None:
+                    request.url = self._resume_url
+
+            def update_state(self, response, data=None):
+                self._has_next_page = False
+
+            def update_request(self, request):
+                pass
+
+            def set_resume_state(self, state):
+                self._resume_url = state["url"]
+                self._has_next_page = True
+
+        client = RESTClient(base_url="https://api.example.com")
+        list(
+            client.paginate(
+                path="/items",
+                paginator=ResumablePaginator(),
+                initial_paginator_state={"url": "https://api.example.com/resume-here"},
+            )
+        )
+
+        prepared_request = mock_session.prepare_request.call_args.args[0]
+        # The request URL should be the resumed URL, not the base "/items" path.
+        assert prepared_request.url == "https://api.example.com/resume-here"
+
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.requests.Session")
     def test_paginate_drops_none_params(self, MockSession) -> None:
         """``None`` values in ``params`` must be dropped before the request is
         prepared — otherwise ``requests`` serializes them as the literal string

@@ -50,11 +50,7 @@ def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnap
 
     # Persist snapshot external ID on TaskRun state
     try:
-        task_run = TaskRun.objects.get(id=input.run_id)
-        state = task_run.state or {}
-        state["snapshot_external_id"] = external_id
-        task_run.state = state
-        task_run.save(update_fields=["state", "updated_at"])
+        TaskRun.update_state_atomic(input.run_id, updates={"snapshot_external_id": external_id})
     except Exception as e:
         logger.warning("create_resume_snapshot_persist_failed", run_id=input.run_id, error=str(e))
 
