@@ -157,9 +157,21 @@ export const invitesDelegateCreateBodyMessageMax = 1000
 export const invitesDelegateCreateBodyStepAtDelegationMax = 64
 
 export const InvitesDelegateCreateBody = /* @__PURE__ */ zod.object({
-    target_email: zod.email(),
-    message: zod.string().max(invitesDelegateCreateBodyMessageMax).optional(),
-    step_at_delegation: zod.string().max(invitesDelegateCreateBodyStepAtDelegationMax).optional(),
+    target_email: zod
+        .email()
+        .describe(
+            "Email of the teammate who should complete setup on the inviter's behalf. Receives a PostHog-branded delegation invite granting admin-level membership on accept."
+        ),
+    message: zod
+        .string()
+        .max(invitesDelegateCreateBodyMessageMax)
+        .optional()
+        .describe('Optional personal message included in the delegation email (up to 1000 characters).'),
+    step_at_delegation: zod
+        .string()
+        .max(invitesDelegateCreateBodyStepAtDelegationMax)
+        .optional()
+        .describe('Onboarding step key the delegator was on when delegating, for analytics only.'),
 })
 
 /**
@@ -3085,8 +3097,16 @@ invite and sets reason="delegated". This endpoint rejects that reason so state
 can't be faked without a real invite.
  */
 export const UsersOnboardingSkipCreateBody = /* @__PURE__ */ zod.object({
-    reason: zod.enum(['later', 'other']).describe('* `later` - later\n* `other` - other'),
-    step_at_skip: zod.string().optional(),
+    reason: zod
+        .enum(['later', 'other'])
+        .describe('* `later` - later\n* `other` - other')
+        .describe(
+            "Why the user is leaving onboarding. 'later' keeps them able to return; 'other' is a catch-all. 'delegated' is rejected here — use the delegate endpoint so the delegation invite is created atomically.\n\n* `later` - later\n* `other` - other"
+        ),
+    step_at_skip: zod
+        .string()
+        .optional()
+        .describe('Onboarding step key the user was on when skipping, for analytics only.'),
 })
 
 export const usersScenePersonalisationCreateBodyFirstNameMax = 150

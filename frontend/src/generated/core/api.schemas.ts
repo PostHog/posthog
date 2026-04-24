@@ -269,10 +269,17 @@ export interface PaginatedOrganizationInviteListApi {
 }
 
 export interface OrganizationInviteDelegateApi {
+    /** Email of the teammate who should complete setup on the inviter's behalf. Receives a PostHog-branded delegation invite granting admin-level membership on accept. */
     target_email: string
-    /** @maxLength 1000 */
+    /**
+     * Optional personal message included in the delegation email (up to 1000 characters).
+     * @maxLength 1000
+     */
     message?: string
-    /** @maxLength 64 */
+    /**
+     * Onboarding step key the delegator was on when delegating, for analytics only.
+     * @maxLength 64
+     */
     step_at_delegation?: string
 }
 
@@ -3044,6 +3051,8 @@ export interface UserApi {
     readonly onboarding_skipped_at: string | null
     onboarding_skipped_reason?: OnboardingSkippedReasonEnumApi | NullEnumApi | null
     /** @nullable */
+    readonly onboarding_skipped_organization_id: string | null
+    /** @nullable */
     readonly onboarding_delegated_to_invite: string | null
     /**
      * Organization ID of the pending delegation invite, if any. Used by the frontend to scope the 'waiting for teammate' UI to the org where delegation was initiated.
@@ -3138,6 +3147,8 @@ export interface PatchedUserApi {
     readonly onboarding_skipped_at?: string | null
     onboarding_skipped_reason?: OnboardingSkippedReasonEnumApi | NullEnumApi | null
     /** @nullable */
+    readonly onboarding_skipped_organization_id?: string | null
+    /** @nullable */
     readonly onboarding_delegated_to_invite?: string | null
     /**
      * Organization ID of the pending delegation invite, if any. Used by the frontend to scope the 'waiting for teammate' UI to the org where delegation was initiated.
@@ -3164,7 +3175,12 @@ export const OnboardingSkipRequestReasonEnumApi = {
 } as const
 
 export interface OnboardingSkipRequestApi {
+    /** Why the user is leaving onboarding. 'later' keeps them able to return; 'other' is a catch-all. 'delegated' is rejected here — use the delegate endpoint so the delegation invite is created atomically.
+
+* `later` - later
+* `other` - other */
     reason: OnboardingSkipRequestReasonEnumApi
+    /** Onboarding step key the user was on when skipping, for analytics only. */
     step_at_skip?: string
 }
 
