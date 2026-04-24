@@ -48,6 +48,7 @@ export function SelectorEditor({ selector, variant, transformIndex }: SelectorEd
                 isOpen={editSelectorOpen}
                 onClose={() => setEditSelectorOpen(false)}
                 title="Edit selector"
+                maxWidth="48rem"
                 footer={
                     <>
                         <LemonButton onClick={() => setEditSelectorOpen(false)}>Cancel</LemonButton>
