@@ -1,3 +1,4 @@
+import pytest
 from unittest import mock
 
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
@@ -60,21 +61,19 @@ class TestClerkSource:
 
         assert schemas == []
 
+    @pytest.mark.parametrize(
+        ("return_value", "expected_valid", "expected_message"),
+        [
+            ((True, None), True, None),
+            ((False, "Invalid Clerk credentials"), False, "Invalid Clerk credentials"),
+        ],
+    )
     @mock.patch("posthog.temporal.data_imports.sources.clerk.source.validate_clerk_credentials")
-    def test_validate_credentials_success(self, mock_validate):
-        mock_validate.return_value = (True, None)
+    def test_validate_credentials(self, mock_validate, return_value, expected_valid, expected_message):
+        mock_validate.return_value = return_value
 
         is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
-        assert is_valid is True
-        assert error_message is None
+        assert is_valid is expected_valid
+        assert error_message == expected_message
         mock_validate.assert_called_once_with(self.config.secret_key)
-
-    @mock.patch("posthog.temporal.data_imports.sources.clerk.source.validate_clerk_credentials")
-    def test_validate_credentials_failure(self, mock_validate):
-        mock_validate.return_value = (False, "Invalid Clerk credentials")
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
-
-        assert is_valid is False
-        assert error_message == "Invalid Clerk credentials"
