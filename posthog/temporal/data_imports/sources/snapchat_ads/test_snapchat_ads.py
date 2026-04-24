@@ -81,7 +81,7 @@ class TestIterRowsFreshRun:
     def test_saves_checkpoint_with_next_link_after_each_page(self) -> None:
         def _fake_rest_api_resource(*args: Any, **kwargs: Any) -> _FakeResource:
             return _FakeResource(
-                pages=[[{"id": "c1"}], [{"id": "c2"}]],
+                pages=[[{"id": "c1"}], [{"id": "c2"}], [{"id": "c3"}]],
                 resume_hook=kwargs["resume_hook"],
             )
 
@@ -105,12 +105,17 @@ class TestIterRowsFreshRun:
             )
 
         saved_configs = [call.args[0] for call in manager.save_state.call_args_list]
+        # Only concrete next_link cursors are persisted — the final None call
+        # from the resume_hook is a no-op, matching mailchimp/reddit_ads.
         assert saved_configs == [
             SnapchatResumeConfig(
                 chunk_index=0,
                 next_link="https://adsapi.snapchat.com/v1/next?cursor=page1",
             ),
-            SnapchatResumeConfig(chunk_index=0, next_link=None),
+            SnapchatResumeConfig(
+                chunk_index=0,
+                next_link="https://adsapi.snapchat.com/v1/next?cursor=page2",
+            ),
         ]
 
 
@@ -273,13 +278,11 @@ class TestIterRowsMultiChunkStats:
         assert captured_calls[1]["initial_paginator_state"] is None
 
         saved_configs = [call.args[0] for call in manager.save_state.call_args_list]
-        # Each single-page chunk saves (chunk_index, None) via the resume_hook
-        # after the final page, and chunk 0 also writes the explicit advance
-        # to chunk_index=1 before chunk 1 starts. The last chunk has no
-        # successor, so no trailing advance.
+        # The resume_hook only persists concrete cursors, so single-page
+        # chunks never trigger a save from the hook. The only persisted
+        # state is the explicit advance to chunk_index=1 before chunk 1
+        # starts. The last chunk has no successor, so no trailing advance.
         assert saved_configs == [
-            SnapchatResumeConfig(chunk_index=0, next_link=None),
-            SnapchatResumeConfig(chunk_index=1, next_link=None),
             SnapchatResumeConfig(chunk_index=1, next_link=None),
         ]
 

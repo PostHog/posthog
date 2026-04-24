@@ -198,7 +198,13 @@ def _iter_rows(
             initial_paginator_state = {"next_link": resume_config.next_link}
 
         def save_checkpoint(state: Optional[dict[str, Any]], _chunk_index: int = chunk_index) -> None:
+            # Match mailchimp/reddit_ads: only persist when there's a concrete
+            # cursor to resume to. Chunk advancement is handled explicitly
+            # after the iterator exhausts, and Redis TTL handles cleanup on
+            # completion.
             next_link = state.get("next_link") if state else None
+            if not next_link:
+                return
             resumable_source_manager.save_state(SnapchatResumeConfig(chunk_index=_chunk_index, next_link=next_link))
 
         for page in _iter_chunk_rows(
