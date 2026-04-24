@@ -10,7 +10,16 @@
         box-shadow:
             0 0 0 1px color-mix(in oklab, var(--foreground) 10%, transparent),
             0 4px 6px -1px rgb(0 0 0 / 10%);
+        transition:
+            opacity 150ms cubic-bezier(0.215, 0.61, 0.355, 1),
+            transform 150ms cubic-bezier(0.215, 0.61, 0.355, 1);
         transform-origin: var(--transform-origin);
+    }
+
+    .quill-combobox__content[data-starting-style],
+    .quill-combobox__content[data-ending-style] {
+        opacity: 0;
+        transform: scale(0.97);
     }
 
     :is(.dark, [theme='dark']) .quill-combobox__content {
@@ -139,5 +148,15 @@
     .quill-combobox__trigger svg:not([class*='size-']) {
         width: 0.875rem;
         height: 0.875rem;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .quill-combobox__content,
+        .quill-combobox__content[data-starting-style],
+        .quill-combobox__content[data-ending-style] {
+            opacity: 1;
+            transition: none;
+            transform: none;
+        }
     }
 }

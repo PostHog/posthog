@@ -16,7 +16,21 @@
         box-shadow:
             0 0 0 1px color-mix(in oklab, var(--foreground) 10%, transparent),
             0 4px 6px -1px rgb(0 0 0 / 10%);
+
+        /* 150ms ease-out — menus are user-triggered; keep snappy. scale(0.97)
+           is intentionally subtle so the motion reads as settle-in, not pop. */
+        transition:
+            opacity 150ms cubic-bezier(0.215, 0.61, 0.355, 1),
+            transform 150ms cubic-bezier(0.215, 0.61, 0.355, 1);
         transform-origin: var(--transform-origin);
+    }
+
+    .quill-menu__content[data-starting-style],
+    .quill-menu__content[data-ending-style],
+    .quill-menu__sub-content[data-starting-style],
+    .quill-menu__sub-content[data-ending-style] {
+        opacity: 0;
+        transform: scale(0.97);
     }
 
     .quill-menu__content[data-closed] {
@@ -32,6 +46,10 @@
         box-shadow:
             0 0 0 1px color-mix(in oklab, var(--foreground) 10%, transparent),
             0 4px 6px -1px rgb(0 0 0 / 10%);
+        transition:
+            opacity 150ms cubic-bezier(0.215, 0.61, 0.355, 1),
+            transform 150ms cubic-bezier(0.215, 0.61, 0.355, 1);
+        transform-origin: var(--transform-origin);
     }
 
     .quill-menu__separator {
@@ -124,5 +142,18 @@
     .quill-menubar__trigger:hover,
     .quill-menubar__trigger[aria-expanded='true'] {
         background-color: var(--muted);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .quill-menu__content,
+        .quill-menu__content[data-starting-style],
+        .quill-menu__content[data-ending-style],
+        .quill-menu__sub-content,
+        .quill-menu__sub-content[data-starting-style],
+        .quill-menu__sub-content[data-ending-style] {
+            opacity: 1;
+            transition: none;
+            transform: none;
+        }
     }
 }

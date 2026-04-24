@@ -4,93 +4,6 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-catalogs:
-  default:
-    '@parcel/packager-ts':
-      specifier: 2.13.3
-      version: 2.13.3
-    '@parcel/transformer-typescript-types':
-      specifier: 2.13.3
-      version: 2.13.3
-    '@posthog/react':
-      specifier: ^1.9.0
-      version: 1.9.0
-    '@storybook/addon-actions':
-      specifier: ^7.6.4
-      version: 7.6.4
-    '@storybook/react':
-      specifier: ^7.6.4
-      version: 7.6.4
-    '@storybook/testing-library':
-      specifier: ^0.2.2
-      version: 0.2.2
-    '@storybook/types':
-      specifier: ^7.6.4
-      version: 7.6.20
-    '@types/jest':
-      specifier: ^29.5.12
-      version: 29.5.14
-    '@types/node':
-      specifier: ^22.13.14
-      version: 22.18.8
-    concurrently:
-      specifier: ^5.3.0
-      version: 5.3.0
-    fast-deep-equal:
-      specifier: ^3.1.3
-      version: 3.1.3
-    fuse.js:
-      specifier: ^7.1.0
-      version: 7.3.0
-    husky:
-      specifier: ^7.0.4
-      version: 7.0.4
-    jest:
-      specifier: ^29.7.0
-      version: 29.7.0
-    kea:
-      specifier: ^4.0.0-pre.5
-      version: 4.0.0-pre.5
-    kea-forms:
-      specifier: ^3.2.0
-      version: 3.2.0
-    kea-loaders:
-      specifier: ^3.1.1
-      version: 3.1.1
-    kea-localstorage:
-      specifier: ^3.1.0
-      version: 3.1.0
-    kea-router:
-      specifier: ^3.4.1
-      version: 3.4.1
-    kea-subscriptions:
-      specifier: ^3.0.1
-      version: 3.0.1
-    kea-test-utils:
-      specifier: ^0.2.4
-      version: 0.2.4
-    kea-waitfor:
-      specifier: ^0.2.1
-      version: 0.2.1
-    kea-window-values:
-      specifier: ^3.0.1
-      version: 3.0.1
-    lint-staged:
-      specifier: ~15.4.3
-      version: 15.4.3
-    oxfmt:
-      specifier: ^0.35.0
-      version: 0.35.0
-    posthog-js:
-      specifier: ^1.371.1
-      version: 1.371.1
-    ts-pattern:
-      specifier: '4.3'
-      version: 4.3.0
-    use-debounce:
-      specifier: ^9.0.3
-      version: 9.0.3
-
 overrides:
   axios: ^1.15.0
   '@modelcontextprotocol/sdk': ^1.29.0
@@ -1940,9 +1853,6 @@ importers:
       tailwind-merge:
         specifier: ^2.2.2
         version: 2.2.2
-      vaul:
-        specifier: ^1.1.2
-        version: 1.1.2(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
     devDependencies:
       '@storybook/react':
         specifier: 'catalog:'
@@ -1998,9 +1908,6 @@ importers:
       tailwindcss:
         specifier: ^4.0.0
         version: 4.2.2
-      vaul:
-        specifier: ^1.1.2
-        version: 1.1.2(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
     devDependencies:
       '@posthog/quill-blocks':
         specifier: workspace:*
@@ -22846,12 +22753,6 @@ packages:
     resolution: {integrity: sha512-BNGbWLfd0eUPabhkXUVm0j8uuvREyTh5ovRa/dyow/BqAbZJyC+5fU+IzQOzmAKzYqYRAISoRhdQr3eIZ/PXqg==}
     engines: {node: '>= 0.8'}
 
-  vaul@1.1.2:
-    resolution: {integrity: sha512-ZFkClGpWyI2WUQjdLJ/BaGuV6AVQiJ3uELGk3OYtP+B6yCO7Cmn9vPFXVJkRaGkOJu3m8bQMgtyzNHixULceQA==}
-    peerDependencies:
-      react: 18.3.1
-      react-dom: 18.3.1
-
   verror@1.10.0:
     resolution: {integrity: sha512-ZZKSmDAEFOijERBLkmYfJ+vmk3w+7hOLYDNkRCuRuMJGEmqYNCNLyBBFwWKVMhfwaEF3WOd0Zlw86U/WC/+nYw==}
     engines: {'0': node >=0.6.0}
@@ -37037,7 +36938,7 @@ snapshots:
   anymatch@3.1.3:
     dependencies:
       normalize-path: 3.0.0
-      picomatch: 2.3.1
+      picomatch: 2.3.2
 
   app-root-dir@1.0.2: {}
 
@@ -47330,7 +47231,7 @@ snapshots:
 
   readdirp@3.6.0:
     dependencies:
-      picomatch: 2.3.1
+      picomatch: 2.3.2
 
   readdirp@5.0.0: {}
 
@@ -49721,15 +49622,6 @@ snapshots:
   varint@6.0.0: {}
 
   vary@1.1.2: {}
-
-  vaul@1.1.2(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
-    dependencies:
-      '@radix-ui/react-dialog': 1.1.15(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      react: 18.3.1
-      react-dom: 18.3.1(react@18.3.1)
-    transitivePeerDependencies:
-      - '@types/react'
-      - '@types/react-dom'
 
   verror@1.10.0:
     dependencies:
