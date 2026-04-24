@@ -69,15 +69,17 @@ function mockInsightSharingConfiguration({
 }
 
 describe('SharingModal (dashboard)', () => {
-    function DashboardSharingModalWrapper({ extraProps }: { extraProps?: Partial<SharingModalProps> }): JSX.Element {
-        // Render the dashboard sharing modal with `WHITE_LABELLING` so the UI shows
-        // the branding option in the form.
+    beforeEach(() => {
+        // Set up features, KEA store, and MSW mocks before any render so that
+        // sharingLogic.afterMount finds the mock handler already registered.
         useAvailableFeatures([AvailableFeature.WHITE_LABELLING])
         initKeaTests()
         useMocks({
             get: mockDashboardSharingConfiguration({}),
         })
+    })
 
+    function DashboardSharingModalWrapper({ extraProps }: { extraProps?: Partial<SharingModalProps> }): JSX.Element {
         const props: SharingModalProps = {
             isOpen: true,
             closeModal: () => {},
@@ -110,13 +112,15 @@ describe('SharingModal (insight)', () => {
         name: 'My insight',
     }
 
-    function InsightSharingModalWrapper({ extraProps }: { extraProps?: Partial<SharingModalProps> }): JSX.Element {
+    beforeEach(() => {
         useAvailableFeatures([])
         initKeaTests()
         useMocks({
             get: mockInsightSharingConfiguration({ insightId: defaultInsightId }),
         })
+    })
 
+    function InsightSharingModalWrapper({ extraProps }: { extraProps?: Partial<SharingModalProps> }): JSX.Element {
         const props: SharingModalProps = {
             isOpen: true,
             closeModal: () => {},
