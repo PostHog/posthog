@@ -1,4 +1,5 @@
 import os
+import shutil
 import time
 
 from django.dispatch import receiver
@@ -6,6 +7,7 @@ from django.dispatch import receiver
 import structlog
 from celery import Celery
 from celery.signals import (
+    celeryd_init,
     setup_logging,
     task_failure,
     task_postrun,
@@ -13,10 +15,19 @@ from celery.signals import (
     task_retry,
     task_success,
     worker_process_init,
+    worker_process_shutdown,
 )
 from django_structlog.celery import signals
 from django_structlog.celery.steps import DjangoStructLogInitStep
 from prometheus_client import Counter, Histogram
+
+# When PROMETHEUS_MULTIPROC_DIR is set (by bin/docker-worker-celery),
+# prometheus_client uses file-backed storage so all prefork children's
+# metrics are aggregated into a single /metrics endpoint.  Without it,
+# only the one child that binds port 8001 is visible to Prometheus.
+_PROMETHEUS_MULTIPROC_DIR = os.environ.get("PROMETHEUS_MULTIPROC_DIR")
+if _PROMETHEUS_MULTIPROC_DIR:
+    os.makedirs(_PROMETHEUS_MULTIPROC_DIR, exist_ok=True)
 
 logger = structlog.get_logger(__name__)
 
@@ -133,16 +144,46 @@ def receiver_bind_extra_request_metadata(sender, signal, task=None, logger=None)
         structlog.contextvars.bind_contextvars(task_name=task.name)
 
 
+@celeryd_init.connect
+def on_celeryd_init(**kwargs) -> None:
+    """Clean stale prometheus multiproc files from a previous run."""
+    if _PROMETHEUS_MULTIPROC_DIR and os.path.isdir(_PROMETHEUS_MULTIPROC_DIR):
+        shutil.rmtree(_PROMETHEUS_MULTIPROC_DIR)
+        os.makedirs(_PROMETHEUS_MULTIPROC_DIR, exist_ok=True)
+
+
 @worker_process_init.connect
 def on_worker_start(**kwargs) -> None:
     from posthoganalytics import setup
-    from prometheus_client import start_http_server
 
     setup()  # makes sure things like exception autocapture are initialised
-    start_http_server(int(os.getenv("CELERY_METRICS_PORT", "8001")))
+
+    port = int(os.getenv("CELERY_METRICS_PORT", "8001"))
+    try:
+        if _PROMETHEUS_MULTIPROC_DIR:
+            from prometheus_client import CollectorRegistry, multiprocess, start_http_server
+
+            registry = CollectorRegistry()
+            multiprocess.MultiProcessCollector(registry)
+            start_http_server(port, registry=registry)
+        else:
+            from prometheus_client import start_http_server
+
+            start_http_server(port)
+    except OSError:
+        pass  # Another child already bound this port — expected in prefork
 
     # Initialize metrics that need to survive pod restarts
     _initialize_worker_metrics()
+
+
+@worker_process_shutdown.connect
+def on_worker_process_shutdown(**kwargs) -> None:
+    """Remove metric files for this child so recycled workers don't leak stale data."""
+    if _PROMETHEUS_MULTIPROC_DIR:
+        from prometheus_client import multiprocess
+
+        multiprocess.mark_process_dead(os.getpid())
 
 
 # Set up clickhouse query instrumentation
