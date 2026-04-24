@@ -28,12 +28,7 @@ class ExperimentViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, views
     """
 
     scope_object: Literal["experiment"] = "experiment"
-
-    def get_serializer_class(self):
-        """Return appropriate serializer based on action."""
-        if self.action == "create":
-            return ExperimentCreateSerializer
-        return ExperimentCreateSerializer
+    serializer_class = ExperimentCreateSerializer
 
     def create(self, request: Request, *args, **kwargs) -> Response:
         """
