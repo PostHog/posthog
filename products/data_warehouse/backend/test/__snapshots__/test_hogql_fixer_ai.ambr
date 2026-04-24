@@ -181,6 +181,7 @@
   - $virt_traffic_type (expression)
   - $virt_traffic_category (expression)
   - $virt_bot_name (expression)
+  - $virt_bot_operator (expression)
   
   Below is the current HogQL query and the error message
   
