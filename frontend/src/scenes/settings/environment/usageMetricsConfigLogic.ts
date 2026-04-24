@@ -19,9 +19,18 @@ import type { GroupUsageMetricApi } from 'products/customer_analytics/frontend/g
 
 import type { usageMetricsConfigLogicType } from './usageMetricsConfigLogicType'
 
+export type UsageMetricSource = 'events' | 'data_warehouse'
+
+export type UsageMetricFiltersDataWarehouse = {
+    source: 'data_warehouse'
+    table_name?: string | null
+    timestamp_field?: string | null
+    group_key_field?: string | null
+}
+
 export type UsageMetricFormData = Omit<GroupUsageMetricApi, 'id' | 'filters'> & {
     id?: string
-    filters: FilterType
+    filters: FilterType | UsageMetricFiltersDataWarehouse
 }
 
 const NEW_USAGE_METRIC: UsageMetricFormData = {
@@ -32,6 +41,18 @@ const NEW_USAGE_METRIC: UsageMetricFormData = {
     filters: {},
     math: 'count',
     math_property: null,
+}
+
+export function getMetricSource(filters: UsageMetricFormData['filters']): UsageMetricSource {
+    if (
+        filters &&
+        typeof filters === 'object' &&
+        'source' in filters &&
+        (filters as UsageMetricFiltersDataWarehouse).source === 'data_warehouse'
+    ) {
+        return 'data_warehouse'
+    }
+    return 'events'
 }
 
 // Hardcoded to 0 — the backend model is coupled to groups but will be refactored to be group-agnostic
@@ -113,10 +134,24 @@ export const usageMetricsConfigLogic = kea<usageMetricsConfigLogicType>([
     forms(({ actions }) => ({
         usageMetric: {
             defaults: NEW_USAGE_METRIC,
-            errors: ({ name, math, math_property }) => ({
-                name: !name ? 'Name is required' : undefined,
-                math_property: math === 'sum' && !math_property ? 'Property is required for sum' : undefined,
-            }),
+            errors: ({ name, math, math_property, filters }) => {
+                const source = getMetricSource(filters)
+                const dwFilters = filters as UsageMetricFiltersDataWarehouse
+                return {
+                    name: !name ? 'Name is required' : undefined,
+                    math_property:
+                        math === 'sum' && !math_property
+                            ? source === 'data_warehouse'
+                                ? 'Column to sum is required'
+                                : 'Property is required for sum'
+                            : undefined,
+                    filters:
+                        source === 'data_warehouse' &&
+                        (!dwFilters.table_name || !dwFilters.timestamp_field || !dwFilters.group_key_field)
+                            ? 'Table, timestamp field, and group key field are required'
+                            : undefined,
+                }
+            },
             submit: (formData) => {
                 if (formData?.id) {
                     actions.updateUsageMetric(formData)
