@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from math import ceil
-from typing import Any, Optional, cast
+from typing import Any, Literal, Optional, cast
 
 from posthog.schema import (
     AggregationType,
@@ -26,6 +26,7 @@ from posthog.hogql.constants import (
     LimitContext,
     get_breakdown_limit_for_context,
 )
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import entity_to_expr, property_to_expr
@@ -154,6 +155,46 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 ],
             )
         return None
+
+    @cached_property
+    def retention_entities_match_for_aggregation(self) -> bool:
+        return self.start_event.model_dump() == self.return_event.model_dump()
+
+    def property_aggregation_expr_for_entity(
+        self, entity: RetentionEntity, query_kind: Literal["start", "return"]
+    ) -> ast.Expr | None:
+        if not (
+            self.query.retentionFilter.aggregationType in [AggregationType.SUM, AggregationType.AVG]
+            and self.query.retentionFilter.aggregationProperty
+        ):
+            return None
+
+        if query_kind == "start" and not self.retention_entities_match_for_aggregation:
+            # Revenue-style retention aggregates values on the returning side when cohorting
+            # and returning entities differ. Keep zero-valued start tuples so interval-0
+            # filtering can still compare return timestamps against the actual cohorting event.
+            return ast.Constant(value=0.0)
+
+        prop_name = self.query.retentionFilter.aggregationProperty
+        if self.query.retentionFilter.aggregationPropertyType == "person":
+            if entity.type == EntityType.DATA_WAREHOUSE:
+                raise QueryError(
+                    "Person property aggregation is not supported for retention insights with a data warehouse entity."
+                )
+
+            property_field = ast.Field(chain=cast(list[str | int], ["person", "properties", prop_name]))
+        elif entity.type == EntityType.DATA_WAREHOUSE:
+            property_field = ast.Field(chain=cast(list[str | int], prop_name.split(".")))
+        else:
+            property_field = ast.Field(chain=cast(list[str | int], ["events", "properties", prop_name]))
+
+        return ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(name="toFloat", args=[property_field]),
+                ast.Constant(value=0.0),
+            ],
+        )
 
     @cached_property
     def group_type_index(self) -> int | None:

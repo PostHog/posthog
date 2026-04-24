@@ -451,3 +451,74 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
                 ]
             ),
         )
+
+    def test_retention_data_warehouse_property_aggregation_resembles_revenue_retention(self):
+        person_ids = self._create_people()
+        signups_table_name = self._create_data_warehouse_table(
+            filename="warehouse_revenue_signups.csv",
+            table_name="warehouse_revenue_signups",
+            header=["id", "person_id", "signed_up_at"],
+            rows=[
+                [1, person_ids["user-1"], "2025-01-01 09:00:00"],
+                [2, person_ids["user-2"], "2025-01-01 10:00:00"],
+            ],
+            table_columns={
+                "id": "Int64",
+                "person_id": "UUID",
+                "signed_up_at": "DateTime64(3, 'UTC')",
+            },
+        )
+        revenue_table_name = self._create_data_warehouse_table(
+            filename="warehouse_revenue_renewals.csv",
+            table_name="warehouse_revenue_renewals",
+            header=["id", "person_id", "renewed_at", "revenue"],
+            rows=[
+                [1, person_ids["user-1"], "2025-01-01 08:00:00", 999],
+                [2, person_ids["user-1"], "2025-01-01 12:00:00", 50],
+                [3, person_ids["user-1"], "2025-01-02 12:00:00", 100],
+                [4, person_ids["user-2"], "2025-01-01 11:00:00", 30],
+            ],
+            table_columns={
+                "id": "Int64",
+                "person_id": "UUID",
+                "renewed_at": "DateTime64(3, 'UTC')",
+                "revenue": "Float64",
+            },
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {
+                    "date_from": "2025-01-01T00:00:00Z",
+                    "date_to": "2025-01-05T00:00:00Z",
+                },
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 4,
+                    "aggregationType": "sum",
+                    "aggregationProperty": "revenue",
+                    "targetEntity": {
+                        "id": signups_table_name,
+                        "name": signups_table_name,
+                        "type": "data_warehouse",
+                        "table_name": signups_table_name,
+                        "aggregation_target_field": "person_id",
+                        "timestamp_field": "signed_up_at",
+                    },
+                    "returningEntity": {
+                        "id": revenue_table_name,
+                        "name": revenue_table_name,
+                        "type": "data_warehouse",
+                        "table_name": revenue_table_name,
+                        "aggregation_target_field": "person_id",
+                        "timestamp_field": "renewed_at",
+                    },
+                },
+            }
+        )
+
+        day_0_cohort = result[0]["values"]
+        self.assertEqual(day_0_cohort[0]["count"], 2)
+        self.assertEqual(day_0_cohort[0]["aggregation_value"], 80.0)
+        self.assertEqual(day_0_cohort[1]["count"], 1)
+        self.assertEqual(day_0_cohort[1]["aggregation_value"], 100.0)
