@@ -5,7 +5,8 @@ import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
-import { IngestionOutput } from '~/ingestion/outputs/ingestion-output'
+import { APP_METRICS_OUTPUT, AppMetricsOutput } from '~/ingestion/common/outputs'
+import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
 import { KafkaProducerWrapper } from '~/kafka/producer'
 
 import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
@@ -14,6 +15,7 @@ import { isDevEnv } from '../utils/env-utils'
 import { logger } from '../utils/logger'
 import { TeamManager } from '../utils/team-manager'
 import { LogsIngestionConsumerConfig } from './config'
+import { type PiiScrubStats } from './log-pii-scrub'
 import { processLogMessageBuffer } from './log-record-avro'
 import { LogsRateLimiterService } from './services/logs-rate-limiter.service'
 import { LogsIngestionMessage } from './types'
@@ -22,8 +24,8 @@ export interface LogsIngestionConsumerDeps {
     teamManager: TeamManager
     quotaLimiting: QuotaLimiting
     kafkaProducer: KafkaProducerWrapper // Warpstream - for logs data
-    /** Output for `clickhouse_app_metrics2` — caller decides which producer + topic. */
-    appMetricsOutput: IngestionOutput
+    /** Resolved outputs registry — must include `APP_METRICS_OUTPUT`. */
+    outputs: IngestionOutputs<AppMetricsOutput>
 }
 
 export type UsageStats = {
@@ -33,6 +35,7 @@ export type UsageStats = {
     recordsAllowed: number
     bytesDropped: number
     recordsDropped: number
+    piiReplacements: number
 }
 
 const DEFAULT_USAGE_STATS: UsageStats = {
@@ -42,6 +45,7 @@ const DEFAULT_USAGE_STATS: UsageStats = {
     recordsAllowed: 0,
     bytesDropped: 0,
     recordsDropped: 0,
+    piiReplacements: 0,
 }
 
 export type UsageStatsByTeam = Map<number, UsageStats>
@@ -122,7 +126,7 @@ export class LogsIngestionConsumer {
         this.dlqTopic = overrides.LOGS_INGESTION_CONSUMER_DLQ_TOPIC ?? config.LOGS_INGESTION_CONSUMER_DLQ_TOPIC
 
         this.kafkaProducer = deps.kafkaProducer
-        this.appMetricsAggregator = new AppMetricsAggregator(deps.appMetricsOutput)
+        this.appMetricsAggregator = new AppMetricsAggregator(deps.outputs.get(APP_METRICS_OUTPUT))
 
         this.kafkaConsumer = new KafkaConsumer({ groupId: this.groupId, topic: this.topic })
         // Logs ingestion uses its own Redis instance with TLS support
@@ -171,11 +175,11 @@ export class LogsIngestionConsumer {
         ])
 
         return {
-            // This is all IO so we can set them off in the background and start processing the next batch
-            backgroundTask: Promise.all([
-                this.produceValidLogMessages(rateLimiterAllowedMessages),
-                this.emitUsageMetrics(usageStats),
-            ]),
+            // Produce first so PII replacement counts are folded into `usageStats` before MSK usage emit
+            backgroundTask: (async () => {
+                await this.processAndProduceLogMessages(rateLimiterAllowedMessages, usageStats)
+                await this.emitUsageMetrics(usageStats)
+            })(),
             messages: rateLimiterAllowedMessages,
         }
     }
@@ -236,6 +240,15 @@ export class LogsIngestionConsumer {
         return usageStats
     }
 
+    private addPiiStatsIntoUsage(usage: UsageStatsByTeam, teamId: number, delta: PiiScrubStats): void {
+        if (delta.piiReplacements === 0) {
+            return
+        }
+        const row = usage.get(teamId) || { ...DEFAULT_USAGE_STATS }
+        row.piiReplacements += delta.piiReplacements
+        usage.set(teamId, row)
+    }
+
     private async filterQuotaLimitedMessages(
         messages: LogsIngestionMessage[]
     ): Promise<{ quotaAllowedMessages: LogsIngestionMessage[]; quotaDroppedMessages: LogsIngestionMessage[] }> {
@@ -290,7 +303,10 @@ export class LogsIngestionConsumer {
         return { rateLimiterAllowedMessages: allowed, rateLimiterDroppedMessages: dropped }
     }
 
-    private async produceValidLogMessages(messages: LogsIngestionMessage[]): Promise<void> {
+    private async processAndProduceLogMessages(
+        messages: LogsIngestionMessage[],
+        usageStats: UsageStatsByTeam
+    ): Promise<void> {
         const results = await Promise.allSettled(
             messages.map(async (message) => {
                 try {
@@ -306,7 +322,11 @@ export class LogsIngestionConsumer {
                     if (message.message.value === null) {
                         return Promise.resolve()
                     }
-                    const processedValue = await processLogMessageBuffer(message.message.value, logsSettings)
+                    const { value: processedValue, pii } = await processLogMessageBuffer(
+                        message.message.value,
+                        logsSettings
+                    )
+                    this.addPiiStatsIntoUsage(usageStats, message.teamId, pii)
 
                     return this.kafkaProducer!.produce({
                         topic: this.clickhouseTopic,
@@ -380,6 +400,7 @@ export class LogsIngestionConsumer {
             this.queueUsageMetric(teamId, 'records_ingested', stats.recordsAllowed)
             this.queueUsageMetric(teamId, 'bytes_dropped', stats.bytesDropped)
             this.queueUsageMetric(teamId, 'records_dropped', stats.recordsDropped)
+            this.queueUsageMetric(teamId, 'pii_replacements', stats.piiReplacements)
         }
 
         // Best-effort: don't let metric failures block ingestion

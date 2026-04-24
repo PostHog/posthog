@@ -23,7 +23,6 @@ from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.decorators.http import require_http_methods
 
 import structlog
-import posthoganalytics
 
 from posthog.auth import AUTH_BRAND_COOKIE, apply_auth_brand_cookie, normalize_auth_brand
 from posthog.cloud_utils import is_cloud
@@ -169,42 +168,12 @@ def render_query(request: HttpRequest) -> HttpResponse:
     return render_template("render_query.html", request, context={"render_query_payload": payload})
 
 
-def _posthog_code_slack_available_for_user(request: HttpRequest) -> bool:
-    """Feature-flag gate controlling whether the PostHog Code Slack integration is offered in the UI.
-
-    Why: the approved Slack app doubles as the coding agent, but we only want to surface
-    the coding-agent integration to orgs in the rollout cohort. Anonymous preflight requests
-    skip the flag check entirely to avoid noisy eval calls.
-    """
-    from products.slack_app.backend.api import POSTHOG_CODE_SLACK_AVAILABILITY_FLAG
-
-    user = getattr(request, "user", None)
-    if not user or not getattr(user, "is_authenticated", False):
-        return False
-    org = getattr(user, "current_organization", None)
-    region = get_instance_region() or "unknown"
-    groups = {"organization": str(org.id)} if org else {}
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                POSTHOG_CODE_SLACK_AVAILABILITY_FLAG,
-                str(user.distinct_id),
-                groups=groups,
-                person_properties={"region": region},
-            )
-        )
-    except Exception:
-        capture_exception()
-        return False
-
-
 @never_cache
 def preflight_check(request: HttpRequest) -> JsonResponse:
     slack_client_id = SlackIntegration.slack_config().get("SLACK_APP_CLIENT_ID")
     posthog_code_slack_config = SlackIntegration.posthog_code_slack_config()
     posthog_code_slack_client_id = posthog_code_slack_config.get("SLACK_POSTHOG_CODE_CLIENT_ID")
     posthog_code_slack_signing_secret = posthog_code_slack_config.get("SLACK_POSTHOG_CODE_SIGNING_SECRET")
-    posthog_code_slack_flag_enabled = _posthog_code_slack_available_for_user(request)
     hubspot_client_id = settings.HUBSPOT_APP_CLIENT_ID
     salesforce_client_id = settings.SALESFORCE_CONSUMER_KEY
 
@@ -231,8 +200,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "posthog_code_slack_service": {
             "available": bool(posthog_code_slack_client_id)
             and bool(posthog_code_slack_signing_secret)
-            and bool(posthog_code_slack_config.get("SLACK_POSTHOG_CODE_CLIENT_SECRET"))
-            and posthog_code_slack_flag_enabled,
+            and bool(posthog_code_slack_config.get("SLACK_POSTHOG_CODE_CLIENT_SECRET")),
             "client_id": posthog_code_slack_client_id or None,
         },
         "data_warehouse_integrations": {

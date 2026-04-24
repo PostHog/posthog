@@ -2,10 +2,11 @@ use clap::{Parser, Subcommand};
 use tracing::error;
 
 use crate::{
+    download::SymbolSetsSubcommand,
     dsym::DsymSubcommand,
     error::CapturedError,
     experimental::{endpoints::EndpointCommand, query::command::QueryCommand, tasks::TaskCommand},
-    invocation_context::{context, init_context},
+    invocation_context::{context, init_context, INVOCATION_CONTEXT},
     proguard::ProguardSubcommand,
     sourcemaps::{hermes::HermesSubcommand, plain::SourcemapCommand},
 };
@@ -66,6 +67,12 @@ pub enum Commands {
     Proguard {
         #[command(subcommand)]
         cmd: ProguardSubcommand,
+    },
+
+    #[command(about = "Manage uploaded symbol sets")]
+    SymbolSets {
+        #[command(subcommand)]
+        cmd: SymbolSetsSubcommand,
     },
 }
 
@@ -155,7 +162,13 @@ impl Cli {
     }
 
     fn run_impl(self) -> Result<(), CapturedError> {
-        if !matches!(self.command, Commands::Login) {
+        if !matches!(
+            self.command,
+            Commands::Login
+                | Commands::SymbolSets {
+                    cmd: SymbolSetsSubcommand::Extract(_)
+                }
+        ) {
             init_context(
                 self.host.clone(),
                 self.skip_ssl_verification,
@@ -200,6 +213,14 @@ impl Cli {
             Commands::Proguard { cmd } => match cmd {
                 ProguardSubcommand::Upload(args) => {
                     crate::proguard::upload::upload(&args)?;
+                }
+            },
+            Commands::SymbolSets { cmd } => match cmd {
+                SymbolSetsSubcommand::Download(args) => {
+                    crate::download::download(&args)?;
+                }
+                SymbolSetsSubcommand::Extract(args) => {
+                    crate::download::extract(&args)?;
                 }
             },
             Commands::Exp { cmd } => match cmd {
@@ -248,7 +269,9 @@ impl Cli {
             },
         }
 
-        context().finish();
+        if INVOCATION_CONTEXT.get().is_some() {
+            context().finish();
+        }
 
         Ok(())
     }

@@ -1443,10 +1443,13 @@ class SessionRecordingViewSet(
             session_ids=[session_id],
             video_based=True,
         )
-        return StreamingHttpResponse(
+        response = StreamingHttpResponse(
             self._generate_video_based_summary(session_id, user),
             content_type=ServerSentEventRenderer.media_type,
         )
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
+        return response
 
     async def _stream_lts_blob_v2_to_client_async(
         self,

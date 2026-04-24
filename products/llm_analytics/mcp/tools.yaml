@@ -300,6 +300,15 @@ tools:
     llm-skills-name-files-retrieve:
         operation: llm_skills_name_files_retrieve
         enabled: false
+    llm-skills-name-files-create:
+        operation: llm_skills_name_files_create
+        enabled: false
+    llm-skills-name-files-destroy:
+        operation: llm_skills_name_files_destroy
+        enabled: false
+    llm-skills-name-files-rename-create:
+        operation: llm_skills_name_files_rename_create
+        enabled: false
     llm-skills-resolve-name-retrieve:
         operation: llm_skills_resolve_name_retrieve
         enabled: false

@@ -44,6 +44,16 @@ def validate_skill_name_value(value: str) -> str:
     return value
 
 
+def validate_skill_file_path(value: str) -> str:
+    normalized = value.replace("\\", "/")
+    parts = normalized.split("/")
+    if any(part == ".." for part in parts):
+        raise serializers.ValidationError("File paths must not contain '..' traversal segments.")
+    if normalized.startswith("/"):
+        raise serializers.ValidationError("File paths must be relative, not absolute.")
+    return value
+
+
 def _validate_files(files: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if len(files) > MAX_SKILL_FILE_COUNT:
         raise serializers.ValidationError(
@@ -144,13 +154,7 @@ class LLMSkillFileInputSerializer(serializers.Serializer):
     )
 
     def validate_path(self, value: str) -> str:
-        normalized = value.replace("\\", "/")
-        parts = normalized.split("/")
-        if any(part == ".." for part in parts):
-            raise serializers.ValidationError("File paths must not contain '..' traversal segments.")
-        if normalized.startswith("/"):
-            raise serializers.ValidationError("File paths must be relative, not absolute.")
-        return value
+        return validate_skill_file_path(value)
 
     def validate_content(self, value: str) -> str:
         if len(value.encode("utf-8")) > MAX_SKILL_FILE_BYTES:
@@ -162,13 +166,34 @@ class LLMSkillFileInputSerializer(serializers.Serializer):
 
 
 class LLMSkillEditOperationSerializer(serializers.Serializer):
+    # Reused for both top-level body edits and per-file edits (LLMSkillFileEditSerializer.edits),
+    # so help_text must stay generic — the parent field's description provides the body/file context.
     old = serializers.CharField(
-        help_text="Text to find in the current skill body. Must match exactly once.",
+        help_text="Text to find in the target content. Must match exactly once.",
     )
     new = serializers.CharField(
         allow_blank=True,
         help_text="Replacement text.",
     )
+
+
+class LLMSkillFileEditSerializer(serializers.Serializer):
+    path = serializers.CharField(
+        max_length=500,
+        help_text="Path of the bundled file to edit. Must match an existing file on the current skill version.",
+    )
+    edits = LLMSkillEditOperationSerializer(
+        many=True,
+        help_text="Sequential find/replace operations to apply to this file's content.",
+    )
+
+    def validate_path(self, value: str) -> str:
+        return validate_skill_file_path(value)
+
+    def validate_edits(self, value: list[dict[str, str]]) -> list[dict[str, str]]:
+        if len(value) == 0:
+            raise serializers.ValidationError("At least one edit operation is required.")
+        return value
 
 
 class LLMSkillPublishSerializer(serializers.Serializer):
@@ -214,7 +239,19 @@ class LLMSkillPublishSerializer(serializers.Serializer):
     files = LLMSkillFileInputSerializer(
         many=True,
         required=False,
-        help_text="Bundled files to include with this version. Replaces all files from the previous version.",
+        help_text=(
+            "Bundled files to include with this version. Replaces all files from the previous "
+            "version. Mutually exclusive with file_edits."
+        ),
+    )
+    file_edits = LLMSkillFileEditSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "Per-file find/replace updates. Each entry targets one existing file by path and "
+            "applies sequential edits to its content. Non-targeted files carry forward unchanged. "
+            "Cannot add, remove, or rename files — use 'files' for that. Mutually exclusive with files."
+        ),
     )
     base_version = serializers.IntegerField(
         min_value=1,
@@ -232,9 +269,19 @@ class LLMSkillPublishSerializer(serializers.Serializer):
     def validate_files(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return _validate_files(value)
 
+    def validate_file_edits(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if len(value) == 0:
+            raise serializers.ValidationError("At least one file_edits entry is required.")
+        paths = [entry["path"] for entry in value]
+        if len(paths) != len(set(paths)):
+            raise serializers.ValidationError("Duplicate file paths are not allowed in file_edits.")
+        return value
+
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         if "body" in attrs and "edits" in attrs:
             raise serializers.ValidationError("Provide either 'body' or 'edits', not both.")
+        if "files" in attrs and "file_edits" in attrs:
+            raise serializers.ValidationError("Provide either 'files' or 'file_edits', not both.")
         return attrs
 
 
@@ -441,3 +488,55 @@ class LLMSkillResolveResponseSerializer(serializers.Serializer):
     skill = LLMSkillSerializer()
     versions = LLMSkillVersionSummarySerializer(many=True)
     has_more = serializers.BooleanField()
+
+
+class LLMSkillFileCreateSerializer(LLMSkillFileInputSerializer):
+    base_version = serializers.IntegerField(
+        min_value=1,
+        required=False,
+        help_text=(
+            "Latest version you are editing from. If provided, the request fails with 409 "
+            "when another write has landed in the meantime."
+        ),
+    )
+
+
+class LLMSkillFileRenameSerializer(serializers.Serializer):
+    old_path = serializers.CharField(
+        max_length=500,
+        help_text="Current file path to rename.",
+    )
+    new_path = serializers.CharField(
+        max_length=500,
+        help_text="New file path. Must not already exist in the skill.",
+    )
+    base_version = serializers.IntegerField(
+        min_value=1,
+        required=False,
+        help_text=(
+            "Latest version you are editing from. If provided, the request fails with 409 "
+            "when another write has landed in the meantime."
+        ),
+    )
+
+    def validate_old_path(self, value: str) -> str:
+        return validate_skill_file_path(value)
+
+    def validate_new_path(self, value: str) -> str:
+        return validate_skill_file_path(value)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs["old_path"] == attrs["new_path"]:
+            raise serializers.ValidationError("new_path must differ from old_path.")
+        return attrs
+
+
+class LLMSkillFileDeleteQuerySerializer(serializers.Serializer):
+    base_version = serializers.IntegerField(
+        min_value=1,
+        required=False,
+        help_text=(
+            "Latest version you are editing from. If provided, the request fails with 409 "
+            "when another write has landed in the meantime."
+        ),
+    )

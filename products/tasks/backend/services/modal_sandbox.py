@@ -316,7 +316,7 @@ class ModalSandbox(SandboxBase):
         except Exception as e:
             logger.exception(f"Failed to create sandbox: {e}")
             raise SandboxProvisionError(
-                f"Failed to create sandbox", {"config_name": config.name, "error": str(e)}, cause=e
+                "Failed to create sandbox", {"config_name": config.name, "error": str(e)}, cause=e
             )
 
     @staticmethod
