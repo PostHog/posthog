@@ -471,10 +471,15 @@ const CATEGORY_DROPDOWN_ARGS: TaxonomicFilterProps = {
     ],
 }
 
+const CATEGORY_DROPDOWN_PARAMETERS = {
+    testOptions: { waitForSelector: '.taxonomic-infinite-list' },
+}
+
 export const CategoryDropdownControl: Story = {
     render: (args) => <CategoryDropdownStoryRender {...args} variant="control" />,
     args: CATEGORY_DROPDOWN_ARGS,
     parameters: {
+        ...CATEGORY_DROPDOWN_PARAMETERS,
         docs: {
             description: {
                 story: 'A/B test control: left-hand Categories column is visible and Tab/Shift+Tab cycles between categories.',
@@ -487,6 +492,7 @@ export const CategoryDropdownPill: Story = {
     render: (args) => <CategoryDropdownStoryRender {...args} variant="pill" />,
     args: CATEGORY_DROPDOWN_ARGS,
     parameters: {
+        ...CATEGORY_DROPDOWN_PARAMETERS,
         docs: {
             description: {
                 story: 'Test variant "pill": left-hand Categories column is hidden; the current category is shown as a pill in the right-hand suffix of the search input.',
@@ -499,6 +505,7 @@ export const CategoryDropdownIcon: Story = {
     render: (args) => <CategoryDropdownStoryRender {...args} variant="icon" />,
     args: CATEGORY_DROPDOWN_ARGS,
     parameters: {
+        ...CATEGORY_DROPDOWN_PARAMETERS,
         docs: {
             description: {
                 story: 'Test variant "icon": left-hand Categories column is hidden; a generic filter icon in the right-hand suffix opens the category dropdown.',
