@@ -120,14 +120,28 @@ def _summarize_retention(results: list[dict[str, Any]]) -> str:
     return "\n".join(lines) if lines else "No retention cohorts"
 
 
-def _summarize_generic(results: list[dict[str, Any]]) -> str:
+def _summarize_generic(results: list[Any]) -> str:
+    """Fallback for query kinds without a dedicated summarizer.
+
+    Handles both row shapes we see in practice:
+    - dict rows (most PostHog query results): skip known noisy keys, join the rest.
+    - list/tuple rows (HogQL / DataVisualizationNode): position-indexed columns.
+    Any other shape falls back to str() so a surprising result shape produces a
+    usable summary instead of an AttributeError that kills the whole activity.
+    """
     lines: list[str] = []
     for i, row in enumerate(results[:20]):
-        parts = []
-        for key, val in row.items():
-            if key in ("data", "values", "days", "labels", "timestamps"):
-                continue
-            parts.append(f"{key}={val}")
+        parts: list[str] = []
+        if isinstance(row, dict):
+            for key, val in row.items():
+                if key in ("data", "values", "days", "labels", "timestamps"):
+                    continue
+                parts.append(f"{key}={val}")
+        elif isinstance(row, (list, tuple)):
+            for col_index, val in enumerate(row):
+                parts.append(f"col{col_index}={val}")
+        else:
+            parts.append(str(row))
         if parts:
             lines.append(f"- Row {i + 1}: {', '.join(parts)}")
     if len(results) > 20:

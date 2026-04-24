@@ -96,6 +96,27 @@ class TestBuildResultsSummaryEmpty:
             ["source=/home", "target=/about", "value=42"],
         ),
         (
+            "hogql_list_rows_do_not_crash",
+            "HogQLQuery",
+            [
+                ["2026-04-20", "TrendsQuery", 12345],
+                ["2026-04-21", "FunnelsQuery", 67890],
+            ],
+            ["col0=2026-04-20", "col1=TrendsQuery", "col2=12345", "col0=2026-04-21"],
+        ),
+        (
+            "hogql_tuple_rows_do_not_crash",
+            "HogQLQuery",
+            [("a", 1), ("b", 2)],
+            ["col0=a", "col1=1", "col0=b", "col1=2"],
+        ),
+        (
+            "unexpected_row_shape_falls_back_to_str",
+            "HogQLQuery",
+            ["just a string row", 42],
+            ["Row 1: just a string row", "Row 2: 42"],
+        ),
+        (
             "trends_boxplot_quantile_rows",
             "TrendsQuery",
             [
