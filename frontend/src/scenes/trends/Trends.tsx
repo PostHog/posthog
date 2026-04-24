@@ -23,8 +23,8 @@ const TrendsCalendarHeatMap = lazy(() =>
 )
 const BoxPlotChart = lazy(() => import('scenes/insights/views/BoxPlot').then((m) => ({ default: m.BoxPlotChart })))
 // Flag-gated — keep full d3 out of the eager Trends/Dashboard bundle
-const TrendsLineChartD3 = lazy(() =>
-    import('./viz/TrendsLineChartD3').then((m) => ({ default: m.TrendsLineChartD3 }))
+const TrendsLineChart = lazy(() =>
+    import('./viz/TrendsLineChart').then((m) => ({ default: m.TrendsLineChart }))
 )
 
 interface Props {
@@ -53,7 +53,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             display === ChartDisplayType.ActionsAreaGraph
         ) {
             if (featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS]) {
-                return <TrendsLineChartD3 context={context} />
+                return <TrendsLineChart context={context} />
             }
             return (
                 <ActionsLineGraph
