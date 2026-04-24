@@ -714,6 +714,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                     | 'unknown'
                 error_code: string | null
                 error_message: string | null
+                error_detail: string | null
                 status_code: number | null
             }
         ) => ({

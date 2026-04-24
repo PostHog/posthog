@@ -3,7 +3,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { runWithLimit } from 'scenes/dashboard/dashboardUtils'
-import type { ExperimentMetricErrorType } from 'scenes/experiments/experimentLogic'
+import { extractErrorDetailString, type ExperimentMetricErrorType } from 'scenes/experiments/experimentLogic'
 import { isLegacyExperimentQuery, isLegacySharedMetric } from 'scenes/experiments/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -356,6 +356,7 @@ const loadLegacyMetrics = async ({
                     error_type: errorType,
                     error_code: errorCode,
                     error_message: errorMessage,
+                    error_detail: extractErrorDetailString(errorDetail),
                     status_code: statusCode,
                 })
 

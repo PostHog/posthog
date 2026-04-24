@@ -18,6 +18,7 @@ import {
     ExperimentWarning,
     classifyError,
     experimentLogic,
+    extractErrorDetailString,
     getDisplayOrderedIndices,
 } from './experimentLogic'
 
@@ -1523,6 +1524,34 @@ describe('experimentLogic', () => {
         it('does not treat fetch-style messages as network errors when an HTTP status was returned', () => {
             // A 400 response whose body happens to mention "Failed to fetch" should still classify by status, not network.
             expect(classifyError(null, 'Failed to fetch remote config', null, 400)).toEqual('validation_error')
+        })
+    })
+
+    describe('extractErrorDetailString', () => {
+        it.each([
+            ['null → null', null, null],
+            ['undefined → null', undefined, null],
+            ['string passes through', 'Experiment with id 79259 not found', 'Experiment with id 79259 not found'],
+            ['DRF {detail: "..."} unwraps the inner string', { detail: 'Not found.' }, 'Not found.'],
+            [
+                'object without string detail falls back to JSON',
+                { 'no-exposures': true, 'no-control-variant': false },
+                '{"no-exposures":true,"no-control-variant":false}',
+            ],
+            [
+                'nested detail that is not a string falls back to JSON',
+                { detail: { nested: 1 } },
+                '{"detail":{"nested":1}}',
+            ],
+            ['array falls back to JSON', [1, 2, 3], '[1,2,3]'],
+        ] as const)('%s', (_desc, input, expected) => {
+            expect(extractErrorDetailString(input)).toEqual(expected)
+        })
+
+        it('returns null for values that cannot be stringified (circular refs)', () => {
+            const circular: Record<string, unknown> = {}
+            circular.self = circular
+            expect(extractErrorDetailString(circular)).toBeNull()
         })
     })
 })
