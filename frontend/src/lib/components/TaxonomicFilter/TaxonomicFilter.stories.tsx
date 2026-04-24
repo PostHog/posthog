@@ -298,7 +298,14 @@ const SUGGESTED_FILTERS_ARGS = {
     ],
 }
 
-const SUGGESTED_FILTERS_PARAMETERS = {
+// NoRecents has no recent row to highlight, so no definition popover mounts — wait only on the list.
+const SUGGESTED_FILTERS_NO_RECENTS_PARAMETERS = {
+    testOptions: { waitForSelector: '.taxonomic-infinite-list' },
+}
+
+// Stories that seed at least one recent highlight that row on mount and render a definition popover,
+// which mounts asynchronously after the list — wait for both so Chromatic doesn't race the popover.
+const SUGGESTED_FILTERS_WITH_RECENTS_PARAMETERS = {
     testOptions: { waitForSelector: ['.taxonomic-infinite-list', '.definition-popover'] },
 }
 
@@ -315,7 +322,7 @@ export const SuggestedFiltersNoRecents: Story = {
         ...SUGGESTED_FILTERS_ARGS,
         taxonomicFilterLogicKey: 'suggested-no-recents',
     },
-    parameters: SUGGESTED_FILTERS_PARAMETERS,
+    parameters: SUGGESTED_FILTERS_NO_RECENTS_PARAMETERS,
 }
 
 export const SuggestedFiltersOneRecent: Story = {
@@ -331,7 +338,7 @@ export const SuggestedFiltersOneRecent: Story = {
         ...SUGGESTED_FILTERS_ARGS,
         taxonomicFilterLogicKey: 'suggested-one-recent',
     },
-    parameters: SUGGESTED_FILTERS_PARAMETERS,
+    parameters: SUGGESTED_FILTERS_WITH_RECENTS_PARAMETERS,
 }
 
 export const SuggestedFiltersFourRecents: Story = {
@@ -347,7 +354,7 @@ export const SuggestedFiltersFourRecents: Story = {
         ...SUGGESTED_FILTERS_ARGS,
         taxonomicFilterLogicKey: 'suggested-four-recents',
     },
-    parameters: SUGGESTED_FILTERS_PARAMETERS,
+    parameters: SUGGESTED_FILTERS_WITH_RECENTS_PARAMETERS,
 }
 
 export const SuggestedFiltersFiveRecentsWithTruncation: Story = {
@@ -363,7 +370,7 @@ export const SuggestedFiltersFiveRecentsWithTruncation: Story = {
         ...SUGGESTED_FILTERS_ARGS,
         taxonomicFilterLogicKey: 'suggested-five-recents-truncation',
     },
-    parameters: SUGGESTED_FILTERS_PARAMETERS,
+    parameters: SUGGESTED_FILTERS_WITH_RECENTS_PARAMETERS,
 }
 
 /**
@@ -402,7 +409,7 @@ export const PromotedGroupsAreReordered: Story = {
         ],
     },
     parameters: {
-        ...SUGGESTED_FILTERS_PARAMETERS,
+        ...SUGGESTED_FILTERS_WITH_RECENTS_PARAMETERS,
         docs: {
             description: {
                 story: 'PageviewUrls, Screens, and EmailAddresses are defined at the end of the group list but get promoted to the top positions, right after Suggested filters and Recents.',
@@ -432,7 +439,7 @@ export const AutocaptureContextPromotesElements: Story = {
         ],
     },
     parameters: {
-        ...SUGGESTED_FILTERS_PARAMETERS,
+        ...SUGGESTED_FILTERS_WITH_RECENTS_PARAMETERS,
         docs: {
             description: {
                 story: 'When $autocapture is the selected event, SuggestedFilters shows "text" and "selector" autocapture properties and the Elements group is promoted after SuggestedFilters/Recents.',
