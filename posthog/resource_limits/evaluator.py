@@ -19,11 +19,11 @@ def _get_active_override(team: "Team", key: str) -> "TeamLimitOverride | None":
 def get_limit(*, team: "Team", key: str) -> int | None:
     """Resolve the effective resource limit for a team/key.
 
-    The override acts as a **floor** — it can only raise the cap above the
-    catalog default, never lower it. If the catalog default is later bumped
-    above an approved override, the team still benefits from the raise
-    (matches the usual "grant this team more headroom" intent so stale low
-    overrides don't silently cap teams below everyone else).
+    The override acts as a floor. It can only raise the cap above the catalog
+    default, never lower it. If the catalog default is later bumped above an
+    approved override, the team still benefits from the raise (matches the
+    usual "grant this team more headroom" intent so stale low overrides don't
+    silently cap teams below everyone else).
 
     ``None`` signals "unlimited" on either side and wins over any finite value.
     """
