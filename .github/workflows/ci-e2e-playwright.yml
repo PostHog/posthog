@@ -71,6 +71,7 @@ jobs:
             shouldRun: ${{ steps.changes.outputs.shouldRun || 'true' }}
             oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
         steps:
+            # For pull requests it's not necessary to check out the code
             - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
               id: changes
               if: github.event_name != 'push' # Run all tests on master push

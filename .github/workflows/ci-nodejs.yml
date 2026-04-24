@@ -43,7 +43,6 @@ jobs:
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
-                  token: ''
                   filters: |
                       nodejs:
                         - .github/workflows/ci-nodejs.yml
