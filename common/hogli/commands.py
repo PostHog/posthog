@@ -43,7 +43,6 @@ from __future__ import annotations
 # commands with the CLI group when imported. The imports appear unused but are required.
 from hogli import (
     build,  # noqa: F401
-    detached,  # noqa: F401
     devbox,  # noqa: F401
     doctor,  # noqa: F401
     migrations,  # noqa: F401

@@ -1,101 +1,106 @@
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from click.testing import CliRunner
 from hogli.core.cli import cli
 
-
-def _invoke(*args: str) -> tuple[int, str, str]:
-    """Invoke the hogli CLI via CliRunner; returns (exit_code, stdout, stderr)."""
-    runner = CliRunner(mix_stderr=False)
-    result = runner.invoke(cli, list(args), catch_exceptions=False)
-    # CliRunner captures SystemExit from sys.exit into result.exit_code.
-    return result.exit_code, result.stdout, result.stderr
+runner = CliRunner()
 
 
 def test_wait_command_registered() -> None:
-    code, out, err = _invoke("start:wait", "--help")
-    assert code == 0
-    assert "Wait for the detached dev stack" in out
+    result = runner.invoke(cli, ["wait", "--help"])
+
+    assert result.exit_code == 0
+    assert "Block until the detached dev stack is ready" in result.output
 
 
 def test_stop_command_registered() -> None:
-    code, out, err = _invoke("start:stop", "--help")
-    assert code == 0
-    assert "Stop the detached dev stack" in out
+    result = runner.invoke(cli, ["stop", "--help"])
+
+    assert result.exit_code == 0
+    assert "Stop the detached dev stack gracefully" in result.output
 
 
-def test_wait_reports_missing_phrocs(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Force shutil.which to return None so the "not installed" path runs.
-    from hogli import detached
+def test_up_command_registered_as_start_alias() -> None:
+    result = runner.invoke(cli, ["up", "--help"])
 
-    monkeypatch.setattr(detached, "_phrocs_bin", lambda: None)
-    code, out, err = _invoke("start:wait")
-    assert code == 127
-    assert "phrocs binary not found" in err
+    assert result.exit_code == 0
+    assert "Alias for `hogli start`" in result.output
 
 
-def test_stop_reports_missing_phrocs(monkeypatch: pytest.MonkeyPatch) -> None:
-    from hogli import detached
+def test_down_command_registered_as_stop_alias() -> None:
+    result = runner.invoke(cli, ["down", "--help"])
 
-    monkeypatch.setattr(detached, "_phrocs_bin", lambda: None)
-    code, out, err = _invoke("start:stop")
-    assert code == 127
-    assert "phrocs binary not found" in err
+    assert result.exit_code == 0
+    assert "Alias for `hogli stop`" in result.output
 
 
-def test_wait_propagates_exit_code(monkeypatch: pytest.MonkeyPatch) -> None:
-    from hogli import detached
+def test_up_forwards_detached_flag_to_start_script(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
 
-    fake_bin = "/usr/bin/true"  # ignored; we're stubbing subprocess.run below
+    def fake_run(command, **kwargs) -> None:
+        captured["command"] = command
+        captured["kwargs"] = kwargs
 
-    class _FakeResult:
-        returncode = 2
+    monkeypatch.setattr("hogli.core.command_types._run", fake_run)
 
-    def fake_run(args, **kwargs):
-        assert args[0] == fake_bin
-        assert "wait" in args
-        assert "--timeout" in args
-        return _FakeResult()
+    result = runner.invoke(cli, ["up", "-d"])
 
-    monkeypatch.setattr(detached, "_phrocs_bin", lambda: fake_bin)
-    monkeypatch.setattr(detached.subprocess, "run", fake_run)
-    code, _, _ = _invoke("start:wait", "--timeout", "10")
-    assert code == 2
+    assert result.exit_code == 0
+    command = captured["command"]
+    assert command[0].endswith("/bin/start")
+    assert command[1:] == ["-d"]
 
 
-def test_wait_forwards_json_flag(monkeypatch: pytest.MonkeyPatch) -> None:
-    from hogli import detached
+def test_wait_forwards_args_and_preserves_exit_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
 
-    captured: dict[str, list[str]] = {}
+    def fake_run(command, **kwargs) -> None:
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        raise SystemExit(3)
 
-    class _FakeResult:
-        returncode = 0
+    monkeypatch.setattr("hogli.core.command_types._run", fake_run)
 
-    def fake_run(args, **kwargs):
-        captured["args"] = args
-        return _FakeResult()
+    result = runner.invoke(cli, ["wait", "--timeout", "1", "--json"])
 
-    monkeypatch.setattr(detached, "_phrocs_bin", lambda: "/bin/phrocs")
-    monkeypatch.setattr(detached.subprocess, "run", fake_run)
-    _invoke("start:wait", "--json")
-    assert "--json" in captured["args"]
+    assert result.exit_code == 3
+    assert captured["command"] == ["phrocs", "wait", "--timeout", "1", "--json"]
+    assert captured["kwargs"]["preserve_exit_code"] is True
 
 
-def test_stop_forwards_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
-    from hogli import detached
+def test_stop_forwards_timeout_and_preserves_exit_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
 
-    captured: dict[str, list[str]] = {}
+    def fake_run(command, **kwargs) -> None:
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        raise SystemExit(2)
 
-    class _FakeResult:
-        returncode = 0
+    monkeypatch.setattr("hogli.core.command_types._run", fake_run)
 
-    def fake_run(args, **kwargs):
-        captured["args"] = args
-        return _FakeResult()
+    result = runner.invoke(cli, ["stop", "--timeout", "42"])
 
-    monkeypatch.setattr(detached, "_phrocs_bin", lambda: "/bin/phrocs")
-    monkeypatch.setattr(detached.subprocess, "run", fake_run)
-    _invoke("start:stop", "--timeout", "42")
-    assert captured["args"][-2:] == ["--timeout", "42"]
+    assert result.exit_code == 2
+    assert captured["command"] == ["phrocs", "stop", "--timeout", "42"]
+    assert captured["kwargs"]["preserve_exit_code"] is True
+
+
+def test_down_forwards_timeout_and_preserves_exit_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_run(command, **kwargs) -> None:
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        raise SystemExit(2)
+
+    monkeypatch.setattr("hogli.core.command_types._run", fake_run)
+
+    result = runner.invoke(cli, ["down", "--timeout", "42"])
+
+    assert result.exit_code == 2
+    assert captured["command"] == ["phrocs", "stop", "--timeout", "42"]
+    assert captured["kwargs"]["preserve_exit_code"] is True

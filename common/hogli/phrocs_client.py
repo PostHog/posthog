@@ -2,8 +2,8 @@
 
 Used by hogli tests and (eventually) the MCP server to compute the IPC
 socket path and pidfile location without duplicating the hashing logic that
-lives in Go. Kept intentionally minimal: the production `hogli start:wait`
-and `hogli start:stop` commands shell out to the `phrocs` binary rather
+lives in Go. Kept intentionally minimal: the production `hogli wait` and
+`hogli stop` / `hogli down` commands shell out to the `phrocs` binary rather
 than reimplementing the protocol in Python.
 """
 

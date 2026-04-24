@@ -42,10 +42,19 @@ To launch the full development stack (backend, nodejs services, workers, fronten
 
 ```bash
 hogli start          # interactive TUI — stays attached to your terminal
-hogli start -d       # detached mode — returns immediately, logs to .posthog/.generated/logs
 ```
 
-`hogli start` delegates to [`bin/start`](../bin/start), which orchestrates all services through `phrocs`. In detached mode, use `hogli start:wait` to block until every service is ready and `hogli start:stop` for a graceful shutdown — both delegate to the same `phrocs` binary over its IPC socket.
+`hogli start` delegates to [`bin/start`](../bin/start) and orchestrates all services through `phrocs`.
+
+For optional detached mode, use the lifecycle aliases:
+
+```bash
+hogli up -d          # detached mode — returns immediately, logs to .posthog/.generated/logs
+hogli wait           # block until every service is ready
+hogli down           # stop the detached stack
+```
+
+`hogli up` is an alias for `hogli start`, and `hogli down` is an alias for `hogli stop`. The wait/stop helpers delegate to the same `phrocs` binary over its IPC socket.
 
 When you need a one-shot way to verify your code before pushing:
 

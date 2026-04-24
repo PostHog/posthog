@@ -208,8 +208,21 @@ start:
             - kafka
             - clickhouse
             - temporal
-    start:wait: null # Click-defined in hogli/detached.py — block until the detached stack is ready
-    start:stop: null # Click-defined in hogli/detached.py — stop the detached stack gracefully
+    up:
+        bin_script: start
+        description: Alias for `hogli start`; use `-d` for optional detached mode
+    wait:
+        cmd: phrocs wait
+        description: Block until the detached dev stack is ready
+        preserve_exit_code: true
+    stop:
+        cmd: phrocs stop
+        description: Stop the detached dev stack gracefully
+        preserve_exit_code: true
+    down:
+        cmd: phrocs stop
+        description: Alias for `hogli stop`
+        preserve_exit_code: true
     start:backend:
         bin_script: start-backend
         description: Run Django development server on port 8000 with auto-reload

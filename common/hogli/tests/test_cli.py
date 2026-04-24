@@ -50,6 +50,7 @@ class TestQuickstartCommand:
         assert result.exit_code == 0
         assert "PostHog Development Quickstart" in result.output
         assert "hogli" in result.output
+        assert "hogli start -d" not in result.output
 
 
 class TestMetaCheckCommand:

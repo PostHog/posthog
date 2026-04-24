@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -16,6 +17,8 @@ import (
 // `bin/start --detach` returns — useful when `hogli wait` is run immediately
 // after.
 const socketGracePeriod = 30 * time.Second
+
+var queryDetached = query
 
 // runWait polls status_all on an interval until every process is ready
 // (exit 0), any process has crashed (exit 1, prints tail logs), or the
@@ -28,7 +31,7 @@ func runWait(timeoutSec int, asJSON bool) int {
 	sawResponse := false
 
 	for {
-		resp, err := query(map[string]any{"cmd": "status_all"}, 2*time.Second)
+		resp, err := queryDetached(map[string]any{"cmd": "status_all"}, 2*time.Second)
 		if err != nil {
 			// The detached process may not have bound yet — allow a grace
 			// period before failing.
@@ -93,7 +96,8 @@ func classify(procs map[string]any) (verdict string, crashed []string, notReady 
 	if len(procs) == 0 {
 		return "pending", nil, nil
 	}
-	for name, v := range procs {
+	for _, name := range sortedProcessNames(procs) {
+		v := procs[name]
 		snap, _ := v.(map[string]any)
 		status, _ := snap["status"].(string)
 		ready, _ := snap["ready"].(bool)
@@ -112,6 +116,15 @@ func classify(procs map[string]any) (verdict string, crashed []string, notReady 
 		return "pending", nil, notReady
 	}
 	return "ready", nil, nil
+}
+
+func sortedProcessNames(procs map[string]any) []string {
+	names := make([]string, 0, len(procs))
+	for name := range procs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func waitTimeout(asJSON bool, notReady []string) int {
@@ -133,7 +146,7 @@ func notReachable(asJSON bool, reason string) int {
 }
 
 func tailLogs(name string) {
-	resp, err := query(map[string]any{
+	resp, err := queryDetached(map[string]any{
 		"cmd":     "logs",
 		"process": name,
 		"lines":   30,
@@ -169,7 +182,7 @@ func runStop(timeoutSec int) int {
 		return cleanupIfStalePidfile()
 	}
 
-	resp, qerr := query(map[string]any{"cmd": "quit"}, 2*time.Second)
+	resp, qerr := queryDetached(map[string]any{"cmd": "quit"}, 2*time.Second)
 	if qerr == nil && resp["ok"] == true {
 		// Wait for the socket to actually disappear.
 		for time.Now().Before(deadline) {
@@ -273,15 +286,20 @@ func pidAlive(pid int) bool {
 // every 500ms and exits on Ctrl+C. Full push-based TUI attach is a follow-up.
 func runAttach() int {
 	for {
-		resp, err := query(map[string]any{"cmd": "status_all"}, 2*time.Second)
+		resp, err := queryDetached(map[string]any{"cmd": "status_all"}, 2*time.Second)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "phrocs: %v\n", err)
+			return 1
+		}
+		if resp["ok"] != true {
+			fmt.Fprintf(os.Stderr, "phrocs: %v\n", resp["error"])
 			return 1
 		}
 		procs, _ := resp["processes"].(map[string]any)
 		fmt.Print("\033[H\033[2J") // clear screen
 		fmt.Printf("phrocs (detached) — %d procs — Ctrl+C to exit\n\n", len(procs))
-		for name, v := range procs {
+		for _, name := range sortedProcessNames(procs) {
+			v := procs[name]
 			snap, _ := v.(map[string]any)
 			status, _ := snap["status"].(string)
 			ready, _ := snap["ready"].(bool)
