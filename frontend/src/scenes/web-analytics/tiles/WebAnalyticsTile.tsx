@@ -1219,7 +1219,7 @@ const HogQLTableTile = ({
     tileId,
 }: {
     uniqueKey: string
-    attachTo: BuiltLogic | LogicWrapper
+    attachTo?: BuiltLogic | LogicWrapper
     query: DataTableNode
     insightProps: InsightLogicProps
     tileId: TileId

@@ -2318,7 +2318,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     source: {
                                         kind: NodeKind.TrendsQuery,
                                         dateRange,
-                                        interval: interval ?? IntervalType.HOURLY,
+                                        interval: interval ?? 'hour',
                                         series: botTrendsSeries,
                                         trendsFilter: {
                                             display: ChartDisplayType.ActionsLineGraph,
@@ -2548,8 +2548,6 @@ LIMIT 50`,
                 basePath = '/web/page-reports'
             } else if (productTab === ProductTab.WEB_VITALS) {
                 basePath = '/web/web-vitals'
-            } else if (productTab === ProductTab.BOT_ANALYTICS) {
-                basePath = '/web/bots'
             }
 
             return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`

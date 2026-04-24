@@ -1,7 +1,14 @@
 import { connect, kea, path, selectors } from 'kea'
 
-import { IntervalType, NodeKind, WebAnalyticsPropertyFilters, WebStatsBreakdown } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, InsightLogicProps, PropertyFilterType, PropertyOperator } from '~/types'
+import { NodeKind, WebAnalyticsPropertyFilters, WebStatsBreakdown } from '~/queries/schema/schema-general'
+import {
+    BaseMathType,
+    ChartDisplayType,
+    InsightLogicProps,
+    IntervalType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import type { botDetailLogicType } from './botDetailLogicType'
 import { QueryTile, TileId, WEB_ANALYTICS_DEFAULT_QUERY_TAGS, WebAnalyticsTile, WebTileLayout } from './common'
