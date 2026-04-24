@@ -425,12 +425,13 @@ function ScheduleSection({
     const serverFrequency = schema.sync_frequency || (isCdc ? '5min' : '6hour')
     const serverSyncTimeOfDay = schema.sync_time_of_day ?? null
 
-    // Reset the draft when the user navigates to a different schema
+    // Reset the draft when the user navigates to a different schema or when the server values
+    // change (e.g. after the sync type switches between CDC and non-CDC, which flips the default
+    // frequency).
     useEffect(() => {
         setDraftFrequency(serverFrequency)
         setDraftSyncTimeOfDay(serverSyncTimeOfDay)
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [schema.id])
+    }, [schema.id, serverFrequency, serverSyncTimeOfDay])
 
     const isDirty = draftFrequency !== serverFrequency || draftSyncTimeOfDay !== serverSyncTimeOfDay
 
