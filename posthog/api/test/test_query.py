@@ -1401,3 +1401,24 @@ class TestInferQueryTags(APIBaseTest):
             tags=QueryLogTags(scene="Cohort"),
         )
         assert _infer_query_tags(query) == {"product": ProductKey.COHORTS, "feature": Feature.COHORT}
+
+    def test_product_key_only_defaults_feature_to_query(self):
+        # Scenes that only attach `tags.productKey` (e.g. Person, Group) rely on
+        # QueryRunner.run to tag `product` from the productKey. Without a feature default,
+        # those queries would trip UntaggedQueryError in DEBUG.
+        query = ActorsQuery(
+            select=["id"],
+            tags=QueryLogTags(productKey=ProductKey.CUSTOMER_ANALYTICS),
+        )
+        assert _infer_query_tags(query) == {"feature": Feature.QUERY}
+
+    def test_scene_mapping_takes_precedence_over_product_key_fallback(self):
+        query = ActorsQuery(
+            select=["id"],
+            tags=QueryLogTags(scene="Cohort", productKey=ProductKey.CUSTOMER_ANALYTICS),
+        )
+        assert _infer_query_tags(query) == {"product": ProductKey.COHORTS, "feature": Feature.COHORT}
+
+    def test_unmapped_scene_and_no_product_key_returns_empty(self):
+        query = ActorsQuery(select=["id"], tags=QueryLogTags(scene="Unknown"))
+        assert _infer_query_tags(query) == {}
