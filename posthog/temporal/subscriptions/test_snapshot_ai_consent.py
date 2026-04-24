@@ -177,7 +177,7 @@ async def test_captures_analytics_event_when_summary_is_generated(team, user, mo
     assert props["target_type"] == subscription.target_type
     assert props["insight_count"] == 1
     assert props["image_count"] == 0
-    assert props["has_previous"] is False
+    assert props["has_previous_snapshot"] is False
     assert props["summary_text_length"] == len("- Pageviews is trending up")
     assert props["resource_type"] == "insight"
 
@@ -208,6 +208,102 @@ async def test_does_not_capture_analytics_event_when_summary_skipped(team, user,
 
     events = [c for c in captured if c.get("event") == "subscription_ai_summary_generated"]
     assert events == []
+
+
+async def test_does_not_capture_analytics_event_for_empty_summary(team, user, monkeypatch):
+    subscription = await _create_subscription(team, user)
+    await _set_ai_consent(subscription, approved=True)
+    delivery = await _create_delivery(
+        subscription,
+        {
+            "insights": [
+                {
+                    "id": subscription.insight_id,
+                    "name": "Pageviews",
+                    "query_results": {"result": [{"label": "Pageviews", "data": [1, 2, 3]}]},
+                }
+            ]
+        },
+    )
+
+    monkeypatch.setattr(
+        "posthog.temporal.subscriptions.snapshot_activities.generate_change_summary",
+        lambda *a, **kw: "",
+    )
+
+    captured: list[dict] = []
+
+    class _FakeClient:
+        def capture(self, **kwargs):
+            captured.append(kwargs)
+
+        def shutdown(self):
+            pass
+
+    monkeypatch.setattr("posthog.ph_client.is_cloud", lambda: True)
+    monkeypatch.setattr("posthog.ph_client.get_client", lambda *a, **kw: _FakeClient())
+
+    await _run(
+        SnapshotInsightsInputs(
+            subscription_id=subscription.id,
+            team_id=subscription.team_id,
+            delivery_id=str(delivery.id),
+        )
+    )
+
+    events = [c for c in captured if c.get("event") == "subscription_ai_summary_generated"]
+    assert events == [], "empty-string summaries should not count as generated"
+
+
+async def test_captures_event_with_team_prefixed_distinct_id_when_no_creator(team, user, monkeypatch):
+    """System-generated subs without a creator get a `team_<id>` distinct_id so they don't
+    pollute real-user counts in product analytics.
+    """
+    subscription = await _create_subscription(team, user)
+    await _set_ai_consent(subscription, approved=True)
+    # Remove the creator link after creation so we hit the fallback branch.
+    await sync_to_async(Subscription.objects.filter(pk=subscription.pk).update)(created_by=None)
+    delivery = await _create_delivery(
+        subscription,
+        {
+            "insights": [
+                {
+                    "id": subscription.insight_id,
+                    "name": "Pageviews",
+                    "query_results": {"result": [{"label": "Pageviews", "data": [1, 2, 3]}]},
+                }
+            ]
+        },
+    )
+
+    monkeypatch.setattr(
+        "posthog.temporal.subscriptions.snapshot_activities.generate_change_summary",
+        lambda *a, **kw: "- Pageviews is trending up",
+    )
+
+    captured: list[dict] = []
+
+    class _FakeClient:
+        def capture(self, **kwargs):
+            captured.append(kwargs)
+
+        def shutdown(self):
+            pass
+
+    monkeypatch.setattr("posthog.ph_client.is_cloud", lambda: True)
+    monkeypatch.setattr("posthog.ph_client.get_client", lambda *a, **kw: _FakeClient())
+
+    await _run(
+        SnapshotInsightsInputs(
+            subscription_id=subscription.id,
+            team_id=subscription.team_id,
+            delivery_id=str(delivery.id),
+        )
+    )
+
+    events = [c for c in captured if c.get("event") == "subscription_ai_summary_generated"]
+    assert len(events) == 1
+    assert events[0]["distinct_id"] == f"team_{team.id}"
 
 
 async def test_unhandled_exception_is_logged_and_reraised(team, user, monkeypatch):

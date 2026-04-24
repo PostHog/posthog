@@ -218,25 +218,25 @@ def _capture_summary_generated_event(
     summary_text: str,
     insight_count: int,
     image_count: int,
-    has_previous: bool,
+    has_previous_snapshot: bool,
 ) -> None:
     """Fire a product analytics event when a summary has been successfully generated.
 
     Recipients aren't identifiable (email addresses, Slack channels, webhook URLs
     have no distinct_id), so we attribute the event to the subscription creator —
-    falling back to team_id when the creator has been removed. Wrapped in a broad
-    except so a capture failure can never bubble up and poison an otherwise
-    successful activity run.
+    falling back to a `team_<id>` string when the creator has been removed so
+    system-generated deliveries don't pollute real-user counts in analytics.
+    Wrapped in a broad except so a capture failure can never bubble up and
+    poison an otherwise successful activity run.
     """
     try:
-        distinct_id = (
-            subscription.created_by.distinct_id
-            if subscription.created_by and subscription.created_by.distinct_id
-            else str(subscription.team_id)
-        )
+        if subscription.created_by and subscription.created_by.distinct_id:
+            distinct_id: str = subscription.created_by.distinct_id
+        else:
+            distinct_id = f"team_{subscription.team_id}"
         with ph_scoped_capture() as capture:
             capture(
-                distinct_id=str(distinct_id),
+                distinct_id=distinct_id,
                 event="subscription_ai_summary_generated",
                 properties={
                     "subscription_id": subscription.id,
@@ -245,7 +245,7 @@ def _capture_summary_generated_event(
                     "target_type": subscription.target_type,
                     "insight_count": insight_count,
                     "image_count": image_count,
-                    "has_previous": has_previous,
+                    "has_previous_snapshot": has_previous_snapshot,
                     "summary_text_length": len(summary_text),
                     "resource_type": "dashboard" if subscription.dashboard_id else "insight",
                 },
@@ -255,6 +255,8 @@ def _capture_summary_generated_event(
         LOGGER.warning(
             "subscription_ai_summary_generated.capture_failed",
             subscription_id=subscription.id,
+            team_id=subscription.team_id,
+            delivery_id=delivery_id,
             exc_info=True,
         )
 
@@ -337,7 +339,7 @@ async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) ->
     )
 
     subscription = await database_sync_to_async(
-        Subscription.objects.select_related("team__organization").get,
+        Subscription.objects.select_related("team__organization", "created_by").get,
         thread_sensitive=False,
     )(pk=inputs.subscription_id)
 
@@ -445,14 +447,14 @@ async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) ->
             exc_info=True,
         )
 
-    if summary_text is not None:
+    if summary_text:
         await database_sync_to_async(_capture_summary_generated_event, thread_sensitive=False)(
             subscription,
             delivery_id=inputs.delivery_id,
             summary_text=summary_text,
             insight_count=len(current_states),
             image_count=len(insight_images),
-            has_previous=previous_states is not None,
+            has_previous_snapshot=previous_states is not None,
         )
 
     await LOGGER.ainfo(
