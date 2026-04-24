@@ -86,7 +86,7 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
             },
         ],
     })),
-    forms(() => ({
+    forms(({ actions }) => ({
         authorize: {
             defaults: {
                 userCode: '',
@@ -111,19 +111,29 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
                         project_id: projectId,
                         scopes: scopes,
                     })
+                    actions.setSuccess(true)
                     return response
                 } catch (error: any) {
+                    // Surface backend validation errors via setAuthorizeManualErrors rather than
+                    // throwing — rethrows from an async submit reach global error tracking as
+                    // unhandled exceptions even though these are expected outcomes.
                     const errorCode = error?.code || error?.error
                     if (errorCode === 'invalid_code') {
-                        throw { userCode: 'Invalid or expired code. Please try again.' }
+                        actions.setAuthorizeManualErrors({
+                            userCode: 'Invalid or expired code. Please try again.',
+                        })
                     } else if (errorCode === 'expired') {
-                        throw { userCode: 'This code has expired. Please request a new code in your terminal.' }
+                        actions.setAuthorizeManualErrors({
+                            userCode: 'This code has expired. Please request a new code in your terminal.',
+                        })
                     } else if (errorCode === 'access_denied') {
-                        throw { projectId: 'You do not have access to this project.' }
+                        actions.setAuthorizeManualErrors({
+                            projectId: 'You do not have access to this project.',
+                        })
                     } else if (errorCode === 'invalid_project') {
-                        throw { projectId: 'Project not found.' }
+                        actions.setAuthorizeManualErrors({ projectId: 'Project not found.' })
                     } else {
-                        throw { userCode: 'An error occurred. Please try again.' }
+                        actions.setAuthorizeManualErrors({ userCode: 'An error occurred. Please try again.' })
                     }
                 }
             },
@@ -226,12 +236,6 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
         updateDisplayedScopeSnapshot: () => {
             // Update displayed scope values with current form values
             actions.setDisplayedScopeValues(values.formScopeRadioValues)
-        },
-        submitAuthorizeSuccess: () => {
-            actions.setSuccess(true)
-        },
-        submitAuthorizeFailure: () => {
-            // Error handling is done in the form errors
         },
         loadUserSuccess: ({ user }) => {
             if (values.authorize.organizationId) {
