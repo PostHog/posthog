@@ -168,6 +168,7 @@ class RunSummary:
     new: int
     removed: int
     unchanged: int
+    unresolved: int = 0
     tolerated_matched: int = 0
 
 
@@ -209,6 +210,7 @@ class RecomputeResult:
 
     run: Run
     counts_changed: bool
+    unresolved: int
     ci_rerun_triggered: bool
     ci_rerun_error: str | None = None
 

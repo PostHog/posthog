@@ -52,7 +52,6 @@ from .serializers import (
     SnapshotHistoryEntrySerializer,
     SnapshotSerializer,
     ToleratedHashEntrySerializer,
-    UnquarantineQuerySerializer,
     UpdateRepoInputSerializer,
 )
 
@@ -166,16 +165,18 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(QuarantinedIdentifierEntrySerializer(instance=entry).data, status=status.HTTP_201_CREATED)
 
     @validated_request(
-        query_serializer=UnquarantineQuerySerializer,
+        request_serializer=QuarantineInputSerializer,
         responses={204: None},
     )
-    @action(detail=True, methods=["delete"], url_path=r"quarantine/(?P<run_type>[^/]+)")
-    def unquarantine(self, request: Request, pk: str, run_type: str, **kwargs) -> Response:
-        """Remove an identifier from quarantine."""
-        identifier = request.validated_query_data["identifier"]
+    @action(detail=True, methods=["post"], url_path=r"quarantine/(?P<run_type>[^/]+)/expire")
+    def unquarantine(self, request: TypedRequest[QuarantineInput], pk: str, run_type: str, **kwargs) -> Response:
+        """Expire all active quarantine entries for an identifier."""
         try:
             api.unquarantine_identifier(
-                repo_id=UUID(pk), identifier=identifier, run_type=run_type, team_id=self.team_id
+                repo_id=UUID(pk),
+                identifier=request.validated_data.identifier,
+                run_type=run_type,
+                team_id=self.team_id,
             )
         except api.RepoNotFoundError:
             return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)

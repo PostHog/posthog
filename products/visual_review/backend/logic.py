@@ -887,22 +887,34 @@ def _stamp_quarantine(run: Run) -> None:
     snapshots.filter(is_quarantined=True).exclude(identifier__in=quarantined_ids).update(is_quarantined=False)
 
 
-def _update_counts_and_post_status(run: Run) -> None:
-    """Re-stamp quarantine, recount actionable snapshots, and post commit status.
+def _is_unresolved(s: RunSnapshot) -> bool:
+    """A snapshot is unresolved if it represents a change that hasn't been dealt with."""
+    if s.result == SnapshotResult.UNCHANGED:
+        return False
+    if s.is_quarantined:
+        return False
+    if s.review_state in (ReviewState.TOLERATED, ReviewState.APPROVED):
+        return False
+    return True
 
-    Shared by finish_processing (first time) and re-evaluation paths
-    (e.g. when quarantine state changes after completion).
+
+def _update_counts_and_post_status(run: Run) -> int:
+    """Re-stamp quarantine, recount snapshots, compute unresolved, and post commit status.
+
+    Counts on the run (changed_count, new_count, removed_count) reflect the raw
+    classifier output excluding quarantined snapshots. The unresolved count is
+    computed separately for the commit status and CI gate — it further excludes
+    tolerated and approved snapshots.
+
+    Returns the unresolved count.
     """
     _stamp_quarantine(run)
 
     snapshots = list(run.snapshots.using(WRITER_DB).select_related("tolerated_hash_match").all())
 
-    def _is_actionable(s) -> bool:
-        return not s.is_quarantined and s.review_state != ReviewState.TOLERATED
-
-    run.changed_count = sum(1 for s in snapshots if s.result == SnapshotResult.CHANGED and _is_actionable(s))
-    run.new_count = sum(1 for s in snapshots if s.result == SnapshotResult.NEW and _is_actionable(s))
-    run.removed_count = sum(1 for s in snapshots if s.result == SnapshotResult.REMOVED and _is_actionable(s))
+    run.changed_count = sum(1 for s in snapshots if s.result == SnapshotResult.CHANGED and not s.is_quarantined)
+    run.new_count = sum(1 for s in snapshots if s.result == SnapshotResult.NEW and not s.is_quarantined)
+    run.removed_count = sum(1 for s in snapshots if s.result == SnapshotResult.REMOVED and not s.is_quarantined)
     run.tolerated_match_count = sum(
         1
         for s in snapshots
@@ -917,10 +929,12 @@ def _update_counts_and_post_status(run: Run) -> None:
         ]
     )
 
+    unresolved = sum(1 for s in snapshots if _is_unresolved(s))
+
     repo = run.repo
     if run.error_message:
         _post_commit_status(run, repo, "error", f"Visual review failed: {run.error_message[:100]}")
-    elif run.changed_count > 0 or run.new_count > 0 or run.removed_count > 0:
+    elif unresolved > 0:
         parts = []
         if run.changed_count:
             parts.append(f"{run.changed_count} changed")
@@ -932,6 +946,8 @@ def _update_counts_and_post_status(run: Run) -> None:
         _post_review_prompt_comment(run, repo)
     else:
         _post_commit_status(run, repo, "success", "No visual changes")
+
+    return unresolved
 
 
 def finish_processing(run_id: UUID, error_message: str = "") -> Run:
@@ -962,7 +978,7 @@ def recompute_run(run_id: UUID, team_id: int | None = None) -> dict:
         raise ValueError("Run is already approved")
 
     old_counts = (run.changed_count, run.new_count, run.removed_count)
-    _update_counts_and_post_status(run)
+    unresolved = _update_counts_and_post_status(run)
     new_counts = (run.changed_count, run.new_count, run.removed_count)
     counts_changed = old_counts != new_counts
 
@@ -978,6 +994,7 @@ def recompute_run(run_id: UUID, team_id: int | None = None) -> dict:
 
     return {
         "counts_changed": counts_changed,
+        "unresolved": unresolved,
         "ci_rerun_triggered": ci_rerun_triggered,
         "ci_rerun_error": ci_rerun_error,
     }
@@ -1783,6 +1800,23 @@ def unquarantine_identifier(repo_id: UUID, identifier: str, run_type: str, team_
         run_type=run_type,
         team_id=team_id,
     ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now())).update(expires_at=timezone.now())
+
+
+def expire_quarantine_entry(entry_id: UUID, team_id: int) -> None:
+    now = timezone.now()
+    active = Q(expires_at__isnull=True) | Q(expires_at__gt=now)
+    try:
+        entry = QuarantinedIdentifier.objects.using(WRITER_DB).filter(active).get(id=entry_id, team_id=team_id)
+    except QuarantinedIdentifier.DoesNotExist as e:
+        raise RunNotFoundError(f"Quarantine entry {entry_id} not found or already expired") from e
+
+    # Expire all active entries for the same identifier/run_type, not just this one
+    QuarantinedIdentifier.objects.using(WRITER_DB).filter(
+        repo_id=entry.repo_id,
+        identifier=entry.identifier,
+        run_type=entry.run_type,
+        team_id=team_id,
+    ).filter(active).update(expires_at=now)
 
 
 def update_snapshot_diff(

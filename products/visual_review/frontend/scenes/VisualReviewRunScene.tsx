@@ -222,23 +222,25 @@ export function VisualReviewRunScene(): JSX.Element {
     const diffNew = run.summary.new
     const diffRemoved = run.summary.removed
     const diffTolerated = Math.max(0, (run.summary.tolerated_matched ?? 0) - reviewTolerated)
+    const hasChanges = diffChanged > 0 || diffNew > 0 || diffRemoved > 0
 
-    // If server counts are higher than loaded, show "+" to hint at pagination
-    const totalActionable = diffChanged + diffNew + diffRemoved
-    const loadedActionable = reviewPending + reviewApproved + reviewTolerated
-    const hasMore = totalActionable > loadedActionable
-
-    // All changes are now resolved (quarantined or tolerated) — gate would flip to success on re-trigger.
-    // Only reliable when all actionable snapshots are loaded (not paginated).
+    // Predict whether recompute would flip the gate — uses client-side quarantine set
+    // which updates immediately, unlike summary.unresolved which requires a recompute round-trip
     const allChangesResolved =
         run.status === 'completed' &&
         !run.approved &&
         !run.is_stale &&
-        !hasMore &&
-        totalActionable > 0 &&
+        hasChanges &&
         snapshots
             .filter((s: SnapshotApi) => s.result !== 'unchanged')
-            .every((s: SnapshotApi) => quarantinedIdentifierSet.has(s.identifier) || s.review_state === 'tolerated')
+            .every(
+                (s: SnapshotApi) =>
+                    quarantinedIdentifierSet.has(s.identifier) ||
+                    s.review_state === 'tolerated' ||
+                    s.review_state === 'approved'
+            )
+
+    const hasMore = diffChanged + diffNew + diffRemoved > reviewPending + reviewApproved + reviewTolerated
 
     // Navigation — use changed snapshots when there are changes, otherwise all snapshots
     const navSnapshots = sortedChangedSnapshots.length > 0 ? sortedChangedSnapshots : snapshots

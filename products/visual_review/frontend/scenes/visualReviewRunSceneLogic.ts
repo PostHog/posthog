@@ -9,7 +9,7 @@ import { Breadcrumb } from '~/types'
 
 import {
     visualReviewReposQuarantineCreate,
-    visualReviewReposQuarantineDestroy,
+    visualReviewReposQuarantineExpireCreate,
     visualReviewReposQuarantineList,
     visualReviewReposRetrieve,
     visualReviewRunsApproveCreate,
@@ -387,9 +387,12 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 return
             }
             try {
-                await visualReviewReposQuarantineDestroy(String(values.currentProjectId), run.repo_id, run.run_type, {
-                    identifier: snapshot.identifier,
-                })
+                await visualReviewReposQuarantineExpireCreate(
+                    String(values.currentProjectId),
+                    run.repo_id,
+                    run.run_type,
+                    { identifier: snapshot.identifier, reason: '' }
+                )
                 lemonToast.success('Identifier unquarantined — future runs will gate on it again')
                 actions.loadQuarantinedIdentifiers()
             } catch (e: any) {

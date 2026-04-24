@@ -32,7 +32,6 @@ import type {
     RunApi,
     SnapshotApi,
     VisualReviewReposListParams,
-    VisualReviewReposQuarantineDestroyParams,
     VisualReviewReposQuarantineListParams,
     VisualReviewRunsListParams,
     VisualReviewRunsSnapshotHistoryListParams,
@@ -190,39 +189,24 @@ export const visualReviewReposQuarantineCreate = async (
 }
 
 /**
- * Remove an identifier from quarantine.
+ * Expire all active quarantine entries for an identifier.
  */
-export const getVisualReviewReposQuarantineDestroyUrl = (
-    projectId: string,
-    id: string,
-    runType: string,
-    params: VisualReviewReposQuarantineDestroyParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/visual_review/repos/${id}/quarantine/${runType}/?${stringifiedParams}`
-        : `/api/projects/${projectId}/visual_review/repos/${id}/quarantine/${runType}/`
+export const getVisualReviewReposQuarantineExpireCreateUrl = (projectId: string, id: string, runType: string) => {
+    return `/api/projects/${projectId}/visual_review/repos/${id}/quarantine/${runType}/expire/`
 }
 
-export const visualReviewReposQuarantineDestroy = async (
+export const visualReviewReposQuarantineExpireCreate = async (
     projectId: string,
     id: string,
     runType: string,
-    params: VisualReviewReposQuarantineDestroyParams,
+    quarantineInputApi: QuarantineInputApi,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getVisualReviewReposQuarantineDestroyUrl(projectId, id, runType, params), {
+    return apiMutator<void>(getVisualReviewReposQuarantineExpireCreateUrl(projectId, id, runType), {
         ...options,
-        method: 'DELETE',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(quarantineInputApi),
     })
 }
 

@@ -424,9 +424,9 @@ async function runComplete(options: RunCompleteOptions): Promise<number> {
         return 0
     }
 
-    // Exit code: 1 if changes detected, 0 if clean
-    const hasChanges = s.changed > 0 || s.new > 0 || s.removed > 0
-    if (hasChanges) {
+    // Exit code: 1 if unresolved changes remain, 0 if clean
+    const hasUnresolved = (s.unresolved ?? s.changed + s.new + s.removed) > 0
+    if (hasUnresolved) {
         const reviewUrl = `${api}/project/${team}/visual_review/runs/${options.runId}`
         log(`Visual changes detected — review and approve at: ${reviewUrl}`)
         return 1
@@ -651,9 +651,9 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
         return 0
     }
 
-    // Without --auto-approve, unapproved changes exit 1 (gating)
-    const hasChanges = s.changed > 0 || s.new > 0 || s.removed > 0
-    if (hasChanges) {
+    // Without --auto-approve, unresolved changes exit 1 (gating)
+    const hasUnresolved = (s.unresolved ?? s.changed + s.new + s.removed) > 0
+    if (hasUnresolved) {
         const reviewUrl = `${api}/project/${team}/visual_review/runs/${result.run_id}`
         log(`Visual changes detected — review and approve at: ${reviewUrl}`)
         return 1
