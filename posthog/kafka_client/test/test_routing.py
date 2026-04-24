@@ -251,10 +251,12 @@ class AsyncProducerScopeTest(TestCase):
 
 class NewAsyncProducerTest(TestCase):
     def test_returns_fresh_instance_per_call(self):
+        import asyncio
+
         with _mock_kafka_backend() as (_, async_build):
             async_build.side_effect = lambda profile: MagicMock(name=f"fresh[{profile}]")
-            first = new_async_producer(profile=KafkaClusterProfile.DEFAULT)
-            second = new_async_producer(profile=KafkaClusterProfile.DEFAULT)
+            first = asyncio.run(new_async_producer(profile=KafkaClusterProfile.DEFAULT))
+            second = asyncio.run(new_async_producer(profile=KafkaClusterProfile.DEFAULT))
         self.assertIsNot(first, second)
         self.assertEqual(async_build.call_count, 2)
 

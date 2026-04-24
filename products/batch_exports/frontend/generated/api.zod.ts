@@ -92,6 +92,251 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Serializer for a BatchExport model.')
 
+/**
+ * Create a new backfill for a BatchExport.
+ */
+export const batchExportsBackfillsCreateBodyTotalRecordsCountMin = -2147483648
+export const batchExportsBackfillsCreateBodyTotalRecordsCountMax = 2147483647
+
+export const BatchExportsBackfillsCreateBody = /* @__PURE__ */ zod.object({
+    start_at: zod.iso.datetime({}).nullish().describe('The start of the data interval.'),
+    end_at: zod.iso.datetime({}).nullish().describe('The end of the data interval.'),
+    status: zod
+        .enum([
+            'Cancelled',
+            'Completed',
+            'ContinuedAsNew',
+            'Failed',
+            'FailedRetryable',
+            'Terminated',
+            'TimedOut',
+            'Running',
+            'Starting',
+        ])
+        .describe(
+            '* `Cancelled` - Cancelled\n* `Completed` - Completed\n* `ContinuedAsNew` - Continued As New\n* `Failed` - Failed\n* `FailedRetryable` - Failed Retryable\n* `Terminated` - Terminated\n* `TimedOut` - Timedout\n* `Running` - Running\n* `Starting` - Starting'
+        )
+        .describe(
+            'The status of this backfill.\n\n* `Cancelled` - Cancelled\n* `Completed` - Completed\n* `ContinuedAsNew` - Continued As New\n* `Failed` - Failed\n* `FailedRetryable` - Failed Retryable\n* `Terminated` - Terminated\n* `TimedOut` - Timedout\n* `Running` - Running\n* `Starting` - Starting'
+        ),
+    finished_at: zod.iso
+        .datetime({})
+        .nullish()
+        .describe('The timestamp at which this BatchExportBackfill finished, successfully or not.'),
+    total_records_count: zod
+        .number()
+        .min(batchExportsBackfillsCreateBodyTotalRecordsCountMin)
+        .max(batchExportsBackfillsCreateBodyTotalRecordsCountMax)
+        .nullish()
+        .describe(
+            'The total number of records to export. Initially estimated, updated with actual count after completion.'
+        ),
+    adjusted_start_at: zod.iso
+        .datetime({})
+        .nullish()
+        .describe(
+            'The actual start time after adjustment for earliest available data. May differ from start_at if user requested a date before data exists.'
+        ),
+    team: zod.number().describe('The team this belongs to.'),
+    batch_export: zod.uuid().describe('The BatchExport this backfill belongs to.'),
+})
+
+/**
+ * Cancel a batch export backfill.
+ */
+export const batchExportsBackfillsCancelCreateBodyTotalRecordsCountMin = -2147483648
+export const batchExportsBackfillsCancelCreateBodyTotalRecordsCountMax = 2147483647
+
+export const BatchExportsBackfillsCancelCreateBody = /* @__PURE__ */ zod.object({
+    start_at: zod.iso.datetime({}).nullish().describe('The start of the data interval.'),
+    end_at: zod.iso.datetime({}).nullish().describe('The end of the data interval.'),
+    status: zod
+        .enum([
+            'Cancelled',
+            'Completed',
+            'ContinuedAsNew',
+            'Failed',
+            'FailedRetryable',
+            'Terminated',
+            'TimedOut',
+            'Running',
+            'Starting',
+        ])
+        .describe(
+            '* `Cancelled` - Cancelled\n* `Completed` - Completed\n* `ContinuedAsNew` - Continued As New\n* `Failed` - Failed\n* `FailedRetryable` - Failed Retryable\n* `Terminated` - Terminated\n* `TimedOut` - Timedout\n* `Running` - Running\n* `Starting` - Starting'
+        )
+        .describe(
+            'The status of this backfill.\n\n* `Cancelled` - Cancelled\n* `Completed` - Completed\n* `ContinuedAsNew` - Continued As New\n* `Failed` - Failed\n* `FailedRetryable` - Failed Retryable\n* `Terminated` - Terminated\n* `TimedOut` - Timedout\n* `Running` - Running\n* `Starting` - Starting'
+        ),
+    finished_at: zod.iso
+        .datetime({})
+        .nullish()
+        .describe('The timestamp at which this BatchExportBackfill finished, successfully or not.'),
+    total_records_count: zod
+        .number()
+        .min(batchExportsBackfillsCancelCreateBodyTotalRecordsCountMin)
+        .max(batchExportsBackfillsCancelCreateBodyTotalRecordsCountMax)
+        .nullish()
+        .describe(
+            'The total number of records to export. Initially estimated, updated with actual count after completion.'
+        ),
+    adjusted_start_at: zod.iso
+        .datetime({})
+        .nullish()
+        .describe(
+            'The actual start time after adjustment for earliest available data. May differ from start_at if user requested a date before data exists.'
+        ),
+    team: zod.number().describe('The team this belongs to.'),
+    batch_export: zod.uuid().describe('The BatchExport this backfill belongs to.'),
+})
+
+/**
+ * Cancel a batch export run.
+ */
+export const batchExportsRunsCancelCreateBodyRecordsCompletedMin = -2147483648
+export const batchExportsRunsCancelCreateBodyRecordsCompletedMax = 2147483647
+
+export const batchExportsRunsCancelCreateBodyRecordsFailedMin = -2147483648
+export const batchExportsRunsCancelCreateBodyRecordsFailedMax = 2147483647
+
+export const batchExportsRunsCancelCreateBodyRecordsTotalCountMin = -2147483648
+export const batchExportsRunsCancelCreateBodyRecordsTotalCountMax = 2147483647
+
+export const batchExportsRunsCancelCreateBodyBytesExportedMin = -2147483648
+export const batchExportsRunsCancelCreateBodyBytesExportedMax = 2147483647
+
+export const BatchExportsRunsCancelCreateBody = /* @__PURE__ */ zod
+    .object({
+        status: zod
+            .enum([
+                'Cancelled',
+                'Completed',
+                'ContinuedAsNew',
+                'Failed',
+                'FailedRetryable',
+                'FailedBilling',
+                'Terminated',
+                'TimedOut',
+                'Running',
+                'Starting',
+            ])
+            .describe(
+                '* `Cancelled` - Cancelled\n* `Completed` - Completed\n* `ContinuedAsNew` - Continued As New\n* `Failed` - Failed\n* `FailedRetryable` - Failed Retryable\n* `FailedBilling` - Failed Billing\n* `Terminated` - Terminated\n* `TimedOut` - Timedout\n* `Running` - Running\n* `Starting` - Starting'
+            )
+            .describe(
+                'The status of this run.\n\n* `Cancelled` - Cancelled\n* `Completed` - Completed\n* `ContinuedAsNew` - Continued As New\n* `Failed` - Failed\n* `FailedRetryable` - Failed Retryable\n* `FailedBilling` - Failed Billing\n* `Terminated` - Terminated\n* `TimedOut` - Timedout\n* `Running` - Running\n* `Starting` - Starting'
+            ),
+        records_completed: zod
+            .number()
+            .min(batchExportsRunsCancelCreateBodyRecordsCompletedMin)
+            .max(batchExportsRunsCancelCreateBodyRecordsCompletedMax)
+            .nullish()
+            .describe('The number of records that have been exported.'),
+        records_failed: zod
+            .number()
+            .min(batchExportsRunsCancelCreateBodyRecordsFailedMin)
+            .max(batchExportsRunsCancelCreateBodyRecordsFailedMax)
+            .nullish()
+            .describe('The number of records that failed downstream processing (e.g. hog function execution errors).'),
+        latest_error: zod.string().nullish().describe('The latest error that occurred during this run.'),
+        data_interval_start: zod.iso.datetime({}).nullish().describe('The start of the data interval.'),
+        data_interval_end: zod.iso.datetime({}).describe('The end of the data interval.'),
+        cursor: zod.string().nullish().describe('An opaque cursor that may be used to resume.'),
+        finished_at: zod.iso
+            .datetime({})
+            .nullish()
+            .describe('The timestamp at which this BatchExportRun finished, successfully or not.'),
+        records_total_count: zod
+            .number()
+            .min(batchExportsRunsCancelCreateBodyRecordsTotalCountMin)
+            .max(batchExportsRunsCancelCreateBodyRecordsTotalCountMax)
+            .nullish()
+            .describe('The total count of records that should be exported in this BatchExportRun.'),
+        bytes_exported: zod
+            .number()
+            .min(batchExportsRunsCancelCreateBodyBytesExportedMin)
+            .max(batchExportsRunsCancelCreateBodyBytesExportedMax)
+            .nullish()
+            .describe('The number of bytes that have been exported in this BatchExportRun.'),
+        backfill: zod.uuid().nullish().describe('The backfill this run belongs to.'),
+    })
+    .describe('Serializer for a BatchExportRun model.')
+
+/**
+ * Retry a batch export run.
+
+We use the same underlying mechanism as when backfilling a batch export, as retrying
+a run is the same as backfilling one run.
+ */
+export const batchExportsRunsRetryCreateBodyRecordsCompletedMin = -2147483648
+export const batchExportsRunsRetryCreateBodyRecordsCompletedMax = 2147483647
+
+export const batchExportsRunsRetryCreateBodyRecordsFailedMin = -2147483648
+export const batchExportsRunsRetryCreateBodyRecordsFailedMax = 2147483647
+
+export const batchExportsRunsRetryCreateBodyRecordsTotalCountMin = -2147483648
+export const batchExportsRunsRetryCreateBodyRecordsTotalCountMax = 2147483647
+
+export const batchExportsRunsRetryCreateBodyBytesExportedMin = -2147483648
+export const batchExportsRunsRetryCreateBodyBytesExportedMax = 2147483647
+
+export const BatchExportsRunsRetryCreateBody = /* @__PURE__ */ zod
+    .object({
+        status: zod
+            .enum([
+                'Cancelled',
+                'Completed',
+                'ContinuedAsNew',
+                'Failed',
+                'FailedRetryable',
+                'FailedBilling',
+                'Terminated',
+                'TimedOut',
+                'Running',
+                'Starting',
+            ])
+            .describe(
+                '* `Cancelled` - Cancelled\n* `Completed` - Completed\n* `ContinuedAsNew` - Continued As New\n* `Failed` - Failed\n* `FailedRetryable` - Failed Retryable\n* `FailedBilling` - Failed Billing\n* `Terminated` - Terminated\n* `TimedOut` - Timedout\n* `Running` - Running\n* `Starting` - Starting'
+            )
+            .describe(
+                'The status of this run.\n\n* `Cancelled` - Cancelled\n* `Completed` - Completed\n* `ContinuedAsNew` - Continued As New\n* `Failed` - Failed\n* `FailedRetryable` - Failed Retryable\n* `FailedBilling` - Failed Billing\n* `Terminated` - Terminated\n* `TimedOut` - Timedout\n* `Running` - Running\n* `Starting` - Starting'
+            ),
+        records_completed: zod
+            .number()
+            .min(batchExportsRunsRetryCreateBodyRecordsCompletedMin)
+            .max(batchExportsRunsRetryCreateBodyRecordsCompletedMax)
+            .nullish()
+            .describe('The number of records that have been exported.'),
+        records_failed: zod
+            .number()
+            .min(batchExportsRunsRetryCreateBodyRecordsFailedMin)
+            .max(batchExportsRunsRetryCreateBodyRecordsFailedMax)
+            .nullish()
+            .describe('The number of records that failed downstream processing (e.g. hog function execution errors).'),
+        latest_error: zod.string().nullish().describe('The latest error that occurred during this run.'),
+        data_interval_start: zod.iso.datetime({}).nullish().describe('The start of the data interval.'),
+        data_interval_end: zod.iso.datetime({}).describe('The end of the data interval.'),
+        cursor: zod.string().nullish().describe('An opaque cursor that may be used to resume.'),
+        finished_at: zod.iso
+            .datetime({})
+            .nullish()
+            .describe('The timestamp at which this BatchExportRun finished, successfully or not.'),
+        records_total_count: zod
+            .number()
+            .min(batchExportsRunsRetryCreateBodyRecordsTotalCountMin)
+            .max(batchExportsRunsRetryCreateBodyRecordsTotalCountMax)
+            .nullish()
+            .describe('The total count of records that should be exported in this BatchExportRun.'),
+        bytes_exported: zod
+            .number()
+            .min(batchExportsRunsRetryCreateBodyBytesExportedMin)
+            .max(batchExportsRunsRetryCreateBodyBytesExportedMax)
+            .nullish()
+            .describe('The number of bytes that have been exported in this BatchExportRun.'),
+        backfill: zod.uuid().nullish().describe('The backfill this run belongs to.'),
+    })
+    .describe('Serializer for a BatchExportRun model.')
+
 export const batchExportsUpdateBodyOffsetDayMin = 0
 export const batchExportsUpdateBodyOffsetDayMax = 6
 
@@ -594,840 +839,6 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
             .number()
             .min(batchExportsRunTestStepNewCreateBodyOffsetHourMin)
             .max(batchExportsRunTestStepNewCreateBodyOffsetHourMax)
-            .nullish(),
-    })
-    .describe('Serializer for a BatchExport model.')
-
-export const batchExportsCreate2BodyOffsetDayMin = 0
-export const batchExportsCreate2BodyOffsetDayMax = 6
-
-export const batchExportsCreate2BodyOffsetHourMin = 0
-export const batchExportsCreate2BodyOffsetHourMax = 23
-
-export const BatchExportsCreate2Body = /* @__PURE__ */ zod
-    .object({
-        name: zod.string().describe('A human-readable name for this BatchExport.'),
-        model: zod
-            .union([
-                zod
-                    .enum(['events', 'persons', 'sessions'])
-                    .describe('* `events` - Events\n* `persons` - Persons\n* `sessions` - Sessions'),
-                zod.enum(['']),
-                zod.literal(null),
-            ])
-            .nullish()
-            .describe(
-                'Which model this BatchExport is exporting.\n\n* `events` - Events\n* `persons` - Persons\n* `sessions` - Sessions'
-            ),
-        destination: zod
-            .object({
-                type: zod
-                    .enum([
-                        'S3',
-                        'Snowflake',
-                        'Postgres',
-                        'Redshift',
-                        'BigQuery',
-                        'Databricks',
-                        'AzureBlob',
-                        'Workflows',
-                        'HTTP',
-                        'NoOp',
-                    ])
-                    .describe(
-                        '* `S3` - S3\n* `Snowflake` - Snowflake\n* `Postgres` - Postgres\n* `Redshift` - Redshift\n* `BigQuery` - Bigquery\n* `Databricks` - Databricks\n* `AzureBlob` - Azure Blob\n* `Workflows` - Workflows\n* `HTTP` - Http\n* `NoOp` - Noop'
-                    )
-                    .describe(
-                        'A choice of supported BatchExportDestination types.\n\n* `S3` - S3\n* `Snowflake` - Snowflake\n* `Postgres` - Postgres\n* `Redshift` - Redshift\n* `BigQuery` - Bigquery\n* `Databricks` - Databricks\n* `AzureBlob` - Azure Blob\n* `Workflows` - Workflows\n* `HTTP` - Http\n* `NoOp` - Noop'
-                    ),
-                config: zod
-                    .unknown()
-                    .optional()
-                    .describe(
-                        'A JSON field to store all configuration parameters required to access a BatchExportDestination.'
-                    ),
-                integration: zod.number().nullish(),
-                integration_id: zod.number().nullish(),
-            })
-            .describe('Serializer for an BatchExportDestination model.'),
-        interval: zod
-            .enum(['hour', 'day', 'week', 'every 5 minutes', 'every 15 minutes'])
-            .describe(
-                '* `hour` - hour\n* `day` - day\n* `week` - week\n* `every 5 minutes` - every 5 minutes\n* `every 15 minutes` - every 15 minutes'
-            ),
-        paused: zod.boolean().optional().describe('Whether this BatchExport is paused or not.'),
-        last_paused_at: zod.iso
-            .datetime({})
-            .nullish()
-            .describe('The timestamp at which this BatchExport was last paused.'),
-        start_at: zod.iso
-            .datetime({})
-            .nullish()
-            .describe("Time before which any Batch Export runs won't be triggered."),
-        end_at: zod.iso.datetime({}).nullish().describe("Time after which any Batch Export runs won't be triggered."),
-        hogql_query: zod.string().optional(),
-        filters: zod.unknown().nullish(),
-        timezone: zod.union([zod.string(), zod.literal(null)]).nullish(),
-        offset_day: zod
-            .number()
-            .min(batchExportsCreate2BodyOffsetDayMin)
-            .max(batchExportsCreate2BodyOffsetDayMax)
-            .nullish(),
-        offset_hour: zod
-            .number()
-            .min(batchExportsCreate2BodyOffsetHourMin)
-            .max(batchExportsCreate2BodyOffsetHourMax)
-            .nullish(),
-    })
-    .describe('Serializer for a BatchExport model.')
-
-/**
- * Create a new backfill for a BatchExport.
- */
-export const batchExportsBackfillsCreateBodyTotalRecordsCountMin = -2147483648
-export const batchExportsBackfillsCreateBodyTotalRecordsCountMax = 2147483647
-
-export const BatchExportsBackfillsCreateBody = /* @__PURE__ */ zod.object({
-    start_at: zod.iso.datetime({}).nullish().describe('The start of the data interval.'),
-    end_at: zod.iso.datetime({}).nullish().describe('The end of the data interval.'),
-    status: zod
-        .enum([
-            'Cancelled',
-            'Completed',
-            'ContinuedAsNew',
-            'Failed',
-            'FailedRetryable',
-            'Terminated',
-            'TimedOut',
-            'Running',
-            'Starting',
-        ])
-        .describe(
-            '* `Cancelled` - Cancelled\n* `Completed` - Completed\n* `ContinuedAsNew` - Continued As New\n* `Failed` - Failed\n* `FailedRetryable` - Failed Retryable\n* `Terminated` - Terminated\n* `TimedOut` - Timedout\n* `Running` - Running\n* `Starting` - Starting'
-        )
-        .describe(
-            'The status of this backfill.\n\n* `Cancelled` - Cancelled\n* `Completed` - Completed\n* `ContinuedAsNew` - Continued As New\n* `Failed` - Failed\n* `FailedRetryable` - Failed Retryable\n* `Terminated` - Terminated\n* `TimedOut` - Timedout\n* `Running` - Running\n* `Starting` - Starting'
-        ),
-    finished_at: zod.iso
-        .datetime({})
-        .nullish()
-        .describe('The timestamp at which this BatchExportBackfill finished, successfully or not.'),
-    total_records_count: zod
-        .number()
-        .min(batchExportsBackfillsCreateBodyTotalRecordsCountMin)
-        .max(batchExportsBackfillsCreateBodyTotalRecordsCountMax)
-        .nullish()
-        .describe(
-            'The total number of records to export. Initially estimated, updated with actual count after completion.'
-        ),
-    adjusted_start_at: zod.iso
-        .datetime({})
-        .nullish()
-        .describe(
-            'The actual start time after adjustment for earliest available data. May differ from start_at if user requested a date before data exists.'
-        ),
-    team: zod.number().describe('The team this belongs to.'),
-    batch_export: zod.uuid().describe('The BatchExport this backfill belongs to.'),
-})
-
-/**
- * Cancel a batch export backfill.
- */
-export const batchExportsBackfillsCancelCreateBodyTotalRecordsCountMin = -2147483648
-export const batchExportsBackfillsCancelCreateBodyTotalRecordsCountMax = 2147483647
-
-export const BatchExportsBackfillsCancelCreateBody = /* @__PURE__ */ zod.object({
-    start_at: zod.iso.datetime({}).nullish().describe('The start of the data interval.'),
-    end_at: zod.iso.datetime({}).nullish().describe('The end of the data interval.'),
-    status: zod
-        .enum([
-            'Cancelled',
-            'Completed',
-            'ContinuedAsNew',
-            'Failed',
-            'FailedRetryable',
-            'Terminated',
-            'TimedOut',
-            'Running',
-            'Starting',
-        ])
-        .describe(
-            '* `Cancelled` - Cancelled\n* `Completed` - Completed\n* `ContinuedAsNew` - Continued As New\n* `Failed` - Failed\n* `FailedRetryable` - Failed Retryable\n* `Terminated` - Terminated\n* `TimedOut` - Timedout\n* `Running` - Running\n* `Starting` - Starting'
-        )
-        .describe(
-            'The status of this backfill.\n\n* `Cancelled` - Cancelled\n* `Completed` - Completed\n* `ContinuedAsNew` - Continued As New\n* `Failed` - Failed\n* `FailedRetryable` - Failed Retryable\n* `Terminated` - Terminated\n* `TimedOut` - Timedout\n* `Running` - Running\n* `Starting` - Starting'
-        ),
-    finished_at: zod.iso
-        .datetime({})
-        .nullish()
-        .describe('The timestamp at which this BatchExportBackfill finished, successfully or not.'),
-    total_records_count: zod
-        .number()
-        .min(batchExportsBackfillsCancelCreateBodyTotalRecordsCountMin)
-        .max(batchExportsBackfillsCancelCreateBodyTotalRecordsCountMax)
-        .nullish()
-        .describe(
-            'The total number of records to export. Initially estimated, updated with actual count after completion.'
-        ),
-    adjusted_start_at: zod.iso
-        .datetime({})
-        .nullish()
-        .describe(
-            'The actual start time after adjustment for earliest available data. May differ from start_at if user requested a date before data exists.'
-        ),
-    team: zod.number().describe('The team this belongs to.'),
-    batch_export: zod.uuid().describe('The BatchExport this backfill belongs to.'),
-})
-
-/**
- * Cancel a batch export run.
- */
-export const batchExportsRunsCancelCreateBodyRecordsCompletedMin = -2147483648
-export const batchExportsRunsCancelCreateBodyRecordsCompletedMax = 2147483647
-
-export const batchExportsRunsCancelCreateBodyRecordsFailedMin = -2147483648
-export const batchExportsRunsCancelCreateBodyRecordsFailedMax = 2147483647
-
-export const batchExportsRunsCancelCreateBodyRecordsTotalCountMin = -2147483648
-export const batchExportsRunsCancelCreateBodyRecordsTotalCountMax = 2147483647
-
-export const batchExportsRunsCancelCreateBodyBytesExportedMin = -2147483648
-export const batchExportsRunsCancelCreateBodyBytesExportedMax = 2147483647
-
-export const BatchExportsRunsCancelCreateBody = /* @__PURE__ */ zod
-    .object({
-        status: zod
-            .enum([
-                'Cancelled',
-                'Completed',
-                'ContinuedAsNew',
-                'Failed',
-                'FailedRetryable',
-                'FailedBilling',
-                'Terminated',
-                'TimedOut',
-                'Running',
-                'Starting',
-            ])
-            .describe(
-                '* `Cancelled` - Cancelled\n* `Completed` - Completed\n* `ContinuedAsNew` - Continued As New\n* `Failed` - Failed\n* `FailedRetryable` - Failed Retryable\n* `FailedBilling` - Failed Billing\n* `Terminated` - Terminated\n* `TimedOut` - Timedout\n* `Running` - Running\n* `Starting` - Starting'
-            )
-            .describe(
-                'The status of this run.\n\n* `Cancelled` - Cancelled\n* `Completed` - Completed\n* `ContinuedAsNew` - Continued As New\n* `Failed` - Failed\n* `FailedRetryable` - Failed Retryable\n* `FailedBilling` - Failed Billing\n* `Terminated` - Terminated\n* `TimedOut` - Timedout\n* `Running` - Running\n* `Starting` - Starting'
-            ),
-        records_completed: zod
-            .number()
-            .min(batchExportsRunsCancelCreateBodyRecordsCompletedMin)
-            .max(batchExportsRunsCancelCreateBodyRecordsCompletedMax)
-            .nullish()
-            .describe('The number of records that have been exported.'),
-        records_failed: zod
-            .number()
-            .min(batchExportsRunsCancelCreateBodyRecordsFailedMin)
-            .max(batchExportsRunsCancelCreateBodyRecordsFailedMax)
-            .nullish()
-            .describe('The number of records that failed downstream processing (e.g. hog function execution errors).'),
-        latest_error: zod.string().nullish().describe('The latest error that occurred during this run.'),
-        data_interval_start: zod.iso.datetime({}).nullish().describe('The start of the data interval.'),
-        data_interval_end: zod.iso.datetime({}).describe('The end of the data interval.'),
-        cursor: zod.string().nullish().describe('An opaque cursor that may be used to resume.'),
-        finished_at: zod.iso
-            .datetime({})
-            .nullish()
-            .describe('The timestamp at which this BatchExportRun finished, successfully or not.'),
-        records_total_count: zod
-            .number()
-            .min(batchExportsRunsCancelCreateBodyRecordsTotalCountMin)
-            .max(batchExportsRunsCancelCreateBodyRecordsTotalCountMax)
-            .nullish()
-            .describe('The total count of records that should be exported in this BatchExportRun.'),
-        bytes_exported: zod
-            .number()
-            .min(batchExportsRunsCancelCreateBodyBytesExportedMin)
-            .max(batchExportsRunsCancelCreateBodyBytesExportedMax)
-            .nullish()
-            .describe('The number of bytes that have been exported in this BatchExportRun.'),
-        backfill: zod.uuid().nullish().describe('The backfill this run belongs to.'),
-    })
-    .describe('Serializer for a BatchExportRun model.')
-
-/**
- * Retry a batch export run.
-
-We use the same underlying mechanism as when backfilling a batch export, as retrying
-a run is the same as backfilling one run.
- */
-export const batchExportsRunsRetryCreateBodyRecordsCompletedMin = -2147483648
-export const batchExportsRunsRetryCreateBodyRecordsCompletedMax = 2147483647
-
-export const batchExportsRunsRetryCreateBodyRecordsFailedMin = -2147483648
-export const batchExportsRunsRetryCreateBodyRecordsFailedMax = 2147483647
-
-export const batchExportsRunsRetryCreateBodyRecordsTotalCountMin = -2147483648
-export const batchExportsRunsRetryCreateBodyRecordsTotalCountMax = 2147483647
-
-export const batchExportsRunsRetryCreateBodyBytesExportedMin = -2147483648
-export const batchExportsRunsRetryCreateBodyBytesExportedMax = 2147483647
-
-export const BatchExportsRunsRetryCreateBody = /* @__PURE__ */ zod
-    .object({
-        status: zod
-            .enum([
-                'Cancelled',
-                'Completed',
-                'ContinuedAsNew',
-                'Failed',
-                'FailedRetryable',
-                'FailedBilling',
-                'Terminated',
-                'TimedOut',
-                'Running',
-                'Starting',
-            ])
-            .describe(
-                '* `Cancelled` - Cancelled\n* `Completed` - Completed\n* `ContinuedAsNew` - Continued As New\n* `Failed` - Failed\n* `FailedRetryable` - Failed Retryable\n* `FailedBilling` - Failed Billing\n* `Terminated` - Terminated\n* `TimedOut` - Timedout\n* `Running` - Running\n* `Starting` - Starting'
-            )
-            .describe(
-                'The status of this run.\n\n* `Cancelled` - Cancelled\n* `Completed` - Completed\n* `ContinuedAsNew` - Continued As New\n* `Failed` - Failed\n* `FailedRetryable` - Failed Retryable\n* `FailedBilling` - Failed Billing\n* `Terminated` - Terminated\n* `TimedOut` - Timedout\n* `Running` - Running\n* `Starting` - Starting'
-            ),
-        records_completed: zod
-            .number()
-            .min(batchExportsRunsRetryCreateBodyRecordsCompletedMin)
-            .max(batchExportsRunsRetryCreateBodyRecordsCompletedMax)
-            .nullish()
-            .describe('The number of records that have been exported.'),
-        records_failed: zod
-            .number()
-            .min(batchExportsRunsRetryCreateBodyRecordsFailedMin)
-            .max(batchExportsRunsRetryCreateBodyRecordsFailedMax)
-            .nullish()
-            .describe('The number of records that failed downstream processing (e.g. hog function execution errors).'),
-        latest_error: zod.string().nullish().describe('The latest error that occurred during this run.'),
-        data_interval_start: zod.iso.datetime({}).nullish().describe('The start of the data interval.'),
-        data_interval_end: zod.iso.datetime({}).describe('The end of the data interval.'),
-        cursor: zod.string().nullish().describe('An opaque cursor that may be used to resume.'),
-        finished_at: zod.iso
-            .datetime({})
-            .nullish()
-            .describe('The timestamp at which this BatchExportRun finished, successfully or not.'),
-        records_total_count: zod
-            .number()
-            .min(batchExportsRunsRetryCreateBodyRecordsTotalCountMin)
-            .max(batchExportsRunsRetryCreateBodyRecordsTotalCountMax)
-            .nullish()
-            .describe('The total count of records that should be exported in this BatchExportRun.'),
-        bytes_exported: zod
-            .number()
-            .min(batchExportsRunsRetryCreateBodyBytesExportedMin)
-            .max(batchExportsRunsRetryCreateBodyBytesExportedMax)
-            .nullish()
-            .describe('The number of bytes that have been exported in this BatchExportRun.'),
-        backfill: zod.uuid().nullish().describe('The backfill this run belongs to.'),
-    })
-    .describe('Serializer for a BatchExportRun model.')
-
-export const batchExportsUpdate2BodyOffsetDayMin = 0
-export const batchExportsUpdate2BodyOffsetDayMax = 6
-
-export const batchExportsUpdate2BodyOffsetHourMin = 0
-export const batchExportsUpdate2BodyOffsetHourMax = 23
-
-export const BatchExportsUpdate2Body = /* @__PURE__ */ zod
-    .object({
-        name: zod.string().describe('A human-readable name for this BatchExport.'),
-        model: zod
-            .union([
-                zod
-                    .enum(['events', 'persons', 'sessions'])
-                    .describe('* `events` - Events\n* `persons` - Persons\n* `sessions` - Sessions'),
-                zod.enum(['']),
-                zod.literal(null),
-            ])
-            .nullish()
-            .describe(
-                'Which model this BatchExport is exporting.\n\n* `events` - Events\n* `persons` - Persons\n* `sessions` - Sessions'
-            ),
-        destination: zod
-            .object({
-                type: zod
-                    .enum([
-                        'S3',
-                        'Snowflake',
-                        'Postgres',
-                        'Redshift',
-                        'BigQuery',
-                        'Databricks',
-                        'AzureBlob',
-                        'Workflows',
-                        'HTTP',
-                        'NoOp',
-                    ])
-                    .describe(
-                        '* `S3` - S3\n* `Snowflake` - Snowflake\n* `Postgres` - Postgres\n* `Redshift` - Redshift\n* `BigQuery` - Bigquery\n* `Databricks` - Databricks\n* `AzureBlob` - Azure Blob\n* `Workflows` - Workflows\n* `HTTP` - Http\n* `NoOp` - Noop'
-                    )
-                    .describe(
-                        'A choice of supported BatchExportDestination types.\n\n* `S3` - S3\n* `Snowflake` - Snowflake\n* `Postgres` - Postgres\n* `Redshift` - Redshift\n* `BigQuery` - Bigquery\n* `Databricks` - Databricks\n* `AzureBlob` - Azure Blob\n* `Workflows` - Workflows\n* `HTTP` - Http\n* `NoOp` - Noop'
-                    ),
-                config: zod
-                    .unknown()
-                    .optional()
-                    .describe(
-                        'A JSON field to store all configuration parameters required to access a BatchExportDestination.'
-                    ),
-                integration: zod.number().nullish(),
-                integration_id: zod.number().nullish(),
-            })
-            .describe('Serializer for an BatchExportDestination model.'),
-        interval: zod
-            .enum(['hour', 'day', 'week', 'every 5 minutes', 'every 15 minutes'])
-            .describe(
-                '* `hour` - hour\n* `day` - day\n* `week` - week\n* `every 5 minutes` - every 5 minutes\n* `every 15 minutes` - every 15 minutes'
-            ),
-        paused: zod.boolean().optional().describe('Whether this BatchExport is paused or not.'),
-        last_paused_at: zod.iso
-            .datetime({})
-            .nullish()
-            .describe('The timestamp at which this BatchExport was last paused.'),
-        start_at: zod.iso
-            .datetime({})
-            .nullish()
-            .describe("Time before which any Batch Export runs won't be triggered."),
-        end_at: zod.iso.datetime({}).nullish().describe("Time after which any Batch Export runs won't be triggered."),
-        hogql_query: zod.string().optional(),
-        filters: zod.unknown().nullish(),
-        timezone: zod.union([zod.string(), zod.literal(null)]).nullish(),
-        offset_day: zod
-            .number()
-            .min(batchExportsUpdate2BodyOffsetDayMin)
-            .max(batchExportsUpdate2BodyOffsetDayMax)
-            .nullish(),
-        offset_hour: zod
-            .number()
-            .min(batchExportsUpdate2BodyOffsetHourMin)
-            .max(batchExportsUpdate2BodyOffsetHourMax)
-            .nullish(),
-    })
-    .describe('Serializer for a BatchExport model.')
-
-export const batchExportsPartialUpdate2BodyOffsetDayMin = 0
-export const batchExportsPartialUpdate2BodyOffsetDayMax = 6
-
-export const batchExportsPartialUpdate2BodyOffsetHourMin = 0
-export const batchExportsPartialUpdate2BodyOffsetHourMax = 23
-
-export const BatchExportsPartialUpdate2Body = /* @__PURE__ */ zod
-    .object({
-        name: zod.string().optional().describe('A human-readable name for this BatchExport.'),
-        model: zod
-            .union([
-                zod
-                    .enum(['events', 'persons', 'sessions'])
-                    .describe('* `events` - Events\n* `persons` - Persons\n* `sessions` - Sessions'),
-                zod.enum(['']),
-                zod.literal(null),
-            ])
-            .nullish()
-            .describe(
-                'Which model this BatchExport is exporting.\n\n* `events` - Events\n* `persons` - Persons\n* `sessions` - Sessions'
-            ),
-        destination: zod
-            .object({
-                type: zod
-                    .enum([
-                        'S3',
-                        'Snowflake',
-                        'Postgres',
-                        'Redshift',
-                        'BigQuery',
-                        'Databricks',
-                        'AzureBlob',
-                        'Workflows',
-                        'HTTP',
-                        'NoOp',
-                    ])
-                    .describe(
-                        '* `S3` - S3\n* `Snowflake` - Snowflake\n* `Postgres` - Postgres\n* `Redshift` - Redshift\n* `BigQuery` - Bigquery\n* `Databricks` - Databricks\n* `AzureBlob` - Azure Blob\n* `Workflows` - Workflows\n* `HTTP` - Http\n* `NoOp` - Noop'
-                    )
-                    .describe(
-                        'A choice of supported BatchExportDestination types.\n\n* `S3` - S3\n* `Snowflake` - Snowflake\n* `Postgres` - Postgres\n* `Redshift` - Redshift\n* `BigQuery` - Bigquery\n* `Databricks` - Databricks\n* `AzureBlob` - Azure Blob\n* `Workflows` - Workflows\n* `HTTP` - Http\n* `NoOp` - Noop'
-                    ),
-                config: zod
-                    .unknown()
-                    .optional()
-                    .describe(
-                        'A JSON field to store all configuration parameters required to access a BatchExportDestination.'
-                    ),
-                integration: zod.number().nullish(),
-                integration_id: zod.number().nullish(),
-            })
-            .optional()
-            .describe('Serializer for an BatchExportDestination model.'),
-        interval: zod
-            .enum(['hour', 'day', 'week', 'every 5 minutes', 'every 15 minutes'])
-            .optional()
-            .describe(
-                '* `hour` - hour\n* `day` - day\n* `week` - week\n* `every 5 minutes` - every 5 minutes\n* `every 15 minutes` - every 15 minutes'
-            ),
-        paused: zod.boolean().optional().describe('Whether this BatchExport is paused or not.'),
-        last_paused_at: zod.iso
-            .datetime({})
-            .nullish()
-            .describe('The timestamp at which this BatchExport was last paused.'),
-        start_at: zod.iso
-            .datetime({})
-            .nullish()
-            .describe("Time before which any Batch Export runs won't be triggered."),
-        end_at: zod.iso.datetime({}).nullish().describe("Time after which any Batch Export runs won't be triggered."),
-        hogql_query: zod.string().optional(),
-        filters: zod.unknown().nullish(),
-        timezone: zod.union([zod.string(), zod.literal(null)]).nullish(),
-        offset_day: zod
-            .number()
-            .min(batchExportsPartialUpdate2BodyOffsetDayMin)
-            .max(batchExportsPartialUpdate2BodyOffsetDayMax)
-            .nullish(),
-        offset_hour: zod
-            .number()
-            .min(batchExportsPartialUpdate2BodyOffsetHourMin)
-            .max(batchExportsPartialUpdate2BodyOffsetHourMax)
-            .nullish(),
-    })
-    .describe('Serializer for a BatchExport model.')
-
-/**
- * Pause a BatchExport.
- */
-export const batchExportsPauseCreate2BodyOffsetDayMin = 0
-export const batchExportsPauseCreate2BodyOffsetDayMax = 6
-
-export const batchExportsPauseCreate2BodyOffsetHourMin = 0
-export const batchExportsPauseCreate2BodyOffsetHourMax = 23
-
-export const BatchExportsPauseCreate2Body = /* @__PURE__ */ zod
-    .object({
-        name: zod.string().describe('A human-readable name for this BatchExport.'),
-        model: zod
-            .union([
-                zod
-                    .enum(['events', 'persons', 'sessions'])
-                    .describe('* `events` - Events\n* `persons` - Persons\n* `sessions` - Sessions'),
-                zod.enum(['']),
-                zod.literal(null),
-            ])
-            .nullish()
-            .describe(
-                'Which model this BatchExport is exporting.\n\n* `events` - Events\n* `persons` - Persons\n* `sessions` - Sessions'
-            ),
-        destination: zod
-            .object({
-                type: zod
-                    .enum([
-                        'S3',
-                        'Snowflake',
-                        'Postgres',
-                        'Redshift',
-                        'BigQuery',
-                        'Databricks',
-                        'AzureBlob',
-                        'Workflows',
-                        'HTTP',
-                        'NoOp',
-                    ])
-                    .describe(
-                        '* `S3` - S3\n* `Snowflake` - Snowflake\n* `Postgres` - Postgres\n* `Redshift` - Redshift\n* `BigQuery` - Bigquery\n* `Databricks` - Databricks\n* `AzureBlob` - Azure Blob\n* `Workflows` - Workflows\n* `HTTP` - Http\n* `NoOp` - Noop'
-                    )
-                    .describe(
-                        'A choice of supported BatchExportDestination types.\n\n* `S3` - S3\n* `Snowflake` - Snowflake\n* `Postgres` - Postgres\n* `Redshift` - Redshift\n* `BigQuery` - Bigquery\n* `Databricks` - Databricks\n* `AzureBlob` - Azure Blob\n* `Workflows` - Workflows\n* `HTTP` - Http\n* `NoOp` - Noop'
-                    ),
-                config: zod
-                    .unknown()
-                    .optional()
-                    .describe(
-                        'A JSON field to store all configuration parameters required to access a BatchExportDestination.'
-                    ),
-                integration: zod.number().nullish(),
-                integration_id: zod.number().nullish(),
-            })
-            .describe('Serializer for an BatchExportDestination model.'),
-        interval: zod
-            .enum(['hour', 'day', 'week', 'every 5 minutes', 'every 15 minutes'])
-            .describe(
-                '* `hour` - hour\n* `day` - day\n* `week` - week\n* `every 5 minutes` - every 5 minutes\n* `every 15 minutes` - every 15 minutes'
-            ),
-        paused: zod.boolean().optional().describe('Whether this BatchExport is paused or not.'),
-        last_paused_at: zod.iso
-            .datetime({})
-            .nullish()
-            .describe('The timestamp at which this BatchExport was last paused.'),
-        start_at: zod.iso
-            .datetime({})
-            .nullish()
-            .describe("Time before which any Batch Export runs won't be triggered."),
-        end_at: zod.iso.datetime({}).nullish().describe("Time after which any Batch Export runs won't be triggered."),
-        hogql_query: zod.string().optional(),
-        filters: zod.unknown().nullish(),
-        timezone: zod.union([zod.string(), zod.literal(null)]).nullish(),
-        offset_day: zod
-            .number()
-            .min(batchExportsPauseCreate2BodyOffsetDayMin)
-            .max(batchExportsPauseCreate2BodyOffsetDayMax)
-            .nullish(),
-        offset_hour: zod
-            .number()
-            .min(batchExportsPauseCreate2BodyOffsetHourMin)
-            .max(batchExportsPauseCreate2BodyOffsetHourMax)
-            .nullish(),
-    })
-    .describe('Serializer for a BatchExport model.')
-
-export const batchExportsRunTestStepCreate2BodyOffsetDayMin = 0
-export const batchExportsRunTestStepCreate2BodyOffsetDayMax = 6
-
-export const batchExportsRunTestStepCreate2BodyOffsetHourMin = 0
-export const batchExportsRunTestStepCreate2BodyOffsetHourMax = 23
-
-export const BatchExportsRunTestStepCreate2Body = /* @__PURE__ */ zod
-    .object({
-        name: zod.string().describe('A human-readable name for this BatchExport.'),
-        model: zod
-            .union([
-                zod
-                    .enum(['events', 'persons', 'sessions'])
-                    .describe('* `events` - Events\n* `persons` - Persons\n* `sessions` - Sessions'),
-                zod.enum(['']),
-                zod.literal(null),
-            ])
-            .nullish()
-            .describe(
-                'Which model this BatchExport is exporting.\n\n* `events` - Events\n* `persons` - Persons\n* `sessions` - Sessions'
-            ),
-        destination: zod
-            .object({
-                type: zod
-                    .enum([
-                        'S3',
-                        'Snowflake',
-                        'Postgres',
-                        'Redshift',
-                        'BigQuery',
-                        'Databricks',
-                        'AzureBlob',
-                        'Workflows',
-                        'HTTP',
-                        'NoOp',
-                    ])
-                    .describe(
-                        '* `S3` - S3\n* `Snowflake` - Snowflake\n* `Postgres` - Postgres\n* `Redshift` - Redshift\n* `BigQuery` - Bigquery\n* `Databricks` - Databricks\n* `AzureBlob` - Azure Blob\n* `Workflows` - Workflows\n* `HTTP` - Http\n* `NoOp` - Noop'
-                    )
-                    .describe(
-                        'A choice of supported BatchExportDestination types.\n\n* `S3` - S3\n* `Snowflake` - Snowflake\n* `Postgres` - Postgres\n* `Redshift` - Redshift\n* `BigQuery` - Bigquery\n* `Databricks` - Databricks\n* `AzureBlob` - Azure Blob\n* `Workflows` - Workflows\n* `HTTP` - Http\n* `NoOp` - Noop'
-                    ),
-                config: zod
-                    .unknown()
-                    .optional()
-                    .describe(
-                        'A JSON field to store all configuration parameters required to access a BatchExportDestination.'
-                    ),
-                integration: zod.number().nullish(),
-                integration_id: zod.number().nullish(),
-            })
-            .describe('Serializer for an BatchExportDestination model.'),
-        interval: zod
-            .enum(['hour', 'day', 'week', 'every 5 minutes', 'every 15 minutes'])
-            .describe(
-                '* `hour` - hour\n* `day` - day\n* `week` - week\n* `every 5 minutes` - every 5 minutes\n* `every 15 minutes` - every 15 minutes'
-            ),
-        paused: zod.boolean().optional().describe('Whether this BatchExport is paused or not.'),
-        last_paused_at: zod.iso
-            .datetime({})
-            .nullish()
-            .describe('The timestamp at which this BatchExport was last paused.'),
-        start_at: zod.iso
-            .datetime({})
-            .nullish()
-            .describe("Time before which any Batch Export runs won't be triggered."),
-        end_at: zod.iso.datetime({}).nullish().describe("Time after which any Batch Export runs won't be triggered."),
-        hogql_query: zod.string().optional(),
-        filters: zod.unknown().nullish(),
-        timezone: zod.union([zod.string(), zod.literal(null)]).nullish(),
-        offset_day: zod
-            .number()
-            .min(batchExportsRunTestStepCreate2BodyOffsetDayMin)
-            .max(batchExportsRunTestStepCreate2BodyOffsetDayMax)
-            .nullish(),
-        offset_hour: zod
-            .number()
-            .min(batchExportsRunTestStepCreate2BodyOffsetHourMin)
-            .max(batchExportsRunTestStepCreate2BodyOffsetHourMax)
-            .nullish(),
-    })
-    .describe('Serializer for a BatchExport model.')
-
-/**
- * Unpause a BatchExport.
- */
-export const batchExportsUnpauseCreate2BodyOffsetDayMin = 0
-export const batchExportsUnpauseCreate2BodyOffsetDayMax = 6
-
-export const batchExportsUnpauseCreate2BodyOffsetHourMin = 0
-export const batchExportsUnpauseCreate2BodyOffsetHourMax = 23
-
-export const BatchExportsUnpauseCreate2Body = /* @__PURE__ */ zod
-    .object({
-        name: zod.string().describe('A human-readable name for this BatchExport.'),
-        model: zod
-            .union([
-                zod
-                    .enum(['events', 'persons', 'sessions'])
-                    .describe('* `events` - Events\n* `persons` - Persons\n* `sessions` - Sessions'),
-                zod.enum(['']),
-                zod.literal(null),
-            ])
-            .nullish()
-            .describe(
-                'Which model this BatchExport is exporting.\n\n* `events` - Events\n* `persons` - Persons\n* `sessions` - Sessions'
-            ),
-        destination: zod
-            .object({
-                type: zod
-                    .enum([
-                        'S3',
-                        'Snowflake',
-                        'Postgres',
-                        'Redshift',
-                        'BigQuery',
-                        'Databricks',
-                        'AzureBlob',
-                        'Workflows',
-                        'HTTP',
-                        'NoOp',
-                    ])
-                    .describe(
-                        '* `S3` - S3\n* `Snowflake` - Snowflake\n* `Postgres` - Postgres\n* `Redshift` - Redshift\n* `BigQuery` - Bigquery\n* `Databricks` - Databricks\n* `AzureBlob` - Azure Blob\n* `Workflows` - Workflows\n* `HTTP` - Http\n* `NoOp` - Noop'
-                    )
-                    .describe(
-                        'A choice of supported BatchExportDestination types.\n\n* `S3` - S3\n* `Snowflake` - Snowflake\n* `Postgres` - Postgres\n* `Redshift` - Redshift\n* `BigQuery` - Bigquery\n* `Databricks` - Databricks\n* `AzureBlob` - Azure Blob\n* `Workflows` - Workflows\n* `HTTP` - Http\n* `NoOp` - Noop'
-                    ),
-                config: zod
-                    .unknown()
-                    .optional()
-                    .describe(
-                        'A JSON field to store all configuration parameters required to access a BatchExportDestination.'
-                    ),
-                integration: zod.number().nullish(),
-                integration_id: zod.number().nullish(),
-            })
-            .describe('Serializer for an BatchExportDestination model.'),
-        interval: zod
-            .enum(['hour', 'day', 'week', 'every 5 minutes', 'every 15 minutes'])
-            .describe(
-                '* `hour` - hour\n* `day` - day\n* `week` - week\n* `every 5 minutes` - every 5 minutes\n* `every 15 minutes` - every 15 minutes'
-            ),
-        paused: zod.boolean().optional().describe('Whether this BatchExport is paused or not.'),
-        last_paused_at: zod.iso
-            .datetime({})
-            .nullish()
-            .describe('The timestamp at which this BatchExport was last paused.'),
-        start_at: zod.iso
-            .datetime({})
-            .nullish()
-            .describe("Time before which any Batch Export runs won't be triggered."),
-        end_at: zod.iso.datetime({}).nullish().describe("Time after which any Batch Export runs won't be triggered."),
-        hogql_query: zod.string().optional(),
-        filters: zod.unknown().nullish(),
-        timezone: zod.union([zod.string(), zod.literal(null)]).nullish(),
-        offset_day: zod
-            .number()
-            .min(batchExportsUnpauseCreate2BodyOffsetDayMin)
-            .max(batchExportsUnpauseCreate2BodyOffsetDayMax)
-            .nullish(),
-        offset_hour: zod
-            .number()
-            .min(batchExportsUnpauseCreate2BodyOffsetHourMin)
-            .max(batchExportsUnpauseCreate2BodyOffsetHourMax)
-            .nullish(),
-    })
-    .describe('Serializer for a BatchExport model.')
-
-export const batchExportsRunTestStepNewCreate2BodyOffsetDayMin = 0
-export const batchExportsRunTestStepNewCreate2BodyOffsetDayMax = 6
-
-export const batchExportsRunTestStepNewCreate2BodyOffsetHourMin = 0
-export const batchExportsRunTestStepNewCreate2BodyOffsetHourMax = 23
-
-export const BatchExportsRunTestStepNewCreate2Body = /* @__PURE__ */ zod
-    .object({
-        name: zod.string().describe('A human-readable name for this BatchExport.'),
-        model: zod
-            .union([
-                zod
-                    .enum(['events', 'persons', 'sessions'])
-                    .describe('* `events` - Events\n* `persons` - Persons\n* `sessions` - Sessions'),
-                zod.enum(['']),
-                zod.literal(null),
-            ])
-            .nullish()
-            .describe(
-                'Which model this BatchExport is exporting.\n\n* `events` - Events\n* `persons` - Persons\n* `sessions` - Sessions'
-            ),
-        destination: zod
-            .object({
-                type: zod
-                    .enum([
-                        'S3',
-                        'Snowflake',
-                        'Postgres',
-                        'Redshift',
-                        'BigQuery',
-                        'Databricks',
-                        'AzureBlob',
-                        'Workflows',
-                        'HTTP',
-                        'NoOp',
-                    ])
-                    .describe(
-                        '* `S3` - S3\n* `Snowflake` - Snowflake\n* `Postgres` - Postgres\n* `Redshift` - Redshift\n* `BigQuery` - Bigquery\n* `Databricks` - Databricks\n* `AzureBlob` - Azure Blob\n* `Workflows` - Workflows\n* `HTTP` - Http\n* `NoOp` - Noop'
-                    )
-                    .describe(
-                        'A choice of supported BatchExportDestination types.\n\n* `S3` - S3\n* `Snowflake` - Snowflake\n* `Postgres` - Postgres\n* `Redshift` - Redshift\n* `BigQuery` - Bigquery\n* `Databricks` - Databricks\n* `AzureBlob` - Azure Blob\n* `Workflows` - Workflows\n* `HTTP` - Http\n* `NoOp` - Noop'
-                    ),
-                config: zod
-                    .unknown()
-                    .optional()
-                    .describe(
-                        'A JSON field to store all configuration parameters required to access a BatchExportDestination.'
-                    ),
-                integration: zod.number().nullish(),
-                integration_id: zod.number().nullish(),
-            })
-            .describe('Serializer for an BatchExportDestination model.'),
-        interval: zod
-            .enum(['hour', 'day', 'week', 'every 5 minutes', 'every 15 minutes'])
-            .describe(
-                '* `hour` - hour\n* `day` - day\n* `week` - week\n* `every 5 minutes` - every 5 minutes\n* `every 15 minutes` - every 15 minutes'
-            ),
-        paused: zod.boolean().optional().describe('Whether this BatchExport is paused or not.'),
-        last_paused_at: zod.iso
-            .datetime({})
-            .nullish()
-            .describe('The timestamp at which this BatchExport was last paused.'),
-        start_at: zod.iso
-            .datetime({})
-            .nullish()
-            .describe("Time before which any Batch Export runs won't be triggered."),
-        end_at: zod.iso.datetime({}).nullish().describe("Time after which any Batch Export runs won't be triggered."),
-        hogql_query: zod.string().optional(),
-        filters: zod.unknown().nullish(),
-        timezone: zod.union([zod.string(), zod.literal(null)]).nullish(),
-        offset_day: zod
-            .number()
-            .min(batchExportsRunTestStepNewCreate2BodyOffsetDayMin)
-            .max(batchExportsRunTestStepNewCreate2BodyOffsetDayMax)
-            .nullish(),
-        offset_hour: zod
-            .number()
-            .min(batchExportsRunTestStepNewCreate2BodyOffsetHourMin)
-            .max(batchExportsRunTestStepNewCreate2BodyOffsetHourMax)
             .nullish(),
     })
     .describe('Serializer for a BatchExport model.')

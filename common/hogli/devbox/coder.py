@@ -293,6 +293,35 @@ def ensure_tailscale_routes_accepted() -> None:
         _fail("Failed to enable Tailscale subnet routes. Run manually: sudo tailscale set --accept-routes")
 
 
+def coder_reachable(timeout: float = 5.0) -> bool:
+    """Return whether the Coder deployment responds on /api/v2/buildinfo."""
+    coder_url = get_coder_url()
+    try:
+        resp = requests.get(f"{coder_url}/api/v2/buildinfo", timeout=timeout)
+    except requests.RequestException:
+        return False
+    return resp.ok
+
+
+def ensure_coder_reachable() -> None:
+    """Fail fast when the Coder deployment is not reachable.
+
+    Tailscale reporting ``BackendState=Running`` with ``--accept-routes`` does not
+    prove the subnet route to the Coder ALB is actually plumbed — DNS can resolve
+    and packets still blackhole. Probe the API directly so reachability failures
+    surface here instead of as a silent ``curl | sh`` no-op during install.
+    """
+    coder_url = get_coder_url()
+    if coder_reachable():
+        return
+    _fail(
+        f"Cannot reach {coder_url} over the tailnet.\n"
+        "Check that you're connected to the PostHog tailnet and that subnet routes are accepted:\n"
+        "  tailscale status   # verify peer is connected\n"
+        "  sudo tailscale set --accept-routes"
+    )
+
+
 def _config_ssh_args() -> list[str]:
     """Build the base args for ``coder config-ssh``, pinning the managed binary path."""
     args = ["coder", "config-ssh"]
@@ -365,8 +394,11 @@ def _install_coder_cli(*, verbose: bool = False) -> None:
     prefix = _MANAGED_CODER_DIR.parent
     prefix.mkdir(parents=True, exist_ok=True)
     install_url = shlex.quote(f"{coder_url}/install.sh")
-    cmd = f"curl -fsSL {install_url} | sh -s -- --prefix {shlex.quote(str(prefix))}"
-    result = subprocess.run(["sh", "-c", cmd], text=True, capture_output=not verbose)
+    # `set -o pipefail` so a curl failure fails the pipeline; otherwise `sh`
+    # exits 0 with empty stdin and we silently "install" nothing. Invoke via
+    # `bash` because `/bin/sh` is `dash` on Debian/Ubuntu and rejects `-o pipefail`.
+    cmd = f"set -o pipefail; curl -fsSL {install_url} | sh -s -- --prefix {shlex.quote(str(prefix))}"
+    result = subprocess.run(["bash", "-c", cmd], text=True, capture_output=not verbose)
     if result.returncode != 0:
         if not verbose:
             click.echo(result.stdout or "")
@@ -381,6 +413,10 @@ def _install_coder_cli(*, verbose: bool = False) -> None:
             stripped = line.strip()
             if stripped:
                 click.echo(f"  {stripped}")
+
+    managed = _MANAGED_CODER_DIR / "coder"
+    if not managed.is_file():
+        _fail(f"Coder CLI install reported success but {managed} is missing.\nTry manually: {cmd}")
 
 
 def ensure_coder_installed(*, verbose: bool = False) -> None:
@@ -427,6 +463,9 @@ def ensure_coder_authenticated() -> None:
         click.echo("Coder login is ready.")
         return
 
+    if not coder_installed():
+        _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}")
+
     coder_url = get_coder_url()
     click.echo(f"Logging in to {coder_url}...")
     result = _run(["coder", "login", coder_url])
@@ -438,6 +477,7 @@ def ensure_runtime_ready() -> None:
     """Verify runtime prerequisites without mutating host setup."""
     ensure_tailscale_connected()
     ensure_tailscale_routes_accepted()
+    ensure_coder_reachable()
 
     if not coder_installed():
         _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}")

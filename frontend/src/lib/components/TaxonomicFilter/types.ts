@@ -110,6 +110,10 @@ export interface TaxonomicFilterProps {
     hideSearchInput?: boolean
     /** Controlled search query — synced into the logic on each change. Use with hideSearchInput for external input control. */
     searchQuery?: string
+    /** Surface inline `$event_type` shortcuts in Events/EventProperties groups when the search
+     *  query matches a known autocapture interaction keyword. Consumers must handle
+     *  `isQuickFilterItem(item)` in their onChange to avoid mis-selecting as an event name. */
+    enableKeywordShortcuts?: boolean
 }
 
 export interface DataWarehousePopoverField {
@@ -189,6 +193,10 @@ export interface TaxonomicFilterGroup {
     minSearchQueryLength?: number
     /** Description shown in the empty state when minSearchQueryLength is set. */
     searchDescription?: string
+    /** Synthetic results surfaced inline when the search query matches a keyword.
+     *  Returned items are QuickFilterItems and flow through existing isQuickFilterItem
+     *  handling in consumer onChange handlers. */
+    keywordShortcuts?: (searchQuery: string) => QuickFilterItem[]
 }
 
 export enum TaxonomicFilterGroupType {
@@ -308,3 +316,11 @@ export type TaxonomicDefinitionTypes =
     | DataWarehouseTableForInsight
     | MaxContextTaxonomicFilterOption
     | QuickFilterItem
+
+export const CATEGORY_DROPDOWN_VARIANTS = ['control', 'pill', 'icon'] as const
+
+export type CategoryDropdownVariant = (typeof CATEGORY_DROPDOWN_VARIANTS)[number]
+
+export function isCategoryDropdownVariant(value: unknown): value is CategoryDropdownVariant {
+    return typeof value === 'string' && (CATEGORY_DROPDOWN_VARIANTS as readonly string[]).includes(value)
+}
