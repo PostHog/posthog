@@ -5,8 +5,9 @@ import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
-import { APP_METRICS_OUTPUT, AppMetricsOutput } from '~/ingestion/common/outputs'
+import { AppMetricsOutput } from '~/ingestion/common/outputs'
 import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
+import { KafkaProducerRegistry } from '~/ingestion/outputs/kafka-producer-registry'
 import { KafkaProducerWrapper } from '~/kafka/producer'
 
 import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
@@ -17,13 +18,15 @@ import { TeamManager } from '../utils/team-manager'
 import { LogsIngestionConsumerConfig } from './config'
 import { type PiiScrubStats } from './log-pii-scrub'
 import { processLogMessageBuffer } from './log-record-avro'
+import { WARPSTREAM_LOGS_PRODUCER, WarpstreamLogsProducer } from './outputs/producers'
 import { LogsRateLimiterService } from './services/logs-rate-limiter.service'
 import { LogsIngestionMessage } from './types'
 
 export interface LogsIngestionConsumerDeps {
     teamManager: TeamManager
     quotaLimiting: QuotaLimiting
-    kafkaProducer: KafkaProducerWrapper // Warpstream - for logs data
+    /** Producer registry — must include `WARPSTREAM_LOGS_PRODUCER` for the log/DLQ data path. */
+    producerRegistry: KafkaProducerRegistry<WarpstreamLogsProducer>
     /** Resolved outputs registry — must include `APP_METRICS_OUTPUT`. */
     outputs: IngestionOutputs<AppMetricsOutput>
 }
@@ -125,8 +128,8 @@ export class LogsIngestionConsumer {
             overrides.LOGS_INGESTION_CONSUMER_OVERFLOW_TOPIC ?? config.LOGS_INGESTION_CONSUMER_OVERFLOW_TOPIC
         this.dlqTopic = overrides.LOGS_INGESTION_CONSUMER_DLQ_TOPIC ?? config.LOGS_INGESTION_CONSUMER_DLQ_TOPIC
 
-        this.kafkaProducer = deps.kafkaProducer
-        this.appMetricsAggregator = new AppMetricsAggregator(deps.outputs.get(APP_METRICS_OUTPUT))
+        this.kafkaProducer = deps.producerRegistry.getProducer(WARPSTREAM_LOGS_PRODUCER)
+        this.appMetricsAggregator = new AppMetricsAggregator(deps.outputs)
 
         this.kafkaConsumer = new KafkaConsumer({ groupId: this.groupId, topic: this.topic })
         // Logs ingestion uses its own Redis instance with TLS support

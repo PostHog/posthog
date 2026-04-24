@@ -13,6 +13,7 @@ import { PostgresUse } from '../../src/utils/db/postgres'
 import { KAFKA_APP_METRICS_2 } from '../config/kafka-topics'
 import { APP_METRICS_OUTPUT, AppMetricsOutput } from '../ingestion/common/outputs'
 import { IngestionOutputs } from '../ingestion/outputs/ingestion-outputs'
+import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
 import { SingleIngestionOutput } from '../ingestion/outputs/single-ingestion-output'
 import { parseJSON } from '../utils/json-parse'
 import { LogRecord, encodeLogRecords } from './log-record-avro'
@@ -28,6 +29,7 @@ import {
     logsRecordsDroppedCounter,
     logsRecordsReceivedCounter,
 } from './logs-ingestion-consumer'
+import { WARPSTREAM_LOGS_PRODUCER, WarpstreamLogsProducer } from './outputs/producers'
 import { BASE_REDIS_KEY } from './services/logs-rate-limiter.service'
 
 const DEFAULT_TEST_TIMEOUT = 5000
@@ -118,7 +120,9 @@ describe('LogsIngestionConsumer', () => {
             hub,
             {
                 ...hub,
-                kafkaProducer: mockProducer,
+                producerRegistry: new KafkaProducerRegistry<WarpstreamLogsProducer>({
+                    [WARPSTREAM_LOGS_PRODUCER]: mockProducer,
+                }),
                 outputs: new IngestionOutputs<AppMetricsOutput>({
                     [APP_METRICS_OUTPUT]: new SingleIngestionOutput(
                         APP_METRICS_OUTPUT,

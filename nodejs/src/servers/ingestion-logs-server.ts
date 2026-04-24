@@ -3,7 +3,6 @@ import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'
 import { createPosthogRedisConnectionConfig } from '../config/redis-pools'
-import { KafkaIngestionProducerEnvConfig, getDefaultKafkaIngestionProducerEnvConfig } from '../ingestion/common/config'
 import { DatabaseConnectionConfig, KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
 import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
 import {
@@ -15,10 +14,11 @@ import { LogsIngestionConsumer } from '../logs-ingestion/logs-ingestion-consumer
 import { createProducerRegistry } from '../logs-ingestion/outputs/producer-registry'
 import {
     KafkaMskProducerEnvConfig,
+    KafkaWarpstreamIngestionProducerEnvConfig,
     KafkaWarpstreamLogsProducerEnvConfig,
     LogsProducerName,
-    WARPSTREAM_LOGS_PRODUCER,
     getDefaultKafkaMskProducerEnvConfig,
+    getDefaultKafkaWarpstreamIngestionProducerEnvConfig,
     getDefaultKafkaWarpstreamLogsProducerEnvConfig,
 } from '../logs-ingestion/outputs/producers'
 import { createOutputsRegistry } from '../logs-ingestion/outputs/registry'
@@ -45,7 +45,7 @@ export type IngestionLogsServerConfig = BaseServerConfig &
     LogsIngestionOutputsConfig &
     KafkaWarpstreamLogsProducerEnvConfig &
     KafkaMskProducerEnvConfig &
-    KafkaIngestionProducerEnvConfig &
+    KafkaWarpstreamIngestionProducerEnvConfig &
     KafkaBrokerConfig &
     DatabaseConnectionConfig &
     RedisConnectionsConfig &
@@ -64,7 +64,7 @@ export class IngestionLogsServer implements NodeServer {
             ...defaultConfig,
             ...overrideConfigWithEnv(getDefaultKafkaWarpstreamLogsProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaMskProducerEnvConfig()),
-            ...overrideConfigWithEnv(getDefaultKafkaIngestionProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaWarpstreamIngestionProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultLogsIngestionOutputsConfig()),
             ...config,
         }
@@ -114,7 +114,7 @@ export class IngestionLogsServer implements NodeServer {
             const consumer = new LogsIngestionConsumer(this.config, {
                 teamManager,
                 quotaLimiting,
-                kafkaProducer: this.producerRegistry!.getProducer(WARPSTREAM_LOGS_PRODUCER),
+                producerRegistry: this.producerRegistry!,
                 outputs,
             })
             await consumer.start()
