@@ -1,4 +1,3 @@
-use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -23,20 +22,70 @@ use common_hypercache::{HyperCacheConfig, HyperCacheReader};
 use common_redis::{
     Client, CompressionConfig, ReadWriteClient, ReadWriteClientConfig, RedisClient,
 };
-use health::{HealthHandle, HealthRegistry};
+use lifecycle::{ComponentOptions, Handle, LivenessHandler, Manager, ReadinessHandler};
 use limiters::redis::QUOTA_LIMITER_CACHE_KEY;
 use tokio::net::TcpListener;
 use tokio_retry::strategy::{jitter, ExponentialBackoff};
 use tokio_retry::Retry;
 
-pub async fn serve<F>(
+/// Handles for every lifecycle component this service registers, plus the readiness
+/// and liveness handlers the HTTP router needs. Produced by [`register_components`]
+/// and passed into [`serve`].
+pub struct LifecycleHandles {
+    pub http: Handle,
+    pub db_monitor: Handle,
+    pub cohort_cache_monitor: Handle,
+    pub tokio_monitor: Handle,
+    pub readiness: ReadinessHandler,
+    pub liveness: LivenessHandler,
+}
+
+/// Register the feature-flags lifecycle components and return handles for use by
+/// `serve()` (and by the test harness). Call this exactly once per Manager, before
+/// `manager.monitor_background()`.
+///
+/// `/_liveness` is hardcoded to 200 (see `lifecycle::LivenessHandler`) and no
+/// component opts into `with_liveness_deadline`. For this service, if the tokio
+/// runtime can serve the endpoint the process is alive — there's no meaningful
+/// internal signal beyond that, and a heartbeat loop would just be checking that
+/// the heartbeat itself still runs. Do not add deadlines or `report_healthy()`
+/// calls here unless a real signal appears (e.g. the way capture feeds kafka
+/// producer health into its handle).
+pub fn register_components(manager: &mut Manager) -> LifecycleHandles {
+    let http = manager.register(
+        "http-server",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(30)),
+    );
+    let db_monitor = manager.register(
+        "db-pool-monitor",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(2)),
+    );
+    let cohort_cache_monitor = manager.register(
+        "cohort-cache-monitor",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(2)),
+    );
+    let tokio_monitor = manager.register(
+        "tokio-runtime-monitor",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(2)),
+    );
+    let readiness = manager.readiness_handler();
+    let liveness = manager.liveness_handler();
+    LifecycleHandles {
+        http,
+        db_monitor,
+        cohort_cache_monitor,
+        tokio_monitor,
+        readiness,
+        liveness,
+    }
+}
+
+pub async fn serve(
     config: Config,
     listener: TcpListener,
     rayon_dispatcher: RayonDispatcher,
-    shutdown: F,
-) where
-    F: Future<Output = ()> + Send + 'static,
-{
+    handles: LifecycleHandles,
+) {
     // Configure compression based on environment variable
     let compression_config = if *config.redis_compression_enabled {
         let config = CompressionConfig::default();
@@ -145,39 +194,6 @@ pub async fn serve<F>(
         } else {
             Arc::new(NoOpCohortMembershipProvider)
         };
-
-    let health = HealthRegistry::new("liveness");
-
-    // Liveness checks only verify the process is alive (simple heartbeat loop).
-    // Readiness checks (in router.rs) verify the pod isn't shutting down via a preStop marker file.
-    let simple_loop = health
-        .register(
-            "simple_loop".to_string(),
-            Duration::from_secs(config.health_check_interval_secs),
-        )
-        .await;
-    tokio::spawn(liveness_loop(simple_loop));
-
-    // Start database pool monitoring
-    let db_monitor = DatabasePoolMonitor::new(database_pools.clone(), &config);
-    tokio::spawn(async move {
-        db_monitor.start_monitoring().await;
-    });
-
-    // Start cohort cache monitoring
-    let cohort_cache_clone = cohort_cache.clone();
-    let cohort_cache_monitor_interval = config.cohort_cache_monitor_interval_secs;
-    tokio::spawn(async move {
-        cohort_cache_clone
-            .start_monitoring(cohort_cache_monitor_interval)
-            .await;
-    });
-
-    // Start Tokio runtime monitoring
-    let tokio_monitor = TokioRuntimeMonitor::new(&tokio::runtime::Handle::current());
-    tokio::spawn(async move {
-        tokio_monitor.start_monitoring().await;
-    });
 
     let feature_flags_billing_limiter = match FeatureFlagsLimiter::new(
         Duration::from_secs(config.billing_limiter_cache_ttl_secs),
@@ -402,6 +418,37 @@ pub async fn serve<F>(
 
     let service_mode = config.service_mode.clone();
 
+    // Spawn monitor tasks only after all fallible init succeeds. An earlier return
+    // above drops the unused handles in `handles`, each of which sends `Died` to
+    // the manager (since shutdown hasn't been requested) and triggers a clean
+    // global shutdown — no orphan tasks.
+    let LifecycleHandles {
+        http: http_handle,
+        db_monitor: db_monitor_handle,
+        cohort_cache_monitor: cohort_cache_monitor_handle,
+        tokio_monitor: tokio_monitor_handle,
+        readiness,
+        liveness,
+    } = handles;
+
+    let db_monitor = DatabasePoolMonitor::new(database_pools.clone(), &config);
+    tokio::spawn(async move {
+        db_monitor.start_monitoring(db_monitor_handle).await;
+    });
+
+    let cohort_cache_clone = cohort_cache.clone();
+    let cohort_cache_monitor_interval = config.cohort_cache_monitor_interval_secs;
+    tokio::spawn(async move {
+        cohort_cache_clone
+            .start_monitoring(cohort_cache_monitor_interval, cohort_cache_monitor_handle)
+            .await;
+    });
+
+    let tokio_monitor = TokioRuntimeMonitor::new(&tokio::runtime::Handle::current());
+    tokio::spawn(async move {
+        tokio_monitor.start_monitoring(tokio_monitor_handle).await;
+    });
+
     let app = router::router(
         redis_client,
         dedicated_redis_client,
@@ -409,7 +456,8 @@ pub async fn serve<F>(
         cohort_cache,
         group_type_cache,
         geoip_service,
-        health,
+        readiness,
+        liveness,
         feature_flags_billing_limiter,
         session_replay_billing_limiter,
         cookieless_manager,
@@ -429,13 +477,23 @@ pub async fn serve<F>(
         "listening on {:?}",
         listener.local_addr().unwrap()
     );
-    axum::serve(
+
+    // Always signal HTTP completion (success or failure) so the manager's
+    // background monitor can complete shutdown. Skipping either arm would wedge
+    // `monitor_guard.wait()` in the caller.
+    let serve_result = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
-    .with_graceful_shutdown(shutdown)
-    .await
-    .unwrap()
+    .with_graceful_shutdown(http_handle.shutdown_signal())
+    .await;
+    match serve_result {
+        Ok(()) => http_handle.work_completed(),
+        Err(e) => {
+            tracing::error!("HTTP server error: {e}");
+            http_handle.signal_failure(e.to_string());
+        }
+    }
 }
 
 /// Create a ReadWriteClient that automatically routes reads to replica and writes to primary
@@ -667,13 +725,6 @@ pub async fn create_redis_client(
             );
             None
         }
-    }
-}
-
-async fn liveness_loop(handle: HealthHandle) {
-    loop {
-        handle.report_healthy().await;
-        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
     }
 }
 
