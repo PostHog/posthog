@@ -6,6 +6,7 @@ from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.js_snippet import JsSnippetViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
+from posthog.api.sdk_doctor import SdkDoctorViewSet
 from posthog.api.wizard import http as wizard
 from posthog.approvals import api as approval_api
 from posthog.batch_exports import http as batch_exports
@@ -149,6 +150,7 @@ from . import (
     query,
     quick_filters,
     resource_transfer,
+    role_external_reference,
     scheduled_change,
     schema_property_group,
     search,
@@ -260,6 +262,7 @@ register_grandfathered_environment_nested_viewset(
 )
 
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["project_id"])
+projects_router.register(r"sdk_doctor", SdkDoctorViewSet, "project_sdk_doctor", ["project_id"])
 projects_router.register(
     r"activity_log",
     advanced_activity_logs.ActivityLogViewSet,
@@ -697,6 +700,12 @@ organizations_router.register(
     r"resource_transfers",
     resource_transfer.ResourceTransferViewSet,
     "organization_resource_transfers",
+    ["organization_id"],
+)
+organizations_router.register(
+    r"role_external_references",
+    role_external_reference.RoleExternalReferenceViewSet,
+    "organization_role_external_references",
     ["organization_id"],
 )
 organizations_router.register(

@@ -9490,14 +9490,6 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
 }
 
-export type EffectiveRestrictionLevelEnumApi =
-    (typeof EffectiveRestrictionLevelEnumApi)[keyof typeof EffectiveRestrictionLevelEnumApi]
-
-export const EffectiveRestrictionLevelEnumApi = {
-    Number21: 21,
-    Number37: 37,
-} as const
-
 export type EffectivePrivilegeLevelEnumApi =
     (typeof EffectivePrivilegeLevelEnumApi)[keyof typeof EffectivePrivilegeLevelEnumApi]
 
@@ -9589,7 +9581,7 @@ export interface InsightApi {
     readonly last_modified_at: string
     readonly last_modified_by: UserBasicApi
     readonly is_sample: boolean
-    readonly effective_restriction_level: EffectiveRestrictionLevelEnumApi
+    readonly effective_restriction_level: EffectivePrivilegeLevelEnumApi
     readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
@@ -9707,7 +9699,7 @@ export interface PatchedInsightApi {
     readonly last_modified_at?: string
     readonly last_modified_by?: UserBasicApi
     readonly is_sample?: boolean
-    readonly effective_restriction_level?: EffectiveRestrictionLevelEnumApi
+    readonly effective_restriction_level?: EffectivePrivilegeLevelEnumApi
     readonly effective_privilege_level?: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
@@ -9932,14 +9924,14 @@ export const InsightsDestroyFormat = {
     Json: 'json',
 } as const
 
-export type InsightsActivityRetrieve2Params = {
-    format?: InsightsActivityRetrieve2Format
+export type InsightsActivityRetrieveParams = {
+    format?: InsightsActivityRetrieveFormat
 }
 
-export type InsightsActivityRetrieve2Format =
-    (typeof InsightsActivityRetrieve2Format)[keyof typeof InsightsActivityRetrieve2Format]
+export type InsightsActivityRetrieveFormat =
+    (typeof InsightsActivityRetrieveFormat)[keyof typeof InsightsActivityRetrieveFormat]
 
-export const InsightsActivityRetrieve2Format = {
+export const InsightsActivityRetrieveFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const
@@ -9980,14 +9972,14 @@ export const InsightsSuggestionsCreateFormat = {
     Json: 'json',
 } as const
 
-export type InsightsActivityRetrieveParams = {
-    format?: InsightsActivityRetrieveFormat
+export type InsightsAllActivityRetrieveParams = {
+    format?: InsightsAllActivityRetrieveFormat
 }
 
-export type InsightsActivityRetrieveFormat =
-    (typeof InsightsActivityRetrieveFormat)[keyof typeof InsightsActivityRetrieveFormat]
+export type InsightsAllActivityRetrieveFormat =
+    (typeof InsightsAllActivityRetrieveFormat)[keyof typeof InsightsAllActivityRetrieveFormat]
 
-export const InsightsActivityRetrieveFormat = {
+export const InsightsAllActivityRetrieveFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const
