@@ -4279,6 +4279,12 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 {"hogql_val_0": "%@gmail.com%"},
             )
 
+            self._test_materialized_column_comparison(
+                "ilike(JSONExtractString(properties, 'test_prop'), '%@gmail.com%')",
+                f"like(lower(events.{mat_col.name}), lower(%(hogql_val_0)s))",
+                {"hogql_val_0": "%@gmail.com%"},
+            )
+
     def test_materialized_column_ilike_with_tostring_not_optimized_for_numeric_property(self) -> None:
         # Numeric properties should not use the ILIKE optimization - fall back to default handling
         PropertyDefinition.objects.create(
