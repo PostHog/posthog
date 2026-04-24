@@ -4312,6 +4312,104 @@
           "row_count": null,
           "type": "system"
       },
+      "system.error_tracking_assignment_rules": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "user_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "user_id",
+                  "id": null,
+                  "name": "user_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "role_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "role_id",
+                  "id": null,
+                  "name": "role_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "order_key": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "order_key",
+                  "id": null,
+                  "name": "order_key",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "filters": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "filters",
+                  "id": null,
+                  "name": "filters",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "bytecode": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "bytecode",
+                  "id": null,
+                  "name": "bytecode",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "disabled_data": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "disabled_data",
+                  "id": null,
+                  "name": "disabled_data",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.error_tracking_assignment_rules",
+          "name": "system.error_tracking_assignment_rules",
+          "row_count": null,
+          "type": "system"
+      },
       "system.error_tracking_issue_assignments": {
           "fields": {
               "id": {
@@ -4463,6 +4561,162 @@
           },
           "id": "system.error_tracking_issues",
           "name": "system.error_tracking_issues",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.error_tracking_releases": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "hash_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "hash_id",
+                  "id": null,
+                  "name": "hash_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "version": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "version",
+                  "id": null,
+                  "name": "version",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "project": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "project",
+                  "id": null,
+                  "name": "project",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "metadata": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "metadata",
+                  "id": null,
+                  "name": "metadata",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.error_tracking_releases",
+          "name": "system.error_tracking_releases",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.error_tracking_suppression_rules": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "order_key": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "order_key",
+                  "id": null,
+                  "name": "order_key",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "sampling_rate": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "sampling_rate",
+                  "id": null,
+                  "name": "sampling_rate",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "float"
+              },
+              "filters": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "filters",
+                  "id": null,
+                  "name": "filters",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "bytecode": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "bytecode",
+                  "id": null,
+                  "name": "bytecode",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "disabled_data": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "disabled_data",
+                  "id": null,
+                  "name": "disabled_data",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.error_tracking_suppression_rules",
+          "name": "system.error_tracking_suppression_rules",
           "row_count": null,
           "type": "system"
       },
@@ -10162,6 +10416,104 @@
           "row_count": null,
           "type": "system"
       },
+      "system.error_tracking_assignment_rules": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "user_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "user_id",
+                  "id": null,
+                  "name": "user_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "role_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "role_id",
+                  "id": null,
+                  "name": "role_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "order_key": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "order_key",
+                  "id": null,
+                  "name": "order_key",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "filters": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "filters",
+                  "id": null,
+                  "name": "filters",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "bytecode": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "bytecode",
+                  "id": null,
+                  "name": "bytecode",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "disabled_data": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "disabled_data",
+                  "id": null,
+                  "name": "disabled_data",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.error_tracking_assignment_rules",
+          "name": "system.error_tracking_assignment_rules",
+          "row_count": null,
+          "type": "system"
+      },
       "system.error_tracking_issue_assignments": {
           "fields": {
               "id": {
@@ -10313,6 +10665,162 @@
           },
           "id": "system.error_tracking_issues",
           "name": "system.error_tracking_issues",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.error_tracking_releases": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "hash_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "hash_id",
+                  "id": null,
+                  "name": "hash_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "version": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "version",
+                  "id": null,
+                  "name": "version",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "project": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "project",
+                  "id": null,
+                  "name": "project",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "metadata": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "metadata",
+                  "id": null,
+                  "name": "metadata",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.error_tracking_releases",
+          "name": "system.error_tracking_releases",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.error_tracking_suppression_rules": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "order_key": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "order_key",
+                  "id": null,
+                  "name": "order_key",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "sampling_rate": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "sampling_rate",
+                  "id": null,
+                  "name": "sampling_rate",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "float"
+              },
+              "filters": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "filters",
+                  "id": null,
+                  "name": "filters",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "bytecode": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "bytecode",
+                  "id": null,
+                  "name": "bytecode",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "disabled_data": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "disabled_data",
+                  "id": null,
+                  "name": "disabled_data",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.error_tracking_suppression_rules",
+          "name": "system.error_tracking_suppression_rules",
           "row_count": null,
           "type": "system"
       },

@@ -15,6 +15,7 @@ export const FEATURE_FLAG_RESOURCE_URI = 'ui://posthog/feature-flag.html'
 export const FEATURE_FLAG_LIST_RESOURCE_URI = 'ui://posthog/feature-flag-list.html'
 export const LLM_COSTS_RESOURCE_URI = 'ui://posthog/llm-costs.html'
 export const QUERY_RESULTS_RESOURCE_URI = 'ui://posthog/query-results.html'
+export const SESSION_RECORDING_RESOURCE_URI = 'ui://posthog/session-recording.html'
 export const SURVEY_RESOURCE_URI = 'ui://posthog/survey.html'
 export const SURVEY_GLOBAL_STATS_RESOURCE_URI = 'ui://posthog/survey-global-stats.html'
 export const SURVEY_LIST_RESOURCE_URI = 'ui://posthog/survey-list.html'
@@ -38,6 +39,7 @@ export type UiAppKey =
     | 'feature-flag-list'
     | 'llm-costs'
     | 'query-results'
+    | 'session-recording'
     | 'survey'
     | 'survey-global-stats'
     | 'survey-list'
@@ -61,6 +63,7 @@ export const URI_MAP: Record<UiAppKey, string> = {
     'feature-flag-list': FEATURE_FLAG_LIST_RESOURCE_URI,
     'llm-costs': LLM_COSTS_RESOURCE_URI,
     'query-results': QUERY_RESULTS_RESOURCE_URI,
+    'session-recording': SESSION_RECORDING_RESOURCE_URI,
     survey: SURVEY_RESOURCE_URI,
     'survey-global-stats': SURVEY_GLOBAL_STATS_RESOURCE_URI,
     'survey-list': SURVEY_LIST_RESOURCE_URI,
@@ -164,6 +167,12 @@ export const UI_APPS: Array<{
         uri: QUERY_RESULTS_RESOURCE_URI,
         description: 'Interactive visualization for PostHog query results',
         appDir: 'query-results',
+    },
+    {
+        name: 'PostHog Session Recording',
+        uri: SESSION_RECORDING_RESOURCE_URI,
+        description: 'Session Recording detail view',
+        appDir: 'generated/session-recording',
     },
     {
         name: 'PostHog Survey',

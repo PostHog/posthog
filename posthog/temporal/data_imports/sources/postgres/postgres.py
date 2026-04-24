@@ -812,23 +812,25 @@ def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: Filterin
 def _get_primary_keys(
     cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
 ) -> list[str] | None:
-    info_schema_query = sql.SQL("""
-        SELECT
-            kcu.column_name
-        FROM
-            information_schema.table_constraints tc
-        JOIN
-            information_schema.key_column_usage kcu
-            ON tc.constraint_name = kcu.constraint_name
-            AND tc.table_schema = kcu.table_schema
-        WHERE
-            tc.table_schema = {schema}
-            AND tc.table_name = {table}
-            AND tc.constraint_type = 'PRIMARY KEY'""").format(schema=sql.Literal(schema), table=sql.Literal(table_name))
+    # Uses pg_catalog rather than information_schema because information_schema views
+    # are ACL-filtered — a user with only SELECT grants may not see PK constraint rows
+    # depending on PostgreSQL version, which silently returned no primary key at sync
+    # time even though discovery (which already uses pg_catalog) found one.
+    pg_catalog_query = sql.SQL("""
+        SELECT a.attname AS column_name
+        FROM pg_index i
+        JOIN pg_class c ON c.oid = i.indrelid
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY(i.indkey)
+        WHERE i.indisprimary
+          AND n.nspname = {schema}
+          AND c.relname = {table}
+        ORDER BY array_position(i.indkey, a.attnum)
+    """).format(schema=sql.Literal(schema), table=sql.Literal(table_name))
 
-    _explain_query(cursor, info_schema_query, logger)
-    logger.debug(f"Running query: {info_schema_query.as_string()}")
-    cursor.execute(info_schema_query)
+    _explain_query(cursor, pg_catalog_query, logger)
+    logger.debug(f"Running query: {pg_catalog_query.as_string()}")
+    cursor.execute(pg_catalog_query)
     rows = cursor.fetchall()
     if len(rows) > 0:
         return [row[0] for row in rows]
@@ -895,7 +897,7 @@ def _get_primary_keys(
         return None
 
     logger.warning(
-        f"No primary keys found for {table_name}. If the table is not a view, (a) does the table have a primary key set? (b) is the primary key returned from querying information_schema?"
+        f"No primary keys found for {table_name}. If the table is not a view, does the table have a primary key set?"
     )
 
     return None
