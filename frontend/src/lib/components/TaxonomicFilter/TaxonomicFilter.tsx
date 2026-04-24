@@ -20,7 +20,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
-import { CategoryDropdownAffordance } from './CategoryDropdownAffordance'
+import { CategoryDropdown } from './CategoryDropdown'
 import { InfiniteSelectResults } from './InfiniteSelectResults'
 import { defaultDataWarehousePopoverFields, taxonomicFilterLogic } from './taxonomicFilterLogic'
 
@@ -223,12 +223,8 @@ export const TaxonomicFilterSearchInput = forwardRef<
     }
 
     const categoriesAreInDropdown = categoryDropdownVariant !== 'control'
-    const categoryAffordance = categoriesAreInDropdown ? (
-        <CategoryDropdownAffordance
-            variant={categoryDropdownVariant}
-            eventName={eventName}
-            onAfterChange={focusInput}
-        />
+    const categoryDropdown = categoriesAreInDropdown ? (
+        <CategoryDropdown variant={categoryDropdownVariant} eventName={eventName} onAfterChange={focusInput} />
     ) : null
 
     return (
@@ -243,7 +239,7 @@ export const TaxonomicFilterSearchInput = forwardRef<
             prefix={prefix}
             suffix={
                 <>
-                    {categoryAffordance}
+                    {categoryDropdown}
                     {showNumericalPropsOnly && (
                         <Tooltip
                             title={

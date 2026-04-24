@@ -12,7 +12,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 import { CategoryDropdownVariant, TaxonomicFilterGroupType } from './types'
 
-export function CategoryDropdownAffordance({
+export function CategoryDropdown({
     variant,
     eventName,
     onAfterChange,
