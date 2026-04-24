@@ -65,7 +65,7 @@ from .organization import Organization, OrganizationMembership
 from .organization_domain import OrganizationDomain
 from .organization_integration import OrganizationIntegration
 from .organization_invite import OrganizationInvite, InviteExpiredException
-from .organization_limit_override import OrganizationLimitOverride
+from .team_limit_override import TeamLimitOverride
 from .person import Person, PersonDistinctId, PersonOverride, PersonOverrideMapping
 from .personal_api_key import PersonalAPIKey
 from .project_secret_api_key import ProjectSecretAPIKey
@@ -176,7 +176,7 @@ __all__ = [
     "OrganizationDomain",
     "OrganizationIntegration",
     "OrganizationInvite",
-    "OrganizationLimitOverride",
+    "TeamLimitOverride",
     "OrganizationMembership",
     "OAuthAccessToken",
     "OAuthApplication",

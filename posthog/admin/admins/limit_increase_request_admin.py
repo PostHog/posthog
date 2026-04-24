@@ -7,7 +7,7 @@ from django.urls import path, reverse
 from django.utils import timezone
 from django.utils.html import format_html
 
-from posthog.models import OrganizationLimitOverride
+from posthog.models import TeamLimitOverride
 from posthog.models.limit_increase_request import LimitIncreaseRequestStatus
 
 
@@ -114,7 +114,7 @@ class LimitIncreaseRequestAdmin(admin.ModelAdmin):
                 value = form.cleaned_data["value"]
                 reason = form.cleaned_data["reason"]
                 with transaction.atomic():
-                    OrganizationLimitOverride.objects.update_or_create(
+                    TeamLimitOverride.objects.update_or_create(
                         team_id=obj.team_id,
                         limit_key=obj.limit_key,
                         defaults={

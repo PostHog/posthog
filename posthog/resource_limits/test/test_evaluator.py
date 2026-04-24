@@ -1,7 +1,7 @@
 import pytest
 from posthog.test.base import BaseTest
 
-from posthog.models import LimitIncreaseRequest, LimitIncreaseRequestStatus, OrganizationLimitOverride
+from posthog.models import LimitIncreaseRequest, LimitIncreaseRequestStatus, TeamLimitOverride
 from posthog.resource_limits import LimitExceeded, check_count_limit, get_limit
 from posthog.resource_limits.registry import REGISTRY, LimitDefinition
 
@@ -15,7 +15,7 @@ class TestGetLimit(BaseTest):
         assert get_limit(team=self.team, key=self.key) == 500
 
     def test_returns_team_override(self) -> None:
-        OrganizationLimitOverride.objects.create(
+        TeamLimitOverride.objects.create(
             team=self.team,
             limit_key=self.key,
             value=1000,
@@ -24,7 +24,7 @@ class TestGetLimit(BaseTest):
         assert get_limit(team=self.team, key=self.key) == 1000
 
     def test_null_value_override_is_unlimited(self) -> None:
-        OrganizationLimitOverride.objects.create(
+        TeamLimitOverride.objects.create(
             team=self.team,
             limit_key=self.key,
             value=None,
@@ -84,7 +84,7 @@ class TestCheckCountLimit(BaseTest):
         assert request.hit_count == 2
 
     def test_override_raises_the_effective_limit(self) -> None:
-        OrganizationLimitOverride.objects.create(
+        TeamLimitOverride.objects.create(
             team=self.team,
             limit_key=self.key,
             value=1000,

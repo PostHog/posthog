@@ -26,7 +26,6 @@ from .limit_increase_request_admin import LimitIncreaseRequestAdmin
 from .oauth_admin import OAuthApplicationAdmin
 from .organization_admin import OrganizationAdmin
 from .organization_domain_admin import OrganizationDomainAdmin
-from .organization_limit_override_admin import OrganizationLimitOverrideAdmin
 from .person_distinct_id_admin import PersonDistinctIdAdmin
 from .personal_api_key_admin import PersonalAPIKeyAdmin
 from .plugin_admin import PluginAdmin
@@ -35,6 +34,7 @@ from .product_tour_admin import ProductTourAdmin
 from .project_admin import ProjectAdmin
 from .survey_admin import SurveyAdmin
 from .team_admin import TeamAdmin
+from .team_limit_override_admin import TeamLimitOverrideAdmin
 from .text_admin import TextAdmin
 from .user_admin import UserAdmin
 from .user_product_list_admin import UserProductListAdmin
@@ -68,7 +68,7 @@ __all__ = [
     "OAuthApplicationAdmin",
     "OrganizationAdmin",
     "OrganizationDomainAdmin",
-    "OrganizationLimitOverrideAdmin",
+    "TeamLimitOverrideAdmin",
     "PersonalAPIKeyAdmin",
     "PersonDistinctIdAdmin",
     "PluginAdmin",

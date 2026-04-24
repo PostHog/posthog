@@ -34,7 +34,6 @@ def register_all_admin():
         OrganizationAdmin,
         OrganizationDomainAdmin,
         OrganizationIntegrationAdmin,
-        OrganizationLimitOverrideAdmin,
         PersonalAPIKeyAdmin,
         PersonDistinctIdAdmin,
         PluginAdmin,
@@ -43,6 +42,7 @@ def register_all_admin():
         ProjectAdmin,
         SurveyAdmin,
         TeamAdmin,
+        TeamLimitOverrideAdmin,
         TextAdmin,
         UserAdmin,
         UserProductListAdmin,
@@ -71,13 +71,13 @@ def register_all_admin():
         Organization,
         OrganizationDomain,
         OrganizationIntegration,
-        OrganizationLimitOverride,
         PersonalAPIKey,
         PersonDistinctId,
         Plugin,
         PluginConfig,
         Project,
         Team,
+        TeamLimitOverride,
         User,
     )
     from posthog.models.file_system.user_product_list import UserProductList
@@ -112,7 +112,7 @@ def register_all_admin():
     admin.site.register(OrganizationDomain, OrganizationDomainAdmin)
     admin.site.register(OrganizationIntegration, OrganizationIntegrationAdmin)
     admin.site.register(LimitIncreaseRequest, LimitIncreaseRequestAdmin)
-    admin.site.register(OrganizationLimitOverride, OrganizationLimitOverrideAdmin)
+    admin.site.register(TeamLimitOverride, TeamLimitOverrideAdmin)
     admin.site.register(Project, ProjectAdmin)
     admin.site.register(Team, TeamAdmin)
     admin.site.register(User, UserAdmin)

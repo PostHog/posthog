@@ -1,7 +1,7 @@
 from django.contrib import admin
 
 
-class OrganizationLimitOverrideAdmin(admin.ModelAdmin):
+class TeamLimitOverrideAdmin(admin.ModelAdmin):
     list_display = (
         "id",
         "team",

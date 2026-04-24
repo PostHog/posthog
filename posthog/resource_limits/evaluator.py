@@ -1,27 +1,26 @@
 from typing import TYPE_CHECKING
 
 from posthog.resource_limits.exceptions import LimitExceeded
-from posthog.resource_limits.metrics import LIMIT_EXCEEDED_COUNTER
 from posthog.resource_limits.registry import get_definition
 from posthog.resource_limits.request_upsert import upsert_limit_increase_request
 
 if TYPE_CHECKING:
-    from posthog.models.organization_limit_override import OrganizationLimitOverride
     from posthog.models.team.team import Team
+    from posthog.models.team_limit_override import TeamLimitOverride
     from posthog.models.user import User
 
 
-def _get_active_override(team: "Team", key: str) -> "OrganizationLimitOverride | None":
-    from posthog.models.organization_limit_override import OrganizationLimitOverride
+def _get_active_override(team: "Team", key: str) -> "TeamLimitOverride | None":
+    from posthog.models.team_limit_override import TeamLimitOverride
 
-    return OrganizationLimitOverride.objects.filter(team_id=team.id, limit_key=key).first()
+    return TeamLimitOverride.objects.filter(team_id=team.id, limit_key=key).first()
 
 
 def get_limit(*, team: "Team", key: str) -> int | None:
     """Resolve the effective resource limit for a team/key.
 
     Precedence (highest first):
-        1. Active per-team override in ``OrganizationLimitOverride``.
+        1. Active per-team override in ``TeamLimitOverride``.
         2. Default from :data:`posthog.resource_limits.registry.REGISTRY`.
 
     Returns ``None`` to signal "unlimited".
@@ -42,12 +41,15 @@ def check_count_limit(
     """Raise :class:`LimitExceeded` when the team is at-or-above the limit.
 
     On raise, upserts a pending :class:`~posthog.models.limit_increase_request.LimitIncreaseRequest`
-    and increments the ``resource_limit_exceeded_total`` Prometheus counter.
+    and emits a ``resource limit hit`` PostHog event tagged with the team/org
+    groups and the rich context staff need to triage the request.
 
     The check is ``>=`` (not ``>``) because the caller runs this immediately
     before creating a new entity — at ``current_count == limit`` the next
     create would push them over.
     """
+    from posthog.event_usage import report_user_action
+
     limit = get_limit(team=team, key=key)
     if limit is None or current_count < limit:
         return
@@ -59,10 +61,24 @@ def check_count_limit(
         current_count=current_count,
         user=user,
     )
-    LIMIT_EXCEEDED_COUNTER.labels(
-        limit_key=key,
-        team_id=str(team.id),
-    ).inc()
+
+    if user is not None:
+        report_user_action(
+            user,
+            "resource limit hit",
+            {
+                "limit_key": key,
+                "limit": limit,
+                "current_count": current_count,
+                "team_id": team.id,
+                "organization_id": str(team.organization_id),
+                "limit_increase_request_id": str(request.id),
+                "hit_count": request.hit_count,
+            },
+            team=team,
+            organization=team.organization,
+        )
+
     raise LimitExceeded(
         limit_key=key,
         limit=limit,

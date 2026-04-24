@@ -21,7 +21,7 @@ class LimitIncreaseRequest(UUIDModel):
     ``(team, limit_key)``.
 
     Resolution happens via Django admin. On approve, staff writes an
-    :class:`~posthog.models.organization_limit_override.OrganizationLimitOverride`
+    :class:`~posthog.models.team_limit_override.TeamLimitOverride`
     scoped to the same team and flips ``status`` to ``approved``.
     """
 

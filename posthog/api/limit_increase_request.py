@@ -5,7 +5,7 @@ from rest_framework import exceptions, mixins, serializers, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models import LimitIncreaseRequest, OrganizationLimitOverride
+from posthog.models import LimitIncreaseRequest, TeamLimitOverride
 from posthog.models.limit_increase_request import LimitIncreaseRequestStatus
 from posthog.models.user import User
 from posthog.resource_limits.registry import REGISTRY, get_definition
@@ -89,7 +89,7 @@ class LimitIncreaseRequestSerializer(serializers.ModelSerializer):
     def get_granted_value(self, obj: LimitIncreaseRequest) -> int | None:
         if obj.status != LimitIncreaseRequestStatus.APPROVED:
             return None
-        override = OrganizationLimitOverride.objects.filter(
+        override = TeamLimitOverride.objects.filter(
             team_id=obj.team_id,
             limit_key=obj.limit_key,
         ).first()

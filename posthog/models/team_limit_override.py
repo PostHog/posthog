@@ -4,15 +4,14 @@ from django.db import models
 from posthog.models.utils import UUIDModel
 
 
-class OrganizationLimitOverride(UUIDModel):
+class TeamLimitOverride(UUIDModel):
     """Per-team raise of a resource limit.
 
     Staff writes a row here when approving a :class:`LimitIncreaseRequest` so
     the evaluator in :mod:`posthog.resource_limits.evaluator` returns the
     raised value instead of the registry default.
 
-    Despite the historical name this override is always team-scoped; to bump
-    every team in an org, grant one per team.
+    Always team-scoped; to bump every team in an org, grant one per team.
     """
 
     team = models.ForeignKey(
