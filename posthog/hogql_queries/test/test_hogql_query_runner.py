@@ -14,7 +14,8 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.user_query_validator import OFFSET_NOT_ALLOWED_MESSAGE
 from posthog.hogql.visitor import clear_locations
 
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
@@ -285,3 +286,49 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         with self.assertRaises(ExposedHogQLError):
             runner.calculate()
+
+    def _deny_all_flags(self, _flag_key, _distinct_id, **_kwargs):
+        return False
+
+    def test_query_service_rejects_offset(self):
+        # Verifies the hook is actually wired up through runner.calculate() — not just that the
+        # validator itself works (that's covered in test_user_query_validator).
+        runner = HogQLQueryRunner(
+            team=self.team,
+            query=HogQLQuery(query="select event from events limit 10 offset 5"),
+            user=self.user,
+        )
+        runner.is_query_service = True
+
+        with patch("posthoganalytics.feature_enabled", side_effect=self._deny_all_flags):
+            with self.assertRaises(QueryError) as ctx:
+                runner.calculate()
+        self.assertEqual(OFFSET_NOT_ALLOWED_MESSAGE, str(ctx.exception))
+
+    def test_query_service_rejects_offset_after_placeholder_substitution(self):
+        # OFFSET supplied via a placeholder must still be caught. This proves the hook runs
+        # *after* to_query() — which does placeholder substitution — not before.
+        runner = HogQLQueryRunner(
+            team=self.team,
+            query=HogQLQuery(
+                query="select event from events limit 10 offset {o}",
+                values={"o": 50},
+            ),
+            user=self.user,
+        )
+        runner.is_query_service = True
+
+        with patch("posthoganalytics.feature_enabled", side_effect=self._deny_all_flags):
+            with self.assertRaises(QueryError):
+                runner.calculate()
+
+    def test_non_query_service_allows_offset(self):
+        # Product queries (Trends/Funnels/etc.) hit is_query_service=False — they must pass
+        # through even when the flag service says "deny everything." Guards against someone
+        # accidentally dropping the `if self.is_query_service:` gate.
+        runner = self._create_runner(HogQLQuery(query="select event from events limit 10 offset 5"))
+
+        with patch("posthoganalytics.feature_enabled", side_effect=self._deny_all_flags):
+            response = runner.calculate()
+        # setUp creates 10 events; OFFSET 5 + LIMIT 10 → 5 rows actually come back.
+        self.assertEqual(len(response.results), 5)

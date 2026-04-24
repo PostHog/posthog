@@ -42,7 +42,6 @@ from posthog.hogql.resolver import Resolver
 from posthog.hogql.resolver_utils import extract_base_table_types, extract_select_queries
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
-from posthog.hogql.validator import validate_personal_api_key_query
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import clone_expr
 
@@ -325,11 +324,6 @@ class HogQLQueryExecutor:
                     one_query.limit = ast.Constant(
                         value=get_default_limit_for_context(self.limit_context or LimitContext.QUERY)
                     )
-
-    @tracer.start_as_current_span("HogQLQueryExecutor._validate_personal_api_key_query")
-    def _validate_personal_api_key_query(self):
-        with self.timings.measure("validate_personal_api_key_query"):
-            validate_personal_api_key_query(self.select_query, team=self.team, user=self.user)
 
     @tracer.start_as_current_span("HogQLQueryExecutor._apply_optimizers")
     def _apply_optimizers(self):
@@ -695,7 +689,6 @@ class HogQLQueryExecutor:
         self._process_variables()
         self._process_placeholders()
         self._apply_limit()
-        self._validate_personal_api_key_query()
         with self.timings.measure("_generate_hogql"):
             self._generate_hogql()
 

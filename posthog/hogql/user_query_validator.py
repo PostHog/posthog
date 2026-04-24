@@ -1,7 +1,12 @@
-"""Pre-execution validation passes for HogQL queries.
+"""Pre-execution validation for user-submitted HogQL queries.
 
-These run against the post-placeholder AST before ClickHouse SQL generation, so
-violations surface as ``QueryError`` (HTTP 400) before any database work happens.
+Applied by ``HogQLQueryRunner._calculate`` when ``is_query_service`` is true —
+i.e. the query came in via the external ``/query`` endpoint authenticated with a
+personal API key. Violations raise ``QueryError`` (HTTP 400) before any database
+work happens.
+
+The validator itself does *not* check ``is_query_service`` — callers gate on that
+and only invoke this for user-submitted queries.
 """
 
 import posthoganalytics
@@ -11,7 +16,6 @@ from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.clickhouse.query_tagging import AccessMethod, get_query_tag_value
 from posthog.models.team import Team
 from posthog.models.user import User
 
@@ -56,10 +60,6 @@ class _OffsetDetectingVisitor(TraversingVisitor):
         super().visit_select_set_query(node)
 
 
-def _is_personal_api_key_request() -> bool:
-    return get_query_tag_value("access_method") == AccessMethod.PERSONAL_API_KEY
-
-
 def _is_org_exempted_from_offset_block(team: Team, user: User | None) -> bool:
     """Return True if the team's org is on the OFFSET allow-list.
 
@@ -89,20 +89,17 @@ def _is_org_exempted_from_offset_block(team: Team, user: User | None) -> bool:
         return True
 
 
-def validate_personal_api_key_query(
+def validate_user_query(
     node: ast.SelectQuery | ast.SelectSetQuery,
     team: Team,
     user: User | None,
 ) -> None:
-    """Reject queries made with a personal API key that use OFFSET anywhere in the AST.
+    """Enforce user-query restrictions on a parsed HogQL AST.
 
-    No-op if any of the following holds:
-    1. The request is not authenticated with a personal API key.
-    2. The team's organization is on the OFFSET allow-list (grandfathered).
-    3. The AST contains no OFFSET clause.
+    Currently: reject any OFFSET clause unless the team's organization is on the
+    allow-list feature flag. Callers are expected to have already gated on
+    ``is_query_service`` — this function unconditionally applies the policy.
     """
-    if not _is_personal_api_key_request():
-        return
     if _is_org_exempted_from_offset_block(team, user):
         return
     try:
