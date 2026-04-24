@@ -300,3 +300,21 @@ tools:
     external-data-sources-bulk-update-schemas-partial-update:
         operation: external_data_sources_bulk_update_schemas_partial_update
         enabled: false
+    insight-variables-list:
+        operation: insight_variables_list
+        enabled: false
+    insight-variables-create:
+        operation: insight_variables_create
+        enabled: false
+    insight-variables-retrieve:
+        operation: insight_variables_retrieve
+        enabled: false
+    insight-variables-update:
+        operation: insight_variables_update
+        enabled: false
+    insight-variables-partial-update:
+        operation: insight_variables_partial_update
+        enabled: false
+    insight-variables-destroy:
+        operation: insight_variables_destroy
+        enabled: false

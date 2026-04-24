@@ -211,6 +211,7 @@ class ToleratedHashEntry:
     alternate_hash: str
     baseline_hash: str
     reason: str
+    diff_percentage: float | None
     created_at: datetime
     source_run_id: UUID | None
 

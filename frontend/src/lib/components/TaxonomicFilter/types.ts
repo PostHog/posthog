@@ -106,6 +106,10 @@ export interface TaxonomicFilterProps {
     minSearchQueryLength?: number
     /** Override the "Suggested filters" tab label for specific contexts. */
     suggestedFiltersLabel?: string
+    /** Hide the built-in search input (useful when an external input drives the search query). */
+    hideSearchInput?: boolean
+    /** Controlled search query — synced into the logic on each change. Use with hideSearchInput for external input control. */
+    searchQuery?: string
 }
 
 export interface DataWarehousePopoverField {

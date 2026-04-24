@@ -6,11 +6,11 @@ from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 
-from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
 
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
-class TestProvisioningRotateCredentials(StripeProvisioningTestBase):
+class TestProvisioningRotateCredentials(ProvisioningTestBase):
     def test_rotate_returns_new_access_configuration(self):
         token = self._get_bearer_token()
         original_api_token = self.team.api_token

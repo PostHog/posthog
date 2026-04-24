@@ -24,6 +24,8 @@ import type {
     ExternalDataSourcesCheckCdcPrerequisitesCreate200,
     ExternalDataSourcesConnectionsListParams,
     ExternalDataSourcesListParams,
+    InsightVariableApi,
+    InsightVariablesListParams,
     PaginatedDataModelingJobListApi,
     PaginatedDataWarehouseModelPathListApi,
     PaginatedDataWarehouseSavedQueryDraftListApi,
@@ -31,6 +33,7 @@ import type {
     PaginatedExternalDataSchemaListApi,
     PaginatedExternalDataSourceConnectionOptionListApi,
     PaginatedExternalDataSourceSerializersListApi,
+    PaginatedInsightVariableListApi,
     PaginatedQueryTabStateListApi,
     PaginatedTableListApi,
     PaginatedViewLinkListApi,
@@ -40,6 +43,7 @@ import type {
     PatchedExternalDataSchemaApi,
     PatchedExternalDataSourceBulkUpdateSchemasApi,
     PatchedExternalDataSourceSerializersApi,
+    PatchedInsightVariableApi,
     PatchedQueryTabStateApi,
     ProvisionWarehouseRequestApi,
     ProvisionWarehouseResponseApi,
@@ -1198,6 +1202,112 @@ export const externalDataSourcesWizardRetrieve = async (projectId: string, optio
     return apiMutator<void>(getExternalDataSourcesWizardRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getInsightVariablesListUrl = (projectId: string, params?: InsightVariablesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insight_variables/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insight_variables/`
+}
+
+export const insightVariablesList = async (
+    projectId: string,
+    params?: InsightVariablesListParams,
+    options?: RequestInit
+): Promise<PaginatedInsightVariableListApi> => {
+    return apiMutator<PaginatedInsightVariableListApi>(getInsightVariablesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getInsightVariablesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/insight_variables/`
+}
+
+export const insightVariablesCreate = async (
+    projectId: string,
+    insightVariableApi: NonReadonly<InsightVariableApi>,
+    options?: RequestInit
+): Promise<InsightVariableApi> => {
+    return apiMutator<InsightVariableApi>(getInsightVariablesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(insightVariableApi),
+    })
+}
+
+export const getInsightVariablesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/insight_variables/${id}/`
+}
+
+export const insightVariablesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<InsightVariableApi> => {
+    return apiMutator<InsightVariableApi>(getInsightVariablesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getInsightVariablesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/insight_variables/${id}/`
+}
+
+export const insightVariablesUpdate = async (
+    projectId: string,
+    id: string,
+    insightVariableApi: NonReadonly<InsightVariableApi>,
+    options?: RequestInit
+): Promise<InsightVariableApi> => {
+    return apiMutator<InsightVariableApi>(getInsightVariablesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(insightVariableApi),
+    })
+}
+
+export const getInsightVariablesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/insight_variables/${id}/`
+}
+
+export const insightVariablesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedInsightVariableApi: NonReadonly<PatchedInsightVariableApi>,
+    options?: RequestInit
+): Promise<InsightVariableApi> => {
+    return apiMutator<InsightVariableApi>(getInsightVariablesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedInsightVariableApi),
+    })
+}
+
+export const getInsightVariablesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/insight_variables/${id}/`
+}
+
+export const insightVariablesDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getInsightVariablesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

@@ -6,6 +6,8 @@ import {
     ExternalDataSchemasCancelCreateBody,
     ExternalDataSchemasCancelCreateParams,
     ExternalDataSchemasDeleteDataDestroyParams,
+    ExternalDataSchemasIncrementalFieldsCreateBody,
+    ExternalDataSchemasIncrementalFieldsCreateParams,
     ExternalDataSchemasListQueryParams,
     ExternalDataSchemasPartialUpdateBody,
     ExternalDataSchemasPartialUpdateParams,
@@ -15,6 +17,11 @@ import {
     ExternalDataSchemasResyncCreateParams,
     ExternalDataSchemasRetrieveParams,
     ExternalDataSourcesCreateBody,
+    ExternalDataSourcesCreateWebhookCreateBody,
+    ExternalDataSourcesCreateWebhookCreateParams,
+    ExternalDataSourcesDatabaseSchemaCreateBody,
+    ExternalDataSourcesDeleteWebhookCreateBody,
+    ExternalDataSourcesDeleteWebhookCreateParams,
     ExternalDataSourcesDestroyParams,
     ExternalDataSourcesListQueryParams,
     ExternalDataSourcesPartialUpdateBody,
@@ -24,6 +31,13 @@ import {
     ExternalDataSourcesReloadCreateBody,
     ExternalDataSourcesReloadCreateParams,
     ExternalDataSourcesRetrieveParams,
+    ExternalDataSourcesUpdateWebhookInputsCreateBody,
+    ExternalDataSourcesUpdateWebhookInputsCreateParams,
+    ExternalDataSourcesWebhookInfoRetrieveParams,
+    InsightVariablesCreateBody,
+    InsightVariablesDestroyParams,
+    InsightVariablesPartialUpdateBody,
+    InsightVariablesPartialUpdateParams,
     WarehouseSavedQueriesCreateBody,
     WarehouseSavedQueriesDestroyParams,
     WarehouseSavedQueriesListQueryParams,
@@ -51,6 +65,25 @@ import {
 } from '@/schema/tool-inputs'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const DataWarehouseDataHealthIssuesRetrieveSchema = z.object({})
+
+const dataWarehouseDataHealthIssuesRetrieve = (): ToolBase<
+    typeof DataWarehouseDataHealthIssuesRetrieveSchema,
+    unknown
+> => ({
+    name: 'data-warehouse-data-health-issues-retrieve',
+    schema: DataWarehouseDataHealthIssuesRetrieveSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof DataWarehouseDataHealthIssuesRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_warehouse/data_health_issues/`,
+        })
+        return result
+    },
+})
 
 const ExternalDataSchemasListSchema = ExternalDataSchemasListQueryParams
 
@@ -237,6 +270,43 @@ const externalDataSourcesReload = (): ToolBase<typeof ExternalDataSourcesReloadS
     },
 })
 
+const ExternalDataSourcesDbSchemaSchema = ExternalDataSourcesDatabaseSchemaCreateBody.extend({
+    source_type: ExternalDataSourceTypeSchema,
+})
+
+const externalDataSourcesDbSchema = (): ToolBase<typeof ExternalDataSourcesDbSchemaSchema, unknown> => ({
+    name: 'external-data-sources-db-schema',
+    schema: ExternalDataSourcesDbSchemaSchema,
+    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesDbSchemaSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.client_secret !== undefined) {
+            body['client_secret'] = params.client_secret
+        }
+        if (params.account_id !== undefined) {
+            body['account_id'] = params.account_id
+        }
+        if (params.prefix !== undefined) {
+            body['prefix'] = params.prefix
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.job_inputs !== undefined) {
+            body['job_inputs'] = params.job_inputs
+        }
+        if (params.source_type !== undefined) {
+            body['source_type'] = params.source_type
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/database_schema/`,
+            body,
+        })
+        return result
+    },
+})
+
 const ExternalDataSourcesWizardSchema = z.object({})
 
 const externalDataSourcesWizard = (): ToolBase<typeof ExternalDataSourcesWizardSchema, unknown> => ({
@@ -258,6 +328,81 @@ const externalDataSourcesWizard = (): ToolBase<typeof ExternalDataSourcesWizardS
             '*.fields',
         ]) as typeof result
         return filtered
+    },
+})
+
+const SqlVariablesCreateSchema = InsightVariablesCreateBody
+
+const sqlVariablesCreate = (): ToolBase<typeof SqlVariablesCreateSchema, Schemas.InsightVariable> => ({
+    name: 'sql-variables-create',
+    schema: SqlVariablesCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof SqlVariablesCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.type !== undefined) {
+            body['type'] = params.type
+        }
+        if (params.default_value !== undefined) {
+            body['default_value'] = params.default_value
+        }
+        if (params.values !== undefined) {
+            body['values'] = params.values
+        }
+        const result = await context.api.request<Schemas.InsightVariable>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/insight_variables/`,
+            body,
+        })
+        return result
+    },
+})
+
+const SqlVariablesUpdateSchema = InsightVariablesPartialUpdateParams.omit({ project_id: true }).extend(
+    InsightVariablesPartialUpdateBody.shape
+)
+
+const sqlVariablesUpdate = (): ToolBase<typeof SqlVariablesUpdateSchema, Schemas.InsightVariable> => ({
+    name: 'sql-variables-update',
+    schema: SqlVariablesUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof SqlVariablesUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.type !== undefined) {
+            body['type'] = params.type
+        }
+        if (params.default_value !== undefined) {
+            body['default_value'] = params.default_value
+        }
+        if (params.values !== undefined) {
+            body['values'] = params.values
+        }
+        const result = await context.api.request<Schemas.InsightVariable>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/insight_variables/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const SqlVariablesDeleteSchema = InsightVariablesDestroyParams.omit({ project_id: true })
+
+const sqlVariablesDelete = (): ToolBase<typeof SqlVariablesDeleteSchema, unknown> => ({
+    name: 'sql-variables-delete',
+    schema: SqlVariablesDeleteSchema,
+    handler: async (context: Context, params: z.infer<typeof SqlVariablesDeleteSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/insight_variables/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
     },
 })
 
@@ -559,6 +704,162 @@ const viewRunHistory = (): ToolBase<typeof ViewRunHistorySchema, WithPostHogUrl<
     },
 })
 
+const ExternalDataSourcesCreateWebhookCreateSchema = ExternalDataSourcesCreateWebhookCreateParams.omit({
+    project_id: true,
+}).extend(ExternalDataSourcesCreateWebhookCreateBody.shape)
+
+const externalDataSourcesCreateWebhookCreate = (): ToolBase<
+    typeof ExternalDataSourcesCreateWebhookCreateSchema,
+    unknown
+> => ({
+    name: 'external-data-sources-create-webhook-create',
+    schema: ExternalDataSourcesCreateWebhookCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesCreateWebhookCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.client_secret !== undefined) {
+            body['client_secret'] = params.client_secret
+        }
+        if (params.account_id !== undefined) {
+            body['account_id'] = params.account_id
+        }
+        if (params.prefix !== undefined) {
+            body['prefix'] = params.prefix
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.job_inputs !== undefined) {
+            body['job_inputs'] = params.job_inputs
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/create_webhook/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ExternalDataSourcesUpdateWebhookInputsCreateSchema = ExternalDataSourcesUpdateWebhookInputsCreateParams.omit({
+    project_id: true,
+}).extend(ExternalDataSourcesUpdateWebhookInputsCreateBody.shape)
+
+const externalDataSourcesUpdateWebhookInputsCreate = (): ToolBase<
+    typeof ExternalDataSourcesUpdateWebhookInputsCreateSchema,
+    unknown
+> => ({
+    name: 'external-data-sources-update-webhook-inputs-create',
+    schema: ExternalDataSourcesUpdateWebhookInputsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesUpdateWebhookInputsCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.client_secret !== undefined) {
+            body['client_secret'] = params.client_secret
+        }
+        if (params.account_id !== undefined) {
+            body['account_id'] = params.account_id
+        }
+        if (params.prefix !== undefined) {
+            body['prefix'] = params.prefix
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.job_inputs !== undefined) {
+            body['job_inputs'] = params.job_inputs
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/update_webhook_inputs/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ExternalDataSourcesWebhookInfoRetrieveSchema = ExternalDataSourcesWebhookInfoRetrieveParams.omit({
+    project_id: true,
+})
+
+const externalDataSourcesWebhookInfoRetrieve = (): ToolBase<
+    typeof ExternalDataSourcesWebhookInfoRetrieveSchema,
+    unknown
+> => ({
+    name: 'external-data-sources-webhook-info-retrieve',
+    schema: ExternalDataSourcesWebhookInfoRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesWebhookInfoRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/webhook_info/`,
+        })
+        return result
+    },
+})
+
+const ExternalDataSourcesDeleteWebhookCreateSchema = ExternalDataSourcesDeleteWebhookCreateParams.omit({
+    project_id: true,
+}).extend(ExternalDataSourcesDeleteWebhookCreateBody.shape)
+
+const externalDataSourcesDeleteWebhookCreate = (): ToolBase<
+    typeof ExternalDataSourcesDeleteWebhookCreateSchema,
+    unknown
+> => ({
+    name: 'external-data-sources-delete-webhook-create',
+    schema: ExternalDataSourcesDeleteWebhookCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesDeleteWebhookCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.client_secret !== undefined) {
+            body['client_secret'] = params.client_secret
+        }
+        if (params.account_id !== undefined) {
+            body['account_id'] = params.account_id
+        }
+        if (params.prefix !== undefined) {
+            body['prefix'] = params.prefix
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.job_inputs !== undefined) {
+            body['job_inputs'] = params.job_inputs
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/delete_webhook/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ExternalDataSourcesCheckCdcPrerequisitesCreateSchema = z
+    .object({})
+    .extend({ source_type: ExternalDataSourceTypeSchema })
+
+const externalDataSourcesCheckCdcPrerequisitesCreate = (): ToolBase<
+    typeof ExternalDataSourcesCheckCdcPrerequisitesCreateSchema,
+    unknown
+> => ({
+    name: 'external-data-sources-check-cdc-prerequisites-create',
+    schema: ExternalDataSourcesCheckCdcPrerequisitesCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesCheckCdcPrerequisitesCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.source_type !== undefined) {
+            body['source_type'] = params.source_type
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/check_cdc_prerequisites/`,
+            body,
+        })
+        return result
+    },
+})
+
 const ExternalDataSchemasRetrieveSchema = ExternalDataSchemasRetrieveParams.omit({ project_id: true })
 
 const externalDataSchemasRetrieve = (): ToolBase<
@@ -668,6 +969,31 @@ const externalDataSchemasDeleteData = (): ToolBase<typeof ExternalDataSchemasDel
     },
 })
 
+const ExternalDataSchemasIncrementalFieldsCreateSchema = ExternalDataSchemasIncrementalFieldsCreateParams.omit({
+    project_id: true,
+}).extend(ExternalDataSchemasIncrementalFieldsCreateBody.shape)
+
+const externalDataSchemasIncrementalFieldsCreate = (): ToolBase<
+    typeof ExternalDataSchemasIncrementalFieldsCreateSchema,
+    unknown
+> => ({
+    name: 'external-data-schemas-incremental-fields-create',
+    schema: ExternalDataSchemasIncrementalFieldsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof ExternalDataSchemasIncrementalFieldsCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.should_sync !== undefined) {
+            body['should_sync'] = params.should_sync
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/incremental_fields/`,
+            body,
+        })
+        return result
+    },
+})
+
 const ExternalDataSchemasReloadSchema = ExternalDataSchemasReloadCreateParams.omit({ project_id: true }).extend(
     ExternalDataSchemasReloadCreateBody.shape
 )
@@ -713,6 +1039,7 @@ const externalDataSchemasResync = (): ToolBase<typeof ExternalDataSchemasResyncS
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'data-warehouse-data-health-issues-retrieve': dataWarehouseDataHealthIssuesRetrieve,
     'external-data-schemas-list': externalDataSchemasList,
     'external-data-sources-list': externalDataSourcesList,
     'external-data-sources-create': externalDataSourcesCreate,
@@ -721,7 +1048,11 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'external-data-sources-destroy': externalDataSourcesDestroy,
     'external-data-sources-refresh-schemas': externalDataSourcesRefreshSchemas,
     'external-data-sources-reload': externalDataSourcesReload,
+    'external-data-sources-db-schema': externalDataSourcesDbSchema,
     'external-data-sources-wizard': externalDataSourcesWizard,
+    'sql-variables-create': sqlVariablesCreate,
+    'sql-variables-update': sqlVariablesUpdate,
+    'sql-variables-delete': sqlVariablesDelete,
     'view-list': viewList,
     'view-create': viewCreate,
     'view-get': viewGet,
@@ -731,10 +1062,16 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'view-unmaterialize': viewUnmaterialize,
     'view-run': viewRun,
     'view-run-history': viewRunHistory,
+    'external-data-sources-create-webhook-create': externalDataSourcesCreateWebhookCreate,
+    'external-data-sources-update-webhook-inputs-create': externalDataSourcesUpdateWebhookInputsCreate,
+    'external-data-sources-webhook-info-retrieve': externalDataSourcesWebhookInfoRetrieve,
+    'external-data-sources-delete-webhook-create': externalDataSourcesDeleteWebhookCreate,
+    'external-data-sources-check-cdc-prerequisites-create': externalDataSourcesCheckCdcPrerequisitesCreate,
     'external-data-schemas-retrieve': externalDataSchemasRetrieve,
     'external-data-schemas-partial-update': externalDataSchemasPartialUpdate,
     'external-data-schemas-cancel': externalDataSchemasCancel,
     'external-data-schemas-delete-data': externalDataSchemasDeleteData,
+    'external-data-schemas-incremental-fields-create': externalDataSchemasIncrementalFieldsCreate,
     'external-data-schemas-reload': externalDataSchemasReload,
     'external-data-schemas-resync': externalDataSchemasResync,
 }

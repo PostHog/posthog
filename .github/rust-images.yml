@@ -67,6 +67,10 @@
   dockerfile: ./rust/Dockerfile
   project: wqvvpmzgbk
 
+- image: personhog-writer
+  dockerfile: ./rust/Dockerfile
+  project: hj9nd3cg9w
+
 - image: kafka-assigner
   dockerfile: ./rust/Dockerfile
   project: 6kjc85bwm7

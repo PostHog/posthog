@@ -1214,6 +1214,7 @@ function generateDefinitionsJson(
                 ...(toolConfig.feature_flag_behavior
                     ? { feature_flag_behavior: toolConfig.feature_flag_behavior }
                     : {}),
+                ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
             }
         }
         // Include query wrappers defined in the same category file
@@ -1236,6 +1237,7 @@ function generateDefinitionsJson(
                 ...(wrapperConfig.feature_flag_behavior
                     ? { feature_flag_behavior: wrapperConfig.feature_flag_behavior }
                     : {}),
+                ...(wrapperConfig.system_prompt_hint ? { system_prompt_hint: wrapperConfig.system_prompt_hint } : {}),
             }
         }
     }
@@ -1412,6 +1414,7 @@ function generateQueryWrapperDefinitionsJson(
             },
             ...(toolConfig.feature_flag ? { feature_flag: toolConfig.feature_flag } : {}),
             ...(toolConfig.feature_flag_behavior ? { feature_flag_behavior: toolConfig.feature_flag_behavior } : {}),
+            ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
         }
     }
     return definitions
@@ -1567,6 +1570,8 @@ export {
     extractPathParams,
     generateCategoryFile,
     generateCustomSchemaToolCode,
+    generateDefinitionsJson,
+    generateQueryWrapperDefinitionsJson,
     generateQueryWrapperFile,
     generateToolCode,
 }

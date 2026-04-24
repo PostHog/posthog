@@ -305,6 +305,8 @@ class ToleratedHash(models.Model):
     source_run = models.ForeignKey(Run, on_delete=models.SET_NULL, null=True, blank=True)
     created_by_id = models.BigIntegerField(null=True, blank=True)
 
+    diff_percentage = models.FloatField(null=True, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField(null=True, blank=True)
 

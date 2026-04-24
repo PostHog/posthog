@@ -120,6 +120,14 @@ export const urls = {
     variableEdit: (id: string | ':id'): string => `/data-management/variables/${id}/edit`,
     resourceTransfer: (resourceKind: string, resourceId: string | number): string =>
         `/resource-transfer/${resourceKind}/${resourceId}`,
+    dashboardTemplateCopyToProject: (templateId: string | ':sourceTemplateId', sourceTeamId?: number): string => {
+        const path = `/dashboard/templates/${templateId}/copy-to-project`
+        return sourceTeamId === undefined
+            ? path
+            : combineUrl(path, {
+                  source_team: sourceTeamId,
+              }).url
+    },
     organizationCreateFirst: (): string => '/create-organization',
     projectCreateFirst: (): string => '/organization/create-project',
     projectRoot: (): string => '/',

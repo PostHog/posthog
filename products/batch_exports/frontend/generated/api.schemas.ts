@@ -77,10 +77,7 @@ export interface BatchExportDestinationApi {
     type: BatchExportDestinationTypeEnumApi
     /** A JSON field to store all configuration parameters required to access a BatchExportDestination. */
     config?: unknown
-    /**
-     * The integration for this destination.
-     * @nullable
-     */
+    /** @nullable */
     integration?: number | null
     /** @nullable */
     integration_id?: number | null
