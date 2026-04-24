@@ -1,9 +1,10 @@
-import json
 import logging
+from typing import Any, cast
 
 from anthropic.types import MessageParam
 
-from products.llm_analytics.backend.providers.anthropic import AnthropicProvider
+from products.llm_analytics.backend.llm.client import Client
+from products.llm_analytics.backend.llm.types import CompletionRequest
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,7 @@ def generate_task_title(description: str) -> str:
         return "Untitled Task"
 
     try:
-        provider = AnthropicProvider(model_id="claude-haiku-4-5-20251001")
+        client = Client(distinct_id="task-title-generator")
 
         system_prompt = """You are a title generator. You output ONLY a task title. Nothing else.
 
@@ -63,20 +64,19 @@ Output the title now:""",
             )
         ]
 
-        response_text = ""
-        for chunk in provider.stream_response(
+        request = CompletionRequest(
+            model="claude-haiku-4-5-20251001",
+            messages=cast(list[dict[str, Any]], list(messages)),
+            provider="anthropic",
             system=system_prompt,
-            messages=messages,
             temperature=0.2,  # Slightly lower for more consistent output
             max_tokens=50,  # Reduced since we want short titles
-            distinct_id="task-title-generator",
-        ):
-            try:
-                data = json.loads(chunk.replace("data: ", ""))
-                if data.get("type") == "text":
-                    response_text += data.get("text", "")
-            except json.JSONDecodeError:
-                continue
+        )
+
+        response_text = ""
+        for chunk in client.stream(request):
+            if chunk.type == "text":
+                response_text += chunk.data.get("text", "")
 
         title = response_text.strip()
 
