@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """Compare a candidate result set to the saved baseline.
 
-Default mode is exact sorted-line match (the bash script's fallback).
+Both transports write newline-delimited JSON. The comparator parses each
+line, reserializes with a canonical separator/sort, and compares sorted
+lines for equality. That way byte-level differences from stdlib json vs
+ClickHouse's JSONCompactEachRow output (spaces-after-comma, key ordering,
+trailing newline) don't masquerade as semantic differences.
+
 Exit codes:
   0 — match
   1 — mismatch
@@ -45,11 +50,36 @@ def _resolve_output(candidate: Path, provided: Path | None) -> Path:
     return candidate.parent / "comparison.json"
 
 
+def _normalize_jsonl(text: str) -> list[str]:
+    """Re-emit every non-empty JSON line with canonical formatting.
+
+    Absorbs source-format differences — stdlib default separators (spaces
+    after commas) vs CH's JSONCompactEachRow output, key ordering in object
+    rows, stray trailing whitespace — so the sorted-line comparison is
+    genuinely a semantic diff, not a byte diff.
+
+    A line that isn't valid JSON is kept verbatim so the comparator surfaces
+    it as a mismatch rather than silently dropping it.
+    """
+    normalized: list[str] = []
+    for raw in text.splitlines():
+        stripped = raw.strip()
+        if not stripped:
+            continue
+        try:
+            parsed = json.loads(stripped)
+        except json.JSONDecodeError:
+            normalized.append(raw)
+            continue
+        normalized.append(json.dumps(parsed, separators=(",", ":"), sort_keys=True))
+    return normalized
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv if argv is not None else sys.argv[1:])
 
     workspace: Path = args.workspace
-    baseline_result = workspace / "baseline" / "result.tsv"
+    baseline_result = workspace / "baseline" / "result.jsonl"
     require_file(baseline_result)
 
     candidate_result = _resolve_candidate(workspace, args.candidate_result)
@@ -58,8 +88,8 @@ def main(argv: list[str] | None = None) -> int:
     output_file = _resolve_output(candidate_result, args.output)
     output_file.parent.mkdir(parents=True, exist_ok=True)
 
-    baseline_lines = sorted(baseline_result.read_text().splitlines())
-    candidate_lines = sorted(candidate_result.read_text().splitlines())
+    baseline_lines = sorted(_normalize_jsonl(baseline_result.read_text()))
+    candidate_lines = sorted(_normalize_jsonl(candidate_result.read_text()))
 
     rows_baseline = len(baseline_lines)
     rows_candidate = len(candidate_lines)

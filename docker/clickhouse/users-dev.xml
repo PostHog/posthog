@@ -241,6 +241,46 @@
                 <query>GRANT SELECT ON posthog_test.sharded_raw_sessions</query>
                 <query>GRANT SELECT ON posthog_test.writable_raw_sessions</query>
 
+                <!-- person_distinct_id2: current distinct-id → person table;
+                     used in almost every events→person join the LLM would
+                     reasonably draft. Replicated table + writable proxy. -->
+                <query>GRANT SELECT ON default.person_distinct_id2</query>
+                <query>GRANT SELECT ON default.writable_person_distinct_id2</query>
+                <query>GRANT SELECT ON posthog_test.person_distinct_id2</query>
+                <query>GRANT SELECT ON posthog_test.writable_person_distinct_id2</query>
+
+                <!-- Groups: group-analytics table. Replicated + writable, no shard split. -->
+                <query>GRANT SELECT ON default.groups</query>
+                <query>GRANT SELECT ON default.writable_groups</query>
+                <query>GRANT SELECT ON posthog_test.groups</query>
+                <query>GRANT SELECT ON posthog_test.writable_groups</query>
+
+                <!-- cohortpeople: CollapsingMergeTree driving cohort-filtered queries. -->
+                <query>GRANT SELECT ON default.cohortpeople</query>
+                <query>GRANT SELECT ON posthog_test.cohortpeople</query>
+
+                <!-- person_overrides: HogQL person-id resolution path. -->
+                <query>GRANT SELECT ON default.person_overrides</query>
+                <query>GRANT SELECT ON posthog_test.person_overrides</query>
+
+                <!-- Heatmaps: heatmap click events. Distributed + shard + writable. -->
+                <query>GRANT SELECT ON default.heatmaps</query>
+                <query>GRANT SELECT ON default.sharded_heatmaps</query>
+                <query>GRANT SELECT ON default.writable_heatmaps</query>
+                <query>GRANT SELECT ON posthog_test.heatmaps</query>
+                <query>GRANT SELECT ON posthog_test.sharded_heatmaps</query>
+                <query>GRANT SELECT ON posthog_test.writable_heatmaps</query>
+
+                <!-- Session recording events (legacy; may not exist on the test
+                     cluster today, but granted now so no config change is
+                     needed the day it does). Distributed + shard + writable. -->
+                <query>GRANT SELECT ON default.session_recording_events</query>
+                <query>GRANT SELECT ON default.sharded_session_recording_events</query>
+                <query>GRANT SELECT ON default.writable_session_recording_events</query>
+                <query>GRANT SELECT ON posthog_test.session_recording_events</query>
+                <query>GRANT SELECT ON posthog_test.sharded_session_recording_events</query>
+                <query>GRANT SELECT ON posthog_test.writable_session_recording_events</query>
+
                 <!-- query_log so the agent can read elapsed_ms / rows_read /
                      bytes_read / ProfileEvents for past queries it ran.
                      Paired with the row policy in

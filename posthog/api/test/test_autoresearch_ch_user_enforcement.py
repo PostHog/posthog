@@ -14,9 +14,10 @@ These tests exercise the actual CH server configured by
 
 They connect via ``settings.CLICKHOUSE_TEST_CLUSTER_*`` — which points at
 the same local CH container that ``users-dev.xml`` provisions, both in
-dev (via ``bin/start``) and in CI (via ``ci-backend.yml``). They skip if
-the autoresearch user isn't reachable, so they're safe to include in
-environments where the dev/CI CH stack isn't up.
+dev (via ``bin/start``) and in CI (via ``ci-backend.yml``). They **fail**
+(not skip) if the autoresearch user isn't reachable: a silent skip would
+turn the "SQL safety is CH-enforced" story into unverified wishful
+thinking.
 """
 
 from __future__ import annotations
@@ -25,8 +26,10 @@ import pytest
 
 from django.conf import settings
 
-from clickhouse_driver import Client as SyncClient
-from clickhouse_driver import errors as ch_errors
+from clickhouse_driver import (
+    Client as SyncClient,
+    errors as ch_errors,
+)
 
 # CH error codes we assert on.
 CH_ACCESS_DENIED = 497
@@ -37,18 +40,27 @@ CH_READONLY = 164
 CH_PATH_OUTSIDE_USER_FILES = 291
 
 
-def _skip_if_test_cluster_unconfigured() -> None:
+def _assert_test_cluster_configured() -> None:
+    """If the test cluster isn't reachable, fail — don't skip.
+
+    These tests are the load-bearing proof that the CH-side enforcement
+    (grants + row policy + readonly=2 profile constraint) actually works.
+    A silent skip when ``bin/start`` isn't running or CI's CH container
+    didn't come up turns them into a false-green: the "SQL safety" story
+    would be unverified while the run still reports success. Forcing the
+    operator to have a reachable CH (dev or CI) keeps them honest.
+    """
     if not settings.CLICKHOUSE_TEST_CLUSTER_HOST or not settings.CLICKHOUSE_TEST_CLUSTER_USER:
-        pytest.skip(
-            "CLICKHOUSE_TEST_CLUSTER_HOST / _USER not configured — "
-            "run `bin/start` locally or set them in CI to enable this test."
+        pytest.fail(
+            "CLICKHOUSE_TEST_CLUSTER_HOST / _USER not configured — run `bin/start` locally "
+            "(or set the env vars in CI) before running this test."
         )
 
 
 @pytest.fixture(scope="module")
 def autoresearch_client() -> SyncClient:
     """SyncClient as the autoresearch user (settings.CLICKHOUSE_TEST_CLUSTER_*)."""
-    _skip_if_test_cluster_unconfigured()
+    _assert_test_cluster_configured()
     client = SyncClient(
         host=settings.CLICKHOUSE_TEST_CLUSTER_HOST,
         database=settings.CLICKHOUSE_TEST_CLUSTER_DATABASE or "default",
@@ -62,7 +74,7 @@ def autoresearch_client() -> SyncClient:
     try:
         current = client.execute("SELECT currentUser()")
     except Exception as e:
-        pytest.skip(f"autoresearch CH user unreachable ({e!r}); skipping integration test")
+        pytest.fail(f"autoresearch CH user unreachable ({e!r}) — ensure CH is up and `autoresearch` user exists")
     expected = settings.CLICKHOUSE_TEST_CLUSTER_USER
     assert current == [(expected,)], f"unexpected currentUser(): {current!r} (expected {expected!r})"
     return client
@@ -90,11 +102,12 @@ def default_client() -> SyncClient:
     try:
         client.execute("SELECT 1")
     except Exception as e:
-        pytest.skip(f"regular CH user unreachable ({e!r}); skipping integration test")
+        pytest.fail(f"regular CH user unreachable ({e!r}) — ensure CH is up")
     if settings.CLICKHOUSE_USER == settings.CLICKHOUSE_TEST_CLUSTER_USER:
         # Row-policy test is meaningful only when the two clients are
         # different users — otherwise we can't observe "hides other users".
-        pytest.skip("regular CH user matches autoresearch user; row policy cross-user check not meaningful")
+        # This is a misconfigured env, not a skippable condition.
+        pytest.fail("regular CH user matches autoresearch user; row-policy cross-user check can't be verified")
     return client
 
 

@@ -118,15 +118,28 @@ class Command(BaseCommand):
 
         sql = _load_sql_from_file(options["sql_file"])
 
-        scope = "clickhouse_test_cluster_perf:test_read"
-        self.stdout.write(f"Minting OAuth token for user={user.id} team={team.id} scope={scope}")
-        # The sandbox uses this token for the proxy and for pi's Anthropic
-        # calls against the LLM gateway — those two scopes are all it needs.
-        # Drop the auto-union so `task:write` doesn't land on an LLM-held token.
-        token = create_oauth_access_token_for_user(
+        # Mint two SEPARATELY scoped tokens rather than one token holding
+        # both scopes. pi runs inside a sandbox with access to both env vars,
+        # so a prompt injection that makes pi echo `process.env` leaks
+        # whichever token it dumps. Splitting means a leak of the
+        # Anthropic-side token doesn't hand the attacker CH proxy access,
+        # and a leak of the CH proxy token doesn't hand them gateway spend.
+        # `include_internal_scopes=False` drops the auto-union so
+        # `task:write` etc. never land on an LLM-held token.
+        self.stdout.write(
+            f"Minting two OAuth tokens for user={user.id} team={team.id}: "
+            "proxy scope clickhouse_test_cluster_perf:test_read, gateway scope llm_gateway:read"
+        )
+        proxy_token = create_oauth_access_token_for_user(
             user,
             team.id,
-            scopes=[scope, "llm_gateway:read"],
+            scopes=["clickhouse_test_cluster_perf:test_read"],
+            include_internal_scopes=False,
+        )
+        gateway_token = create_oauth_access_token_for_user(
+            user,
+            team.id,
+            scopes=["llm_gateway:read"],
             include_internal_scopes=False,
         )
 
@@ -198,14 +211,14 @@ class Command(BaseCommand):
 
             env_values: dict[str, str] = {
                 "POSTHOG_URL": posthog_url,
-                "POSTHOG_OAUTH_TOKEN": token,
+                "POSTHOG_OAUTH_TOKEN": proxy_token,
                 "CAMPAIGN_SQL": sql,
             }
             if query_id:
                 env_values["CAMPAIGN_QUERY_ID"] = query_id
             if anthropic_base_url:
                 env_values["ANTHROPIC_BASE_URL"] = anthropic_base_url
-                env_values["ANTHROPIC_API_KEY"] = token
+                env_values["ANTHROPIC_API_KEY"] = gateway_token
 
             env_assignments = " ".join(f"{name}={shlex.quote(value)}" for name, value in env_values.items())
             # execute_stream only iterates stdout; merge stderr so the operator

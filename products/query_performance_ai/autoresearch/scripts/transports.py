@@ -41,6 +41,22 @@ class TransportResult:
     stdout: str
 
 
+# Resource caps sent with every query, on every transport. Mirrors the
+# ``_QUERY_SETTINGS`` dict in ``posthog/api/query_performance_proxy.py`` —
+# keeping them in sync means the research agent sees the same guard rails
+# regardless of which transport its workspace is configured to use, and the
+# agent CAN pass additional ``SETTINGS ...`` clauses inside the SQL (those
+# merge with these at the server side) so it can still experiment with
+# e.g. ``join_algorithm``.
+_QUERY_SETTINGS: dict[str, str | int] = {
+    "max_execution_time": 5 * 60,
+    "max_result_rows": 10_000,
+    "max_result_bytes": 10 * 1024 * 1024,  # 10 MiB
+    "result_overflow_mode": "throw",
+    "readonly": 2,
+}
+
+
 class Transport(abc.ABC):
     @abc.abstractmethod
     def run(self, sql: str, *, timeout_s: int = 30) -> TransportResult: ...
@@ -53,8 +69,13 @@ class HttpTransport(Transport):
 
         {"type": "http", "url": "http://localhost:8123", "headers": {...}}
 
-    The SQL is POSTed as the raw request body. X-ClickHouse-Summary (if
-    returned) is parsed for rows_read/bytes_read.
+    SQL is POSTed as the raw request body. Resource caps and
+    ``FORMAT JSONEachRow`` are pushed down via URL query parameters so the
+    result file format matches what the PostHog proxy transport writes —
+    the comparator can diff a baseline captured by one transport against a
+    candidate run under the other.
+
+    X-ClickHouse-Summary is parsed for rows_read/bytes_read.
     """
 
     def __init__(self, *, url: str, headers: dict[str, str] | None = None):
@@ -62,7 +83,8 @@ class HttpTransport(Transport):
         self.headers = headers or {}
 
     def run(self, sql: str, *, timeout_s: int = 30) -> TransportResult:
-        endpoint = f"{self.url}/?default_format=TSV"
+        params = {**_QUERY_SETTINGS, "default_format": "JSONEachRow"}
+        endpoint = f"{self.url}/?{urllib.parse.urlencode(params)}"
         req = urllib.request.Request(
             endpoint,
             data=sql.encode("utf-8"),

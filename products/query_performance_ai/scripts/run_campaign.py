@@ -245,8 +245,8 @@ def capture_baseline(workspace: Path) -> None:
             str(workspace),
         ]
     )
-    if not (workspace / "baseline" / "result.tsv").exists():
-        raise CampaignError("baseline capture left no result.tsv behind")
+    if not (workspace / "baseline" / "result.jsonl").exists():
+        raise CampaignError("baseline capture left no result.jsonl behind")
 
 
 def run_pi_campaign(workspace: Path) -> None:

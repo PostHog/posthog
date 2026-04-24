@@ -18,11 +18,17 @@ from __future__ import annotations
 
 import logging
 import threading
+from datetime import UTC, date, datetime
+from decimal import Decimal
+from ipaddress import IPv4Address, IPv6Address
+from uuid import UUID
 
 from django.conf import settings
 
-from clickhouse_driver import Client as SyncClient
-from clickhouse_driver import errors as clickhouse_driver_errors
+from clickhouse_driver import (
+    Client as SyncClient,
+    errors as clickhouse_driver_errors,
+)
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -51,6 +57,12 @@ MAX_SQL_LENGTH = 64 * 1024
 MAX_EXECUTION_TIME_SECONDS = 5 * 60
 MAX_RESULT_ROWS = 10_000
 MAX_RESULT_BYTES = 10 * 1024 * 1024  # 10 MiB
+
+# CLOUD_DEPLOYMENT values that identify a production/production-adjacent
+# environment. If DEBUG is ever True in one of these (misconfig), the proxy
+# must still refuse — DEBUG alone is one env-var flip away from exposing
+# test-cluster data to anyone with the OAuth scope.
+_PRODUCTION_CLOUD_DEPLOYMENTS = {"US", "EU", "DEV"}
 
 
 class ExecuteRequestSerializer(serializers.Serializer):
@@ -137,9 +149,9 @@ class QueryPerformanceProxyViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=["POST"], url_path="execute-test")
     def execute_test(self, request: Request) -> Response:
-        if not settings.DEBUG:
+        if not settings.DEBUG or settings.CLOUD_DEPLOYMENT in _PRODUCTION_CLOUD_DEPLOYMENTS:
             return Response(
-                {"error": "query_performance_proxy is only available when DEBUG is set"},
+                {"error": "query_performance_proxy is only available in DEBUG mode outside cloud deployments"},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         if not settings.CLICKHOUSE_TEST_CLUSTER_HOST:
@@ -150,6 +162,60 @@ class QueryPerformanceProxyViewSet(viewsets.ViewSet):
         serializer = ExecuteRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         return _run_autoresearch_query(serializer.validated_data["sql"])
+
+
+# -------------------------------------------------------- canonicalization --
+#
+# `clickhouse-driver` returns rows as Python tuples of native types (Decimal,
+# datetime, UUID, tuple, bytes, IPvXAddress, ...). We serialize each value to
+# a deterministic string that matches ClickHouse's own ``FORMAT JSONEachRow``
+# output, so the comparison oracle (ch_compare_results.py) can diff results
+# coming from two different transports without being tricked by incidental
+# encoding differences. Without this, a candidate that returns
+# ``Decimal("1.10")`` vs a baseline with ``Decimal("1.1")`` would be reported
+# as mismatched even though the underlying values are equal.
+
+
+def _canonicalize_value(v: object) -> object:
+    if v is None:
+        return None
+    if isinstance(v, bool):
+        # Note: bool is a subclass of int — must branch first.
+        return v
+    if isinstance(v, int | float | str):
+        return v
+    if isinstance(v, Decimal):
+        return str(v)
+    if isinstance(v, datetime):
+        # CH's JSONEachRow uses ``YYYY-MM-DD hh:mm:ss[.ffffff]`` (space, not
+        # T; no timezone suffix). Normalize any aware datetime to UTC first.
+        if v.tzinfo is not None:
+            v = v.astimezone(UTC).replace(tzinfo=None)
+        if v.microsecond:
+            return v.strftime("%Y-%m-%d %H:%M:%S.%f")
+        return v.strftime("%Y-%m-%d %H:%M:%S")
+    if isinstance(v, date):
+        return v.isoformat()
+    if isinstance(v, UUID):
+        return str(v)
+    if isinstance(v, IPv4Address | IPv6Address):
+        return str(v)
+    if isinstance(v, bytes):
+        # CH String columns surface as bytes in the native driver; JSONEachRow
+        # emits them as strings with invalid-UTF8 bytes escaped. ``replace``
+        # matches that behavior without raising.
+        return v.decode("utf-8", errors="replace")
+    if isinstance(v, tuple | list):
+        return [_canonicalize_value(x) for x in v]
+    if isinstance(v, dict):
+        return {str(k): _canonicalize_value(x) for k, x in v.items()}
+    return v
+
+
+def _canonicalize_rows(rows: object) -> list[list[object]]:
+    if not isinstance(rows, list):
+        return []
+    return [[_canonicalize_value(v) for v in row] for row in rows]
 
 
 # ---------------------------------------------------------------- execution --
@@ -205,14 +271,15 @@ def _run_autoresearch_query(sql: str) -> Response:
         elapsed_seconds = getattr(last_query, "elapsed", None)
         query_id = getattr(last_query, "query_id", None)
 
+    canonical_rows = _canonicalize_rows(rows)
     return Response(
         {
-            "result": rows if isinstance(rows, list) else [],
+            "result": canonical_rows,
             "query_id": query_id,
             "elapsed_ms": round(elapsed_seconds * 1000.0, 3) if isinstance(elapsed_seconds, int | float) else None,
             "rows_read": getattr(profile_info, "rows", None),
             "bytes_read": getattr(profile_info, "bytes", None),
-            "rows_returned": len(rows) if isinstance(rows, list) else None,
+            "rows_returned": len(canonical_rows),
         },
         status=status.HTTP_200_OK,
     )

@@ -46,13 +46,13 @@ Do not hand-edit `runtime/*.json` unless you are intentionally repairing broken 
     current.sql
     best.sql
   baseline/
-    result.tsv
+    result.jsonl
     metrics.json
     stdout.log
     profile/
   runs/
     run-0001-baseline-candidate/
-      result.tsv
+      result.jsonl
       metrics.json
       comparison.json
       stdout.log
@@ -107,7 +107,7 @@ Runs the environment-specific baseline capture command from `adapter.json`.
 
 #### Writes
 
-- `baseline/result.tsv`
+- `baseline/result.jsonl`
 - `baseline/metrics.json`
 - `baseline/stdout.log`
 - `baseline/profile/**`
@@ -124,11 +124,11 @@ Runs the current candidate query, captures artifacts, compares results, and emit
 - reads `query/current.sql`
 - reads `adapter.json`
 - reads `campaign.json`
-- reads `baseline/result.tsv`
+- reads `baseline/result.jsonl`
 
 #### Writes
 
-- `runs/run-XXXX[-label]/result.tsv`
+- `runs/run-XXXX[-label]/result.jsonl`
 - `runs/run-XXXX[-label]/metrics.json`
 - `runs/run-XXXX[-label]/stdout.log`
 - `runs/run-XXXX[-label]/profile/**`
@@ -149,7 +149,7 @@ Compares a candidate result set to the saved baseline result set.
 
 - `--workspace <path>` required
 - `--candidate-result <path>` optional; defaults to the last run result from `runtime/last_run.json`
-- reads `baseline/result.tsv`
+- reads `baseline/result.jsonl`
 - optionally reads `adapter.json`
 
 #### Writes
@@ -268,7 +268,7 @@ Expected shape:
   "run_id": "run-0007-pruning",
   "label": "pruning",
   "run_dir": ".clickhouse-autoresearch/runs/run-0007-pruning",
-  "result_file": ".clickhouse-autoresearch/runs/run-0007-pruning/result.tsv",
+  "result_file": ".clickhouse-autoresearch/runs/run-0007-pruning/result.jsonl",
   "metrics_file": ".clickhouse-autoresearch/runs/run-0007-pruning/metrics.json",
   "comparison_file": ".clickhouse-autoresearch/runs/run-0007-pruning/comparison.json"
 }

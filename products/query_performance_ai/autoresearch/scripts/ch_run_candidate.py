@@ -51,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
 
     workspace: Path = args.workspace
     candidate_file = workspace / "query" / "current.sql"
-    baseline_result = workspace / "baseline" / "result.tsv"
+    baseline_result = workspace / "baseline" / "result.jsonl"
     require_file(candidate_file)
     require_file(baseline_result)
 
@@ -61,7 +61,7 @@ def main(argv: list[str] | None = None) -> int:
     profile_dir = run_dir / "profile"
     profile_dir.mkdir(parents=True, exist_ok=True)
 
-    result_file = run_dir / "result.tsv"
+    result_file = run_dir / "result.jsonl"
     metrics_file = run_dir / "metrics.json"
     stdout_file = run_dir / "stdout.log"
     comparison_file = run_dir / "comparison.json"
