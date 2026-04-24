@@ -75,11 +75,14 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
     })),
 
     selectors(({ actions }) => ({
-        runs: [(s) => [s.runsResponse], (runsResponse): PaginatedRunListApi['results'] => runsResponse.results],
-        runsLoading: [(s) => [s.runsResponseLoading], (loading): boolean => loading],
+        runs: [
+            (s) => [s.runsResponse],
+            (runsResponse: PaginatedRunListApi): PaginatedRunListApi['results'] => runsResponse.results,
+        ],
+        runsLoading: [(s) => [s.runsResponseLoading], (loading: boolean): boolean => loading],
         pagination: [
             (s) => [s.page, s.runsResponse],
-            (page, runsResponse) => ({
+            (page: number, runsResponse: PaginatedRunListApi) => ({
                 controlled: true as const,
                 pageSize: RUNS_PAGE_SIZE,
                 currentPage: page,
@@ -88,7 +91,10 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
                 onForward: () => actions.setPage(page + 1),
             }),
         ],
-        repoFullName: [(s) => [s.repo], (repo): string | undefined => repo?.repo_full_name || undefined],
+        repoFullName: [
+            (s) => [s.repo],
+            (repo: RepoApi | null): string | undefined => repo?.repo_full_name || undefined,
+        ],
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => [
