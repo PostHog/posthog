@@ -91,6 +91,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
     This serializer is used for caching teams.
     Currently used only in `/decide` endpoint.
     Has all parameters needed for a successful decide request.
+    Keep this aligned with the legacy environment API response shape.
     """
 
     organization_id = serializers.UUIDField(read_only=True)
