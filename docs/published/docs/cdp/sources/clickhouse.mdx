@@ -16,19 +16,19 @@ To link ClickHouse:
 1. Go to the [Data pipeline page](https://app.posthog.com/data-management/sources) and the sources tab in PostHog
 2. Click **New source** and select ClickHouse
 3. Enter your database connection details:
-    - **Host:** The hostname or IP of your ClickHouse server like `play.clickhouse.com` or `123.132.1.100`.
-    - **Port:** The HTTP(S) port your ClickHouse server is listening on. The default is `8443` for HTTPS and `8123` for HTTP.
-    - **Database:** The name of the database you want to sync. The default is `default`.
-    - **User:** The username with read permissions on the database.
-    - **Password:** The password for the user (optional).
-    - **Use HTTPS?:** Whether to connect over HTTPS. Default is enabled.
-    - **Verify SSL certificate?:** Whether to verify the server's SSL certificate. Default is enabled. Disable if your server uses a self-signed certificate.
+   - **Host:** The hostname or IP of your ClickHouse server like `play.clickhouse.com` or `123.132.1.100`.
+   - **Port:** The HTTP(S) port your ClickHouse server is listening on. The default is `8443` for HTTPS and `8123` for HTTP.
+   - **Database:** The name of the database you want to sync. The default is `default`.
+   - **User:** The username with read permissions on the database.
+   - **Password:** The password for the user (optional).
+   - **Use HTTPS?:** Whether to connect over HTTPS. Default is enabled.
+   - **Verify SSL certificate?:** Whether to verify the server's SSL certificate. Default is enabled. Disable if your server uses a self-signed certificate.
 4. If you need to connect through an SSH tunnel, enable and configure it (optional):
-    - **Tunnel host:** The hostname of your SSH server.
-    - **Tunnel port:** The port your SSH server is listening on.
-    - **Authentication type:**
-        - For password authentication, enter your SSH username and password.
-        - For key-based authentication, enter your SSH username, private key, and optional passphrase.
+   - **Tunnel host:** The hostname of your SSH server.
+   - **Tunnel port:** The port your SSH server is listening on.
+   - **Authentication type:**
+     - For password authentication, enter your SSH username and password.
+     - For key-based authentication, enter your SSH username, private key, and optional passphrase.
 5. Click **Next**
 
 The data warehouse then starts syncing your ClickHouse data. You can see details and progress in the [sources tab](https://app.posthog.com/data-management/sources).

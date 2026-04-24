@@ -18,7 +18,7 @@ Each Google Sheets source in PostHog is a single spreadsheet where each workshee
 
 > Changing the name of a worksheet will require you to setup the schema in PostHog again to continue syncing it. We recommend not renaming worksheets.
 
-The first row of the spreadsheet is treated as the column names for the table. 
+The first row of the spreadsheet is treated as the column names for the table.
 
 ### Configure Google Sheets
 
@@ -28,7 +28,6 @@ To connect to your Google Sheet, PostHog uses a Google Cloud service account. Th
 2. Navigate to **Share**.
 3. Share the sheet with our service account by entering `google-sheets@posthog-external.iam.gserviceaccount.com` into the **Add people** field. We only require "Viewer" permissions to sync the sheet.
 
-
 ### Configuring PostHog
 
 1. Go to the [sources tab](https://app.posthog.com/data-management/sources) of the data pipeline section in PostHog.
@@ -37,10 +36,9 @@ To connect to your Google Sheet, PostHog uses a Google Cloud service account. Th
 
 3. Enter the **Google Sheets URL** of the sheet you want to sync and hit **Next**.
 
-4. On the next page, set up the worksheets you want to sync and modify the method and frequency as needed. Once done, click **Import**. 
+4. On the next page, set up the worksheets you want to sync and modify the method and frequency as needed. Once done, click **Import**.
 
 Once the syncs are complete, you can start using Google Sheets data in PostHog.
-
 
 ## Incremental and append only syncs
 

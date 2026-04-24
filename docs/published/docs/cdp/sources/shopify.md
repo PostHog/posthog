@@ -23,13 +23,13 @@ To sync Shopify data:
 6. Click **Create app**.
 7. Give your app a name and click **Create**.
 8. You will be redirected to a screen for releasing a new version of your app. Here, you need to:
-  1. Set the app URL. Use the default value `https://shopify.dev/apps/default-app-home`.
-  2. Choose the app scopes. We recommend that you select all read options for the simplest setup.
-  3. Click **Release** and fill in the optional release details.
-9. Go to **Home** in the Dev Dashboard and click **Install app** to install the app in your store.
-10. Go to **Settings** in the Dev Dashboard and note your `Client ID` and `Secret` for later.
+9. Set the app URL. Use the default value `https://shopify.dev/apps/default-app-home`.
+10. Choose the app scopes. We recommend that you select all read options for the simplest setup.
+11. Click **Release** and fill in the optional release details.
+12. Go to **Home** in the Dev Dashboard and click **Install app** to install the app in your store.
+13. Go to **Settings** in the Dev Dashboard and note your `Client ID` and `Secret` for later.
 
-For more information about creating apps in Dev Dashboard see 
+For more information about creating apps in Dev Dashboard see
 [the Shopify docs](https://shopify.dev/docs/apps/build/dev-dashboard/create-apps-using-dev-dashboard).
 
 ## In PostHog
@@ -37,10 +37,10 @@ For more information about creating apps in Dev Dashboard see
 1. Go to the [data pipelines page](https://app.posthog.com/data-management/sources), and select the **Sources** tab.
 2. Click the **+ New source** button and select Shopify by clicking the **+ Create** button.
 3. Fill in your Shopify `Store ID` as well as the `Client ID` and `Secret` from above.
-4. *Optional:* Add a prefix to your table names.
+4. _Optional:_ Add a prefix to your table names.
 5. Click **Next**.
 6. Select the Shopify objects you want to sync, and make any sync configuration changes you need.
 7. Click **Import**.
 
-After these setup steps, your Shopify data will be automatically synced to the PostHog data warehouse. 
+After these setup steps, your Shopify data will be automatically synced to the PostHog data warehouse.
 You can see details and progress in the data pipelines [sources tab](https://app.posthog.com/data-management/sources).

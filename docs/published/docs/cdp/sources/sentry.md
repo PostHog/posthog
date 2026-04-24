@@ -23,7 +23,6 @@ For token setup details, see Sentry's [Authentication docs](https://docs.sentry.
 
 Once the syncs are complete, you can start using Sentry data in PostHog.
 
-
 To link Sentry:
 
 1. Go to the [Data pipeline sources page](https://app.posthog.com/data-management/sources) in PostHog.
@@ -36,20 +35,19 @@ To link Sentry:
 
 The Sentry source currently supports syncing the following datasets and API endpoints:
 
-| Dataset | Endpoint path |
-| --- | --- |
-| `projects` | `/organizations/{organization_slug}/projects/` |
-| `teams` | `/organizations/{organization_slug}/teams/` |
-| `members` | `/organizations/{organization_slug}/members/` |
-| `releases` | `/organizations/{organization_slug}/releases/` |
-| `environments` | `/organizations/{organization_slug}/environments/` |
-| `monitors` | `/organizations/{organization_slug}/monitors/` |
-| `issues` | `/organizations/{organization_slug}/issues/` |
-| `project_events` | `/projects/{organization_slug}/{project_slug}/events/` |
-| `project_users` | `/projects/{organization_slug}/{project_slug}/users/` |
-| `project_client_keys` | `/projects/{organization_slug}/{project_slug}/keys/` |
-| `project_service_hooks` | `/projects/{organization_slug}/{project_slug}/hooks/` |
-| `issue_events` | `/issues/{issue_id}/events/` |
-| `issue_hashes` | `/issues/{issue_id}/hashes/` |
-| `issue_tag_values` | `/issues/{issue_id}/tags/{key}/values/` |
-
+| Dataset                 | Endpoint path                                          |
+| ----------------------- | ------------------------------------------------------ |
+| `projects`              | `/organizations/{organization_slug}/projects/`         |
+| `teams`                 | `/organizations/{organization_slug}/teams/`            |
+| `members`               | `/organizations/{organization_slug}/members/`          |
+| `releases`              | `/organizations/{organization_slug}/releases/`         |
+| `environments`          | `/organizations/{organization_slug}/environments/`     |
+| `monitors`              | `/organizations/{organization_slug}/monitors/`         |
+| `issues`                | `/organizations/{organization_slug}/issues/`           |
+| `project_events`        | `/projects/{organization_slug}/{project_slug}/events/` |
+| `project_users`         | `/projects/{organization_slug}/{project_slug}/users/`  |
+| `project_client_keys`   | `/projects/{organization_slug}/{project_slug}/keys/`   |
+| `project_service_hooks` | `/projects/{organization_slug}/{project_slug}/hooks/`  |
+| `issue_events`          | `/issues/{issue_id}/events/`                           |
+| `issue_hashes`          | `/issues/{issue_id}/hashes/`                           |
+| `issue_tag_values`      | `/issues/{issue_id}/tags/{key}/values/`                |

@@ -16,7 +16,7 @@ To link Hubspot:
 1. Go to the [Data pipeline page](https://app.posthog.com/data-management/sources) and the sources tab in PostHog
 2. Click **New source** and select Hubspot
 3. Select the Hubspot account you want to link and click **Connect app**
-4. *Optional:* Add a prefix to your table names
+4. _Optional:_ Add a prefix to your table names
 5. Select the tables you want to import (incremental/append syncs are not supported for HubSpot tables.)
 6. Click **Import**
 

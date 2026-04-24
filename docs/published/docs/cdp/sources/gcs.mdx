@@ -13,10 +13,10 @@ You can sync and query files and folders from Google Cloud Storage (GCS) in Post
 ## Step 1: Creating a bucket in GCS
 
 1. Go to your Google Cloud console.
-2. Create a bucket in GCS. 
-    - For location, we recommend choosing `us-east1` for US Cloud or `europe-west3` for EU Cloud to keep them close to our servers.
-    - For storage class, choose `Standard`.
-    - For access control, choose `Uniform`.
+2. Create a bucket in GCS.
+   - For location, we recommend choosing `us-east1` for US Cloud or `europe-west3` for EU Cloud to keep them close to our servers.
+   - For storage class, choose `Standard`.
+   - For access control, choose `Uniform`.
 3. Upload your data to the bucket. This can be as simple as a `.csv` file like this:
 
 ```csv
@@ -47,19 +47,19 @@ GCS uses service accounts to control access to resources. We need one to connect
 
 1. Go to the [Data pipeline page](https://app.posthog.com/data-management/sources) and the sources tab in PostHog
 2. Click **New source**. Under self managed, look for **Google Cloud Storage** and click **Link**
-3. Fill the table name, then use the data from GCS: 
-    - For files URL pattern, use `https://storage.googleapis.com/` followed by your bucket and file or folder name like `https://storage.googleapis.com/posthog-warehouse/july12_google_ads_fixed.csv`. You can also use `*` to query multiple files.
-    - Choose the correct file format
-    - When using CSV format, choose the **CSV quote handling** option: **RFC 4180 double quotes** for CSVs that use standard double-quote escaping, or **Literal quotes** (default) for CSVs where quotes are treated as literal characters.
-    - For access key, use your Access Key ID
-    - For secret key, use your Secret Access Key
+3. Fill the table name, then use the data from GCS:
+   - For files URL pattern, use `https://storage.googleapis.com/` followed by your bucket and file or folder name like `https://storage.googleapis.com/posthog-warehouse/july12_google_ads_fixed.csv`. You can also use `*` to query multiple files.
+   - Choose the correct file format
+   - When using CSV format, choose the **CSV quote handling** option: **RFC 4180 double quotes** for CSVs that use standard double-quote escaping, or **Literal quotes** (default) for CSVs where quotes are treated as literal characters.
+   - For access key, use your Access Key ID
+   - For secret key, use your Secret Access Key
 4. Click **Next**
 
 <ProductScreenshot
-    imageLight="https://res.cloudinary.com/dmukukwp6/image/upload/Clean_Shot_2024_07_17_at_13_03_25_2x_0ec0ddecaf.png"
-    imageDark="https://res.cloudinary.com/dmukukwp6/image/upload/Clean_Shot_2024_07_17_at_13_03_43_2x_465b2300b3.png"
-    alt="GCS source configuration form"
-    classes="rounded"
+  imageLight="https://res.cloudinary.com/dmukukwp6/image/upload/Clean_Shot_2024_07_17_at_13_03_25_2x_0ec0ddecaf.png"
+  imageDark="https://res.cloudinary.com/dmukukwp6/image/upload/Clean_Shot_2024_07_17_at_13_03_43_2x_465b2300b3.png"
+  alt="GCS source configuration form"
+  classes="rounded"
 />
 
 ## Step 5: Query the table

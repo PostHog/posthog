@@ -27,7 +27,7 @@ Once the storage account has been created, follow [this guide to create a blob c
 
 ## Step 3: Upload data and link to PostHog
 
-[Upload your data to the newly created container](https://learn.microsoft.com/en-us/azure/storage/blobs/storage-quickstart-blobs-portal#upload-a-block-blob), Parquet files are the recommended format, but the connector also works with JSON and CSVs too. 
+[Upload your data to the newly created container](https://learn.microsoft.com/en-us/azure/storage/blobs/storage-quickstart-blobs-portal#upload-a-block-blob), Parquet files are the recommended format, but the connector also works with JSON and CSVs too.
 
 Find the newly created file via the storage browser menu item. Once found, open the details and copy URL property. We need it to link the file in PostHog.
 

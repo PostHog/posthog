@@ -18,7 +18,6 @@ The Paddle connector syncs customers, discounts, prices, products, subscriptions
 2. Click **+ New source** and then click **Link** next to Paddle.
 
 3. Next, you need an API key from Paddle. In your Paddle dashboard, go to **Developer tools** > **Authentication** and click **New API key**. Give the key a name and grant it **Read** access to the following entities:
-
    - Customers
    - Discounts
    - Prices

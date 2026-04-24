@@ -23,17 +23,17 @@ The Typeform connector can link data from your Typeform account into PostHog.
 
 The Typeform source currently supports syncing the following datasets and API endpoints:
 
-| Dataset | Endpoint path |
-| --- | --- |
-| `forms` | `/forms` |
+| Dataset     | Endpoint path                |
+| ----------- | ---------------------------- |
+| `forms`     | `/forms`                     |
 | `responses` | `/forms/{form_id}/responses` |
 
 The `responses` dataset is a dependent (fan-out) endpoint — PostHog fetches all your forms first, then retrieves responses for each form individually.
 
 ## Supported API base URLs
 
-| Region | API base URL |
-| --- | --- |
-| Global (default) | `https://api.typeform.com` |
-| EU | `https://api.eu.typeform.com` |
-| EU (alternative) | `https://api.typeform.eu` |
+| Region           | API base URL                  |
+| ---------------- | ----------------------------- |
+| Global (default) | `https://api.typeform.com`    |
+| EU               | `https://api.eu.typeform.com` |
+| EU (alternative) | `https://api.typeform.eu`     |

@@ -22,16 +22,15 @@ To link Azure SQL Server:
 1. Go to the [Data pipeline page](https://app.posthog.com/data-management/sources) and the sources tab in PostHog
 2. Click **New source** and select Azure SQL Server
 3. Enter your database connection details:
-    - **Host:** The hostname or IP your database server like `db.example.com` or `123.132.1.100`.
-    - **Port:** The port your database server is listening to. The default is `1433`.
-    - **Database:** The name of the database you want like `analytics_db`.
-    - **User:** The username with the necessary permissions to access the database.
-    - **Password:** The password for the user.
-    - **Schema:** The schema for your database where your tables are located. The default is `dbo`.
+   - **Host:** The hostname or IP your database server like `db.example.com` or `123.132.1.100`.
+   - **Port:** The port your database server is listening to. The default is `1433`.
+   - **Database:** The name of the database you want like `analytics_db`.
+   - **User:** The username with the necessary permissions to access the database.
+   - **Password:** The password for the user.
+   - **Schema:** The schema for your database where your tables are located. The default is `dbo`.
 4. Click **Link**
 
 The data warehouse then starts syncing your Azure SQL Server data. You can see details and progress in the [sources tab](https://app.posthog.com/data-management/sources).
-
 
 import InboundIpAddresses from '../_snippets/inbound-ip-addresses.mdx'
 
