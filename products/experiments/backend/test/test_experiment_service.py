@@ -1882,6 +1882,63 @@ class TestExperimentService(APIBaseTest):
         metadata = completed_call.args[2]
         assert "significant" not in metadata
 
+    @patch("products.experiments.backend.experiment_service.create_notification")
+    def test_end_experiment_dispatches_realtime_to_creator(self, mock_create_notification):
+        experiment = self._create_running_experiment(name="End Notify", feature_flag_key="end-notify-flag")
+
+        self._service().end_experiment(experiment, request=self._make_request())
+
+        assert mock_create_notification.call_count == 1
+        data = mock_create_notification.call_args.args[0]
+        assert data.notification_type.value == "experiment_concluded"
+        assert data.target_id == str(self.user.id)
+        assert data.team_id == self.team.id
+        assert data.resource_type == "experiment"
+        assert data.resource_id == str(experiment.id)
+
+    @patch("products.experiments.backend.experiment_service.create_notification")
+    def test_ship_variant_running_dispatches_realtime(self, mock_create_notification):
+        experiment = self._create_running_experiment(name="Ship Notify", feature_flag_key="ship-notify-flag")
+
+        self._service().ship_variant(experiment, variant_key="control", request=self._make_request())
+
+        assert mock_create_notification.call_count == 1
+        data = mock_create_notification.call_args.args[0]
+        assert data.notification_type.value == "experiment_concluded"
+
+    @patch("products.experiments.backend.experiment_service.create_notification")
+    def test_ship_variant_already_stopped_does_not_dispatch(self, mock_create_notification):
+        experiment = self._create_ended_experiment(
+            name="Ship Stopped Notify", feature_flag_key="ship-stopped-notify-flag"
+        )
+
+        self._service().ship_variant(experiment, variant_key="control", request=self._make_request())
+
+        mock_create_notification.assert_not_called()
+
+    @patch("products.experiments.backend.experiment_service.create_notification")
+    def test_no_dispatch_when_experiment_has_no_creator(self, mock_create_notification):
+        experiment = self._create_running_experiment(name="No Creator", feature_flag_key="no-creator-flag")
+        experiment.created_by = None
+        experiment.save()
+
+        self._service().end_experiment(experiment, request=self._make_request())
+
+        mock_create_notification.assert_not_called()
+
+    @patch(
+        "products.experiments.backend.experiment_service.create_notification",
+        side_effect=RuntimeError("kafka down"),
+    )
+    def test_realtime_failure_does_not_block_end_experiment(self, _mock_create_notification):
+        experiment = self._create_running_experiment(name="Notify Failure", feature_flag_key="notify-failure-flag")
+
+        # Must not raise.
+        self._service().end_experiment(experiment, request=self._make_request())
+
+        experiment.refresh_from_db()
+        assert experiment.end_date is not None
+
     # ------------------------------------------------------------------
     # Pause / Resume
     # ------------------------------------------------------------------
