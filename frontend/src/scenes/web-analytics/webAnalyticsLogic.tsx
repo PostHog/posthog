@@ -2471,7 +2471,15 @@ LIMIT 50`,
             } else if (productTab === ProductTab.LIVE) {
                 return '/web/live'
             } else if (productTab === ProductTab.BOT_ANALYTICS) {
-                return '/web/bots'
+                if (rawWebAnalyticsFilters.length > 0) {
+                    urlParams.set('filters', JSON.stringify(rawWebAnalyticsFilters))
+                }
+                if (dateFrom !== INITIAL_DATE_FROM || dateTo !== INITIAL_DATE_TO || interval !== INITIAL_INTERVAL) {
+                    urlParams.set('date_from', dateFrom ?? '')
+                    urlParams.set('date_to', dateTo ?? '')
+                    urlParams.set('interval', interval ?? '')
+                }
+                return `/web/bots${urlParams.toString() ? '?' + urlParams.toString() : ''}`
             }
 
             // Make sure we're storing the raw filters only, or else we'll have issues with the domain/device type filters
