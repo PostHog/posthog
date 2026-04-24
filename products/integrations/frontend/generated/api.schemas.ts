@@ -185,10 +185,11 @@ export interface RoleLookupResponseApi {
  * `customerio-app` - Customerio App
  * `customerio-webhook` - Customerio Webhook
  * `customerio-track` - Customerio Track
+ * `apns` - Apple Push
  */
-export type IntegrationKindEnumApi = (typeof IntegrationKindEnumApi)[keyof typeof IntegrationKindEnumApi]
+export type Kind48dEnumApi = (typeof Kind48dEnumApi)[keyof typeof Kind48dEnumApi]
 
-export const IntegrationKindEnumApi = {
+export const Kind48dEnumApi = {
     Slack: 'slack',
     SlackPosthogCode: 'slack-posthog-code',
     Salesforce: 'salesforce',
@@ -221,6 +222,7 @@ export const IntegrationKindEnumApi = {
     CustomerioApp: 'customerio-app',
     CustomerioWebhook: 'customerio-webhook',
     CustomerioTrack: 'customerio-track',
+    Apns: 'apns',
 } as const
 
 /**
@@ -228,7 +230,7 @@ export const IntegrationKindEnumApi = {
  */
 export interface IntegrationConfigApi {
     readonly id: number
-    kind: IntegrationKindEnumApi
+    kind: Kind48dEnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -250,7 +252,7 @@ export interface PaginatedIntegrationConfigListApi {
  */
 export interface PatchedIntegrationConfigApi {
     readonly id?: number
-    kind?: IntegrationKindEnumApi
+    kind?: Kind48dEnumApi
     config?: unknown
     readonly created_at?: string
     readonly created_by?: UserBasicApi

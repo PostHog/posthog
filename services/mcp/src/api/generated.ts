@@ -19442,10 +19442,91 @@ export namespace Schemas {
       Desc: 'DESC',
     } as const;
 
+    /**
+     * * `slack` - Slack
+    * `slack-posthog-code` - Slack Posthog Code
+    * `salesforce` - Salesforce
+    * `hubspot` - Hubspot
+    * `google-pubsub` - Google Pubsub
+    * `google-cloud-storage` - Google Cloud Storage
+    * `google-ads` - Google Ads
+    * `google-sheets` - Google Sheets
+    * `google-cloud-service-account` - Google Cloud Service Account
+    * `snapchat` - Snapchat
+    * `linkedin-ads` - Linkedin Ads
+    * `reddit-ads` - Reddit Ads
+    * `tiktok-ads` - Tiktok Ads
+    * `bing-ads` - Bing Ads
+    * `intercom` - Intercom
+    * `email` - Email
+    * `linear` - Linear
+    * `github` - Github
+    * `gitlab` - Gitlab
+    * `meta-ads` - Meta Ads
+    * `twilio` - Twilio
+    * `clickup` - Clickup
+    * `vercel` - Vercel
+    * `databricks` - Databricks
+    * `azure-blob` - Azure Blob
+    * `firebase` - Firebase
+    * `jira` - Jira
+    * `pinterest-ads` - Pinterest Ads
+    * `stripe` - Stripe
+    * `customerio-app` - Customerio App
+    * `customerio-webhook` - Customerio Webhook
+    * `customerio-track` - Customerio Track
+    * `apns` - Apple Push
+     */
+    export type Kind48dEnum = typeof Kind48dEnum[keyof typeof Kind48dEnum];
+
+
+    export const Kind48dEnum = {
+      Slack: 'slack',
+      SlackPosthogCode: 'slack-posthog-code',
+      Salesforce: 'salesforce',
+      Hubspot: 'hubspot',
+      GooglePubsub: 'google-pubsub',
+      GoogleCloudStorage: 'google-cloud-storage',
+      GoogleAds: 'google-ads',
+      GoogleSheets: 'google-sheets',
+      GoogleCloudServiceAccount: 'google-cloud-service-account',
+      Snapchat: 'snapchat',
+      LinkedinAds: 'linkedin-ads',
+      RedditAds: 'reddit-ads',
+      TiktokAds: 'tiktok-ads',
+      BingAds: 'bing-ads',
+      Intercom: 'intercom',
+      Email: 'email',
+      Linear: 'linear',
+      Github: 'github',
+      Gitlab: 'gitlab',
+      MetaAds: 'meta-ads',
+      Twilio: 'twilio',
+      Clickup: 'clickup',
+      Vercel: 'vercel',
+      Databricks: 'databricks',
+      AzureBlob: 'azure-blob',
+      Firebase: 'firebase',
+      Jira: 'jira',
+      PinterestAds: 'pinterest-ads',
+      Stripe: 'stripe',
+      CustomerioApp: 'customerio-app',
+      CustomerioWebhook: 'customerio-webhook',
+      CustomerioTrack: 'customerio-track',
+      Apns: 'apns',
+    } as const;
+
+    /**
+     * Standard Integration serializer.
+     */
     export interface Integration {
-      display_name: string;
-      id: number;
-      kind: IntegrationKind;
+      readonly id: number;
+      kind: Kind48dEnum;
+      config?: unknown;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      readonly errors: string;
+      readonly display_name: string;
     }
 
     /**
@@ -27375,7 +27456,7 @@ export namespace Schemas {
      */
     export interface PatchedIntegrationConfig {
       readonly id?: number;
-      kind?: IntegrationKindEnum;
+      kind?: Kind48dEnum;
       config?: unknown;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -29034,7 +29115,16 @@ export namespace Schemas {
     /**
      * Get provider-specific metadata (e.g. repository for GitHub, project for Jira)
      */
-    export type PatchedSessionRecordingExternalRefMetadata = {[key: string]: string};
+    export type PatchedSessionRecordingExternalReferenceMetadata = {[key: string]: string};
+
+    /**
+     * Read-only serializer for Integration info embedded in external references
+     */
+    export interface SessionRecordingExternalReferenceIntegration {
+      readonly id: number;
+      readonly kind: Kind48dEnum;
+      readonly display_name: string;
+    }
 
     /**
      * Serializer for linking session recordings to external issue trackers.
