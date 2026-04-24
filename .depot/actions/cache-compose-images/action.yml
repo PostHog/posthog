@@ -35,6 +35,9 @@ runs:
               COMPOSE_FILE: ${{ inputs.compose-files }}
               COMPOSE_PROFILES: ${{ inputs.compose-profiles }}
               SERVICES: ${{ inputs.services }}
+              CACHE_KEY_SUFFIX: ${{ inputs.cache-key-suffix }}
+              RUNNER_OS: ${{ runner.os }}
+              RUNNER_ARCH: ${{ runner.arch }}
           run: |
               set -euo pipefail
               IFS=':' read -r -a files <<< "$COMPOSE_FILE"
@@ -47,7 +50,7 @@ runs:
               )
               payload=$(printf '%s|%s|%s' "$files_hash" "$COMPOSE_PROFILES" "$SERVICES")
               payload_hash=$(printf '%s' "$payload" | sha256sum | awk '{print $1}')
-              echo "key=compose-images-v1-${{ inputs.cache-key-suffix }}-${{ runner.os }}-${{ runner.arch }}-$payload_hash" >> "$GITHUB_OUTPUT"
+              echo "key=compose-images-v1-${CACHE_KEY_SUFFIX}-${RUNNER_OS}-${RUNNER_ARCH}-${payload_hash}" >> "$GITHUB_OUTPUT"
               echo "dir=${RUNNER_TEMP}/compose-images" >> "$GITHUB_OUTPUT"
 
         - name: Restore compose-image cache
