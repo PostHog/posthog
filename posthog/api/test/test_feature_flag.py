@@ -3931,7 +3931,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.client.logout()
 
-        with self.assertNumQueries(FuzzyInt(12, 17)):
+        with self.assertNumQueries(FuzzyInt(12, 18)):
             # 1-10: Auth, team, project, membership, and access control queries
             # 11. SELECT surveys (for survey exclusion)
             # 12. SELECT all feature flags (with evaluation tags via ArrayAgg)

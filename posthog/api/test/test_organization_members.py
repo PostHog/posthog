@@ -5,11 +5,13 @@ from unittest.mock import ANY, patch
 
 from django.test import override_settings
 
+from django_otp.plugins.otp_totp.models import TOTPDevice
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
+from posthog.models.webauthn_credential import WebauthnCredential
 
 
 class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
@@ -454,3 +456,38 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         data = response.json()["results"]
         self.assertEqual(len(data), 2)
         self.assertEqual(data[0]["user"]["email"], expected_first_email)
+
+    @parameterized.expand(
+        [
+            # (name, has_totp, passkeys_enabled_for_2fa, passkey_verified, expected)
+            ("totp_only", True, False, False, True),
+            ("passkeys_enabled_and_verified", False, True, True, True),
+            ("both_totp_and_passkeys", True, True, True, True),
+            ("passkeys_not_enabled_for_2fa", False, False, True, False),
+            ("passkeys_unverified", False, True, False, False),
+            ("no_2fa", False, False, False, False),
+        ]
+    )
+    def test_is_2fa_enabled(self, _name, has_totp, passkeys_enabled_for_2fa, passkey_verified, expected):
+        user = User.objects.create_and_join(self.organization, f"{_name}@posthog.com", None)
+
+        if has_totp:
+            TOTPDevice.objects.create(user=user, name="default", confirmed=True)
+
+        if passkeys_enabled_for_2fa or passkey_verified:
+            user.passkeys_enabled_for_2fa = passkeys_enabled_for_2fa
+            user.save()
+            WebauthnCredential.objects.create(
+                user=user,
+                credential_id=b"test_credential_id",
+                label="Test Passkey",
+                public_key=b"test_public_key",
+                algorithm=-7,
+                verified=passkey_verified,
+            )
+
+        response = self.client.get("/api/organizations/@current/members/")
+        results = response.json()["results"]
+        member = next(m for m in results if m["user"]["email"] == f"{_name}@posthog.com")
+
+        self.assertEqual(member["is_2fa_enabled"], expected)

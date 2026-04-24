@@ -366,6 +366,9 @@ tools:
     error-tracking-spike-detection-config-list:
         operation: error_tracking_spike_detection_config_list
         enabled: false
+    error-tracking-symbol-sets-download-retrieve:
+        operation: error_tracking_symbol_sets_download_retrieve
+        enabled: false
 wrappers:
     query-error-tracking-issues:
         schema_ref: AssistantErrorTrackingQuery
@@ -378,6 +381,7 @@ wrappers:
             idempotent: true
         title: Query error tracking issues
         description_file: ./prompts/query-error-tracking-issues.md
+        system_prompt_hint: Error filtering and aggregation (error-tracking category)
         ui_resource_uri: ui://posthog/error-issue-list.html
         property_defaults:
             limit: 50
