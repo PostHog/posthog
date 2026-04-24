@@ -39,7 +39,7 @@ from posthog.api.services.query import process_query_model
 from posthog.api.utils import action, is_async_query, is_insight_actors_options_query, is_insight_actors_query
 from posthog.clickhouse.client.execute_async import cancel_query, get_query_status
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import Product, get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_or_team_action
@@ -171,6 +171,10 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
                 data, self.team, data.client_query_id, request.user
             )
 
+            # Default product tag so queries routed through the generic query API are never
+            # untagged. Queries that provide `tags.productKey` (or specific runners that tag
+            # themselves) override this before `sync_execute` runs.
+            tag_queries(product=Product.PRODUCT_ANALYTICS)
             self._tag_client_query_id(client_query_id)
             analytics_props = get_request_analytics_properties(request)
             query_dict = query.model_dump()
