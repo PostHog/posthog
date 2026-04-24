@@ -735,21 +735,6 @@ tools:
         description: >
             Update a table schema's sync configuration. Can change sync type, sync frequency, incremental field, primary
             key columns, CDC table mode, and enable/disable the schema.
-        param_overrides:
-            sync_type:
-                input_schema: ExternalDataSchemaSyncTypeSchema
-            sync_frequency:
-                input_schema: ExternalDataSchemaSyncFrequencySchema
-            sync_time_of_day:
-                input_schema: ExternalDataSchemaSyncTimeOfDaySchema
-            incremental_field:
-                input_schema: ExternalDataSchemaIncrementalFieldSchema
-            incremental_field_type:
-                input_schema: ExternalDataSchemaIncrementalFieldTypeSchema
-            primary_key_columns:
-                input_schema: ExternalDataSchemaPrimaryKeyColumnsSchema
-            cdc_table_mode:
-                input_schema: ExternalDataSchemaCdcTableModeSchema
     external-data-schemas-destroy:
         operation: external_data_schemas_destroy
         enabled: false
