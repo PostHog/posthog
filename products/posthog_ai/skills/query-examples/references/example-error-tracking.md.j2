@@ -1,6 +1,6 @@
 # Error tracking (search for a value in an error and filtering by custom properties)
 
-In MCP, use `query-error-tracking-issues-list` for this kind of issue search, then `query-error-tracking-issue` for one issue's aggregate metadata. Prefer typed list filters like `library`, `fingerprint`, `url`, and `filePath` before `filterGroup`. Use `query-error-tracking-issue-events` only when you need stack traces or sample exception event properties.
+In MCP, use `query-error-tracking-issues-list` for this kind of issue search, then `query-error-tracking-issue` for one issue's metadata, impact counts, culprit, latest release, and optional sparkline. Prefer typed list filters like `library`, `fingerprint`, `url`, and `filePath` before `filterGroup`. Use `query-error-tracking-issue-events` only when you need full stack traces or sample exception event properties.
 
 ```sql
 {{ render_hogql_example({"kind": "ErrorTrackingQuery", "filterTestAccounts": false, "dateRange": {"date_from": "-24h"}, "orderBy": "last_seen", "orderDirection": "DESC", "volumeResolution": 20, "searchQuery": "constant", "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": [{"type": "event", "key": "tag", "operator": "exact", "value": "max_ai"}]}]}}) }}

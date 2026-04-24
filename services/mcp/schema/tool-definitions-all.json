@@ -553,14 +553,14 @@
         }
     },
     "query-error-tracking-issue": {
-        "description": "Fetch compact aggregate details for one error tracking issue. Use this after query-error-tracking-issues-list returns an issue ID. Returns issue metadata and aggregate counts only; use query-error-tracking-issue-events for stack traces or sample exception payloads.",
+        "description": "Fetch compact details for one error tracking issue. Use this after query-error-tracking-issues-list returns an issue ID. Returns issue metadata, aggregate impact counts, a culprit/top-frame hint, latest release metadata when available, and an optional numeric sparkline. Use query-error-tracking-issue-events for full stack traces or sample exception payloads.",
         "category": "Error tracking",
         "feature": "error_tracking",
-        "summary": "Fetch compact aggregate details for one error tracking issue.",
+        "summary": "Fetch compact enriched details for one error tracking issue.",
         "title": "Get error tracking issue",
         "required_scopes": ["error_tracking:read"],
         "new_mcp": true,
-        "system_prompt_hint": "Single error issue aggregate details",
+        "system_prompt_hint": "Single error issue metadata, impact counts, culprit, latest release, optional sparkline",
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

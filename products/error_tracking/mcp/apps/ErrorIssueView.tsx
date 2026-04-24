@@ -7,12 +7,43 @@ export interface ExternalIssue {
     integration?: { display_name?: string }
 }
 
+export interface ErrorIssueImpact {
+    occurrences?: number
+    users?: number
+    sessions?: number
+}
+
+export interface ErrorIssueCulprit {
+    function?: string
+    source?: string
+    line?: number
+    column?: number
+    in_app?: boolean
+}
+
+export interface ErrorIssueRelease {
+    version?: string
+    project?: string
+    timestamp?: string
+    commit_id?: string
+    branch?: string
+    repo_name?: string
+}
+
 export interface ErrorIssueData {
     id: string
     name: string
     description?: string | null
     status?: string
     first_seen?: string
+    last_seen?: string
+    library?: string
+    source?: string
+    function?: string
+    impact?: ErrorIssueImpact
+    culprit?: ErrorIssueCulprit
+    latest_release?: ErrorIssueRelease
+    sparkline?: number[]
     assignee?: { id: string; type: string } | null
     external_issues?: ExternalIssue[]
     _posthogUrl?: string
@@ -30,11 +61,38 @@ const statusConfig: Record<string, { label: string; variant: 'success' | 'danger
     suppressed: { label: 'Suppressed', variant: 'neutral' },
 }
 
+function hasValues(record: object | undefined): boolean {
+    return !!record && Object.values(record).some((value) => value !== undefined && value !== null && value !== '')
+}
+
+function CompactSparkline({ values }: { values: number[] }): ReactElement | null {
+    if (!values.length) {
+        return null
+    }
+
+    const max = Math.max(...values, 1)
+    return (
+        <div className="flex h-8 items-end gap-0.5">
+            {values.map((value, index) => (
+                <div
+                    key={index}
+                    className="w-1.5 rounded-sm bg-danger"
+                    style={{ height: `${Math.max((value / max) * 100, value > 0 ? 12 : 4)}%` }}
+                    title={String(value)}
+                />
+            ))}
+        </div>
+    )
+}
+
 export function ErrorIssueView({ issue }: ErrorIssueViewProps): ReactElement {
     const cfg = statusConfig[issue.status ?? 'active'] ?? {
         label: issue.status ?? 'Unknown',
         variant: 'neutral' as const,
     }
+    const impact = issue.impact
+    const culprit = issue.culprit
+    const latestRelease = issue.latest_release
 
     return (
         <div className="p-4">
@@ -55,12 +113,63 @@ export function ErrorIssueView({ issue }: ErrorIssueViewProps): ReactElement {
                             ...(issue.first_seen
                                 ? [{ label: 'First seen', value: formatDate(issue.first_seen, true) }]
                                 : []),
+                            ...(issue.last_seen
+                                ? [{ label: 'Last seen', value: formatDate(issue.last_seen, true) }]
+                                : []),
+                            ...(issue.library ? [{ label: 'Library', value: issue.library }] : []),
                             ...(issue.assignee
                                 ? [{ label: 'Assignee', value: `${issue.assignee.type} (${issue.assignee.id})` }]
                                 : []),
                         ]}
                     />
                 </Card>
+
+                {(hasValues(impact) || issue.sparkline?.length) && (
+                    <Card padding="md">
+                        <Stack gap="sm">
+                            <DescriptionList
+                                columns={2}
+                                items={[
+                                    ...(impact?.occurrences !== undefined
+                                        ? [{ label: 'Occurrences', value: impact.occurrences.toLocaleString() }]
+                                        : []),
+                                    ...(impact?.users !== undefined
+                                        ? [{ label: 'Users', value: impact.users.toLocaleString() }]
+                                        : []),
+                                    ...(impact?.sessions !== undefined
+                                        ? [{ label: 'Sessions', value: impact.sessions.toLocaleString() }]
+                                        : []),
+                                ]}
+                            />
+                            {issue.sparkline && <CompactSparkline values={issue.sparkline} />}
+                        </Stack>
+                    </Card>
+                )}
+
+                {(hasValues(culprit) || hasValues(latestRelease)) && (
+                    <Card padding="md">
+                        <DescriptionList
+                            columns={2}
+                            items={[
+                                ...(culprit?.function ? [{ label: 'Function', value: culprit.function }] : []),
+                                ...(culprit?.source
+                                    ? [
+                                          {
+                                              label: 'Source',
+                                              value: `${culprit.source}${culprit.line ? `:${culprit.line}` : ''}${culprit.column ? `:${culprit.column}` : ''}`,
+                                          },
+                                      ]
+                                    : []),
+                                ...(latestRelease?.version ? [{ label: 'Release', value: latestRelease.version }] : []),
+                                ...(latestRelease?.project ? [{ label: 'Project', value: latestRelease.project }] : []),
+                                ...(latestRelease?.commit_id
+                                    ? [{ label: 'Commit', value: latestRelease.commit_id.slice(0, 12) }]
+                                    : []),
+                                ...(latestRelease?.branch ? [{ label: 'Branch', value: latestRelease.branch }] : []),
+                            ]}
+                        />
+                    </Card>
+                )}
 
                 {issue.external_issues && issue.external_issues.length > 0 && (
                     <Card padding="md">

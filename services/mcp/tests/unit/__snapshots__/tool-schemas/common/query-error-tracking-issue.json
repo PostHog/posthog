@@ -26,6 +26,11 @@
             "default": true,
             "type": "boolean"
         },
+        "includeSparkline": {
+            "default": false,
+            "description": "Set true to include a compact numeric occurrence sparkline. Defaults to false to save tokens.",
+            "type": "boolean"
+        },
         "issueId": {
             "description": "Error tracking issue ID.",
             "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",

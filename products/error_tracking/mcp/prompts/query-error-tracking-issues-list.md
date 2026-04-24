@@ -1,6 +1,6 @@
 List error tracking issues to find, filter, and prioritize errors in the project. Returns compact issue rows with aggregate counts, not stack traces or full event payloads.
 
-Use `query-error-tracking-issue` with an issue ID from this tool to inspect one issue. Use `query-error-tracking-issue-events` only when you need a sample exception event or stack trace.
+Use `query-error-tracking-issue` with an issue ID from this tool to inspect one issue's metadata, impact, culprit, and latest release. Use `query-error-tracking-issue-events` only when you need a sample exception event or stack trace.
 
 CRITICAL: Be minimalist. Defaults are usually enough: active issues, last 7 days, sorted by occurrences, compact counts only.
 
