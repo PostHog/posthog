@@ -3,7 +3,7 @@ from django.db import models
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
-from .constants import RefreshStatus, SourceStatus, SourceType
+from .constants import CrawlMode, RefreshStatus, SourceStatus, SourceType
 
 
 class KnowledgeSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
@@ -38,6 +38,16 @@ class KnowledgeSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, 
     # Last ETag received; fed back via `If-None-Match` on the next refresh
     # to get cheap 304 responses. Not an index — we only look it up by source.
     last_etag = models.CharField(max_length=255, blank=True, default="")
+
+    # --- Stage 2b: multi-page crawl fields ---
+    # How to expand `source_url` into N documents. `single` keeps Stage 2a
+    # semantics (one doc per source); other modes run the discover pipeline.
+    crawl_mode = models.CharField(max_length=16, choices=CrawlMode.choices, blank=True, default=CrawlMode.SINGLE)
+    # Free-form knobs for the crawl: `include_globs`, `exclude_globs`,
+    # `max_depth`, `max_pages`. Stored as JSON so adding a knob doesn't
+    # require a migration. Validated at the serializer layer; logic.py
+    # re-reads with safe defaults.
+    crawl_config = models.JSONField(default=dict, blank=True)
 
     class Meta:
         db_table = "posthog_business_knowledge_knowledgesource"

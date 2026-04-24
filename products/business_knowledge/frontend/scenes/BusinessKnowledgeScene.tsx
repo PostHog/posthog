@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconBook, IconPencil, IconPlusSmall, IconRefresh, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonSelect, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -28,6 +28,65 @@ function StatusTag({ status }: { status: KnowledgeSource['status'] }): JSX.Eleme
     const variant =
         status === 'ready' ? 'success' : status === 'error' ? 'danger' : status === 'processing' ? 'warning' : 'muted'
     return <LemonTag type={variant}>{status}</LemonTag>
+}
+
+function CrawlModeHelp(): JSX.Element {
+    const { urlSource } = useValues(businessKnowledgeLogic)
+    if (urlSource.crawl_mode === 'single') {
+        return (
+            <p className="text-xs text-muted">
+                Fetch this URL once and index its main text. Use the refresh button on the row to re-fetch.
+            </p>
+        )
+    }
+    if (urlSource.crawl_mode === 'sitemap') {
+        return (
+            <p className="text-xs text-muted">
+                Read sitemap.xml at this URL (or <code>/sitemap.xml</code> at its origin) and index each listed page.
+                Scheduled refresh is Stage 2c.
+            </p>
+        )
+    }
+    return (
+        <p className="text-xs text-muted">
+            BFS-crawl from this URL staying on the same scheme + host + port. Honors robots.txt.
+        </p>
+    )
+}
+
+function CrawlConfigFields(): JSX.Element | null {
+    const { urlSource } = useValues(businessKnowledgeLogic)
+    if (urlSource.crawl_mode === 'single') {
+        return null
+    }
+    return (
+        <>
+            <LemonField
+                name="include_globs"
+                label="Include globs"
+                info="URL path patterns to include. One per line or comma-separated. Empty = include everything."
+            >
+                <LemonTextArea minRows={2} placeholder={'/docs/*\n/handbook/*'} />
+            </LemonField>
+            <LemonField
+                name="exclude_globs"
+                label="Exclude globs"
+                info="URL path patterns to exclude. Applied after include."
+            >
+                <LemonTextArea minRows={2} placeholder="/docs/private/*" />
+            </LemonField>
+            <div className="flex gap-2">
+                <LemonField name="max_pages" label="Max pages" className="flex-1">
+                    <LemonInput type="number" min={1} max={500} />
+                </LemonField>
+                {urlSource.crawl_mode === 'same_origin' && (
+                    <LemonField name="max_depth" label="Max depth" className="flex-1">
+                        <LemonInput type="number" min={0} max={5} />
+                    </LemonField>
+                )}
+            </div>
+        </>
+    )
 }
 
 function RefreshStatusCell({ source }: { source: KnowledgeSource }): JSX.Element | null {
@@ -102,7 +161,7 @@ export function BusinessKnowledgeScene(): JSX.Element {
                 <span>{totalChunks.toLocaleString()} chunks indexed</span>
             </div>
 
-            <LemonTable
+            <LemonTable<KnowledgeSource>
                 dataSource={sources}
                 loading={sourcesLoading}
                 rowKey={(row) => row.id}
@@ -136,9 +195,14 @@ export function BusinessKnowledgeScene(): JSX.Element {
                         render: (_, row) => <StatusTag status={row.status} />,
                     },
                     {
-                        title: 'Chunks',
+                        title: 'Pages / chunks',
                         key: 'chunk_count',
-                        render: (_, row) => row.chunk_count.toLocaleString(),
+                        render: (_, row) => {
+                            const pages = row.document_count
+                            return row.source_type === 'url' && row.crawl_mode && row.crawl_mode !== 'single'
+                                ? `${pages.toLocaleString()} / ${row.chunk_count.toLocaleString()}`
+                                : row.chunk_count.toLocaleString()
+                        },
                     },
                     {
                         title: 'Added',
@@ -260,17 +324,33 @@ export function BusinessKnowledgeScene(): JSX.Element {
                                     <LemonField name="name" label="Name">
                                         <LemonInput placeholder="e.g. Product docs – Billing" />
                                     </LemonField>
-                                    <LemonField name="url" label="Public URL">
+                                    <LemonField name="url" label="Entry URL">
                                         <LemonInput
                                             type="url"
                                             inputMode="url"
-                                            placeholder="https://docs.example.com/billing"
+                                            placeholder="https://docs.example.com/billing or https://example.com/sitemap.xml"
                                         />
                                     </LemonField>
-                                    <p className="text-xs text-muted">
-                                        We fetch the URL once, extract the main text, and index it. Use the refresh
-                                        button on the row to re-fetch. Scheduled refresh is Stage 2c.
-                                    </p>
+                                    <LemonField name="crawl_mode" label="Mode">
+                                        <LemonSelect
+                                            options={[
+                                                {
+                                                    value: 'single',
+                                                    label: 'Single page',
+                                                },
+                                                {
+                                                    value: 'sitemap',
+                                                    label: 'Sitemap.xml',
+                                                },
+                                                {
+                                                    value: 'same_origin',
+                                                    label: 'Same-origin crawl',
+                                                },
+                                            ]}
+                                        />
+                                    </LemonField>
+                                    <CrawlModeHelp />
+                                    <CrawlConfigFields />
                                 </Form>
                             ),
                         },

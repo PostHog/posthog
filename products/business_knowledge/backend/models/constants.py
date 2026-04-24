@@ -29,3 +29,22 @@ class RefreshStatus(models.TextChoices):
     SUCCESS = "success", "Success"
     NOT_MODIFIED = "not_modified", "Not modified"
     ERROR = "error", "Error"
+
+
+class CrawlMode(models.TextChoices):
+    """
+    How to expand a URL source into documents.
+
+    - SINGLE: Stage 2a behavior — exactly one doc per source.
+    - SITEMAP: fetch sitemap.xml(+index) from the entry URL, treat listed
+      URLs as documents.
+    - SAME_ORIGIN: BFS from the entry URL up to `max_depth`, staying on the
+      same (scheme, host, port). Respects robots.txt.
+    - GITHUB_REPO: reserved — landed later so existing rows don't need a
+      migration when we add it.
+    """
+
+    SINGLE = "single", "Single page"
+    SITEMAP = "sitemap", "Sitemap"
+    SAME_ORIGIN = "same_origin", "Same origin crawl"
+    GITHUB_REPO = "github_repo", "GitHub repository"

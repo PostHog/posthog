@@ -35,6 +35,8 @@ def _to_dto(source: KnowledgeSource) -> contracts.KnowledgeSourceDTO:
         last_refresh_at=source.last_refresh_at,
         last_refresh_status=source.last_refresh_status or "",
         last_refresh_error=source.last_refresh_error or "",
+        crawl_mode=source.crawl_mode or "",
+        crawl_config=dict(source.crawl_config or {}),
     )
 
 
@@ -63,6 +65,18 @@ def create_url_source(data: contracts.CreateUrlSourceInput) -> contracts.Knowled
         created_by_id=data.created_by_id,
         name=data.name,
         url=data.url,
+    )
+    return _to_dto(source)
+
+
+def create_crawl_source(data: contracts.CreateCrawlSourceInput) -> contracts.KnowledgeSourceDTO:
+    source = logic.create_crawl_source(
+        team_id=data.team_id,
+        created_by_id=data.created_by_id,
+        name=data.name,
+        url=data.url,
+        crawl_mode=data.crawl_mode,
+        crawl_config=data.crawl_config,
     )
     return _to_dto(source)
 

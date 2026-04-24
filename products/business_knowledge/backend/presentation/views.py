@@ -34,6 +34,7 @@ from ..logic import (
 )
 from ..models import KnowledgeSource
 from .serializers import (
+    CreateCrawlSourceSerializer,
     CreateTextSourceSerializer,
     CreateUrlSourceSerializer,
     KnowledgeSourceSerializer,
@@ -81,6 +82,11 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # contract when the client omits the field.
         source_type = request.data.get("source_type", "text")
         if source_type == "url":
+            # Stage 2b: if a crawl_mode other than "single" is requested,
+            # take the crawl path instead of the single-page path.
+            crawl_mode = request.data.get("crawl_mode")
+            if crawl_mode and crawl_mode != "single":
+                return self._create_crawl_source(request)
             return self._create_url_source(request)
         return self._create_text_source(request)
 
@@ -122,6 +128,31 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.ValidationError({"url": "URL is not reachable."})
         except (UrlFetchFailedError, EmptyContentError):
             raise exceptions.ValidationError({"url": "Could not fetch the URL."})
+        except QuotaExceededError:
+            raise exceptions.Throttled(detail="Knowledge source quota exceeded for this project.")
+        return Response(KnowledgeSourceSerializer(instance=dto).data, status=status.HTTP_201_CREATED)
+
+    def _create_crawl_source(self, request: Request) -> Response:
+        serializer = CreateCrawlSourceSerializer(data=request.data, context=self.get_serializer_context())
+        serializer.is_valid(raise_exception=True)
+        user = cast(User, request.user)
+        try:
+            dto = api.create_crawl_source(
+                contracts.CreateCrawlSourceInput(
+                    team_id=self.team_id,
+                    created_by_id=getattr(user, "id", None),
+                    name=serializer.validated_data["name"],
+                    url=serializer.validated_data["url"],
+                    crawl_mode=serializer.validated_data["crawl_mode"],
+                    crawl_config=serializer.validated_data["crawl_config"],
+                )
+            )
+        except InvalidUrlError:
+            raise exceptions.ValidationError({"url": "URL is not reachable."})
+        except (UrlFetchFailedError, EmptyContentError):
+            # The crawl recorded the failure on the source row (if any) so
+            # the user will see it on a subsequent list call.
+            raise exceptions.ValidationError({"url": "Crawl failed — could not fetch any pages."})
         except QuotaExceededError:
             raise exceptions.Throttled(detail="Knowledge source quota exceeded for this project.")
         return Response(KnowledgeSourceSerializer(instance=dto).data, status=status.HTTP_201_CREATED)

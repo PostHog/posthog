@@ -18,15 +18,18 @@ import structlog
 
 from posthog.security.url_validation import is_url_allowed
 
-from . import html_parse, url_fetch
+from . import crawl, discover, html_parse, url_fetch
 from .facade.enums import (
     CHUNK_HARD_MAX_CHARS,
     CHUNK_TARGET_CHARS,
+    DEFAULT_CRAWL_MAX_DEPTH,
+    DEFAULT_MAX_PAGES,
     MAX_CHUNKS_PER_TEAM,
     MAX_SOURCES_PER_TEAM,
     MAX_TEXT_SIZE_BYTES,
+    MAX_URLS_PER_SOURCE,
 )
-from .models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource, SourceStatus, SourceType
+from .models import CrawlMode, KnowledgeChunk, KnowledgeDocument, KnowledgeSource, SourceStatus, SourceType
 from .models.constants import RefreshStatus
 
 logger = structlog.get_logger(__name__)
@@ -119,8 +122,12 @@ def chunk_text(text: str) -> list[_Chunk]:
     return [_Chunk(heading_path="", ordinal=i, content=c) for i, c in enumerate(buckets)]
 
 
-def _chunk_id(document_stable_id: str, heading_path: str, ordinal: int) -> UUID:
-    return uuid.uuid5(_CHUNK_NAMESPACE, f"{document_stable_id}|{heading_path}|{ordinal}")
+def _chunk_id(source_id: UUID, document_stable_id: str, heading_path: str, ordinal: int) -> UUID:
+    # `source_id` is in the namespace so two URL-backed sources that happen to
+    # crawl the same URL don't collide on chunk UUIDs (document.stable_id == url
+    # for URL sources). Text sources already have a uuid4 `stable_id`, but
+    # including source_id here keeps the rule uniform.
+    return uuid.uuid5(_CHUNK_NAMESPACE, f"{source_id}|{document_stable_id}|{heading_path}|{ordinal}")
 
 
 # --- Quota enforcement -------------------------------------------------------
@@ -241,7 +248,7 @@ def create_text_source(
     KnowledgeChunk.objects.bulk_create(
         [
             KnowledgeChunk(
-                id=_chunk_id(document.stable_id, c.heading_path, c.ordinal),
+                id=_chunk_id(source.id, document.stable_id, c.heading_path, c.ordinal),
                 team_id=team_id,
                 source=source,
                 document=document,
@@ -319,7 +326,7 @@ def update_text_source(
         KnowledgeChunk.objects.bulk_create(
             [
                 KnowledgeChunk(
-                    id=_chunk_id(document.stable_id, c.heading_path, c.ordinal),
+                    id=_chunk_id(source.id, document.stable_id, c.heading_path, c.ordinal),
                     team_id=team_id,
                     source=source,
                     document=document,
@@ -374,6 +381,25 @@ def check_url_source_quota(team_id: int) -> None:
 
     if _count_sources(team_id) >= MAX_SOURCES_PER_TEAM:
         raise QuotaExceededError(f"Team already has {MAX_SOURCES_PER_TEAM} knowledge sources.")
+
+
+def _resolve_crawl_config(raw: dict | None) -> discover.CrawlConfig:
+    """
+    Turn a stored/user-supplied dict into a validated `CrawlConfig`. Applies
+    hard caps defensively — we don't trust stored values not to drift past
+    caps when the caps get lowered.
+    """
+
+    raw = raw or {}
+    max_pages = int(raw.get("max_pages", DEFAULT_MAX_PAGES))
+    max_pages = max(1, min(max_pages, MAX_URLS_PER_SOURCE))
+    max_depth = int(raw.get("max_depth", DEFAULT_CRAWL_MAX_DEPTH))
+    return discover.CrawlConfig(
+        include_globs=tuple(raw.get("include_globs", []) or []),
+        exclude_globs=tuple(raw.get("exclude_globs", []) or []),
+        max_depth=max_depth,
+        max_pages=max_pages,
+    )
 
 
 def _fetch_and_parse(url: str, *, etag: str | None) -> tuple[url_fetch.FetchResult, str, str]:
@@ -453,7 +479,7 @@ def _replace_source_content(
     KnowledgeChunk.objects.bulk_create(
         [
             KnowledgeChunk(
-                id=_chunk_id(document.stable_id, c.heading_path, c.ordinal),
+                id=_chunk_id(source.id, document.stable_id, c.heading_path, c.ordinal),
                 team_id=team_id,
                 source=source,
                 document=document,
@@ -549,12 +575,9 @@ def refresh_source(*, source_id: UUID, team_id: int) -> KnowledgeSource | None:
     """
     Re-fetch a URL source and rebuild its content if it changed.
 
-    Uses `If-None-Match` with the last-seen ETag for cheap 304 short-circuits.
-    On 200 we compare `content_hash(parsed_text)` before re-chunking — avoids
-    churn when a template change leaves the visible text identical.
-
-    The DB transaction is held only while mutating rows; the HTTP fetch is
-    outside the txn to keep lock windows small.
+    Dispatches on `crawl_mode`:
+      - `single` (Stage 2a): single-URL conditional GET + full doc rebuild.
+      - `sitemap` / `same_origin` (Stage 2b): re-discover + per-URL upsert.
     """
 
     # Pull the source once outside the txn just to verify it exists + claim it.
@@ -570,6 +593,12 @@ def refresh_source(*, source_id: UUID, team_id: int) -> KnowledgeSource | None:
         source.status = SourceStatus.PROCESSING
         source.save(update_fields=["status", "updated_at"])
 
+    if source.crawl_mode and source.crawl_mode != CrawlMode.SINGLE:
+        return _refresh_crawl_source(source=source, team_id=team_id)
+    return _refresh_single_source(source=source, team_id=team_id)
+
+
+def _refresh_single_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeSource | None:
     try:
         # Re-validate the URL before every fetch — we don't assume stored URLs
         # are still safe (DNS may have been rebound since create time).
@@ -654,6 +683,367 @@ def refresh_source(*, source_id: UUID, team_id: int) -> KnowledgeSource | None:
                 "last_refresh_status",
                 "last_refresh_error",
                 "last_etag",
+                "error_message",
+                "updated_at",
+            ]
+        )
+
+    return get_for_team(source.id, team_id) or fresh
+
+
+# --- Stage 2b: crawl sources -------------------------------------------------
+
+
+def _insert_document_and_chunks(
+    *,
+    source: KnowledgeSource,
+    team_id: int,
+    title: str,
+    text: str,
+    url: str,
+    etag: str,
+    content_hash: str,
+    existing_doc: KnowledgeDocument | None,
+) -> int:
+    """
+    Upsert a single document (and its chunks) under a crawl source.
+
+    `existing_doc` is the doc for this URL on the source, if any. When
+    present, we preserve its `id` so agent citations stay stable across
+    refreshes — the chunks get wiped and regenerated.
+
+    Returns the number of chunks written.
+    """
+
+    chunks = chunk_text(text)
+
+    if existing_doc is None:
+        document = KnowledgeDocument.objects.create(
+            team_id=team_id,
+            source=source,
+            stable_id=url,
+            title=title or source.name,
+            content=text,
+            metadata={"source_type": SourceType.URL, "url": url},
+            url=url,
+            etag=etag,
+            content_hash=content_hash,
+        )
+    else:
+        document = existing_doc
+        document.title = title or document.title or source.name
+        document.content = text
+        document.metadata = {**(document.metadata or {}), "source_type": SourceType.URL, "url": url}
+        document.url = url
+        document.etag = etag
+        document.content_hash = content_hash
+        document.tombstoned_at = None
+        document.save(
+            update_fields=[
+                "title",
+                "content",
+                "metadata",
+                "url",
+                "etag",
+                "content_hash",
+                "tombstoned_at",
+                "updated_at",
+            ]
+        )
+        # Wipe stale chunks before re-inserting — simpler than diffing
+        # chunk-by-chunk and the chunker is deterministic for stable text.
+        KnowledgeChunk.objects.filter(team_id=team_id, document_id=document.id).delete()
+
+    KnowledgeChunk.objects.bulk_create(
+        [
+            KnowledgeChunk(
+                id=_chunk_id(source.id, document.stable_id, c.heading_path, c.ordinal),
+                team_id=team_id,
+                source=source,
+                document=document,
+                heading_path=c.heading_path,
+                ordinal=c.ordinal,
+                content=c.content,
+                char_count=len(c.content),
+            )
+            for c in chunks
+        ]
+    )
+    return len(chunks)
+
+
+def create_crawl_source(
+    *,
+    team_id: int,
+    created_by_id: int | None,
+    name: str,
+    url: str,
+    crawl_mode: str,
+    crawl_config: dict | None,
+) -> KnowledgeSource:
+    """
+    Stage 2b multi-URL ingestion.
+
+    Happy path:
+      1. Validate + normalize the entry URL (same SSRF plumbing as Stage 2a).
+      2. Discover candidate URLs via sitemap / same-origin BFS.
+      3. Fetch all candidates in parallel with a per-host semaphore.
+      4. In a single transaction, create the source row and bulk-insert
+         one document + N chunks per successfully fetched URL.
+
+    A crawl that discovers zero URLs lands a source in ERROR status so the
+    user can see the failure and either adjust globs or retry. A crawl
+    that discovers URLs but fetches none successfully also lands in ERROR.
+    """
+
+    if crawl_mode == CrawlMode.SINGLE:
+        # Shouldn't happen — the serializer dispatches `single` to
+        # create_url_source. Be defensive though.
+        return create_url_source(team_id=team_id, created_by_id=created_by_id, name=name, url=url)
+
+    check_url_source_quota(team_id)
+    normalized = _validate_url(url)
+    config = _resolve_crawl_config(crawl_config)
+
+    # Step 1: discover. Failures here abort the create — we never persist
+    # a source we couldn't even start on.
+    try:
+        candidate_urls = discover.discover(crawl_mode, normalized, config)
+    except discover.DiscoverError as exc:
+        raise UrlFetchFailedError(str(exc)) from exc
+
+    if not candidate_urls:
+        raise EmptyContentError("Crawl discovered no URLs. Check the entry URL and globs.")
+
+    # Step 2: parallel fetch. Re-validate every URL before the fetch — a
+    # malicious sitemap could point at `file://` or `127.0.0.1`.
+    safe_urls: list[str] = []
+    for u in candidate_urls:
+        try:
+            safe_urls.append(_validate_url(u))
+        except InvalidUrlError:
+            logger.info("business_knowledge.crawl.ssrf_skipped", source_url=normalized, skipped=u)
+            continue
+
+    if not safe_urls:
+        raise EmptyContentError("Crawl discovered no safe URLs to fetch.")
+
+    outcomes = crawl.fetch_many(safe_urls)
+    ok_outcomes = [o for o in outcomes if o.status == "ok"]
+
+    if not ok_outcomes:
+        # Persist the failure so the UI has something to show.
+        now = timezone.now()
+        first_error = next((o.error for o in outcomes if o.status == "error"), "All pages failed to fetch.")
+        with transaction.atomic():
+            KnowledgeSource.objects.create(
+                team_id=team_id,
+                created_by_id=created_by_id,
+                name=name,
+                source_type=SourceType.URL,
+                status=SourceStatus.ERROR,
+                error_message=first_error,
+                source_url=normalized,
+                crawl_mode=crawl_mode,
+                crawl_config=crawl_config or {},
+                last_refresh_at=now,
+                last_refresh_status=RefreshStatus.ERROR,
+                last_refresh_error=first_error,
+            )
+        raise UrlFetchFailedError(first_error)
+
+    # Pre-chunk budget estimate. We still do the post-insert exact check
+    # inside the transaction.
+    estimated_total = sum(max(1, len(o.text) // CHUNK_TARGET_CHARS) for o in ok_outcomes)
+    if _count_chunks(team_id) + estimated_total > MAX_CHUNKS_PER_TEAM:
+        raise QuotaExceededError(f"Crawl would exceed the {MAX_CHUNKS_PER_TEAM} chunk cap.")
+
+    # Step 3: atomic create.
+    with transaction.atomic():
+        source = KnowledgeSource.objects.create(
+            team_id=team_id,
+            created_by_id=created_by_id,
+            name=name,
+            source_type=SourceType.URL,
+            status=SourceStatus.PROCESSING,
+            source_url=normalized,
+            crawl_mode=crawl_mode,
+            crawl_config=crawl_config or {},
+        )
+        total_chunks_written = 0
+        for outcome in ok_outcomes:
+            written = _insert_document_and_chunks(
+                source=source,
+                team_id=team_id,
+                title=outcome.title,
+                text=outcome.text,
+                url=outcome.url,
+                etag=outcome.etag,
+                content_hash=outcome.content_hash,
+                existing_doc=None,
+            )
+            total_chunks_written += written
+
+        # Exact post-insert quota check. Rolls back the whole txn if we blew
+        # past the cap — no partial crawl persists.
+        if _count_chunks(team_id) > MAX_CHUNKS_PER_TEAM:
+            raise QuotaExceededError(f"Crawl exceeded the {MAX_CHUNKS_PER_TEAM} chunk cap.")
+
+        source.status = SourceStatus.READY
+        source.last_refresh_at = timezone.now()
+        source.last_refresh_status = RefreshStatus.SUCCESS
+        source.last_refresh_error = ""
+        source.save(
+            update_fields=[
+                "status",
+                "last_refresh_at",
+                "last_refresh_status",
+                "last_refresh_error",
+                "updated_at",
+            ]
+        )
+
+    return get_for_team(source.id, team_id) or source
+
+
+def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeSource | None:
+    """
+    Stage 2b crawl refresh: re-discover + per-URL upsert-diff.
+
+    - New URL → insert document + chunks.
+    - Existing URL with changed `content_hash` → rebuild that doc's chunks
+      (document row id preserved for citation stability).
+    - Existing URL with unchanged hash → no DB writes.
+    - Existing URL that vanished from discovery → mark tombstoned_at,
+      delete chunks (keep the doc row so a later re-appearance can reuse
+      the id). Stage 2c adds a sweep that hard-deletes after 7 days.
+    """
+
+    try:
+        config = _resolve_crawl_config(source.crawl_config)
+        normalized = _validate_url(source.source_url)
+        try:
+            discovered = discover.discover(source.crawl_mode, normalized, config)
+        except discover.DiscoverError as exc:
+            raise UrlFetchFailedError(str(exc)) from exc
+    except (InvalidUrlError, UrlFetchFailedError) as exc:
+        with transaction.atomic():
+            fresh = KnowledgeSource.objects.get(id=source.id, team_id=team_id)
+            fresh.status = SourceStatus.READY if fresh.documents.exists() else SourceStatus.ERROR
+            fresh.last_refresh_at = timezone.now()
+            fresh.last_refresh_status = RefreshStatus.ERROR
+            fresh.last_refresh_error = str(exc)
+            if fresh.status == SourceStatus.ERROR:
+                fresh.error_message = str(exc)
+            fresh.save(
+                update_fields=[
+                    "status",
+                    "last_refresh_at",
+                    "last_refresh_status",
+                    "last_refresh_error",
+                    "error_message",
+                    "updated_at",
+                ]
+            )
+        raise
+
+    # Load existing docs keyed by stable_id (== url). Pulling all of them up
+    # front is cheap (we're capped at MAX_URLS_PER_SOURCE) and avoids a
+    # per-URL query inside the fetch loop.
+    existing_by_url: dict[str, KnowledgeDocument] = {
+        d.stable_id: d for d in KnowledgeDocument.objects.filter(team_id=team_id, source_id=source.id)
+    }
+
+    # Pre-SSRF the discovered list and preserve ETags per URL for conditional GETs.
+    safe_urls: list[str] = []
+    for u in discovered:
+        try:
+            safe_urls.append(_validate_url(u))
+        except InvalidUrlError:
+            continue
+
+    def _etag_for(u: str) -> str | None:
+        existing = existing_by_url.get(u)
+        return existing.etag if existing and existing.etag else None
+
+    outcomes = crawl.fetch_many(safe_urls, etag_for=_etag_for)
+    # `discovered_set` is the source of truth for "is this URL still part of
+    # the crawl?". Building it from `outcomes` would tombstone URLs that
+    # transiently failed SSRF re-validation (e.g., DNS hiccup) even though
+    # the sitemap still lists them. Build it from the raw discovered list
+    # instead — only URLs that genuinely vanished from discovery get tombstoned.
+    discovered_set = set(discovered)
+
+    with transaction.atomic():
+        fresh = KnowledgeSource.objects.select_for_update().get(id=source.id, team_id=team_id)
+
+        # Upsert per-outcome.
+        any_changes = False
+        for outcome in outcomes:
+            existing = existing_by_url.get(outcome.url)
+            if outcome.status == "not_modified":
+                # Still touch the etag so a rotation stays fresh.
+                if existing and outcome.etag and existing.etag != outcome.etag:
+                    existing.etag = outcome.etag
+                    existing.save(update_fields=["etag", "updated_at"])
+                continue
+            if outcome.status == "error":
+                # Keep the old doc intact — partial failures shouldn't
+                # knock out a previously-working page.
+                logger.info(
+                    "business_knowledge.crawl.refresh_page_error",
+                    source_id=str(source.id),
+                    url=outcome.url,
+                    error=outcome.error,
+                )
+                continue
+            assert outcome.status == "ok"
+            if existing is not None and existing.content_hash == outcome.content_hash:
+                # No re-chunk needed. Still bump etag if we got a new one.
+                if outcome.etag and existing.etag != outcome.etag:
+                    existing.etag = outcome.etag
+                    existing.save(update_fields=["etag", "updated_at"])
+                continue
+            _insert_document_and_chunks(
+                source=fresh,
+                team_id=team_id,
+                title=outcome.title,
+                text=outcome.text,
+                url=outcome.url,
+                etag=outcome.etag,
+                content_hash=outcome.content_hash,
+                existing_doc=existing,
+            )
+            any_changes = True
+
+        # Tombstone docs whose URL vanished from discovery. Chunks go away
+        # now; the sweep in Stage 2c hard-deletes the doc row after a grace
+        # period (preserves the id in case the page comes back soon).
+        vanished = [d for url, d in existing_by_url.items() if url not in discovered_set]
+        if vanished:
+            now = timezone.now()
+            vanished_ids = [d.id for d in vanished]
+            KnowledgeChunk.objects.filter(team_id=team_id, document_id__in=vanished_ids).delete()
+            KnowledgeDocument.objects.filter(team_id=team_id, id__in=vanished_ids, tombstoned_at__isnull=True).update(
+                tombstoned_at=now, updated_at=now
+            )
+            any_changes = True
+
+        # Exact post-diff quota check.
+        if _count_chunks(team_id) > MAX_CHUNKS_PER_TEAM:
+            raise QuotaExceededError(f"Refresh exceeded the {MAX_CHUNKS_PER_TEAM} chunk cap.")
+
+        fresh.status = SourceStatus.READY
+        fresh.last_refresh_at = timezone.now()
+        fresh.last_refresh_status = RefreshStatus.SUCCESS if any_changes else RefreshStatus.NOT_MODIFIED
+        fresh.last_refresh_error = ""
+        fresh.error_message = ""
+        fresh.save(
+            update_fields=[
+                "status",
+                "last_refresh_at",
+                "last_refresh_status",
+                "last_refresh_error",
                 "error_message",
                 "updated_at",
             ]

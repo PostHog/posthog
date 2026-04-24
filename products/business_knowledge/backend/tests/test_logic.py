@@ -1,3 +1,5 @@
+import uuid
+
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -50,13 +52,20 @@ class TestChunker(BaseTest):
         assert [c.ordinal for c in chunks] == list(range(len(chunks)))
 
     def test_chunk_ids_are_deterministic(self) -> None:
-        a = _chunk_id("doc-stable-123", "", 0)
-        b = _chunk_id("doc-stable-123", "", 0)
-        c = _chunk_id("doc-stable-123", "", 1)
-        d = _chunk_id("doc-stable-456", "", 0)
+        source_a = uuid.uuid4()
+        source_b = uuid.uuid4()
+        a = _chunk_id(source_a, "doc-stable-123", "", 0)
+        b = _chunk_id(source_a, "doc-stable-123", "", 0)
+        c = _chunk_id(source_a, "doc-stable-123", "", 1)
+        d = _chunk_id(source_a, "doc-stable-456", "", 0)
+        e = _chunk_id(source_b, "doc-stable-123", "", 0)
         assert a == b
         assert a != c
         assert a != d
+        # Different sources with identical document/heading/ordinal → different
+        # chunk UUIDs. This is what protects us from IntegrityError when two
+        # URL-backed sources crawl the same URL (stable_id == url).
+        assert a != e
 
 
 class TestCreateTextSource(BaseTest):

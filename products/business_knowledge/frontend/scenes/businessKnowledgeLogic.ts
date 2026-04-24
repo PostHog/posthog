@@ -11,6 +11,8 @@ import type { businessKnowledgeLogicType } from './businessKnowledgeLogicType'
 // Mirror of products.business_knowledge.backend.facade.contracts.KnowledgeSourceDTO.
 // Hand-typed for now; once the OpenAPI types include this endpoint, swap to
 // the generated interface.
+export type CrawlMode = 'single' | 'sitemap' | 'same_origin' | 'github_repo'
+
 export interface KnowledgeSource {
     id: string
     team_id: number
@@ -26,6 +28,13 @@ export interface KnowledgeSource {
     last_refresh_at: string | null
     last_refresh_status: '' | 'success' | 'not_modified' | 'error'
     last_refresh_error: string
+    crawl_mode: '' | CrawlMode
+    crawl_config: {
+        include_globs?: string[]
+        exclude_globs?: string[]
+        max_pages?: number
+        max_depth?: number
+    }
 }
 
 export interface TextSourceFormValues {
@@ -36,6 +45,13 @@ export interface TextSourceFormValues {
 export interface UrlSourceFormValues {
     name: string
     url: string
+    crawl_mode: CrawlMode
+    // Comma/newline-separated globs — split server-side. Keeping the form
+    // state as a plain string is much easier than a list-of-inputs widget.
+    include_globs: string
+    exclude_globs: string
+    max_pages: number
+    max_depth: number
 }
 
 export type CreateTab = 'text' | 'url'
@@ -60,9 +76,10 @@ function validateText({ name, text }: TextSourceFormValues): {
     }
 }
 
-function validateUrl({ name, url }: UrlSourceFormValues): {
+function validateUrl({ name, url, max_pages }: UrlSourceFormValues): {
     name: string | undefined
     url: string | undefined
+    max_pages: string | undefined
 } {
     let urlError: string | undefined
     if (!url.trim()) {
@@ -80,7 +97,15 @@ function validateUrl({ name, url }: UrlSourceFormValues): {
     return {
         name: !name.trim() ? 'Give the source a short name' : undefined,
         url: urlError,
+        max_pages: max_pages < 1 || max_pages > 500 ? 'max_pages must be between 1 and 500' : undefined,
     }
+}
+
+function splitGlobs(raw: string): string[] {
+    return raw
+        .split(/[\n,]/)
+        .map((s) => s.trim())
+        .filter(Boolean)
 }
 
 export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
@@ -175,16 +200,36 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
             },
         },
         urlSource: {
-            defaults: { name: '', url: '' } as UrlSourceFormValues,
+            defaults: {
+                name: '',
+                url: '',
+                crawl_mode: 'single',
+                include_globs: '',
+                exclude_globs: '',
+                max_pages: 50,
+                max_depth: 2,
+            } as UrlSourceFormValues,
             errors: validateUrl,
-            submit: async ({ name, url }: UrlSourceFormValues) => {
+            submit: async (values: UrlSourceFormValues) => {
+                const payload: Record<string, unknown> = {
+                    name: values.name,
+                    url: values.url,
+                    source_type: 'url',
+                    crawl_mode: values.crawl_mode,
+                }
+                if (values.crawl_mode !== 'single') {
+                    payload.include_globs = splitGlobs(values.include_globs)
+                    payload.exclude_globs = splitGlobs(values.exclude_globs)
+                    payload.max_pages = values.max_pages
+                    payload.max_depth = values.max_depth
+                }
                 try {
-                    const created = await api.create<KnowledgeSource>(apiUrl(), {
-                        name,
-                        url,
-                        source_type: 'url',
-                    })
-                    lemonToast.success(`"${created.name}" fetched and indexed into ${created.chunk_count} chunks`)
+                    const created = await api.create<KnowledgeSource>(apiUrl(), payload)
+                    const pageLabel =
+                        created.crawl_mode && created.crawl_mode !== 'single'
+                            ? ` (${created.document_count} pages)`
+                            : ''
+                    lemonToast.success(`"${created.name}" indexed into ${created.chunk_count} chunks${pageLabel}`)
                     actions.closeCreateModal()
                     actions.resetUrlSource()
                     actions.loadSources()
