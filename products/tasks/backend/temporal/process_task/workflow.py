@@ -101,17 +101,23 @@ Hard limits (refuse regardless of who asked):
 After fixing, commit and push so CI can re-run.
 """.strip()
 
-# Rolling-deploy compatibility (TODO slug: tasks-ci-follow-up-pr-context-cleanup)
+# Rolling-deploy deprecation bundle (TODO slug: tasks-ci-follow-up-pr-context-cleanup)
 # ---------------------------------------------------------------------------
-# The PR-context guard inserts a new `get_pr_context` activity before the
+# The PR-context guard inserted a new `get_pr_context` activity before the
 # existing CI follow-up dispatch. Without versioning, replay of pre-rollout
-# histories fails with nondeterminism because those histories scheduled
+# histories failed with nondeterminism because those histories scheduled
 # `send_followup_to_sandbox` directly at this point in the workflow.
+#
+# Cleanup follows the standard two-step Temporal patch lifecycle:
+#   1. First cleanup PR: replace `workflow.patched(...)` with
+#      `workflow.deprecate_patch(...)` and remove the legacy replay-only path.
+#   2. Second cleanup PR (after another full drain): delete this helper and
+#      `_PATCH_ID_CI_FOLLOW_UP_PR_CONTEXT`.
 _PATCH_ID_CI_FOLLOW_UP_PR_CONTEXT = "tasks-ci-follow-up-pr-context"
 
 
-def _ci_follow_up_pr_context_guard_enabled() -> bool:
-    return workflow.patched(_PATCH_ID_CI_FOLLOW_UP_PR_CONTEXT)
+def _deprecate_ci_follow_up_pr_context_patch() -> None:
+    workflow.deprecate_patch(_PATCH_ID_CI_FOLLOW_UP_PR_CONTEXT)
 
 
 @temporalio.workflow.defn(name="process-task")
@@ -272,22 +278,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             return False
 
     async def _dispatch_ci_follow_up(self) -> None:
-        # Rolling-deploy note (tasks-ci-follow-up-pr-context-cleanup): any
-        # behavior change here that must also preserve replay for in-flight
-        # histories needs a new patch gate. Do not "keep these in sync" by
-        # editing the legacy helper below.
-        self._ci_repetitions += 1
-        ci_message = self.context.ci_prompt or DEFAULT_CI_MESSAGE
-        self._last_active_time = workflow.now()
-        await self._send_followup_to_sandbox(ci_message, [])
-
-    async def _dispatch_legacy_ci_follow_up_for_replay(self) -> None:
-        """DO NOT MODIFY without a new Temporal patch gate.
-
-        This preserves the pre-rollout command shape for replay of histories
-        that scheduled `send_followup_to_sandbox` directly on CI ticks.
-        Cleanup is tracked under `tasks-ci-follow-up-pr-context-cleanup`.
-        """
         self._ci_repetitions += 1
         ci_message = self.context.ci_prompt or DEFAULT_CI_MESSAGE
         self._last_active_time = workflow.now()
@@ -366,9 +356,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         workflow.logger.info(
                             "CI follow-up event triggered", run_id=self.context.run_id, repetitions=self._ci_repetitions
                         )
-                        if not _ci_follow_up_pr_context_guard_enabled():
-                            await self._dispatch_legacy_ci_follow_up_for_replay()
-                        elif await self._should_run_ci_follow_up():
+                        _deprecate_ci_follow_up_pr_context_patch()
+                        if await self._should_run_ci_follow_up():
                             await self._dispatch_ci_follow_up()
                     case TaskEvent.SIGNAL_RECEIVED:
                         if self._pending_followup is not None:
