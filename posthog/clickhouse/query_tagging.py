@@ -58,6 +58,7 @@ class Product(StrEnum):
 
 
 class Feature(StrEnum):
+    ALERTING = "alerting"
     BACKFILL = "backfill"
     BEHAVIORAL_COHORTS = "behavioral_cohorts"
     COHORT = "cohort"
