@@ -129,6 +129,41 @@ class GitHubReposRefreshResponseSerializer(serializers.Serializer):
     repositories = GitHubRepoSerializer(many=True, help_text="The refreshed repository cache.")
 
 
+class GitHubTeamSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="GitHub team numeric identifier.")
+    slug = serializers.CharField(help_text="GitHub team slug.")
+    name = serializers.CharField(help_text="GitHub team display name.")
+
+
+class GitHubTeamsQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Optional case-insensitive team name or slug search query.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        max_value=500,
+        help_text="Maximum number of teams to return per request (max 500).",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Number of teams to skip before returning results.",
+    )
+
+
+class GitHubTeamsResponseSerializer(serializers.Serializer):
+    teams = GitHubTeamSerializer(
+        many=True, help_text="List of GitHub teams available to the installation organization."
+    )
+    has_more = serializers.BooleanField(help_text="Whether more teams are available beyond this page.")
+
+
 class GitHubBranchesQuerySerializer(serializers.Serializer):
     repo = serializers.CharField(help_text="Repository in owner/repo format")
     search = serializers.CharField(
@@ -375,6 +410,7 @@ class IntegrationViewSet(
         "retrieve",
         "github_repos",
         "github_branches",
+        "github_teams",
     ]
     scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "refresh_github_repos"]
     permission_classes = [TeamMemberStrictManagementPermission]
@@ -700,6 +736,23 @@ class IntegrationViewSet(
         )
 
         return Response({"repositories": repositories})
+
+    @extend_schema(
+        parameters=[GitHubTeamsQuerySerializer],
+        responses={200: GitHubTeamsResponseSerializer},
+    )
+    @action(methods=["GET"], detail=True, url_path="github_teams")
+    def github_teams(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query_serializer = GitHubTeamsQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+        search = query_serializer.validated_data["search"]
+        limit = query_serializer.validated_data["limit"]
+        offset = query_serializer.validated_data["offset"]
+
+        github = GitHubIntegration(self.get_object())
+        teams, has_more = github.list_teams(search=search, limit=limit, offset=offset)
+
+        return Response({"teams": teams, "has_more": has_more})
 
     @extend_schema(
         parameters=[GitHubBranchesQuerySerializer],

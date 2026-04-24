@@ -2284,6 +2284,62 @@ class GitHubIntegration:
             return False
         return response.status_code == 200
 
+    def list_teams(self, *, search: str = "", limit: int = 100, offset: int = 0) -> tuple[list[dict[str, Any]], bool]:
+        """List GitHub teams for the integration account organization with local pagination."""
+        organization = dot_get(self.integration.config, "account.name", "")
+        if not organization:
+            return [], False
+
+        teams: list[dict[str, Any]] = []
+        page = 1
+        per_page = 100
+
+        while True:
+            response = self._installation_authenticated_get(
+                f"https://api.github.com/orgs/{organization}/teams?page={page}&per_page={per_page}"
+            )
+            if response is None or response.status_code != 200:
+                logger.warning(
+                    "GitHubIntegration: list_teams failed",
+                    integration_id=self.integration.id,
+                    organization=organization,
+                    status_code=response.status_code if response is not None else None,
+                )
+                raise GitHubIntegrationError("GitHubIntegration: list_teams failed")
+
+            body = response.json()
+            if not isinstance(body, list):
+                logger.warning(
+                    "GitHubIntegration: list_teams invalid payload",
+                    integration_id=self.integration.id,
+                    organization=organization,
+                )
+                raise GitHubIntegrationError("GitHubIntegration: list_teams invalid payload")
+
+            for team in body:
+                if not isinstance(team, dict):
+                    continue
+                team_id = team.get("id")
+                slug = team.get("slug")
+                name = team.get("name")
+                if not isinstance(team_id, int) or not isinstance(slug, str) or not isinstance(name, str):
+                    continue
+                teams.append({"id": team_id, "slug": slug, "name": name})
+
+            if len(body) < per_page:
+                break
+            page += 1
+
+        search_lower = search.lower().strip()
+        if search_lower:
+            teams = [
+                team for team in teams if search_lower in team["slug"].lower() or search_lower in team["name"].lower()
+            ]
+
+        sliced = teams[offset : offset + limit]
+        has_more = len(teams) > offset + limit
+        return sliced, has_more
+
     def get_commit_author_info(self, repository: str, sha: str) -> GitHubCommitAuthor | None:
         """Resolve a commit SHA to author metadata via the GitHub API."""
         response = self._installation_authenticated_get(f"https://api.github.com/repos/{repository}/commits/{sha}")
