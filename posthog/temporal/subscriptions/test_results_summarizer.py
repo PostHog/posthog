@@ -187,6 +187,46 @@ class TestBuildResultsSummaryTruncation:
         assert "truncated" in summary
 
 
+class TestBuildResultsSummaryColumns:
+    """Column labels from the HogQL result payload are used to label list-shaped rows."""
+
+    def test_named_columns_are_used_for_list_rows(self):
+        results = [["2026-04-20", "TrendsQuery", 12345], ["2026-04-21", "FunnelsQuery", 67890]]
+        columns = ["day", "query_type", "count"]
+        summary = build_results_summary("HogQLQuery", results, columns=columns)
+        assert "day=2026-04-20" in summary
+        assert "query_type=TrendsQuery" in summary
+        assert "count=12345" in summary
+        assert "col0" not in summary
+
+    def test_missing_columns_fall_back_to_positional(self):
+        results = [["a", "b"]]
+        summary = build_results_summary("HogQLQuery", results, columns=None)
+        assert "col0=a" in summary
+        assert "col1=b" in summary
+
+    def test_partial_columns_mix_named_and_positional(self):
+        results = [["a", "b", "c"]]
+        columns = ["first"]  # shorter than row
+        summary = build_results_summary("HogQLQuery", results, columns=columns)
+        assert "first=a" in summary
+        assert "col1=b" in summary
+        assert "col2=c" in summary
+
+    def test_blank_column_names_fall_back_to_positional(self):
+        results = [["a", "b"]]
+        columns = ["", "  "]
+        summary = build_results_summary("HogQLQuery", results, columns=columns)
+        assert "col0=a" in summary
+        assert "col1=b" in summary
+
+    def test_columns_ignored_for_dict_rows(self):
+        results = [{"label": "Metric", "data": [1, 2, 3]}]
+        summary = build_results_summary("PathsQuery", results, columns=["a", "b", "c"])
+        assert "label=Metric" in summary
+        assert "col0" not in summary
+
+
 class TestBuildResultsSummaryEdgeCases:
     def test_inf_values_do_not_crash(self):
         results = [{"label": "Metric", "data": [1.0, float("inf"), 3.0]}]

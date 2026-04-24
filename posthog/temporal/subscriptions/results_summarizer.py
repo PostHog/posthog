@@ -4,12 +4,19 @@ from typing import Any
 MAX_SUMMARY_LENGTH = 2000
 
 
-def build_results_summary(query_kind: str, results: list[dict[str, Any]] | None) -> str:
+def build_results_summary(
+    query_kind: str,
+    results: list[Any] | None,
+    columns: list[str] | None = None,
+) -> str:
     if not results:
         return "No results"
 
-    summarizer = _SUMMARIZERS.get(query_kind, _summarize_generic)
-    text = summarizer(results)
+    summarizer = _SUMMARIZERS.get(query_kind)
+    if summarizer is not None:
+        text = summarizer(results)
+    else:
+        text = _summarize_generic(results, columns)
     if len(text) > MAX_SUMMARY_LENGTH:
         text = text[:MAX_SUMMARY_LENGTH] + "\n... (truncated)"
     return text
@@ -120,12 +127,15 @@ def _summarize_retention(results: list[dict[str, Any]]) -> str:
     return "\n".join(lines) if lines else "No retention cohorts"
 
 
-def _summarize_generic(results: list[Any]) -> str:
+def _summarize_generic(results: list[Any], columns: list[str] | None = None) -> str:
     """Fallback for query kinds without a dedicated summarizer.
 
     Handles both row shapes we see in practice:
     - dict rows (most PostHog query results): skip known noisy keys, join the rest.
-    - list/tuple rows (HogQL / DataVisualizationNode): position-indexed columns.
+    - list/tuple rows (HogQL / DataVisualizationNode): label each value with the
+      corresponding entry from `columns` when provided, falling back to
+      position-indexed `colN` names when a column list is unavailable or shorter
+      than the row.
     Any other shape falls back to str() so a surprising result shape produces a
     usable summary instead of an AttributeError that kills the whole activity.
     """
@@ -139,7 +149,8 @@ def _summarize_generic(results: list[Any]) -> str:
                 parts.append(f"{key}={val}")
         elif isinstance(row, (list, tuple)):
             for col_index, val in enumerate(row):
-                parts.append(f"col{col_index}={val}")
+                label = _column_label(columns, col_index)
+                parts.append(f"{label}={val}")
         else:
             parts.append(str(row))
         if parts:
@@ -147,6 +158,14 @@ def _summarize_generic(results: list[Any]) -> str:
     if len(results) > 20:
         lines.append(f"... and {len(results) - 20} more rows")
     return "\n".join(lines) if lines else "No results data"
+
+
+def _column_label(columns: list[str] | None, index: int) -> str:
+    if columns and index < len(columns):
+        name = columns[index]
+        if isinstance(name, str) and name.strip():
+            return name
+    return f"col{index}"
 
 
 def _trend_direction(values: list[float | int]) -> str:
