@@ -10,8 +10,8 @@ import {
  * Producers used by the CDP deployments.
  *
  * - `WARPSTREAM_INGESTION_PRODUCER` — current default for hog function
- *   monitoring (app metrics + log entries). Reads `KAFKA_MONITORING_PRODUCER_*`
- *   env vars which production already points at the warpstream-ingestion cluster.
+ *   monitoring (app metrics + log entries). Targets the warpstream-ingestion
+ *   cluster via `KAFKA_WARPSTREAM_INGESTION_PRODUCER_*` env vars.
  * - `MSK_PRODUCER` — alternate destination on the legacy MSK cluster.
  */
 export function createCdpProducerRegistry(kafkaClientRack: string | undefined) {
