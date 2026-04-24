@@ -520,9 +520,12 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     actions.saveEvaluationSuccess(response)
                     // Create the pending report before navigating away. The 'new'-keyed
                     // evaluationReportLogic unmounts when the component tears down, so
-                    // snapshot its draft now and fire the create directly.
-                    if (response?.id) {
-                        const draft = evaluationReportLogic({ evaluationId: 'new' }).values.configDraft
+                    // snapshot its draft now and fire the create directly. The logic is only
+                    // mounted when the Reports feature flag enables EvaluationReportConfig — if
+                    // it was never mounted there's no draft to persist.
+                    const reportLogic = evaluationReportLogic({ evaluationId: 'new' })
+                    if (response?.id && reportLogic.isMounted()) {
+                        const draft = reportLogic.values.configDraft
                         const targets = buildDeliveryTargets(draft)
                         if (draft.enabled && (targets.length > 0 || draft.reportPromptGuidance.trim().length > 0)) {
                             const body: Record<string, unknown> = {
