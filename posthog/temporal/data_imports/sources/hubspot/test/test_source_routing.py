@@ -1,7 +1,7 @@
 from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
+from unittest.mock import MagicMock, patch
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.hubspot.settings import DEFAULT_PROPS, HUBSPOT_ENDPOINTS
