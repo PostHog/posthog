@@ -1,10 +1,10 @@
 from datetime import timedelta
+from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings as django_settings
-from django.http import HttpResponse
 from django.test import override_settings
 from django.utils import timezone
 
@@ -62,7 +62,10 @@ class TestQueryPerformanceProxyViewSet(APIBaseTest):
         )
         return token.token
 
-    def _post(self, path: str, *, token: str, body: dict) -> HttpResponse:
+    def _post(self, path: str, *, token: str, body: dict) -> Any:
+        # Django test client wraps HttpResponse with `.json()` / `.status_code`
+        # / `.content` at runtime; the type is awkward to pin down without
+        # django-stubs, so `Any` keeps mypy out of the way for the assertions.
         return self.client.post(
             path,
             body,
