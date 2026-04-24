@@ -482,6 +482,20 @@ class TestSeatAPIBestPlan(BaseSeatAPITest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["plan_key"] == "posthog-code-free-20260301"
 
+    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+    def test_active_free_beats_canceled_pro(self, _mock_token, mock_request, _mock_license):
+        canceled_pro = {**MOCK_PRO_SEAT, "status": "canceled", "id": "seat_canceled_pro"}
+        mock_request.side_effect = [
+            _billing_response({"seat": canceled_pro}),
+            _billing_response({"seat": MOCK_FREE_SEAT}),
+        ]
+        self._auth_as_member()
+        response = self.client.get("/api/seats/me/?product_key=posthog_code&best=true")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["plan_key"] == "posthog-code-free-20260301"
+        assert response.json()["status"] == "active"
+
 
 @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
 @patch("products.tasks.backend.seat_api.get_cached_instance_license", return_value=MagicMock())
