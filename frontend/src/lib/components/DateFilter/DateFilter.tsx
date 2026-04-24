@@ -235,7 +235,12 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         ) : view === DateFilterView.JumpToTimestamp ? (
             <JumpToTimestampPicker onApply={(dateFrom, dateTo) => setDate(dateFrom, dateTo)} onClose={open} />
         ) : view === DateFilterView.CustomRelativeRange ? (
-            <RelativeDateRangeSelector onApply={(dateFrom, dateTo) => setDate(dateFrom, dateTo)} onClose={open} />
+            <RelativeDateRangeSelector
+                onApply={(from, to) => setDate(from, to)}
+                onClose={open}
+                initialFrom={typeof dateFrom === 'string' ? dateFrom : null}
+                initialTo={typeof dateTo === 'string' ? dateTo : null}
+            />
         ) : (
             <div className="deprecated-space-y-px" ref={optionsRef} onClick={(e) => e.stopPropagation()}>
                 {dateOptions.map(({ key, values, inactive }) => {

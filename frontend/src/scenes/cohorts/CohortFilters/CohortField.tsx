@@ -342,7 +342,7 @@ export function CohortRelativeAndExactTimeField({
                 size="medium"
                 makeLabel={(_, startOfRange, endOfRange) => (
                     <span className="hide-when-small">
-                        {hasRange
+                        {hasRange && endOfRange !== undefined
                             ? `Matches all values ${prefix} ${startOfRange} and ${endOfRange} if evaluated today.`
                             : `Matches all values ${prefix} ${startOfRange} if evaluated today.`}
                     </span>

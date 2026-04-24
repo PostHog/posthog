@@ -5,6 +5,10 @@ import { LemonButton, LemonDivider, LemonInput, LemonSelect } from '@posthog/lem
 interface RelativeDateRangeSelectorProps {
     onApply: (dateFrom: string, dateTo: string) => void
     onClose: () => void
+    /** Pre-populate the picker from a saved `-Nu` string (e.g. "-30d"). */
+    initialFrom?: string | null
+    /** Pre-populate the picker from a saved `-Nu` string (e.g. "-7d"). */
+    initialTo?: string | null
 }
 
 const UNIT_OPTIONS: { value: string; label: string }[] = [
@@ -26,11 +30,32 @@ function offsetInDays(value: string, unit: string): number {
     return n * (UNIT_TO_DAYS[unit] ?? 1)
 }
 
-export function RelativeDateRangeSelector({ onApply, onClose }: RelativeDateRangeSelectorProps): JSX.Element {
-    const [fromValue, setFromValue] = useState<string>('30')
-    const [fromUnit, setFromUnit] = useState<string>('d')
-    const [toValue, setToValue] = useState<string>('7')
-    const [toUnit, setToUnit] = useState<string>('d')
+function parseRelativeOffset(
+    value: string | null | undefined,
+    fallbackValue: string,
+    fallbackUnit: string
+): { value: string; unit: string } {
+    const match = typeof value === 'string' ? /^-(\d+)([hdwmqy])$/.exec(value) : null
+    if (!match) {
+        return { value: fallbackValue, unit: fallbackUnit }
+    }
+    // Only days/weeks/months/years are selectable in the UI; anything else falls back.
+    const unit = ['d', 'w', 'm', 'y'].includes(match[2]) ? match[2] : fallbackUnit
+    return { value: match[1], unit }
+}
+
+export function RelativeDateRangeSelector({
+    onApply,
+    onClose,
+    initialFrom,
+    initialTo,
+}: RelativeDateRangeSelectorProps): JSX.Element {
+    const initialFromParsed = parseRelativeOffset(initialFrom, '30', 'd')
+    const initialToParsed = parseRelativeOffset(initialTo, '7', 'd')
+    const [fromValue, setFromValue] = useState<string>(initialFromParsed.value)
+    const [fromUnit, setFromUnit] = useState<string>(initialFromParsed.unit)
+    const [toValue, setToValue] = useState<string>(initialToParsed.value)
+    const [toUnit, setToUnit] = useState<string>(initialToParsed.unit)
 
     const fromDays = offsetInDays(fromValue, fromUnit)
     const toDays = offsetInDays(toValue, toUnit)
