@@ -1117,12 +1117,12 @@ Background calculation can be tracked using the `query_status` response field.""
             OpenApiParameter(
                 name="user",
                 type=OpenApiTypes.BOOL,
-                description="When truthy, restricts results to insights created by the authenticated user.",
+                description="Include this parameter (any value) to restrict results to insights created by the authenticated user.",
             ),
             OpenApiParameter(
                 name="favorited",
                 type=OpenApiTypes.BOOL,
-                description="When truthy, restricts results to insights marked as favorited.",
+                description="Include this parameter (any value) to restrict results to insights marked as favorited.",
             ),
             OpenApiParameter(
                 name="saved",
@@ -1137,7 +1137,7 @@ Background calculation can be tracked using the `query_status` response field.""
             OpenApiParameter(
                 name="date_from",
                 type=OpenApiTypes.STR,
-                description="Filter by `last_modified_at >= date_from`. Accepts absolute dates (`2025-04-23`) or relative strings (`-7d`, `-1m`).",
+                description="Filter by `last_modified_at > date_from`. Accepts absolute dates (`2025-04-23`) or relative strings (`-7d`, `-1m`).",
             ),
             OpenApiParameter(
                 name="date_to",
@@ -1147,7 +1147,7 @@ Background calculation can be tracked using the `query_status` response field.""
             OpenApiParameter(
                 name="created_date_from",
                 type=OpenApiTypes.STR,
-                description="Filter by `created_at >= created_date_from`. Accepts absolute or relative dates.",
+                description="Filter by `created_at > created_date_from`. Accepts absolute or relative dates.",
             ),
             OpenApiParameter(
                 name="created_date_to",
@@ -1157,7 +1157,7 @@ Background calculation can be tracked using the `query_status` response field.""
             OpenApiParameter(
                 name="last_viewed_date_from",
                 type=OpenApiTypes.STR,
-                description="Filter by `last_viewed_at >= last_viewed_date_from`. Accepts absolute or relative dates.",
+                description="Filter by `last_viewed_at > last_viewed_date_from`. Accepts absolute or relative dates.",
             ),
             OpenApiParameter(
                 name="last_viewed_date_to",
