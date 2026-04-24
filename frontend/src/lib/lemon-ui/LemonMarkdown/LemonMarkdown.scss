@@ -28,10 +28,12 @@
     }
 
     // Inline <code>: monospace glyphs appear visually larger at the same em size,
-    // so drop inline code ~1px to match surrounding proportional text.
+    // so shrink inline code slightly to match surrounding proportional text.
+    // Scale relative to the parent (em), since LemonMarkdown is embedded at
+    // different sizes. 13/14 ≈ 0.9286, matching the ratio validated in 14px prose.
     // Block code is rendered by CodeSnippet (pre > code) and sets its own font-size.
     :not(pre) > code {
-        font-size: 0.8125rem;
+        font-size: 0.9286em;
     }
 
     hr {
