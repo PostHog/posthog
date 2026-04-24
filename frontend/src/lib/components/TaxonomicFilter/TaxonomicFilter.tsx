@@ -9,6 +9,7 @@ import { Link } from '@posthog/lemon-ui'
 
 import {
     CategoryDropdownVariant,
+    isCategoryDropdownVariant,
     TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
     TaxonomicFilterProps,
@@ -24,13 +25,8 @@ import { CategoryDropdownAffordance } from './CategoryDropdownAffordance'
 import { InfiniteSelectResults } from './InfiniteSelectResults'
 import { defaultDataWarehousePopoverFields, taxonomicFilterLogic } from './taxonomicFilterLogic'
 
-const CATEGORY_DROPDOWN_VARIANTS: readonly CategoryDropdownVariant[] = ['control', 'pill', 'icon']
-
 function resolveCategoryDropdownVariant(flagValue: string | boolean | undefined): CategoryDropdownVariant {
-    if (typeof flagValue === 'string' && (CATEGORY_DROPDOWN_VARIANTS as readonly string[]).includes(flagValue)) {
-        return flagValue as CategoryDropdownVariant
-    }
-    return 'control'
+    return isCategoryDropdownVariant(flagValue) ? flagValue : 'control'
 }
 
 let uniqueMemoizedIndex = 0

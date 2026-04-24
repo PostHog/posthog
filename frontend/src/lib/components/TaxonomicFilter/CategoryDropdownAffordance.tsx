@@ -4,12 +4,13 @@ import { useCallback } from 'react'
 
 import { IconChevronDown, IconFilter } from '@posthog/icons'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
-import { CategoryDropdownVariant, TaxonomicFilterGroup, TaxonomicFilterGroupType } from './types'
+import { CategoryDropdownVariant, TaxonomicFilterGroupType } from './types'
 
 export function CategoryDropdownAffordance({
     variant,
@@ -27,7 +28,10 @@ export function CategoryDropdownAffordance({
     const onVisibilityChange = useCallback(
         (visible: boolean) => {
             if (visible) {
-                posthog.capture('taxonomic filter category dropdown opened', { variant })
+                posthog.capture('taxonomic filter category dropdown opened', {
+                    variant,
+                    [`$feature/${FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN}`]: variant,
+                })
             }
         },
         [variant]
@@ -38,11 +42,11 @@ export function CategoryDropdownAffordance({
     }
 
     const openTab: TaxonomicFilterGroupType = activeTab ?? taxonomicGroupTypes[0]
-    const activeGroup = (taxonomicGroups as TaxonomicFilterGroup[]).find((g) => g.type === openTab)
+    const activeGroup = taxonomicGroups.find((g) => g.type === openTab)
     const activeLabel = activeGroup?.name ?? openTab
 
-    const items: LemonMenuItem[] = (taxonomicGroupTypes as TaxonomicFilterGroupType[]).map((groupType) => {
-        const group = (taxonomicGroups as TaxonomicFilterGroup[]).find((g) => g.type === groupType)
+    const items: LemonMenuItem[] = taxonomicGroupTypes.map((groupType) => {
+        const group = taxonomicGroups.find((g) => g.type === groupType)
         return {
             key: groupType,
             label: group?.name ?? groupType,
@@ -56,7 +60,7 @@ export function CategoryDropdownAffordance({
         }
     })
 
-    const activeItemIndex = (taxonomicGroupTypes as TaxonomicFilterGroupType[]).findIndex((g) => g === openTab)
+    const activeItemIndex = taxonomicGroupTypes.findIndex((g) => g === openTab)
 
     return (
         <LemonMenu
@@ -80,7 +84,7 @@ function renderTrigger(variant: Exclude<CategoryDropdownVariant, 'control'>, act
                 size="xsmall"
                 sideIcon={<IconChevronDown />}
                 data-attr={dataAttr}
-                aria-label={`Filter category, currently ${activeLabel}`}
+                aria-label={`Current category: ${activeLabel}. Click to change.`}
             >
                 {activeLabel}
             </LemonButton>
@@ -94,7 +98,7 @@ function renderTrigger(variant: Exclude<CategoryDropdownVariant, 'control'>, act
             icon={<IconFilter />}
             sideIcon={<IconChevronDown />}
             data-attr={dataAttr}
-            aria-label={`Filter category, currently ${activeLabel}`}
+            aria-label={`Current category: ${activeLabel}. Click to change.`}
         />
     )
 }

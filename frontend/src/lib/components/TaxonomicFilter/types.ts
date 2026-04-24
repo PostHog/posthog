@@ -317,4 +317,10 @@ export type TaxonomicDefinitionTypes =
     | MaxContextTaxonomicFilterOption
     | QuickFilterItem
 
-export type CategoryDropdownVariant = 'control' | 'pill' | 'icon'
+export const CATEGORY_DROPDOWN_VARIANTS = ['control', 'pill', 'icon'] as const
+
+export type CategoryDropdownVariant = (typeof CATEGORY_DROPDOWN_VARIANTS)[number]
+
+export function isCategoryDropdownVariant(value: unknown): value is CategoryDropdownVariant {
+    return typeof value === 'string' && (CATEGORY_DROPDOWN_VARIANTS as readonly string[]).includes(value)
+}

@@ -941,7 +941,7 @@ describe('TaxonomicFilter', () => {
             '%s variant: pressing Tab in the search input does not switch category',
             async (variant) => {
                 setVariant(variant)
-                const { container } = renderFilter({
+                renderFilter({
                     taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
                 })
 
@@ -949,19 +949,17 @@ describe('TaxonomicFilter', () => {
                     expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
                 })
 
+                const trigger = screen.getByTestId(`taxonomic-category-dropdown-trigger-${variant}`)
+                expect(trigger).toHaveAttribute('aria-label', expect.stringContaining('Events'))
+
                 const input = screen.getByTestId('taxonomic-filter-searchfield') as HTMLInputElement
                 input.focus()
                 await userEvent.keyboard('{Tab}')
 
-                const eventsWrapper = container
-                    .querySelector('[data-attr="prop-filter-events-0"]')
-                    ?.closest('.flex.flex-col.h-full')
-                const actionsWrapper = container
-                    .querySelector('[data-attr="prop-filter-actions-0"]')
-                    ?.closest('.flex.flex-col.h-full')
-
-                expect(eventsWrapper).not.toBeNull()
-                expect(actionsWrapper).toBeNull()
+                expect(screen.getByTestId(`taxonomic-category-dropdown-trigger-${variant}`)).toHaveAttribute(
+                    'aria-label',
+                    expect.stringContaining('Events')
+                )
             }
         )
     })
