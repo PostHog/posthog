@@ -201,12 +201,12 @@ class QueryPerformanceProxyViewSet(viewsets.ViewSet):
 #
 # `clickhouse-driver` returns rows as Python tuples of native types (Decimal,
 # datetime, UUID, tuple, bytes, IPvXAddress, ...). We serialize each value to
-# a deterministic string that matches ClickHouse's own ``FORMAT JSONEachRow``
-# output, so the comparison oracle (ch_compare_results.py) can diff results
-# coming from two different transports without being tricked by incidental
-# encoding differences. Without this, a candidate that returns
-# ``Decimal("1.10")`` vs a baseline with ``Decimal("1.1")`` would be reported
-# as mismatched even though the underlying values are equal.
+# a deterministic string so the comparison oracle (ch_compare_results.py)
+# isn't tricked by two semantically-equal values with different Python
+# reprs — e.g. a candidate emitting `Decimal("1.10")` vs a baseline with
+# `Decimal("1.1")`. The comparator diffs text; as long as the proxy — the
+# only transport — emits the same string for equal values, the comparison
+# works. No need to match any external format byte-for-byte.
 
 
 def _canonicalize_value(v: object) -> object:

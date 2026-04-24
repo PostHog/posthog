@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Compare a candidate result set to the saved baseline.
 
-Both transports write newline-delimited JSON. The comparator parses each
-line, reserializes with a canonical separator/sort, and compares sorted
-lines for equality. That way byte-level differences from stdlib json vs
-ClickHouse's JSONCompactEachRow output (spaces-after-comma, key ordering,
-trailing newline) don't masquerade as semantic differences.
+The proxy writes each row as one canonical JSON line. The comparator parses
+each line, reserializes with stable separators and sorted keys, and
+compares sorted lines for equality — defense-in-depth against stray
+whitespace or key ordering ever drifting on either side.
 
 Exit codes:
   0 — match
@@ -53,10 +52,11 @@ def _resolve_output(candidate: Path, provided: Path | None) -> Path:
 def _normalize_jsonl(text: str) -> list[str]:
     """Re-emit every non-empty JSON line with canonical formatting.
 
-    Absorbs source-format differences — stdlib default separators (spaces
-    after commas) vs CH's JSONCompactEachRow output, key ordering in object
-    rows, stray trailing whitespace — so the sorted-line comparison is
-    genuinely a semantic diff, not a byte diff.
+    The proxy already emits canonical JSON, so in practice this is a no-op
+    pass on current input — but reserializing with stable separators and
+    sorted keys means a future refactor that loosens the proxy's output
+    shape (e.g. different separator spacing) doesn't silently start
+    producing false mismatches.
 
     A line that isn't valid JSON is kept verbatim so the comparator surfaces
     it as a mismatch rather than silently dropping it.
