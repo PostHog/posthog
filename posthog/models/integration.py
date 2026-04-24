@@ -2295,12 +2295,12 @@ class GitHubIntegration:
 
         if search_lower:
             # GitHub's org teams endpoint does not support server-side search.
-            # Keep calls bounded and filter locally.
+            # Keep calls bounded and shift the fetch window by offset.
             max_pages = 10
-            first_page = 1
-            last_page = max_pages
-            start = offset
-            end = offset + limit
+            first_page = offset // per_page + 1
+            last_page = first_page + max_pages - 1
+            start = 0
+            end = limit + 1
         else:
             requested = limit + 1
             first_page = offset // per_page + 1
@@ -2349,9 +2349,6 @@ class GitHubIntegration:
             teams = [
                 team for team in teams if search_lower in team["slug"].lower() or search_lower in team["name"].lower()
             ]
-            sliced = teams[offset : offset + limit]
-            has_more = len(teams) > offset + limit
-            return sliced, has_more
 
         window = teams[start:end]
         has_more = len(window) > limit
