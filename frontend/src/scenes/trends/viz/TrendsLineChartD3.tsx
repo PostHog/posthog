@@ -121,7 +121,7 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
                         key: `${r.id}-ma`,
                         label: `${r.label ?? ''} (Moving avg)`,
                         data: movingAverage(r.data, movingAverageIntervals),
-                        color: getTrendsColor(r),
+                        color: r.compare_label === 'previous' ? hexToRGBA(getTrendsColor(r), 0.5) : getTrendsColor(r),
                         fillArea: false,
                         dashPattern: [10, 3],
                         pointRadius: 0,
