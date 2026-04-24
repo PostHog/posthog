@@ -44,7 +44,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "AzureBlobIntegrationError",
     "AzureBlobIntegrationNotFoundError",
     "ClientAuthenticationError",
-    "MissingRequiredPermissionsErrorResourceNotFoundError",
+    "MissingRequiredPermissionsError",
+    "ResourceNotFoundError",
     "UnsupportedCompressionError",
     "UnsupportedFileFormatError",
 )
