@@ -1,0 +1,232 @@
+/* stylelint-disable selector-class-pattern -- escaped Tailwind group classes (.group\/item, .group\/item-group) fall outside strict BEM */
+@layer components {
+    .quill-item-group {
+        /* combined mode collapses gaps */
+    }
+
+    .quill-item-group[data-combined] {
+        gap: 0;
+    }
+
+    .quill-item {
+        font-size: var(--text-xs, 0.75rem);
+        line-height: 1.625;
+        border: 1px solid transparent;
+        border-radius: var(--radius-sm);
+        outline: none;
+        outline-offset: -2px;
+        transition:
+            color 0.1s ease,
+            background-color 0.1s ease,
+            border-color 0.1s ease;
+    }
+
+    .quill-item:focus-visible {
+        z-index: 1;
+        border-color: var(--ring);
+        box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 30%, transparent);
+    }
+
+    /* Combined item-group: collapse borders between siblings */
+    [data-combined] > .quill-item {
+        border-radius: 0;
+    }
+
+    [data-combined] > .quill-item:first-child {
+        border-start-start-radius: var(--radius-sm);
+        border-start-end-radius: var(--radius-sm);
+    }
+
+    [data-combined] > .quill-item:last-child {
+        border-end-start-radius: var(--radius-sm);
+        border-end-end-radius: var(--radius-sm);
+    }
+
+    [data-combined] > .quill-item:not(:last-child) {
+        border-bottom: 0;
+    }
+
+    /* Inside combobox items drop the border */
+    [data-slot='combobox-item'].quill-item {
+        border: none;
+    }
+
+    /* Variants */
+    .quill-item--variant-default {
+        border-color: var(--card);
+    }
+
+    .quill-item--variant-outline {
+        border-color: var(--border);
+    }
+
+    .quill-item--variant-muted {
+        background-color: color-mix(in oklab, var(--muted) 50%, transparent);
+        border-color: transparent;
+    }
+
+    .quill-item--variant-pressable {
+        transition:
+            color 0.15s ease,
+            background-color 0.15s ease,
+            border-color 0.15s ease,
+            box-shadow 0.15s ease;
+    }
+
+    .quill-item--variant-pressable:hover {
+        z-index: 1;
+        border-color: color-mix(in oklab, var(--secondary) 20%, transparent);
+        box-shadow: var(--shadow-md, 0 1px 2px 0 rgb(0 0 0 / 30%));
+    }
+
+    .group\/item-group[data-combined='true'] .quill-item--variant-pressable:hover {
+        border-color: var(--border);
+        box-shadow: none;
+    }
+
+    .quill-item--variant-menu {
+        border: none;
+    }
+
+    .quill-item--variant-menu:hover {
+        color: var(--foreground);
+        background-color: var(--fill-hover);
+    }
+
+    /* Sizes */
+    .quill-item--size-default,
+    .quill-item--size-sm {
+        gap: 0.625rem;
+        padding-block: 0.625rem;
+        padding-inline: 0.75rem;
+    }
+
+    .quill-item--size-xs {
+        gap: 0.625rem;
+        padding-block: 0.5rem;
+        padding-inline: 0.625rem;
+    }
+
+    [data-slot='dropdown-menu-content'] .quill-item--size-xs {
+        padding: 0;
+    }
+
+    /* =========================================================================
+       ItemMedia
+       ========================================================================= */
+    .quill-item__media svg {
+        pointer-events: none;
+    }
+
+    .quill-item__media--variant-default {
+        background-color: transparent;
+    }
+
+    .quill-item__media--variant-icon svg:not([class*='size-']) {
+        width: 1rem;
+        height: 1rem;
+    }
+
+    .quill-item__media--variant-image,
+    .quill-item__media--variant-checkbox {
+        width: 2rem;
+        height: 2rem;
+        overflow: hidden;
+        border-radius: var(--radius-sm);
+    }
+
+    .group\/item[data-size='xs'] .quill-item__media--variant-image,
+    .group\/item[data-size='xs'] .quill-item__media--variant-checkbox {
+        width: 1.5rem;
+        height: 1.5rem;
+    }
+
+    .quill-item__media--variant-image img,
+    .quill-item__media--variant-checkbox img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .group\/item[role='link']:hover .quill-item__media {
+        color: var(--primary);
+    }
+
+    /* ItemMedia pushes down slightly when description is present */
+    .group\/item:has([data-slot='item-description']) .quill-item__media {
+        align-self: flex-start;
+        translate: 0 2px;
+    }
+
+    /* =========================================================================
+       ItemContent
+       ========================================================================= */
+    .quill-item__content {
+        /* gap handled by tailwind */
+    }
+
+    .group\/item[data-size='xs'] .quill-item__content {
+        gap: 0.125rem;
+    }
+
+    .quill-item__content + .quill-item__content {
+        flex: none;
+    }
+
+    .quill-item__content--variant-menu {
+        width: 100%;
+        padding-block: 0.25rem;
+        padding-inline: 0.375rem;
+    }
+
+    .group\/button[data-slot='combobox-item'] .quill-item__content--variant-menu,
+    .group\/button[data-slot='select-trigger'] .quill-item__content--variant-menu,
+    [data-slot='select-item'] .quill-item__content--variant-menu {
+        padding-inline: 0;
+    }
+
+    .group\/item:has([data-slot='item-media']) .quill-item__content--variant-menu {
+        padding-inline-start: 0;
+    }
+
+    /* =========================================================================
+       ItemTitle / ItemDescription
+       ========================================================================= */
+    .quill-item__title {
+        display: flex;
+        align-items: center;
+        width: fit-content;
+        overflow: hidden;
+        font-size: var(--text-xs, 0.75rem);
+        font-weight: 500;
+        line-height: 1.375;
+        text-underline-offset: 4px;
+        -webkit-line-clamp: 1;
+        -webkit-box-orient: vertical;
+    }
+
+    .group\/item[role='link']:hover .quill-item__title {
+        color: var(--primary);
+    }
+
+    .quill-item__description {
+        display: -webkit-box;
+        overflow: hidden;
+        font-size: var(--text-xxs, 0.625rem);
+        font-weight: 400;
+        line-height: 1rem;
+        color: var(--muted-foreground);
+        text-align: start;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+    }
+
+    .quill-item__description > a {
+        text-decoration: underline;
+        text-underline-offset: 4px;
+    }
+
+    .quill-item__description > a:hover {
+        color: var(--primary);
+    }
+}

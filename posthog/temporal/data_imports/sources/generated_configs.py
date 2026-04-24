@@ -232,6 +232,18 @@ class ClerkSourceConfig(config.Config):
 
 
 @config.config
+class ClickHouseSourceConfig(config.Config):
+    host: str
+    database: str
+    user: str
+    port: int = config.value(converter=int)
+    password: str | None = None
+    secure: bool = config.value(default=config.str_to_bool("true"), converter=config.str_to_bool)
+    verify: bool = config.value(default=config.str_to_bool("true"), converter=config.str_to_bool)
+    ssh_tunnel: SSHTunnelConfig | None = None
+
+
+@config.config
 class ClickUpSourceConfig(config.Config):
     pass
 
@@ -554,7 +566,7 @@ class OutreachSourceConfig(config.Config):
 
 @config.config
 class PaddleSourceConfig(config.Config):
-    pass
+    paddle_api_key: str
 
 
 @config.config
@@ -591,6 +603,11 @@ class PipedriveSourceConfig(config.Config):
 @config.config
 class PlaidSourceConfig(config.Config):
     pass
+
+
+@config.config
+class PlainSourceConfig(config.Config):
+    api_key: str
 
 
 @config.config
@@ -896,6 +913,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.CHARTMOGUL: ChartMogulSourceConfig,
         ExternalDataSourceType.CIRCLECI: CircleCISourceConfig,
         ExternalDataSourceType.CLERK: ClerkSourceConfig,
+        ExternalDataSourceType.CLICKHOUSE: ClickHouseSourceConfig,
         ExternalDataSourceType.CLICKUP: ClickUpSourceConfig,
         ExternalDataSourceType.CLOSE: CloseSourceConfig,
         ExternalDataSourceType.COCKROACHDB: CockroachDBSourceConfig,
@@ -964,6 +982,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.PINTERESTADS: PinterestAdsSourceConfig,
         ExternalDataSourceType.PIPEDRIVE: PipedriveSourceConfig,
         ExternalDataSourceType.PLAID: PlaidSourceConfig,
+        ExternalDataSourceType.PLAIN: PlainSourceConfig,
         ExternalDataSourceType.POLAR: PolarSourceConfig,
         ExternalDataSourceType.POSTGRES: PostgresSourceConfig,
         ExternalDataSourceType.POSTMARK: PostmarkSourceConfig,

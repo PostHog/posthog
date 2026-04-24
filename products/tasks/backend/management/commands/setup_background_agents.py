@@ -13,7 +13,13 @@ from posthog.models import OAuthApplication, Team
 from posthog.models.feature_flag import FeatureFlag
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
-AUTO_FILL_KEYS = ["OIDC_RSA_PRIVATE_KEY", "SANDBOX_JWT_PRIVATE_KEY", "DEBUG", "SANDBOX_PROVIDER"]
+AUTO_FILL_KEYS = [
+    "OIDC_RSA_PRIVATE_KEY",
+    "SANDBOX_JWT_PRIVATE_KEY",
+    "DEBUG",
+    "SANDBOX_PROVIDER",
+    "SANDBOX_MCP_URL",
+]
 GITHUB_APP_KEYS = ["GITHUB_APP_CLIENT_ID", "GITHUB_APP_SLUG", "GITHUB_APP_PRIVATE_KEY"]
 # Canonical local-dev redirect URIs for the Array OAuth app (matches
 # posthog/demo/products/hedgebox/matrix.py and docs/published/handbook/engineering/oauth-development-guide.md).

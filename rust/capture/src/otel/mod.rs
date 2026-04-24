@@ -16,6 +16,7 @@ use serde_json::json;
 use tracing::{debug, instrument, warn, Span};
 
 use crate::api::{CaptureError, CaptureResponse, CaptureResponseCode};
+use crate::events::overflow_stamping::stamp_overflow_reason;
 use crate::extractors::extract_body_with_timeout;
 use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
 use crate::router::State as AppState;
@@ -201,12 +202,21 @@ pub async fn otel_handler(
         None => Default::default(),
     };
 
-    let processed_events =
+    let mut processed_events =
         filtering::build_events(span_events, &token, &client_ip, received_at, &restrictions)
             .map_err(|e| {
                 report_internal_error_metrics(e.to_metric_tag(), "otel_processing");
                 e.into_response()
             })?;
+
+    // Apply the in-process OverflowLimiter governor to every AnalyticsMain
+    // span in the batch before handing off to the sink. OTEL bypasses
+    // `events::analytics::process_events`, so this call is what preserves
+    // OverflowLimiter parity on `capture-ai-*` deploys (where
+    // `OVERFLOW_ENABLED=true`). Per-span key evaluation matches the analytics
+    // batch path: spans with different `token:distinct_id` keys can land
+    // with different `overflow_reason` stamps in the same batch.
+    stamp_overflow_reason(&mut processed_events, state.overflow_limiter.as_ref());
 
     state.sink.send_batch(processed_events).await.map_err(|e| {
         report_internal_error_metrics(e.to_metric_tag(), "otel_sink");

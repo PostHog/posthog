@@ -342,7 +342,6 @@ async def sync_distinct_ids_to_ch(inputs: SyncDistinctIdsToChInputs) -> SyncDist
                     person_id=mapping.person_uuid,
                     version=version,
                     is_deleted=False,
-                    sync=False,
                 )
 
         await logger.ainfo(
@@ -398,7 +397,6 @@ async def mark_ch_only_orphans_deleted(inputs: MarkChOnlyOrphansDeletedInputs) -
                 team_id=inputs.team_id,
                 version=current_version + 1,
                 is_deleted=True,
-                sync=False,
             )
 
         await logger.ainfo("Marked CH-only orphans as deleted", count=len(inputs.person_versions))

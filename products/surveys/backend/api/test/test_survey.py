@@ -2305,7 +2305,7 @@ class TestSurvey(APIBaseTest):
                             "type": "Survey",
                             "action": "changed",
                             "field": "targeting_flag_filters",
-                            "before": {},
+                            "before": {"groups": []},
                             "after": new_filters,
                         },
                     ],

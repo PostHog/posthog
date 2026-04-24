@@ -886,6 +886,95 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(people[2].distinct_ids, ["3"])
         self.assertTrue(response.json()["success"])
 
+    def test_split_people_partial_moves_only_specified_ids(self) -> None:
+        person1 = _create_person(
+            team=self.team,
+            distinct_ids=["keep1", "move1", "keep2", "move2"],
+            properties={"$browser": "whatever", "$os": "Mac OS X"},
+            immediate=True,
+        )
+
+        response = self.client.post(
+            "/api/person/{}/split/".format(person1.pk),
+            {"distinct_ids_to_split": ["move1", "move2"]},
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertTrue(response.json()["success"])
+
+        original = Person.objects.get(team_id=self.team.id, pk=person1.pk)
+        self.assertCountEqual(original.distinct_ids, ["keep1", "keep2"])
+        self.assertEqual(original.properties, {"$browser": "whatever", "$os": "Mac OS X"})
+
+        # Two new persons, one per moved distinct_id.
+        other_people = Person.objects.filter(team_id=self.team.id).exclude(pk=person1.pk).order_by("id")
+        self.assertEqual(other_people.count(), 2)
+        moved_ids = {did for p in other_people for did in p.distinct_ids}
+        self.assertEqual(moved_ids, {"move1", "move2"})
+
+    def test_split_people_partial_rejects_unknown_distinct_id(self) -> None:
+        person1 = _create_person(
+            team=self.team,
+            distinct_ids=["a", "b"],
+            properties={},
+            immediate=True,
+        )
+
+        response = self.client.post(
+            "/api/person/{}/split/".format(person1.pk),
+            {"distinct_ids_to_split": ["a", "not_on_this_person"]},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("not_on_this_person", response.content.decode())
+
+        # Nothing should have moved.
+        original = Person.objects.get(team_id=self.team.id, pk=person1.pk)
+        self.assertCountEqual(original.distinct_ids, ["a", "b"])
+
+    def test_split_people_partial_rejects_combined_with_main_distinct_id(self) -> None:
+        person1 = _create_person(
+            team=self.team,
+            distinct_ids=["a", "b", "c"],
+            properties={},
+            immediate=True,
+        )
+
+        response = self.client.post(
+            "/api/person/{}/split/".format(person1.pk),
+            {"distinct_ids_to_split": ["b"], "main_distinct_id": "a"},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_split_people_partial_rejects_invalid_payload(self) -> None:
+        person1 = _create_person(
+            team=self.team,
+            distinct_ids=["a", "b"],
+            properties={},
+            immediate=True,
+        )
+
+        # Empty list.
+        response = self.client.post(
+            "/api/person/{}/split/".format(person1.pk),
+            {"distinct_ids_to_split": []},
+        )
+        self.assertEqual(response.status_code, 400)
+
+        # Wrong type for the field.
+        response = self.client.post(
+            "/api/person/{}/split/".format(person1.pk),
+            {"distinct_ids_to_split": "a"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+        # List with non-string entries.
+        response = self.client.post(
+            "/api/person/{}/split/".format(person1.pk),
+            {"distinct_ids_to_split": [1, 2]},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+
     def test_update_multiple_person_properties_validation(self) -> None:
         person = _create_person(
             team=self.team,
@@ -993,6 +1082,68 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             },
             process_person_profile=True,
         )
+
+    @mock.patch("posthog.api.person.capture_internal")
+    def test_update_person_property_with_null_value(self, mock_capture) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["some_distinct_id"],
+            properties={"$browser": "whatever", "$os": "Mac OS X"},
+            immediate=True,
+        )
+
+        response = self.client.post(
+            f"/api/person/{person.uuid}/update_property",
+            {"key": "foo", "value": None},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 202)
+        mock_capture.assert_called_once_with(
+            token=self.team.api_token,
+            event_name="$set",
+            event_source="person_viewset",
+            distinct_id="some_distinct_id",
+            timestamp=mock.ANY,
+            properties={
+                "$set": {"foo": None},
+            },
+            process_person_profile=True,
+        )
+
+    def test_update_person_property_missing_value_returns_400(self) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["some_distinct_id"],
+            properties={"$browser": "whatever"},
+            immediate=True,
+        )
+
+        response = self.client.post(
+            f"/api/person/{person.uuid}/update_property",
+            {"key": "foo"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["attr"], "value")
+
+    def test_update_person_property_missing_key_returns_400(self) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["some_distinct_id"],
+            properties={"$browser": "whatever"},
+            immediate=True,
+        )
+
+        response = self.client.post(
+            f"/api/person/{person.uuid}/update_property",
+            {"value": "bar"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["attr"], "key")
 
     def test_return_non_anonymous_name(self) -> None:
         _create_person(
@@ -1272,18 +1423,16 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             team_id=self.team.pk,
             uuid=str(person_a.uuid),
             version=0,
-            sync=True,
         )
         create_person_distinct_id(
             team_id=self.team.pk,
             distinct_id="deleted_user",
             person_id=str(person_a.uuid),
             version=0,
-            sync=True,
         )
 
         # Delete person A (this creates a delete event with version 100 = 0 + 100)
-        delete_person(person_a, sync=True)
+        delete_person(person_a)
         person_a.delete()
 
         # Create person B with a different distinct_id (will also have version 0 by default)
@@ -1306,7 +1455,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             distinct_id="deleted_user",
             person_id=str(person_b.uuid),
             version=2,
-            sync=True,
         )
 
         # Now person_b has both "active_user" and "deleted_user"
@@ -1446,7 +1594,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         create_person(team_id=self.team.pk, version=0)
 
         returned_ids = []
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(10):
             response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
@@ -1457,7 +1605,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         created_ids.reverse()  # ids are returned in desc order
         self.assertEqual(returned_ids, created_ids, returned_ids)
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(10):
             response_include_total = self.client.get("/api/person/?limit=10&include_total").json()
         self.assertEqual(response_include_total["count"], 20)  #  With `include_total`, the total count is returned too
 
@@ -1567,7 +1715,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             team_id=self.team.pk,
             is_deleted=True,
             version=105,
-            sync=True,
         )
         create_person_distinct_id(
             team_id=self.team.pk,
@@ -1575,7 +1722,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             person_id=shared_uuid,
             is_deleted=True,
             version=107,
-            sync=True,
         )
 
         # Phase 2: New event reuses the distinct_id, creating a new person in PG

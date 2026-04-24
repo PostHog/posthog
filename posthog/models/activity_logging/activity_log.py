@@ -54,6 +54,7 @@ ActivityScope = Literal[
     "Project",
     "ErrorTrackingIssue",
     "DataWarehouseSavedQuery",
+    "LegalDocument",
     "Organization",
     "OrganizationDomain",
     "OrganizationMembership",

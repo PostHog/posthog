@@ -23,6 +23,7 @@ from posthog.schema import (
     EventsNode,
     HogQLPropertyFilter,
     IntervalType,
+    LifecycleDataWarehouseNode,
     LifecycleQuery,
     PersonPropertyFilter,
     PropertyOperator,
@@ -2179,6 +2180,43 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert not hasattr(query_runner.query, "breakdownFilter")
+
+    def test_dashboard_property_filters_are_ignored_for_data_warehouse_series(self):
+        query_runner = LifecycleQueryRunner(
+            team=self.team,
+            query=LifecycleQuery(
+                dateRange=DateRange(date_from="2020-01-09", date_to="2020-01-20"),
+                interval=IntervalType.DAY,
+                series=[
+                    LifecycleDataWarehouseNode(
+                        id="messages",
+                        table_name="messages",
+                        timestamp_field="sent_at",
+                        aggregation_target_field="person_id",
+                        created_at_field="created_at",
+                    )
+                ],
+            ),
+        )
+
+        query_runner.apply_dashboard_filters(
+            DashboardFilter(
+                date_from="2024-07-07",
+                date_to="2024-07-14",
+                properties=[EventPropertyFilter(key="dashboard", value="filter", operator="exact")],
+            )
+        )
+
+        # date range is overriden
+        assert query_runner.query.dateRange is not None
+        assert query_runner.query.dateRange.date_from == "2024-07-07"
+        assert query_runner.query.dateRange.date_to == "2024-07-14"
+
+        # but properties are not
+        assert query_runner.query.properties == []
+
+        # validations pass
+        query_runner.validate()
 
     @parameterized.expand(
         [

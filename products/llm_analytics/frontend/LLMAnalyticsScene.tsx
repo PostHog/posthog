@@ -592,6 +592,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
 
     const isEarlyAdopter = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
     const isPromptManagementEnabled = !!featureFlags[FEATURE_FLAGS.PROMPT_MANAGEMENT] || isEarlyAdopter
+    const isSkillsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SKILLS]
 
     if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]) {
         tabs.push({
@@ -687,8 +688,17 @@ function LLMAnalyticsSceneContent(): JSX.Element {
                     prompts
                 </Link>
             ) : null,
+            isSkillsEnabled ? (
+                <Link
+                    key="skills"
+                    to={combineUrl(urls.llmAnalyticsSkills(), searchParams).url}
+                    onClick={() => toggleProduct('Skills', true)}
+                >
+                    skills
+                </Link>
+            ) : null,
         ].filter(Boolean) as JSX.Element[]
-    }, [featureFlags, isPromptManagementEnabled, searchParams, toggleProduct])
+    }, [featureFlags, isPromptManagementEnabled, isSkillsEnabled, searchParams, toggleProduct])
 
     if (activeTab === 'reviews' && !isTraceReviewEnabled) {
         return <NotFound object="page" />

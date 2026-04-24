@@ -180,7 +180,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         )
 
         return (
-            <div className="flex flex-row gap-2 justify-end mt-4">
+            <div className="flex flex-row gap-2 justify-end my-4">
                 {!props.hideBackButton && (
                     <LemonButton
                         type="secondary"

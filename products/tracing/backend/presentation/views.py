@@ -27,6 +27,7 @@ from posthog.schema import (
     TraceSpansQueryResponse,
 )
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -43,6 +44,7 @@ from ..sparkline_query_runner import TraceSpansSparklineQueryRunner
 
 class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "INTERNAL"
+    serializer_class = _FallbackSerializer
 
     @action(detail=False, methods=["GET"], url_path="service-names")
     def service_names(self, request: Request, *args, **kwargs) -> Response:

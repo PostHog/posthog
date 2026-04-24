@@ -13,7 +13,6 @@ import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getText } from 'scenes/comments/Comment'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -42,27 +41,16 @@ export function Comments(): JSX.Element {
         {
             title: 'Comment',
             key: 'content',
-            width: '30%',
+            width: '45%',
             render: function RenderComment(_, comment: CommentType): JSX.Element {
-                const textContent = getText(comment)
-                let renderedContent = <>{textContent}</>
-                if (textContent.length > 50) {
-                    renderedContent = (
-                        <Tooltip
-                            title={
-                                <div
-                                    className="whitespace-pre-wrap break-words"
-                                    data-attr="comment-scene-comment-title-rendered-content"
-                                >
-                                    {textContent}
-                                </div>
-                            }
-                        >
-                            {textContent.slice(0, 47) + '...'}
-                        </Tooltip>
-                    )
-                }
-                return <div className="font-semibold">{renderedContent}</div>
+                return (
+                    <div
+                        className="whitespace-pre-wrap break-words max-h-64 overflow-y-auto"
+                        data-attr="comment-scene-comment-title-rendered-content"
+                    >
+                        {getText(comment)}
+                    </div>
+                )
             },
         },
         {

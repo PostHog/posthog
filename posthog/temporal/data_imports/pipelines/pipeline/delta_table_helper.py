@@ -33,6 +33,7 @@ def _write_deltalake(
     partition_by: str | None,
     mode: Literal["error", "append", "overwrite", "ignore"],
     schema_mode: Literal["merge", "overwrite"] | None,
+    commit_properties: deltalake.CommitProperties | None = None,
 ) -> None:
     deltalake.write_deltalake(
         table_or_uri=table_or_uri,
@@ -40,6 +41,7 @@ def _write_deltalake(
         partition_by=partition_by,
         mode=mode,
         schema_mode=schema_mode,
+        commit_properties=commit_properties,
     )
 
 
@@ -200,6 +202,7 @@ class DeltaTableHelper:
         should_overwrite_table: bool,
         primary_keys: Sequence[Any] | None,
         progress_callback: Callable[[], None] | None = None,
+        commit_metadata: dict[str, str] | None = None,
     ) -> deltalake.DeltaTable:
         delta_table = await self.get_delta_table()
 
@@ -214,6 +217,10 @@ class DeltaTableHelper:
         if PARTITION_KEY in data.column_names:
             use_partitioning = True
             await self._logger.adebug(f"Using partitioning on {PARTITION_KEY}")
+
+        commit_properties: deltalake.CommitProperties | None = (
+            deltalake.CommitProperties(custom_metadata=commit_metadata) if commit_metadata else None
+        )
 
         if write_type == "incremental" and delta_table is not None and not self._is_first_sync:
             if not primary_keys or len(primary_keys) == 0:
@@ -236,11 +243,16 @@ class DeltaTableHelper:
                 predicate_ops.append(f"source.{PARTITION_KEY} = target.{PARTITION_KEY}")
 
                 # Group the table by the partition key and merge multiple times with streamed_exec=True for optimised merging
-                unique_partitions = pc.unique(data[PARTITION_KEY])  # type: ignore
+                unique_partitions = list(pc.unique(data[PARTITION_KEY]))  # type: ignore
 
                 await self._logger.adebug(f"Running {len(unique_partitions)} optimised merges")
 
-                for partition in unique_partitions:
+                # Only tag the FINAL partition merge with `commit_properties`. Intermediate
+                # merges must remain untagged so a crash mid-loop doesn't leave behind a
+                # tagged commit that would cause `has_batch_been_committed` to skip the
+                # remaining partitions on Kafka redelivery (which would lose data).
+                last_partition_index = len(unique_partitions) - 1
+                for i, partition in enumerate(unique_partitions):
                     partition_predicate_ops = predicate_ops.copy()
                     partition_predicate_ops.append(f"target.{PARTITION_KEY} = '{partition}'")
                     predicate = " AND ".join(partition_predicate_ops)
@@ -249,7 +261,13 @@ class DeltaTableHelper:
 
                     await self._logger.adebug(f"Merging partition={partition} with predicate={predicate}")
 
-                    def _do_merge(filtered_table: pa.Table, predicate: str):
+                    merge_commit_properties = commit_properties if i == last_partition_index else None
+
+                    def _do_merge(
+                        filtered_table: pa.Table,
+                        predicate: str,
+                        merge_commit_properties: deltalake.CommitProperties | None,
+                    ):
                         return (
                             existing_delta_table.merge(
                                 source=filtered_table,
@@ -257,20 +275,21 @@ class DeltaTableHelper:
                                 target_alias="target",
                                 predicate=predicate,
                                 streamed_exec=True,
+                                commit_properties=merge_commit_properties,
                             )
                             .when_matched_update_all()
                             .when_not_matched_insert_all()
                             .execute()
                         )
 
-                    merge_stats = await asyncio.to_thread(_do_merge, filtered_table, predicate)
+                    merge_stats = await asyncio.to_thread(_do_merge, filtered_table, predicate, merge_commit_properties)
 
                     await self._logger.adebug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
 
                     if progress_callback:
                         progress_callback()
             else:
-
+                # Single merge call → safe to tag directly; this is the terminal commit.
                 def _do_merge_unpartitioned(data: pa.Table, predicate_ops: list[str]):
                     return (
                         existing_delta_table.merge(
@@ -279,6 +298,7 @@ class DeltaTableHelper:
                             target_alias="target",
                             predicate=" AND ".join(predicate_ops),
                             streamed_exec=False,
+                            commit_properties=commit_properties,
                         )
                         .when_matched_update_all()
                         .when_not_matched_insert_all()
@@ -319,6 +339,7 @@ class DeltaTableHelper:
                     partition_by=PARTITION_KEY if use_partitioning else None,
                     mode=mode,
                     schema_mode=schema_mode,
+                    commit_properties=commit_properties,
                 )
             except deltalake.exceptions.SchemaMismatchError as e:
                 await self._logger.adebug("SchemaMismatchError: attempting to overwrite schema instead", exc_info=e)
@@ -331,6 +352,7 @@ class DeltaTableHelper:
                     partition_by=None,
                     mode=mode,
                     schema_mode="overwrite",
+                    commit_properties=commit_properties,
                 )
         elif write_type == "append":
             if delta_table is None:
@@ -353,6 +375,7 @@ class DeltaTableHelper:
                 partition_by=PARTITION_KEY if use_partitioning else None,
                 mode="append",
                 schema_mode="merge",
+                commit_properties=commit_properties,
             )
 
         delta_table = await self.get_delta_table()
@@ -364,6 +387,7 @@ class DeltaTableHelper:
         self,
         data: pa.Table,
         primary_keys: Sequence[Any],
+        commit_metadata: dict[str, str] | None = None,
     ) -> deltalake.DeltaTable:
         """Write CDC SCD Type 2 data: close existing current rows, then append new rows.
 
@@ -380,6 +404,10 @@ class DeltaTableHelper:
 
         if delta_table:
             delta_table = await self._evolve_delta_schema(data.schema)
+
+        commit_properties: deltalake.CommitProperties | None = (
+            deltalake.CommitProperties(custom_metadata=commit_metadata) if commit_metadata else None
+        )
 
         # Step 1: Close existing current rows for PKs in this batch
         if delta_table is not None and primary_keys and "valid_from" in data.column_names:
@@ -399,6 +427,11 @@ class DeltaTableHelper:
                 predicate_parts.append("target.valid_to IS NULL")
                 predicate = " AND ".join(predicate_parts)
 
+                # NOTE: do NOT tag this intermediate merge with `commit_properties`. SCD2 is a
+                # two-step write (close-existing then append-new); if we tagged step 1 with the
+                # same (run_uuid, batch_index) and the process crashed before step 2, Kafka
+                # redelivery would see the tagged commit, treat the batch as already done, and
+                # silently skip the append → data loss. Tag only the terminal commit (step 2).
                 def _do_scd2_close(first_per_pk: pa.Table, predicate: str) -> dict:
                     return (
                         existing_delta_table.merge(
@@ -432,11 +465,71 @@ class DeltaTableHelper:
             data=data,
             mode="append",
             schema_mode="merge",
+            commit_properties=commit_properties,
         )
 
         delta_table = await self.get_delta_table()
         assert delta_table is not None
         return delta_table
+
+    async def has_commit_with_metadata(self, match: dict[str, str], *, scan_limit: int = 50) -> bool:
+        """Check whether any recent delta commit has custom metadata matching all entries in `match`.
+
+        Used to detect that a given (run_uuid, batch_index) has already been written
+        even when a faster external dedup cache (e.g. Redis) is missing the marker —
+        the canonical case is a writer crash between a successful `write_to_deltalake`
+        and the subsequent cache update.
+
+        delta-rs `history()` returns commits where `CommitProperties.custom_metadata`
+        entries are flattened directly into the commit dict alongside `operation`,
+        `timestamp`, etc. Older versions nested them under a `userMetadata` key, so
+        we accept both layouts for forward compatibility.
+        """
+        delta_table = await self.get_delta_table()
+        if delta_table is None:
+            return False
+
+        history = await asyncio.to_thread(delta_table.history, limit=scan_limit)
+
+        for commit in history:
+            if self._commit_matches(commit, match):
+                return True
+
+        return False
+
+    @staticmethod
+    def _commit_matches(commit: dict[str, Any], match: dict[str, str]) -> bool:
+        """Return True iff every (k, v) in `match` is present in this commit's metadata.
+
+        Handles both the flat layout (delta-rs 1.x inlines custom_metadata onto the
+        top-level commit dict) and a nested `userMetadata` key (older/other layouts).
+        """
+        if all(commit.get(k) == v for k, v in match.items()):
+            return True
+
+        raw = commit.get("userMetadata")
+        if raw is None:
+            return False
+
+        if isinstance(raw, str):
+            try:
+                nested = json.loads(raw)
+            except (json.JSONDecodeError, ValueError):
+                return False
+        elif isinstance(raw, dict):
+            nested = raw
+        else:
+            return False
+
+        return all(nested.get(k) == v for k, v in match.items())
+
+    async def has_batch_been_committed(self, run_uuid: str, batch_index: int) -> bool:
+        """Check whether a specific (run_uuid, batch_index) has already been committed to delta.
+
+        Thin wrapper around `has_commit_with_metadata` so callers don't need to know
+        the metadata schema used for idempotency tagging.
+        """
+        return await self.has_commit_with_metadata({"run_uuid": run_uuid, "batch_index": str(batch_index)})
 
     async def compact_table(self) -> None:
         table = await self.get_delta_table()

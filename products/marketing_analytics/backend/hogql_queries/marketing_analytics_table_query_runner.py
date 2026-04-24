@@ -273,6 +273,7 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         level = self.config.drill_down_level
         excluded = DRILL_DOWN_LEVEL_CONFIG[level]["excluded_base_columns"]
 
+        all_columns: dict[str, ast.Expr]
         if excluded:
             all_columns = self._build_aggregated_level_columns(excluded)
         else:

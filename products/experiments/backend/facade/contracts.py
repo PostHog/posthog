@@ -15,7 +15,7 @@ class FeatureFlagVariant:
     """Feature flag variant configuration."""
 
     key: str
-    rollout_percentage: int
+    split_percent: int
     name: str | None = None
 
 

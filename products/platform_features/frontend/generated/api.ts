@@ -40,6 +40,7 @@ import type {
     RoleMembershipApi,
     RolesListParams,
     RolesRoleMembershipsListParams,
+    WelcomeResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -639,6 +640,23 @@ export const rolesRoleMembershipsDestroy = async (
     return apiMutator<void>(getRolesRoleMembershipsDestroyUrl(organizationId, roleId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+/**
+ * Aggregated payload for the invited-user welcome screen.
+ */
+export const getWelcomeCurrentRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/welcome/current/`
+}
+
+export const welcomeCurrentRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<WelcomeResponseApi> => {
+    return apiMutator<WelcomeResponseApi>(getWelcomeCurrentRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -338,8 +338,7 @@ class TestCohort(BaseTest):
 
         # Fetch all persons in the cohort
         cohort.refresh_from_db()
-        # TODO: THIS NEXT ASSERT FAILS AND I DON'T KNOW WHY. WILL FIGURE OUT LATER - @haacked
-        # assert cohort.count == 11
+        assert cohort.count == 11
         assert cohort.people.count() == 11
         cohort_person_uuids = {str(p.uuid) for p in cohort.people.all()}
         assert cohort_person_uuids == set(uuids)
