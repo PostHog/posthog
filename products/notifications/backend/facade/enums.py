@@ -50,3 +50,8 @@ class NotificationOnlyResourceType(str, Enum):
 type NotificationResourceType = Union[APIScopeObject, NotificationOnlyResourceType]
 
 AC_RESOURCE_TYPES: set[str] = set(ACCESS_CONTROL_RESOURCES)
+
+# Notification types that have an active dispatch site in the codebase.
+# When wiring up a new dispatch (e.g. alerts, approvals), add the enum value here.
+# This is the single source of truth for the in-app preferences UI.
+ACTIVE_REALTIME_NOTIFICATION_TYPES: tuple[NotificationType, ...] = (NotificationType.COMMENT_MENTION,)
