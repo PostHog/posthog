@@ -44,48 +44,50 @@ export function RelativeDateRangeSelector({ onApply, onClose }: RelativeDateRang
     }
 
     return (
-        <div className="p-4 deprecated-space-y-4 min-w-80">
-            <div className="text-sm font-medium">Custom relative range</div>
+        <div className="min-w-60">
+            <div className="p-2 deprecated-space-y-2">
+                <div className="text-sm font-medium">Custom relative range</div>
 
-            <div className="deprecated-space-y-3">
-                <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-alt min-w-12">From:</span>
-                    <LemonInput
-                        type="number"
-                        value={Number.parseInt(fromValue, 10) || undefined}
-                        onChange={(value) => setFromValue(String(value ?? ''))}
-                        placeholder="30"
-                        className="w-20"
-                        min={1}
-                    />
-                    <LemonSelect value={fromUnit} onChange={(v) => v && setFromUnit(v)} options={UNIT_OPTIONS} />
-                    <span className="text-sm text-muted-alt">ago</span>
+                <div className="deprecated-space-y-3">
+                    <div className="flex items-center gap-2">
+                        <span className="text-sm text-muted-alt min-w-12">From:</span>
+                        <LemonInput
+                            type="number"
+                            value={Number.parseInt(fromValue, 10) || undefined}
+                            onChange={(value) => setFromValue(String(value ?? ''))}
+                            placeholder="30"
+                            className="w-20"
+                            min={1}
+                        />
+                        <LemonSelect value={fromUnit} onChange={(v) => v && setFromUnit(v)} options={UNIT_OPTIONS} />
+                        <span className="text-sm text-muted-alt">ago</span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        <span className="text-sm text-muted-alt min-w-12">To:</span>
+                        <LemonInput
+                            type="number"
+                            value={Number.parseInt(toValue, 10) || undefined}
+                            onChange={(value) => setToValue(String(value ?? ''))}
+                            placeholder="7"
+                            className="w-20"
+                            min={1}
+                        />
+                        <LemonSelect value={toUnit} onChange={(v) => v && setToUnit(v)} options={UNIT_OPTIONS} />
+                        <span className="text-sm text-muted-alt">ago</span>
+                    </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-alt min-w-12">To:</span>
-                    <LemonInput
-                        type="number"
-                        value={Number.parseInt(toValue, 10) || undefined}
-                        onChange={(value) => setToValue(String(value ?? ''))}
-                        placeholder="7"
-                        className="w-20"
-                        min={1}
-                    />
-                    <LemonSelect value={toUnit} onChange={(v) => v && setToUnit(v)} options={UNIT_OPTIONS} />
-                    <span className="text-sm text-muted-alt">ago</span>
-                </div>
+                {!isValid ? (
+                    <div className="text-xs text-danger">"From" must be further in the past than "To".</div>
+                ) : (
+                    <div className="text-xs text-muted-alt">Example: from 30 days ago to 7 days ago</div>
+                )}
             </div>
-
-            {!isValid ? (
-                <div className="text-xs text-danger">"From" must be further in the past than "To".</div>
-            ) : (
-                <div className="text-xs text-muted-alt">Example: from 30 days ago to 7 days ago</div>
-            )}
 
             <LemonDivider />
 
-            <div className="flex justify-end gap-2">
+            <div className="p-2 flex justify-end gap-2">
                 <LemonButton type="secondary" size="small" onClick={onClose}>
                     Cancel
                 </LemonButton>

@@ -35,7 +35,7 @@ import { DateOption } from './rollingDateRangeFilterLogic'
 export interface DateFilterProps {
     showCustom?: boolean
     showRollingRangePicker?: boolean
-    makeLabel?: (key: React.ReactNode, startOfRange?: React.ReactNode) => React.ReactNode
+    makeLabel?: (key: React.ReactNode, startOfRange?: React.ReactNode, endOfRange?: React.ReactNode) => React.ReactNode
     className?: string
     onChange?: (fromDate: string | null, toDate: string | null, explicitDate?: boolean) => void
     disabled?: boolean
