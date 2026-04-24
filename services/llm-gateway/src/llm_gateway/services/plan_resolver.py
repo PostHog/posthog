@@ -118,6 +118,12 @@ class PlanResolver:
         self._http = http_client
 
     async def invalidate(self, user_id: int, team_id: int | None = None) -> None:
+        """Invalidate the plan cache for a specific (user, team) pair.
+
+        Only deletes the entry for the given team_id. Entries cached under
+        other team_ids are left to expire naturally via TTL since reads are
+        always scoped to the current team's key.
+        """
         if not self._redis:
             return
         try:
