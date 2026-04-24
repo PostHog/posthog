@@ -1,10 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sessionRecordingCommentsLogic } from 'scenes/session-recordings/player/sessionRecordingCommentsLogic'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 
-import { setupSessionRecordingTest } from './__mocks__/test-setup'
+import { overrideSessionRecordingMocks, setupSessionRecordingTest } from './__mocks__/test-setup'
 
 jest.mock('./snapshot-processing/DecompressionWorkerManager')
 
@@ -46,5 +47,41 @@ describe('sessionRecordingCommentsLogic', () => {
         expect(capturedCommentsQuery).not.toBeNull()
         expect(capturedCommentsQuery?.get('scope')).toBe('Replay')
         expect(capturedCommentsQuery?.get('item_id')).toBe('1')
+    })
+
+    // Regression test: users without resource-level access to notebooks/comments
+    // get a 403 from these side-loads. The replay scene must treat that as an
+    // empty result, not bubble it up as an uncaught exception that pollutes
+    // error tracking on every recording open.
+    it('swallows 403s from comments and notebook side-loads and resolves both loaders empty', async () => {
+        const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation()
+
+        try {
+            overrideSessionRecordingMocks({
+                getMocks: {
+                    '/api/environments/:team_id/session_recordings/1/': {},
+                    '/api/projects/:team_id/comments': () => [403, { detail: 'Permission denied' }],
+                    '/api/projects/:team/notebooks/recording_comments': () => [
+                        403,
+                        { detail: 'You do not have viewer access to this resource.' },
+                    ],
+                },
+            })
+
+            logic.actions.loadRecordingComments()
+            logic.actions.loadRecordingNotebookComments()
+
+            // Wait for both loaders to settle.
+            await new Promise((resolve) => setTimeout(resolve, 100))
+
+            expect(logic.values.sessionCommentsLoading).toBe(false)
+            expect(logic.values.sessionNotebookCommentsLoading).toBe(false)
+            expect(logic.values.sessionComments).toEqual([])
+            expect(logic.values.sessionNotebookComments).toEqual([])
+            // The whole point of the fix: the 403 must not surface as a captured exception.
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
+        } finally {
+            captureExceptionSpy.mockRestore()
+        }
     })
 })

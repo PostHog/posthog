@@ -2,7 +2,7 @@ import { actions, connect, kea, key, listeners, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -40,15 +40,24 @@ export const sessionRecordingCommentsLogic = kea<sessionRecordingCommentsLogicTy
                         return empty
                     }
 
-                    // Pass scope so Postgres can use the (team_id, scope, item_id, ...) composite index.
-                    // All historical 'recording' comments were migrated to 'Replay' in migration 0870.
-                    const response = await api.comments.list({
-                        scope: 'Replay',
-                        item_id: props.sessionRecordingId,
-                    })
-                    breakpoint()
+                    try {
+                        // Pass scope so Postgres can use the (team_id, scope, item_id, ...) composite index.
+                        // All historical 'recording' comments were migrated to 'Replay' in migration 0870.
+                        const response = await api.comments.list({
+                            scope: 'Replay',
+                            item_id: props.sessionRecordingId,
+                        })
+                        breakpoint()
 
-                    return response.results || empty
+                        return response.results || empty
+                    } catch (e) {
+                        // Users without resource-level access to comments get a 403 here. The replay scene
+                        // side-loads comments unconditionally, so swallow the expected denial.
+                        if (e instanceof ApiError && e.status === 403) {
+                            return empty
+                        }
+                        throw e
+                    }
                 },
                 deleteComment: async (id, breakpoint): Promise<CommentType[]> => {
                     await breakpoint(25)
@@ -64,10 +73,19 @@ export const sessionRecordingCommentsLogic = kea<sessionRecordingCommentsLogicTy
                     return empty
                 }
 
-                const response = await api.notebooks.recordingComments(props.sessionRecordingId)
-                breakpoint()
+                try {
+                    const response = await api.notebooks.recordingComments(props.sessionRecordingId)
+                    breakpoint()
 
-                return response.results || empty
+                    return response.results || empty
+                } catch (e) {
+                    // Users without resource-level access to notebooks get a 403 here. The replay scene
+                    // side-loads notebook comments unconditionally, so swallow the expected denial.
+                    if (e instanceof ApiError && e.status === 403) {
+                        return empty
+                    }
+                    throw e
+                }
             },
         },
     })),
