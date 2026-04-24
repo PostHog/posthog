@@ -11,7 +11,7 @@ This skill helps identify when data the user needs lives outside PostHog and gui
 
 - A HogQL query fails because a table doesn't exist
 - The user asks about data from an external system (Stripe, Hubspot, Salesforce, etc.)
-- The user wants to correlate PostHog analytics with business data (revenue, support tickets, CRM records)
+- The user wants to correlate PostHog analytics with business data (revenue, support tickets, CRM records, etc)
 - The user asks "how do I get my X data into PostHog?"
 - Analysis requires joining PostHog events with external data
 
