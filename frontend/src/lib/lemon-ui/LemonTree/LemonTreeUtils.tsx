@@ -261,21 +261,20 @@ export const TreeNodeDroppable = (props: DroppableProps): JSX.Element => {
     const showRing = props.isDroppable && isOver && !isReorder
     const showLineBefore = isReorder && isOver && reorderSide === 'before'
     const showLineAfter = isReorder && isOver && reorderSide === 'after'
-    // While in reorder mode and hovered but the side hasn't been resolved yet,
-    // render a neutral full-height halo so there's always some visible affordance.
-    const showReorderPending = isReorder && isOver && reorderSide === null
 
     return (
         <div
             ref={setRefs}
             className={cn(
-                'flex flex-col transition-all duration-150 rounded relative z-2 ',
+                'flex flex-col rounded relative z-2 ',
+                // Keep the ring mode transition for existing consumers; skip it in reorder mode
+                // so the insertion indicator appears/moves instantly and doesn't tween width.
+                !isReorder && 'transition-all duration-150',
                 props.className,
                 // In reorder mode force full row width so the insertion line has a
                 // consistent visible length across rows with different label widths.
                 isReorder && 'w-full',
                 showRing && 'ring-2 ring-inset ring-accent bg-accent-highlight-secondary',
-                showReorderPending && 'bg-accent-highlight-secondary',
                 // If the item is a root item and it's dragging, make it take up the full height
                 props.isRoot && props.isDragging && 'h-full'
             )}
@@ -283,11 +282,11 @@ export const TreeNodeDroppable = (props: DroppableProps): JSX.Element => {
             style={props.style}
         >
             {showLineBefore && (
-                <div className="pointer-events-none absolute -top-px left-2 right-2 h-0.5 rounded-full bg-accent z-10" />
+                <div className="pointer-events-none absolute -top-px left-2 right-2 h-0.5 bg-accent z-10" />
             )}
             {props.children}
             {showLineAfter && (
-                <div className="pointer-events-none absolute -bottom-px left-2 right-2 h-0.5 rounded-full bg-accent z-10" />
+                <div className="pointer-events-none absolute -bottom-px left-2 right-2 h-0.5 bg-accent z-10" />
             )}
         </div>
     )
