@@ -182,6 +182,11 @@ jobs:
                   # Use docker to clean up files created by containers
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
+            - name: Cache docker compose images
+              uses: ./.depot/actions/cache-compose-images
+              with:
+                  compose-files: docker-compose.dev.yml:docker-compose.profiles.yml
+                  cache-key-suffix: dagster
             - name: Start stack with Docker Compose
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml

@@ -261,6 +261,12 @@ jobs:
               run: |
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
                   bin/turbo --filter=@posthog/frontend prepare
+            - name: Cache docker compose images
+              uses: ./.depot/actions/cache-compose-images
+              with:
+                  compose-files: docker-compose.dev.yml:docker-compose.profiles.yml
+                  compose-profiles: capture,temporal
+                  cache-key-suffix: e2e-playwright
             - name: Start Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
