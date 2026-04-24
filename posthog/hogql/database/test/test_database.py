@@ -1038,6 +1038,86 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             parse_select("SELECT id, timestamp, distinct_id FROM stripe.table"), context, dialect="clickhouse"
         )
 
+    @parameterized.expand(
+        [
+            ("self_managed", False),
+            ("external_source", True),
+        ]
+    )
+    def test_data_warehouse_events_modifiers_when_view_and_table_share_a_name(
+        self, _name: str, use_external_source: bool
+    ):
+        shared_name = "analytics_search_history"
+
+        warehouse_table_kwargs: dict[str, Any] = {}
+        if use_external_source:
+            credentials = DataWarehouseCredential.objects.create(
+                access_key="test_key", access_secret="test_secret", team=self.team
+            )
+            source = ExternalDataSource.objects.create(
+                team=self.team,
+                source_id="source_id",
+                source_type=ExternalDataSourceType.STRIPE,
+            )
+            warehouse_table_kwargs = {
+                "credential": credentials,
+                "external_data_source": source,
+            }
+
+        DataWarehouseTable.objects.create(
+            name=shared_name,
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            team=self.team,
+            url_pattern=f"s3://test/{shared_name}",
+            queryable_folder=f"{shared_name}__query_1776789614",
+            columns={
+                "email": "Nullable(String)",
+                "user_name": "Nullable(String)",
+                "created_at": "Nullable(DateTime64(6))",
+                "search_count": "Nullable(Float64)",
+                "search_source": "Nullable(String)",
+            },
+            **warehouse_table_kwargs,
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name=shared_name,
+            query={"query": "SELECT 1 AS ignored_value", "kind": "HogQLQuery"},
+            columns={"ignored_value": "UInt8"},
+        )
+
+        modifiers = HogQLQueryModifiers(
+            dataWarehouseEventsModifiers=[
+                DataWarehouseEventsModifier(
+                    table_name=shared_name,
+                    id_field="user_name",
+                    timestamp_field="created_at",
+                    distinct_id_field="user_name",
+                )
+            ]
+        )
+
+        db = Database.create_for(team=self.team, modifiers=modifiers)
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=db,
+        )
+
+        actual_table = db.get_table(shared_name)
+
+        assert isinstance(actual_table, Table)
+        assert isinstance(actual_table.fields.get("id"), ExpressionField)
+        assert isinstance(actual_table.fields.get("timestamp"), ExpressionField)
+        assert isinstance(actual_table.fields.get("distinct_id"), ExpressionField)
+        assert isinstance(actual_table.fields.get("person_id"), ExpressionField)
+
+        prepare_and_print_ast(
+            parse_select(f"SELECT id, timestamp, distinct_id, person_id FROM {shared_name}"),
+            context,
+            dialect="clickhouse",
+        )
+
     def test_direct_postgres_table_supports_properties_virtual_table(self):
         credentials = DataWarehouseCredential.objects.create(
             access_key="test_key", access_secret="test_secret", team=self.team

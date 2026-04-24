@@ -49,6 +49,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         super().__init__(*args, **kwargs)
         self.config = MarketingAnalyticsConfig()
         self._conversion_goal_warnings: list[str] = []
+        self._valid_conversion_goals_count: Optional[int] = None
 
     def calculate(self) -> ResponseType:
         start = time.perf_counter()
@@ -63,13 +64,31 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
     def _capture_query_event(self, event: str, start: float, error: Optional[BaseException] = None) -> None:
         try:
             duration_ms = (time.perf_counter() - start) * 1000
+            if self._valid_conversion_goals_count is not None:
+                conversion_goals_count = self._valid_conversion_goals_count
+            else:
+                team_goals = self.team.marketing_analytics_config.conversion_goals or []
+                draft_goal = getattr(self.query, "draftConversionGoal", None)
+                conversion_goals_count = len(team_goals) + (1 if draft_goal else 0)
+
+            # Compare mode is entered via either compareFilter.compare (previous period)
+            # or compareFilter.compare_to (specific period) — see query_compare_to_date_range.
+            compare_filter = getattr(self.query, "compareFilter", None)
+            has_compare = bool(
+                compare_filter
+                and (
+                    getattr(compare_filter, "compare", False)
+                    or isinstance(getattr(compare_filter, "compare_to", None), str)
+                )
+            )
+
             props: dict = {
                 "query_kind": getattr(self.query, "kind", None),
                 "duration_ms": round(duration_ms, 2),
                 "drill_down_level": getattr(self.config, "drill_down_level", None),
                 "attribution_mode": getattr(self.query, "attributionMode", None),
-                "conversion_goals_count": len(getattr(self.query, "conversionGoals", None) or []),
-                "has_compare": getattr(self.query, "compareFilter", None) is not None,
+                "conversion_goals_count": conversion_goals_count,
+                "has_compare": has_compare,
                 "team_id": self.team.pk,
             }
             if error is None:
@@ -546,6 +565,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             valid_conversion_goals, self._conversion_goal_warnings = self._filter_invalid_conversion_goals(
                 conversion_goals
             )
+            self._valid_conversion_goals_count = len(valid_conversion_goals)
 
             # Create processors only for valid conversion goals
             processors = (

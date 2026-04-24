@@ -619,7 +619,7 @@ class RealtimeCohortCalculationWorkflow(PostHogWorkflow):
         await temporalio.workflow.execute_activity(
             process_realtime_cohort_calculation_activity,
             inputs,
-            start_to_close_timeout=dt.timedelta(minutes=30),
+            start_to_close_timeout=dt.timedelta(minutes=60),
             heartbeat_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
                 maximum_attempts=3,

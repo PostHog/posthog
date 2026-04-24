@@ -196,8 +196,9 @@ class _UserCostThrottleBase(CostThrottle):
     def _get_cache_key(self, context: ThrottleContext) -> str:
         if not context.end_user_id:
             return ""
+        team_id = context.user.team_id or 0
         team_mult = self._get_team_multiplier(context)
-        base = f"cost:user:{self.scope}:{context.product}:{context.end_user_id}"
+        base = f"cost:user:{self.scope}:{context.product}:{context.end_user_id}:t{team_id}"
         if team_mult == 1:
             return base
         return f"{base}:tm{team_mult}"
@@ -256,7 +257,11 @@ class UserCostSustainedThrottle(_UserCostThrottleBase):
         if not base_key:
             return base_key
         if context.product == POSTHOG_CODE_PRODUCT:
-            period = get_billing_period_number(context.seat_created_at, get_settings().billing_period_days)
+            period = get_billing_period_number(
+                context.seat_created_at,
+                get_settings().billing_period_days,
+                billing_period_start=context.billing_period_start,
+            )
             return f"{base_key}:period:{period}"
         return base_key
 
