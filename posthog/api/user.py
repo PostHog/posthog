@@ -107,6 +107,9 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.notifications.backend.facade.api import NotificationType
+
+_VALID_NOTIFICATION_TYPE_VALUES: frozenset[str] = frozenset(t.value for t in NotificationType)
 
 REDIRECT_TO_SITE_COUNTER = Counter("posthog_redirect_to_site", "Redirect to site")
 REDIRECT_TO_SITE_FAILED_COUNTER = Counter("posthog_redirect_to_site_failed", "Redirect to site failed")
@@ -479,6 +482,34 @@ class UserSerializer(serializers.ModelSerializer):
                             code="invalid_input",
                         )
                 current_settings[key] = {**current_settings.get(key, {}), **value}
+            elif key == "realtime_notifications_disabled":
+                if not isinstance(value, dict):
+                    raise serializers.ValidationError(
+                        "realtime_notifications_disabled must be a dict",
+                        code="invalid_input",
+                    )
+                for type_key, team_map in value.items():
+                    if type_key not in _VALID_NOTIFICATION_TYPE_VALUES:
+                        raise serializers.ValidationError(
+                            f"Unknown notification type {type_key}",
+                            code="invalid_input",
+                        )
+                    if not isinstance(team_map, dict):
+                        raise serializers.ValidationError(
+                            f"Per-type value for {type_key} must be a dict of team_id to bool",
+                            code="invalid_input",
+                        )
+                    for _team_id, disabled in team_map.items():
+                        if not isinstance(disabled, bool):
+                            raise serializers.ValidationError(
+                                f"Disabled flag for {type_key} must be boolean, got {type(disabled)}",
+                                code="invalid_input",
+                            )
+                existing = current_settings.get("realtime_notifications_disabled", {}) or {}
+                merged: dict[str, dict[str, bool]] = {**existing}
+                for type_key, team_map in value.items():
+                    merged[type_key] = {**(existing.get(type_key, {}) or {}), **team_map}
+                current_settings["realtime_notifications_disabled"] = merged
             elif key == "data_pipeline_error_threshold":
                 if not isinstance(value, (int, float)):
                     raise serializers.ValidationError(
