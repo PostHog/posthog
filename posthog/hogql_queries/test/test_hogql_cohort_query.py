@@ -657,10 +657,11 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         query_str = HogQLRealtimeCohortQuery(cohort=cohort).query_str("clickhouse")
 
         self.assertIn("precalculated_events", query_str)
-        # Both sides of the window should be emitted.
+        # Both sides of the window should be emitted. HogQL prints `>=`/`<=` as
+        # `greaterOrEquals(...)` / `lessOrEquals(...)` function calls for ClickHouse.
         self.assertEqual(query_str.count("toDate("), 2)
-        self.assertIn(">=", query_str)
-        self.assertIn("<=", query_str)
+        self.assertIn("greaterOrEquals", query_str)
+        self.assertIn("lessOrEquals", query_str)
 
     def test_behavioral_performed_event_multiple_with_date_range(self) -> None:
         """performed_event_multiple with a bounded window still aggregates counts."""
@@ -725,7 +726,7 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         query_str = HogQLRealtimeCohortQuery(cohort=cohort).query_str("clickhouse")
 
         self.assertEqual(query_str.count("toDate("), 1)
-        self.assertNotIn("<= toDate", query_str)
+        self.assertNotIn("lessOrEquals", query_str)
 
     def test_static_cohort_raises_error(self) -> None:
         """
