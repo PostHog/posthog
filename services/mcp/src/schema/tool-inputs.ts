@@ -366,10 +366,10 @@ export const QueryValidateInputSchema = z.object({
             'The HogQL (ClickHouse-flavored SQL) query to validate. Parsed and type-checked without executing, so there is no ClickHouse cost.'
         ),
     language: z
-        .enum(['hog_ql', 'hog_ql_expr', 'hog', 'hog_template'])
-        .default('hog_ql')
+        .enum(['hogQL', 'hogQLExpr', 'hog', 'hogTemplate'])
+        .default('hogQL')
         .describe(
-            "Language to validate. Defaults to 'hog_ql' (full SELECT statements). Use 'hog_ql_expr' for a bare expression, 'hog' or 'hog_template' for Hog source."
+            "Language to validate. Defaults to 'hogQL' (full SELECT statements). Use 'hogQLExpr' for a bare expression, 'hog' or 'hogTemplate' for Hog source."
         ),
 })
 
