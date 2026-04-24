@@ -53,10 +53,13 @@ describe('statistics', () => {
             expect(result.map((n) => n.toFixed(2))).toEqual(['1.00', '2.00', '3.00', '4.00', '5.00'])
         })
 
-        it('falls back to full fit when fitUpTo is less than 2', () => {
-            const values = [1, 2, 3, 4, 5]
+        it('falls back to 2-point fit when fitUpTo is less than 2', () => {
+            // First two points give slope -9; a full fit would give a different slope.
+            // Math.max(2, ...) clamps degenerate fitUpTo to 2, not the full length.
+            const values = [10, 1, 2, 3, 4]
             const result = trendLine(values, 1)
-            expect(result.map((n) => n.toFixed(2))).toEqual(['1.00', '2.00', '3.00', '4.00', '5.00'])
+            // m = (1-10)/(1-0) = -9, b = 10  ->  y = -9x + 10
+            expect(result.map((n) => n.toFixed(2))).toEqual(['10.00', '1.00', '-8.00', '-17.00', '-26.00'])
         })
     })
 

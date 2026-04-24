@@ -33,8 +33,8 @@ export function ciRanges(values: number[], ci: number = 0.95): [number[], number
  * @param fitUpTo - If provided, the regression is fit only on `values.slice(0, fitUpTo)`;
  *                  the returned array still spans the full length (extrapolated past
  *                  the cutoff). Useful for excluding in-progress/partial tails that
- *                  would skew the slope. Clamped to >= 2 so degenerate values fall
- *                  back to fitting on all points.
+ *                  would skew the slope. When `fitUpTo < 2` the regression falls back
+ *                  to using the first two points (the minimum for linear regression).
  */
 export function trendLine(values: number[], fitUpTo?: number): number[] {
     const n = values.length

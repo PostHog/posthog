@@ -85,7 +85,7 @@ export const MultiSeriesWithTrendLines: Story = {
     },
 }
 
-export const TrendLineWithIncompleteperiod: Story = {
+export const TrendLineWithIncompletePeriod: Story = {
     render: () => {
         const theme = buildTheme()
         // First 5 buckets show a steady climb (fit target); last 2 are artificially low
