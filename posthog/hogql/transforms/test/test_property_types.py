@@ -295,6 +295,12 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         )
         _create_event(
             team=self.team,
+            distinct_id="u_json_null",
+            event="pageview",
+            properties={"$browser": None, "tag": "json_null"},
+        )
+        _create_event(
+            team=self.team,
             distinct_id="u_unset",
             event="pageview",
             properties={"tag": "unset"},
@@ -316,7 +322,7 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         values, sql = self._run_and_collect()
         assert "JSONExtractString(events.properties" in sql, sql
         assert "mat_$browser" not in sql, sql
-        assert values == {"set": "Chrome", "empty": "", "null_str": "null", "unset": ""}
+        assert values == {"set": "Chrome", "empty": "", "null_str": "null", "json_null": "null", "unset": ""}
 
     def test_rewrite_value_semantics_non_nullable_mat_column(self):
         self._seed_edge_case_events()
@@ -327,7 +333,7 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         # Only target mat_$browser: properties.tag in the same query still uses the
         # standard nullIf-wrapped access path.
         assert "nullIf(events.`mat_$browser`" not in sql, sql
-        assert values == {"set": "Chrome", "empty": "", "null_str": "null", "unset": ""}
+        assert values == {"set": "Chrome", "empty": "", "null_str": "null", "json_null": "null", "unset": ""}
 
     def test_rewrite_value_semantics_nullable_mat_column(self):
         self._seed_edge_case_events()
@@ -335,7 +341,7 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
             values, sql = self._run_and_collect()
         assert "JSONExtractString(events.properties" not in sql, sql
         assert "mat_$browser" in sql, sql
-        assert values == {"set": "Chrome", "empty": "", "null_str": "null", "unset": None}
+        assert values == {"set": "Chrome", "empty": "", "null_str": "null", "json_null": None, "unset": None}
 
 
 # ── Timezone index pruning tests ──────────────────────────────────────────────
