@@ -240,7 +240,9 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                 }
                 // When the consumer allows both single and range selections, render an absolute
                 // single-bound value as just the formatted date rather than "X to now" — picking
-                // a custom date should not visually imply a range.
+                // a custom date should not visually imply a range. Time is preserved when the
+                // picked value has it (the single-date picker lets users include a time), whereas
+                // ranges still require the explicit `allowTimePrecision` opt-in.
                 if (
                     allowSingleAndRange &&
                     dateFrom &&
@@ -249,9 +251,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                     !/^-\d+[hdwmqy]/.test(dateFrom) &&
                     dayjs(dateFrom).isValid()
                 ) {
-                    return allowTimePrecision && dateFromHasTimePrecision
-                        ? formatDateTime(dayjs(dateFrom))
-                        : formatDate(dayjs(dateFrom))
+                    return dateFromHasTimePrecision ? formatDateTime(dayjs(dateFrom)) : formatDate(dayjs(dateFrom))
                 }
                 const renderWithTime = allowTimePrecision && (dateFromHasTimePrecision || dateToHasTimePrecision)
                 return isFixedRange
