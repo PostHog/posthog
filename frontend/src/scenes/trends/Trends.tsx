@@ -51,18 +51,18 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
     }
 
     const renderViz = (): JSX.Element | undefined => {
-        if (featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS]) {
-            return <TrendsLineChart context={context} />
-        }
-
         if (
             !display ||
             display === ChartDisplayType.ActionsLineGraph ||
             display === ChartDisplayType.ActionsLineGraphCumulative ||
-            display === ChartDisplayType.ActionsAreaGraph ||
-            display === ChartDisplayType.ActionsBar ||
-            display === ChartDisplayType.ActionsUnstackedBar
+            display === ChartDisplayType.ActionsAreaGraph
         ) {
+            if (featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS]) {
+                return <TrendsLineChart context={context} inSharedMode={inSharedMode} />
+            }
+            return <ActionsLineGraph {...commonProps} />
+        }
+        if (display === ChartDisplayType.ActionsBar || display === ChartDisplayType.ActionsUnstackedBar) {
             return <ActionsLineGraph {...commonProps} />
         }
         if (display === ChartDisplayType.BoldNumber) {
