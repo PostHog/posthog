@@ -30,7 +30,10 @@ from posthog.schema import (
 
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import DatabaseField, ExpressionField, FieldTraverser, LazyJoin, Table
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES
 from posthog.hogql.metadata import get_hogql_metadata
 
 from posthog import settings
@@ -116,6 +119,81 @@ def _enrich_hogql_validation_error(
 
     extra = {"hogql_metadata": metadata.model_dump(mode="json", exclude_none=True)}
     return "\n".join(lines), extra
+
+
+_FIELD_TYPE_BY_CLASS_NAME: dict[str, str] = {
+    "IntegerDatabaseField": "integer",
+    "FloatDatabaseField": "float",
+    "DecimalDatabaseField": "decimal",
+    "StringDatabaseField": "string",
+    "StringJSONDatabaseField": "json",
+    "StringArrayDatabaseField": "array<string>",
+    "FloatArrayDatabaseField": "array<float>",
+    "DateDatabaseField": "date",
+    "DateTimeDatabaseField": "datetime",
+    "BooleanDatabaseField": "boolean",
+    "UUIDDatabaseField": "uuid",
+    "StructDatabaseField": "struct",
+    "UnknownDatabaseField": "unknown",
+}
+
+
+def _describe_field(field_or_table) -> dict | None:
+    """Serialize a single field definition for the /query/schema/ payload.
+    Returns None for entries that aren't usable as query columns (unresolved
+    field references etc.), so the caller can drop them."""
+    if isinstance(field_or_table, DatabaseField):
+        return {
+            "name": field_or_table.name,
+            "type": _FIELD_TYPE_BY_CLASS_NAME.get(type(field_or_table).__name__, "unknown"),
+            "nullable": field_or_table.is_nullable(),
+        }
+    if isinstance(field_or_table, ExpressionField):
+        return {"name": field_or_table.name, "type": "expression", "nullable": False}
+    if isinstance(field_or_table, LazyJoin):
+        target = getattr(field_or_table, "join_table", None)
+        target_name = getattr(target, "to_printed_hogql", lambda: None)() if target is not None else None
+        return {"name": None, "type": "join", "nullable": False, "join_table": target_name}
+    if isinstance(field_or_table, FieldTraverser):
+        return {"name": None, "type": "alias", "nullable": False, "chain": list(field_or_table.chain)}
+    if isinstance(field_or_table, Table):
+        # Nested tables are surfaced as their own top-level entries by get_all_table_names.
+        return None
+    return None
+
+
+def _serialize_table(database: Database, table_name: str) -> dict | None:
+    try:
+        table = database.get_table(table_name)
+    except Exception:
+        return None
+
+    fields: list[dict] = []
+    for column_name, field in table.fields.items():
+        payload = _describe_field(field)
+        if payload is None:
+            continue
+        if payload.get("name") is None:
+            payload["name"] = column_name
+        fields.append(payload)
+
+    return {"name": table_name, "fields": fields}
+
+
+def _build_query_schema_payload(team, user) -> dict:
+    """Build the response payload for GET /query/schema/ — one entry per
+    table visible to the caller, with field names and simplified types, plus
+    the catalog of HogQL functions the agent can call in a query."""
+    database = Database.create_for(team=team, user=user)
+    table_names = database.get_all_table_names()
+
+    tables: list[dict] = []
+    for table_name in table_names:
+        serialized = _serialize_table(database, table_name)
+        if serialized is not None:
+            tables.append(serialized)
+
+    return {"tables": tables, "functions": sorted(ALL_EXPOSED_FUNCTION_NAMES)}
 
 
 def _extract_validation_code(error: ValidationError) -> str:
@@ -336,6 +414,20 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
     @action(methods=["POST"], detail=False)
     def check_auth_for_async(self, request: Request, *args, **kwargs):
         return JsonResponse({"user": "ok"}, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        description=(
+            "Return the HogQL catalog for this project: every queryable table with "
+            "its fields (name, simplified type, nullability) plus the supported "
+            "function names. Intended as a one-shot discovery call for editors and "
+            "LLM agents building HogQL queries."
+        ),
+        responses={200: OpenApiResponse(description="Schema payload")},
+    )
+    @action(methods=["GET"], detail=False, url_path="schema")
+    def query_schema(self, request: Request, *args, **kwargs) -> Response:
+        payload = _build_query_schema_payload(team=self.team, user=request.user)
+        return Response(payload, status=status.HTTP_200_OK)
 
     @extend_schema(
         description="(Experimental)",

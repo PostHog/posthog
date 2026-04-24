@@ -356,6 +356,8 @@ export const QueryRunInputSchema = z.object({
     query: QueryRunQuerySchema,
 })
 
+export const HogQLSchemaInputSchema = z.object({})
+
 export const QueryValidateInputSchema = z.object({
     query: z
         .string()

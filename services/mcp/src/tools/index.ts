@@ -31,6 +31,7 @@ import updateEventDefinition from './projects/updateEventDefinition'
 // Query
 import generateHogQLFromQuestion from './query/generateHogQLFromQuestion'
 import queryRun from './query/run'
+import hogqlSchema from './query/schema'
 import queryValidate from './query/validate'
 // Search
 import entitySearch from './search/entitySearch'
@@ -67,6 +68,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'query-generate-hogql-from-question': generateHogQLFromQuestion,
     'query-run': queryRun,
     'query-validate': queryValidate,
+    'hogql-schema': hogqlSchema,
 
     // LLM Analytics
     'get-llm-total-costs-for-project': getLLMCosts,
