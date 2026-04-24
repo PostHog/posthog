@@ -654,7 +654,7 @@ class KafkaLogProducerFromQueueAsync:
         self.queue = queue
         self.topic = topic
         self.key = key
-        self.producer = producer if producer is not None else new_async_producer(topic=topic)
+        self.producer = producer if producer is not None else new_async_producer(topic=topic, loop=loop)
         self.logger = structlog.get_logger("posthog.temporal.common.logger.KafkaLogProducerFromQueueAsync")
 
     async def listen(self):
