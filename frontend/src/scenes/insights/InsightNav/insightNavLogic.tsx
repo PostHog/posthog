@@ -36,7 +36,6 @@ import {
     PathsFilter,
     PathsQuery,
     ProductAnalyticsInsightQueryNode,
-    ProductKey,
     RetentionFilter,
     RetentionQuery,
     StickinessFilter,
@@ -68,6 +67,8 @@ import {
     isWebAnalyticsInsightQuery,
 } from '~/queries/utils'
 import { BaseMathType, InsightLogicProps, InsightType, IntervalType } from '~/types'
+
+import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics/frontend/constants'
 
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import type { insightNavLogicType } from './insightNavLogicType'
@@ -524,7 +525,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     : query.source
                 actions.setQuery({
                     ...query,
-                    source: { ...source, tags: { productKey: ProductKey.PRODUCT_ANALYTICS } },
+                    source: { ...source, tags: { ...source.tags, ...PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } },
                 } as InsightVizNode)
             } else {
                 actions.setQuery(query)

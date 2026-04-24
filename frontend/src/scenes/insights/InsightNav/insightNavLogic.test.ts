@@ -8,7 +8,15 @@ import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
-import { EventsQuery, FunnelsQuery, InsightVizNode, NodeKind, TrendsQuery, Node } from '~/queries/schema/schema-general'
+import {
+    EventsQuery,
+    FunnelsQuery,
+    InsightVizNode,
+    NodeKind,
+    Node,
+    ProductKey,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     ChartDisplayType,
@@ -91,6 +99,18 @@ describe('insightNavLogic', () => {
                 },
             })
         })
+
+        it.each([InsightType.TRENDS, InsightType.FUNNELS, InsightType.LIFECYCLE])(
+            'tags %s queries with product_analytics productKey',
+            async (insightType) => {
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(insightType)
+                })
+
+                const query = builtInsightDataLogic.values.query as InsightVizNode
+                expect(query.source?.tags?.productKey).toEqual(ProductKey.PRODUCT_ANALYTICS)
+            }
+        )
 
         it('can set active view to QUERY', async () => {
             await expectLogic(logic, () => {
