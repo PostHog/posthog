@@ -9,6 +9,7 @@ import {
     LemonDialog,
     LemonInput,
     LemonInputSelect,
+    LemonSelect,
     LemonTable,
     LemonTableColumns,
     LemonTag,
