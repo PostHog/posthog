@@ -83,7 +83,7 @@ def active_teams() -> set[int]:
     Their "score" is the number of seconds since last event.
     Lower is better.
     This lets us exclude teams not in the set as they don't have recent events.
-    That is, if a team has not ingested events in the last seven days, why refresh its insights?
+    That is, if a team has not ingested events in the last three days, why refresh its insights?
     And could let us process the teams in order of how recently they ingested events.
     This assumes that the list of active teams is small enough to reasonably load in one go.
 
