@@ -16,6 +16,7 @@ from ee.admin.loginas_views import loginas_user, upgrade_impersonation
 from ee.admin.oauth_views import admin_auth_check, admin_oauth_success
 from ee.api import integration
 from ee.api.agentic_provisioning import views as agentic_provisioning_views
+from ee.api.agentic_provisioning.registration import provisioning_register
 from ee.api.vercel import vercel_connect, vercel_sso, vercel_webhooks
 from ee.middleware import admin_oauth2_callback
 from ee.support_sidebar_max.views import MaxChatViewSet
@@ -266,6 +267,11 @@ urlpatterns: list[Any] = [
     ),
     path("scim/v2/<uuid:domain_id>/Schemas", csrf_exempt(scim_views.SCIMSchemasView.as_view()), name="scim_schemas"),
     # Agentic Provisioning Protocol (APP 0.1d)
+    path(
+        "api/provisioning/register",
+        csrf_exempt(provisioning_register),
+        name="provisioning_register",
+    ),
     path(
         "api/agentic/provisioning/health",
         csrf_exempt(agentic_provisioning_views.provisioning_health),

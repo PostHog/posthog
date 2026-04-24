@@ -311,6 +311,15 @@ class SignupIPThrottle(IPThrottle):
     rate = "5/day"
 
 
+class PartnerRegistrationIPThrottle(IPThrottle):
+    """
+    Rate limit self-serve provisioning partner registrations by IP to bound abuse.
+    """
+
+    scope = "provisioning_partner_registration_ip"
+    rate = "3/day"
+
+
 class WebAuthnSignupRegistrationThrottle(IPThrottle):
     """
     Rate limit passkey signup registrations by IP address to avoid a single IP address from initiating too many signups.
