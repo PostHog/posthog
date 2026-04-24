@@ -1,5 +1,4 @@
 import os
-import shutil
 import time
 
 from django.dispatch import receiver
@@ -147,9 +146,14 @@ def receiver_bind_extra_request_metadata(sender, signal, task=None, logger=None)
 @celeryd_init.connect
 def on_celeryd_init(**kwargs) -> None:
     """Clean stale prometheus multiproc files from a previous run."""
-    if _PROMETHEUS_MULTIPROC_DIR and os.path.isdir(_PROMETHEUS_MULTIPROC_DIR):
-        shutil.rmtree(_PROMETHEUS_MULTIPROC_DIR)
-        os.makedirs(_PROMETHEUS_MULTIPROC_DIR, exist_ok=True)
+    if not _PROMETHEUS_MULTIPROC_DIR:
+        return
+    try:
+        for entry in os.scandir(_PROMETHEUS_MULTIPROC_DIR):
+            if entry.is_file(follow_symlinks=False) and entry.name.endswith(".db"):
+                os.unlink(entry.path)
+    except OSError as e:
+        logger.warning("prometheus_multiproc_cleanup_failed", error=str(e))
 
 
 @worker_process_init.connect
@@ -170,8 +174,11 @@ def on_worker_start(**kwargs) -> None:
             from prometheus_client import start_http_server
 
             start_http_server(port)
-    except OSError:
-        pass  # Another child already bound this port — expected in prefork
+    except OSError as exc:
+        import errno
+
+        if exc.errno != errno.EADDRINUSE:
+            logger.warning("metrics_server_start_failed", port=port, error=str(exc))
 
     # Initialize metrics that need to survive pod restarts
     _initialize_worker_metrics()
