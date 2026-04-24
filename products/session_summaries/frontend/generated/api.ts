@@ -28,18 +28,18 @@ export const retrieveSessionSummariesConfig = async (
 }
 
 /**
- * Retrieve the team's session summaries configuration (product context used to tailor single-session replay summaries).
+ * Update the team's session summaries configuration (product context used to tailor single-session replay summaries).
  */
-export const getRetrieveSessionSummariesConfig2Url = (projectId: string) => {
+export const getUpdateSessionSummariesConfigUrl = (projectId: string) => {
     return `/api/environments/${projectId}/session_summaries/config/`
 }
 
-export const retrieveSessionSummariesConfig2 = async (
+export const updateSessionSummariesConfig = async (
     projectId: string,
     patchedSessionSummariesConfigApi: PatchedSessionSummariesConfigApi,
     options?: RequestInit
 ): Promise<SessionSummariesConfigApi> => {
-    return apiMutator<SessionSummariesConfigApi>(getRetrieveSessionSummariesConfig2Url(projectId), {
+    return apiMutator<SessionSummariesConfigApi>(getUpdateSessionSummariesConfigUrl(projectId), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

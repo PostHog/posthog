@@ -354,6 +354,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             )
 
     @extend_schema(
+        methods=["GET"],
         operation_id="retrieve_session_summaries_config",
         description=(
             "Retrieve the team's session summaries configuration "
