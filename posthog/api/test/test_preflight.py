@@ -328,9 +328,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             assert response.json()["realm"] == "hosted-clickhouse"
             assert response.json()["cloud"] is False
 
-    @patch("posthog.views.posthoganalytics.feature_enabled")
-    def test_posthog_code_slack_service_available_when_flag_on(self, mock_flag):
-        mock_flag.return_value = True
+    def test_posthog_code_slack_service_available_when_configured(self):
         with self.settings(
             SLACK_POSTHOG_CODE_CLIENT_ID="client-id",
             SLACK_POSTHOG_CODE_CLIENT_SECRET="client-secret",
@@ -342,31 +340,3 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             "available": True,
             "client_id": "client-id",
         }
-
-    @patch("posthog.views.posthoganalytics.feature_enabled")
-    def test_posthog_code_slack_service_unavailable_when_flag_off(self, mock_flag):
-        mock_flag.return_value = False
-        with self.settings(
-            SLACK_POSTHOG_CODE_CLIENT_ID="client-id",
-            SLACK_POSTHOG_CODE_CLIENT_SECRET="client-secret",
-            SLACK_POSTHOG_CODE_SIGNING_SECRET="signing-secret",
-        ):
-            response = self.client.get("/_preflight/")
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["posthog_code_slack_service"] == {
-            "available": False,
-            "client_id": "client-id",
-        }
-
-    @patch("posthog.views.posthoganalytics.feature_enabled")
-    def test_posthog_code_slack_service_anonymous_does_not_eval_flag(self, mock_flag):
-        self.client.logout()
-        with self.settings(
-            SLACK_POSTHOG_CODE_CLIENT_ID="client-id",
-            SLACK_POSTHOG_CODE_CLIENT_SECRET="client-secret",
-            SLACK_POSTHOG_CODE_SIGNING_SECRET="signing-secret",
-        ):
-            response = self.client.get("/_preflight/")
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["posthog_code_slack_service"]["available"] is False
-        mock_flag.assert_not_called()

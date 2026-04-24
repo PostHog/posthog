@@ -428,7 +428,7 @@ jobs:
                       }
 
             - name: Check for changes that affect temporal workers (dorny)
-              uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+              uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: check_temporal_worker_changes
               with:
                   filters: |

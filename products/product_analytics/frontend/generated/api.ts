@@ -16,8 +16,8 @@ import type {
     ElementApi,
     ElementsListParams,
     InsightApi,
-    InsightsActivityRetrieve2Params,
     InsightsActivityRetrieveParams,
+    InsightsAllActivityRetrieveParams,
     InsightsAnalyzeRetrieveParams,
     InsightsBulkUpdateTagsCreateParams,
     InsightsCancelCreateParams,
@@ -528,10 +528,10 @@ request.META["_coalesced_response"] for followers. This mixin runs DRF's
 initial() (auth + permissions + throttling) before returning the
 cached response, ensuring the request is authorized.
  */
-export const getInsightsActivityRetrieve2Url = (
+export const getInsightsActivityRetrieveUrl = (
     projectId: string,
     id: number,
-    params?: InsightsActivityRetrieve2Params
+    params?: InsightsActivityRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -548,13 +548,13 @@ export const getInsightsActivityRetrieve2Url = (
         : `/api/projects/${projectId}/insights/${id}/activity/`
 }
 
-export const insightsActivityRetrieve2 = async (
+export const insightsActivityRetrieve = async (
     projectId: string,
     id: number,
-    params?: InsightsActivityRetrieve2Params,
+    params?: InsightsActivityRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getInsightsActivityRetrieve2Url(projectId, id, params), {
+    return apiMutator<void>(getInsightsActivityRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -691,7 +691,7 @@ request.META["_coalesced_response"] for followers. This mixin runs DRF's
 initial() (auth + permissions + throttling) before returning the
 cached response, ensuring the request is authorized.
  */
-export const getInsightsActivityRetrieveUrl = (projectId: string, params?: InsightsActivityRetrieveParams) => {
+export const getInsightsAllActivityRetrieveUrl = (projectId: string, params?: InsightsAllActivityRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -707,12 +707,12 @@ export const getInsightsActivityRetrieveUrl = (projectId: string, params?: Insig
         : `/api/projects/${projectId}/insights/activity/`
 }
 
-export const insightsActivityRetrieve = async (
+export const insightsAllActivityRetrieve = async (
     projectId: string,
-    params?: InsightsActivityRetrieveParams,
+    params?: InsightsAllActivityRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getInsightsActivityRetrieveUrl(projectId, params), {
+    return apiMutator<void>(getInsightsAllActivityRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

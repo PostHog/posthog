@@ -71,6 +71,19 @@ export function appendToolCallChunk(state: AggregatedToolCall[], toolCall: ToolC
     return updated
 }
 
+export function describeError(err: unknown, fallbackMessage: string): { message: string; status?: number } {
+    if (err instanceof ApiError) {
+        const dataError = typeof err.data?.error === 'string' ? err.data.error : null
+        return {
+            message: dataError || err.detail || err.message || fallbackMessage,
+            status: err.status,
+        }
+    }
+    return {
+        message: (err instanceof Error && err.message) || fallbackMessage,
+    }
+}
+
 function formatToolCalls(toolCalls: AggregatedToolCall[]): string {
     if (toolCalls.length === 0) {
         return ''
@@ -405,9 +418,17 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                                     upsertLiveItem()
                                     return
                                 }
-                                responseText += `\n\n**Stream Connection Error:** ${err.message || 'Unknown error'}`
+                                const { message, status } = describeError(err, 'Unknown error')
+                                const errorLabel = err instanceof ApiError ? 'Error' : 'Stream Connection Error'
+                                responseText += `\n\n**${errorLabel}:** ${message}`
                                 responseHasError = true
                                 upsertLiveItem()
+                                posthog.captureException(err, {
+                                    tag: 'llma-playground-prompt-run',
+                                    model: prompt.model,
+                                    provider: selectedModelProvider,
+                                    status,
+                                })
                             },
                         })
 
@@ -422,9 +443,16 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                             actions.setSubscriptionRequired(true)
                             responseHasError = true
                         } else {
-                            responseText += `\n\n**Error:** Failed to initiate prompt submission.`
+                            const { message, status } = describeError(error, 'Failed to initiate prompt submission.')
+                            responseText += `\n\n**Error:** ${message}`
                             responseHasError = true
-                            lemonToast.error('Failed to connect to LLM service. Please try again.')
+                            lemonToast.error(message)
+                            posthog.captureException(error, {
+                                tag: 'llma-playground-prompt-submit',
+                                model: prompt.model,
+                                provider: selectedModelProvider,
+                                status,
+                            })
                         }
                         upsertLiveItem()
                     } finally {

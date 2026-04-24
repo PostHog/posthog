@@ -6,6 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import {
     logsAlertsDestroy,
@@ -16,6 +17,7 @@ import {
 import { LogsAlertConfigurationApi } from 'products/logs/frontend/generated/api.schemas'
 
 import type { logsAlertingLogicType } from './logsAlertingLogicType'
+import { withEnableNotificationGuard } from './logsAlertUtils'
 
 const ALERT_POLL_INTERVAL_MS = 30_000
 
@@ -82,18 +84,6 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
     })),
 
     listeners(({ actions, values }) => ({
-        loadAlertsSuccess: () => {
-            const params = router.values.searchParams
-            if (params.alertId && typeof params.alertId === 'string') {
-                const alert = values.alerts.find((a) => a.id === params.alertId)
-                if (alert) {
-                    actions.setEditingAlert(alert)
-                }
-                // Clear alertId from URL regardless of whether we found the alert
-                const { alertId: _, ...rest } = router.values.searchParams
-                router.actions.replace(router.values.location.pathname, rest, router.values.hashParams)
-            }
-        },
         deleteAlert: async ({ id }) => {
             const projectId = String(values.currentTeamId)
             try {
@@ -104,16 +94,22 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
                 lemonToast.error('Failed to delete alert')
             }
         },
-        toggleAlertEnabled: async ({ alert }) => {
-            const projectId = String(values.currentTeamId)
-            try {
-                await logsAlertsPartialUpdate(projectId, alert.id, {
-                    enabled: !(alert.enabled ?? true),
-                })
-                actions.loadAlerts()
-            } catch {
-                lemonToast.error('Failed to update alert')
-            }
+        toggleAlertEnabled: ({ alert }) => {
+            withEnableNotificationGuard(
+                alert,
+                async () => {
+                    const projectId = String(values.currentTeamId)
+                    try {
+                        await logsAlertsPartialUpdate(projectId, alert.id, {
+                            enabled: !(alert.enabled ?? true),
+                        })
+                        actions.loadAlerts()
+                    } catch {
+                        lemonToast.error('Failed to update alert')
+                    }
+                },
+                () => router.actions.push(urls.logsAlertDetail(alert.id, 'notifications'))
+            )
         },
         resetAlert: async ({ id }) => {
             const projectId = String(values.currentTeamId)
