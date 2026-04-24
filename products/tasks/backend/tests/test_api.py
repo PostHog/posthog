@@ -677,6 +677,7 @@ class TestTaskAPI(BaseTaskAPITest):
             ("acceptEdits",),
             ("plan",),
             ("bypassPermissions",),
+            ("auto",),
         ]
     )
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
@@ -826,8 +827,8 @@ class TestTaskAPI(BaseTaskAPITest):
                 "claude_rejects_codex_mode",
                 "claude",
                 "claude-opus-4-6",
-                "auto",
-                "Invalid choice 'auto' for runtime_adapter 'claude'. Supported values: 'default', 'acceptEdits', 'plan', 'bypassPermissions'.",
+                "full-access",
+                "Invalid choice 'full-access' for runtime_adapter 'claude'. Supported values: 'default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto'.",
             ),
             (
                 "codex_rejects_claude_mode",
@@ -3307,6 +3308,44 @@ class TestTaskRunRedisStreamKeepalive(TestCase):
 class TestTaskRunStreamKeepaliveAPI(BaseTaskAPITest):
     def _stream_url(self, task: Task, run: TaskRun) -> str:
         return f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/stream/"
+
+    def test_stream_emits_keepalive_while_waiting_for_stream_creation(self):
+        task = self.create_task()
+        run = task.create_run()
+
+        async def fake_read_stream_entries(self, *args, **kwargs):
+            yield (
+                "1-0",
+                {
+                    "type": "notification",
+                    "timestamp": "2026-01-01T00:00:01Z",
+                    "notification": {
+                        "jsonrpc": "2.0",
+                        "method": "_posthog/console",
+                        "params": {
+                            "sessionId": str(run.id),
+                            "level": "info",
+                            "message": "after stream creation",
+                        },
+                    },
+                },
+            )
+
+        with (
+            patch.object(TaskRunRedisStream, "exists", new=AsyncMock(side_effect=[False, True])),
+            patch.object(TaskRunRedisStream, "read_stream_entries", new=fake_read_stream_entries),
+            patch("products.tasks.backend.api.TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS", 0),
+        ):
+            response = cast(
+                StreamingHttpResponse,
+                self.client.get(self._stream_url(task, run), HTTP_ACCEPT="text/event-stream"),
+            )
+            content = b"".join(cast(Iterator[bytes], response.streaming_content)).decode("utf-8")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("event: keepalive", content)
+        self.assertIn("after stream creation", content)
+        self.assertLess(content.index("event: keepalive"), content.index("after stream creation"))
 
     def test_stream_emits_keepalive_comments_while_idle(self):
         task = self.create_task()

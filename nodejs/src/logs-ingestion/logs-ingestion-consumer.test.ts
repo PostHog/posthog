@@ -11,6 +11,8 @@ import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
 import { KAFKA_APP_METRICS_2 } from '../config/kafka-topics'
+import { APP_METRICS_OUTPUT } from '../ingestion/common/outputs'
+import { SingleIngestionOutput } from '../ingestion/outputs/single-ingestion-output'
 import { parseJSON } from '../utils/json-parse'
 import { LogRecord, encodeLogRecords } from './log-record-avro'
 import {
@@ -113,7 +115,16 @@ describe('LogsIngestionConsumer', () => {
     const createLogsIngestionConsumer = async (hub: Hub, overrides: any = {}) => {
         const consumer = new LogsIngestionConsumer(
             hub,
-            { ...hub, kafkaProducer: mockProducer, mskProducer: mockProducer },
+            {
+                ...hub,
+                kafkaProducer: mockProducer,
+                appMetricsOutput: new SingleIngestionOutput(
+                    APP_METRICS_OUTPUT,
+                    KAFKA_APP_METRICS_2,
+                    mockProducer,
+                    'test'
+                ),
+            },
             overrides
         )
         // NOTE: We don't actually use kafka so we skip instantiation for faster tests
@@ -953,6 +964,7 @@ describe('LogsIngestionConsumer', () => {
             expect(stats!.recordsAllowed).toBe(5)
             expect(stats!.bytesDropped).toBe(0)
             expect(stats!.recordsDropped).toBe(0)
+            expect(stats!.piiReplacements).toBe(0)
         })
 
         it('should aggregate stats for multiple messages from same team', async () => {
@@ -1033,7 +1045,7 @@ describe('LogsIngestionConsumer', () => {
         })
     })
 
-    describe('produceUsageMetric', () => {
+    describe('queueUsageMetric', () => {
         const parseMetricValue = (value: any): any => {
             if (Buffer.isBuffer(value)) {
                 return parseJSON(value.toString())
@@ -1043,8 +1055,10 @@ describe('LogsIngestionConsumer', () => {
             }
             return value
         }
-        it('should produce metric with correct structure', async () => {
-            await consumer['produceUsageMetric'](123, 'test_metric', 500, '2025-01-01 00:00:00.000')
+
+        it('should queue + flush metric with correct structure', async () => {
+            consumer['queueUsageMetric'](123, 'test_metric', 500)
+            await consumer['appMetricsAggregator'].flush()
 
             const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
 
@@ -1057,11 +1071,13 @@ describe('LogsIngestionConsumer', () => {
             expect(value?.metric_kind).toBe('usage')
             expect(value?.metric_name).toBe('test_metric')
             expect(value?.count).toBe(500)
-            expect(value?.timestamp).toBe('2025-01-01 00:00:00.000')
+            // timestamp is now set at flush time, not by the caller
+            expect(typeof value?.timestamp).toBe('string')
         })
 
-        it('should not produce metric when count is zero', async () => {
-            await consumer['produceUsageMetric'](123, 'test_metric', 0, '2025-01-01 00:00:00.000')
+        it('should not queue metric when count is zero', async () => {
+            consumer['queueUsageMetric'](123, 'test_metric', 0)
+            await consumer['appMetricsAggregator'].flush()
 
             const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
 
@@ -1090,6 +1106,7 @@ describe('LogsIngestionConsumer', () => {
                         recordsAllowed: 8,
                         bytesDropped: 200,
                         recordsDropped: 2,
+                        piiReplacements: 0,
                     },
                 ],
             ])
@@ -1120,6 +1137,7 @@ describe('LogsIngestionConsumer', () => {
                         recordsAllowed: 10,
                         bytesDropped: 0,
                         recordsDropped: 0,
+                        piiReplacements: 0,
                     },
                 ],
             ])
@@ -1156,6 +1174,7 @@ describe('LogsIngestionConsumer', () => {
                         recordsAllowed: 1,
                         bytesDropped: 0,
                         recordsDropped: 0,
+                        piiReplacements: 0,
                     },
                 ],
                 [
@@ -1167,6 +1186,7 @@ describe('LogsIngestionConsumer', () => {
                         recordsAllowed: 2,
                         bytesDropped: 0,
                         recordsDropped: 0,
+                        piiReplacements: 0,
                     },
                 ],
             ])
@@ -1219,6 +1239,35 @@ describe('LogsIngestionConsumer', () => {
             expect(metricNames).toContain('records_received')
             expect(metricNames).toContain('bytes_ingested')
             expect(metricNames).toContain('records_ingested')
+        })
+
+        it('should emit pii_replacements when pii scrub is on and the body has pattern matches', async () => {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_team
+                 SET logs_settings = $1
+                 WHERE id = $2`,
+                [JSON.stringify({ pii_scrub_logs: true, json_parse_logs: false }), team.id],
+                'updateTeamLogsPiiScrub'
+            )
+            hub.teamManager['lazyLoader'].markForRefresh(String(team.id))
+
+            const logData = createLogMessage({ message: 'email me at foo@bar.com' })
+            const messages = await createKafkaMessages([logData], {
+                token: team.api_token,
+                bytes_uncompressed: '200',
+                record_count: '1',
+            })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            const appMetricsMessages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
+            const pii = appMetricsMessages.find((m) => {
+                const value = parseMetricValue(m.value)
+                return value.metric_name === 'pii_replacements' && value.team_id === team.id
+            })
+            expect(pii).toBeDefined()
+            expect(parseMetricValue(pii!.value).count).toBe(1)
         })
 
         it('should emit correct metric values per team', async () => {

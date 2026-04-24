@@ -1,1 +1,1 @@
-0009_drop_mcpserver_created_by_fk
+0010_mcpservertemplate_category_and_docs_url

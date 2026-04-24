@@ -228,13 +228,13 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .optional()
                 .describe('Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests.'),
             initial_permission_mode: zod
-                .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions'])
+                .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto'])
                 .describe(
-                    '* `default` - default\n* `acceptEdits` - acceptEdits\n* `plan` - plan\n* `bypassPermissions` - bypassPermissions'
+                    '* `default` - default\n* `acceptEdits` - acceptEdits\n* `plan` - plan\n* `bypassPermissions` - bypassPermissions\n* `auto` - auto'
                 )
                 .optional()
                 .describe(
-                    'Initial permission mode for Claude runtimes.\n\n* `default` - default\n* `acceptEdits` - acceptEdits\n* `plan` - plan\n* `bypassPermissions` - bypassPermissions'
+                    'Initial permission mode for Claude runtimes.\n\n* `default` - default\n* `acceptEdits` - acceptEdits\n* `plan` - plan\n* `bypassPermissions` - bypassPermissions\n* `auto` - auto'
                 ),
         })
         .describe('Request body for creating a new task run'),
@@ -566,6 +566,13 @@ export const TasksRunsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('State keys to remove atomically before applying any state updates.'),
     error_message: zod.string().nullish().describe('Error message if execution failed'),
+    environment: zod
+        .enum(['local'])
+        .describe('* `local` - local')
+        .optional()
+        .describe(
+            'Transition a cloud run to local. Use the resume_in_cloud action to move a run into cloud.\n\n* `local` - local'
+        ),
 })
 
 /**

@@ -347,6 +347,7 @@ export const ReasoningEffortEnumApi = {
  * `acceptEdits` - acceptEdits
  * `plan` - plan
  * `bypassPermissions` - bypassPermissions
+ * `auto` - auto
  */
 export type ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi =
     (typeof ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi)[keyof typeof ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi]
@@ -356,6 +357,7 @@ export const ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi = {
     AcceptEdits: 'acceptEdits',
     Plan: 'plan',
     BypassPermissions: 'bypassPermissions',
+    Auto: 'auto',
 } as const
 
 /**
@@ -413,7 +415,8 @@ export interface ClaudeTaskRunCreateSchemaApi {
 * `default` - default
 * `acceptEdits` - acceptEdits
 * `plan` - plan
-* `bypassPermissions` - bypassPermissions */
+* `bypassPermissions` - bypassPermissions
+* `auto` - auto */
     initial_permission_mode?: ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi
 }
 
@@ -927,6 +930,16 @@ export const TaskRunUpdateStatusEnumApi = {
     Cancelled: 'cancelled',
 } as const
 
+/**
+ * * `local` - local
+ */
+export type TaskRunUpdateEnvironmentEnumApi =
+    (typeof TaskRunUpdateEnvironmentEnumApi)[keyof typeof TaskRunUpdateEnvironmentEnumApi]
+
+export const TaskRunUpdateEnvironmentEnumApi = {
+    Local: 'local',
+} as const
+
 export interface PatchedTaskRunUpdateApi {
     /** Current execution status
 
@@ -958,6 +971,10 @@ export interface PatchedTaskRunUpdateApi {
      * @nullable
      */
     error_message?: string | null
+    /** Transition a cloud run to local. Use the resume_in_cloud action to move a run into cloud.
+
+* `local` - local */
+    environment?: TaskRunUpdateEnvironmentEnumApi
 }
 
 export type TaskRunAppendLogRequestApiEntriesItem = { [key: string]: unknown }

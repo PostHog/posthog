@@ -799,7 +799,33 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         person: Person = self.get_object()
         distinct_ids = person.distinct_ids
 
-        split_person.delay(person.id, person.team_id, request.data.get("main_distinct_id", None), None)
+        main_distinct_id = request.data.get("main_distinct_id")
+        distinct_ids_to_split = request.data.get("distinct_ids_to_split")
+
+        if distinct_ids_to_split is not None:
+            if not isinstance(distinct_ids_to_split, list) or not all(
+                isinstance(did, str) for did in distinct_ids_to_split
+            ):
+                raise ValidationError({"distinct_ids_to_split": "must be a list of strings"})
+            if not distinct_ids_to_split:
+                raise ValidationError({"distinct_ids_to_split": "must not be empty"})
+            if main_distinct_id is not None:
+                raise ValidationError("main_distinct_id cannot be combined with distinct_ids_to_split")
+            unknown = set(distinct_ids_to_split) - set(distinct_ids)
+            if unknown:
+                raise ValidationError({"distinct_ids_to_split": f"not on this person: {sorted(unknown)}"})
+
+        split_person.delay(
+            person.id,
+            person.team_id,
+            main_distinct_id,
+            None,
+            distinct_ids_to_split=distinct_ids_to_split,
+        )
+
+        activity_after: dict = {"distinct_ids": distinct_ids}
+        if distinct_ids_to_split is not None:
+            activity_after["distinct_ids_to_split"] = list(distinct_ids_to_split)
 
         log_activity(
             organization_id=self.organization.id,
@@ -815,7 +841,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     Change(
                         type="Person",
                         action="split",
-                        after={"distinct_ids": distinct_ids},
+                        after=activity_after,
                     )
                 ],
             ),
