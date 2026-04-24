@@ -271,6 +271,9 @@ export const TreeNodeDroppable = (props: DroppableProps): JSX.Element => {
             className={cn(
                 'flex flex-col transition-all duration-150 rounded relative z-2 ',
                 props.className,
+                // In reorder mode force full row width so the insertion line has a
+                // consistent visible length across rows with different label widths.
+                isReorder && 'w-full',
                 showRing && 'ring-2 ring-inset ring-accent bg-accent-highlight-secondary',
                 showReorderPending && 'bg-accent-highlight-secondary',
                 // If the item is a root item and it's dragging, make it take up the full height
