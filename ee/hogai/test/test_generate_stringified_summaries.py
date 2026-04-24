@@ -1,3 +1,5 @@
+from typing import cast
+
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -58,7 +60,7 @@ class TestGenerateTraceSummary(BaseTest):
 
         await generator._generate_trace_summary(trace_id="t1", stringified_trace="user: hi")
 
-        call_kwargs = generator._client.aio.models.generate_content.await_args.kwargs
+        call_kwargs = cast(AsyncMock, generator._client.aio.models.generate_content).await_args.kwargs
         assert call_kwargs["model"] == generator._model_id
         assert "user: hi" in call_kwargs["contents"]
         config = call_kwargs["config"]
