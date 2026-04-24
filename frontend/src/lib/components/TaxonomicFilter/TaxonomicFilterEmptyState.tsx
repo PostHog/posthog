@@ -13,8 +13,13 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
 import { BuilderHog3 } from '../hedgehogs'
+
+function labelFor(key: string, type: TaxonomicFilterGroupType, fallback: string): string {
+    return getCoreFilterDefinition(key, type)?.label ?? fallback
+}
 
 type EmptyStateProps = {
     title: string
@@ -157,14 +162,16 @@ const DescriptiveEmptyState = ({
 
 const PageviewUrlsEmptyState = (): JSX.Element => {
     const { hasPageview } = getProjectEventExistence()
+    const pageviewLabel = labelFor('$pageview', TaxonomicFilterGroupType.Events, 'Pageview')
+    const urlLabel = labelFor('$current_url', TaxonomicFilterGroupType.EventProperties, 'Current URL')
     return (
         <DescriptiveEmptyState
-            heading="Pageview events filtered by URL"
-            explanation="Pick a URL to match $pageview events whose current URL equals it — a handy shortcut to saying 'pageviews, but only on this page'."
+            heading={`${pageviewLabel} events filtered by ${urlLabel}`}
+            explanation={`Pick a URL to match ${pageviewLabel} events whose ${urlLabel} equals it — a shortcut for "${pageviewLabel.toLowerCase()}s, but only on this page".`}
             hint={
                 hasPageview
                     ? 'Type at least 3 characters to search URLs we have seen.'
-                    : 'No $pageview events have been ingested yet. Once your app sends them, URLs will appear here.'
+                    : `No ${pageviewLabel} events have been ingested yet. Once your app sends them, URLs will appear here.`
             }
         />
     )
@@ -172,14 +179,16 @@ const PageviewUrlsEmptyState = (): JSX.Element => {
 
 const ScreensEmptyState = (): JSX.Element => {
     const { hasScreen } = getProjectEventExistence()
+    const screenLabel = labelFor('$screen', TaxonomicFilterGroupType.Events, 'Screen')
+    const screenNameLabel = labelFor('$screen_name', TaxonomicFilterGroupType.EventProperties, 'Screen name')
     return (
         <DescriptiveEmptyState
-            heading="Screenview events filtered by screen name"
-            explanation="Pick a screen name to match $screen events whose screen equals it — a shortcut for 'screenviews, but only on this screen'."
+            heading={`${screenLabel} events filtered by ${screenNameLabel}`}
+            explanation={`Pick a screen name to match ${screenLabel} events whose ${screenNameLabel} equals it — a shortcut for "${screenLabel.toLowerCase()}s, but only on this screen".`}
             hint={
                 hasScreen
                     ? 'Type at least 3 characters to search screens we have seen.'
-                    : 'No $screen events have been ingested yet. Once your app sends them, screen names will appear here.'
+                    : `No ${screenLabel} events have been ingested yet. Once your app sends them, screen names will appear here.`
             }
         />
     )
