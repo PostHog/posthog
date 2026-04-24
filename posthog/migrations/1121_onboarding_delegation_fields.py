@@ -5,14 +5,14 @@ class Migration(migrations.Migration):
     """
     Adds most onboarding delegation / skip state (all operations run in a single transaction).
 
-    The FK to OrganizationInvite is added in 1120_onboarding_delegation_fk (SeparateDatabaseAndState +
+    The FK to OrganizationInvite is added in 1122_onboarding_delegation_fk (SeparateDatabaseAndState +
     NOT VALID) so the hot posthog_user table is handled without a blocking validation scan.
 
-    Partial index in 1121_onboarding_delegated_to_invite_index.
+    Partial index in 1123_onboarding_delegated_to_invite_index.
     """
 
     dependencies = [
-        ("posthog", "1118_subscriptiondelivery_change_summary"),
+        ("posthog", "1120_backfill_provisioning_skip_existing_user_consent"),
     ]
 
     operations = [

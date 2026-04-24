@@ -17829,6 +17829,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `success` - success
+    * `warning` - warning
+    * `danger` - danger
+     */
+    export type HealthEnum = typeof HealthEnum[keyof typeof HealthEnum];
+
+
+    export const HealthEnum = {
+      Success: 'success',
+      Warning: 'warning',
+      Danger: 'danger',
+    } as const;
+
+    /**
      * * `critical` - Critical
     * `warning` - Warning
     * `info` - Info
@@ -22185,6 +22199,25 @@ export namespace Schemas {
       /** @nullable */
       success?: boolean | null;
     }
+
+    export interface OutdatedTrafficAlert {
+      /** Outdated version handling significant traffic. */
+      version: string;
+      /** Traffic-percentage threshold that triggered the alert (10% for most SDKs, 20% for web). */
+      threshold_percent: number;
+    }
+
+    /**
+     * * `healthy` - healthy
+    * `needs_attention` - needs_attention
+     */
+    export type OverallHealthEnum = typeof OverallHealthEnum[keyof typeof OverallHealthEnum];
+
+
+    export const OverallHealthEnum = {
+      Healthy: 'healthy',
+      NeedsAttention: 'needs_attention',
+    } as const;
 
     export interface PaginatedActionList {
       count: number;
@@ -34662,6 +34695,107 @@ export namespace Schemas {
       config: ScoreDefinitionConfig;
     }
 
+    /**
+     * * `none` - none
+    * `warning` - warning
+    * `danger` - danger
+     */
+    export type SdkAssessmentSeverityEnum = typeof SdkAssessmentSeverityEnum[keyof typeof SdkAssessmentSeverityEnum];
+
+
+    export const SdkAssessmentSeverityEnum = {
+      None: 'none',
+      Warning: 'warning',
+      Danger: 'danger',
+    } as const;
+
+    export interface SdkReleaseAssessment {
+      /** In-use SDK version string, e.g. '1.298.0'. */
+      version: string;
+      /** Number of events captured with this version in the last 7 days. */
+      count: number;
+      /** Timestamp of the most recent event seen for this version (ISO 8601). */
+      max_timestamp: string;
+      /**
+       * When this version was published on GitHub (ISO 8601), or null if unknown.
+       * @nullable
+       */
+      release_date: string | null;
+      /**
+       * Days since this version was released, or null if unknown.
+       * @nullable
+       */
+      days_since_release: number | null;
+      /**
+       * Human-readable relative release age matching the UI (e.g. '5 months ago'). Null when release_date is unknown.
+       * @nullable
+       */
+      released_ago: string | null;
+      /** True when this version is flagged as outdated by smart-semver rules. */
+      is_outdated: boolean;
+      /** True when this version is flagged as old by age alone (separate from semver rules). */
+      is_old: boolean;
+      /** True if is_outdated OR is_old. */
+      needs_updating: boolean;
+      /** True when this version equals or exceeds the latest known published version. */
+      is_current_or_newer: boolean;
+      /** Per-version badge tooltip text matching the SDK Doctor UI exactly. Quote verbatim when reporting to users. Varies by state: 'Released X ago. Upgrade recommended.' for outdated versions, 'You have the latest available. Click Releases above to check for any since.' for current versions, or 'Released X ago. Upgrading is a good idea, but it's not urgent yet.' for recent-but-behind versions. */
+      status_reason: string;
+      /** SQL SELECT statement for drilling into events for this SDK version over the last 7 days. Suitable to pass to the execute-sql tool or to display as a copy-paste snippet. */
+      sql_query: string;
+      /** Relative URL path (starting with /project/{id}/) for the Activity > Explore page pre-filtered to events captured with this lib and lib_version over the last 7 days. Combine with the user's PostHog host (e.g. us.posthog.com) for a clickable link. */
+      activity_page_url: string;
+    }
+
+    export interface SdkAssessment {
+      /** SDK identifier, e.g. 'web', 'posthog-python', 'posthog-node', 'posthog-ios'. */
+      lib: string;
+      /** Human-readable SDK name matching the SDK Doctor UI (e.g. 'Python', 'Node.js', 'Web', 'iOS'). */
+      readable_name: string;
+      /** Most recent published version of this SDK. */
+      latest_version: string;
+      /** True if this SDK needs attention (is_outdated OR is_old). */
+      needs_updating: boolean;
+      /** True if the primary in-use version is flagged as outdated. */
+      is_outdated: boolean;
+      /** True if the primary in-use version is flagged as old by age alone. */
+      is_old: boolean;
+      /** UI severity badge — 'none' when healthy, 'warning' when outdated, 'danger' when the majority of team SDKs are outdated.
+
+    * `none` - none
+    * `warning` - warning
+    * `danger` - danger */
+      severity: SdkAssessmentSeverityEnum;
+      /** Per-SDK programmatic summary (used for ranking/filtering). For user-facing copy, prefer releases[].status_reason (badge tooltip) and banners (top-level alert text) — those match the UI exactly. */
+      reason: string;
+      /** Top-level alert sentences matching the SDK Doctor UI's 'Time for an update!' banner — one per outdated version with significant traffic. Quote verbatim when surfacing the headline to users. */
+      banners: string[];
+      /** Per-version assessment for all versions seen in the last 7 days. */
+      releases: SdkReleaseAssessment[];
+      /** Outdated versions that handle a significant share of traffic (above the threshold). Not populated for mobile SDKs. */
+      outdated_traffic_alerts: OutdatedTrafficAlert[];
+    }
+
+    export interface SdkHealthReport {
+      /** 'healthy' when no SDKs need updating, 'needs_attention' otherwise.
+
+    * `healthy` - healthy
+    * `needs_attention` - needs_attention */
+      overall_health: OverallHealthEnum;
+      /** UI-level status — 'success' when healthy, 'warning' when some SDKs are outdated, 'danger' when the majority are outdated.
+
+    * `success` - success
+    * `warning` - warning
+    * `danger` - danger */
+      health: HealthEnum;
+      /** Number of SDKs that need updating. */
+      needs_updating_count: number;
+      /** Number of distinct PostHog SDKs the project is actively using. */
+      team_sdk_count: number;
+      /** Per-SDK health assessments. */
+      sdks: SdkAssessment[];
+    }
+
     export type SentimentResultScores = {[key: string]: number};
 
     export type SentimentResultMessages = {[key: string]: MessageSentiment};
@@ -43256,6 +43390,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type SdkDoctorReportRetrieveParams = {
+    /**
+     * When true, bypasses the Redis cache and re-queries ClickHouse for SDK usage. Use sparingly — data is refreshed every 12 hours by a background job.
+     */
+    force_refresh?: boolean;
     };
 
     export type SessionGroupSummariesListParams = {

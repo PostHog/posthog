@@ -12,8 +12,7 @@ import os
 import json
 import asyncio
 import threading
-import contextlib
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Optional
@@ -333,32 +332,6 @@ class _KafkaProducer:
         self.producer.flush()
 
 
-@contextlib.contextmanager
-def ensure_loop(loop: asyncio.AbstractEventLoop | None) -> Iterator[asyncio.AbstractEventLoop]:
-    """Ensure an asyncio event loop is available.
-
-    `AIOProducer` requires a running loop when initializing, so we ensure one exists or
-    we set the `loop` provided.
-    """
-    try:
-        running_loop = asyncio.get_running_loop()
-    except RuntimeError:
-        # We are being called from a sync context, a running event loop must be provided
-        if loop is None or not loop.is_running():
-            raise
-
-        asyncio.set_event_loop(loop)
-
-        try:
-            yield loop
-        finally:
-            # We landed here because there is no event loop running in the current
-            # thread. So, we restore it back to None.
-            asyncio.set_event_loop(None)
-    else:
-        yield running_loop
-
-
 class _AsyncKafkaProducer:
     producer: AIOProducer
     _closed: bool
@@ -414,8 +387,7 @@ class _AsyncKafkaProducer:
         if max_request_size:
             config["message.max.bytes"] = max_request_size
 
-        with ensure_loop(loop):
-            self.producer = AIOProducer(config)
+        self.producer = AIOProducer(config)
 
         self._closed = False
 
