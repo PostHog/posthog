@@ -131,6 +131,29 @@ async def emit_signal(
         }
     )
 
+    # Fire a "started" marker so direct callers (error tracking, LLM analytics evals, etc.)
+    # that don't go through the data-source pipeline still have a top-of-funnel event. The
+    # gap to `signal_emitted` surfaces Temporal/dispatch failures.
+    try:
+        posthoganalytics.capture(
+            event="signal_emission_started",
+            distinct_id=str(team.uuid),
+            properties={
+                "source_product": source_product,
+                "source_type": source_type,
+                "source_id": source_id,
+            },
+            groups=groups(organization, team),
+        )
+    except Exception:
+        # Swallow the exception, to avoid breaking the flow over failed analytics event
+        logger.exception(
+            "Failed to capture signal_emission_started event",
+            source_product=source_product,
+            source_type=source_type,
+            source_id=source_id,
+        )
+
     client = await async_connect()
 
     signal_input = EmitSignalInputs(

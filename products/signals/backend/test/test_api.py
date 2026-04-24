@@ -156,13 +156,15 @@ class TestEmitSignalAnalytics:
                 extra=GITHUB_ISSUE_EXTRA,
             )
 
-        capture.assert_called_once()
-        kwargs = capture.call_args.kwargs
-        assert kwargs["event"] == "signal_emitted"
-        assert kwargs["distinct_id"] == str(team_stub.uuid)
-        assert kwargs["properties"] == {
+        # Both the "started" marker and the final "emitted" event fire
+        events = [call.kwargs["event"] for call in capture.call_args_list]
+        assert events == ["signal_emission_started", "signal_emitted"]
+        expected_properties = {
             "source_product": "github",
             "source_type": "issue",
             "source_id": "posthog/posthog#42",
         }
-        assert "project" in kwargs["groups"]
+        for call in capture.call_args_list:
+            assert call.kwargs["distinct_id"] == str(team_stub.uuid)
+            assert call.kwargs["properties"] == expected_properties
+            assert "project" in call.kwargs["groups"]
