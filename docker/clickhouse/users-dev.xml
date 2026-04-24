@@ -55,11 +55,15 @@
             <profile>default</profile>
         </app>
 
-        <!-- readonly=2 pinned via <constraints> is the load-bearing safety for
-             the autoresearch user: no writes, no client-side settings changes. -->
+        <!-- readonly=2 pinned via <constraints> is the load-bearing safety (no
+             writes, no client-side settings changes). Other resource caps live
+             on the dedicated test cluster this user runs against in prod; this
+             file is local dev only, so max_execution_time is the only local
+             guard — enough to stop a stuck autoresearch run from spinning. -->
         <autoresearch>
             <readonly>2</readonly>
             <compatibility>25.8</compatibility>
+            <max_execution_time>300</max_execution_time>
             <constraints>
                 <readonly><readonly/></readonly>
             </constraints>
