@@ -1,17 +1,10 @@
 import { Placement } from '@floating-ui/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { forwardRef, useEffect, useRef, useState } from 'react'
+import { forwardRef, useRef, useState } from 'react'
 
 import { IconCalendar, IconInfo } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonButtonProps,
-    LemonDivider,
-    LemonSegmentedButton,
-    LemonSwitch,
-    Popover,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps, LemonDivider, LemonSwitch, Popover } from '@posthog/lemon-ui'
 
 import {
     CUSTOM_OPTION_DESCRIPTION,
@@ -60,10 +53,10 @@ export interface DateFilterProps {
     showJumpToTimestamp?: boolean
     showCustomRelativeRange?: boolean
     /**
-     * When true, surfaces a Single/Range toggle at the top of the popover.
-     * Single mode mirrors `isFixedDateMode=true` (presets + exact single date),
-     * Range mode mirrors `isFixedDateMode=false` plus `showCustomRelativeRange`.
-     * `isFixedDateMode` is ignored when this is set.
+     * When true, surfaces every option — presets, rolling picker, "Custom date…" (single exact),
+     * "Custom fixed date range…", and "Custom relative range…" — in one flat list. Callers opt
+     * in to let the user freely pick either a single value or a range. `isFixedDateMode` and
+     * `showCustomRelativeRange` are ignored when this is set.
      */
     allowSingleAndRange?: boolean
 }
@@ -120,18 +113,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
     },
     ref
 ) {
-    // When the consumer opts into the Single/Range toggle, start in Range mode if an upper
-    // bound is already persisted (a cohort criterion with explicit_datetime_to) so the popover
-    // reflects the saved shape.
-    const [rangeMode, setRangeMode] = useState<boolean>(allowSingleAndRange && !!dateTo)
-    // Keep local mode in sync when an upper bound appears via external update (undo/redo, load).
-    useEffect(() => {
-        if (allowSingleAndRange && !!dateTo && !rangeMode) {
-            setRangeMode(true)
-        }
-    }, [allowSingleAndRange, dateTo, rangeMode])
-    const effectiveIsFixedDateMode = allowSingleAndRange ? !rangeMode : isFixedDateMode
-    const effectiveShowCustomRelativeRange = allowSingleAndRange ? rangeMode : showCustomRelativeRange
+    const effectiveShowCustomRelativeRange = allowSingleAndRange ? true : showCustomRelativeRange
     const key = useRef(uuid()).current
     const logicProps: DateFilterLogicProps = {
         key,
@@ -140,7 +122,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         onChange,
         dateOptions,
         isDateFormatted,
-        isFixedDateMode: effectiveIsFixedDateMode,
+        isFixedDateMode,
         placeholder,
         allowTimePrecision,
         explicitDate,
@@ -252,35 +234,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
             <RelativeDateRangeSelector onApply={(dateFrom, dateTo) => setDate(dateFrom, dateTo)} onClose={open} />
         ) : (
             <div className="deprecated-space-y-px" ref={optionsRef} onClick={(e) => e.stopPropagation()}>
-                {allowSingleAndRange && (
-                    <>
-                        <div className="px-2 pt-2 pb-1">
-                            <LemonSegmentedButton
-                                size="small"
-                                fullWidth
-                                value={rangeMode ? 'range' : 'single'}
-                                onChange={(next) => {
-                                    if (next === 'single' && dateTo) {
-                                        setDate(
-                                            typeof dateFrom === 'string' ? dateFrom : null,
-                                            null,
-                                            true,
-                                            explicitDate
-                                        )
-                                    }
-                                    setRangeMode(next === 'range')
-                                }}
-                                options={[
-                                    { value: 'single', label: 'Single' },
-                                    { value: 'range', label: 'Range' },
-                                ]}
-                            />
-                        </div>
-                        <LemonDivider className="my-1" />
-                    </>
-                )}
-                {/* In Range mode, single-value presets (e.g. "Last 7 days") are ambiguous — hide them. */}
-                {(allowSingleAndRange && rangeMode ? [] : dateOptions).map(({ key, values, inactive }) => {
+                {dateOptions.map(({ key, values, inactive }) => {
                     if (key === CUSTOM_OPTION_KEY && !showCustom) {
                         return null
                     }
@@ -325,11 +279,11 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
                         </Tooltip>
                     )
                 })}
-                {showRollingRangePicker && !(allowSingleAndRange && rangeMode) && (
+                {showRollingRangePicker && (
                     <RollingDateRangeFilter
                         pageKey={key}
                         dateFrom={dateFrom}
-                        dateRangeFilterLabel={effectiveIsFixedDateMode ? 'Last' : undefined}
+                        dateRangeFilterLabel={isFixedDateMode ? 'Last' : undefined}
                         selected={isRollingDateRange}
                         onChange={(fromDate) => {
                             setDate(fromDate, '', true, explicitDate)
@@ -340,7 +294,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
                         }}
                         max={max}
                         allowedDateOptions={
-                            effectiveIsFixedDateMode && !allowedRollingDateOptions
+                            isFixedDateMode && !allowedRollingDateOptions
                                 ? ['hours', 'days', 'weeks', 'months', 'years']
                                 : allowedRollingDateOptions
                         }
@@ -348,11 +302,12 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
                     />
                 )}
                 <LemonDivider />
-                {effectiveIsFixedDateMode ? (
+                {(isFixedDateMode || allowSingleAndRange) && (
                     <LemonButton onClick={openFixedDate} active={isFixedDate} fullWidth>
                         Custom date...
                     </LemonButton>
-                ) : (
+                )}
+                {(!isFixedDateMode || allowSingleAndRange) && (
                     <>
                         <LemonButton onClick={openDateToNow} active={isDateToNow} fullWidth>
                             From custom date until now…
