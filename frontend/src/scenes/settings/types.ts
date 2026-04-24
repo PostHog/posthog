@@ -65,6 +65,7 @@ export type SettingSectionId =
     | 'organization-billing'
     | 'organization-legal-documents'
     | 'organization-startup-program'
+    | 'environment-limit-requests'
     | 'user-profile'
     | 'user-connected-apps'
     | 'user-api-keys'
@@ -216,6 +217,7 @@ export type SettingId =
     | 'logs-pii-scrub'
     | 'logs-retention'
     | 'logs-alerting'
+    | 'environment-limit-requests-list'
     | 'organization-ip-anonymization-default'
     | 'allow-impersonation'
     | 'approval-policies'
@@ -295,4 +297,10 @@ export interface SettingSection extends Pick<Setting, 'flag'> {
      * product's own configuration scene).
      */
     hideFromNavigation?: boolean
+
+    /**
+     * When true, suppresses the "these settings only apply to the current project"
+     * banner that normally appears above environment/project-level sections.
+     */
+    hideProjectBanner?: boolean
 }

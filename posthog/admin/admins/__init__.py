@@ -22,9 +22,11 @@ from .hog_function_admin import HogFunctionAdmin
 from .insight_admin import InsightAdmin
 from .instance_setting_admin import InstanceSettingAdmin
 from .integration_admin import IntegrationAdmin, OrganizationIntegrationAdmin
+from .limit_increase_request_admin import LimitIncreaseRequestAdmin
 from .oauth_admin import OAuthApplicationAdmin
 from .organization_admin import OrganizationAdmin
 from .organization_domain_admin import OrganizationDomainAdmin
+from .organization_limit_override_admin import OrganizationLimitOverrideAdmin
 from .person_distinct_id_admin import PersonDistinctIdAdmin
 from .personal_api_key_admin import PersonalAPIKeyAdmin
 from .plugin_admin import PluginAdmin
@@ -60,11 +62,13 @@ __all__ = [
     "InsightAdmin",
     "InstanceSettingAdmin",
     "IntegrationAdmin",
+    "LimitIncreaseRequestAdmin",
     "OrganizationIntegrationAdmin",
     "LinkAdmin",
     "OAuthApplicationAdmin",
     "OrganizationAdmin",
     "OrganizationDomainAdmin",
+    "OrganizationLimitOverrideAdmin",
     "PersonalAPIKeyAdmin",
     "PersonDistinctIdAdmin",
     "PluginAdmin",

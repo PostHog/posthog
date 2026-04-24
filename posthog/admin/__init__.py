@@ -28,11 +28,13 @@ def register_all_admin():
         InsightAdmin,
         InstanceSettingAdmin,
         IntegrationAdmin,
+        LimitIncreaseRequestAdmin,
         LinkAdmin,
         OAuthApplicationAdmin,
         OrganizationAdmin,
         OrganizationDomainAdmin,
         OrganizationIntegrationAdmin,
+        OrganizationLimitOverrideAdmin,
         PersonalAPIKeyAdmin,
         PersonDistinctIdAdmin,
         PluginAdmin,
@@ -65,9 +67,11 @@ def register_all_admin():
         Insight,
         InstanceSetting,
         Integration,
+        LimitIncreaseRequest,
         Organization,
         OrganizationDomain,
         OrganizationIntegration,
+        OrganizationLimitOverride,
         PersonalAPIKey,
         PersonDistinctId,
         Plugin,
@@ -107,6 +111,8 @@ def register_all_admin():
     admin.site.register(Organization, OrganizationAdmin)
     admin.site.register(OrganizationDomain, OrganizationDomainAdmin)
     admin.site.register(OrganizationIntegration, OrganizationIntegrationAdmin)
+    admin.site.register(LimitIncreaseRequest, LimitIncreaseRequestAdmin)
+    admin.site.register(OrganizationLimitOverride, OrganizationLimitOverrideAdmin)
     admin.site.register(Project, ProjectAdmin)
     admin.site.register(Team, TeamAdmin)
     admin.site.register(User, UserAdmin)

@@ -56,6 +56,7 @@ from .insight_caching_state import InsightCachingState
 from .insight_variable import InsightVariable
 from .instance_setting import InstanceSetting
 from .integration import Integration
+from .limit_increase_request import LimitIncreaseRequest, LimitIncreaseRequestStatus
 from .llm_prompt import LLMPrompt
 from .materialized_column_slots import MaterializedColumnSlot, MaterializedColumnSlotState
 from .messaging import MessagingRecord
@@ -64,6 +65,7 @@ from .organization import Organization, OrganizationMembership
 from .organization_domain import OrganizationDomain
 from .organization_integration import OrganizationIntegration
 from .organization_invite import OrganizationInvite, InviteExpiredException
+from .organization_limit_override import OrganizationLimitOverride
 from .person import Person, PersonDistinctId, PersonOverride, PersonOverrideMapping
 from .personal_api_key import PersonalAPIKey
 from .project_secret_api_key import ProjectSecretAPIKey
@@ -161,6 +163,8 @@ __all__ = [
     "InstanceSetting",
     "Integration",
     "InviteExpiredException",
+    "LimitIncreaseRequest",
+    "LimitIncreaseRequestStatus",
     "MaterializedColumnSlot",
     "MaterializedColumnSlotState",
     "MessagingRecord",
@@ -172,6 +176,7 @@ __all__ = [
     "OrganizationDomain",
     "OrganizationIntegration",
     "OrganizationInvite",
+    "OrganizationLimitOverride",
     "OrganizationMembership",
     "OAuthAccessToken",
     "OAuthApplication",

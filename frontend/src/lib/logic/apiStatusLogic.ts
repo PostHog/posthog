@@ -3,6 +3,7 @@ import { actions, kea, listeners, path, reducers } from 'kea'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { limitExceededLogic } from 'lib/components/LimitExceededModal/limitExceededLogic'
 import { twoFactorLogic } from 'scenes/authentication/twoFactorLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -89,6 +90,21 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                 }
             } catch {
                 // Pass
+            }
+
+            if (response?.status === 402) {
+                try {
+                    // Clone so downstream callers (which parse the body again) still see it.
+                    const responseData = await response.clone().json()
+                    if (responseData?.type === 'limit_exceeded' && responseData?.extra?.limit_key) {
+                        const teamId = userLogic.findMounted()?.values.user?.team?.id ?? null
+                        if (teamId) {
+                            limitExceededLogic.findMounted()?.actions.showLimitExceededModal(responseData.extra, teamId)
+                        }
+                    }
+                } catch {
+                    // Non-fatal: if the body isn't JSON, we just don't surface the modal.
+                }
             }
 
             if (response?.status === 401) {

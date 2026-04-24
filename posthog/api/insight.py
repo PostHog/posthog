@@ -493,6 +493,31 @@ class InsightSerializer(InsightBasicSerializer):
             self.context["request"].user, self.context["get_team"]()
         ):
             raise PermissionDenied("Creating or updating insights with legacy filters is not available for this user.")
+
+        # Enforce max-insights-per-dashboard here (outside the @transaction.atomic
+        # on update) so the auto-submitted LimitIncreaseRequest survives the 402
+        # rollback. Per-dashboard check runs for each newly-attached dashboard.
+        new_dashboards = attrs.get("dashboards")
+        if new_dashboards is not None:
+            from posthog.resource_limits import check_count_limit
+
+            team = self.context["get_team"]()
+            existing_dashboard_ids: set[int] = set()
+            if self.instance is not None:
+                existing_dashboard_ids = set(
+                    self.instance.dashboard_tiles.exclude(deleted=True).values_list("dashboard_id", flat=True)
+                )
+            for dashboard in new_dashboards:
+                if dashboard.id in existing_dashboard_ids:
+                    continue
+                current_tiles = DashboardTile.objects.filter(dashboard_id=dashboard.id).exclude(deleted=True).count()
+                check_count_limit(
+                    team=team,
+                    key="analytics.max_insights_per_dashboard",
+                    current_count=current_tiles,
+                    user=self.context["request"].user,
+                )
+
         return super().validate(attrs)
 
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="POST")
@@ -514,6 +539,8 @@ class InsightSerializer(InsightBasicSerializer):
         InsightViewed.objects.create(team_id=team_id, user=request.user, insight=insight, last_viewed_at=now())
 
         if dashboards is not None:
+            # Per-dashboard limit (analytics.max_insights_per_dashboard) is enforced
+            # in validate(); see InsightSerializer.validate above.
             # nosemgrep: idor-lookup-without-team
             for dashboard in Dashboard.objects.filter(id__in=[d.id for d in dashboards]).all():
                 if dashboard.team != insight.team:

@@ -133,6 +133,7 @@ from . import (
     instance_settings,
     instance_status,
     integration,
+    limit_increase_request,
     materialized_column_slot,
     object_media_preview,
     organization,
@@ -260,6 +261,12 @@ register_grandfathered_environment_nested_viewset(
 )
 
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["project_id"])
+projects_router.register(
+    r"limit_increase_requests",
+    limit_increase_request.LimitIncreaseRequestViewSet,
+    "project_limit_increase_requests",
+    ["project_id"],
+)
 projects_router.register(
     r"activity_log",
     advanced_activity_logs.ActivityLogViewSet,

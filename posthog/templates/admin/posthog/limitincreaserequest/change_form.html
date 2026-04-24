@@ -1,0 +1,9 @@
+{% extends "admin/change_form.html" %}
+
+{% block object-tools-items %}
+{{ block.super }}
+{% if can_resolve %}
+<li><a href="{{ approve_url }}" class="historylink">Approve</a></li>
+<li><a href="{{ deny_url }}" class="historylink">Deny</a></li>
+{% endif %}
+{% endblock %}
