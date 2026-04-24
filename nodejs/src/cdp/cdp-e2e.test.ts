@@ -12,6 +12,7 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { CdpCyclotronWorker } from '../../src/cdp/consumers/cdp-cyclotron-worker.consumer'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../src/config/kafka-topics'
+import { KafkaProducerWrapper } from '../../src/kafka/producer'
 import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { logger } from '../utils/logger'
@@ -35,6 +36,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
         let cyclotronWorkerPostgres: CdpCyclotronWorker | undefined
 
         let hub: Hub
+        let kafkaProducer: KafkaProducerWrapper
         let team: Team
         let fnFetchNoFilters: HogFunctionType
         let globals: HogFunctionInvocationGlobals
@@ -55,8 +57,9 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
 
             await resetTestDatabase()
             hub = await createHub()
+            kafkaProducer = await KafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
             team = await getFirstTeam(hub.postgres)
-            mockProducerObserver = new KafkaProducerObserver(hub.kafkaProducer)
+            mockProducerObserver = new KafkaProducerObserver(kafkaProducer)
             mockProducerObserver.resetKafkaProducer()
 
             hub.CDP_FETCH_RETRIES = 2
@@ -169,6 +172,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
             ].filter((s): s is Promise<void> => s !== undefined)
 
             await Promise.all(stoppers)
+            await kafkaProducer.disconnect()
             await closeHub(hub)
             mockProducerObserver.resetKafkaProducer()
         })

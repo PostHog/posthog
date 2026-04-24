@@ -1,3 +1,5 @@
+import { mockProducer } from '../../helpers/mocks/producer.mock'
+
 import { Hub } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { captureIngestionWarning } from '../../../src/worker/ingestion/utils'
@@ -21,7 +23,7 @@ describe('captureIngestionWarning()', () => {
     })
 
     it('can read own writes', async () => {
-        await captureIngestionWarning(hub.kafkaProducer, 2, 'some_type', { foo: 'bar' })
+        await captureIngestionWarning(mockProducer, 2, 'some_type', { foo: 'bar' })
 
         const warnings = await clickhouse.delayUntilEventIngested(
             async () => await clickhouse.query('SELECT * FROM ingestion_warnings')

@@ -1,4 +1,4 @@
-import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
 import { DecodedKafkaMessage } from '~/tests/helpers/mocks/producer.spy'
 
@@ -103,7 +103,7 @@ describe('IngestionConsumer', () => {
         hub: Hub,
         overrides?: ConstructorParameters<typeof IngestionConsumer>[2]
     ) => {
-        const outputs = createTestIngestionOutputs(hub.kafkaProducer)
+        const outputs = createTestIngestionOutputs(mockProducer)
         const ingester = new IngestionConsumer(
             hub,
             {
@@ -112,7 +112,7 @@ describe('IngestionConsumer', () => {
                 clickhouseGroupRepository: new ClickhouseGroupRepository(outputs),
                 hogTransformer: createHogTransformerService(hub, {
                     ...hub,
-                    monitoringOutputs: createTestMonitoringOutputs(hub.kafkaProducer),
+                    monitoringOutputs: createTestMonitoringOutputs(mockProducer),
                 }),
             },
             overrides
@@ -173,7 +173,7 @@ describe('IngestionConsumer', () => {
         await resetTestDatabase()
         hub = await createHub()
 
-        // hub.kafkaProducer = mockProducer
+        // mockProducer = mockProducer
         team = await getFirstTeam(hub.postgres)
         const team2Id = await createTeam(hub.postgres, team.organization_id, 'THIS IS NOT A TOKEN FOR TEAM 3')
         team2 = (await getTeam(hub.postgres, team2Id))!

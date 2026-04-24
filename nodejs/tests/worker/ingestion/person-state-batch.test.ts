@@ -1,3 +1,5 @@
+import { mockProducer } from '~/tests/helpers/mocks/producer.mock'
+
 import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 
 import { DateTime } from 'luxon'
@@ -53,30 +55,30 @@ import {
 
 jest.setTimeout(30000)
 
-function createPersonOutputs(hub: Hub): PersonOutputs {
+function createPersonOutputs(_hub: Hub): PersonOutputs {
     return new IngestionOutputs({
-        [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, hub.kafkaProducer, 'test'),
+        [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, mockProducer, 'test'),
         [PERSON_DISTINCT_IDS_OUTPUT]: new SingleIngestionOutput(
             INGESTION_WARNINGS_OUTPUT,
             KAFKA_PERSON_DISTINCT_ID,
-            hub.kafkaProducer,
+            mockProducer,
             'test'
         ),
         [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
             INGESTION_WARNINGS_OUTPUT,
             KAFKA_INGESTION_WARNINGS,
-            hub.kafkaProducer,
+            mockProducer,
             'test'
         ),
     })
 }
 
-function createIngestionWarningsOutputs(hub: Hub) {
+function createIngestionWarningsOutputs(_hub: Hub) {
     return new IngestionOutputs({
         [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
             INGESTION_WARNINGS_OUTPUT,
             KAFKA_INGESTION_WARNINGS,
-            hub.kafkaProducer,
+            mockProducer,
             'test'
         ),
     })
@@ -124,7 +126,7 @@ async function flushPersonStoreToKafka(hub: Hub, personStore: PersonsStore, kafk
             .flatMap((message) => message.messages)
             .map((msg) => personOutputs.produce(msg.output, { value: msg.value, key: null }))
     )
-    await hub.kafkaProducer.flush()
+    await mockProducer.flush()
     await kafkaAcks
     return kafkaMessages
 }
@@ -155,7 +157,7 @@ describe('PersonState.processEvent()', () => {
 
     beforeAll(async () => {
         hub = await createHub({})
-        mockProducerObserver = new KafkaProducerObserver(hub.kafkaProducer)
+        mockProducerObserver = new KafkaProducerObserver(mockProducer)
         mockProducerObserver.resetKafkaProducer()
 
         clickhouse = Clickhouse.create()
@@ -368,7 +370,7 @@ describe('PersonState.processEvent()', () => {
                 otherTeam
             ).updateProperties()
 
-            await hub.kafkaProducer.flush()
+            await mockProducer.flush()
             await kafkaAcks
             await kafkaAcksOther
 
@@ -421,7 +423,7 @@ describe('PersonState.processEvent()', () => {
                 processPerson
             ).processEvent()
 
-            await hub.kafkaProducer.flush()
+            await mockProducer.flush()
             await Promise.all(result1.sideEffects)
             await Promise.all(result2.sideEffects)
 
@@ -453,7 +455,7 @@ describe('PersonState.processEvent()', () => {
                 // `null_byte` validates that `sanitizeJsonbValue` is working as expected
                 properties: { $set: { null_byte: '\u0000' } },
             }).updateProperties()
-            await hub.kafkaProducer.flush()
+            await mockProducer.flush()
             await kafkaAcks
 
             expect(person).toEqual(
@@ -493,7 +495,7 @@ describe('PersonState.processEvent()', () => {
                 event: '$pageview',
                 distinct_id: newUserDistinctId,
             }).handleUpdate()
-            await hub.kafkaProducer.flush()
+            await mockProducer.flush()
             await kafkaAcks
 
             // if creation fails we should return the person that another thread already created
@@ -593,7 +595,7 @@ describe('PersonState.processEvent()', () => {
                     $set: { b: 3, c: 4 },
                 },
             }).updateProperties()
-            await hub.kafkaProducer.flush()
+            await mockProducer.flush()
             await kafkaAcks
 
             expect(person).toMatchObject({
@@ -674,7 +676,7 @@ describe('PersonState.processEvent()', () => {
                     $set: { b: 4, toString: 1, null_byte: '\u0000' },
                 },
             }).updateProperties()
-            await hub.kafkaProducer.flush()
+            await mockProducer.flush()
             await kafkaAcks
 
             expect(person).toMatchObject({
@@ -705,7 +707,7 @@ describe('PersonState.processEvent()', () => {
                     $set: { $current_url: 4 },
                 },
             }).updateProperties()
-            await hub.kafkaProducer.flush()
+            await mockProducer.flush()
             await kafkaAcks
 
             expect(person).toEqual(
@@ -1472,7 +1474,7 @@ describe('PersonState.processEvent()', () => {
                     .flatMap((m) => m.messages)
                     .map((msg) => personOutputs.produce(msg.output, { value: msg.value, key: null }))
             )
-            await hub.kafkaProducer.flush()
+            await mockProducer.flush()
 
             // Verify Postgres person
             const persons = await fetchPostgresPersonsH()
@@ -1975,7 +1977,7 @@ describe('PersonState.processEvent()', () => {
             }
             const person = result.person
             const kafkaAcks = result.kafkaAck
-            await hub.kafkaProducer.flush()
+            await mockProducer.flush()
             await kafkaAcks
 
             expect(personS.getUpdateIsIdentified()).toBeTruthy()
@@ -2032,7 +2034,7 @@ describe('PersonState.processEvent()', () => {
             }
             const person = result.person
             const kafkaAcks = result.kafkaAck
-            await hub.kafkaProducer.flush()
+            await mockProducer.flush()
             await kafkaAcks
 
             expect(person).toEqual(
@@ -2776,7 +2778,7 @@ describe('PersonState.processEvent()', () => {
             )
 
             const state: PersonMergeService = personMergeService({}, hub)
-            jest.spyOn(hub.kafkaProducer, 'produce')
+            jest.spyOn(mockProducer, 'produce')
 
             const result = await state.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)
             expect(result.success).toBe(true)
@@ -2785,7 +2787,7 @@ describe('PersonState.processEvent()', () => {
             }
             const person = result.person
             const kafkaAcks = result.kafkaAck
-            await hub.kafkaProducer.flush()
+            await mockProducer.flush()
             await kafkaAcks
 
             expect(person).toMatchObject({
@@ -2797,7 +2799,7 @@ describe('PersonState.processEvent()', () => {
                 is_identified: true,
             })
             expect(personRepository.updatePerson).not.toHaveBeenCalled()
-            expect(hub.kafkaProducer.produce).not.toHaveBeenCalled()
+            expect(mockProducer.produce).not.toHaveBeenCalled()
         })
 
         it(`postgres and clickhouse get updated`, async () => {
@@ -2810,7 +2812,7 @@ describe('PersonState.processEvent()', () => {
             })
 
             const mergeService: PersonMergeService = personMergeService({}, hub, personRepository)
-            jest.spyOn(hub.kafkaProducer, 'produce')
+            jest.spyOn(mockProducer, 'produce')
 
             const result = await mergeService.mergePeople({
                 mergeInto: first,
@@ -2840,7 +2842,7 @@ describe('PersonState.processEvent()', () => {
             // Batch mode uses updatePersonsBatch instead of updatePerson
             expect(personRepository.updatePersonsBatch).toHaveBeenCalledTimes(1)
             // 3 produce calls: move distinct ID + delete source person (from merge) + update target person (from flush)
-            expect(hub.kafkaProducer.produce).toHaveBeenCalledTimes(3)
+            expect(mockProducer.produce).toHaveBeenCalledTimes(3)
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
@@ -2994,7 +2996,7 @@ describe('PersonState.processEvent()', () => {
                 distinctId: secondUserDistinctId,
             })
             const state: PersonMergeService = personMergeService({}, hub)
-            jest.spyOn(hub.kafkaProducer, 'produce')
+            jest.spyOn(mockProducer, 'produce')
             // break postgres
             const error = new DependencyUnavailableError('testing', 'Postgres', new Error('test'))
             jest.spyOn(hub.postgres, 'transaction').mockImplementation(() => {
@@ -3009,11 +3011,11 @@ describe('PersonState.processEvent()', () => {
                     otherPersonDistinctId: secondUserDistinctId,
                 })
             ).rejects.toThrow(error)
-            await hub.kafkaProducer.flush()
+            await mockProducer.flush()
 
             expect(hub.postgres.transaction).toHaveBeenCalledTimes(1)
             jest.spyOn(hub.postgres, 'transaction').mockRestore()
-            expect(hub.kafkaProducer.produce).not.toHaveBeenCalled()
+            expect(mockProducer.produce).not.toHaveBeenCalled()
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons).toEqual(
@@ -3046,7 +3048,7 @@ describe('PersonState.processEvent()', () => {
                 distinctId: secondUserDistinctId,
             })
             const state: PersonMergeService = personMergeService({}, hub)
-            jest.spyOn(hub.kafkaProducer, 'produce')
+            jest.spyOn(mockProducer, 'produce')
             // break postgres
             const error = new DependencyUnavailableError('testing', 'Postgres', new Error('test'))
             jest.spyOn(state, 'mergePeople').mockImplementation(() => {
@@ -3057,11 +3059,11 @@ describe('PersonState.processEvent()', () => {
                 error
             )
 
-            await hub.kafkaProducer.flush()
+            await mockProducer.flush()
 
             expect(state.mergePeople).toHaveBeenCalledTimes(3)
             jest.spyOn(state, 'mergePeople').mockRestore()
-            expect(hub.kafkaProducer.produce).not.toHaveBeenCalled()
+            expect(mockProducer.produce).not.toHaveBeenCalled()
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons).toEqual(
@@ -3103,7 +3105,7 @@ describe('PersonState.processEvent()', () => {
                 },
                 hub
             )
-            jest.spyOn(hub.kafkaProducer, 'produce')
+            jest.spyOn(mockProducer, 'produce')
             // break postgres
             const error = new DependencyUnavailableError('testing', 'Postgres', new Error('test'))
             jest.spyOn(state, 'mergePeople').mockImplementation(() => {
@@ -3111,11 +3113,11 @@ describe('PersonState.processEvent()', () => {
             })
 
             await state.handleIdentifyOrAlias()
-            await hub.kafkaProducer.flush()
+            await mockProducer.flush()
 
             expect(state.mergePeople).toHaveBeenCalledTimes(3)
             jest.spyOn(state, 'mergePeople').mockRestore()
-            expect(hub.kafkaProducer.produce).not.toHaveBeenCalled()
+            expect(mockProducer.produce).not.toHaveBeenCalled()
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons).toEqual(
@@ -3171,7 +3173,7 @@ describe('PersonState.processEvent()', () => {
             }
             const person = result.person
             const kafkaAcks = result.kafkaAck
-            await hub.kafkaProducer.flush()
+            await mockProducer.flush()
             await kafkaAcks
 
             // Verify that moveDistinctIds was called twice (initial + retry)
@@ -3227,7 +3229,7 @@ describe('PersonState.processEvent()', () => {
             }
             const person = result.person
             const kafkaAcks = result.kafkaAck
-            await hub.kafkaProducer.flush()
+            await mockProducer.flush()
             await kafkaAcks
 
             // Verify that moveDistinctIds was called twice (initial + retry)
@@ -3299,7 +3301,7 @@ describe('PersonState.processEvent()', () => {
             }
             const person = result.person
             const kafkaAcks = result.kafkaAck
-            await hub.kafkaProducer.flush()
+            await mockProducer.flush()
             await kafkaAcks
 
             // Verify that moveDistinctIds was only called once (no retry since person doesn't exist)
@@ -3360,7 +3362,7 @@ describe('PersonState.processEvent()', () => {
             }
             const person = result.person
             const kafkaAcks = result.kafkaAck
-            await hub.kafkaProducer.flush()
+            await mockProducer.flush()
             await kafkaAcks
 
             // Verify that moveDistinctIds was only called once (no retry since person doesn't exist)
