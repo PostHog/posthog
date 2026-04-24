@@ -167,7 +167,6 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
             resumable_source_manager=resumable_source_manager,
             selected_properties=selected_properties,
             source_id=inputs.source_id,
-            should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
             use_search_path=use_search_path,
         )
@@ -192,14 +191,22 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
         if endpoint_config is None or not endpoint_config.cursor_filter_property_field:
             return False
 
-        try:
-            from products.data_warehouse.backend.models import ExternalDataSchema
+        from products.data_warehouse.backend.models import ExternalDataSchema
 
+        try:
             schema = ExternalDataSchema.objects.get(id=inputs.schema_id, team_id=inputs.team_id)
-        except Exception:
-            # If we can't resolve the schema for any reason, fall back to the safe GET path.
+        except ExternalDataSchema.DoesNotExist:
+            # Schema has been deleted (or id is wrong) — safest to fall back to the GET path.
             inputs.logger.debug(
-                f"Hubspot: failed to look up ExternalDataSchema(id={inputs.schema_id}); "
+                f"Hubspot: ExternalDataSchema(id={inputs.schema_id}, team_id={inputs.team_id}) not found; "
+                "defaulting to full-refresh/seed GET path"
+            )
+            return False
+        except Exception:
+            # Any other lookup failure (DB blip, etc.) also falls back, but log with details
+            # so we can debug why incremental routing is disabled.
+            inputs.logger.exception(
+                f"Hubspot: failed to look up ExternalDataSchema(id={inputs.schema_id}, team_id={inputs.team_id}); "
                 "defaulting to full-refresh/seed GET path"
             )
             return False

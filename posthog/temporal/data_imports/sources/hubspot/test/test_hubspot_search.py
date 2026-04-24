@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -343,8 +344,8 @@ _RECENT_SEED_MS = _FIXED_NOW_MS - (10 * 24 * 60 * 60 * 1000)
 _RECENT_SEED_ISO = datetime.fromtimestamp(_RECENT_SEED_MS / 1000, tz=UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
-def _setup_search_post(responses: list[Any]) -> tuple[MagicMock, list[dict[str, Any]]]:
-    """Return (patch_target_mock, captured_requests)."""
+def _setup_search_post(responses: list[Any]) -> tuple[Callable[..., Any], list[dict[str, Any]]]:
+    """Return (side_effect_callable, captured_requests)."""
     captured: list[dict[str, Any]] = []
     iter_responses = iter(responses)
 
@@ -794,7 +795,6 @@ class TestHubspotSourceRouting:
                     logger=MagicMock(),
                     resumable_source_manager=MagicMock(),
                     use_search_path=True,
-                    should_use_incremental_field=True,
                 )
         finally:
             HUBSPOT_ENDPOINTS["deals"].cursor_filter_property_field = original
@@ -807,7 +807,6 @@ class TestHubspotSourceRouting:
             logger=MagicMock(),
             resumable_source_manager=MagicMock(),
             use_search_path=True,
-            should_use_incremental_field=True,
             db_incremental_field_last_value=None,
         )
         # SourceResponse should be returned with partition settings preserved.

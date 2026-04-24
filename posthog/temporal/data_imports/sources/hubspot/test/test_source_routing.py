@@ -1,5 +1,7 @@
-import pytest
+from contextlib import AbstractContextManager
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.hubspot.settings import DEFAULT_PROPS, HUBSPOT_ENDPOINTS
@@ -58,7 +60,7 @@ class TestGetSchemas:
 
 
 class TestShouldUseSearchPath:
-    def _patch_schema(self, initial_sync_complete: bool) -> None:
+    def _patch_schema(self, initial_sync_complete: bool) -> AbstractContextManager[MagicMock]:
         schema = MagicMock()
         schema.initial_sync_complete = initial_sync_complete
         return patch(
@@ -141,7 +143,6 @@ class TestSourceForPipelineRouting:
 
         hubspot_source_mock.assert_called_once()
         assert hubspot_source_mock.call_args.kwargs["use_search_path"] is True
-        assert hubspot_source_mock.call_args.kwargs["should_use_incremental_field"] is True
 
     def test_routes_to_get_when_initial_sync_not_complete(self) -> None:
         src = HubspotSource()

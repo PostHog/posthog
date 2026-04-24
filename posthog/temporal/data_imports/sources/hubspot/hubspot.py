@@ -41,6 +41,9 @@ from posthog.temporal.data_imports.sources.hubspot.settings import (
 )
 
 PROPERTY_LENGTH_LIMIT = 16_000  # Empirically determined rough limit for the HubSpot API
+# Cap on the number of properties requested via the search path. The search API has no URL-length
+# concern (POST body), but each extra property multiplies backfill work and response payload size.
+SEARCH_PROPERTIES_LIMIT = 250
 WINDOW_SIZE_MS = SEARCH_WINDOW_DAYS * 24 * 60 * 60 * 1000
 
 
@@ -113,6 +116,10 @@ def _resolve_search_properties(
 
     `required_props` are force-included (cursor property + hs_object_id) so downstream
     code can always read the cursor and the primary key regardless of user selection.
+
+    The returned list is capped at SEARCH_PROPERTIES_LIMIT items to bound the per-row
+    backfill cost (_backfill_missing_properties is O(num_properties) per row, so a portal
+    with thousands of custom properties can otherwise blow up CPU/memory at scale).
     """
     if selected_properties:
         available_props = set(_get_property_names(api_key, refresh_token, object_type, source_id=source_id))
@@ -142,8 +149,21 @@ def _resolve_search_properties(
         if required not in props:
             props.append(required)
 
-    # For search, HubSpot accepts the raw list — no URL-length concern. Expected properties
-    # drives null-backfilling for columns that HubSpot omits when the value is missing.
+    # Cap the properties list for search: unlike the GET path, the search POST body has no
+    # URL-length pressure, but each property still multiplies the per-row backfill work and
+    # the response payload. Keep the required props (they're already at the end) and truncate
+    # the rest.
+    if len(props) > SEARCH_PROPERTIES_LIMIT:
+        required_set = set(required_props)
+        non_required = [p for p in props if p not in required_set]
+        required_list = [p for p in props if p in required_set]
+        keep = SEARCH_PROPERTIES_LIMIT - len(required_list)
+        logger.warning(
+            f"HubSpot: {endpoint} has {len(props)} properties (> {SEARCH_PROPERTIES_LIMIT}); "
+            f"truncating to the first {keep} non-required properties plus {len(required_list)} required."
+        )
+        props = non_required[:keep] + required_list
+
     return props, list(props)
 
 
@@ -187,11 +207,12 @@ def _flatten_result(result: dict[str, Any]) -> dict[str, Any]:
 
 
 def _iso_to_ms(value: Any) -> Optional[int]:
-    """Parse a HubSpot datetime representation (ISO-8601 string, datetime, or ms int) to epoch ms."""
+    """Parse a HubSpot datetime representation (ISO-8601 string, datetime, or ms int/float) to epoch ms."""
     if value is None:
         return None
-    if isinstance(value, int):
-        return value
+    # bool is a subclass of int, so explicitly exclude it
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return int(value)
     if isinstance(value, datetime):
         if value.tzinfo is None:
             value = value.replace(tzinfo=UTC)
@@ -474,8 +495,10 @@ def get_rows_via_search(
 
     - Time-window the sync into SEARCH_WINDOW_DAYS-sized chunks.
     - Within each window, sort by the cursor property ASC and paginate via `after`.
-    - When a window exceeds SEARCH_RESULT_CAP results, advance the lower bound to
-      last_cursor_ms + 1 (sub-dividing the window) rather than id-walking.
+    - When a sub-slice exceeds SEARCH_RESULT_CAP results, advance the lower bound to
+      `sub_slice_max_cursor` (the highest cursor seen in the slice) and continue with
+      GTE so boundary-cursor records are re-fetched and deduplicated by primary key,
+      rather than id-walking. This avoids skipping records that share the boundary cursor.
     - Backfill associations (if any) per page via the v4 batch-read endpoint.
     - Checkpoint (sync_start_ms, sync_end_ms, last_cursor_ms) to Redis on each batch flush.
     """
@@ -524,12 +547,15 @@ def get_rows_via_search(
         reraise=True,
     )
     def fetch_search(body: dict[str, Any]) -> dict:
-        nonlocal api_key, headers
+        nonlocal api_key
         response = requests.post(search_url, headers=headers, json=body, timeout=60)
 
         if response.status_code == 401:
+            # Mutate `headers` in place so the shared dict stays in sync for subsequent calls
+            # and for nested helpers (e.g. _batch_read_associations) that hold the same ref.
             api_key = hubspot_refresh_access_token(refresh_token, source_id=source_id)
-            headers = _get_headers(api_key)
+            headers.clear()
+            headers.update(_get_headers(api_key))
             raise HubspotRetryableError(f"Hubspot search 401 - refreshed token, retrying: url={search_url}")
 
         if response.status_code == 429 or response.status_code >= 500:
@@ -669,7 +695,6 @@ def hubspot_source(
     include_custom_props: bool = True,
     selected_properties: list[str] | None = None,
     source_id: str | None = None,
-    should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
     use_search_path: bool = False,
 ) -> SourceResponse:
