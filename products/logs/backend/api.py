@@ -29,6 +29,7 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
@@ -478,6 +479,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @extend_schema(request=_LogsQueryRequestSerializer, responses={200: _LogsQueryResponseSerializer})
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def query(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=Product.LOGS, feature=Feature.QUERY)
         query_data = request.data.get("query", None)
         if query_data is None:
             return Response({"error": "No query provided"}, status=status.HTTP_400_BAD_REQUEST)
@@ -594,6 +596,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @extend_schema(request=_LogsSparklineRequestSerializer, responses={200: _LogsSparklineResponseSerializer})
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def sparkline(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=Product.LOGS, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
 
         query = LogsQuery(
@@ -632,6 +635,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @extend_schema(request=_LogsCountRequestSerializer, responses={200: _LogsCountResponseSerializer})
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def count(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=Product.LOGS, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
 
         date_range_data = query_data.get("dateRange")
@@ -670,6 +674,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @extend_schema(request=_LogsServicesRequestSerializer, responses={200: _LogsServicesResponseSerializer})
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def services(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=Product.LOGS, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
 
         filter_group = query_data.get("filterGroup", None)
@@ -711,6 +716,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @extend_schema(parameters=[_LogsAttributesQuerySerializer], responses={200: _LogsAttributesResponseSerializer})
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def attributes(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=Product.LOGS, feature=Feature.QUERY)
         search = request.GET.get("search", "")
         limit = request.GET.get("limit", 100)
         offset = request.GET.get("offset", 0)
@@ -764,6 +770,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @extend_schema(parameters=[_LogsValuesQuerySerializer], responses={200: _LogsValuesResponseSerializer})
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def values(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=Product.LOGS, feature=Feature.QUERY)
         with (
             PROPERTY_VALUES_DURATION.labels(endpoint_type="log").time(),
             tracer.start_as_current_span("logs_api_property_values") as span,
@@ -836,6 +843,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @extend_schema(responses={200: OpenApiTypes.OBJECT})
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def has_logs(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=Product.LOGS, feature=Feature.QUERY)
         has_logs = team_has_logs(self.team)
 
         report_user_action(
@@ -851,6 +859,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @extend_schema(responses={201: OpenApiTypes.OBJECT})
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def export(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=Product.LOGS, feature=Feature.QUERY)
         query_data = request.data.get("query", None)
         if query_data is None:
             return Response({"error": "No query provided"}, status=status.HTTP_400_BAD_REQUEST)
