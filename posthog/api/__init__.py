@@ -28,6 +28,7 @@ import products.early_access_features.backend.api as early_access_feature
 import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.mcp_store.backend.presentation.views as mcp_store
+import products.legal_documents.backend.presentation.views as legal_documents
 from products.dashboards.backend.api import dashboard, dashboard_templates
 from products.data_modeling.backend.api import DAGViewSet, EdgeViewSet, NodeViewSet
 from products.data_warehouse.backend.api import (
@@ -149,6 +150,7 @@ from . import (
     query,
     quick_filters,
     resource_transfer,
+    role_external_reference,
     scheduled_change,
     schema_property_group,
     search,
@@ -677,6 +679,12 @@ organizations_router.register(
     ["organization_id"],
 )
 organizations_router.register(
+    r"legal_documents",
+    legal_documents.LegalDocumentViewSet,
+    "organization_legal_documents",
+    ["organization_id"],
+)
+organizations_router.register(
     r"proxy_records",
     proxy_record.ProxyRecordViewset,
     "proxy_records",
@@ -692,6 +700,12 @@ organizations_router.register(
     r"resource_transfers",
     resource_transfer.ResourceTransferViewSet,
     "organization_resource_transfers",
+    ["organization_id"],
+)
+organizations_router.register(
+    r"role_external_references",
+    role_external_reference.RoleExternalReferenceViewSet,
+    "organization_role_external_references",
     ["organization_id"],
 )
 organizations_router.register(

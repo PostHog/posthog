@@ -11,8 +11,8 @@
         "test": "jest"
     },
     "dependencies": {
-        "@posthog/rrweb": "0.0.26",
-        "@posthog/rrweb-types": "0.0.26",
+        "@posthog/rrweb": "0.0.59",
+        "@posthog/rrweb-types": "0.0.59",
         "fflate": "^0.8.2",
         "hls.js": "^1.5.7"
     },

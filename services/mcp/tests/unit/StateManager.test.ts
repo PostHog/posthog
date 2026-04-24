@@ -96,18 +96,36 @@ describe('StateManager', () => {
             expect(result.organizationId).toBeUndefined()
         })
 
-        it('should throw error for team-scoped API key with multiple teams', async () => {
+        it('should prefer the active team when it is in a multi-team scoped list', async () => {
             const multiTeamApiKey = {
                 ...mockApiKey,
-                scoped_teams: [123, 456],
+                scoped_teams: [123, 456, 789],
             }
 
             vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(multiTeamApiKey)
             vi.spyOn(stateManager, 'getUser').mockResolvedValue(mockUser)
 
-            await expect(stateManager.setDefaultOrganizationAndProject()).rejects.toThrow(
-                'API key has access to multiple projects'
-            )
+            const result = await stateManager.setDefaultOrganizationAndProject()
+
+            expect(result.projectId).toBe(456)
+            expect(result.organizationId).toBeUndefined()
+            expect(await cache.get('projectId')).toBe('456')
+        })
+
+        it('should fall back to the first scoped team when the active team is not in the list', async () => {
+            const multiTeamApiKey = {
+                ...mockApiKey,
+                scoped_teams: [123, 789],
+            }
+
+            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(multiTeamApiKey)
+            vi.spyOn(stateManager, 'getUser').mockResolvedValue(mockUser)
+
+            const result = await stateManager.setDefaultOrganizationAndProject()
+
+            expect(result.projectId).toBe(123)
+            expect(result.organizationId).toBeUndefined()
+            expect(await cache.get('projectId')).toBe('123')
         })
 
         it("should use user's active org and team when no scoped restrictions", async () => {
@@ -165,7 +183,7 @@ describe('StateManager', () => {
             expect(result.projectId).toBe(789)
         })
 
-        it('should throw error when no projects available for scoped org', async () => {
+        it('returns the org alone when no projects are available for the scoped org', async () => {
             const scopedOrgApiKey = {
                 ...mockApiKey,
                 scoped_organizations: ['org-3'],
@@ -175,7 +193,6 @@ describe('StateManager', () => {
             vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(scopedOrgApiKey)
             vi.spyOn(stateManager, 'getUser').mockResolvedValue(mockUser)
 
-            // Mock the API client organization projects list call
             mockApi._api = {
                 organizations: () => ({
                     projects: () => ({
@@ -187,12 +204,15 @@ describe('StateManager', () => {
                 }),
             }
 
-            await expect(stateManager.setDefaultOrganizationAndProject()).rejects.toThrow(
-                'API key does not have access to any projects'
-            )
+            const result = await stateManager.setDefaultOrganizationAndProject()
+
+            expect(result.organizationId).toBe('org-3')
+            expect(result.projectId).toBeUndefined()
+            expect(await cache.get('orgId')).toBe('org-3')
+            expect(await cache.get('projectId')).toBeUndefined()
         })
 
-        it('should throw error when projects fetch fails', async () => {
+        it('returns the org alone when the projects fetch fails', async () => {
             const scopedOrgApiKey = {
                 ...mockApiKey,
                 scoped_organizations: ['org-3'],
@@ -202,20 +222,21 @@ describe('StateManager', () => {
             vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(scopedOrgApiKey)
             vi.spyOn(stateManager, 'getUser').mockResolvedValue(mockUser)
 
-            // Mock the API client organization projects list call
-            const mockError = new Error('Projects fetch failed')
             mockApi._api = {
                 organizations: () => ({
                     projects: () => ({
                         list: vi.fn().mockResolvedValue({
                             success: false,
-                            error: mockError,
+                            error: new Error('Projects fetch failed'),
                         }),
                     }),
                 }),
             }
 
-            await expect(stateManager.setDefaultOrganizationAndProject()).rejects.toThrow(mockError)
+            const result = await stateManager.setDefaultOrganizationAndProject()
+
+            expect(result.organizationId).toBe('org-3')
+            expect(result.projectId).toBeUndefined()
         })
     })
 
@@ -260,6 +281,19 @@ describe('StateManager', () => {
 
             expect(result).toBe('789')
             expect(spy).toHaveBeenCalledOnce()
+        })
+
+        it('throws MissingProjectContextError when no default project can be resolved', async () => {
+            vi.spyOn(stateManager, 'setDefaultOrganizationAndProject').mockResolvedValue({
+                organizationId: 'org-only',
+                projectId: undefined,
+            })
+
+            await expect(stateManager.getProjectId()).rejects.toMatchObject({
+                name: 'MissingProjectContextError',
+                organizationId: 'org-only',
+                message: expect.stringContaining('switch-project'),
+            })
         })
     })
 

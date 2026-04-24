@@ -21,8 +21,8 @@ export function OrgIPAnonymizationDefault(): JSX.Element {
                 updateOrganization({ default_anonymize_ips: checked })
             }}
             checked={!!currentOrganization?.default_anonymize_ips}
-            disabled={currentOrganizationLoading}
-            disabledReason={restrictionReason || (currentOrganizationLoading ? 'Loading...' : undefined)}
+            disabledReason={restrictionReason || undefined}
+            loading={currentOrganizationLoading}
             label="Discard client IP data by default for new projects"
             bordered
         />

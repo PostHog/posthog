@@ -54,6 +54,7 @@ export function Billing(): JSX.Element {
         showCreditCTAHero,
         showBillingHero,
         minimumBillingAccessLevel,
+        hasSupportAddonPlan,
     } = useValues(billingLogic)
     const { reportBillingShown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
@@ -236,7 +237,7 @@ export function Billing(): JSX.Element {
                 <h2>Products</h2>
             </div>
 
-            {(memberCount >= 5
+            {(memberCount >= 5 && !hasSupportAddonPlan
                 ? [
                       platformAndSupportProduct,
                       ...(products?.filter((product) => product.type !== ProductKey.PLATFORM_AND_SUPPORT) ?? []),

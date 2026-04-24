@@ -28,7 +28,14 @@ export const buildApiFetcher: (config: ApiConfig) => Fetcher = (config) => {
 
                 const headers = new Headers()
                 headers.set('Authorization', `Bearer ${config.apiToken}`)
-                headers.set('User-Agent', getUserAgent(config.clientUserAgent))
+                headers.set(
+                    'User-Agent',
+                    getUserAgent({
+                        clientUserAgent: config.clientUserAgent,
+                        mcpConsumer: config.mcpConsumer,
+                        mcpClientName: config.mcpClientName,
+                    })
+                )
                 if (config.clientUserAgent) {
                     // Forward the originating client's User-Agent so the PostHog API can
                     // attach it to analytics events for MCP source attribution.
