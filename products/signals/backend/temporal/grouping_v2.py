@@ -8,7 +8,7 @@ import structlog
 import temporalio
 from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
-from temporalio.common import MetricGauge, RetryPolicy
+from temporalio.common import MetricCounter, MetricGauge, RetryPolicy
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.storage import object_storage
@@ -61,6 +61,8 @@ class TeamSignalGroupingV2Workflow:
         self._type_examples_fetched_at: Optional[datetime] = None
         self._paused_until: Optional[datetime] = None
         self._batch_buffer_size_gauge: Optional[MetricGauge] = None
+        self._signals_processed_counter: Optional[MetricCounter] = None
+        self._signals_dropped_counter: Optional[MetricCounter] = None
 
     @staticmethod
     def workflow_id_for(team_id: int) -> str:
@@ -113,6 +115,14 @@ class TeamSignalGroupingV2Workflow:
             "Current number of signal batches buffered for processing in grouping v2",
         )
         self._batch_buffer_size_gauge.set(len(self._batch_key_buffer))
+        self._signals_processed_counter = meter.create_counter(
+            "signals_grouping_v2_signals_processed",
+            "Number of signals finished processing in grouping v2",
+        )
+        self._signals_dropped_counter = meter.create_counter(
+            "signals_grouping_v2_signals_dropped",
+            "Number of signals dropped during processing in grouping v2",
+        )
 
         while True:
             # If paused, sleep in 30s increments until unpaused or pause expires
@@ -159,6 +169,10 @@ class TeamSignalGroupingV2Workflow:
                 dropped, type_examples = await _process_signal_batch(signals, cached_type_examples=cached)
                 self._cached_type_examples = type_examples
                 self._type_examples_fetched_at = self._type_examples_fetched_at if cached is not None else now
+                if self._signals_processed_counter is not None:
+                    self._signals_processed_counter.add(len(signals))
+                if self._signals_dropped_counter is not None and dropped > 0:
+                    self._signals_dropped_counter.add(dropped)
             except Exception:
                 logger.exception(
                     "Failed to process signal batch",
