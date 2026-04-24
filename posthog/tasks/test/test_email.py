@@ -485,6 +485,34 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
 
+    @patch("posthog.tasks.email.dispatch_pipeline_failure_realtime")
+    def test_send_batch_export_run_failure_dispatches_realtime(
+        self, mock_realtime: MagicMock, MockEmailMessage: MagicMock
+    ) -> None:
+        mock_email_messages(MockEmailMessage)
+        batch_export_destination = BatchExportDestination.objects.create(
+            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
+        )
+        batch_export = BatchExport.objects.create(  # type: ignore
+            team=self.team, name="A batch export", destination=batch_export_destination
+        )
+        now = dt.datetime.now()
+        batch_export_run = BatchExportRun.objects.create(
+            batch_export=batch_export,
+            status=BatchExportRun.Status.FAILED,
+            data_interval_start=now - dt.timedelta(hours=1),
+            data_interval_end=now,
+        )
+
+        send_batch_export_run_failure(batch_export_run.id)
+
+        mock_realtime.assert_called_once()
+        kwargs = mock_realtime.call_args.kwargs
+        assert kwargs["team"].id == self.team.id
+        assert "Batch export" in kwargs["title"]
+        assert batch_export.name in kwargs["title"]
+        assert kwargs["resource_id"] == str(batch_export.id)
+
     def test_send_batch_export_run_failure_with_settings(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         batch_export_destination = BatchExportDestination.objects.create(
