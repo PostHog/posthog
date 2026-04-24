@@ -102,6 +102,47 @@ def _parse_next_url(link_header: str) -> str | None:
     return None
 
 
+# GitHub uses 403 for both genuine permission denials and rate-limit /
+# abuse-detection conditions. These substrings are documented signals for the
+# transient cases (primary rate limit, secondary rate limit, abuse detection).
+_RATE_LIMIT_BODY_SIGNALS = (
+    "api rate limit exceeded",
+    "secondary rate limit",
+    "abuse detection",
+)
+
+
+def _is_rate_limit_403(response: requests.Response) -> bool:
+    """Detect transient 403 responses that should be retried.
+
+    GitHub returns 403 for two very different conditions:
+    - permission denied: fatal, should bubble up as an error
+    - primary/secondary rate limit, abuse detection: transient, should retry
+
+    Signals (any one is sufficient):
+    - `X-RateLimit-Remaining: 0` → primary rate limit exhausted
+    - `Retry-After` present → GitHub is explicitly asking us to back off
+    - body message matches a documented rate-limit / abuse-detection string
+    """
+    if response.status_code != 403:
+        return False
+
+    if response.headers.get("X-RateLimit-Remaining") == "0":
+        return True
+
+    if response.headers.get("Retry-After"):
+        return True
+
+    try:
+        body = response.json()
+        message = body.get("message", "") if isinstance(body, dict) else ""
+    except (ValueError, AttributeError):
+        message = response.text or ""
+
+    message = message.lower()
+    return any(signal in message for signal in _RATE_LIMIT_BODY_SIGNALS)
+
+
 def _as_utc(dt: datetime) -> datetime:
     """Treat naive datetimes as UTC so tz-aware values (GitHub returns ISO 8601
     with `Z`) can be safely compared against naive cutoffs from the DB."""
@@ -280,6 +321,24 @@ def get_rows(
 
         if response.status_code == 429 or response.status_code >= 500:
             raise GithubRetryableError(f"Github API error (retryable): status={response.status_code}, url={page_url}")
+
+        # Primary/secondary rate limits and abuse detection surface as 403 on
+        # GitHub's API. Only permission denials should be fatal — the
+        # transient cases must be retried.
+        if _is_rate_limit_403(response):
+            raise GithubRetryableError(
+                f"Github API rate limit (retryable): status=403, url={page_url}, "
+                f"retry_after={response.headers.get('Retry-After')}, "
+                f"remaining={response.headers.get('X-RateLimit-Remaining')}"
+            )
+
+        # GitHub returns 409 on /commits when the repository has no commits
+        # yet (empty repo). That's a steady-state condition, not an error —
+        # return the response so the caller sees a non-list body and ends
+        # pagination cleanly instead of crashing the whole sync.
+        if response.status_code == 409 and endpoint == "commits":
+            logger.info(f"Github: empty repository for commits endpoint: url={page_url}")
+            return response
 
         if not response.ok:
             logger.error(f"Github API error: status={response.status_code}, body={response.text}, url={page_url}")

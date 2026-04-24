@@ -8,6 +8,7 @@ from parameterized import parameterized
 
 from posthog.temporal.data_imports.sources.github.github import (
     GithubResumeConfig,
+    GithubRetryableError,
     _build_initial_params,
     _build_initial_url,
     _flatten_commit,
@@ -15,6 +16,7 @@ from posthog.temporal.data_imports.sources.github.github import (
     _format_incremental_value,
     _is_issue_not_pr,
     _is_older_than_cutoff,
+    _is_rate_limit_403,
     _parse_next_url,
     _should_stop_desc,
     get_rows,
@@ -24,12 +26,24 @@ from posthog.temporal.data_imports.sources.github.github import (
 from posthog.temporal.data_imports.sources.github.settings import GITHUB_ENDPOINTS
 
 
-def _make_response(status: int = 200, body: Any = None, link: str = "") -> mock.Mock:
+def _make_response(
+    status: int = 200,
+    body: Any = None,
+    link: str = "",
+    headers: dict[str, str] | None = None,
+) -> mock.Mock:
     resp = mock.Mock()
     resp.status_code = status
     resp.ok = 200 <= status < 300
     resp.json.return_value = body if body is not None else []
-    resp.headers = {"Link": link} if link else {}
+    resp.text = "" if body is None else str(body)
+    hdrs: dict[str, str] = {}
+    if link:
+        hdrs["Link"] = link
+    if headers:
+        hdrs.update(headers)
+    resp.headers = hdrs
+    resp.raise_for_status = mock.Mock(side_effect=(requests.HTTPError(f"HTTP {status}") if status >= 400 else None))
     return resp
 
 
@@ -626,6 +640,228 @@ class TestGetRowsResume:
         first_save = manager.save_state.call_args_list[0].args[0]
         assert first_save.next_url == mock_get.call_args_list[0].args[0]
         assert first_save.next_url != "https://api.github.com/repos/owner/repo/releases?page=2"
+
+
+class TestIsRateLimit403:
+    """Classifier for 403 responses: transient (retryable) vs permission denial (fatal)."""
+
+    def _resp(self, status: int = 403, headers: dict[str, str] | None = None, body: Any = None) -> mock.Mock:
+        resp = mock.Mock()
+        resp.status_code = status
+        resp.headers = headers or {}
+        if body is None:
+            resp.json.side_effect = ValueError("no json")
+            resp.text = ""
+        else:
+            resp.json.return_value = body
+            resp.text = str(body)
+        return resp
+
+    def test_non_403_is_not_rate_limit(self) -> None:
+        assert _is_rate_limit_403(self._resp(status=401)) is False
+        assert _is_rate_limit_403(self._resp(status=429)) is False
+        assert _is_rate_limit_403(self._resp(status=500)) is False
+
+    def test_rate_limit_remaining_zero(self) -> None:
+        assert _is_rate_limit_403(self._resp(headers={"X-RateLimit-Remaining": "0"})) is True
+
+    def test_retry_after_header(self) -> None:
+        assert _is_rate_limit_403(self._resp(headers={"Retry-After": "60"})) is True
+
+    @parameterized.expand(
+        [
+            ("primary_rate_limit", {"message": "API rate limit exceeded for user ID 1."}),
+            ("secondary_rate_limit", {"message": "You have exceeded a secondary rate limit."}),
+            ("abuse_detection", {"message": "You have triggered an abuse detection mechanism."}),
+            ("mixed_case", {"message": "API Rate Limit Exceeded"}),
+        ]
+    )
+    def test_body_message_signals(self, _name: str, body: dict[str, Any]) -> None:
+        assert _is_rate_limit_403(self._resp(body=body)) is True
+
+    def test_permission_denial_is_fatal(self) -> None:
+        body = {"message": "Resource not accessible by integration"}
+        assert _is_rate_limit_403(self._resp(body=body)) is False
+
+    def test_unparseable_body_falls_back_to_text(self) -> None:
+        resp = mock.Mock()
+        resp.status_code = 403
+        resp.headers = {}
+        resp.json.side_effect = ValueError("not json")
+        resp.text = "You have triggered an ABUSE DETECTION mechanism."
+        assert _is_rate_limit_403(resp) is True
+
+
+class TestFetchPageRetryBehavior:
+    """Integration tests covering the fetch_page retry classifier via get_rows."""
+
+    def _patch_batcher(self) -> Any:
+        return mock.patch(
+            "posthog.temporal.data_imports.sources.github.github.Batcher",
+            autospec=False,
+            side_effect=lambda logger, chunk_size, chunk_size_bytes: _ImmediateBatcher(),
+        )
+
+    def _patch_sleep(self) -> Any:
+        # wait_exponential_jitter(initial=1, max=30) calls time.sleep between
+        # retries — skip the wait to keep tests fast.
+        return mock.patch("time.sleep", return_value=None)
+
+    def _run_get_rows(self, manager: mock.Mock, endpoint: str = "releases") -> list[Any]:
+        return list(
+            get_rows(
+                personal_access_token="tok",
+                repository="owner/repo",
+                endpoint=endpoint,
+                logger=mock.Mock(),
+                resumable_source_manager=manager,
+                should_use_incremental_field=False,
+            )
+        )
+
+    def test_403_rate_limit_remaining_zero_is_retried(self) -> None:
+        manager = _make_manager(can_resume=False)
+        rate_limited = _make_response(status=403, headers={"X-RateLimit-Remaining": "0"})
+        success = _make_response(body=[{"id": 1}], link="")
+
+        with (
+            self._patch_batcher(),
+            self._patch_sleep(),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.github.github.requests.get",
+                side_effect=[rate_limited, success],
+            ) as mock_get,
+        ):
+            self._run_get_rows(manager)
+
+        assert mock_get.call_count == 2
+
+    def test_403_retry_after_is_retried(self) -> None:
+        manager = _make_manager(can_resume=False)
+        rate_limited = _make_response(status=403, headers={"Retry-After": "30"})
+        success = _make_response(body=[{"id": 1}], link="")
+
+        with (
+            self._patch_batcher(),
+            self._patch_sleep(),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.github.github.requests.get",
+                side_effect=[rate_limited, success],
+            ) as mock_get,
+        ):
+            self._run_get_rows(manager)
+
+        assert mock_get.call_count == 2
+
+    def test_403_secondary_rate_limit_body_is_retried(self) -> None:
+        manager = _make_manager(can_resume=False)
+        rate_limited = _make_response(
+            status=403,
+            body={"message": "You have exceeded a secondary rate limit. Please wait."},
+        )
+        success = _make_response(body=[{"id": 1}], link="")
+
+        with (
+            self._patch_batcher(),
+            self._patch_sleep(),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.github.github.requests.get",
+                side_effect=[rate_limited, success],
+            ) as mock_get,
+        ):
+            self._run_get_rows(manager)
+
+        assert mock_get.call_count == 2
+
+    def test_403_permission_denied_is_fatal_and_not_retried(self) -> None:
+        manager = _make_manager(can_resume=False)
+        denied = _make_response(
+            status=403,
+            body={"message": "Resource not accessible by integration"},
+        )
+
+        with (
+            self._patch_batcher(),
+            self._patch_sleep(),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.github.github.requests.get",
+                side_effect=[denied],
+            ) as mock_get,
+        ):
+            try:
+                self._run_get_rows(manager)
+                raised = False
+            except requests.HTTPError:
+                raised = True
+
+        assert raised is True
+        assert mock_get.call_count == 1
+
+    def test_403_rate_limit_exhausts_retries_reraises_retryable(self) -> None:
+        manager = _make_manager(can_resume=False)
+        rate_limited = _make_response(status=403, headers={"X-RateLimit-Remaining": "0"})
+
+        with (
+            self._patch_batcher(),
+            self._patch_sleep(),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.github.github.requests.get",
+                side_effect=[rate_limited] * 5,
+            ) as mock_get,
+        ):
+            try:
+                self._run_get_rows(manager)
+                raised = False
+            except GithubRetryableError:
+                raised = True
+
+        # stop_after_attempt(5) + reraise=True — all 5 attempts hit, then the
+        # final GithubRetryableError is reraised so the activity fails as
+        # retryable rather than silently returning nothing.
+        assert raised is True
+        assert mock_get.call_count == 5
+
+    def test_409_on_commits_is_treated_as_empty_repository(self) -> None:
+        manager = _make_manager(can_resume=False)
+        empty_repo = _make_response(
+            status=409,
+            body={"message": "Git Repository is empty."},
+        )
+
+        with (
+            self._patch_batcher(),
+            self._patch_sleep(),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.github.github.requests.get",
+                side_effect=[empty_repo],
+            ) as mock_get,
+        ):
+            rows = self._run_get_rows(manager, endpoint="commits")
+
+        # One attempt (no retry), no rows yielded, no fatal exception raised.
+        assert rows == []
+        assert mock_get.call_count == 1
+        manager.save_state.assert_not_called()
+
+    def test_409_on_non_commits_endpoint_still_raises(self) -> None:
+        manager = _make_manager(can_resume=False)
+        conflict = _make_response(status=409, body={"message": "Conflict"})
+
+        with (
+            self._patch_batcher(),
+            self._patch_sleep(),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.github.github.requests.get",
+                side_effect=[conflict],
+            ),
+        ):
+            try:
+                self._run_get_rows(manager, endpoint="releases")
+                raised = False
+            except requests.HTTPError:
+                raised = True
+
+        assert raised is True
 
 
 class _ChunkingBatcher:
