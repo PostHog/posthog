@@ -480,6 +480,23 @@ class TestResolver(BaseTest):
         select = cast(ast.SelectQuery, resolve_types(select, self.context, dialect="hogql"))
         assert isinstance(select.select[0].type, ast.UnresolvedFieldType)
 
+    def test_unresolved_field_suggests_close_matches(self):
+        # user_id isn't on events, but distinct_id and person_id are close enough to suggest
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(
+                self._select("SELECT user_id FROM events"),
+                self.context,
+                dialect="clickhouse",
+            )
+        message = str(ctx.exception)
+        self.assertIn("Unable to resolve field: user_id", message)
+        self.assertIn("Did you mean:", message)
+        # At least one of the obvious suggestions should show up
+        self.assertTrue(
+            "distinct_id" in message or "person_id" in message,
+            f"expected a plausible suggestion in: {message}",
+        )
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_lazy_pdi_person_table(self):
         expr = self._select("select distinct_id, person.id from person_distinct_ids")

@@ -401,6 +401,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("user_id", first_error["message"])
         self.assertIsNotNone(first_error.get("start"))
         self.assertIsNotNone(first_error.get("end"))
+        self.assertIn("Did you mean", first_error["message"])
 
     @patch(
         "posthog.clickhouse.client.execute._annotate_tagged_query", return_value=("SELECT 1&&&", QueryTags())
