@@ -152,8 +152,9 @@ export class MCP extends McpAgent<Env> {
             this.mcpClientVersion = sanitizeHeaderValue(params.clientInfo?.version)
             this.mcpProtocolVersion = sanitizeHeaderValue(params.protocolVersion)
             this.clientInfoResolved = true
-        } catch {
+        } catch (error) {
             // stay unresolved so a later caller can retry
+            console.error('[MCP] resolveClientInfo fallback failed:', error)
         }
     }
 
