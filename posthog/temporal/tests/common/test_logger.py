@@ -165,6 +165,7 @@ async def configure_logger_auto(log_capture, queue, producer):
             producer=producer,
             cache_logger_on_first_use=False,
             loop=loop,
+            raise_on_producer_error=True,
         )
 
     yield

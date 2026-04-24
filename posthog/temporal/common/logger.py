@@ -475,6 +475,7 @@ def configure_logger(
     cache_logger_on_first_use: bool = True,
     loop: asyncio.AbstractEventLoop | None = None,
     file: typing.TextIO | None = None,
+    raise_on_producer_error: bool = False,
 ) -> None:
     """Configure a structlog for Temporal workflows.
 
@@ -501,6 +502,9 @@ def configure_logger(
         cache_logger_on_first_use: Set whether to cache logger for performance.
             Should always be `True` except in tests.
         loop: The loop where the aforementioned tasks will run on.
+        raise_on_producer_error: Raise any producer startup errors when `True`,
+            otherwise only log them. Set to `False` as in production environments, we
+            prefer only logging as most products can survive without logs.
     """
     base_processors: list[structlog.types.Processor] = [
         structlog.stdlib.add_log_level,
@@ -567,7 +571,10 @@ def configure_logger(
     )
 
     if log_producer is None:
-        if loop is not None:
+        if log_producer_error is not None:
+            if raise_on_producer_error:
+                raise log_producer_error
+
             logger = structlog.get_logger()
             logger.error("Failed to initialize log producer", exc_info=log_producer_error)
         return
