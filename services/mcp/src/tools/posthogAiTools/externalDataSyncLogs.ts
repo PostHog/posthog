@@ -13,22 +13,22 @@ const schema = z.object({
             'Optional workflow_run_id to filter logs for a specific sync job. Get this from external-data-sources-jobs.'
         ),
     level: z
-        .enum(['DEBUG', 'LOG', 'INFO', 'WARN', 'WARNING', 'ERROR'])
+        .enum(['DEBUG', 'INFO', 'WARNING', 'ERROR'])
         .optional()
-        .describe('Minimum log level to return. Defaults to LOG (excludes DEBUG).'),
+        .describe('Minimum log level to return. Defaults to INFO (excludes DEBUG).'),
     search: z.string().optional().describe('Search string to filter log messages (case-insensitive substring match).'),
     limit: z.number().int().min(1).max(500).optional().describe('Max number of log entries to return (default 100).'),
 })
 
 type Params = z.infer<typeof schema>
 
-const LEVEL_ORDER = ['DEBUG', 'LOG', 'INFO', 'WARN', 'WARNING', 'ERROR'] as const
+const LEVEL_ORDER = ['DEBUG', 'INFO', 'WARNING', 'ERROR'] as const
 
 const tool = (): ToolBase<typeof schema, string> => ({
     name: 'external-data-sync-logs',
     schema,
     handler: async (context: Context, params: Params) => {
-        const minLevel = params.level ?? 'LOG'
+        const minLevel = params.level ?? 'INFO'
         const minIndex = LEVEL_ORDER.indexOf(minLevel)
         const includedLevels = LEVEL_ORDER.slice(minIndex).map((l) => `'${l.toLowerCase()}'`)
 
