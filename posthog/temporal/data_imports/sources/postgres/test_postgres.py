@@ -115,6 +115,8 @@ class TestPostgresSourceNonRetryableErrors:
             'FATAL:  password authentication failed for user "myuser"',
             'FATAL: no such database "nonexistent_db"',
             "Name or service not known",
+            'OperationalError: connection failed: connection to server at "127.0.0.1", port 44703 failed: server closed the connection unexpectedly\n\tThis probably means the server terminated abnormally\n\tbefore or while processing the request.',
+            "consuming input failed: server closed the connection unexpectedly",
         ],
     )
     def test_permanent_connection_errors_are_non_retryable(self, source, error_msg):

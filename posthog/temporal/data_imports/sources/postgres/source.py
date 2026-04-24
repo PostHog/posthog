@@ -135,6 +135,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             "No primary key defined for table": None,
             "failed: timeout expired": None,
             "SSL connection has been closed unexpectedly": None,
+            "server closed the connection unexpectedly": None,
             "Address not in tenant allow_list": None,
             "FATAL: no such database": None,
             "does not exist": None,
