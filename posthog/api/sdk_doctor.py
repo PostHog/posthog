@@ -18,13 +18,16 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.redis import get_client
 
-from products.growth.backend.constants import SdkVersionEntry, github_sdk_versions_key, team_sdk_versions_key
+from products.growth.backend.constants import SDK_TYPES, SdkVersionEntry, github_sdk_versions_key, team_sdk_versions_key
 from products.growth.backend.sdk_health import SdkHealthReport, compute_sdk_health
 
-# NOTE: products.growth.backend.team_sdk_versions and products.growth.dags.github_sdk_versions
-# are imported lazily inside the helper functions below. Both transitively import from
-# posthog/dags which calls django.setup() — that causes a RuntimeError("populate() isn't reentrant")
-# if we let it happen at module import time from posthog/api/__init__.py.
+# NOTE: products.growth.backend.team_sdk_versions is imported lazily inside get_team_data
+# below. It transitively imports from posthog/dags which calls django.setup() — that
+# causes a RuntimeError("populate() isn't reentrant") if we let it happen at module
+# import time from posthog/api/__init__.py. SDK_TYPES used to trigger the same chain
+# when it lived in products.growth.dags.github_sdk_versions; it now lives in
+# products.growth.backend.constants (which has no Django side effects) and can be a
+# top-level import.
 
 logger = structlog.get_logger(__name__)
 
@@ -302,8 +305,6 @@ def get_team_data(team_id: int, force_refresh: bool) -> dict[str, list[SdkVersio
 
 
 def get_github_sdk_data() -> dict[str, Any]:
-    from products.growth.dags.github_sdk_versions import SDK_TYPES
-
     redis_client = get_client()
 
     data: dict[str, Any] = {}
