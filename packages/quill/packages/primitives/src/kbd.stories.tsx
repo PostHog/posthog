@@ -1,7 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { Field, FieldLabel } from './field'
-import { Input } from './input'
 import { Kbd, KbdGroup, KbdText } from './kbd'
 
 const meta = {

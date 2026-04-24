@@ -119,7 +119,7 @@ async function main() {
     async function worker() {
         while (queue.length) {
             const item = queue.shift()
-            if (!item) return
+            if (!item) {return}
             const { entry, theme } = item
             const r = await captureOne(entry, theme)
             done++
