@@ -44,7 +44,7 @@ def verify_api_version(request: Request) -> Response | None:
     return None
 
 
-def verify_stripe_signature(request: Request) -> Response | None:
+def verify_provisioning_signature(request: Request) -> Response | None:
     """Verify the Stripe-Signature HMAC.
 
     Returns None if verification passes, or an error Response if it fails.
@@ -52,7 +52,7 @@ def verify_stripe_signature(request: Request) -> Response | None:
     """
     endpoint = request.path
 
-    secret = settings.STRIPE_APP_SECRET_KEY
+    secret = settings.STRIPE_SIGNING_SECRET
     if not secret:
         _log_and_capture_event("server_error", 500, endpoint)
         return Response({"error": {"code": "server_error", "message": "Signing secret not configured"}}, status=500)

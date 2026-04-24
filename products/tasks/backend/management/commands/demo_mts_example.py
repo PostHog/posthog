@@ -16,7 +16,7 @@ from products.tasks.backend.services.custom_prompt_runner import CustomPromptSan
 from products.tasks.backend.services.mts_example import run_cursed_identifier_research
 
 REPOSITORY = "PostHog/posthog"
-BRANCH = "master"
+BRANCH: str | None = None
 
 
 class Command(BaseCommand):
@@ -55,7 +55,7 @@ class Command(BaseCommand):
             posthog_mcp_scopes="read_only",
         )
 
-        self.stdout.write(f"Repository: {REPOSITORY} (branch: {BRANCH})")
+        self.stdout.write(f"Repository: {REPOSITORY} (branch: {BRANCH or 'repo default'})")
         self.stdout.write(f"Team: {team_id}  User: {user_id}")
         self.stdout.write("Starting cursed identifier research...")
         self.stdout.write("")

@@ -1110,7 +1110,7 @@ async def _process_signal_batch(
 
         except Exception:
             dropped += 1
-            workflow.logger.exception(
+            logger.exception(
                 "Failed to process signal in batch",
                 team_id=team_id,
                 source_product=signal.source_product,
@@ -1241,7 +1241,7 @@ class TeamSignalGroupingWorkflow:
             except Exception:
                 # Parallel phase failed — all signals in batch dropped
                 self._signals_dropped_counter.add(len(batch))
-                workflow.logger.exception(
+                logger.exception(
                     "Failed to process signal batch",
                     team_id=input.team_id,
                     batch_size=len(batch),

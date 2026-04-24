@@ -96,8 +96,6 @@ export const DashboardsPartialUpdateQueryParams = /* @__PURE__ */ zod.object({
 
 export const dashboardsPartialUpdateBodyNameMax = 400
 
-export const dashboardsPartialUpdateBodyDeleteInsightsDefault = false
-
 export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(dashboardsPartialUpdateBodyNameMax).nullish(),
@@ -123,7 +121,7 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
         use_dashboard: zod.number().nullish().describe('ID of an existing dashboard to duplicate.'),
         delete_insights: zod
             .boolean()
-            .default(dashboardsPartialUpdateBodyDeleteInsightsDefault)
+            .optional()
             .describe('When deleting, also delete insights that are only on this dashboard.'),
     })
     .describe('Serializer mixin that handles tags for objects.')

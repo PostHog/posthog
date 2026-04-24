@@ -167,9 +167,15 @@ export default function SchemaForm(): JSX.Element {
                                                                     </div>
                                                                     {showRows && (
                                                                         <span className="text-sm text-muted-alt text-right">
-                                                                            {schema.rows != null
-                                                                                ? schema.rows
-                                                                                : 'Unknown'}
+                                                                            {schema.rows != null ? (
+                                                                                schema.rows
+                                                                            ) : (
+                                                                                <Tooltip title="Row count was skipped for this table because counting would require a full scan (e.g. plain views, Memory/Buffer/Log-engine tables, or Kafka/URL table functions). The table can still be synced — we just don't know its size up front.">
+                                                                                    <span className="cursor-help">
+                                                                                        Skipped
+                                                                                    </span>
+                                                                                </Tooltip>
+                                                                            )}
                                                                         </span>
                                                                     )}
                                                                 </div>
@@ -246,7 +252,14 @@ export default function SchemaForm(): JSX.Element {
                                     key: 'rows',
                                     isHidden: !databaseSchema.some((schema) => schema.rows),
                                     render: function RenderRows(_, schema) {
-                                        return schema.rows != null ? schema.rows : 'Unknown'
+                                        if (schema.rows != null) {
+                                            return schema.rows
+                                        }
+                                        return (
+                                            <Tooltip title="Row count was skipped for this table because counting would require a full scan (e.g. plain views, Memory/Buffer/Log-engine tables, or Kafka/URL table functions). The table can still be synced — we just don't know its size up front.">
+                                                <span className="text-muted-alt cursor-help">Skipped</span>
+                                            </Tooltip>
+                                        )
                                     },
                                 },
                                 {

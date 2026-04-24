@@ -21,7 +21,6 @@ interface DashboardTextItemProps extends Omit<BaseTextCardProps, 'textTile' | 'p
     onCopyToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
     onDuplicate: () => void
     onRemove?: () => void
-    isDragging?: boolean
 }
 
 function DashboardTextItemInternal(
@@ -34,7 +33,6 @@ function DashboardTextItemInternal(
         onCopyToDashboard,
         onDuplicate,
         onRemove,
-        isDragging,
         ...textCardProps
     }: DashboardTextItemProps,
     ref: React.ForwardedRef<HTMLDivElement>

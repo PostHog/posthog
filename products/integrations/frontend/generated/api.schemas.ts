@@ -79,29 +79,6 @@ export interface UserBasicApi {
 /**
  * Serializer for organization-level integrations.
  */
-export interface OrganizationIntegrationApi {
-    readonly id: string
-    readonly kind: OrganizationIntegrationKindEnumApi
-    /** @nullable */
-    readonly integration_id: string | null
-    readonly config: unknown
-    readonly created_at: string
-    readonly updated_at: string
-    readonly created_by: UserBasicApi
-}
-
-export interface PaginatedOrganizationIntegrationListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: OrganizationIntegrationApi[]
-}
-
-/**
- * Serializer for organization-level integrations.
- */
 export interface PatchedOrganizationIntegrationApi {
     readonly id?: string
     readonly kind?: OrganizationIntegrationKindEnumApi
@@ -111,6 +88,20 @@ export interface PatchedOrganizationIntegrationApi {
     readonly created_at?: string
     readonly updated_at?: string
     readonly created_by?: UserBasicApi
+}
+
+/**
+ * Serializer for organization-level integrations.
+ */
+export interface OrganizationIntegrationApi {
+    readonly id: string
+    readonly kind: OrganizationIntegrationKindEnumApi
+    /** @nullable */
+    readonly integration_id: string | null
+    readonly config: unknown
+    readonly created_at: string
+    readonly updated_at: string
+    readonly created_by: UserBasicApi
 }
 
 /**
@@ -147,9 +138,9 @@ export interface PatchedOrganizationIntegrationApi {
  * `customerio-webhook` - Customerio Webhook
  * `customerio-track` - Customerio Track
  */
-export type KindEc9EnumApi = (typeof KindEc9EnumApi)[keyof typeof KindEc9EnumApi]
+export type IntegrationKindEnumApi = (typeof IntegrationKindEnumApi)[keyof typeof IntegrationKindEnumApi]
 
-export const KindEc9EnumApi = {
+export const IntegrationKindEnumApi = {
     Slack: 'slack',
     SlackPosthogCode: 'slack-posthog-code',
     Salesforce: 'salesforce',
@@ -187,9 +178,9 @@ export const KindEc9EnumApi = {
 /**
  * Standard Integration serializer.
  */
-export interface IntegrationApi {
+export interface IntegrationConfigApi {
     readonly id: number
-    kind: KindEc9EnumApi
+    kind: IntegrationKindEnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -197,21 +188,21 @@ export interface IntegrationApi {
     readonly display_name: string
 }
 
-export interface PaginatedIntegrationListApi {
+export interface PaginatedIntegrationConfigListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: IntegrationApi[]
+    results: IntegrationConfigApi[]
 }
 
 /**
  * Standard Integration serializer.
  */
-export interface PatchedIntegrationApi {
+export interface PatchedIntegrationConfigApi {
     readonly id?: number
-    kind?: KindEc9EnumApi
+    kind?: IntegrationKindEnumApi
     config?: unknown
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -243,18 +234,12 @@ export interface GitHubReposResponseApi {
     has_more: boolean
 }
 
-export type IntegrationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
+export interface GitHubReposRefreshResponseApi {
+    /** The refreshed repository cache. */
+    repositories: GitHubRepoApi[]
 }
 
-export type IntegrationsList2Params = {
+export type IntegrationsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -282,6 +267,10 @@ export type IntegrationsGithubBranchesRetrieveParams = {
      * @minLength 1
      */
     repo: string
+    /**
+     * Optional case-insensitive branch name search query.
+     */
+    search?: string
 }
 
 export type IntegrationsGithubReposRetrieveParams = {
@@ -296,4 +285,8 @@ export type IntegrationsGithubReposRetrieveParams = {
      * @minimum 0
      */
     offset?: number
+    /**
+     * Optional case-insensitive repository name search query.
+     */
+    search?: string
 }

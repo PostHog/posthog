@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useMemo } from 'react'
 
 import { IconBuilding, IconChevronDown, IconGlobe, IconThumbsUpFilled } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonMenu, LemonTag } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import type { Sorting } from 'lib/lemon-ui/LemonTable'
@@ -14,8 +14,10 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber } from 'lib/utils'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { dashboardTemplateEditorLogic } from 'scenes/dashboard/dashboardTemplateEditorLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { AccessControlLevel, AccessControlResourceType, DashboardTemplateType } from '~/types'
@@ -91,11 +93,49 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
     const { openEdit: openDashboardTemplateModalEdit } = useActions(dashboardTemplateModalLogic)
 
     const { user } = useValues(userLogic)
-    const customerDashboardTemplateAuthoring = useFeatureFlag('CUSTOMER_DASHBOARD_TEMPLATE_AUTHORING')
+    /** Django `is_staff` (not org role). Prefer loaded API user; until then use SSR/bootstrap context so row actions are not blank. */
+    const isDjangoStaffForTemplateUi =
+        user != null ? Boolean(user.is_staff) : Boolean(getAppContext()?.current_user?.is_staff)
+    /** Team-scoped template row actions for non–Django-staff. `dashboard_template` inherits `dashboard` in RBAC (#54694). */
     const canCustomerManageTeamTemplates =
-        !user?.is_staff &&
-        customerDashboardTemplateAuthoring &&
-        userHasAccess(AccessControlResourceType.DashboardTemplate, AccessControlLevel.Editor)
+        !isDjangoStaffForTemplateUi && userHasAccess(AccessControlResourceType.Dashboard, AccessControlLevel.Editor)
+
+    const currentTeamId = user?.team?.id ?? getAppContext()?.current_team?.id ?? null
+    const organizationTeams = user?.organization?.teams ?? getAppContext()?.current_user?.organization?.teams ?? []
+
+    const eligibleDestinationTeamsCount = useMemo(() => {
+        if (currentTeamId == null) {
+            return 0
+        }
+        return organizationTeams.filter((t) => t.id !== currentTeamId).length
+    }, [organizationTeams, currentTeamId])
+
+    const copyTemplateToProjectMenuSection = (
+        templateId: string | undefined,
+        dataAttr: 'dashboard-template-copy-to-project-staff' | 'dashboard-template-copy-to-project-customer'
+    ): JSX.Element | null => {
+        if (!templateId || eligibleDestinationTeamsCount <= 0) {
+            return null
+        }
+        return (
+            <>
+                <LemonDivider />
+                <LemonButton
+                    fullWidth
+                    data-attr={dataAttr}
+                    onClick={() => {
+                        if (currentTeamId == null) {
+                            console.error('Current project id not available')
+                            return
+                        }
+                        router.actions.push(urls.dashboardTemplateCopyToProject(templateId, currentTeamId))
+                    }}
+                >
+                    Copy to another project
+                </LemonButton>
+            </>
+        )
+    }
 
     const columns: LemonTableColumns<DashboardTemplateType> = [
         {
@@ -210,7 +250,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                 const { id, scope } = record
                 const builtInOfficial = isBuiltInOfficialTemplate(record)
 
-                if (user?.is_staff) {
+                if (isDjangoStaffForTemplateUi) {
                     return (
                         <More
                             overlay={
@@ -244,6 +284,13 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                                     >
                                         Make visible to {scope === 'global' ? 'this team only' : 'everyone'}
                                     </LemonButton>
+
+                                    {scope === 'team'
+                                        ? copyTemplateToProjectMenuSection(
+                                              id,
+                                              'dashboard-template-copy-to-project-staff'
+                                          )
+                                        : null}
 
                                     <LemonDivider />
                                     <LemonButton
@@ -292,6 +339,10 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                                     >
                                         Edit
                                     </LemonButton>
+                                    {copyTemplateToProjectMenuSection(
+                                        id,
+                                        'dashboard-template-copy-to-project-customer'
+                                    )}
                                     <LemonDivider />
                                     <LemonButton
                                         onClick={() => {

@@ -1,4 +1,4 @@
-"""CLI commands for product scaffolding and linting."""
+"""CLI commands for product scaffolding, linting, and maturity scoring."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import click
 from hogli.core.cli import cli
 
 from .lint import lint_all_products, lint_product
+from .maturity import generate_detail, generate_report, score_all_products, score_product
 from .scaffold import bootstrap_product
 
 
@@ -40,3 +41,25 @@ def cmd_lint(name: str | None, lint_all: bool) -> None:
     for issue in issues:
         click.echo(f"  • {issue}")
     raise SystemExit(1)
+
+
+@cli.command(name="product:maturity", help="Score product maturity across isolation dimensions")
+@click.argument("name", required=False)
+@click.option("--all", "score_all", is_flag=True, help="Score all products and generate ranked report")
+def cmd_maturity(name: str | None, score_all: bool) -> None:
+    if score_all:
+        scores = score_all_products()
+        click.echo(generate_report(scores))
+        return
+
+    if not name:
+        raise click.UsageError("Provide a product name or use --all")
+
+    from .paths import PRODUCTS_DIR
+
+    product_dir = PRODUCTS_DIR / name
+    if not product_dir.exists():
+        raise click.ClickException(f"Product '{name}' not found at {product_dir}")
+
+    ps = score_product(name)
+    click.echo(generate_detail(ps))

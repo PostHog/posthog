@@ -87,7 +87,19 @@ export function ApiSection(): JSX.Element {
             {isEnabled && (
                 <SceneSection
                     title="Identity verification"
-                    description="For logged-in users, sign their distinct_id on your backend with the secret API key so tickets persist across browsers and devices without email recovery."
+                    description={
+                        <>
+                            For logged-in users, sign their distinct_id on your backend with the secret API key so
+                            tickets persist across browsers and devices without email recovery.{' '}
+                            <Link
+                                to="https://posthog.com/docs/support/javascript-api#user-identification"
+                                target="_blank"
+                                targetBlankIcon
+                            >
+                                Read the docs
+                            </Link>
+                        </>
+                    }
                 >
                     <LemonCard hoverEffect={false} className="max-w-[800px] px-4 py-3">
                         <p className="mb-2">
@@ -102,14 +114,7 @@ export function ApiSection(): JSX.Element {
                         </pre>
                         <p className="mb-0 text-xs text-muted-alt">
                             Without identity verification, tickets are scoped to a browser session and users must
-                            recover them by email when switching devices.{' '}
-                            <Link
-                                to="https://posthog.com/docs/support/javascript-api#user-identification"
-                                target="_blank"
-                                targetBlankIcon
-                            >
-                                Read the docs
-                            </Link>
+                            recover them by email when switching devices.
                         </p>
                     </LemonCard>
                     <SecretApiKeySection />

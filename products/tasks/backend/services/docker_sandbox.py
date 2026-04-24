@@ -107,12 +107,12 @@ class DockerSandbox(SandboxBase):
         return result
 
     @staticmethod
-    def _get_local_posthog_code_packages() -> tuple[str, str, str] | None:
+    def _get_local_posthog_code_packages() -> tuple[str, str, str, str] | None:
         """
         Get paths to local PostHog Code packages for development builds.
 
         Configure via LOCAL_POSTHOG_CODE_MONOREPO_ROOT pointing to the PostHog Code monorepo root.
-        Returns tuple of (agent_path, shared_path, git_path) or None if not configured.
+        Returns tuple of (agent_path, shared_path, git_path, enricher_path) or None if not configured.
         """
         monorepo_root = os.environ.get(
             "LOCAL_POSTHOG_CODE_MONOREPO_ROOT", os.environ.get("LOCAL_TWIG_MONOREPO_ROOT", "")
@@ -124,6 +124,7 @@ class DockerSandbox(SandboxBase):
         agent_path = os.path.join(monorepo_root, "packages", "agent")
         shared_path = os.path.join(monorepo_root, "packages", "shared")
         git_path = os.path.join(monorepo_root, "packages", "git")
+        enricher_path = os.path.join(monorepo_root, "packages", "enricher")
 
         missing = []
         if not os.path.isdir(agent_path):
@@ -132,6 +133,8 @@ class DockerSandbox(SandboxBase):
             missing.append(f"shared: {shared_path}")
         if not os.path.isdir(git_path):
             missing.append(f"git: {git_path}")
+        if not os.path.isdir(enricher_path):
+            missing.append(f"enricher: {enricher_path}")
 
         if missing:
             raise SandboxProvisionError(
@@ -140,7 +143,7 @@ class DockerSandbox(SandboxBase):
                 cause=RuntimeError(f"Missing packages: {', '.join(missing)}"),
             )
 
-        return agent_path, shared_path, git_path
+        return agent_path, shared_path, git_path, enricher_path
 
     @staticmethod
     def _build_image_if_needed(image_name: str, dockerfile_path: str) -> None:
@@ -172,7 +175,7 @@ class DockerSandbox(SandboxBase):
         )
 
     @staticmethod
-    def _build_local_image(agent_path: str, shared_path: str, git_path: str) -> None:
+    def _build_local_image(agent_path: str, shared_path: str, git_path: str, enricher_path: str) -> None:
         """Build the local sandbox image with local PostHog Code packages."""
         logger.info("Building posthog-sandbox-base-local image with local PostHog Code packages...")
         dockerfile_path = os.path.join(
@@ -193,6 +196,11 @@ class DockerSandbox(SandboxBase):
             shutil.copytree(
                 git_path,
                 os.path.join(tmpdir, "local-git"),
+                ignore=shutil.ignore_patterns("node_modules"),
+            )
+            shutil.copytree(
+                enricher_path,
+                os.path.join(tmpdir, "local-enricher"),
                 ignore=shutil.ignore_patterns("node_modules"),
             )
 
@@ -226,8 +234,8 @@ class DockerSandbox(SandboxBase):
 
         local_packages = DockerSandbox._get_local_posthog_code_packages()
         if local_packages:
-            agent_path, shared_path, git_path = local_packages
-            DockerSandbox._build_local_image(agent_path, shared_path, git_path)
+            agent_path, shared_path, git_path, enricher_path = local_packages
+            DockerSandbox._build_local_image(agent_path, shared_path, git_path, enricher_path)
             return "posthog-sandbox-base-local"
 
         return DEFAULT_IMAGE_NAME

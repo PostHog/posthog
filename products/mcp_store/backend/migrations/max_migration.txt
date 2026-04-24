@@ -1,1 +1,1 @@
-0005_remove_oauth_provider_kind
+0010_mcpservertemplate_category_and_docs_url

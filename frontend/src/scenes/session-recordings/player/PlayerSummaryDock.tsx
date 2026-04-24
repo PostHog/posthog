@@ -45,7 +45,7 @@ export function PlayerSummaryDock(): JSX.Element | null {
     }
     const { desiredSize, isResizeInProgress } = useValues(resizerLogic(resizerProps))
 
-    const isEnabled = featureFlags[FEATURE_FLAGS.AI_SESSION_SUMMARY]
+    const isEnabled = featureFlags[FEATURE_FLAGS.REPLAY_VIDEO_BASED_SUMMARIZATION]
     const hasSummary = !!sessionSummary
     const isOpen = !!openBySessionId[sessionRecordingId]
     const setIsOpen = (open: boolean): void => setSummaryOpen(sessionRecordingId, open)

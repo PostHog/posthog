@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Literal, TypedDict
+from typing import TypedDict
 
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 
@@ -16,15 +16,14 @@ class SingleSessionSummaryInputs:
     model_to_use: str
     extra_summary_context: ExtraSummaryContext | None = None
     local_reads_prod: bool = False
-    video_validation_enabled: bool | Literal["full"] | None = None
+    video_based: bool = False
     trigger_session_id: str | None = None
 
 
 class SingleSessionProgress(TypedDict):
     """Progress state exposed by SummarizeSingleSessionWorkflow via get_progress query.
 
-    Populated only for the video-based flow — the event-based flow uses its own
-    streaming mechanism and leaves this untouched.
+    Populated only for the video-based flow.
     """
 
     phase: str

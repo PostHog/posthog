@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCard } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard } from '@posthog/lemon-ui'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -61,6 +61,13 @@ export function SecretApiKeySection(): JSX.Element {
                         {currentTeam?.secret_api_token || 'Click the generate button on the right to create a new key.'}
                     </CodeSnippet>
                 </div>
+
+                {currentTeam?.secret_api_token && (
+                    <LemonBanner type="warning" className="my-2">
+                        Rotating this key will require updating it everywhere it's used. Rotate if it has been
+                        compromised or as part of your regular key rotation policy.
+                    </LemonBanner>
+                )}
 
                 {currentTeam?.secret_api_token_backup ? (
                     <div>

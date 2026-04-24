@@ -7,6 +7,7 @@ from django.db.models import QuerySet
 from django.http import HttpRequest, JsonResponse
 
 import jwt
+import posthoganalytics
 from drf_spectacular.utils import (
     OpenApiParameter,
     OpenApiResponse,
@@ -25,12 +26,16 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import AvailableFeature
+from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Insight
 from posthog.models.integration import Integration
 from posthog.models.subscription import Subscription, SubscriptionDelivery, unsubscribe_using_token
 from posthog.permissions import PremiumFeaturePermission
+from posthog.rate_limit import SubscriptionTestDeliveryThrottle
 from posthog.security.url_validation import is_url_allowed
+from posthog.slo.context import SloSpec, slo_operation
+from posthog.slo.types import SloArea, SloOperation
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 from posthog.utils import str_to_bool
@@ -262,30 +267,82 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if dashboard_export_insight_ids:
             instance.dashboard_export_insights.set(dashboard_export_insight_ids)
 
-        temporal = sync_connect()
-        workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
-        asyncio.run(
-            temporal.start_workflow(
-                "handle-subscription-value-change",
-                ProcessSubscriptionWorkflowInputs(
-                    subscription_id=instance.id,
-                    team_id=instance.team_id,
-                    distinct_id=str(instance.created_by.distinct_id) if instance.created_by else str(instance.team_id),
-                    previous_value="",
-                    invite_message=invite_message,
-                    trigger_type=SubscriptionTriggerType.TARGET_CHANGE,
-                ),
-                id=workflow_id,
-                task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+        with slo_operation(
+            spec=SloSpec(
+                distinct_id=str(request.user.distinct_id),
+                area=SloArea.ANALYTIC_PLATFORM,
+                operation=SloOperation.SUBSCRIPTION_CREATE,
+                team_id=instance.team_id,
+                resource_id=str(instance.id),
+            ),
+            properties={
+                "subscription_id": instance.id,
+                "target_type": instance.target_type,
+                "frequency": instance.frequency,
+                "interval": instance.interval,
+                "byweekday": instance.byweekday,
+                "bysetpos": instance.bysetpos,
+                "count": instance.count,
+                "resource_type": "dashboard" if instance.dashboard_id else "insight" if instance.insight_id else None,
+                "dashboard_export_insights_count": len(dashboard_export_insight_ids),
+                "summary_enabled": instance.summary_enabled,
+                "has_summary_prompt_guide": bool(instance.summary_prompt_guide),
+                "has_until_date": instance.until_date is not None,
+                "has_invite_message": bool(invite_message),
+            },
+        ):
+            temporal = sync_connect()
+            workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
+            asyncio.run(
+                temporal.start_workflow(
+                    "handle-subscription-value-change",
+                    ProcessSubscriptionWorkflowInputs(
+                        subscription_id=instance.id,
+                        team_id=instance.team_id,
+                        distinct_id=str(instance.created_by.distinct_id)
+                        if instance.created_by
+                        else str(instance.team_id),
+                        previous_value="",
+                        invite_message=invite_message,
+                        trigger_type=SubscriptionTriggerType.TARGET_CHANGE,
+                    ),
+                    id=workflow_id,
+                    task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+                )
             )
-        )
 
         return instance
 
     def update(self, instance: Subscription, validated_data: dict, *args, **kwargs) -> Subscription:
+        request = self.context["request"]
         previous_value = instance.target_value
+        is_delete = not instance.deleted and validated_data.get("deleted") is True
         invite_message = validated_data.pop("invite_message", "")
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
+
+        if is_delete:
+            with slo_operation(
+                spec=SloSpec(
+                    distinct_id=str(request.user.distinct_id),
+                    area=SloArea.ANALYTIC_PLATFORM,
+                    operation=SloOperation.SUBSCRIPTION_DELETE,
+                    team_id=instance.team_id,
+                    resource_id=str(instance.id),
+                ),
+                properties={
+                    "subscription_id": instance.id,
+                    "target_type": instance.target_type,
+                    "frequency": instance.frequency,
+                    "resource_type": "dashboard"
+                    if instance.dashboard_id
+                    else "insight"
+                    if instance.insight_id
+                    else None,
+                },
+            ):
+                instance = super().update(instance, validated_data)
+            return instance
+
         instance = super().update(instance, validated_data)
 
         if dashboard_export_insight_ids:
@@ -429,7 +486,13 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         request=None,
         responses={202: OpenApiResponse(description="Test delivery workflow started")},
     )
-    @action(methods=["POST"], detail=True, url_path="test-delivery")
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="test-delivery",
+        throttle_classes=[SubscriptionTestDeliveryThrottle],
+        required_scopes=["subscription:write"],
+    )
     def test_delivery(self, request, **kwargs):
         subscription = self.get_object()
         if subscription.deleted:
@@ -466,6 +529,20 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                 {"detail": "Failed to schedule delivery"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+        posthoganalytics.capture(
+            distinct_id=str(request.user.distinct_id),
+            event="subscription_test_delivery_scheduled",
+            properties={
+                "subscription_id": subscription.id,
+                "team_id": subscription.team_id,
+                "target_type": subscription.target_type,
+                "insight_id": subscription.insight_id,
+                "dashboard_id": subscription.dashboard_id,
+                "temporal_workflow_id": workflow_id,
+            },
+            groups=groups(None, subscription.team),
+        )
 
         return Response(status=status.HTTP_202_ACCEPTED)
 

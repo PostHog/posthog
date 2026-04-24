@@ -26,6 +26,7 @@ from .chargebee.source import ChargebeeSource
 from .chartmogul.source import ChartMogulSource
 from .circleci.source import CircleCISource
 from .clerk.source import ClerkSource
+from .clickhouse.source import ClickHouseSource
 from .clickup.source import ClickUpSource
 from .close.source import CloseSource
 from .cockroachdb.source import CockroachDBSource
@@ -95,6 +96,7 @@ from .pendo.source import PendoSource
 from .pinterest_ads.source import PinterestAdsSource
 from .pipedrive.source import PipedriveSource
 from .plaid.source import PlaidSource
+from .plain.source import PlainSource
 from .polar.source import PolarSource
 from .postgres.source import PostgresSource
 from .postmark.source import PostmarkSource
@@ -170,6 +172,7 @@ __all__ = [
     "ChartMogulSource",
     "CircleCISource",
     "ClerkSource",
+    "ClickHouseSource",
     "ClickUpSource",
     "CloseSource",
     "CockroachDBSource",
@@ -238,6 +241,7 @@ __all__ = [
     "PinterestAdsSource",
     "PipedriveSource",
     "PlaidSource",
+    "PlainSource",
     "PolarSource",
     "PostmarkSource",
     "PostgresSource",

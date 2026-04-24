@@ -30,9 +30,13 @@ export interface ReportConfigDraft {
     slackChannelValue: string
     reportPromptGuidance: string
     triggerThreshold: number
+    cooldownHours: number
 }
 
 export const TRIGGER_THRESHOLD_DEFAULT = 100
+export const COOLDOWN_HOURS_DEFAULT = 1
+export const COOLDOWN_HOURS_MIN = 1
+export const COOLDOWN_HOURS_MAX = 24
 export const DEFAULT_RRULE = 'FREQ=DAILY'
 export const DEFAULT_TIMEZONE = 'UTC'
 
@@ -47,6 +51,7 @@ const DEFAULT_CONFIG_DRAFT: ReportConfigDraft = {
     slackChannelValue: '',
     reportPromptGuidance: '',
     triggerThreshold: TRIGGER_THRESHOLD_DEFAULT,
+    cooldownHours: COOLDOWN_HOURS_DEFAULT,
 }
 
 function draftFromReport(report: EvaluationReport): ReportConfigDraft {
@@ -66,6 +71,7 @@ function draftFromReport(report: EvaluationReport): ReportConfigDraft {
         slackChannelValue: slackTarget?.channel ?? '',
         reportPromptGuidance: report.report_prompt_guidance ?? '',
         triggerThreshold: report.trigger_threshold ?? TRIGGER_THRESHOLD_DEFAULT,
+        cooldownHours: Math.max(1, Math.round((report.cooldown_minutes ?? COOLDOWN_HOURS_DEFAULT * 60) / 60)),
     }
 }
 
@@ -104,6 +110,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
         setDraftSlackChannelValue: (channelValue: string) => ({ channelValue }),
         setDraftReportPromptGuidance: (reportPromptGuidance: string) => ({ reportPromptGuidance }),
         setDraftTriggerThreshold: (triggerThreshold: number) => ({ triggerThreshold }),
+        setDraftCooldownHours: (cooldownHours: number) => ({ cooldownHours }),
         seedDraftFromReport: (report: EvaluationReport) => ({ report }),
         resetDraft: true,
 
@@ -149,6 +156,10 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     ...state,
                     triggerThreshold,
                 }),
+                setDraftCooldownHours: (state, { cooldownHours }) => ({
+                    ...state,
+                    cooldownHours,
+                }),
                 seedDraftFromReport: (_, { report }) => draftFromReport(report),
                 resetDraft: () => DEFAULT_CONFIG_DRAFT,
             },
@@ -183,6 +194,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     delivery_targets: EvaluationReportDeliveryTarget[]
                     report_prompt_guidance?: string
                     trigger_threshold?: number | null
+                    cooldown_minutes?: number | null
                 }) => {
                     const body: Record<string, unknown> = {
                         evaluation: params.evaluationId,
@@ -198,6 +210,9 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     }
                     if (params.frequency === 'every_n' && params.trigger_threshold != null) {
                         body.trigger_threshold = params.trigger_threshold
+                    }
+                    if (params.frequency === 'every_n' && params.cooldown_minutes != null) {
+                        body.cooldown_minutes = params.cooldown_minutes
                     }
                     const report = await api.create(
                         `api/environments/${values.currentTeamId}/llm_analytics/evaluation_reports/`,
@@ -275,6 +290,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     baseline.slackChannelValue !== draft.slackChannelValue ||
                     baseline.reportPromptGuidance !== draft.reportPromptGuidance ||
                     (draft.frequency === 'every_n' && baseline.triggerThreshold !== draft.triggerThreshold) ||
+                    (draft.frequency === 'every_n' && baseline.cooldownHours !== draft.cooldownHours) ||
                     scheduleDirty
                 )
             },
@@ -320,6 +336,13 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                 }
                 if (configDraft.frequency === 'every_n') {
                     data.trigger_threshold = configDraft.triggerThreshold
+                    // Only write cooldown_minutes back when the user changed it — the draft rounds
+                    // minutes to hours for display, so unconditionally writing (hours * 60) would
+                    // silently clobber sub-hour values set via the API (e.g. 89 min → 60 min).
+                    const seededCooldownHours = Math.max(1, Math.round((activeReport.cooldown_minutes ?? 60) / 60))
+                    if (configDraft.cooldownHours !== seededCooldownHours) {
+                        data.cooldown_minutes = configDraft.cooldownHours * 60
+                    }
                 }
                 actions.updateReport({ reportId: activeReport.id, data })
             } else {
@@ -332,6 +355,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     delivery_targets: targets,
                     report_prompt_guidance: configDraft.reportPromptGuidance,
                     trigger_threshold: configDraft.frequency === 'every_n' ? configDraft.triggerThreshold : null,
+                    cooldown_minutes: configDraft.frequency === 'every_n' ? configDraft.cooldownHours * 60 : null,
                 })
             }
         },

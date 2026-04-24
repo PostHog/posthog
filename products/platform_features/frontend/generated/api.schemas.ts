@@ -194,9 +194,10 @@ export interface PaginatedChangeRequestListApi {
     results: ChangeRequestApi[]
 }
 
-export type MembershipLevelEnumApi = (typeof MembershipLevelEnumApi)[keyof typeof MembershipLevelEnumApi]
+export type EffectiveMembershipLevelEnumApi =
+    (typeof EffectiveMembershipLevelEnumApi)[keyof typeof EffectiveMembershipLevelEnumApi]
 
-export const MembershipLevelEnumApi = {
+export const EffectiveMembershipLevelEnumApi = {
     Number1: 1,
     Number8: 8,
     Number15: 15,
@@ -245,7 +246,7 @@ export interface OrganizationApi {
     logo_media_id?: string | null
     readonly created_at: string
     readonly updated_at: string
-    readonly membership_level: MembershipLevelEnumApi | null
+    readonly membership_level: EffectiveMembershipLevelEnumApi | null
     readonly plugins_access_level: PluginsAccessLevelEnumApi
     readonly teams: readonly OrganizationApiTeamsItem[]
     readonly projects: readonly OrganizationApiProjectsItem[]
@@ -319,7 +320,7 @@ export interface PatchedOrganizationApi {
     logo_media_id?: string | null
     readonly created_at?: string
     readonly updated_at?: string
-    readonly membership_level?: MembershipLevelEnumApi | null
+    readonly membership_level?: EffectiveMembershipLevelEnumApi | null
     readonly plugins_access_level?: PluginsAccessLevelEnumApi
     readonly teams?: readonly PatchedOrganizationApiTeamsItem[]
     readonly projects?: readonly PatchedOrganizationApiProjectsItem[]
@@ -373,10 +374,10 @@ export interface PatchedOrganizationApi {
  * `8` - administrator
  * `15` - owner
  */
-export type OrganizationMembershipLevelApi =
-    (typeof OrganizationMembershipLevelApi)[keyof typeof OrganizationMembershipLevelApi]
+export type OrganizationMembershipLevelEnumApi =
+    (typeof OrganizationMembershipLevelEnumApi)[keyof typeof OrganizationMembershipLevelEnumApi]
 
-export const OrganizationMembershipLevelApi = {
+export const OrganizationMembershipLevelEnumApi = {
     Number1: 1,
     Number8: 8,
     Number15: 15,
@@ -389,7 +390,7 @@ export interface OrganizationMemberApi {
      * @minimum 0
      * @maximum 32767
      */
-    level?: OrganizationMembershipLevelApi
+    level?: OrganizationMembershipLevelEnumApi
     readonly joined_at: string
     readonly updated_at: string
     readonly is_2fa_enabled: boolean
@@ -413,7 +414,7 @@ export interface PatchedOrganizationMemberApi {
      * @minimum 0
      * @maximum 32767
      */
-    level?: OrganizationMembershipLevelApi
+    level?: OrganizationMembershipLevelEnumApi
     readonly joined_at?: string
     readonly updated_at?: string
     readonly is_2fa_enabled?: boolean
@@ -473,6 +474,72 @@ export interface PaginatedRoleMembershipListApi {
     /** @nullable */
     previous?: string | null
     results: RoleMembershipApi[]
+}
+
+export interface _WelcomeInviterApi {
+    name: string
+    email: string
+}
+
+/**
+ * * `today` - today
+ * `this_week` - this_week
+ * `inactive` - inactive
+ * `never` - never
+ */
+export type LastActiveEnumApi = (typeof LastActiveEnumApi)[keyof typeof LastActiveEnumApi]
+
+export const LastActiveEnumApi = {
+    Today: 'today',
+    ThisWeek: 'this_week',
+    Inactive: 'inactive',
+    Never: 'never',
+} as const
+
+export interface _WelcomeTeamMemberApi {
+    name: string
+    email: string
+    /** @nullable */
+    avatar: string | null
+    role: string
+    last_active: LastActiveEnumApi
+}
+
+export interface _WelcomeRecentActivityApi {
+    /** Scope.activity pair, e.g. 'Insight.created'. */
+    type: string
+    actor_name: string
+    entity_name: string
+    /** @nullable */
+    entity_url: string | null
+    timestamp: string
+}
+
+export interface _WelcomePopularDashboardApi {
+    id: number
+    name: string
+    description: string
+    team_id: number
+    url: string
+}
+
+export interface _WelcomeSuggestedStepApi {
+    label: string
+    href: string
+    reason: string
+    docs_href?: string
+    product_key?: string
+}
+
+export interface WelcomeResponseApi {
+    organization_name: string
+    inviter: _WelcomeInviterApi | null
+    team_members: _WelcomeTeamMemberApi[]
+    recent_activity: _WelcomeRecentActivityApi[]
+    popular_dashboards: _WelcomePopularDashboardApi[]
+    products_in_use: string[]
+    suggested_next_steps: _WelcomeSuggestedStepApi[]
+    is_organization_first_user: boolean
 }
 
 export interface ActivityLogApi {
@@ -726,6 +793,7 @@ export type ActivityLogListParams = {
 * `Project` - Project
 * `ErrorTrackingIssue` - ErrorTrackingIssue
 * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
+* `LegalDocument` - LegalDocument
 * `Organization` - Organization
 * `OrganizationDomain` - OrganizationDomain
 * `OrganizationMembership` - OrganizationMembership
@@ -798,6 +866,7 @@ export const ActivityLogListScope = {
     Project: 'Project',
     ErrorTrackingIssue: 'ErrorTrackingIssue',
     DataWarehouseSavedQuery: 'DataWarehouseSavedQuery',
+    LegalDocument: 'LegalDocument',
     Organization: 'Organization',
     OrganizationDomain: 'OrganizationDomain',
     OrganizationMembership: 'OrganizationMembership',
@@ -857,6 +926,7 @@ export const ActivityLogListScope = {
  * `Project` - Project
  * `ErrorTrackingIssue` - ErrorTrackingIssue
  * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
+ * `LegalDocument` - LegalDocument
  * `Organization` - Organization
  * `OrganizationDomain` - OrganizationDomain
  * `OrganizationMembership` - OrganizationMembership
@@ -917,6 +987,7 @@ export const ActivityLogListScopesItem = {
     Project: 'Project',
     ErrorTrackingIssue: 'ErrorTrackingIssue',
     DataWarehouseSavedQuery: 'DataWarehouseSavedQuery',
+    LegalDocument: 'LegalDocument',
     Organization: 'Organization',
     OrganizationDomain: 'OrganizationDomain',
     OrganizationMembership: 'OrganizationMembership',

@@ -11,7 +11,6 @@
         },
         "order": {
             "description": "Sort order. Defaults to `-joined_at`.",
-            "enum": ["-joined_at", "joined_at"],
             "type": "string"
         }
     },
