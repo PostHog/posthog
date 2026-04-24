@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 from django.db.models import Q, QuerySet
 
@@ -49,7 +49,8 @@ class RoleExternalReferenceSerializer(serializers.ModelSerializer):
         super().__init__(*args, **kwargs)
         view = self.context.get("view")
         if view and hasattr(view, "organization"):
-            self.fields["role"].queryset = Role.objects.filter(organization=view.organization)
+            role_field = cast(serializers.PrimaryKeyRelatedField, self.fields["role"])
+            role_field.queryset = Role.objects.filter(organization=view.organization)
 
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
         organization = self.context["view"].organization
