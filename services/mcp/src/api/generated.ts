@@ -41330,6 +41330,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type ExperimentsTimeseriesResultsRetrieveParams = {
+    /**
+     * Fingerprint of the metric configuration. Available alongside metric_uuid on each metric in the experiment's metrics array.
+     */
+    fingerprint: string;
+    /**
+     * UUID of the metric to fetch timeseries for. Available on each metric in the experiment's metrics array.
+     */
+    metric_uuid: string;
+    };
+
     export type ExportsListParams = {
     /**
      * Number of results to return per page.
