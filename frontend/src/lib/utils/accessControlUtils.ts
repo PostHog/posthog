@@ -192,7 +192,7 @@ export const getAccessControlTooltip = (resource: APIScopeObject): string | null
         return 'Access control only applies to managed sources (Stripe, Postgres, etc.) and covers CRUD operations on the source configuration. It does not restrict querying data from those sources.'
     }
     if (resource === AccessControlResourceType.WarehouseObjects) {
-        return 'Controls who can create, edit, and delete warehouse tables, saved queries (views, also shown as "models" in the Models scene), and folders, plus run materialization actions. Does not restrict querying the underlying data via SQL — blocked users can still SELECT from these tables.'
+        return 'Controls creating, editing, and deleting warehouse tables, views (aka "models"), folders, and joins, plus materialization actions (sync now, revert, sync frequency). Does not restrict querying the underlying data via SQL — blocked users can still SELECT from these tables.'
     }
     return null
 }
