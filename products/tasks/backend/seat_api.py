@@ -277,7 +277,11 @@ class SeatViewSet(viewsets.ViewSet):
         with ThreadPoolExecutor(max_workers=min(len(orgs), 5)) as pool:
             futures = {pool.submit(fetch_seat, org): org for org in orgs}
             for future in as_completed(futures):
-                result = future.result()
+                try:
+                    result = future.result()
+                except Exception:
+                    logger.warning("fetch_seat_failed", org_id=str(futures[future].id))
+                    continue
                 if result:
                     results.append(result)
 
