@@ -4,6 +4,7 @@ import {
     afterMount,
     beforeUnmount,
     connect,
+    isBreakpoint,
     kea,
     key,
     listeners,
@@ -170,6 +171,20 @@ const trackingStateMap: Record<SessionPlayerState, PlayerTimeTracking['state']> 
 
 const isMediaElementPlaying = (element: HTMLMediaElement): boolean =>
     !!(element.currentTime > 0 && !element.paused && !element.ended && element.readyState > 2)
+
+// Network drops, CORS rejections, and navigation-aborted fetches raise these — they aren't real
+// API failures and shouldn't pollute error tracking for best-effort background calls.
+function isTransientNetworkError(e: any): boolean {
+    if (!e) {
+        return false
+    }
+    if (e.name === 'AbortError' || e.name === 'TypeError') {
+        return true
+    }
+    const message = typeof e.message === 'string' ? e.message : String(e)
+    // ApiError wraps fetch TypeErrors and stringifies them into its message.
+    return message.includes('Failed to fetch')
+}
 
 function removeFromLocalStorageWithPrefix(prefix: string): void {
     for (let i = localStorage.length - 1; i >= 0; i--) {
@@ -1669,15 +1684,28 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.setWasMarkedViewed(true) // this prevents us from calling the function multiple times
 
             await breakpoint(IS_TEST_MODE ? 1 : (delay ?? 3000))
-            await api.recordings.update(props.sessionRecordingId, {
-                viewed: true,
-                player_metadata: values.sessionPlayerMetaData,
-            })
-            await breakpoint(IS_TEST_MODE ? 1 : 10000)
-            await api.recordings.update(props.sessionRecordingId, {
-                analyzed: true,
-                player_metadata: values.sessionPlayerMetaData,
-            })
+            try {
+                await api.recordings.update(props.sessionRecordingId, {
+                    viewed: true,
+                    player_metadata: values.sessionPlayerMetaData,
+                })
+                await breakpoint(IS_TEST_MODE ? 1 : 10000)
+                await api.recordings.update(props.sessionRecordingId, {
+                    analyzed: true,
+                    player_metadata: values.sessionPlayerMetaData,
+                })
+            } catch (e: any) {
+                if (isBreakpoint(e)) {
+                    throw e
+                }
+                // Swallow transient network failures from this best-effort background write —
+                // they're expected when the user navigates away mid-request and are already
+                // surfaced elsewhere via apiStatusLogic's internet-connection-issue banner.
+                if (isTransientNetworkError(e)) {
+                    return
+                }
+                throw e
+            }
         },
         setPause: () => {
             actions.stopAnimation()
