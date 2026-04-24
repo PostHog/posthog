@@ -72,6 +72,7 @@ class TestCheckCountLimit(BaseTest):
     def test_customer_justification_is_preserved_on_re_hit(self) -> None:
         with pytest.raises(LimitExceeded) as exc_info:
             check_count_limit(team=self.team, key=self.key, current_count=500, user=self.user)
+        assert exc_info.value.request_id is not None
         request = LimitIncreaseRequest.objects.get(id=exc_info.value.request_id)
         request.justification = "We run a hosting platform and each tenant gets its own dashboard."
         request.save(update_fields=["justification"])
