@@ -377,8 +377,8 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         except api.PRSHAMismatchError as e:
             return Response({"detail": str(e), "code": "sha_mismatch"}, status=status.HTTP_409_CONFLICT)
-        except api.GitHubCommitError as e:
-            return Response({"detail": f"GitHub commit failed: {e}"}, status=status.HTTP_502_BAD_GATEWAY)
+        except api.GitHubCommitError:
+            return Response({"detail": "GitHub commit failed"}, status=status.HTTP_502_BAD_GATEWAY)
 
     @extend_schema(
         responses={200: RecomputeResultSerializer},
@@ -390,8 +390,10 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             result = api.recompute_run(UUID(pk), team_id=self.team_id)
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
-        except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except ValueError:
+            return Response(
+                {"detail": "Run must be completed and not yet approved"}, status=status.HTTP_400_BAD_REQUEST
+            )
         return Response(RecomputeResultSerializer(instance=result).data)
 
     @extend_schema(responses={200: AutoApproveResultSerializer}, deprecated=True)
