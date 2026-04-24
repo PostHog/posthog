@@ -22,6 +22,7 @@ import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { hasTaxonomyPromotedProperty } from 'lib/utils/promotedEventProperty'
 import { definitionEditLogic } from 'scenes/data-management/definition/definitionEditLogic'
 import { DefinitionLogicProps, definitionLogic } from 'scenes/data-management/definition/definitionLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -269,7 +270,7 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
                             </div>
                         )}
 
-                        {!isProperty && (
+                        {!isProperty && !hasTaxonomyPromotedProperty(editDefinition.name) && (
                             <div className="ph-ignore-input">
                                 <LemonField
                                     name="promoted_property"
@@ -285,6 +286,7 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
                                             allowClear
                                             data-attr="definition-promoted-property-picker"
                                             groupType={TaxonomicFilterGroupType.EventProperties}
+                                            eventNames={[editDefinition.name]}
                                             value={value ?? null}
                                             onChange={(changedValue) =>
                                                 onChange(typeof changedValue === 'string' ? changedValue : null)

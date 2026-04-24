@@ -2,7 +2,7 @@ import './ImagePreview.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconCollapse, IconExpand, IconShare } from '@posthog/icons'
 import { LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
@@ -85,6 +85,11 @@ function ExceptionTitlePill({ event }: { event: Record<string, any> }): JSX.Elem
 
 export function ItemEvent({ item, groupCount }: ItemEventProps): JSX.Element {
     const { promotedProperties } = useValues(promotedEventPropertiesModel)
+    const { ensureLoadedForEvents } = useActions(promotedEventPropertiesModel)
+    useEffect(() => {
+        ensureLoadedForEvents([item.data.event])
+    }, [item.data.event, ensureLoadedForEvents])
+
     const promotedPropertyKey = getPromotedPropertyForEvent(item.data.event, promotedProperties)
     const promotedValue = promotedPropertyKey ? item.data.properties?.[promotedPropertyKey] : null
 

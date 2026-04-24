@@ -1,7 +1,7 @@
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import React, { MutableRefObject, memo } from 'react'
+import React, { MutableRefObject, memo, useEffect, useMemo } from 'react'
 
 import { IconComment } from '@posthog/icons'
 
@@ -205,6 +205,15 @@ export function PlayerSeekbarTicks({
     hoverRef: MutableRefObject<HTMLDivElement | null>
 }): JSX.Element {
     const { promotedProperties } = useValues(promotedEventPropertiesModel)
+    const { ensureLoadedForEvents } = useActions(promotedEventPropertiesModel)
+    const distinctEventNames = useMemo(
+        () => Array.from(new Set(seekbarItems.filter(isEventItem).map((i) => i.data.event))),
+        [seekbarItems]
+    )
+    useEffect(() => {
+        ensureLoadedForEvents(distinctEventNames)
+    }, [distinctEventNames, ensureLoadedForEvents])
+
     return (
         <MemoisedPlayerSeekbarTicks
             seekbarItems={seekbarItems}

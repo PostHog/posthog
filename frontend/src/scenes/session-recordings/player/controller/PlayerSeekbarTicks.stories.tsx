@@ -19,7 +19,6 @@ type Story = StoryObj<PlayerSeekbarTicksStoryArgs>
 
 const meta: Meta<PlayerSeekbarTicksStoryArgs> = {
     title: 'Components/PlayerController/PlayerSeekbarTicks',
-    component: PlayerSeekbarTicks,
     decorators: [
         mswDecorator({
             get: {
@@ -105,7 +104,7 @@ export const WithPromotedPropertyOverride: Story = {
         mswDecorator({
             get: {
                 '/api/projects/:project_id/event_definitions/promoted_properties/': {
-                    promoted_properties: { order_placed: 'order_id', $pageview: '$current_url' },
+                    promoted_properties: { order_placed: 'order_id' },
                 },
             },
         }),

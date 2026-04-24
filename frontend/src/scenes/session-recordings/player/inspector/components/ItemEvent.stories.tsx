@@ -111,15 +111,6 @@ export const PageViewWithCurrentURL: Story = {
             { $pathname: '/some/path', $current_url: 'https://my-site.io/some/path' }
         ),
     },
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/projects/:project_id/event_definitions/promoted_properties/': {
-                    promoted_properties: { $pageview: '$current_url' },
-                },
-            },
-        }),
-    ],
 }
 
 export const CustomEventWithPromotedProperty: Story = {

@@ -2910,8 +2910,13 @@ const api = {
                 .withQueryString(toParams({ limit, ...params }))
                 .get()
         },
-        async promotedProperties(): Promise<{ promoted_properties: Record<string, string> }> {
-            return new ApiRequest().eventDefinitions().withAction('promoted_properties').get()
+        async promotedProperties({
+            names,
+        }: {
+            names?: string[]
+        } = {}): Promise<{ promoted_properties: Record<string, string> }> {
+            const params = names && names.length > 0 ? toParams({ names }, true) : ''
+            return new ApiRequest().eventDefinitions().withAction('promoted_properties').withQueryString(params).get()
         },
         async getMetrics({
             eventDefinitionId,
