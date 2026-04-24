@@ -8,17 +8,30 @@ import { IconKeyboard } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import {
+    CategoryDropdownVariant,
     TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
     TaxonomicFilterProps,
 } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Icon123 } from 'lib/lemon-ui/icons'
 import { LemonInput, LemonInputPropsText } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Tooltip, TooltipProps } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
+import { CategoryDropdownAffordance } from './CategoryDropdownAffordance'
 import { InfiniteSelectResults } from './InfiniteSelectResults'
 import { defaultDataWarehousePopoverFields, taxonomicFilterLogic } from './taxonomicFilterLogic'
+
+const CATEGORY_DROPDOWN_VARIANTS: readonly CategoryDropdownVariant[] = ['control', 'pill', 'icon']
+
+function resolveCategoryDropdownVariant(flagValue: string | boolean | undefined): CategoryDropdownVariant {
+    if (typeof flagValue === 'string' && (CATEGORY_DROPDOWN_VARIANTS as readonly string[]).includes(flagValue)) {
+        return flagValue as CategoryDropdownVariant
+    }
+    return 'control'
+}
 
 let uniqueMemoizedIndex = 0
 
@@ -98,6 +111,10 @@ export function TaxonomicFilter({
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
     const { activeTab } = useValues(logic)
     const { setSearchQuery } = useActions(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const categoryDropdownVariant = resolveCategoryDropdownVariant(
+        featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
+    )
     const [refReady, setRefReady] = useState(false)
 
     useEffect(() => {
@@ -140,7 +157,13 @@ export function TaxonomicFilter({
                 {!hideSearchInput &&
                 (activeTab !== TaxonomicFilterGroupType.HogQLExpression || taxonomicGroupTypes.length > 1) ? (
                     <div className="relative">
-                        <TaxonomicFilterSearchInput searchInputRef={searchInputRef} onClose={onClose} />
+                        <TaxonomicFilterSearchInput
+                            searchInputRef={searchInputRef}
+                            onClose={onClose}
+                            categoryDropdownVariant={categoryDropdownVariant}
+                            eventName={eventNames?.[0]}
+                            focusInput={focusInput}
+                        />
                     </div>
                 ) : null}
                 {refReady && (
@@ -149,6 +172,7 @@ export function TaxonomicFilter({
                         taxonomicFilterLogicProps={taxonomicFilterLogicProps}
                         popupAnchorElement={taxonomicFilterRef.current}
                         definitionPopoverRenderer={definitionPopoverRenderer}
+                        categoryDropdownVariant={categoryDropdownVariant}
                     />
                 )}
             </div>
@@ -161,13 +185,28 @@ export const TaxonomicFilterSearchInput = forwardRef<
     {
         searchInputRef: React.Ref<HTMLInputElement> | null
         onClose: TaxonomicFilterProps['onClose']
+        categoryDropdownVariant?: CategoryDropdownVariant
+        eventName?: string
+        focusInput?: () => void
     } & Pick<
         LemonInputPropsText,
         'onClick' | 'size' | 'prefix' | 'fullWidth' | 'onChange' | 'autoFocus' | 'placeholder'
     > &
         Pick<TooltipProps, 'docLink'>
 >(function UniversalSearchInput(
-    { searchInputRef, onClose, onChange, docLink, autoFocus = true, placeholder, ...props },
+    {
+        searchInputRef,
+        onClose,
+        onChange,
+        docLink,
+        autoFocus = true,
+        placeholder,
+        categoryDropdownVariant = 'control',
+        eventName,
+        focusInput,
+        prefix,
+        ...props
+    },
     ref
 ): JSX.Element {
     const { searchQuery, searchPlaceholder, showNumericalPropsOnly } = useValues(taxonomicFilterLogic)
@@ -185,6 +224,16 @@ export const TaxonomicFilterSearchInput = forwardRef<
         onChange?.(query)
     }
 
+    const categoriesAreInDropdown = categoryDropdownVariant !== 'control'
+    const affordancePrefix = categoriesAreInDropdown ? (
+        <CategoryDropdownAffordance
+            variant={categoryDropdownVariant}
+            eventName={eventName}
+            onAfterChange={focusInput}
+        />
+    ) : null
+    const resolvedPrefix = affordancePrefix ?? prefix
+
     return (
         <LemonInput
             {...props}
@@ -194,6 +243,7 @@ export const TaxonomicFilterSearchInput = forwardRef<
             fullWidth
             placeholder={placeholder ?? `Search ${searchPlaceholder}`}
             value={searchQuery}
+            prefix={resolvedPrefix}
             suffix={
                 <>
                     {showNumericalPropsOnly && (
@@ -235,6 +285,10 @@ export const TaxonomicFilterSearchInput = forwardRef<
                         moveDown()
                         break
                     case 'Tab':
+                        if (categoriesAreInDropdown) {
+                            shouldPreventDefault = false
+                            break
+                        }
                         e.shiftKey ? tabLeft() : tabRight()
                         break
                     case 'Enter':

@@ -316,3 +316,5 @@ export type TaxonomicDefinitionTypes =
     | DataWarehouseTableForInsight
     | MaxContextTaxonomicFilterOption
     | QuickFilterItem
+
+export type CategoryDropdownVariant = 'control' | 'pill' | 'icon'
