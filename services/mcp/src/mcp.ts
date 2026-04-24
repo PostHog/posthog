@@ -477,12 +477,6 @@ export class MCP extends McpAgent<Env> {
         // registration decisions with an undefined client name.
         this._seedClientInfoFromProps()
 
-        const clientProfile = new MCPClientProfile({
-            clientName: this._mcpClientName,
-            clientVersion: this._mcpClientVersion,
-            consumer: this.requestProperties.mcpConsumer,
-        })
-
         // Start feature flag resolution in parallel with cache seeding
         const flagPromise = this.resolveVersionFlag()
         const toolFlagsPromise = this.resolveToolFeatureFlags(clientVersion)
@@ -520,6 +514,13 @@ export class MCP extends McpAgent<Env> {
             toolFlagsPromise,
             singleExecPromise,
         ])
+
+        const clientProfile = new MCPClientProfile({
+            clientName: this._mcpClientName,
+            clientVersion: this._mcpClientVersion,
+            consumer: this.requestProperties.mcpConsumer,
+        })
+
         // Restrict single-exec mode to coding agents only — Cursor and other clients that
         // render `structuredContent` in their UI need the full per-tool roster, not the
         // wrapped CLI. `_mcpClientName` is seeded from request properties at the top of
