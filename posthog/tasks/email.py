@@ -13,6 +13,7 @@ import posthoganalytics
 from celery import shared_task
 from posthoganalytics import new_context, tag
 from rest_framework import serializers
+from rest_framework.exceptions import ErrorDetail
 
 from posthog.batch_exports.models import BatchExportRun
 from posthog.caching.login_device_cache import check_and_cache_login_device
@@ -227,12 +228,13 @@ def send_invite(invite_id: str) -> None:
         validate_display_name(invite.first_name)
         validate_message_body(invite.message)
     except serializers.ValidationError as err:
+        detail = cast(list[ErrorDetail], err.detail)
         logger.warning(
             "send_invite.blocked",
             invite_id=invite_id,
             organization_id=str(invite.organization_id),
             created_by_id=invite.created_by_id,
-            error_code=getattr(err.detail[0], "code", "invalid"),
+            error_code=detail[0].code if detail else "invalid",
         )
         return
     message = EmailMessage(
@@ -275,11 +277,12 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
         validate_display_name(invitee.first_name)
         validate_display_name(organization.name)
     except serializers.ValidationError as err:
+        detail = cast(list[ErrorDetail], err.detail)
         logger.warning(
             "send_member_join.blocked",
             invitee_uuid=invitee_uuid,
             organization_id=organization_id,
-            error_code=getattr(err.detail[0], "code", "invalid"),
+            error_code=detail[0].code if detail else "invalid",
         )
         return
 

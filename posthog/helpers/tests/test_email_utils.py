@@ -1,3 +1,5 @@
+from typing import cast
+
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -5,6 +7,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 import requests
 from parameterized import parameterized
 from rest_framework import serializers
+from rest_framework.exceptions import ErrorDetail
 
 from posthog.helpers.email_utils import (
     ESP_SUPPRESSION_CACHE_TTL_IN_SECONDS,
@@ -355,7 +358,8 @@ class TestValidateDisplayName(SimpleTestCase):
     def test_rejects(self, _name: str, value: str, expected_code: str) -> None:
         with self.assertRaises(serializers.ValidationError) as cm:
             validate_display_name(value)
-        self.assertEqual(cm.exception.detail[0].code, expected_code)
+        detail = cast(list[ErrorDetail], cm.exception.detail)
+        self.assertEqual(detail[0].code, expected_code)
 
 
 class TestValidateMessageBody(SimpleTestCase):
@@ -379,7 +383,8 @@ class TestValidateMessageBody(SimpleTestCase):
     def test_rejects(self, _name: str, value: str, expected_code: str) -> None:
         with self.assertRaises(serializers.ValidationError) as cm:
             validate_message_body(value)
-        self.assertEqual(cm.exception.detail[0].code, expected_code)
+        detail = cast(list[ErrorDetail], cm.exception.detail)
+        self.assertEqual(detail[0].code, expected_code)
 
     def test_allows_tab(self) -> None:
         value = "Indented:\n\tline"
