@@ -15,7 +15,10 @@ import type {
     BatchExportsBackfillsListParams,
     BatchExportsList2Params,
     BatchExportsListParams,
+    BatchExportsLogsRetrieve2Params,
+    BatchExportsLogsRetrieveParams,
     BatchExportsRunsListParams,
+    BatchExportsRunsLogsRetrieveParams,
     PaginatedBatchExportBackfillListApi,
     PaginatedBatchExportListApi,
     PaginatedBatchExportRunListApi,
@@ -145,16 +148,33 @@ export const batchExportsDestroy = async (organizationId: string, id: string, op
     })
 }
 
-export const getBatchExportsLogsRetrieveUrl = (organizationId: string, id: string) => {
-    return `/api/organizations/${organizationId}/batch_exports/${id}/logs/`
+export const getBatchExportsLogsRetrieveUrl = (
+    organizationId: string,
+    id: string,
+    params?: BatchExportsLogsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/batch_exports/${id}/logs/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/batch_exports/${id}/logs/`
 }
 
 export const batchExportsLogsRetrieve = async (
     organizationId: string,
     id: string,
+    params?: BatchExportsLogsRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getBatchExportsLogsRetrieveUrl(organizationId, id), {
+    return apiMutator<void>(getBatchExportsLogsRetrieveUrl(organizationId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -466,17 +486,35 @@ export const batchExportsRunsCancelCreate = async (
     })
 }
 
-export const getBatchExportsRunsLogsRetrieveUrl = (projectId: string, batchExportId: string, id: string) => {
-    return `/api/projects/${projectId}/batch_exports/${batchExportId}/runs/${id}/logs/`
+export const getBatchExportsRunsLogsRetrieveUrl = (
+    projectId: string,
+    batchExportId: string,
+    id: string,
+    params?: BatchExportsRunsLogsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/batch_exports/${batchExportId}/runs/${id}/logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/batch_exports/${batchExportId}/runs/${id}/logs/`
 }
 
 export const batchExportsRunsLogsRetrieve = async (
     projectId: string,
     batchExportId: string,
     id: string,
+    params?: BatchExportsRunsLogsRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getBatchExportsRunsLogsRetrieveUrl(projectId, batchExportId, id), {
+    return apiMutator<void>(getBatchExportsRunsLogsRetrieveUrl(projectId, batchExportId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -569,16 +607,33 @@ export const batchExportsDestroy2 = async (projectId: string, id: string, option
     })
 }
 
-export const getBatchExportsLogsRetrieve2Url = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/batch_exports/${id}/logs/`
+export const getBatchExportsLogsRetrieve2Url = (
+    projectId: string,
+    id: string,
+    params?: BatchExportsLogsRetrieve2Params
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/batch_exports/${id}/logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/batch_exports/${id}/logs/`
 }
 
 export const batchExportsLogsRetrieve2 = async (
     projectId: string,
     id: string,
+    params?: BatchExportsLogsRetrieve2Params,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getBatchExportsLogsRetrieve2Url(projectId, id), {
+    return apiMutator<void>(getBatchExportsLogsRetrieve2Url(projectId, id, params), {
         ...options,
         method: 'GET',
     })

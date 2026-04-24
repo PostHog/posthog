@@ -36,9 +36,9 @@ class TestCheckProductAccess:
     @pytest.mark.parametrize(
         "product,auth_method,application_id,model,expected_allowed,expected_error_contains",
         [
-            # llm_gateway allows everything
+            # llm_gateway allows API keys but rejects OAuth (no app IDs configured)
             ("llm_gateway", "personal_api_key", None, "claude-3-opus", True, None),
-            ("llm_gateway", "oauth_access_token", "any-app-id", "gpt-4o", True, None),
+            ("llm_gateway", "oauth_access_token", "any-app-id", "gpt-4o", False, "not authorized"),
             ("llm_gateway", "personal_api_key", None, None, True, None),
             # posthog_code requires OAuth with valid app ID
             ("posthog_code", "personal_api_key", None, None, False, "requires OAuth"),
@@ -50,14 +50,14 @@ class TestCheckProductAccess:
             ("wizard", "oauth_access_token", "invalid-app-id", None, False, "not authorized"),
             ("wizard", "oauth_access_token", WIZARD_US_APP_ID, None, True, None),
             ("wizard", "oauth_access_token", WIZARD_EU_APP_ID, None, True, None),
-            # django allows API keys with any model
+            # django allows API keys with any model; OAuth rejected (no app IDs configured)
             ("django", "personal_api_key", None, "gpt-4.1-mini", True, None),
             ("django", "personal_api_key", None, "claude-3-opus", True, None),
-            ("django", "oauth_access_token", "any-app-id", "gpt-4.1-mini", True, None),
-            # llma_translation allows API keys but only gpt-4.1-mini
+            ("django", "oauth_access_token", "any-app-id", "gpt-4.1-mini", False, "not authorized"),
+            # llma_translation allows API keys but only gpt-4.1-mini; OAuth rejected (no app IDs configured)
             ("llma_translation", "personal_api_key", None, "gpt-4.1-mini", True, None),
             ("llma_translation", "personal_api_key", None, "claude-3-opus", False, "not allowed"),
-            ("llma_translation", "oauth_access_token", "any-app-id", "gpt-4.1-mini", True, None),
+            ("llma_translation", "oauth_access_token", "any-app-id", "gpt-4.1-mini", False, "not authorized"),
             # unknown product
             ("unknown", "personal_api_key", None, None, False, "Unknown product"),
         ],

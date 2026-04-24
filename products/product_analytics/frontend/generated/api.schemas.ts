@@ -2703,6 +2703,11 @@ export const EntityTypeApi = {
 } as const
 
 export interface RetentionEntityApi {
+    /**
+     * Data warehouse field used as the actor identifier
+     * @nullable
+     */
+    aggregation_target_field?: string | null
     /** @nullable */
     custom_name?: string | null
     id?: string | number | null
@@ -2739,6 +2744,16 @@ export interface RetentionEntityApi {
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
+    /**
+     * Data warehouse table name
+     * @nullable
+     */
+    table_name?: string | null
+    /**
+     * Data warehouse timestamp field
+     * @nullable
+     */
+    timestamp_field?: string | null
     type?: EntityTypeApi | null
     /** @nullable */
     uuid?: string | null
@@ -2763,6 +2778,11 @@ export interface RetentionFilterApi {
     aggregationType?: AggregationTypeApi | null
     /** @nullable */
     cumulative?: boolean | null
+    /**
+     * For data warehouse based retention insights when the aggregation target can't be mapped to persons or groups.
+     * @nullable
+     */
+    customAggregationTarget?: boolean | null
     dashboardDisplay?: RetentionDashboardDisplayTypeApi | null
     /** controls the display of the retention graph */
     display?: ChartDisplayTypeApi | null
@@ -6212,8 +6232,6 @@ export interface ExperimentQueryApi {
         | ExperimentFunnelMetricApi
         | ExperimentRatioMetricApi
         | ExperimentRetentionMetricApi
-    /** @nullable */
-    metric_events_precomputation?: boolean | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     /** @nullable */
@@ -8339,6 +8357,25 @@ export const OrderDirection2Api = {
     Desc: 'DESC',
 } as const
 
+export interface ErrorTrackingPendingFingerprintIssueStateUpdateApi {
+    /** @nullable */
+    assigned_role_id?: string | null
+    /** @nullable */
+    assigned_user_id?: number | null
+    fingerprint: string
+    /** ISO 8601 datetime string. */
+    first_seen: string
+    is_deleted: number
+    /** @nullable */
+    issue_description?: string | null
+    issue_id: string
+    /** @nullable */
+    issue_name?: string | null
+    issue_status: string
+    /** Client-stamped monotonic version (`Date.now()` ms at mutation success). */
+    version: number
+}
+
 export interface ErrorTrackingQueryResponseApi {
     /** @nullable */
     columns?: string[] | null
@@ -8402,6 +8439,11 @@ export interface ErrorTrackingQueryApi {
     orderBy: ErrorTrackingOrderByApi
     /** Sort direction. */
     orderDirection?: OrderDirection2Api | null
+    /**
+     * Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only). The backend caps the list at 50 entries; extras are dropped silently.
+     * @nullable
+     */
+    pendingFingerprintIssueStateUpdates?: ErrorTrackingPendingFingerprintIssueStateUpdateApi[] | null
     /** @nullable */
     personId?: string | null
     response?: ErrorTrackingQueryResponseApi | null
@@ -9205,6 +9247,7 @@ export const DisplayTypeApi = {
     Auto: 'auto',
     Line: 'line',
     Bar: 'bar',
+    Area: 'area',
 } as const
 
 export type YAxisPositionApi = (typeof YAxisPositionApi)[keyof typeof YAxisPositionApi]

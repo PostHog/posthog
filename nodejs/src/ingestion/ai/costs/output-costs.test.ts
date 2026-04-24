@@ -172,6 +172,44 @@ describe('calculateOutputCost()', () => {
         })
     })
 
+    describe('gemini 3 models - reasoning token handling', () => {
+        // Real rates from llm-costs.json
+        const gemini3FlashModel = createModel('gemini-3-flash-preview', 'google', 5e-7, 3e-6)
+        const gemini31ProModel = createModel('gemini-3.1-pro-preview', 'google', 2e-6, 1.2e-5)
+
+        it.each([
+            {
+                modelName: 'gemini-3-flash-preview',
+                modelRow: gemini3FlashModel,
+                outputTokens: 2,
+                reasoningTokens: 77,
+                // (2 + 77) * 3e-6 = 0.000237
+                expectedCost: 0.000237,
+                description: 'includes reasoning tokens for gemini-3-flash-preview (issue #3160)',
+            },
+            {
+                modelName: 'gemini-3.1-pro-preview',
+                modelRow: gemini31ProModel,
+                outputTokens: 100,
+                reasoningTokens: 200,
+                // (100 + 200) * 1.2e-5 = 0.0036
+                expectedCost: 0.0036,
+                description: 'includes reasoning tokens for gemini-3.1-pro-preview',
+            },
+        ])('$description', ({ modelName, modelRow, outputTokens, reasoningTokens, expectedCost }) => {
+            const event = createAIEvent({
+                $ai_provider: 'google',
+                $ai_model: modelName,
+                $ai_output_tokens: outputTokens,
+                $ai_reasoning_tokens: reasoningTokens,
+            })
+
+            const result = calculateOutputCost(event, modelRow)
+
+            expectCost(result, expectedCost)
+        })
+    })
+
     describe('gemini 2.0 models - no reasoning token handling', () => {
         const gemini20FlashModel = createModel('gemini-2.0-flash', 'google', 1e-7, 4e-7)
 
@@ -343,6 +381,27 @@ describe('calculateOutputCost()', () => {
             // Text tokens with reasoning: 10 + 200 = 210
             // Expected: (210 * 0.0000025) + (1290 * 0.00003) = 0.000525 + 0.0387 = 0.039225
             expectCost(result, 0.039225, 6)
+        })
+
+        it('handles image output with reasoning tokens for gemini-3', () => {
+            // Gemini 3 Pro Image Preview pricing (from llm-costs.json):
+            // Text output: $12/1M tokens ($1.2e-5/token)
+            // Image output: $120/1M tokens ($1.2e-4/token)
+            const gemini3ImageModel = createModel('gemini-3-pro-image-preview', 'google', 2e-6, 1.2e-5, 1.2e-4)
+            const event = createAIEvent({
+                $ai_provider: 'google',
+                $ai_model: 'gemini-3-pro-image-preview',
+                $ai_output_tokens: 1500,
+                $ai_image_output_tokens: 1290,
+                $ai_text_output_tokens: 10,
+                $ai_reasoning_tokens: 200,
+            })
+
+            const result = calculateOutputCost(event, gemini3ImageModel)
+
+            // Text tokens with reasoning: 10 + 200 = 210
+            // Expected: (210 * 1.2e-5) + (1290 * 1.2e-4) = 0.00252 + 0.1548 = 0.15732
+            expectCost(result, 0.15732, 5)
         })
 
         it('handles zero image tokens with image pricing (text only)', () => {

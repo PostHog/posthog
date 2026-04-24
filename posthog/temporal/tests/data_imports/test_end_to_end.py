@@ -53,7 +53,6 @@ from posthog.models.team.team import Team
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.data_imports.cdp_producer_job import CDPProducerJobWorkflow
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
-from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
@@ -62,6 +61,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.pipeline import Pipelin
 from posthog.temporal.data_imports.row_tracking import get_rows
 from posthog.temporal.data_imports.settings import ACTIVITIES
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient as PostHogRESTClient
 from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -182,6 +182,52 @@ async def postgres_connection(postgres_config, setup_postgres_test_db):
     await connection.close()
 
 
+@pytest.fixture
+def mock_paddle_client():
+    response_data: dict[str, Any] = {"items": []}
+
+    class MockResponse:
+        def __init__(self, json_data):
+            self.json_data = json_data
+            self.status_code = 200
+
+        def json(self):
+            return self.json_data
+
+        def raise_for_status(self):
+            pass
+
+    def set_response(items: Any) -> None:
+        response_data["items"] = items
+
+    def mock_paddle_request(
+        session: Any,
+        method: str,
+        url: str,
+        headers: Optional[dict[str, Any]] = None,
+        params: Optional[dict[str, Any]] = None,
+        **kwargs,
+    ):
+        return MockResponse(
+            {
+                "data": response_data["items"],
+                "meta": {"pagination": {"next": None}},
+            }
+        )
+
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.sources.paddle.paddle.paddle_request",
+            side_effect=mock_paddle_request,
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.sources.paddle.paddle.validate_credentials",
+            return_value=True,
+        ),
+    ):
+        yield set_response
+
+
 @pytest_asyncio.fixture(autouse=True)
 async def minio_client():
     """Manage an S3 client to interact with a MinIO bucket.
@@ -247,7 +293,7 @@ async def _run(
         mock.patch(
             "posthog.temporal.data_imports.external_data_job.get_data_import_finished_metric"
         ) as mock_get_data_import_finished_metric,
-        mock.patch("posthog.temporal.data_imports.metrics.KafkaProducer") as mock_app_metrics_producer_cls,
+        mock.patch("posthog.temporal.data_imports.metrics.get_producer") as mock_app_metrics_producer_cls,
     ):
         await _execute_run(workflow_id, inputs, mock_data_response)
 
@@ -378,8 +424,27 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         paginator: Optional[Any] = None,
         data_selector: Optional[Any] = None,
         hooks: Optional[Any] = None,
+        resume_hook: Optional[Any] = None,
+        initial_paginator_state: Optional[dict[str, Any]] = None,
     ):
         return iter(mock_data_response)
+
+    def mock_paginate_pages(
+        class_self,
+        path: str = "",
+        method: Any = "GET",
+        params: Optional[dict[str, Any]] = None,
+        json: Optional[dict[str, Any]] = None,
+        auth: Optional[Any] = None,
+        paginator: Optional[Any] = None,
+        data_selector: Optional[Any] = None,
+        hooks: Optional[Any] = None,
+        resume_hook: Optional[Any] = None,
+        initial_paginator_state: Optional[dict[str, Any]] = None,
+    ):
+        # Yield each record as its own page so tests that probe chunking
+        # by record size still see one call per record.
+        return iter([[item] for item in mock_data_response])
 
     def mock_to_session_credentials(class_self):
         return {
@@ -405,6 +470,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
 
     with (
         mock.patch.object(RESTClient, "paginate", mock_paginate),
+        mock.patch.object(PostHogRESTClient, "paginate", mock_paginate_pages),
         mock.patch.object(ListObject, "auto_paging_iter", return_value=iter(mock_data_response)),
         mock.patch.object(InvoiceListWithAllLines, "auto_paging_iter", return_value=iter(mock_data_response)),
         override_settings(
@@ -842,6 +908,36 @@ async def test_zendesk_ticket_metric_events(team, zendesk_ticket_metric_events):
             "email_address": "test@posthog.com",
         },
         mock_data_response=zendesk_ticket_metric_events["ticket_metric_events"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_paddle_customers(team, paddle_customers, mock_paddle_client):
+    mock_paddle_client(paddle_customers["data"])
+
+    await _run(
+        team=team,
+        schema_name="customers",
+        table_name="paddle_customers",
+        source_type="Paddle",
+        job_inputs={"paddle_api_key": "test_api_key"},
+        mock_data_response=paddle_customers["data"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_paddle_subscriptions(team, paddle_subscriptions, mock_paddle_client):
+    mock_paddle_client(paddle_subscriptions["data"])
+
+    await _run(
+        team=team,
+        schema_name="subscriptions",
+        table_name="paddle_subscriptions",
+        source_type="Paddle",
+        job_inputs={"paddle_api_key": "test_api_key"},
+        mock_data_response=paddle_subscriptions["data"],
     )
 
 
@@ -3456,8 +3552,18 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
     mock_kafka_producer.flush = mock.AsyncMock()
     mock_kafka_producer.close = mock.AsyncMock()
 
+    # CDPProducer now uses `async_producer_scope(profile=CYCLOTRON)` from the routing
+    # module instead of a per-instance `_get_kafka_producer` method; patch the async
+    # context manager at its import site.
+    @contextlib.asynccontextmanager
+    async def _fake_scope(*args, **kwargs):
+        yield mock_kafka_producer
+
     with (
-        mock.patch.object(CDPProducer, "_get_kafka_producer", return_value=mock_kafka_producer),
+        mock.patch(
+            "posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.async_producer_scope",
+            _fake_scope,
+        ),
         mock.patch(
             "posthog.temporal.data_imports.pipelines.pipeline.pipeline.time.time_ns", return_value=1768828644858352000
         ),
@@ -3826,11 +3932,7 @@ async def test_stripe_webhook_consumer_e2e(team, stripe_charge, mock_stripe_clie
         dlq_topic="test-dlq",
     )
 
-    consumer = WebhookS3Sink(
-        config=config,
-        kafka_hosts=["localhost:9092"],
-        kafka_security_protocol="PLAINTEXT",
-    )
+    consumer = WebhookS3Sink(config=config)
     consumer._consumer = mock.MagicMock()
 
     with override_settings(

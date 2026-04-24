@@ -14,17 +14,13 @@
             "type": "string"
         },
         "day": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "maximum": 9007199254740991,
-                    "minimum": -9007199254740991,
-                    "type": "integer"
-                }
-            ],
-            "description": "Bucket date for the data point. Accepts ISO date or integer offset."
+            "description": "Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'.",
+            "type": "string"
+        },
+        "includeRecordings": {
+            "default": true,
+            "description": "Whether to include matched session recordings for each actor.",
+            "type": "boolean"
         },
         "kind": {
             "const": "InsightActorsQuery",
@@ -2174,6 +2170,6 @@
             "type": "object"
         }
     },
-    "required": ["source"],
+    "required": ["day", "source"],
     "type": "object"
 }

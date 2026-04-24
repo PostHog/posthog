@@ -33,6 +33,9 @@ from posthog.hogql.database.models import (
     Table,
     VirtualTable,
 )
+from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
+from posthog.hogql.database.schema.groups import GroupsTable
+from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES
 from posthog.hogql.parser import parse_expr, parse_program, parse_select, parse_string_template
@@ -545,7 +548,8 @@ def get_hogql_autocomplete(
             if query.filters:
                 try:
                     select_ast = cast(
-                        ast.SelectQuery, replace_filters(cast(ast.SelectQuery, select_ast), query.filters, team)
+                        ast.SelectQuery,
+                        replace_filters(cast(ast.SelectQuery, select_ast), query.filters, team, database=database),
                     )
                 except Exception:
                     pass
@@ -627,14 +631,18 @@ def get_hogql_autocomplete(
                             field = last_table.fields[str(chain_part)]
 
                             if isinstance(field, StringJSONDatabaseField):
-                                if last_table.to_printed_hogql() == "events":
+                                if isinstance(last_table, EventsPersonSubTable):
+                                    property_type = PropertyDefinition.Type.PERSON
+                                elif isinstance(last_table, EventsGroupSubTable):
+                                    property_type = PropertyDefinition.Type.GROUP
+                                elif isinstance(last_table, EventsTable):
                                     if field.name == "person_properties":
                                         property_type = PropertyDefinition.Type.PERSON
                                     else:
                                         property_type = PropertyDefinition.Type.EVENT
-                                elif last_table.to_printed_hogql() == "persons":
+                                elif isinstance(last_table, PersonsTable):
                                     property_type = PropertyDefinition.Type.PERSON
-                                elif last_table.to_printed_hogql() == "groups":
+                                elif isinstance(last_table, GroupsTable):
                                     property_type = PropertyDefinition.Type.GROUP
                                 else:
                                     property_type = None

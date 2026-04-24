@@ -11,7 +11,9 @@ from llm_gateway.config import get_settings
 
 @dataclass(frozen=True)
 class ProductConfig:
-    allowed_application_ids: frozenset[str] | None = None  # None = all allowed
+    # Empty set (the default) or None means no OAuth application is authorized for this product.
+    # To permit OAuth access, explicitly list the allowed application IDs.
+    allowed_application_ids: frozenset[str] | None = frozenset()
     allowed_models: frozenset[str] | None = None  # None = all allowed
     allow_api_keys: bool = True
 
@@ -190,9 +192,10 @@ def check_product_access(
         return False, f"Product '{product}' requires OAuth authentication"
 
     is_oauth = auth_method == "oauth_access_token"
-    if is_oauth and config.allowed_application_ids is not None:
+    if is_oauth and not settings.debug:
         # Skip application ID checks in debug mode
-        if not settings.debug and application_id not in config.allowed_application_ids:
+        allowed_application_ids = config.allowed_application_ids or frozenset()
+        if application_id not in allowed_application_ids:
             return False, f"OAuth application not authorized for product '{product}'"
 
     if model and config.allowed_models is not None:

@@ -17,6 +17,8 @@ import type {
     ErrorTrackingExternalReferencesListParams,
     ErrorTrackingFingerprintApi,
     ErrorTrackingFingerprintsListParams,
+    ErrorTrackingGitProviderFileLinksResolveGithubRetrieveParams,
+    ErrorTrackingGitProviderFileLinksResolveGitlabRetrieveParams,
     ErrorTrackingGroupingRuleApi,
     ErrorTrackingGroupingRuleCreateRequestApi,
     ErrorTrackingGroupingRuleListResponseApi,
@@ -35,10 +37,14 @@ import type {
     ErrorTrackingStackFrameApi,
     ErrorTrackingStackFramesListParams,
     ErrorTrackingSuppressionRuleApi,
+    ErrorTrackingSuppressionRuleCreateRequestApi,
     ErrorTrackingSuppressionRulesListParams,
     ErrorTrackingSymbolSetApi,
+    ErrorTrackingSymbolSetsDownloadRetrieve200,
+    ErrorTrackingSymbolSetsDownloadRetrieve2200,
     ErrorTrackingSymbolSetsList2Params,
     ErrorTrackingSymbolSetsListParams,
+    GitProviderFileLinkResolveResponseApi,
     PaginatedErrorTrackingAssignmentRuleListApi,
     PaginatedErrorTrackingExternalReferenceResultListApi,
     PaginatedErrorTrackingFingerprintListApi,
@@ -360,32 +366,70 @@ export const errorTrackingFingerprintsDestroy = async (
     })
 }
 
-export const getErrorTrackingGitProviderFileLinksResolveGithubRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/error_tracking/git-provider-file-links/resolve_github/`
+export const getErrorTrackingGitProviderFileLinksResolveGithubRetrieveUrl = (
+    projectId: string,
+    params: ErrorTrackingGitProviderFileLinksResolveGithubRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/error_tracking/git-provider-file-links/resolve_github/?${stringifiedParams}`
+        : `/api/environments/${projectId}/error_tracking/git-provider-file-links/resolve_github/`
 }
 
 export const errorTrackingGitProviderFileLinksResolveGithubRetrieve = async (
     projectId: string,
+    params: ErrorTrackingGitProviderFileLinksResolveGithubRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getErrorTrackingGitProviderFileLinksResolveGithubRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
+): Promise<GitProviderFileLinkResolveResponseApi> => {
+    return apiMutator<GitProviderFileLinkResolveResponseApi>(
+        getErrorTrackingGitProviderFileLinksResolveGithubRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
-export const getErrorTrackingGitProviderFileLinksResolveGitlabRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/error_tracking/git-provider-file-links/resolve_gitlab/`
+export const getErrorTrackingGitProviderFileLinksResolveGitlabRetrieveUrl = (
+    projectId: string,
+    params: ErrorTrackingGitProviderFileLinksResolveGitlabRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/error_tracking/git-provider-file-links/resolve_gitlab/?${stringifiedParams}`
+        : `/api/environments/${projectId}/error_tracking/git-provider-file-links/resolve_gitlab/`
 }
 
 export const errorTrackingGitProviderFileLinksResolveGitlabRetrieve = async (
     projectId: string,
+    params: ErrorTrackingGitProviderFileLinksResolveGitlabRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getErrorTrackingGitProviderFileLinksResolveGitlabRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
+): Promise<GitProviderFileLinkResolveResponseApi> => {
+    return apiMutator<GitProviderFileLinkResolveResponseApi>(
+        getErrorTrackingGitProviderFileLinksResolveGitlabRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getErrorTrackingGroupingRulesListUrl = (projectId: string) => {
@@ -1126,14 +1170,14 @@ export const getErrorTrackingSuppressionRulesCreateUrl = (projectId: string) => 
 
 export const errorTrackingSuppressionRulesCreate = async (
     projectId: string,
-    errorTrackingSuppressionRuleApi: NonReadonly<ErrorTrackingSuppressionRuleApi>,
+    errorTrackingSuppressionRuleCreateRequestApi: ErrorTrackingSuppressionRuleCreateRequestApi,
     options?: RequestInit
 ): Promise<ErrorTrackingSuppressionRuleApi> => {
     return apiMutator<ErrorTrackingSuppressionRuleApi>(getErrorTrackingSuppressionRulesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingSuppressionRuleApi),
+        body: JSON.stringify(errorTrackingSuppressionRuleCreateRequestApi),
     })
 }
 
@@ -1328,6 +1372,27 @@ export const errorTrackingSymbolSetsDestroy = async (
         ...options,
         method: 'DELETE',
     })
+}
+
+/**
+ * Return a presigned URL for downloading the symbol set's source map.
+ */
+export const getErrorTrackingSymbolSetsDownloadRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/symbol_sets/${id}/download/`
+}
+
+export const errorTrackingSymbolSetsDownloadRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ErrorTrackingSymbolSetsDownloadRetrieve200> => {
+    return apiMutator<ErrorTrackingSymbolSetsDownloadRetrieve200>(
+        getErrorTrackingSymbolSetsDownloadRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getErrorTrackingSymbolSetsFinishUploadUpdateUrl = (projectId: string, id: string) => {
@@ -1645,6 +1710,27 @@ export const errorTrackingSymbolSetsDestroy2 = async (
         ...options,
         method: 'DELETE',
     })
+}
+
+/**
+ * Return a presigned URL for downloading the symbol set's source map.
+ */
+export const getErrorTrackingSymbolSetsDownloadRetrieve2Url = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/symbol_sets/${id}/download/`
+}
+
+export const errorTrackingSymbolSetsDownloadRetrieve2 = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ErrorTrackingSymbolSetsDownloadRetrieve2200> => {
+    return apiMutator<ErrorTrackingSymbolSetsDownloadRetrieve2200>(
+        getErrorTrackingSymbolSetsDownloadRetrieve2Url(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getErrorTrackingSymbolSetsFinishUploadUpdate2Url = (projectId: string, id: string) => {

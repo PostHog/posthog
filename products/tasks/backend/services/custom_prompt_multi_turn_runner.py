@@ -49,7 +49,7 @@ class MultiTurnSession:
         context: CustomPromptSandboxContext,
         model: type[_ModelT],
         *,
-        branch: str = "master",
+        branch: str | None = None,
         step_name: str = "",
         verbose: bool = False,
         output_fn: OutputFn = None,

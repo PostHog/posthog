@@ -54,7 +54,7 @@ async def run_prompt(
     prompt: str,
     context: CustomPromptSandboxContext,
     *,
-    branch: str = "master",
+    branch: str | None = None,
     step_name: str = "",
     verbose: bool = False,
     output_fn: OutputFn = None,
@@ -72,7 +72,7 @@ async def run_prompt(
 async def _create_task_and_trigger(
     description: str,
     context: CustomPromptSandboxContext,
-    branch: str = "master",
+    branch: str | None = None,
     step_name: str = "",
     origin_product: str | None = None,
     signal_report_id: str | None = None,
@@ -88,7 +88,7 @@ async def _create_task_and_trigger(
         repository=context.repository,
         create_pr=False,
         mode="background",
-        branch=branch if branch and branch != "master" else None,
+        branch=branch,
         signal_report_id=signal_report_id,
     )
     # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable

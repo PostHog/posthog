@@ -539,6 +539,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                             }
                             if (draft.frequency === 'every_n') {
                                 body.trigger_threshold = draft.triggerThreshold
+                                body.cooldown_minutes = draft.cooldownHours * 60
                             }
                             try {
                                 await api.create(`api/environments/${teamId}/llm_analytics/evaluation_reports/`, body)

@@ -137,6 +137,26 @@ class TestForwardPendingUserMessage(TestCase):
         run.refresh_from_db()
         assert "pending_user_message" not in run.state
 
+    @patch(
+        "products.tasks.backend.services.staged_artifacts.get_task_run_artifacts_by_id",
+        return_value=([], ["artifact-123"]),
+    )
+    def test_missing_pending_artifacts_raises_and_preserves_state(self, mock_get_artifacts):
+        run = self._make_run(
+            state={
+                "pending_user_message": "fix the tests",
+                "pending_user_artifact_ids": ["artifact-123"],
+                "sandbox_url": "https://sandbox.example.com/rpc",
+            }
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "Pending task artifacts not found on this run: artifact-123"):
+            forward_pending_user_message(str(run.id))
+
+        run.refresh_from_db()
+        assert run.state["pending_user_message"] == "fix the tests"
+        assert run.state["pending_user_artifact_ids"] == ["artifact-123"]
+
     @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
     @patch("products.tasks.backend.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.services.agent_command.send_user_message")

@@ -24,6 +24,7 @@ from .coder import (
     GIT_EMAIL_PARAMETER,
     GIT_NAME_PARAMETER,
     _fail,
+    create_task,
     create_workspace,
     delete_workspace,
     ensure_coder_authenticated,
@@ -370,7 +371,7 @@ def maybe_configure_dotfiles(configure_dotfiles: bool | None) -> None:
 def devbox_help() -> None:
     """Show the available `hogli devbox:*` commands."""
     commands = sorted(
-        (name, cmd.help or "")
+        (name, cmd.get_short_help_str() or "")
         for name, cmd in cli.commands.items()
         if name.startswith("devbox:") and not getattr(cmd, "hidden", False)
     )
@@ -736,6 +737,31 @@ def devbox_logs(workspace: str | None, follow: bool) -> None:
     ensure_runtime_ready()
     name, _ = resolve_workspace_name(workspace)
     logs_replace(name, follow)
+
+
+@cli.command(name="devbox:task", short_help="Run a background agent task on a fresh devbox")
+@click.argument("prompt", required=False)
+@click.option("--name", "task_name", default=None, help="Task name (auto-generated if omitted)")
+@click.option("-q", "--quiet", is_flag=True, help="Only print the created task's ID")
+def devbox_task(prompt: str | None, task_name: str | None, quiet: bool) -> None:
+    """Start a background Coder task on the posthog-linux template.
+
+    The Coder deployment provisions a fresh workspace per task and hands the
+    prompt to the agent configured in the template. Pass the prompt as a
+    positional argument or pipe it via stdin.
+
+    \b
+    Examples:
+      hogli devbox:task "fix CI on PR #1234"
+      cat prompt.txt | hogli devbox:task
+    """
+    if prompt is None and click.get_text_stream("stdin").isatty():
+        raise click.UsageError(
+            "Provide a prompt as an argument, or pipe it via stdin.\n"
+            'Example: hogli devbox:task "document the ingestion pipeline"'
+        )
+    ensure_runtime_ready()
+    create_task(prompt, task_name=task_name, quiet=quiet)
 
 
 @cli.command(name="devbox:destroy", help="Destroy your devbox and its data")

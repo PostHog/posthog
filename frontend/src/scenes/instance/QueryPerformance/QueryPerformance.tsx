@@ -8,6 +8,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { Link } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
@@ -131,7 +132,23 @@ export function QueryPerformance(): JSX.Element {
         },
         {
             title: 'Experiment',
-            dataIndex: 'experiment_name',
+            render: function ExperimentCell(_, item) {
+                if (!item.experiment_name) {
+                    return <span className="text-muted">Unknown</span>
+                }
+                if (!item.experiment_id || !item.team_id) {
+                    return <span className="truncate max-w-60">{item.experiment_name}</span>
+                }
+                return (
+                    <Link
+                        to={`/project/${item.team_id}/experiments/${item.experiment_id}`}
+                        target="_blank"
+                        className="truncate max-w-60"
+                    >
+                        {item.experiment_name}
+                    </Link>
+                )
+            },
         },
         {
             title: 'Metric',
