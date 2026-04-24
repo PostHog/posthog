@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 from django.test import TestCase
 
 from rest_framework import status
+from rest_framework.exceptions import NotAuthenticated
 from rest_framework.test import APIClient
 
 from posthog.models import Organization, OrganizationMembership, Team, User
@@ -496,6 +497,28 @@ class TestSeatAPIBestPlan(BaseSeatAPITest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["plan_key"] == "posthog-code-free-20260301"
         assert response.json()["status"] == "active"
+
+    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+    def test_future_exception_handled_gracefully(self, _mock_token, mock_request, _mock_license):
+        mock_request.side_effect = [
+            RuntimeError("connection reset"),
+            _billing_response({"seat": MOCK_PRO_SEAT}),
+        ]
+        self._auth_as_member()
+        response = self.client.get("/api/seats/me/?product_key=posthog_code&best=true")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["plan_key"] == "posthog-code-200-20260301"
+
+    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.seat_api.build_billing_token")
+    def test_partial_header_failure_returns_available_seat(self, mock_token, mock_request, _mock_license):
+        mock_token.side_effect = [NotAuthenticated("no member"), MOCK_BILLING_TOKEN]
+        mock_request.return_value = _billing_response({"seat": MOCK_FREE_SEAT})
+        self._auth_as_member()
+        response = self.client.get("/api/seats/me/?product_key=posthog_code&best=true")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["plan_key"] == "posthog-code-free-20260301"
 
 
 @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)

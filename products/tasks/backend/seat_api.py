@@ -22,10 +22,13 @@ from posthog.models.user import User
 from ee.billing.billing_manager import build_billing_token
 from ee.settings import BILLING_SERVICE_URL
 
+# Duplicated in services/llm-gateway/src/llm_gateway/services/plan_resolver.py
 PRO_PLAN_PREFIXES = ("posthog-code-200", "posthog-code-pro-")
 
 
 def _seat_priority(seat: dict[str, Any]) -> tuple[bool, int]:
+    # Tuple comparison: active (True > False) takes precedence, then tier.
+    # So active-free (True, 1) beats canceled-pro (False, 2).
     active = seat.get("status") == "active"
     plan_key = seat.get("plan_key") or ""
     if any(plan_key.startswith(p) for p in PRO_PLAN_PREFIXES):
@@ -240,7 +243,13 @@ class SeatViewSet(viewsets.ViewSet):
         return self._forward_response(resp)
 
     def _retrieve_best_seat(self, request: Request) -> Response:
-        """Return the highest-tier seat across all the user's orgs."""
+        """Return the highest-tier seat across all the user's orgs.
+
+        For single-org users this is a direct pass-through. For multi-org
+        users, billing requests fan out in parallel via ThreadPoolExecutor
+        (capped at 5 workers) and the best seat is selected by
+        ``_seat_priority``.
+        """
         user = cast(User, request.user)
         distinct_id = str(user.distinct_id)
         query_params = self._filtered_query_params(request)
@@ -258,10 +267,10 @@ class SeatViewSet(viewsets.ViewSet):
                 return Response({"detail": "No license found"}, status=status.HTTP_400_BAD_REQUEST)
             resp = self._billing_request("GET", f"/api/v2/seats/{distinct_id}/", headers, query_params=query_params)
             drf_resp = self._forward_response(resp)
-            if 200 <= drf_resp.status_code < 300 and isinstance(drf_resp.data, dict):
-                drf_resp.data["organization_id"] = str(org.id)
-                drf_resp.data["organization_name"] = org.name
-            return drf_resp
+            if not 200 <= drf_resp.status_code < 300 or not isinstance(drf_resp.data, dict):
+                return drf_resp
+            data = {**drf_resp.data, "organization_id": str(org.id), "organization_name": org.name}
+            return Response(data)
 
         def fetch_seat(org: Organization) -> tuple[Organization, dict[str, Any]] | None:
             headers = self._get_billing_headers_for_org(user, org)

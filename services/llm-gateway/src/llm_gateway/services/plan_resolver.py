@@ -27,6 +27,7 @@ logger = structlog.get_logger(__name__)
 
 POSTHOG_CODE_PRODUCT = "posthog_code"
 PLAN_CACHE_PREFIX = f"plan:{POSTHOG_CODE_PRODUCT}"
+# Duplicated in products/tasks/backend/seat_api.py
 PRO_PLAN_PREFIXES = ("posthog-code-200", "posthog-code-pro-")
 
 
