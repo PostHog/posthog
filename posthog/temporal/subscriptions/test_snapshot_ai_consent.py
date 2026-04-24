@@ -125,6 +125,91 @@ async def test_skips_summary_when_summary_not_enabled(team, user):
     assert result.summary_text is None
 
 
+async def test_captures_analytics_event_when_summary_is_generated(team, user, monkeypatch):
+    subscription = await _create_subscription(team, user)
+    await _set_ai_consent(subscription, approved=True)
+    delivery = await _create_delivery(
+        subscription,
+        {
+            "insights": [
+                {
+                    "id": subscription.insight_id,
+                    "name": "Pageviews",
+                    "query_results": {"result": [{"label": "Pageviews", "data": [1, 2, 3]}]},
+                }
+            ]
+        },
+    )
+
+    monkeypatch.setattr(
+        "posthog.temporal.subscriptions.snapshot_activities.generate_change_summary",
+        lambda *a, **kw: "- Pageviews is trending up",
+    )
+
+    captured: list[dict] = []
+
+    class _FakeClient:
+        def capture(self, **kwargs):
+            captured.append(kwargs)
+
+        def shutdown(self):
+            pass
+
+    monkeypatch.setattr("posthog.ph_client.is_cloud", lambda: True)
+    monkeypatch.setattr("posthog.ph_client.get_client", lambda *a, **kw: _FakeClient())
+
+    await _run(
+        SnapshotInsightsInputs(
+            subscription_id=subscription.id,
+            team_id=subscription.team_id,
+            delivery_id=str(delivery.id),
+        )
+    )
+
+    events = [c for c in captured if c.get("event") == "subscription_ai_summary_generated"]
+    assert len(events) == 1, f"expected one capture, got {captured}"
+    event = events[0]
+    assert event["distinct_id"] == str(user.distinct_id)
+    props = event["properties"]
+    assert props["subscription_id"] == subscription.id
+    assert props["team_id"] == subscription.team_id
+    assert props["delivery_id"] == str(delivery.id)
+    assert props["target_type"] == subscription.target_type
+    assert props["insight_count"] == 1
+    assert props["image_count"] == 0
+    assert props["has_previous"] is False
+    assert props["summary_text_length"] == len("- Pageviews is trending up")
+    assert props["resource_type"] == "insight"
+
+
+async def test_does_not_capture_analytics_event_when_summary_skipped(team, user, monkeypatch):
+    subscription = await _create_subscription(team, user, summary_enabled=False)
+    await _set_ai_consent(subscription, approved=True)
+
+    captured: list[dict] = []
+
+    class _FakeClient:
+        def capture(self, **kwargs):
+            captured.append(kwargs)
+
+        def shutdown(self):
+            pass
+
+    monkeypatch.setattr("posthog.ph_client.is_cloud", lambda: True)
+    monkeypatch.setattr("posthog.ph_client.get_client", lambda *a, **kw: _FakeClient())
+
+    await _run(
+        SnapshotInsightsInputs(
+            subscription_id=subscription.id,
+            team_id=subscription.team_id,
+            delivery_id=str(uuid.uuid4()),
+        )
+    )
+
+    events = [c for c in captured if c.get("event") == "subscription_ai_summary_generated"]
+    assert events == []
+
+
 async def test_unhandled_exception_is_logged_and_reraised(team, user, monkeypatch):
     subscription = await _create_subscription(team, user)
     await _set_ai_consent(subscription, approved=True)
