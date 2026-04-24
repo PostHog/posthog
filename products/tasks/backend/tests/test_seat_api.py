@@ -436,9 +436,7 @@ class TestSeatAPIBestPlan(BaseSeatAPITest):
     def test_best_ignored_for_non_me_pk(self, _mock_token, mock_request, _mock_license):
         mock_request.return_value = _billing_response({"seat": MOCK_SEAT})
         self._auth_as_admin()
-        response = self.client.get(
-            f"/api/seats/{self.user.distinct_id}/?product_key=posthog_code&best=true"
-        )
+        response = self.client.get(f"/api/seats/{self.user.distinct_id}/?product_key=posthog_code&best=true")
         assert response.status_code == status.HTTP_200_OK
         assert mock_request.call_count == 1
 
