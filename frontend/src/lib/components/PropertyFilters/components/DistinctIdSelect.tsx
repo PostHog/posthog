@@ -44,8 +44,8 @@ export function DistinctIdSelect({
                 label: opt.label,
                 labelComponent: (
                     <span className="flex flex-col">
-                        <span className="truncate">{opt.label}</span>
-                        {opt.label !== opt.key && <span className="text-muted text-xs truncate">{opt.key}</span>}
+                        <span className="truncate">{opt.key}</span>
+                        {opt.label !== opt.key && <span className="text-muted text-xs truncate">{opt.label}</span>}
                     </span>
                 ),
             })
