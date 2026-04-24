@@ -46,7 +46,6 @@ class TestProvisioningRegister(APIBaseTest):
         payload = {
             "name": "Test Partner",
             "callback_url": "https://example.com/callback",
-            "auth_method": "bearer",
             **(overrides or {}),
         }
         return self.client.post(
@@ -55,40 +54,23 @@ class TestProvisioningRegister(APIBaseTest):
             content_type="application/json",
         )
 
-    def test_register_bearer_partner(self) -> None:
+    def test_register_hmac_partner(self) -> None:
         res = self._register()
-        assert res.status_code == 201
-        data = res.json()
-        assert data["client_id"]
-        assert data["client_secret"]
-        assert data["auth_method"] == "bearer"
-        assert data["provisioning_active"] is False
-        assert "signing_secret" not in data
-
-        app = OAuthApplication.objects.get(client_id=data["client_id"])
-        assert app.provisioning_auth_method == "bearer"
-        assert app.provisioning_active is False
-        assert app.provisioning_can_create_accounts is False
-        assert app.redirect_uris == "https://example.com/callback"
-        assert app.client_type == OAuthApplication.CLIENT_CONFIDENTIAL
-
-    def test_register_hmac_partner_returns_signing_secret(self) -> None:
-        res = self._register({"auth_method": "hmac"})
         assert res.status_code == 201
         data = res.json()
         assert data["client_id"]
         assert data["client_secret"]
         assert data["signing_secret"]
         assert len(data["signing_secret"]) == 64
+        assert data["provisioning_active"] is False
 
         app = OAuthApplication.objects.get(client_id=data["client_id"])
         assert app.provisioning_auth_method == "hmac"
         assert app.provisioning_signing_secret == data["signing_secret"]
-
-    def test_register_rejects_pkce(self) -> None:
-        res = self._register({"auth_method": "pkce"})
-        assert res.status_code == 400
-        assert "auth_method must be one of" in res.json()["error"]
+        assert app.provisioning_active is False
+        assert app.provisioning_can_create_accounts is False
+        assert app.redirect_uris == "https://example.com/callback"
+        assert app.client_type == OAuthApplication.CLIENT_CONFIDENTIAL
 
     def test_register_with_optional_fields(self) -> None:
         res = self._register(
@@ -111,16 +93,6 @@ class TestProvisioningRegister(APIBaseTest):
         res = self._register({"callback_url": ""})
         assert res.status_code == 400
         assert "callback_url" in res.json()["error"]
-
-    def test_register_missing_auth_method(self) -> None:
-        res = self._register({"auth_method": ""})
-        assert res.status_code == 400
-        assert "auth_method" in res.json()["error"]
-
-    def test_register_invalid_auth_method(self) -> None:
-        res = self._register({"auth_method": "magic"})
-        assert res.status_code == 400
-        assert "auth_method must be one of" in res.json()["error"]
 
     def test_register_rejects_private_ip(self) -> None:
         for url in [
