@@ -29,10 +29,19 @@
 
     // The badge stays mounted so CSS can play the fade-out when `visible` flips
     // to false; on show, the transition plays again from hidden to visible.
+    // Layout properties (width/height/padding/border) are also transitioned
+    // so a hidden badge collapses out of inline flow rather than reserving
+    // an empty slot in callers using the default `position="none"`.
     opacity: 1;
     transition:
         opacity 150ms ease-out,
-        transform 150ms ease-out;
+        transform 150ms ease-out,
+        width 150ms ease-out,
+        min-width 150ms ease-out,
+        height 150ms ease-out,
+        padding 150ms ease-out,
+        margin 150ms ease-out,
+        border-width 150ms ease-out;
     transform: scale(1);
 
     > * {
@@ -113,7 +122,14 @@
     }
 
     &.LemonBadge--hidden {
+        width: 0;
+        min-width: 0;
+        height: 0;
+        padding: 0;
+        margin: 0;
+        overflow: hidden;
         pointer-events: none;
+        border-width: 0;
         opacity: 0;
         transform: scale(0.5);
     }
