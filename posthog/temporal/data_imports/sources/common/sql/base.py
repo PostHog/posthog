@@ -1,124 +1,58 @@
-"""`SQLSource` abstract base class for SQL-based data-import sources.
+"""`SQLSource` template for SQL-based data-import sources.
 
-Every current SQL source (`PostgresSource`, `MySQLSource`, `MSSQLSource`,
-`SnowflakeSource`, `BigQuerySource`, `RedshiftSource`, `ClickHouseSource`)
-re-implements the same `get_schemas` on top of `SimpleSource`: open a
-tunnel, query `information_schema`, detect incremental fields, detect
-primary keys, assemble a list of `SourceSchema`.
+Every SQL source decomposes into two concerns:
 
-This base class owns that orchestration as a template method and delegates
-the driver-specific work to `_discover` — an **atomic** hook that opens
-the SSH tunnel / connection once and returns everything needed to build
-`SourceSchema` rows. This preserves today's single-tunnel-per-listing
-behavior in `MySQLSource.get_schemas` and `PostgresSource.get_schemas`.
+- A PostHog-layer wrapper (config schema, credentials validation,
+  error-to-message mapping, registry registration). That's *this* class.
+- A driver-layer implementation (connection lifecycle, metadata
+  queries, dlt pipeline build). That's `SQLSourceImplementation`, held
+  by every `SQLSource` subclass via the `get_implementation` property.
 
-Subclasses override `source_for_pipeline` directly (same contract as
-`SimpleSource`); the base class intentionally does not wrap that — the
-driver-specific pipeline factories (`mysql_source`, `postgres_source`,
-etc.) are diverse enough that adding a template there would be churn
-without benefit.
+The wrapper stays thin: `get_schemas` opens a connection once via
+`impl.connect(config)`, threads it through each query method, and
+assembles `SourceSchema` rows; `source_for_pipeline` delegates straight
+to `impl.build_pipeline`. Subclasses usually only define:
 
-**No behavior change today.** This class is additive — existing sources
-that still inherit from `SimpleSource` directly continue to work unchanged.
-The first subscriber is `MySQLSource`; other sources will migrate in
-follow-up PRs (see `plans/for-all-the-sql-rosy-quiche.md`).
+    get_implementation → MyDriverImplementation()
+    source_type, get_source_config, validate_credentials
+
+— no driver code bleeds into the source file.
 """
 
 from __future__ import annotations
 
-import dataclasses
 from abc import abstractmethod
-from typing import Generic
+from typing import Any, Generic
 
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import ConfigType, SimpleSource
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.common.sql.incremental import (
-    IncrementalFieldFilter,
-    build_incremental_fields,
-)
-
-
-@dataclasses.dataclass
-class DiscoveryResult:
-    """Everything `SQLSource.get_schemas` needs to build `SourceSchema` rows.
-
-    Subclasses populate this in a single `_discover` call — typically inside
-    a single SSH tunnel + connection — so `get_schemas` doesn't fan out into
-    multiple network round-trips.
-    """
-
-    columns_by_table: dict[str, list[tuple[str, str, bool]]]
-    primary_keys_by_table: dict[str, list[str] | None] = dataclasses.field(default_factory=dict)
-    row_counts_by_table: dict[str, int | None] = dataclasses.field(default_factory=dict)
-    foreign_keys_by_table: dict[str, list[tuple[str, str, str]]] = dataclasses.field(default_factory=dict)
-    source_catalog_by_table: dict[str, str | None] = dataclasses.field(default_factory=dict)
-    source_schema_by_table: dict[str, str | None] = dataclasses.field(default_factory=dict)
-    source_table_name_by_table: dict[str, str | None] = dataclasses.field(default_factory=dict)
-    supports_cdc_by_table: dict[str, bool] = dataclasses.field(default_factory=dict)
+from posthog.temporal.data_imports.sources.common.sql.implementation import SQLSourceImplementation
+from posthog.temporal.data_imports.sources.common.sql.incremental import build_incremental_fields
 
 
 class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
     """Base class for SQL-based data-import sources.
 
-    Subclasses implement two hooks:
-
-    - `_discover(config, names, with_counts)` — atomic schema discovery.
-    - `_filter_incremental_fields()` — return the driver's incremental
-      filter.
-
-    …and override `source_for_pipeline` directly (unchanged from
-    `SimpleSource`; kept out of this base so the driver-specific pipeline
-    factories can stay as-is).
+    Subclasses expose a `SQLSourceImplementation` via
+    `get_implementation`. Everything else on this class is template
+    wiring around it.
     """
 
-    source_display_name: str = "this database"
-    """User-facing name for error messages. Override in subclasses."""
-
-    # ------------------------------------------------------------------
-    # Hooks every concrete subclass must implement
-    # ------------------------------------------------------------------
-
+    @property
     @abstractmethod
-    def _discover(
-        self,
-        config: ConfigType,
-        names: list[str] | None,
-        with_counts: bool,
-    ) -> DiscoveryResult:
-        """Run the driver's `information_schema` queries in one shot.
-
-        Subclasses should open their SSH tunnel (if any) once and query
-        everything (columns, primary keys, row counts, foreign keys) before
-        closing. `with_counts=False` — the default — lets subclasses skip
-        potentially expensive row-count queries on the main listing path.
-        """
-
-    @abstractmethod
-    def _filter_incremental_fields(self) -> IncrementalFieldFilter:
-        """Return the driver's incremental-field filter.
-
-        Called once per `get_schemas` invocation. Keeping this as a hook
-        (rather than a classmethod) lets subclasses parameterize the filter
-        on config if they ever need to.
-        """
-
-    # ------------------------------------------------------------------
-    # Hook with sensible default — override only if needed
-    # ------------------------------------------------------------------
+    def get_implementation(self) -> SQLSourceImplementation[ConfigType, Any]:
+        """The driver-layer implementation for this source."""
 
     def _default_primary_key_from_columns(self, columns: list[tuple[str, str, bool]]) -> list[str] | None:
-        """Fallback: if no PK was detected, use `id` when present.
+        """Fallback: use `id` when the driver didn't detect a PK but one is present.
 
-        This matches what every SQL source does today just before building a
-        `SourceSchema`. Extracted here so subclasses don't have to repeat it.
+        Mirrors what every SQL source has always done just before building
+        a `SourceSchema`.
         """
         if any(col[0] == "id" for col in columns):
             return ["id"]
         return None
-
-    # ------------------------------------------------------------------
-    # Template methods (the reason this class exists)
-    # ------------------------------------------------------------------
 
     def get_schemas(
         self,
@@ -127,33 +61,42 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
         with_counts: bool = False,
         names: list[str] | None = None,
     ) -> list[SourceSchema]:
-        result = self._discover(config, names, with_counts)
-        if not result.columns_by_table:
-            return []
+        impl = self.get_implementation
+        with impl.connect(config) as conn:
+            columns_by_table = impl.get_columns(conn, config, names)
+            if not columns_by_table:
+                return []
+            tables = list(columns_by_table.keys())
+            primary_keys = impl.get_primary_keys(conn, config, tables)
+            row_counts = impl.get_row_counts(conn, config, tables) if with_counts else {}
+            foreign_keys = impl.get_foreign_keys(conn, config, tables)
+            metadata = impl.get_source_metadata(conn, config, tables)
+            cdc_support = impl.get_cdc_support(conn, config, tables)
 
-        incremental_filter = self._filter_incremental_fields()
+        incremental_filter = impl.get_incremental_filter()
 
         schemas: list[SourceSchema] = []
-        for table_name, columns in result.columns_by_table.items():
+        for table_name, columns in columns_by_table.items():
             incremental_triples = incremental_filter(columns)
-            detected_pks = result.primary_keys_by_table.get(table_name)
-            if not detected_pks:
-                detected_pks = self._default_primary_key_from_columns(columns)
+            detected_pks = primary_keys.get(table_name) or self._default_primary_key_from_columns(columns)
 
             schemas.append(
                 SourceSchema(
                     name=table_name,
                     supports_incremental=len(incremental_triples) > 0,
                     supports_append=len(incremental_triples) > 0,
-                    supports_cdc=result.supports_cdc_by_table.get(table_name, False),
+                    supports_cdc=cdc_support.get(table_name, False),
                     incremental_fields=build_incremental_fields(incremental_triples),
                     columns=columns,
-                    row_count=result.row_counts_by_table.get(table_name),
-                    foreign_keys=result.foreign_keys_by_table.get(table_name, []),
-                    source_catalog=result.source_catalog_by_table.get(table_name),
-                    source_schema=result.source_schema_by_table.get(table_name),
-                    source_table_name=result.source_table_name_by_table.get(table_name),
+                    row_count=row_counts.get(table_name),
+                    foreign_keys=foreign_keys.get(table_name, []),
+                    source_catalog=metadata.catalog_by_table.get(table_name),
+                    source_schema=metadata.schema_by_table.get(table_name),
+                    source_table_name=metadata.table_name_by_table.get(table_name),
                     detected_primary_keys=detected_pks,
                 )
             )
         return schemas
+
+    def source_for_pipeline(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
+        return self.get_implementation.build_pipeline(config, inputs)
