@@ -220,22 +220,17 @@ describe('LogsIngestionConsumer', () => {
             expect(consumer['name']).toEqual('LogsIngestionConsumer')
             expect(consumer['groupId']).toEqual('ingestion-logs')
             expect(consumer['topic']).toEqual('logs_ingestion_test')
-            expect(consumer['clickhouseTopic']).toEqual('clickhouse_logs_test')
-            expect(consumer['overflowTopic']).toEqual('logs_ingestion_overflow_test')
-            expect(consumer['dlqTopic']).toEqual('logs_ingestion_dlq_test')
         })
 
         it('should allow config overrides', async () => {
             const overrides = {
                 LOGS_INGESTION_CONSUMER_GROUP_ID: 'custom-group',
                 LOGS_INGESTION_CONSUMER_CONSUME_TOPIC: 'custom-topic',
-                LOGS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC: 'custom-clickhouse-topic',
             }
             const customConsumer = await createLogsIngestionConsumer(hub, overrides)
 
             expect(customConsumer['groupId']).toBe('custom-group')
             expect(customConsumer['topic']).toBe('custom-topic')
-            expect(customConsumer['clickhouseTopic']).toBe('custom-clickhouse-topic')
 
             await customConsumer.stop()
         })
@@ -462,18 +457,20 @@ describe('LogsIngestionConsumer', () => {
                 token: team.api_token,
             })
 
-            // Mock producer to throw an error
-            const originalProduce = consumer['kafkaProducer']!.produce
-            consumer['kafkaProducer']!.produce = jest.fn().mockRejectedValue(new Error('Producer error'))
+            // Mock producer's batched-write path to throw — this is what
+            // SingleIngestionOutput.queueMessages drives under the hood.
+            const originalQueueMessages = mockProducer.queueMessages
+            const queueSpy = jest.fn().mockRejectedValue(new Error('Producer error'))
+            mockProducer.queueMessages = queueSpy
 
             // Producer errors are caught and logged, not thrown
             await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
 
             // Verify the producer was called and would have failed
-            expect(consumer['kafkaProducer']!.produce).toHaveBeenCalled()
+            expect(queueSpy).toHaveBeenCalled()
 
             // Restore original method
-            consumer['kafkaProducer']!.produce = originalProduce
+            mockProducer.queueMessages = originalQueueMessages
         })
 
         it('should send failed messages to DLQ', async () => {
@@ -484,15 +481,15 @@ describe('LogsIngestionConsumer', () => {
 
             const logMessageDlqCounterSpy = jest.spyOn(logMessageDlqCounter, 'inc')
 
-            // Mock the produce method to throw an error for main topic but succeed for DLQ
-            const originalProduce = consumer['kafkaProducer']!.produce
-            const produceSpy = jest.fn().mockImplementation((args) => {
-                if (args.topic === 'clickhouse_logs_test') {
+            // Throw for the main logs topic but pass through to the real mock producer for the DLQ.
+            const originalQueueMessages = mockProducer.queueMessages.bind(mockProducer)
+            const queueSpy = jest.fn().mockImplementation(({ topic, messages }) => {
+                if (topic === 'clickhouse_logs_test') {
                     throw new Error('Producer error')
                 }
-                return originalProduce(args)
+                return originalQueueMessages({ topic, messages })
             })
-            consumer['kafkaProducer']!.produce = produceSpy
+            mockProducer.queueMessages = queueSpy
 
             await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
 
@@ -500,19 +497,19 @@ describe('LogsIngestionConsumer', () => {
             expect(logMessageDlqCounterSpy).toHaveBeenCalledWith({ reason: 'Error', team_id: team.id.toString() })
 
             // Check that a message was produced to the DLQ topic
-            const dlqMessages = produceSpy.mock.calls.filter((call) => call[0].topic === 'logs_ingestion_dlq_test')
-            expect(dlqMessages.length).toBeGreaterThan(0)
+            const dlqCalls = queueSpy.mock.calls.filter((call) => call[0].topic === 'logs_ingestion_dlq_test')
+            expect(dlqCalls.length).toBeGreaterThan(0)
 
             // Verify DLQ message has error metadata in headers
-            if (dlqMessages.length > 0) {
-                const dlqMessage = dlqMessages[0][0]
+            if (dlqCalls.length > 0) {
+                const dlqMessage = dlqCalls[0][0].messages[0]
                 expect(dlqMessage.headers).toHaveProperty('error_message')
                 expect(dlqMessage.headers).toHaveProperty('error_name')
                 expect(dlqMessage.headers).toHaveProperty('failed_at')
             }
 
             // Restore original method
-            consumer['kafkaProducer']!.produce = originalProduce
+            mockProducer.queueMessages = originalQueueMessages
         })
     })
 
