@@ -51,6 +51,16 @@ class TestApprovalNotifications(BaseTest):
             expires_at=timezone.now() + timedelta(days=14),
         )
 
+    def _create_change_request_with_approvers(self, _approvers: list) -> ChangeRequest:
+        return self.change_request
+
+    def _create_approval(self, change_request: ChangeRequest, decision: str = "approved") -> Approval:
+        return Approval.objects.create(
+            change_request=change_request,
+            created_by=self.approver,
+            decision=decision,
+        )
+
 
 class TestCustomerIOTemplateIDs(TestApprovalNotifications):
     def test_all_approval_templates_have_customer_io_ids(self):
@@ -471,3 +481,28 @@ class TestEmailTemplateRendering(TestApprovalNotifications):
                 self.assertIn(
                     expected_cta, message.html_body, f"Template {template_name} should have CTA button '{expected_cta}'"
                 )
+
+
+class TestSendRealtimeResolved(TestApprovalNotifications):
+    @patch("posthog.approvals.notifications.create_notification")
+    def test_send_realtime_resolved_dispatches_to_requester(self, mock_create_notification):
+        from posthog.approvals.notifications import _send_realtime_resolved
+
+        change_request = self._create_change_request_with_approvers([])
+        _send_realtime_resolved(change_request, title="Approved", body="Action: feature_flag.update")
+
+        data = mock_create_notification.call_args.args[0]
+        assert data.notification_type.value == "approval_resolved"
+        assert data.target_id == str(change_request.created_by_id)
+        assert data.resource_type.value == "approval"
+
+    @patch("posthog.approvals.notifications.create_notification")
+    def test_send_realtime_resolved_skips_when_no_requester(self, mock_create_notification):
+        from posthog.approvals.notifications import _send_realtime_resolved
+
+        change_request = self._create_change_request_with_approvers([])
+        change_request.created_by = None
+        change_request.save()
+        _send_realtime_resolved(change_request, title="x", body="y")
+
+        mock_create_notification.assert_not_called()
