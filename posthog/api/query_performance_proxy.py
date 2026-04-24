@@ -29,6 +29,7 @@ from clickhouse_driver import (
     Client as SyncClient,
     errors as clickhouse_driver_errors,
 )
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -66,7 +67,19 @@ _PRODUCTION_CLOUD_DEPLOYMENTS = {"US", "EU", "DEV"}
 
 
 class ExecuteRequestSerializer(serializers.Serializer):
-    sql = serializers.CharField(max_length=MAX_SQL_LENGTH)
+    sql = serializers.CharField(max_length=MAX_SQL_LENGTH, help_text="ClickHouse SQL to run against the test cluster.")
+
+
+class ExecuteResponseSerializer(serializers.Serializer):
+    result = serializers.ListField(
+        child=serializers.ListField(),
+        help_text="Rows returned, each as a positional list of canonicalized values.",
+    )
+    query_id = serializers.CharField(allow_null=True, help_text="ClickHouse query_id for this execution.")
+    elapsed_ms = serializers.FloatField(allow_null=True, help_text="Server-side elapsed time in milliseconds.")
+    rows_read = serializers.IntegerField(allow_null=True, help_text="Rows read from storage (scan-side).")
+    bytes_read = serializers.IntegerField(allow_null=True, help_text="Bytes read from storage (scan-side).")
+    rows_returned = serializers.IntegerField(help_text="Rows in the `result` payload.")
 
 
 _ACTION_SCOPES: dict[str, list[str]] = {
@@ -147,6 +160,16 @@ class QueryPerformanceProxyViewSet(viewsets.ViewSet):
     def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
         return _ACTION_SCOPES.get(getattr(view, "action", "") or "")
 
+    @extend_schema(
+        request=ExecuteRequestSerializer,
+        responses={200: ExecuteResponseSerializer},
+        summary="Run a read-only query against the autoresearch test cluster",
+        description=(
+            "DEBUG-only proxy that forwards SQL to the ClickHouse `autoresearch` user. "
+            "SQL safety comes entirely from the CH user's grants + readonly=2 profile; "
+            "the endpoint does not parse or filter SQL."
+        ),
+    )
     @action(detail=False, methods=["POST"], url_path="execute-test")
     def execute_test(self, request: Request) -> Response:
         if not settings.DEBUG or settings.CLOUD_DEPLOYMENT in _PRODUCTION_CLOUD_DEPLOYMENTS:

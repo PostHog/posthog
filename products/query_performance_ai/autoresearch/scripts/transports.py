@@ -19,6 +19,21 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
+_ALLOWED_URL_SCHEMES = frozenset({"http", "https"})
+
+
+def _require_http_url(url: str) -> None:
+    """Reject non-HTTP(S) URLs before we hand them to urllib.
+
+    ``urllib.request`` speaks ``file://``, ``ftp://``, and other schemes.
+    A malicious or misconfigured ``adapter.json`` / env var could abuse
+    those to read local files or reach unexpected services. The transports
+    only ever need HTTP(S), so refuse anything else.
+    """
+    scheme = urllib.parse.urlparse(url).scheme.lower()
+    if scheme not in _ALLOWED_URL_SCHEMES:
+        raise ValueError(f"transport URL scheme {scheme!r} not allowed (must be http/https): {url!r}")
+
 
 @dataclass(frozen=True)
 class TransportResult:
@@ -85,6 +100,7 @@ class HttpTransport(Transport):
     def run(self, sql: str, *, timeout_s: int = 30) -> TransportResult:
         params = {**_QUERY_SETTINGS, "default_format": "JSONEachRow"}
         endpoint = f"{self.url}/?{urllib.parse.urlencode(params)}"
+        _require_http_url(endpoint)
         req = urllib.request.Request(
             endpoint,
             data=sql.encode("utf-8"),
@@ -94,7 +110,8 @@ class HttpTransport(Transport):
 
         start = time.monotonic()
         try:
-            with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+            # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
+            with urllib.request.urlopen(req, timeout=timeout_s) as resp:  # noqa: S310
                 body = resp.read()
                 summary_header = resp.headers.get("X-ClickHouse-Summary") or ""
                 stdout = "\n".join(f"{k}: {v}" for k, v in resp.headers.items())
@@ -214,6 +231,7 @@ class PosthogProxyTransport(Transport):
                 stdout="",
             )
         endpoint = f"{self.base_url}/api/query_performance_proxy/execute-test/"
+        _require_http_url(endpoint)
         body = json.dumps({"sql": sql}).encode("utf-8")
         req = urllib.request.Request(
             endpoint,
@@ -227,7 +245,8 @@ class PosthogProxyTransport(Transport):
 
         start = time.monotonic()
         try:
-            with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+            # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
+            with urllib.request.urlopen(req, timeout=timeout_s) as resp:  # noqa: S310
                 response_body = resp.read().decode("utf-8")
         except urllib.error.HTTPError as e:
             elapsed_ms = (time.monotonic() - start) * 1000.0

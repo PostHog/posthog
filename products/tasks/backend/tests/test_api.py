@@ -24,7 +24,6 @@ from posthog.models import Integration, Organization, OrganizationMembership, Pe
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.storage import object_storage
-from posthog.storage.object_storage import ObjectStorageError
 
 from products.tasks.backend.models import (
     CodeInvite,

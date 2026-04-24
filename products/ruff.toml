@@ -14,6 +14,14 @@ extend-select = ["ANN001", "ANN201", "ANN202", "ANN204"]
 "**/dags/**" = ["ANN"]
 "**/scripts/**" = ["ANN"]
 "**/stats/**" = ["ANN"]
+# Autoresearch sandbox scripts use `print(...)` as their output protocol
+# to pi-autoresearch (METRIC lines go to stdout, info logs to stderr).
+# The host orchestrator and the workspace-template checks do the same
+# for operator-visible progress output. T201 "no print" is the wrong
+# rule for this boundary.
+"query_performance_ai/autoresearch/scripts/**" = ["T201"]
+"query_performance_ai/autoresearch/templates/**" = ["T201"]
+"query_performance_ai/scripts/**" = ["T201"]
 
 # Temporarily exempted — too many violations to fix in one pass.
 # Run: ruff check products/<name>/backend --select ANN --statistics

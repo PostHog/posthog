@@ -121,6 +121,7 @@
         "frontend/**/*LogicType.ts",
         "bin/validate-setup-tasks.mjs",
         "frontend/bin/docs/build-survey-sdk-docs.ts",
-        "frontend/src/scenes/notebooks/Nodes/NodeWrapper.tsx"
+        "frontend/src/scenes/notebooks/Nodes/NodeWrapper.tsx",
+        "products/query_performance_ai/autoresearch/templates/workspace/*.json"
     ]
 }

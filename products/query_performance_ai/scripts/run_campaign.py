@@ -21,6 +21,7 @@ import argparse
 import tempfile
 import subprocess
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -36,6 +37,22 @@ BAKED_PI_AUTORESEARCH_EXTENSION = Path("/root/.pi/agent/extensions/pi-autoresear
 
 class CampaignError(RuntimeError):
     pass
+
+
+_ALLOWED_URL_SCHEMES = frozenset({"http", "https"})
+
+
+def _require_http_url(url: str) -> None:
+    """Reject non-HTTP(S) URLs before we hand them to urllib.
+
+    The preflight helpers use ``urllib.request.urlopen`` with URLs sourced
+    from operator-set env vars (``POSTHOG_URL``, ``ANTHROPIC_BASE_URL``).
+    ``urllib`` speaks ``file://``/``ftp://``/etc.; a typo'd scheme or a
+    compromised env would otherwise silently read a local file.
+    """
+    scheme = urllib.parse.urlparse(url).scheme.lower()
+    if scheme not in _ALLOWED_URL_SCHEMES:
+        raise CampaignError(f"preflight URL scheme {scheme!r} not allowed (must be http/https): {url!r}")
 
 
 def log(msg: str) -> None:
@@ -61,6 +78,7 @@ def run(cmd: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProce
 def check_proxy_reachable(posthog_url: str, token: str) -> None:
     """Fail fast if the proxy/token is broken, before the 2-minute campaign kicks off."""
     endpoint = posthog_url.rstrip("/") + "/api/query_performance_proxy/execute-test/"
+    _require_http_url(endpoint)
     body = json.dumps({"sql": "SELECT 1"}).encode("utf-8")
     req = urllib.request.Request(
         endpoint,
@@ -72,7 +90,8 @@ def check_proxy_reachable(posthog_url: str, token: str) -> None:
         },
     )
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
+        with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
             status = resp.status
             raw = resp.read().decode("utf-8")
     except urllib.error.HTTPError as e:
@@ -404,6 +423,7 @@ def _print_pi_event(line: str) -> None:
 def _preflight_anthropic_gateway(base_url: str, api_key: str) -> None:
     """POST a 1-token /v1/messages to base_url with x-api-key=api_key."""
     endpoint = base_url.rstrip("/") + "/v1/messages"
+    _require_http_url(endpoint)
     body = json.dumps(
         {
             "model": "claude-sonnet-4-5-20250929",
@@ -423,7 +443,8 @@ def _preflight_anthropic_gateway(base_url: str, api_key: str) -> None:
     )
     log(f"preflighting Anthropic-compat endpoint: {endpoint}")
     try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
+        with urllib.request.urlopen(req, timeout=20) as resp:  # noqa: S310
             log(f"gateway preflight OK (status={resp.status})")
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", "replace")[:500]
