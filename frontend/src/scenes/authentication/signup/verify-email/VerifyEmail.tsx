@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { LemonButton, LemonCheckbox, LemonModal, Link } from '@posthog/lemon-ui'
 
@@ -120,8 +120,21 @@ const GetHelp = (): JSX.Element => {
     )
 }
 
+const REDIRECT_DELAY_MS = 2000
+
 export function VerifyEmail(): JSX.Element {
     const { view } = useValues(verifyEmailLogic)
+    const [progressActive, setProgressActive] = useState(false)
+
+    useEffect(() => {
+        if (view !== 'success') {
+            setProgressActive(false)
+            return
+        }
+        // Kick off the width transition on the next frame so the initial 0% state is painted first
+        const raf = requestAnimationFrame(() => setProgressActive(true))
+        return () => cancelAnimationFrame(raf)
+    }, [view])
 
     return (
         <div className="flex h-full flex-col">
@@ -168,6 +181,26 @@ export function VerifyEmail(): JSX.Element {
                             </>
                         ) : (
                             <Spinner className="text-4xl" />
+                        )}
+                        {view === 'success' && (
+                            <div
+                                aria-hidden
+                                className="absolute bottom-0 left-0 right-0 h-1 overflow-hidden"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{
+                                    borderBottomLeftRadius: 'var(--radius)',
+                                    borderBottomRightRadius: 'var(--radius)',
+                                }}
+                            >
+                                <div
+                                    className="h-full bg-accent"
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={{
+                                        width: progressActive ? '100%' : '0%',
+                                        transition: `width ${REDIRECT_DELAY_MS}ms linear`,
+                                    }}
+                                />
+                            </div>
                         )}
                     </div>
                 </BridgePage>
