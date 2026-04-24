@@ -22,6 +22,43 @@ export class MCPToolError extends Error {
     }
 }
 
+/**
+ * Thrown by `StateManager.getProjectId()` when no project can be resolved for
+ * the current session — neither pinned via header, cached from a prior init,
+ * nor derivable from the API key's scopes (e.g. an org-scoped key whose org
+ * has no listable projects). Carries a multi-line message that walks the
+ * agent through the available recovery tools, plus structured fields so
+ * detection and formatting can be programmatic.
+ */
+export class MissingProjectContextError extends Error {
+    public readonly organizationId: string | undefined
+
+    constructor(options: { organizationId?: string | undefined } = {}) {
+        super(formatMissingProjectContextMessage(options.organizationId))
+        this.name = 'MissingProjectContextError'
+        this.organizationId = options.organizationId
+    }
+}
+
+function formatMissingProjectContextMessage(organizationId: string | undefined): string {
+    const orgScopeLine = organizationId
+        ? '\n\n' +
+          `The session is currently scoped to organization \`${organizationId}\` but no project has been picked.`
+        : ''
+
+    return (
+        'No PostHog project is selected for this MCP session, and a default could not be derived from your API key.' +
+        orgScopeLine +
+        '\n\n' +
+        'To pick one (in order of preference):\n' +
+        '1. Call `projects-get` to list projects you can access, then `switch-project` with the chosen project id.\n' +
+        '2. If you already know the project id, call `switch-project { projectId: <id> }` directly.\n' +
+        '3. (For MCP client maintainers) Pin a project at session start by sending the `x-posthog-project-id` header on the initialize request.' +
+        '\n\n' +
+        'If `projects-get` returns nothing, call `organizations-list` followed by `switch-organization` to pick a different org first — then retry `projects-get`.'
+    )
+}
+
 export interface PostHogPermissionErrorOptions {
     detail: string
     missingScope?: string | undefined
@@ -141,6 +178,21 @@ export function findPostHogPermissionError(error: unknown): PostHogPermissionErr
  */
 export function handleToolError(error: any, tool?: string, distinctId?: string, sessionUuid?: string): CallToolResult {
     const toolName = tool || 'unknown'
+
+    // Recoverable: agent can fix it via switch-project / projects-get. Skip
+    // exception capture (this is expected user state, not a bug) and return the
+    // typed error's pre-formatted multi-line message verbatim.
+    if (error instanceof MissingProjectContextError) {
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `Error: [${toolName}]: ${error.message}`,
+                },
+            ],
+            isError: true,
+        }
+    }
 
     const permissionError = findPostHogPermissionError(error)
     if (permissionError) {

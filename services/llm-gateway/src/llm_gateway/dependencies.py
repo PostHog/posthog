@@ -158,7 +158,7 @@ async def enforce_throttles(
     else:
         end_user_id = await _extract_end_user_id_from_body(request)
 
-    plan_info = await resolve_plan_info(request, user.user_id, product)
+    plan_info = await resolve_plan_info(request, user.user_id, product, team_id=user.team_id)
 
     context = ThrottleContext(
         user=user,
@@ -166,8 +166,8 @@ async def enforce_throttles(
         request_id=get_request_id() or None,
         end_user_id=end_user_id,
         plan_key=plan_info.plan_key,
-        in_trial_period=plan_info.in_trial_period,
         seat_created_at=plan_info.seat_created_at,
+        billing_period_start=plan_info.billing_period.current_period_start if plan_info.billing_period else None,
     )
     request.state.throttle_context = context
     set_throttle_context(runner, context)

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconChevronRight, IconGear, IconQuestion, IconStack } from '@posthog/icons'
+import { IconChevronDown, IconChevronRight, IconGear, IconInfo, IconQuestion, IconStack } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, LemonSelect, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -19,6 +19,7 @@ import { clustersAdminLogic } from './clustersAdminLogic'
 import { ClusterScatterPlot } from './ClusterScatterPlot'
 import { clustersLogic } from './clustersLogic'
 import { NOISE_CLUSTER_ID } from './constants'
+import { EvaluationFilterBar } from './EvaluationFilterBar'
 import { Cluster, ClusteringLevel, getJobIdFromRunId } from './types'
 
 export function ClustersView(): JSX.Element {
@@ -29,6 +30,7 @@ export function ClustersView(): JSX.Element {
         currentRun,
         currentRunLoading,
         sortedClusters,
+        filteredSortedClusters,
         effectiveRunId,
         expandedClusterIds,
         traceSummaries,
@@ -45,6 +47,15 @@ export function ClustersView(): JSX.Element {
     const { openJobsPanel } = useActions(clusteringJobsLogic)
 
     const showAdminPanel = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERING_ADMIN]
+    const evaluationsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_CLUSTERING]
+    const levelOptions: { value: ClusteringLevel; label: string }[] = [
+        { value: 'trace', label: 'Traces' },
+        { value: 'generation', label: 'Generations' },
+        ...(evaluationsEnabled ? [{ value: 'evaluation' as const, label: 'Evaluations' }] : []),
+    ]
+    const levelTooltip = evaluationsEnabled
+        ? 'Traces cluster entire conversations, generations cluster individual LLM calls, and evaluations cluster $ai_evaluation events by evaluator name, verdict, and reasoning'
+        : 'Traces cluster entire conversations, while generations cluster individual LLM calls'
 
     // Build a map from job_id to job name for run labels
     const jobNameById: Record<string, string> = {}
@@ -70,18 +81,12 @@ export function ClustersView(): JSX.Element {
                 <div className="flex items-center justify-between">
                     {/* Level toggle is always visible so users can switch */}
                     <div className="flex items-center gap-3">
-                        <Tooltip
-                            title="Traces cluster entire conversations, while generations cluster individual LLM calls"
-                            placement="bottom"
-                        >
+                        <Tooltip title={levelTooltip} placement="bottom">
                             <span>
                                 <LemonSegmentedButton
                                     value={clusteringLevel}
                                     onChange={(value) => setClusteringLevel(value as ClusteringLevel)}
-                                    options={[
-                                        { value: 'trace', label: 'Traces' },
-                                        { value: 'generation', label: 'Generations' },
-                                    ]}
+                                    options={levelOptions}
                                     size="small"
                                     data-attr="clusters-level-toggle"
                                 />
@@ -124,12 +129,20 @@ export function ClustersView(): JSX.Element {
 
                 <div className="flex flex-col items-center justify-center p-8 text-center">
                     <h3 className="text-lg font-semibold mb-2">
-                        No {clusteringLevel === 'generation' ? 'generation' : 'trace'} clustering runs found
+                        No{' '}
+                        {clusteringLevel === 'generation'
+                            ? 'generation'
+                            : clusteringLevel === 'evaluation'
+                              ? 'evaluation'
+                              : 'trace'}{' '}
+                        clustering runs found
                     </h3>
                     <p className="text-muted max-w-md">
                         {clusteringLevel === 'trace'
-                            ? 'Try switching to "Generations" to see generation-level clusters, or check back later once more data has been collected.'
-                            : 'Try switching to "Traces" to see trace-level clusters, or check back later once more data has been collected.'}
+                            ? 'Try switching to "Generations" or "Evaluations" to see other clusters, or check back later once more data has been collected.'
+                            : clusteringLevel === 'generation'
+                              ? 'Try switching to "Traces" or "Evaluations" to see other clusters, or check back later once more data has been collected.'
+                              : 'Try switching to "Traces" or "Generations" to see other clusters, or check back later once more data has been collected.'}
                     </p>
                 </div>
 
@@ -145,18 +158,12 @@ export function ClustersView(): JSX.Element {
             {/* Run Selector Header */}
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                    <Tooltip
-                        title="Traces cluster entire conversations, while generations cluster individual LLM calls"
-                        placement="bottom"
-                    >
+                    <Tooltip title={levelTooltip} placement="bottom">
                         <span>
                             <LemonSegmentedButton
                                 value={clusteringLevel}
                                 onChange={(value) => setClusteringLevel(value as ClusteringLevel)}
-                                options={[
-                                    { value: 'trace', label: 'Traces' },
-                                    { value: 'generation', label: 'Generations' },
-                                ]}
+                                options={levelOptions}
                                 size="small"
                                 data-attr="clusters-level-toggle"
                             />
@@ -184,36 +191,44 @@ export function ClustersView(): JSX.Element {
                 </div>
 
                 <div className="flex items-center gap-4">
-                    {currentRun && (
-                        <div className="flex items-center gap-2 text-muted text-sm whitespace-nowrap">
-                            <span>
-                                {currentRun.totalItemsAnalyzed}{' '}
-                                {clusteringLevel === 'generation' ? 'generations' : 'traces'} analyzed
-                            </span>
-                            <span>|</span>
-                            <span>
-                                {(() => {
-                                    const outlierCluster = sortedClusters.find(
-                                        (c: Cluster) => c.cluster_id === NOISE_CLUSTER_ID
-                                    )
-                                    const regularClusterCount = sortedClusters.filter(
-                                        (c: Cluster) => c.cluster_id !== NOISE_CLUSTER_ID
-                                    ).length
-                                    const outlierCount = outlierCluster?.size || 0
-
-                                    if (outlierCount > 0) {
-                                        return `${regularClusterCount} clusters, ${outlierCount} outliers`
+                    {currentRun &&
+                        (() => {
+                            const outlierCluster = sortedClusters.find(
+                                (c: Cluster) => c.cluster_id === NOISE_CLUSTER_ID
+                            )
+                            const regularClusterCount = sortedClusters.filter(
+                                (c: Cluster) => c.cluster_id !== NOISE_CLUSTER_ID
+                            ).length
+                            const outlierCount = outlierCluster?.size || 0
+                            const itemNoun =
+                                clusteringLevel === 'generation'
+                                    ? 'generations'
+                                    : clusteringLevel === 'evaluation'
+                                      ? 'evaluations'
+                                      : 'traces'
+                            const clustersLabel =
+                                outlierCount > 0
+                                    ? `${regularClusterCount} clusters, ${outlierCount} outliers`
+                                    : `${regularClusterCount} clusters`
+                            const windowLabel = `${dayjs(currentRun.windowStart).format('MMM D')} - ${dayjs(
+                                currentRun.windowEnd
+                            ).format('MMM D, YYYY')}`
+                            return (
+                                <Tooltip
+                                    title={
+                                        <div className="flex flex-col gap-1">
+                                            <span>
+                                                {currentRun.totalItemsAnalyzed} {itemNoun} analyzed
+                                            </span>
+                                            <span>{clustersLabel}</span>
+                                            <span>{windowLabel}</span>
+                                        </div>
                                     }
-                                    return `${regularClusterCount} clusters`
-                                })()}
-                            </span>
-                            <span>|</span>
-                            <span>
-                                {dayjs(currentRun.windowStart).format('MMM D')} -{' '}
-                                {dayjs(currentRun.windowEnd).format('MMM D, YYYY')}
-                            </span>
-                        </div>
-                    )}
+                                >
+                                    <IconInfo className="text-muted text-base shrink-0" />
+                                </Tooltip>
+                            )
+                        })()}
 
                     <LemonButton
                         type="secondary"
@@ -263,7 +278,7 @@ export function ClustersView(): JSX.Element {
                         data-attr="clusters-scatter-plot-toggle"
                     >
                         <div className="flex items-center gap-4">
-                            <ClusterDistributionBar clusters={sortedClusters} runId={effectiveRunId || ''} />
+                            <ClusterDistributionBar clusters={filteredSortedClusters} runId={effectiveRunId || ''} />
                             <LemonButton
                                 size="small"
                                 noPadding
@@ -319,10 +334,20 @@ export function ClustersView(): JSX.Element {
                 </div>
             )}
 
+            {/* Eval-only post-hoc filter (renders below the scatter, above the cards) */}
+            {!currentRunLoading && sortedClusters.length > 0 && <EvaluationFilterBar />}
+
+            {/* Empty result after filtering */}
+            {!currentRunLoading && sortedClusters.length > 0 && filteredSortedClusters.length === 0 && (
+                <div className="border rounded-lg p-6 text-center text-muted">
+                    No clusters match the current evaluation filters.
+                </div>
+            )}
+
             {/* Cluster Cards */}
-            {!currentRunLoading && sortedClusters.length > 0 && (
+            {!currentRunLoading && filteredSortedClusters.length > 0 && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    {sortedClusters.map((cluster: Cluster) => (
+                    {filteredSortedClusters.map((cluster: Cluster) => (
                         <ClusterCard
                             key={cluster.cluster_id}
                             cluster={cluster}

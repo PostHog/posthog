@@ -14,6 +14,7 @@ from .process_task.activities import (
     clone_repository_in_sandbox,
     create_resume_snapshot,
     create_sandbox_for_repository,
+    emit_progress_activity,
     execute_task_in_sandbox,
     forward_pending_user_message,
     get_sandbox_for_repository,
@@ -28,6 +29,7 @@ from .process_task.activities import (
     track_workflow_event,
     update_task_run_status,
 )
+from .process_task.activities.get_pr_context import get_pr_context
 from .process_task.workflow import ProcessTaskWorkflow
 from .slack_relay import PostHogCodeAgentRelayWorkflow, relay_slack_message
 
@@ -55,9 +57,11 @@ ACTIVITIES = [
     start_agent_server,
     read_sandbox_logs,
     cleanup_sandbox,
+    emit_progress_activity,
     track_workflow_event,
     post_slack_update,
     update_task_run_status,
+    get_pr_context,
     relay_slack_message,
     run_task_automation_activity,
     # create_snapshot activities

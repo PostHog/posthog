@@ -1,4 +1,4 @@
-import { IconCheck, IconX } from '@posthog/icons'
+import { IconCheck } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 interface SnapshotStatusIndicatorProps {
@@ -11,10 +11,10 @@ interface SnapshotStatusIndicatorProps {
     compact?: boolean
 }
 
-const RESULT_STYLES: Record<string, { dot: string; text: string; label: string; bg: string; shape?: 'x' }> = {
+const RESULT_STYLES: Record<string, { dot: string; text: string; label: string; bg: string }> = {
     changed: { dot: 'bg-warning', text: 'text-warning-dark', label: 'Changed', bg: 'bg-warning-highlight' },
     new: { dot: 'bg-success', text: 'text-success', label: 'New', bg: 'bg-success-highlight' },
-    removed: { dot: 'text-danger', text: 'text-danger', label: 'Removed', bg: 'bg-danger-highlight', shape: 'x' },
+    removed: { dot: 'bg-danger', text: 'text-danger', label: 'Removed', bg: 'bg-danger-highlight' },
     unchanged: { dot: 'bg-muted', text: 'text-muted', label: 'Unchanged', bg: 'bg-fill-secondary' },
 }
 
@@ -53,11 +53,7 @@ export function SnapshotStatusIndicator({
         return (
             <Tooltip title={tooltip}>
                 <span className="flex items-center gap-0.5">
-                    {styles.shape === 'x' ? (
-                        <IconX className={`w-3 h-3 shrink-0 ${styles.dot}`} />
-                    ) : (
-                        <span className={`w-2 h-2 rounded-full shrink-0 ${styles.dot}`} />
-                    )}
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${styles.dot}`} />
                     {review && (
                         <span className={`text-[9px] leading-none shrink-0 ${review.className}`}>
                             {reviewState === 'approved' ? '✓' : '~'}
@@ -72,11 +68,7 @@ export function SnapshotStatusIndicator({
         return (
             <span className="flex items-center gap-1.5">
                 <span className="flex items-center gap-1">
-                    {styles.shape === 'x' ? (
-                        <IconX className={`w-3.5 h-3.5 shrink-0 ${styles.dot}`} />
-                    ) : (
-                        <span className={`w-2 h-2 rounded-full shrink-0 ${styles.dot}`} />
-                    )}
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${styles.dot}`} />
                     <span className={`text-xs font-medium ${styles.text}`}>{label}</span>
                 </span>
                 {review && (
@@ -93,7 +85,7 @@ export function SnapshotStatusIndicator({
         <span className="flex items-center gap-2">
             {/* Transition pill */}
             <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs ${styles.bg}`}>
-                {hasBaseline && <span className="text-muted">baseline</span>}
+                {hasBaseline && <span className="text-muted">before</span>}
                 <span className={styles.text}>→ {label.toLowerCase()}</span>
             </span>
 

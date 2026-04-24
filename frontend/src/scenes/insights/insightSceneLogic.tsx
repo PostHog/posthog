@@ -25,7 +25,11 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { DashboardFilter, FileSystemIconType, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
-import { checkLatestVersionsOnQuery, convertDataTableNodeToDataVisualizationNode } from '~/queries/utils'
+import {
+    checkLatestVersionsOnQuery,
+    convertDataTableNodeToDataVisualizationNode,
+    isInsightVizNode,
+} from '~/queries/utils'
 import {
     ActivityScope,
     Breadcrumb,
@@ -39,6 +43,8 @@ import {
     QueryBasedInsightModel,
     SidePanelTab,
 } from '~/types'
+
+import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics/frontend/constants'
 
 import { insightDataLogic } from './insightDataLogic'
 import { insightDataLogicType } from './insightDataLogicType'
@@ -571,11 +577,21 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             if ((initial || queryFromUrl || method === 'PUSH') && !validatingQuery) {
                 if (insightId === 'new' || insightId.startsWith('new-')) {
                     const query = queryFromUrl || getDefaultQuery(InsightType.TRENDS, values.filterTestAccountsDefault)
+                    const taggedQuery =
+                        isInsightVizNode(query) && !query.source.tags?.productKey
+                            ? {
+                                  ...query,
+                                  source: {
+                                      ...query.source,
+                                      tags: { ...query.source.tags, ...PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS },
+                                  },
+                              }
+                            : query
                     values.insightLogicRef?.logic.actions.setInsight(
                         {
                             ...createEmptyInsight(`new-${values.tabId}`),
                             ...(dashboard ? { dashboards: [dashboard] } : {}),
-                            query,
+                            query: taggedQuery,
                         },
                         {
                             fromPersistentApi: false,
