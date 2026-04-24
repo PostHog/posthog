@@ -37,6 +37,11 @@ class _WindowFunctionPartitionSetter(TraversingVisitor):
         super().visit_window_function(node)
         if node.over_expr is None:
             node.over_expr = ast.WindowExpr()
+        # Fail loudly if a future caller ships a window with a pre-existing PARTITION BY —
+        # we'd silently drop it otherwise. Append instead of replace if that need arises.
+        assert node.over_expr.partition_by is None, (
+            "_WindowFunctionPartitionSetter: unexpected pre-existing PARTITION BY"
+        )
         node.over_expr.partition_by = [*self._partition_by]
 
 
