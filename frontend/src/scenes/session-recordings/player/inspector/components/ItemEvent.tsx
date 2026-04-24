@@ -1,7 +1,7 @@
 import './ImagePreview.scss'
 
 import clsx from 'clsx'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconCollapse, IconExpand, IconShare } from '@posthog/icons'
@@ -19,8 +19,11 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { autoCaptureEventToDescription, capitalizeFirstLetter, ceilMsToClosestSecond, isString } from 'lib/utils'
 import { AutocapturePreviewImage } from 'lib/utils/autocapture-previews'
+import { getPromotedPropertyForEvent } from 'lib/utils/promotedEventProperty'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
+
+import { promotedEventPropertiesModel } from '~/models/promotedEventPropertiesModel'
 
 import { ItemTimeDisplay } from '../../../components/ItemTimeDisplay'
 import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
@@ -81,12 +84,12 @@ function ExceptionTitlePill({ event }: { event: Record<string, any> }): JSX.Elem
 }
 
 export function ItemEvent({ item, groupCount }: ItemEventProps): JSX.Element {
+    const { promotedProperties } = useValues(promotedEventPropertiesModel)
+    const promotedPropertyKey = getPromotedPropertyForEvent(item.data.event, promotedProperties)
+    const promotedValue = promotedPropertyKey ? item.data.properties?.[promotedPropertyKey] : null
+
     const subValue =
-        item.data.event === '$pageview' ? (
-            item.data.properties.$pathname || item.data.properties.$current_url
-        ) : item.data.event === '$screen' ? (
-            item.data.properties.$screen_name
-        ) : item.data.event === '$web_vitals' ? (
+        item.data.event === '$web_vitals' ? (
             <SummarizeWebVitals properties={item.data.properties} />
         ) : item.data.elements.length ? (
             <AutocapturePreviewImage elements={item.data.elements} properties={item.data.properties} />
@@ -96,6 +99,8 @@ export function ItemEvent({ item, groupCount }: ItemEventProps): JSX.Element {
             <AIEventSummary event={item.data} />
         ) : item.data.event === '$exception' ? (
             <ExceptionTitlePill event={item.data} />
+        ) : promotedValue != null && promotedValue !== '' ? (
+            String(promotedValue)
         ) : null
 
     return (

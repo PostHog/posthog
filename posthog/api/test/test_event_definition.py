@@ -379,6 +379,76 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["name"] == "installed_app"
 
+    def test_promoted_properties_endpoint_returns_only_configured_entries(self):
+        with_promoted = EventDefinition.objects.create(
+            team=self.demo_team, name="order_placed", promoted_property="order_id"
+        )
+        EventDefinition.objects.create(team=self.demo_team, name="no_promotion")
+
+        response = self.client.get(
+            "/api/projects/@current/event_definitions/promoted_properties/?names=order_placed&names=no_promotion&names=missing_event"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"promoted_properties": {"order_placed": "order_id"}}
+        with_promoted.delete()
+
+    def test_promoted_properties_endpoint_without_names_returns_all_configured(self):
+        EventDefinition.objects.create(team=self.demo_team, name="evt_a", promoted_property="prop_a")
+        EventDefinition.objects.create(team=self.demo_team, name="evt_b", promoted_property="prop_b")
+
+        response = self.client.get("/api/projects/@current/event_definitions/promoted_properties/")
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()["promoted_properties"]
+        assert body["evt_a"] == "prop_a"
+        assert body["evt_b"] == "prop_b"
+
+    def test_promoted_properties_endpoint_is_team_scoped(self):
+        other_team = create_team(organization=self.organization)
+        EventDefinition.objects.create(team=other_team, name="other_team_event", promoted_property="leak")
+
+        response = self.client.get(
+            "/api/projects/@current/event_definitions/promoted_properties/?names=other_team_event"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"promoted_properties": {}}
+
+    @patch("posthog.settings.EE_AVAILABLE", True)
+    @patch("posthog.models.Organization.is_feature_available", return_value=True)
+    def test_update_event_definition_promoted_property(self, *mocks):
+        event_definition = EventDefinition.objects.create(team=self.demo_team, name="checkout_started")
+
+        response = self.client.patch(
+            f"/api/projects/@current/event_definitions/{event_definition.id}",
+            {"promoted_property": "checkout_id"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["promoted_property"] == "checkout_id"
+
+        event_definition.refresh_from_db()
+        assert event_definition.promoted_property == "checkout_id"
+
+    @patch("posthog.settings.EE_AVAILABLE", True)
+    @patch("posthog.models.Organization.is_feature_available", return_value=True)
+    def test_clear_event_definition_promoted_property(self, *mocks):
+        event_definition = EventDefinition.objects.create(
+            team=self.demo_team, name="checkout_started", promoted_property="checkout_id"
+        )
+
+        response = self.client.patch(
+            f"/api/projects/@current/event_definitions/{event_definition.id}",
+            {"promoted_property": None},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["promoted_property"] is None
+
+        event_definition.refresh_from_db()
+        assert event_definition.promoted_property is None
+
     def test_by_name_not_found(self):
         response = self.client.get("/api/projects/@current/event_definitions/by_name/?name=nonexistent")
         assert response.status_code == status.HTTP_404_NOT_FOUND

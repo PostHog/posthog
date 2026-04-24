@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import React, { MutableRefObject, memo } from 'react'
 
@@ -11,6 +12,7 @@ import { RichContentPreview } from 'lib/lemon-ui/LemonRichContent/LemonRichConte
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { autoCaptureEventToDescription } from 'lib/utils'
+import { getPromotedPropertyForEvent } from 'lib/utils/promotedEventProperty'
 import {
     InspectorListItem,
     InspectorListItemComment,
@@ -18,6 +20,8 @@ import {
     InspectorListItemNotebookComment,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { isSingleEmoji } from 'scenes/session-recordings/utils'
+
+import { promotedEventPropertiesModel } from '~/models/promotedEventPropertiesModel'
 
 import { UserActivity } from './UserActivity'
 
@@ -58,11 +62,17 @@ function PlayerSeekbarTick({
     zIndex: number
     onClick: (e: React.MouseEvent) => void
 }): JSX.Element | null {
+    const { promotedProperties } = useValues(promotedEventPropertiesModel)
     const position = (item.timeInRecording / endTimeMs) * 100
 
     if (position < 0 || position > 100) {
         return null
     }
+
+    const promotedPropertyKey = isEventItem(item)
+        ? getPromotedPropertyForEvent(item.data.event, promotedProperties)
+        : null
+    const promotedValue = promotedPropertyKey && isEventItem(item) ? item.data.properties?.[promotedPropertyKey] : null
 
     return (
         <div
@@ -98,11 +108,8 @@ function PlayerSeekbarTick({
                                     value={item.data.event}
                                 />
                             )}
-                            {item.data.event === '$pageview' &&
-                            (item.data.properties.$pathname || item.data.properties.$current_url) ? (
-                                <span className="ml-2 opacity-75">
-                                    {item.data.properties.$pathname || item.data.properties.$current_url}
-                                </span>
+                            {promotedValue != null && promotedValue !== '' ? (
+                                <span className="ml-2 opacity-75">{String(promotedValue)}</span>
                             ) : null}
                         </>
                     ) : isNotebookComment(item) ? (

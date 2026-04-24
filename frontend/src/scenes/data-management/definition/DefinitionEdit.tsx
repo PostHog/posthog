@@ -10,6 +10,8 @@ import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { ImageCarousel } from 'lib/components/ImageCarousel/ImageCarousel'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -261,6 +263,33 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
                                                 { value: 'Numeric', label: 'Numeric' },
                                                 { value: 'Boolean', label: 'Boolean' },
                                             ]}
+                                        />
+                                    )}
+                                </LemonField>
+                            </div>
+                        )}
+
+                        {!isProperty && (
+                            <div className="ph-ignore-input">
+                                <LemonField
+                                    name="promoted_property"
+                                    label={
+                                        <LemonLabel info="When set, PostHog surfaces like the session replay inspector show this property's value alongside the event. Choose the single property that best summarizes each occurrence of the event.">
+                                            Promoted property
+                                        </LemonLabel>
+                                    }
+                                    data-attr="definition-promoted-property"
+                                >
+                                    {({ value, onChange }) => (
+                                        <TaxonomicPopover<string>
+                                            allowClear
+                                            data-attr="definition-promoted-property-picker"
+                                            groupType={TaxonomicFilterGroupType.EventProperties}
+                                            value={value ?? null}
+                                            onChange={(changedValue) =>
+                                                onChange(typeof changedValue === 'string' ? changedValue : null)
+                                            }
+                                            placeholder="No property promoted"
                                         />
                                     )}
                                 </LemonField>

@@ -332,6 +332,24 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                         <b>{(definition as PropertyDefinition).property_type ?? '-'}</b>
                     </div>
                 )}
+
+                {isEvent && (
+                    <div className="flex flex-col flex-1">
+                        <h5>
+                            Promoted property{' '}
+                            <Tooltip title="If set, this property's value is shown alongside the event name in surfaces like the session replay inspector.">
+                                <IconInfo className="text-sm" />
+                            </Tooltip>
+                        </h5>
+                        <b>
+                            {(definition as EventDefinition).promoted_property ? (
+                                <code className="text-xs">{(definition as EventDefinition).promoted_property}</code>
+                            ) : (
+                                '-'
+                            )}
+                        </b>
+                    </div>
+                )}
             </div>
 
             <SceneDivider />
