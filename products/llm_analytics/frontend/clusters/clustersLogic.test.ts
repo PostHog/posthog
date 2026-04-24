@@ -4,6 +4,7 @@ import { initKeaTests } from '~/test/init'
 
 import { clustersLogic } from './clustersLogic'
 import { NOISE_CLUSTER_ID } from './constants'
+import { EvaluationItemAttributes } from './traceSummaryLoader'
 import { Cluster, ClusterMetrics, ClusteringRun } from './types'
 
 describe('clustersLogic', () => {
@@ -494,6 +495,216 @@ describe('clustersLogic', () => {
 
             it('returns null when no runs available', () => {
                 expect(logic.values.effectiveRunId).toBe(null)
+            })
+        })
+
+        describe('evaluation filter logic', () => {
+            const sampleAttrs: Record<string, EvaluationItemAttributes> = {
+                'id-pass-a': { evaluatorName: 'Accuracy', verdict: 'pass' },
+                'id-pass-b': { evaluatorName: 'Accuracy', verdict: 'pass' },
+                'id-fail-a': { evaluatorName: 'Accuracy', verdict: 'fail' },
+                'id-fail-b': { evaluatorName: 'Relevance', verdict: 'fail' },
+                'id-na-a': { evaluatorName: 'Relevance', verdict: 'n/a' },
+            }
+
+            const setEvalLevelAndAttrs = (): void => {
+                logic.actions.setClusteringLevel('evaluation')
+                logic.actions.setEvaluationItemAttributes(sampleAttrs)
+            }
+
+            describe('availableEvaluatorNames', () => {
+                it('returns empty when no attributes are loaded', () => {
+                    expect(logic.values.availableEvaluatorNames).toEqual([])
+                })
+
+                it('aggregates counts by evaluator name, descending', () => {
+                    setEvalLevelAndAttrs()
+                    expect(logic.values.availableEvaluatorNames).toEqual([
+                        { name: 'Accuracy', count: 3 },
+                        { name: 'Relevance', count: 2 },
+                    ])
+                })
+            })
+
+            describe('availableVerdictCounts', () => {
+                it('returns zero for every verdict when no attributes are loaded', () => {
+                    expect(logic.values.availableVerdictCounts).toEqual({
+                        pass: 0,
+                        fail: 0,
+                        'n/a': 0,
+                        unknown: 0,
+                    })
+                })
+
+                it('counts verdicts across loaded attributes', () => {
+                    setEvalLevelAndAttrs()
+                    expect(logic.values.availableVerdictCounts).toEqual({
+                        pass: 2,
+                        fail: 2,
+                        'n/a': 1,
+                        unknown: 0,
+                    })
+                })
+            })
+
+            describe('evalFilterPredicate', () => {
+                it('returns true for everything when clustering level is not evaluation', () => {
+                    logic.actions.setClusteringLevel('trace')
+                    logic.actions.setEvaluationItemAttributes(sampleAttrs)
+                    logic.actions.setEvalEvaluatorNamesFilter(['Accuracy'])
+                    logic.actions.setEvalVerdictsFilter(['pass'])
+
+                    const predicate = logic.values.evalFilterPredicate
+                    for (const id of Object.keys(sampleAttrs)) {
+                        expect(predicate(id)).toBe(true)
+                    }
+                })
+
+                it('returns true for everything when no filters are active', () => {
+                    setEvalLevelAndAttrs()
+
+                    const predicate = logic.values.evalFilterPredicate
+                    for (const id of Object.keys(sampleAttrs)) {
+                        expect(predicate(id)).toBe(true)
+                    }
+                })
+
+                it('returns true while attributes have not loaded yet (avoid empty flash)', () => {
+                    // Eval level + active filter, but attrs map is empty — attrs are in-flight
+                    logic.actions.setClusteringLevel('evaluation')
+                    logic.actions.setEvalEvaluatorNamesFilter(['Accuracy'])
+
+                    // Any id — including ids that would later not match — is accepted in the loading state
+                    expect(logic.values.evalFilterPredicate('any-id')).toBe(true)
+                    expect(logic.values.evalFilterPredicate('id-fail-b')).toBe(true)
+                })
+
+                it('filters by evaluator name', () => {
+                    setEvalLevelAndAttrs()
+                    logic.actions.setEvalEvaluatorNamesFilter(['Accuracy'])
+
+                    const predicate = logic.values.evalFilterPredicate
+                    expect(predicate('id-pass-a')).toBe(true)
+                    expect(predicate('id-pass-b')).toBe(true)
+                    expect(predicate('id-fail-a')).toBe(true)
+                    expect(predicate('id-fail-b')).toBe(false) // Relevance
+                    expect(predicate('id-na-a')).toBe(false) // Relevance
+                })
+
+                it('filters by verdict', () => {
+                    setEvalLevelAndAttrs()
+                    logic.actions.setEvalVerdictsFilter(['pass', 'n/a'])
+
+                    const predicate = logic.values.evalFilterPredicate
+                    expect(predicate('id-pass-a')).toBe(true)
+                    expect(predicate('id-pass-b')).toBe(true)
+                    expect(predicate('id-fail-a')).toBe(false)
+                    expect(predicate('id-fail-b')).toBe(false)
+                    expect(predicate('id-na-a')).toBe(true)
+                })
+
+                it('combines evaluator-name and verdict filters with AND', () => {
+                    setEvalLevelAndAttrs()
+                    logic.actions.setEvalEvaluatorNamesFilter(['Accuracy'])
+                    logic.actions.setEvalVerdictsFilter(['pass'])
+
+                    const predicate = logic.values.evalFilterPredicate
+                    expect(predicate('id-pass-a')).toBe(true)
+                    expect(predicate('id-pass-b')).toBe(true)
+                    expect(predicate('id-fail-a')).toBe(false) // Accuracy but fail
+                    expect(predicate('id-fail-b')).toBe(false) // Relevance
+                    expect(predicate('id-na-a')).toBe(false) // Relevance
+                })
+
+                it('rejects ids that are missing from attributes when filters are active', () => {
+                    setEvalLevelAndAttrs()
+                    logic.actions.setEvalEvaluatorNamesFilter(['Accuracy'])
+
+                    expect(logic.values.evalFilterPredicate('unknown-id')).toBe(false)
+                })
+            })
+
+            describe('filteredSortedClusters', () => {
+                const buildTrace = (
+                    id: string
+                ): {
+                    distance_to_centroid: number
+                    rank: number
+                    x: number
+                    y: number
+                    timestamp: string
+                    trace_id: string
+                    generation_id: string
+                } => ({
+                    distance_to_centroid: 0,
+                    rank: 0,
+                    x: 0,
+                    y: 0,
+                    timestamp: '2026-04-20T00:00:00Z',
+                    trace_id: id,
+                    generation_id: id,
+                })
+                const sampleClusters: Cluster[] = [
+                    {
+                        cluster_id: 0,
+                        size: 3,
+                        title: 'Accuracy cluster',
+                        description: '',
+                        traces: {
+                            'id-pass-a': buildTrace('id-pass-a'),
+                            'id-pass-b': buildTrace('id-pass-b'),
+                            'id-fail-a': buildTrace('id-fail-a'),
+                        },
+                        centroid: [],
+                        centroid_x: 0,
+                        centroid_y: 0,
+                    },
+                    {
+                        cluster_id: 1,
+                        size: 2,
+                        title: 'Relevance cluster',
+                        description: '',
+                        traces: {
+                            'id-fail-b': buildTrace('id-fail-b'),
+                            'id-na-a': buildTrace('id-na-a'),
+                        },
+                        centroid: [],
+                        centroid_x: 0,
+                        centroid_y: 0,
+                    },
+                ]
+
+                const loadClustersAsCurrentRun = (): void => {
+                    // filteredSortedClusters reads off the currentRun; seed a run and hydrate the cache.
+                    logic.actions.loadClusteringRunSuccess({
+                        runId: 'test-run',
+                        clusters: sampleClusters,
+                    } as ClusteringRun)
+                }
+
+                it('returns clusters unchanged when no filter is active', () => {
+                    loadClustersAsCurrentRun()
+                    setEvalLevelAndAttrs()
+
+                    const result = logic.values.filteredSortedClusters
+                    expect(result).toHaveLength(2)
+                    const byId = Object.fromEntries(result.map((c) => [c.cluster_id, c]))
+                    expect(byId[0].size).toBe(3)
+                    expect(byId[1].size).toBe(2)
+                })
+
+                it('drops non-matching traces, rewrites size, and prunes clusters that empty out', () => {
+                    loadClustersAsCurrentRun()
+                    setEvalLevelAndAttrs()
+                    logic.actions.setEvalVerdictsFilter(['pass'])
+
+                    // Cluster 0 keeps its two pass traces; cluster 1's items are all fail/n/a so it's pruned.
+                    const result = logic.values.filteredSortedClusters
+                    expect(result).toHaveLength(1)
+                    expect(result[0].cluster_id).toBe(0)
+                    expect(Object.keys(result[0].traces).sort()).toEqual(['id-pass-a', 'id-pass-b'])
+                    expect(result[0].size).toBe(2)
+                })
             })
         })
     })

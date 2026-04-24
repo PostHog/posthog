@@ -13,6 +13,7 @@ const Chip = React.forwardRef<HTMLButtonElement, ChipProps>(
         return (
             <Button
                 ref={ref}
+                data-quill
                 data-slot="chip"
                 size={size}
                 variant={variant}

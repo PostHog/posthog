@@ -2968,7 +2968,7 @@
 # name: test_create_table_query[person_distinct_id_overrides_mv]
   '''
   
-  CREATE MATERIALIZED VIEW IF NOT EXISTS person_distinct_id_overrides_mv ON CLUSTER 'posthog'
+  CREATE MATERIALIZED VIEW IF NOT EXISTS person_distinct_id_overrides_mv 
   TO writable_person_distinct_id_overrides
   AS SELECT
   team_id,

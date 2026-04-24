@@ -40,6 +40,8 @@ import type {
     ErrorTrackingSuppressionRuleCreateRequestApi,
     ErrorTrackingSuppressionRulesListParams,
     ErrorTrackingSymbolSetApi,
+    ErrorTrackingSymbolSetsDownloadRetrieve200,
+    ErrorTrackingSymbolSetsDownloadRetrieve2200,
     ErrorTrackingSymbolSetsList2Params,
     ErrorTrackingSymbolSetsListParams,
     GitProviderFileLinkResolveResponseApi,
@@ -1372,6 +1374,27 @@ export const errorTrackingSymbolSetsDestroy = async (
     })
 }
 
+/**
+ * Return a presigned URL for downloading the symbol set's source map.
+ */
+export const getErrorTrackingSymbolSetsDownloadRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/symbol_sets/${id}/download/`
+}
+
+export const errorTrackingSymbolSetsDownloadRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ErrorTrackingSymbolSetsDownloadRetrieve200> => {
+    return apiMutator<ErrorTrackingSymbolSetsDownloadRetrieve200>(
+        getErrorTrackingSymbolSetsDownloadRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getErrorTrackingSymbolSetsFinishUploadUpdateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/error_tracking/symbol_sets/${id}/finish_upload/`
 }
@@ -1687,6 +1710,27 @@ export const errorTrackingSymbolSetsDestroy2 = async (
         ...options,
         method: 'DELETE',
     })
+}
+
+/**
+ * Return a presigned URL for downloading the symbol set's source map.
+ */
+export const getErrorTrackingSymbolSetsDownloadRetrieve2Url = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/symbol_sets/${id}/download/`
+}
+
+export const errorTrackingSymbolSetsDownloadRetrieve2 = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ErrorTrackingSymbolSetsDownloadRetrieve2200> => {
+    return apiMutator<ErrorTrackingSymbolSetsDownloadRetrieve2200>(
+        getErrorTrackingSymbolSetsDownloadRetrieve2Url(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getErrorTrackingSymbolSetsFinishUploadUpdate2Url = (projectId: string, id: string) => {

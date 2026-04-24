@@ -4,7 +4,9 @@ import React, { useState } from 'react'
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -164,6 +166,42 @@ export function VisualReviewRunScene(): JSX.Element {
                     <LemonSkeleton className="h-24 w-full" />
                     <LemonSkeleton className="h-64 w-full" />
                 </div>
+            </SceneContent>
+        )
+    }
+
+    if (run.status === 'pending' || run.status === 'processing') {
+        return (
+            <SceneContent>
+                <SceneTitleSection name={run.branch} resourceType={{ type: 'visual_review' }} />
+                <ProductIntroduction
+                    isEmpty
+                    productName="Visual review"
+                    thingName="snapshot"
+                    titleOverride={run.status === 'pending' ? 'Waiting for snapshots' : 'Processing diffs'}
+                    description={
+                        run.status === 'pending'
+                            ? 'This run is waiting for the CI job to upload snapshot artifacts. It will appear here once the upload completes.'
+                            : 'Snapshots are being compared against the baseline. This usually takes under a minute — refresh the page to check for results.'
+                    }
+                    customHog={
+                        run.status === 'processing'
+                            ? ({ className }: { className?: string }) => <Spinner className={className} />
+                            : undefined
+                    }
+                />
+            </SceneContent>
+        )
+    }
+
+    if (run.status === 'failed') {
+        return (
+            <SceneContent>
+                <SceneTitleSection name={run.branch} resourceType={{ type: 'visual_review' }} />
+                <LemonBanner type="error">
+                    This run failed to process.{run.error_message ? ` ${run.error_message}` : ''} Check the CI logs for
+                    details, or rerun the job to try again.
+                </LemonBanner>
             </SceneContent>
         )
     }

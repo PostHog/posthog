@@ -33,6 +33,7 @@ function Badge({
         defaultTagName: 'span',
         props: mergeProps<'span'>(
             {
+                'data-quill': '',
                 className: cn(badgeVariants({ variant }), className),
             },
             props

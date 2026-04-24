@@ -110,6 +110,7 @@ function ComboboxContent({
     return (
         <ComboboxPrimitive.Portal>
             <ComboboxPrimitive.Positioner
+                data-quill
                 side={side}
                 sideOffset={sideOffset}
                 align={align}

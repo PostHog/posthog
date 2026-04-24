@@ -2156,3 +2156,38 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
         after = REGISTRY.get_sample_value("posthog_endpoint_materialization_event_total", labels) or 0.0
         self.assertEqual(after - before, 0.0)
+
+    def test_inline_endpoint_failure_emits_signal(self):
+        """When inline execution raises, we emit a Signal for self-driving diagnostics."""
+        endpoint = self._make_simple_hogql_endpoint("failure_emits_signal")
+        boom = RuntimeError("synthetic failure")
+
+        with (
+            mock.patch("products.endpoints.backend.api.process_query_model", side_effect=boom),
+            mock.patch("products.endpoints.backend.api._emit_endpoint_failure_signal") as mock_emit,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+                {"refresh": "force"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        mock_emit.assert_called_once()
+        args, kwargs = mock_emit.call_args
+        self.assertEqual(args[0].id, self.team.id)
+        self.assertEqual(args[1].name, endpoint.name)
+        self.assertIs(args[2], boom)
+        self.assertFalse(kwargs["materialized"])
+
+    def test_emit_failure_signal_swallows_errors(self):
+        """Signal emission must never mask the original exception."""
+        from products.endpoints.backend.api import _emit_endpoint_failure_signal
+
+        endpoint = self._make_simple_hogql_endpoint("failure_signal_swallow")
+
+        with mock.patch(
+            "products.signals.backend.api.emit_signal",
+            side_effect=RuntimeError("signal layer exploded"),
+        ):
+            _emit_endpoint_failure_signal(self.team, endpoint, RuntimeError("original"), materialized=False, version=1)

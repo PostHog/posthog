@@ -1,10 +1,42 @@
 import {
     buildKeaFormDefaultFromSourceDetails,
+    getDatabaseSchemaPayload,
     getErrorsForFields,
     getInitialSourceConnectionDetailsValues,
 } from '../sourceWizardLogic'
 
 describe('sourceWizardLogic', () => {
+    describe('getDatabaseSchemaPayload', () => {
+        it('includes the selected access method for schema discovery', () => {
+            expect(
+                getDatabaseSchemaPayload({
+                    access_method: 'direct',
+                    payload: {
+                        host: 'localhost',
+                        schema: '',
+                    },
+                })
+            ).toEqual({
+                access_method: 'direct',
+                host: 'localhost',
+                schema: '',
+            })
+        })
+
+        it('defaults to warehouse mode', () => {
+            expect(
+                getDatabaseSchemaPayload({
+                    payload: {
+                        host: 'localhost',
+                    },
+                })
+            ).toEqual({
+                access_method: 'warehouse',
+                host: 'localhost',
+            })
+        })
+    })
+
     describe('getInitialSourceConnectionDetailsValues', () => {
         it('sets the access method when there are no saved values', () => {
             expect(getInitialSourceConnectionDetailsValues(undefined, 'direct')).toEqual({

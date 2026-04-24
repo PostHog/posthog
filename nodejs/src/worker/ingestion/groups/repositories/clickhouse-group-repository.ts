@@ -30,6 +30,7 @@ export class ClickhouseGroupRepository {
                         version,
                     })
                 ),
+                teamId,
             },
         ])
     }

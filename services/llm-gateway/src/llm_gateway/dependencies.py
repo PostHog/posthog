@@ -167,6 +167,7 @@ async def enforce_throttles(
         end_user_id=end_user_id,
         plan_key=plan_info.plan_key,
         seat_created_at=plan_info.seat_created_at,
+        billing_period_start=plan_info.billing_period.current_period_start if plan_info.billing_period else None,
     )
     request.state.throttle_context = context
     set_throttle_context(runner, context)
