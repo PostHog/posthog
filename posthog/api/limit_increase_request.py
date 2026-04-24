@@ -8,7 +8,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models import LimitIncreaseRequest, TeamLimitOverride
 from posthog.models.limit_increase_request import LimitIncreaseRequestStatus
 from posthog.models.user import User
-from posthog.resource_limits.registry import REGISTRY, get_definition
+from posthog.resource_limits.registry import REGISTRY
 
 
 class LimitIncreaseRequestSerializer(serializers.ModelSerializer):
@@ -89,6 +89,15 @@ class LimitIncreaseRequestSerializer(serializers.ModelSerializer):
     def get_granted_value(self, obj: LimitIncreaseRequest) -> int | None:
         if obj.status != LimitIncreaseRequestStatus.APPROVED:
             return None
+        # List + retrieve go through ``safely_get_queryset`` which prefetches
+        # ``team.limit_overrides`` into ``_prefetched_overrides``; fall back to
+        # a single query only for callers that bypass that helper.
+        prefetched = getattr(obj.team, "_prefetched_overrides", None)
+        if prefetched is not None:
+            for override in prefetched:
+                if override.limit_key == obj.limit_key:
+                    return override.value
+            return None
         override = TeamLimitOverride.objects.filter(
             team_id=obj.team_id,
             limit_key=obj.limit_key,
@@ -120,6 +129,7 @@ class LimitIncreaseRequestSerializer(serializers.ModelSerializer):
         return instance
 
     def create(self, validated_data: dict[str, Any]) -> LimitIncreaseRequest:
+        from posthog.resource_limits import get_limit
         from posthog.resource_limits.request_upsert import upsert_limit_increase_request
 
         # Pre-emptive request from the settings scene before they've hit the
@@ -128,8 +138,11 @@ class LimitIncreaseRequestSerializer(serializers.ModelSerializer):
         user = self.context["request"].user
         assert isinstance(user, User)
 
-        defn = get_definition(validated_data["limit_key"])
-        if defn.default is None:
+        # Resolve the effective limit (applies any existing override) so the
+        # snapshot on the new request matches what's actually enforced — not
+        # the bare catalog default, which could be stale.
+        effective_limit = get_limit(team=team, key=validated_data["limit_key"])
+        if effective_limit is None:
             raise exceptions.ValidationError(
                 "This limit is currently unlimited, no need to request an increase.",
             )
@@ -137,7 +150,7 @@ class LimitIncreaseRequestSerializer(serializers.ModelSerializer):
         request_obj = upsert_limit_increase_request(
             team=team,
             limit_key=validated_data["limit_key"],
-            limit=defn.default,
+            limit=effective_limit,
             current_count=0,
             user=user,
         )
@@ -166,4 +179,19 @@ class LimitIncreaseRequestViewSet(
     ordering = "-last_hit_at"
 
     def safely_get_queryset(self, queryset):
-        return queryset.select_related("requested_by", "resolved_by").order_by(self.ordering)
+        from django.db.models import Prefetch
+
+        return (
+            queryset.select_related("requested_by", "resolved_by", "team")
+            .prefetch_related(
+                # Prefetched onto ``team._prefetched_overrides`` so
+                # ``get_granted_value`` can resolve the value without an N+1
+                # lookup per row.
+                Prefetch(
+                    "team__limit_overrides",
+                    queryset=TeamLimitOverride.objects.only("team_id", "limit_key", "value"),
+                    to_attr="_prefetched_overrides",
+                ),
+            )
+            .order_by(self.ordering)
+        )

@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import F
 from django.utils import timezone
 
@@ -26,6 +26,13 @@ def upsert_limit_increase_request(
     """
     from posthog.models.limit_increase_request import LimitIncreaseRequest, LimitIncreaseRequestStatus
 
+    def _bump(request: LimitIncreaseRequest) -> LimitIncreaseRequest:
+        request.hit_count = F("hit_count") + 1
+        request.last_hit_at = timezone.now()
+        request.save(update_fields=["hit_count", "last_hit_at"])
+        request.refresh_from_db()
+        return request
+
     with transaction.atomic():
         existing = (
             LimitIncreaseRequest.objects.select_for_update()
@@ -37,18 +44,29 @@ def upsert_limit_increase_request(
             .first()
         )
         if existing is not None:
-            existing.hit_count = F("hit_count") + 1
-            existing.last_hit_at = timezone.now()
-            existing.save(update_fields=["hit_count", "last_hit_at"])
-            existing.refresh_from_db()
-            return existing
+            return _bump(existing)
 
-        return LimitIncreaseRequest.objects.create(
-            team=team,
-            limit_key=limit_key,
-            limit_at_first_hit=limit,
-            count_at_first_hit=current_count,
-            requested_by=user,
-            justification="",
-            status=LimitIncreaseRequestStatus.PENDING,
-        )
+        # No row to lock yet: two concurrent first-hits can both reach here and
+        # race to INSERT. The partial unique constraint
+        # ``one_pending_limit_increase_request_per_team_key`` makes the loser of
+        # the race raise ``IntegrityError`` instead of creating a duplicate; we
+        # catch it, re-read the row the winner just wrote, and fall through to
+        # the bump branch.
+        try:
+            with transaction.atomic():
+                return LimitIncreaseRequest.objects.create(
+                    team=team,
+                    limit_key=limit_key,
+                    limit_at_first_hit=limit,
+                    count_at_first_hit=current_count,
+                    requested_by=user,
+                    justification="",
+                    status=LimitIncreaseRequestStatus.PENDING,
+                )
+        except IntegrityError:
+            existing = LimitIncreaseRequest.objects.select_for_update().get(
+                team_id=team.id,
+                limit_key=limit_key,
+                status=LimitIncreaseRequestStatus.PENDING,
+            )
+            return _bump(existing)
