@@ -305,7 +305,6 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
             event="pageview",
             properties={"tag": "unset"},
         )
-        flush_persons_and_events()
 
     def _run_and_collect(self) -> tuple[dict[str, Any], str]:
         hogql = (
