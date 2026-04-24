@@ -207,6 +207,7 @@ export class EmailTrackingService {
         functionId?: string
         invocationId?: string
         actionId?: string
+        parentRunId?: string
     } {
         // Support both combined ph_id format and legacy separate params
         if (query.ph_id) {
@@ -215,6 +216,7 @@ export class EmailTrackingService {
                 functionId: parsed?.functionId,
                 invocationId: parsed?.invocationId,
                 actionId: parsed?.actionId,
+                parentRunId: parsed?.parentRunId,
             }
         }
         return {
