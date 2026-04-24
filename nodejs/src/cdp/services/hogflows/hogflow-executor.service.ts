@@ -1,5 +1,8 @@
 import { get } from 'lodash'
 import { DateTime } from 'luxon'
+import { Counter } from 'prom-client'
+
+import { RedisV2 } from '~/common/redis/redis-v2'
 
 import { HogFlow, HogFlowAction } from '../../../schema/hogflow'
 import { logger } from '../../../utils/logger'
@@ -38,6 +41,14 @@ import {
 } from './hogflow-utils'
 
 export const MAX_ACTION_STEPS_HARD_LIMIT = 1000
+
+const DUPLICATE_OBSERVATION_TTL_SECONDS = 15 * 60
+
+const hogflowDuplicateInvocationDetectedTotal = new Counter({
+    name: 'hogflow_duplicate_invocation_detected_total',
+    help: 'Workflow invocations created for a (workflow, event) pair already seen within the observation window',
+    labelNames: ['workflow_id'],
+})
 
 export function createHogFlowInvocation(
     globals: HogFunctionInvocationGlobals,
@@ -78,11 +89,14 @@ export function createHogFlowInvocation(
 
 export class HogFlowExecutorService {
     private readonly actionHandlers: Record<HogFlowAction['type'], ActionHandler>
+    private readonly redis: RedisV2 | null
 
     constructor(
         hogFlowFunctionsService: HogFlowFunctionsService,
-        recipientPreferencesService: RecipientPreferencesService
+        recipientPreferencesService: RecipientPreferencesService,
+        redis?: RedisV2
     ) {
+        this.redis = redis ?? null
         const hogFunctionHandler = new HogFunctionHandler(hogFlowFunctionsService, recipientPreferencesService, 'fetch')
         const hogFunctionEmailHandler = new HogFunctionHandler(
             hogFlowFunctionsService,
@@ -139,6 +153,7 @@ export class HogFlowExecutorService {
 
             const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
             invocations.push(invocation)
+            this.observeDuplicateInvocation(invocation)
         }
 
         return {
@@ -146,6 +161,24 @@ export class HogFlowExecutorService {
             metrics,
             logs,
         }
+    }
+
+    private observeDuplicateInvocation(invocation: CyclotronJobInvocationHogFlow): void {
+        const eventUuid = invocation.state.event?.uuid
+        if (!this.redis || !eventUuid) {
+            return
+        }
+        const key = `hogflow:observe:${invocation.functionId}:${eventUuid}`
+        void this.redis
+            .useClient({ name: 'hogflow-observe', failOpen: true }, async (client) => {
+                const wasSet = await client.set(key, invocation.id, 'EX', DUPLICATE_OBSERVATION_TTL_SECONDS, 'NX')
+                if (!wasSet) {
+                    hogflowDuplicateInvocationDetectedTotal.inc({ workflow_id: invocation.functionId })
+                }
+            })
+            .catch((error: unknown) => {
+                logger.debug('🦔', '[HogFlowExecutor] Duplicate observer skipped', { error: String(error) })
+            })
     }
 
     async execute(

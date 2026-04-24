@@ -79,6 +79,7 @@ jobs:
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
+                  token: ''
                   list-files: 'escape'
                   filters: |
                       backend:

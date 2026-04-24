@@ -3,13 +3,14 @@ import { RadioGroup as RadioGroupPrimitive } from '@base-ui/react/radio-group'
 import { cva, type VariantProps } from 'class-variance-authority'
 import * as React from 'react'
 
+import './radio-group.css'
 import { cn } from './lib/utils'
 
-const radioIndicatorVariants = cva('relative flex shrink-0 rounded-full border border-accent', {
+const radioIndicatorVariants = cva('quill-radio-indicator', {
     variants: {
         size: {
-            default: 'size-4',
-            sm: 'size-3.5',
+            default: 'quill-radio-indicator--size-default',
+            sm: 'quill-radio-indicator--size-sm',
         },
     },
     defaultVariants: {
@@ -17,20 +18,17 @@ const radioIndicatorVariants = cva('relative flex shrink-0 rounded-full border b
     },
 })
 
-const radioDotVariants = cva(
-    'absolute top-1/2 start-1/2 -translate-x-1/2 rtl:translate-x-1/2 -translate-y-1/2 rounded-full bg-primary-foreground',
-    {
-        variants: {
-            size: {
-                default: 'size-2',
-                sm: 'size-1.5',
-            },
+const radioDotVariants = cva('quill-radio-dot', {
+    variants: {
+        size: {
+            default: 'quill-radio-dot--size-default',
+            sm: 'quill-radio-dot--size-sm',
         },
-        defaultVariants: {
-            size: 'default',
-        },
-    }
-)
+    },
+    defaultVariants: {
+        size: 'default',
+    },
+})
 
 function RadioIndicator({
     checked,
@@ -40,11 +38,7 @@ function RadioIndicator({
     return (
         <span
             data-slot="radio-indicator"
-            className={cn(
-                radioIndicatorVariants({ size }),
-                checked && 'border-primary bg-primary text-primary-foreground',
-                className
-            )}
+            className={cn(radioIndicatorVariants({ size }), checked && 'quill-radio-indicator--checked', className)}
         >
             {checked && <span className={radioDotVariants({ size })} />}
         </span>
@@ -52,29 +46,33 @@ function RadioIndicator({
 }
 
 function RadioGroup({ className, ...props }: RadioGroupPrimitive.Props): React.ReactElement {
-    return <RadioGroupPrimitive data-quill data-slot="radio-group" className={cn('grid w-full gap-3', className)} {...props} />
+    return (
+        <RadioGroupPrimitive
+            data-quill
+            data-slot="radio-group"
+            className={cn('grid w-full gap-3', className)}
+            {...props}
+        />
+    )
 }
 
-const radioGroupItemVariants = cva(
-    'group/radio-group-item peer relative flex aspect-square shrink-0 rounded-full border border-input outline-none after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:destructive-foreground/50 aria-invalid:border-destructive-foreground/50 aria-invalid:aria-checked:border-primary dark:bg-input/30 data-checked:border-primary data-checked:bg-primary data-checked:text-primary-foreground dark:data-checked:bg-primary',
-    {
-        variants: {
-            size: {
-                default: 'size-4',
-                sm: 'size-3.5',
-            },
-        },
-        defaultVariants: {
-            size: 'default',
-        },
-    }
-)
-
-const radioGroupItemIndicatorVariants = cva('flex items-center justify-center', {
+const radioGroupItemVariants = cva('quill-radio group/radio-group-item peer', {
     variants: {
         size: {
-            default: 'size-4',
-            sm: 'size-3.5',
+            default: 'quill-radio--size-default',
+            sm: 'quill-radio--size-sm',
+        },
+    },
+    defaultVariants: {
+        size: 'default',
+    },
+})
+
+const radioGroupItemIndicatorVariants = cva('quill-radio__indicator', {
+    variants: {
+        size: {
+            default: 'quill-radio__indicator--size-default',
+            sm: 'quill-radio__indicator--size-sm',
         },
     },
     defaultVariants: {
