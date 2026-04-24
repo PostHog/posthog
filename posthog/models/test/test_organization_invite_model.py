@@ -223,6 +223,19 @@ class TestValidateGuestResources(BaseTest):
     def test_accepts_well_formed_entry(self):
         validate_guest_resources([{"team_id": self.team.id, "resource": "dashboard", "resource_id": "1"}])
 
+    def test_accepts_entry_without_access_level(self):
+        validate_guest_resources([{"team_id": self.team.id, "resource": "dashboard", "resource_id": "1"}])
+
+    def test_accepts_entry_with_viewer_access_level(self):
+        validate_guest_resources(
+            [{"team_id": self.team.id, "resource": "dashboard", "resource_id": "1", "access_level": "viewer"}]
+        )
+
+    def test_accepts_entry_with_editor_access_level(self):
+        validate_guest_resources(
+            [{"team_id": self.team.id, "resource": "dashboard", "resource_id": "1", "access_level": "editor"}]
+        )
+
     @parameterized.expand(
         [
             ("not_a_list", "nope"),
@@ -233,6 +246,14 @@ class TestValidateGuestResources(BaseTest):
             ("team_id_not_int", [{"team_id": "1", "resource": "dashboard", "resource_id": "1"}]),
             ("invalid_resource", [{"team_id": 1, "resource": "feature_flag", "resource_id": "1"}]),
             ("empty_resource_id", [{"team_id": 1, "resource": "dashboard", "resource_id": ""}]),
+            (
+                "access_level_admin",
+                [{"team_id": 1, "resource": "dashboard", "resource_id": "1", "access_level": "admin"}],
+            ),
+            (
+                "access_level_int",
+                [{"team_id": 1, "resource": "dashboard", "resource_id": "1", "access_level": 42}],
+            ),
         ]
     )
     def test_rejects_malformed_input(self, _name, value):

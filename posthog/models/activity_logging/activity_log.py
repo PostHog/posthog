@@ -28,7 +28,6 @@ logger = structlog.get_logger(__name__)
 ActivityScope = Literal[
     "Cohort",
     "FeatureFlag",
-    "GuestResourceGrant",
     "Person",
     "Group",
     "Insight",

@@ -532,7 +532,7 @@ class RegularMembersManager(models.Manager):
     """Manager filtered to non-guest memberships. Prefer this for any query that wants
     the set of first-class org members: admin screens, member counts for billing, @-mention
     directories, etc. Guests live alongside regular members in the same table but are a
-    categorically separate access class governed by GuestResourceGrant.
+    categorically separate access class whose access is governed by per-resource AccessControl rows.
     """
 
     def get_queryset(self) -> QuerySet:
@@ -564,7 +564,7 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
         default=False,
         help_text=(
             "Guest memberships are categorically separate from regular members; their access is governed by "
-            "GuestResourceGrant. Prefer the `.regular` manager unless you explicitly need guests."
+            "per-resource AccessControl rows. Prefer the `.regular` manager unless you explicitly need guests."
         ),
     )
     joined_at = models.DateTimeField(auto_now_add=True)

@@ -44,6 +44,7 @@ def validate_private_project_access(value):
 
 
 VALID_GUEST_RESOURCE_TYPES = ("dashboard", "insight", "notebook")
+VALID_GUEST_ACCESS_LEVELS = ("viewer", "editor")
 
 
 def validate_guest_resources(value):
@@ -55,6 +56,10 @@ def validate_guest_resources(value):
     is the primary enforcement point; deeper checks (team membership, resource
     existence, feature availability) live there. This validator handles shape
     and enumerated values only.
+
+    Each entry may optionally include ``access_level`` to pin the resulting
+    AccessControl row's level on acceptance. Valid values are ``viewer`` and
+    ``editor``; when absent the downstream service layer defaults to viewer.
     """
     if not isinstance(value, list):
         raise exceptions.ValidationError("The field must be a list of dictionaries.")
@@ -73,6 +78,12 @@ def validate_guest_resources(value):
             )
         if not isinstance(item["resource_id"], (str, int)) or item["resource_id"] == "":
             raise exceptions.ValidationError('The "resource_id" field must be a non-empty string or integer.')
+        if "access_level" in item:
+            access_level = item["access_level"]
+            if not isinstance(access_level, str) or access_level not in VALID_GUEST_ACCESS_LEVELS:
+                raise exceptions.ValidationError(
+                    f'The "access_level" field must be one of: {", ".join(VALID_GUEST_ACCESS_LEVELS)}.'
+                )
 
 
 class InviteExpiredException(exceptions.ValidationError):
@@ -113,8 +124,8 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
     guest_resources = models.JSONField(
         default=list,
         help_text=(
-            "List of {team_id, resource, resource_id} dicts describing resource grants the invitee "
-            "should receive on acceptance. A non-empty list marks the invite as a guest invite."
+            "List of {team_id, resource, resource_id, access_level?} dicts describing resource grants the "
+            "invitee should receive on acceptance. A non-empty list marks the invite as a guest invite."
         ),
         validators=[validate_guest_resources],
     )
