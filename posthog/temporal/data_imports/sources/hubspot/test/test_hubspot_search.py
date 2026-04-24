@@ -301,7 +301,7 @@ class TestBackfillAssociations:
         assert "associations" not in results[0]
 
     def test_hydrates_associations_in_v3_shape(self) -> None:
-        results = [{"id": "1"}]
+        results: list[dict[str, Any]] = [{"id": "1"}]
         with patch(
             "posthog.temporal.data_imports.sources.hubspot.hubspot._batch_read_associations",
             return_value={"1": [{"id": "9", "type": "x"}]},
@@ -319,7 +319,7 @@ class TestBackfillAssociations:
 
     def test_handles_missing_id_gracefully(self) -> None:
         # ids-less results just don't get associations attached; no crash
-        results = [{}, {"id": "2"}]
+        results: list[dict[str, Any]] = [{}, {"id": "2"}]
         with patch(
             "posthog.temporal.data_imports.sources.hubspot.hubspot._batch_read_associations",
             return_value={"2": [{"id": "7", "type": "y"}]},
