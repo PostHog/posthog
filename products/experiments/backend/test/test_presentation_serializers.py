@@ -6,7 +6,6 @@ request formats and convert them to facade DTOs.
 """
 
 import pytest
-from posthog.test.base import BaseTest
 
 from products.experiments.backend.facade.contracts import CreateExperimentInput, CreateFeatureFlagInput
 from products.experiments.backend.presentation.serializers import ExperimentCreateSerializer
@@ -376,152 +375,140 @@ class TestExperimentCreateSerializer:
         assert dto.feature_flag_filters.variants[1].key == "test_a"
         assert dto.feature_flag_filters.rollout_percentage == 80
 
-    def test_validate_rollout_percentages_sum_to_100(self):
+    @pytest.mark.parametrize(
+        "data,error_message",
+        [
+            (
+                {
+                    "name": "Invalid Percentages",
+                    "feature_flag_key": "invalid-flag",
+                    "feature_flag_filters": {
+                        "key": "invalid-flag",
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 40},
+                            {"key": "test", "rollout_percentage": 40},
+                        ],
+                    },
+                },
+                "sum to 100",
+            ),
+            (
+                {
+                    "name": "Invalid Old Format",
+                    "feature_flag_key": "invalid-old-flag",
+                    "parameters": {
+                        "feature_flag_variants": [
+                            {"key": "control", "rollout_percentage": 60},
+                            {"key": "test", "rollout_percentage": 60},
+                        ],
+                    },
+                },
+                "sum to 100",
+            ),
+        ],
+        ids=["new_format", "old_format"],
+    )
+    def test_validate_rollout_percentages_sum_to_100(self, data, error_message):
         """Test that rollout percentages must sum to 100."""
-        data = {
-            "name": "Invalid Percentages",
-            "feature_flag_key": "invalid-flag",
-            "feature_flag_filters": {
-                "key": "invalid-flag",
-                "variants": [
-                    {"key": "control", "rollout_percentage": 40},
-                    {"key": "test", "rollout_percentage": 40},  # Sum = 80, not 100
-                ],
-            },
-        }
-
         serializer = ExperimentCreateSerializer(data=data, context={"get_team": lambda: self.team})
         assert not serializer.is_valid()
-        assert "feature_flag_filters" in serializer.errors
-        assert "sum to 100" in str(serializer.errors).lower()
+        assert error_message in str(serializer.errors).lower()
 
-    def test_validate_rollout_percentages_old_format(self):
-        """Test that rollout percentages must sum to 100 in old format too."""
-        data = {
-            "name": "Invalid Old Format",
-            "feature_flag_key": "invalid-old-flag",
-            "parameters": {
-                "feature_flag_variants": [
-                    {"key": "control", "rollout_percentage": 60},
-                    {"key": "test", "rollout_percentage": 60},  # Sum = 120, not 100
-                ],
+    @pytest.mark.parametrize(
+        "data",
+        [
+            {
+                "name": "No Control Test",
+                "feature_flag_key": "no-control-flag",
+                "feature_flag_filters": {
+                    "key": "no-control-flag",
+                    "variants": [
+                        {"key": "test_a", "rollout_percentage": 50},
+                        {"key": "test_b", "rollout_percentage": 50},
+                    ],
+                },
             },
-        }
-
+            {
+                "name": "No Control Old Format",
+                "feature_flag_key": "no-control-old-flag",
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "test_a", "rollout_percentage": 50},
+                        {"key": "test_b", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        ],
+        ids=["new_format", "old_format"],
+    )
+    def test_validate_control_variant_required(self, data):
+        """Test that control variant is required."""
         serializer = ExperimentCreateSerializer(data=data, context={"get_team": lambda: self.team})
         assert not serializer.is_valid()
-        assert "parameters" in serializer.errors
-        assert "sum to 100" in str(serializer.errors).lower()
-
-    def test_validate_control_variant_required(self):
-        """Test that control variant is required in new format."""
-        data = {
-            "name": "No Control Test",
-            "feature_flag_key": "no-control-flag",
-            "feature_flag_filters": {
-                "key": "no-control-flag",
-                "variants": [
-                    {"key": "test_a", "rollout_percentage": 50},
-                    {"key": "test_b", "rollout_percentage": 50},
-                ],
-            },
-        }
-
-        serializer = ExperimentCreateSerializer(data=data, context={"get_team": lambda: self.team})
-        assert not serializer.is_valid()
-        assert "feature_flag_filters" in serializer.errors
         assert "control" in str(serializer.errors).lower()
 
-    def test_validate_control_variant_required_old_format(self):
-        """Test that control variant is required in old format."""
-        data = {
-            "name": "No Control Old Format",
-            "feature_flag_key": "no-control-old-flag",
-            "parameters": {
-                "feature_flag_variants": [
-                    {"key": "test_a", "rollout_percentage": 50},
-                    {"key": "test_b", "rollout_percentage": 50},
-                ]
+    @pytest.mark.parametrize(
+        "data",
+        [
+            {
+                "name": "Duplicate Keys Test",
+                "feature_flag_key": "duplicate-keys-flag",
+                "feature_flag_filters": {
+                    "key": "duplicate-keys-flag",
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 33},
+                        {"key": "test", "rollout_percentage": 33},
+                        {"key": "test", "rollout_percentage": 34},
+                    ],
+                },
             },
-        }
-
-        serializer = ExperimentCreateSerializer(data=data, context={"get_team": lambda: self.team})
-        assert not serializer.is_valid()
-        assert "parameters" in serializer.errors
-        assert "control" in str(serializer.errors).lower()
-
-    def test_validate_duplicate_variant_keys(self):
+            {
+                "name": "Duplicate Keys Old",
+                "feature_flag_key": "duplicate-keys-old-flag",
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "rollout_percentage": 33},
+                        {"key": "test", "rollout_percentage": 33},
+                        {"key": "test", "rollout_percentage": 34},
+                    ]
+                },
+            },
+        ],
+        ids=["new_format", "old_format"],
+    )
+    def test_validate_duplicate_variant_keys(self, data):
         """Test that duplicate variant keys are rejected."""
-        data = {
-            "name": "Duplicate Keys Test",
-            "feature_flag_key": "duplicate-keys-flag",
-            "feature_flag_filters": {
-                "key": "duplicate-keys-flag",
-                "variants": [
-                    {"key": "control", "rollout_percentage": 33},
-                    {"key": "test", "rollout_percentage": 33},
-                    {"key": "test", "rollout_percentage": 34},  # Duplicate
-                ],
-            },
-        }
-
         serializer = ExperimentCreateSerializer(data=data, context={"get_team": lambda: self.team})
         assert not serializer.is_valid()
-        assert "feature_flag_filters" in serializer.errors
         assert "unique" in str(serializer.errors).lower()
 
-    def test_validate_duplicate_variant_keys_old_format(self):
-        """Test that duplicate variant keys are rejected in old format."""
-        data = {
-            "name": "Duplicate Keys Old",
-            "feature_flag_key": "duplicate-keys-old-flag",
-            "parameters": {
-                "feature_flag_variants": [
-                    {"key": "control", "rollout_percentage": 33},
-                    {"key": "test", "rollout_percentage": 33},
-                    {"key": "test", "rollout_percentage": 34},  # Duplicate
-                ]
+    @pytest.mark.parametrize(
+        "data",
+        [
+            {
+                "name": "Too Many Variants",
+                "feature_flag_key": "too-many-variants-flag",
+                "feature_flag_filters": {
+                    "key": "too-many-variants-flag",
+                    "variants": [{"key": "control", "rollout_percentage": 5}]
+                    + [{"key": f"test_{i}", "rollout_percentage": 5} for i in range(20)],
+                },
             },
-        }
-
-        serializer = ExperimentCreateSerializer(data=data, context={"get_team": lambda: self.team})
-        assert not serializer.is_valid()
-        assert "parameters" in serializer.errors
-        assert "unique" in str(serializer.errors).lower()
-
-    def test_validate_too_many_variants(self):
+            {
+                "name": "Too Many Variants Old",
+                "feature_flag_key": "too-many-variants-old-flag",
+                "parameters": {
+                    "feature_flag_variants": [{"key": "control", "rollout_percentage": 5}]
+                    + [{"key": f"test_{i}", "rollout_percentage": 5} for i in range(20)]
+                },
+            },
+        ],
+        ids=["new_format", "old_format"],
+    )
+    def test_validate_too_many_variants(self, data):
         """Test that more than 20 variants are rejected."""
-        variants = [{"key": "control", "rollout_percentage": 5}]
-        variants.extend([{"key": f"test_{i}", "rollout_percentage": 5} for i in range(20)])
-
-        data = {
-            "name": "Too Many Variants",
-            "feature_flag_key": "too-many-variants-flag",
-            "feature_flag_filters": {
-                "key": "too-many-variants-flag",
-                "variants": variants,
-            },
-        }
-
         serializer = ExperimentCreateSerializer(data=data, context={"get_team": lambda: self.team})
         assert not serializer.is_valid()
-        assert "feature_flag_filters" in serializer.errors
-        assert "21" in str(serializer.errors)
-
-    def test_validate_too_many_variants_old_format(self):
-        """Test that more than 20 variants are rejected in old format."""
-        variants = [{"key": "control", "rollout_percentage": 5}]
-        variants.extend([{"key": f"test_{i}", "rollout_percentage": 5} for i in range(20)])
-
-        data = {
-            "name": "Too Many Variants Old",
-            "feature_flag_key": "too-many-variants-old-flag",
-            "parameters": {"feature_flag_variants": variants},
-        }
-
-        serializer = ExperimentCreateSerializer(data=data, context={"get_team": lambda: self.team})
-        assert not serializer.is_valid()
-        assert "parameters" in serializer.errors
         assert "21" in str(serializer.errors)
 
     def test_validate_feature_flag_key_already_exists(self):
