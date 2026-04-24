@@ -14,7 +14,7 @@ from posthog.api.utils import action
 from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.email import is_email_available
 from posthog.event_usage import report_bulk_invited, report_team_member_invited
-from posthog.helpers.email_utils import EmailNormalizer
+from posthog.helpers.email_utils import EmailNormalizer, validate_display_name, validate_message_body
 from posthog.models import OrganizationInvite, OrganizationMembership
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -136,6 +136,12 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
 
     def validate_target_email(self, email: str):
         return EmailNormalizer.normalize(email)
+
+    def validate_first_name(self, value: str) -> str:
+        return validate_display_name(value)
+
+    def validate_message(self, value: str | None) -> str | None:
+        return validate_message_body(value)
 
     def validate_level(self, level: int) -> int:
         # Validate that the user can't invite someone with a higher permission level than their own

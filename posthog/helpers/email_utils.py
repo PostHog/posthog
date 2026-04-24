@@ -3,10 +3,11 @@ Provides utilities for handling email addresses with case-insensitive behavior
 while maintaining backwards compatibility with existing data that may have mixed casing.
 """
 
+import re
 import hashlib
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, overload
 from urllib.parse import quote
 
 from django.conf import settings
@@ -17,11 +18,84 @@ from django.db.models import QuerySet
 import requests
 import structlog
 import posthoganalytics
+from rest_framework import serializers
 
 if TYPE_CHECKING:
     from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
+
+
+# URL-ish tokens that attackers stuff into identity fields (names, org names)
+# so transactional email templates render them as clickable phishing bait.
+_URL_RE = re.compile(r"https?://|\bwww\.", re.IGNORECASE)
+_CONTROL_CHAR_RE = re.compile(r"[\r\n\t\x00-\x08\x0b\x0c\x0e-\x1f]")
+_NON_NEWLINE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+_BRACKET_RE = re.compile(r"[<>]")
+# Zero-width and bidi-override chars used to visually disguise names / URLs.
+_INVISIBLE_CHAR_RE = re.compile(r"[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]")
+
+_URL_ERROR = "URLs are not allowed in this field."
+_CONTROL_ERROR = "Line breaks and control characters are not allowed in this field."
+_BRACKET_ERROR = "Angle brackets are not allowed in this field."
+_INVISIBLE_ERROR = "Invisible or direction-override characters are not allowed in this field."
+
+
+@overload
+def validate_display_name(value: str) -> str: ...
+
+
+@overload
+def validate_display_name(value: None) -> None: ...
+
+
+def validate_display_name(value: str | None) -> str | None:
+    """
+    Validate identity fields (`first_name`, `last_name`, organization name,
+    invite recipient name) that get interpolated into transactional emails.
+
+    Rejects URLs (`http://`, `https://`, `www.`), line breaks, control
+    characters, angle brackets, and zero-width / bidi characters. Always
+    returns the stripped value. Empty / blank input passes through — use
+    `allow_blank=False` at the field level to enforce presence.
+    """
+    if value is None:
+        return None
+
+    stripped = value.strip()
+    if not stripped:
+        return stripped
+
+    if _CONTROL_CHAR_RE.search(stripped):
+        raise serializers.ValidationError(_CONTROL_ERROR, code="invalid_control_char")
+    if _INVISIBLE_CHAR_RE.search(stripped):
+        raise serializers.ValidationError(_INVISIBLE_ERROR, code="invalid_invisible_char")
+    if _BRACKET_RE.search(stripped):
+        raise serializers.ValidationError(_BRACKET_ERROR, code="invalid_bracket")
+    if _URL_RE.search(stripped):
+        raise serializers.ValidationError(_URL_ERROR, code="invalid_url")
+
+    return stripped
+
+
+def validate_message_body(value: str | None) -> str | None:
+    """
+    Validate the free-text invite message. Newlines are allowed here; URLs,
+    non-newline control chars, angle brackets, and invisible chars are not.
+    """
+    if value is None or not value.strip():
+        return value
+
+    if _NON_NEWLINE_CONTROL_RE.search(value):
+        raise serializers.ValidationError(_CONTROL_ERROR, code="invalid_control_char")
+    if _INVISIBLE_CHAR_RE.search(value):
+        raise serializers.ValidationError(_INVISIBLE_ERROR, code="invalid_invisible_char")
+    if _BRACKET_RE.search(value):
+        raise serializers.ValidationError(_BRACKET_ERROR, code="invalid_bracket")
+    if _URL_RE.search(value):
+        raise serializers.ValidationError(_URL_ERROR, code="invalid_url")
+
+    return value
 
 
 class EmailNormalizer:

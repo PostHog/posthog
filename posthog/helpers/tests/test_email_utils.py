@@ -4,6 +4,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 
 import requests
 from parameterized import parameterized
+from rest_framework import serializers
 
 from posthog.helpers.email_utils import (
     ESP_SUPPRESSION_CACHE_TTL_IN_SECONDS,
@@ -14,6 +15,8 @@ from posthog.helpers.email_utils import (
     ESPSuppressionReason,
     _get_esp_suppression_cache_key,
     check_esp_suppression,
+    validate_display_name,
+    validate_message_body,
 )
 from posthog.models.user import User
 
@@ -300,3 +303,69 @@ class TestESPSuppressionAnalytics(SimpleTestCase):
             self.assertEqual(call_kwargs["properties"]["api_status_code"], expected_status_code)
         if expected_error_type:
             self.assertEqual(call_kwargs["properties"]["error_type"], expected_error_type)
+
+
+class TestValidateDisplayName(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("plain", "Marius", "Marius"),
+            ("two_part", "Marius Andra", "Marius Andra"),
+            ("emoji", "Marius 🦔", "Marius 🦔"),
+            ("apostrophe", "O'Brien", "O'Brien"),
+            ("hyphen", "Jean-Luc", "Jean-Luc"),
+            ("unicode", "Михаил", "Михаил"),
+            ("amp", "Ben & Jerry's", "Ben & Jerry's"),
+            ("org_dot_com_name", "Acme.com", "Acme.com"),  # bare domains now allowed
+            ("trims", "   Marius   ", "Marius"),
+            ("empty", "", ""),
+            ("whitespace_only", "   ", ""),
+        ]
+    )
+    def test_accepts(self, _name: str, value: str, expected: str) -> None:
+        self.assertEqual(validate_display_name(value), expected)
+
+    def test_none_passes_through(self) -> None:
+        self.assertIsNone(validate_display_name(None))
+
+    @parameterized.expand(
+        [
+            ("https", "Visit https://evil.com", "invalid_url"),
+            ("http", "http://phish.me", "invalid_url"),
+            ("www", "www.scam.io", "invalid_url"),
+            ("full_payload", "GET A GIFT https://hicerento.reamaze.com", "invalid_url"),
+            ("newline", "Line1\nLine2", "invalid_control_char"),
+            ("carriage_return", "foo\rbar", "invalid_control_char"),
+            ("tab", "foo\tbar", "invalid_control_char"),
+            ("null", "foo\x00bar", "invalid_control_char"),
+            ("lt", "foo<bar", "invalid_bracket"),
+            ("gt", "link > here", "invalid_bracket"),
+            ("zero_width", "foo\u200bbar", "invalid_invisible_char"),
+            ("rtl_override", "foo\u202ebar", "invalid_invisible_char"),
+        ]
+    )
+    def test_rejects(self, _name: str, value: str, expected_code: str) -> None:
+        with self.assertRaises(serializers.ValidationError) as cm:
+            validate_display_name(value)
+        self.assertEqual(cm.exception.detail[0].code, expected_code)
+
+
+class TestValidateMessageBody(SimpleTestCase):
+    def test_allows_newlines(self) -> None:
+        value = "Hey!\nWelcome to the team.\nCheers."
+        self.assertEqual(validate_message_body(value), value)
+
+    @parameterized.expand(
+        [
+            ("url", "Check https://evil.com"),
+            ("www", "Visit www.scam.io"),
+            ("bracket", "hello <there>"),
+        ]
+    )
+    def test_rejects(self, _name: str, value: str) -> None:
+        with self.assertRaises(serializers.ValidationError):
+            validate_message_body(value)
+
+    def test_none_and_empty_pass_through(self) -> None:
+        self.assertIsNone(validate_message_body(None))
+        self.assertEqual(validate_message_body(""), "")
+        self.assertEqual(validate_message_body("   "), "   ")
