@@ -792,3 +792,6 @@ tools:
     cohorts-all-activity-retrieve:
         operation: cohorts_all_activity_retrieve
         enabled: false
+    event-definitions-promoted-properties-retrieve:
+        operation: event_definitions_promoted_properties_retrieve
+        enabled: false
