@@ -15,6 +15,9 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.schema import (
+    HogLanguage,
+    HogQLMetadata,
+    HogQLMetadataResponse,
     HogQLQuery,
     HogQLQueryModifiers,
     LimitContext as SchemaLimitContext,
@@ -28,6 +31,7 @@ from posthog.schema import (
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+from posthog.hogql.metadata import get_hogql_metadata
 
 from posthog import settings
 from posthog.api.documentation import extend_schema
@@ -70,6 +74,48 @@ QUERY_VALIDATION_ERROR_TOTAL = Counter(
     "Query validation failures returned from the query API.",
     labelnames=["query_type", "validation_code"],
 )
+
+
+def _enrich_hogql_validation_error(
+    query: BaseModel | None,
+    team,
+    user,
+    original_detail: str,
+) -> tuple[str, dict | None]:
+    """
+    When a HogQL query fails, run it through metadata resolution to collect
+    structured error positions, table references, and any fix hints. Returns a
+    (possibly enriched) detail string and a dict suitable for exceptions_hog's
+    `extra` attribute — or (original_detail, None) when enrichment isn't
+    applicable or fails.
+    """
+    if not isinstance(query, HogQLQuery) or not query.query:
+        return original_detail, None
+
+    try:
+        metadata: HogQLMetadataResponse = get_hogql_metadata(
+            query=HogQLMetadata(
+                kind="HogQLMetadata",
+                language=HogLanguage.HOG_QL,
+                query=query.query,
+            ),
+            team=team,
+            user=user,
+        )
+    except Exception:
+        return original_detail, None
+
+    lines: list[str] = [original_detail]
+
+    for notice in [*metadata.errors, *metadata.notices]:
+        if notice.fix and notice.fix not in lines:
+            lines.append(f"Hint: {notice.fix}")
+
+    if metadata.table_names:
+        lines.append(f"Tables referenced: {', '.join(metadata.table_names)}")
+
+    extra = {"hogql_metadata": metadata.model_dump(mode="json", exclude_none=True)}
+    return "\n".join(lines), extra
 
 
 def _extract_validation_code(error: ValidationError) -> str:
@@ -234,7 +280,14 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
 
             return Response(result, status=response_status)
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
-            raise ValidationError(str(e), getattr(e, "code_name", None))
+            detail = str(e)
+            extra: dict | None = None
+            if isinstance(e, ExposedHogQLError):
+                detail, extra = _enrich_hogql_validation_error(query, self.team, request.user, detail)
+            validation_error = ValidationError(detail, getattr(e, "code_name", None))
+            if extra is not None:
+                validation_error.extra = extra  # type: ignore[attr-defined]
+            raise validation_error
         except InternalCHQueryError as e:
             self.handle_column_ch_error(e)
             capture_exception(e)
