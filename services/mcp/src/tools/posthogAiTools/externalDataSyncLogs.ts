@@ -5,9 +5,9 @@ import type { Context, ToolBase } from '@/tools/types'
 import { invokeMcpTool } from './invokeTool'
 
 const schema = z.object({
-    schema_id: z.string().describe('UUID of the external data schema (table) to get sync logs for.'),
+    schema_id: z.uuid().describe('UUID of the external data schema (table) to get sync logs for.'),
     job_id: z
-        .string()
+        .uuid()
         .optional()
         .describe(
             'Optional workflow_run_id to filter logs for a specific sync job. Get this from external-data-sources-jobs.'
