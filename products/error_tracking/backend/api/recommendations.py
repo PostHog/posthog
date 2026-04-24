@@ -34,16 +34,45 @@ class ErrorTrackingRecommendationSerializer(serializers.ModelSerializer):
 
     def get_next_refresh_at(self, obj: ErrorTrackingRecommendation) -> str | None:
         rec = RECOMMENDATIONS_BY_TYPE.get(obj.type)
-        if not rec or not obj.computed_at:
+        if not rec or rec.refresh_interval is None or not obj.computed_at:
             return None
         return (obj.computed_at + rec.refresh_interval).isoformat()
+
+
+def _is_stale(rec: Recommendation, obj: ErrorTrackingRecommendation, now: datetime) -> bool:
+    if obj.computed_at is None:
+        return True
+    if rec.refresh_interval is None:
+        return True
+    return now >= obj.computed_at + rec.refresh_interval
+
+
+def _get_or_refresh(rec: Recommendation, team_id: int, team: Team, now: datetime) -> ErrorTrackingRecommendation:
+    try:
+        obj = ErrorTrackingRecommendation.objects.get(team_id=team_id, type=rec.type)
+    except ErrorTrackingRecommendation.DoesNotExist:
+        try:
+            return ErrorTrackingRecommendation.objects.create(
+                team_id=team_id,
+                type=rec.type,
+                meta=rec.compute(team),
+                computed_at=now,
+            )
+        except IntegrityError:
+            obj = ErrorTrackingRecommendation.objects.get(team_id=team_id, type=rec.type)
+
+    if _is_stale(rec, obj, now):
+        obj.meta = rec.compute(team)
+        obj.computed_at = now
+        obj.save(update_fields=["meta", "computed_at", "updated_at"])
+    return obj
 
 
 def _compute_if_stale(team_id: int, team: Team) -> None:
     now = timezone.now()
     for rec in RECOMMENDATIONS:
         try:
-            _compute_single(rec, team_id, team, now)
+            _get_or_refresh(rec, team_id, team, now)
         except Exception as e:
             capture_exception(e)
             logger.warning(
@@ -54,24 +83,9 @@ def _compute_if_stale(team_id: int, team: Team) -> None:
             )
 
 
-def _compute_single(rec: Recommendation, team_id: int, team: Team, now: datetime) -> None:
-    try:
-        obj = ErrorTrackingRecommendation.objects.get(team_id=team_id, type=rec.type)
-    except ErrorTrackingRecommendation.DoesNotExist:
-        try:
-            ErrorTrackingRecommendation.objects.create(
-                team_id=team_id,
-                type=rec.type,
-                meta=rec.compute(team),
-                computed_at=now,
-            )
-        except IntegrityError:
-            pass
-        return
-    if obj.computed_at is None or now >= obj.computed_at + rec.refresh_interval:
-        obj.meta = rec.compute(team)
-        obj.computed_at = now
-        obj.save(update_fields=["meta", "computed_at", "updated_at"])
+def _cleanup_orphan_rows(team_id: int) -> None:
+    valid_types = {r.type for r in RECOMMENDATIONS}
+    ErrorTrackingRecommendation.objects.filter(team_id=team_id).exclude(type__in=valid_types).delete()
 
 
 @extend_schema(tags=[ProductKey.ERROR_TRACKING])
@@ -91,6 +105,7 @@ class ErrorTrackingRecommendationViewSet(
 
     @override
     def list(self, request: Request, *args, **kwargs) -> Response:
+        _cleanup_orphan_rows(self.team.id)
         _compute_if_stale(self.team.id, self.team)
         return super().list(request, *args, **kwargs)
 
@@ -102,7 +117,7 @@ class ErrorTrackingRecommendationViewSet(
         if not rec:
             return Response({"detail": "Unknown recommendation type."}, status=status.HTTP_400_BAD_REQUEST)
         now = timezone.now()
-        if recommendation.computed_at is None or now >= recommendation.computed_at + rec.refresh_interval:
+        if _is_stale(rec, recommendation, now):
             recommendation.meta = rec.compute(self.team)
             recommendation.computed_at = now
             recommendation.save(update_fields=["meta", "computed_at", "updated_at"])

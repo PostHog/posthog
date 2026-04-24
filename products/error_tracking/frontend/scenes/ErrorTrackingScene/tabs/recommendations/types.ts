@@ -1,6 +1,6 @@
 import { HogFunctionSubTemplateIdType } from '~/types'
 
-export type ErrorTrackingRecommendationType = 'alerts'
+export type ErrorTrackingRecommendationType = 'alerts' | 'long_running_issues'
 
 export interface ErrorTrackingRecommendation<TMeta extends Record<string, unknown> = Record<string, unknown>> {
     id: string
@@ -43,3 +43,16 @@ export const ALERT_RECOMMENDATION_INFO: Record<string, AlertRecommendationInfo> 
         reason: 'Get notified when an issue starts occurring more frequently than usual.',
     },
 }
+
+export interface LongRunningIssueItem {
+    id: string
+    name: string
+    description: string | null
+    created_at: string
+}
+
+export interface LongRunningIssuesRecommendationMeta extends Record<string, unknown> {
+    issues: LongRunningIssueItem[]
+}
+
+export type LongRunningIssuesRecommendation = ErrorTrackingRecommendation<LongRunningIssuesRecommendationMeta>

@@ -4,7 +4,29 @@ import { IconChevronRight } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { AlertsRecommendationCard } from './AlertsRecommendationCard'
-import { isAlertsRecommendation, recommendationsTabLogic } from './recommendationsTabLogic'
+import { LongRunningIssuesRecommendationCard } from './LongRunningIssuesRecommendationCard'
+import {
+    isAlertsRecommendation,
+    isLongRunningIssuesRecommendation,
+    recommendationsTabLogic,
+} from './recommendationsTabLogic'
+import type { ErrorTrackingRecommendation } from './types'
+
+function RecommendationCardForType({
+    recommendation,
+    dismissed,
+}: {
+    recommendation: ErrorTrackingRecommendation
+    dismissed?: boolean
+}): JSX.Element | null {
+    if (isAlertsRecommendation(recommendation)) {
+        return <AlertsRecommendationCard recommendation={recommendation} dismissed={dismissed} />
+    }
+    if (isLongRunningIssuesRecommendation(recommendation)) {
+        return <LongRunningIssuesRecommendationCard recommendation={recommendation} dismissed={dismissed} />
+    }
+    return null
+}
 
 export function RecommendationsTab(): JSX.Element {
     const {
@@ -36,16 +58,11 @@ export function RecommendationsTab(): JSX.Element {
         <div className="flex flex-col gap-4">
             {activeRecommendations.length > 0 && (
                 <div className="columns-1 md:columns-2 xl:columns-3 gap-4">
-                    {activeRecommendations.map((recommendation) => {
-                        if (isAlertsRecommendation(recommendation)) {
-                            return (
-                                <div key={recommendation.id} className="break-inside-avoid mb-4">
-                                    <AlertsRecommendationCard recommendation={recommendation} />
-                                </div>
-                            )
-                        }
-                        return null
-                    })}
+                    {activeRecommendations.map((recommendation) => (
+                        <div key={recommendation.id} className="break-inside-avoid mb-4">
+                            <RecommendationCardForType recommendation={recommendation} />
+                        </div>
+                    ))}
                 </div>
             )}
 
@@ -68,16 +85,11 @@ export function RecommendationsTab(): JSX.Element {
                     </button>
                     {dismissedExpanded && (
                         <div className="columns-1 md:columns-2 xl:columns-3 gap-4 mt-2 opacity-60">
-                            {ignoredRecommendations.map((recommendation) => {
-                                if (isAlertsRecommendation(recommendation)) {
-                                    return (
-                                        <div key={recommendation.id} className="break-inside-avoid mb-4">
-                                            <AlertsRecommendationCard recommendation={recommendation} dismissed />
-                                        </div>
-                                    )
-                                }
-                                return null
-                            })}
+                            {ignoredRecommendations.map((recommendation) => (
+                                <div key={recommendation.id} className="break-inside-avoid mb-4">
+                                    <RecommendationCardForType recommendation={recommendation} dismissed />
+                                </div>
+                            ))}
                         </div>
                     )}
                 </div>

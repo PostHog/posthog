@@ -1,15 +1,22 @@
 from datetime import timedelta
+from uuid import uuid4
 
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
+
+from django.utils import timezone
 
 from rest_framework import status
 
 from posthog.models.hog_functions.hog_function import HogFunction
+from posthog.models.utils import uuid7
 
-from products.error_tracking.backend.models import ErrorTrackingRecommendation
+from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingRecommendation
 from products.error_tracking.backend.recommendations.alerts import AlertsRecommendation
+from products.error_tracking.backend.recommendations.long_running_issues import LongRunningIssuesRecommendation
+
+from ee.clickhouse.materialized_columns.columns import materialize
 
 MOCK_ALERTS_META = {
     "alerts": [
@@ -27,39 +34,99 @@ MOCK_ALERTS_META_UPDATED = {
 }
 
 
-class TestRecommendationsAPI(APIBaseTest):
+def _days_ago(n: int) -> str:
+    return (timezone.now() - timedelta(days=n)).isoformat()
+
+
+class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        materialize("events", "$exception_issue_id", is_nullable=True)
+
     def _list(self):
         return self.client.get(f"/api/environments/{self.team.id}/error_tracking/recommendations/")
+
+    def _dismiss(self, rec_id):
+        return self.client.post(f"/api/environments/{self.team.id}/error_tracking/recommendations/{rec_id}/dismiss/")
 
     def _refresh(self, rec_id):
         return self.client.post(f"/api/environments/{self.team.id}/error_tracking/recommendations/{rec_id}/refresh/")
 
     @patch(
+        "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
+        return_value={"issues": []},
+    )
+    @patch(
         "products.error_tracking.backend.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
-    def test_first_list_creates_recommendations(self, mock_alerts_compute):
+    def test_first_list_creates_both_recommendations(self, mock_alerts, mock_long_running):
         self.assertEqual(ErrorTrackingRecommendation.objects.filter(team=self.team).count(), 0)
 
         response = self._list()
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(ErrorTrackingRecommendation.objects.filter(team=self.team).count(), 1)
-        results = response.json()["results"]
-        by_type = {r["type"]: r for r in results}
-        self.assertEqual(by_type["alerts"]["meta"], MOCK_ALERTS_META)
-        mock_alerts_compute.assert_called_once()
+        self.assertEqual(ErrorTrackingRecommendation.objects.filter(team=self.team).count(), 2)
+        types = {r["type"] for r in response.json()["results"]}
+        self.assertEqual(types, {"alerts", "long_running_issues"})
 
+    @patch(
+        "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
+        return_value={"issues": []},
+    )
+    @patch(
+        "products.error_tracking.backend.recommendations.alerts.AlertsRecommendation.compute",
+    )
+    def test_alerts_recomputes_on_every_list(self, mock_alerts, mock_long_running):
+        mock_alerts.return_value = MOCK_ALERTS_META
+        self._list()
+
+        mock_alerts.return_value = MOCK_ALERTS_META_UPDATED
+        response = self._list()
+
+        self.assertEqual(mock_alerts.call_count, 2)
+        alerts = next(r for r in response.json()["results"] if r["type"] == "alerts")
+        self.assertEqual(alerts["meta"], MOCK_ALERTS_META_UPDATED)
+
+    @freeze_time("2026-01-01T00:00:00Z", as_kwarg="frozen_time")
+    @patch(
+        "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
+    )
     @patch(
         "products.error_tracking.backend.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
-    def test_second_list_within_interval_does_not_recompute(self, mock_alerts_compute):
+    def test_long_running_is_cached_until_interval_elapses(self, mock_alerts, mock_long_running, frozen_time):
+        mock_long_running.return_value = {"issues": []}
         self._list()
-        mock_alerts_compute.assert_called_once()
+        self.assertEqual(mock_long_running.call_count, 1)
 
+        frozen_time.tick(timedelta(minutes=30))
         self._list()
-        mock_alerts_compute.assert_called_once()
+        self.assertEqual(mock_long_running.call_count, 1)
+
+        frozen_time.tick(timedelta(hours=1))
+        self._list()
+        self.assertEqual(mock_long_running.call_count, 2)
+
+    @patch(
+        "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
+        return_value={"issues": []},
+    )
+    @patch(
+        "products.error_tracking.backend.recommendations.alerts.AlertsRecommendation.compute",
+        return_value=MOCK_ALERTS_META,
+    )
+    def test_dismiss_persists_across_requests(self, mock_alerts, mock_long_running):
+        response = self._list()
+        alerts_id = next(r["id"] for r in response.json()["results"] if r["type"] == "alerts")
+
+        self._dismiss(alerts_id)
+
+        response = self._list()
+        alerts = next(r for r in response.json()["results"] if r["type"] == "alerts")
+        self.assertIsNotNone(alerts["dismissed_at"])
 
     def test_alerts_recommendation_detects_existing_alerts(self):
         HogFunction.objects.create(
@@ -86,40 +153,81 @@ class TestRecommendationsAPI(APIBaseTest):
         by_key = {a["key"]: a["enabled"] for a in meta["alerts"]}
         self.assertFalse(by_key["error-tracking-issue-created"])
 
-    @freeze_time("2026-01-01T00:00:00Z", as_kwarg="frozen_time")
-    @patch(
-        "products.error_tracking.backend.recommendations.alerts.AlertsRecommendation.compute",
-    )
-    def test_refresh_before_interval_returns_cached(self, mock_alerts_compute, frozen_time):
-        mock_alerts_compute.return_value = MOCK_ALERTS_META
-        response = self._list()
-        alerts_rec = next(r for r in response.json()["results"] if r["type"] == "alerts")
-        rec_id = alerts_rec["id"]
-        mock_alerts_compute.reset_mock()
+    def _create_issue(self, created_at, status=ErrorTrackingIssue.Status.ACTIVE, name="TestError"):
+        issue = ErrorTrackingIssue.objects.create(
+            id=uuid7(),
+            team=self.team,
+            status=status,
+            name=name,
+            description="boom",
+        )
+        ErrorTrackingIssue.objects.filter(id=issue.id).update(created_at=created_at)
+        issue.refresh_from_db()
+        return issue
 
-        frozen_time.tick(timedelta(seconds=1))
-        mock_alerts_compute.return_value = MOCK_ALERTS_META_UPDATED
-        response = self._refresh(rec_id)
+    def _create_exception(self, issue_id, timestamp):
+        _create_event(
+            distinct_id="user_1",
+            event="$exception",
+            team=self.team,
+            properties={"$exception_issue_id": str(issue_id)},
+            timestamp=timestamp,
+        )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["meta"], MOCK_ALERTS_META)
-        mock_alerts_compute.assert_not_called()
+    def test_long_running_returns_oldest_active_issues_with_recent_occurrences(self):
+        old_active = self._create_issue(created_at=timezone.now() - timedelta(days=60), name="Oldest")
+        newer_active = self._create_issue(created_at=timezone.now() - timedelta(days=5), name="Newer")
+        self._create_exception(old_active.id, _days_ago(1))
+        self._create_exception(newer_active.id, _days_ago(1))
+        flush_persons_and_events()
 
-    @freeze_time("2026-01-01T00:00:00Z", as_kwarg="frozen_time")
-    @patch(
-        "products.error_tracking.backend.recommendations.alerts.AlertsRecommendation.compute",
-    )
-    def test_refresh_after_interval_recomputes(self, mock_alerts_compute, frozen_time):
-        mock_alerts_compute.return_value = MOCK_ALERTS_META
-        response = self._list()
-        alerts_rec = next(r for r in response.json()["results"] if r["type"] == "alerts")
-        rec_id = alerts_rec["id"]
-        mock_alerts_compute.reset_mock()
+        meta = LongRunningIssuesRecommendation().compute(self.team)
 
-        frozen_time.tick(timedelta(seconds=6))
-        mock_alerts_compute.return_value = MOCK_ALERTS_META_UPDATED
-        response = self._refresh(rec_id)
+        names = [i["name"] for i in meta["issues"]]
+        self.assertEqual(names, ["Oldest", "Newer"])
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["meta"], MOCK_ALERTS_META_UPDATED)
-        mock_alerts_compute.assert_called_once()
+    def test_long_running_ignores_issues_without_recent_occurrences(self):
+        stale = self._create_issue(created_at=timezone.now() - timedelta(days=60), name="Stale")
+        self._create_exception(stale.id, _days_ago(30))
+        flush_persons_and_events()
+
+        meta = LongRunningIssuesRecommendation().compute(self.team)
+
+        self.assertEqual(meta["issues"], [])
+
+    def test_long_running_excludes_non_active_issues(self):
+        resolved = self._create_issue(
+            created_at=timezone.now() - timedelta(days=60),
+            status=ErrorTrackingIssue.Status.RESOLVED,
+            name="Resolved",
+        )
+        self._create_exception(resolved.id, _days_ago(1))
+        flush_persons_and_events()
+
+        meta = LongRunningIssuesRecommendation().compute(self.team)
+
+        self.assertEqual(meta["issues"], [])
+
+    def test_long_running_limits_to_ten(self):
+        for i in range(15):
+            issue = self._create_issue(
+                created_at=timezone.now() - timedelta(days=60 - i),
+                name=f"Issue {i:02d}",
+            )
+            self._create_exception(issue.id, _days_ago(1))
+        flush_persons_and_events()
+
+        meta = LongRunningIssuesRecommendation().compute(self.team)
+
+        self.assertEqual(len(meta["issues"]), 10)
+        self.assertEqual(meta["issues"][0]["name"], "Issue 00")
+        self.assertEqual(meta["issues"][9]["name"], "Issue 09")
+
+    def test_long_running_ignores_other_teams_issues(self):
+        other_issue_id = str(uuid4())
+        self._create_exception(other_issue_id, _days_ago(1))
+        flush_persons_and_events()
+
+        meta = LongRunningIssuesRecommendation().compute(self.team)
+
+        self.assertEqual(meta["issues"], [])

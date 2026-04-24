@@ -6,7 +6,7 @@ import api from 'lib/api'
 import { HogFunctionSubTemplateIdType } from '~/types'
 
 import type { recommendationsTabLogicType } from './recommendationsTabLogicType'
-import type { AlertsRecommendation, ErrorTrackingRecommendation } from './types'
+import type { AlertsRecommendation, ErrorTrackingRecommendation, LongRunningIssuesRecommendation } from './types'
 
 export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
     path(['products', 'error_tracking', 'scenes', 'ErrorTrackingScene', 'tabs', 'recommendations', 'logic']),
@@ -81,3 +81,7 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
 export const isAlertsRecommendation = (
     recommendation: ErrorTrackingRecommendation
 ): recommendation is AlertsRecommendation => recommendation.type === 'alerts'
+
+export const isLongRunningIssuesRecommendation = (
+    recommendation: ErrorTrackingRecommendation
+): recommendation is LongRunningIssuesRecommendation => recommendation.type === 'long_running_issues'
