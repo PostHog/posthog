@@ -1157,6 +1157,12 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        reorderShortcutsSuccess: ({ shortcutData }) => {
+            eventUsageLogic.actions.reportNavbarStarredItemsReordered(
+                shortcutData.length,
+                !!values.featureFlags[FEATURE_FLAGS.AI_FIRST]
+            )
+        },
         reorderShortcutsFailure: () => {
             actions.loadShortcuts()
         },
