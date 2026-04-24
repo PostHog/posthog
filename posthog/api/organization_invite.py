@@ -25,6 +25,7 @@ from posthog.permissions import (
     TimeSensitiveActionPermission,
     UserCanInvitePermission,
 )
+from posthog.rate_limit import OrganizationInviteBurstThrottle, OrganizationInviteSustainedThrottle
 from posthog.rbac.user_access_control import UserAccessControl, ordered_access_levels
 from posthog.tasks.email import send_invite
 
@@ -338,6 +339,14 @@ class OrganizationInviteViewSet(
 
     def safely_get_queryset(self, queryset):
         return queryset.select_related("created_by").order_by(self.ordering)
+
+    def get_throttles(self):
+        # Apply invite-specific throttles only to actions that create invites,
+        # so listing/deleting stays under the default throttles.
+        base_throttles = super().get_throttles()
+        if self.action in ("create", "bulk"):
+            return [*base_throttles, OrganizationInviteBurstThrottle(), OrganizationInviteSustainedThrottle()]
+        return base_throttles
 
     def create(self, request: request.Request, **kwargs) -> response.Response:
         data = cast(Any, request.data.copy())
