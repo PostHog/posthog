@@ -212,6 +212,7 @@ case "$RS_SVC" in
     export POD_NAME=127.0.0.1
     export KAFKA_HOSTS="${KAFKA_HOSTS:-localhost:9092}"
     export KAFKA_PERSON_STATE_TOPIC=personhog_updates
+    export FALLBACK_DATABASE_URL="postgres://posthog:posthog@${PGHOST:-localhost}:${PGPORT:-5432}/posthog_persons"
     export METRICS_PORT=9102
     ;;
 

@@ -22,6 +22,7 @@ from products.slack_app.backend.api import (
     _match_repo_rule,
     _parse_rules_command,
     _repo_list_cache_key,
+    classify_task_needs_repo,
     select_repository,
 )
 
@@ -785,6 +786,26 @@ class TestHandleRulesCommandActivity:
         assert "No routing rules" in msg.kwargs["text"]
 
     @patch("posthog.models.integration.SlackIntegration")
+    def test_help_uses_posthog_commands(self, mock_slack_cls):
+        mock_slack = MagicMock()
+        mock_slack_cls.return_value = mock_slack
+
+        from posthog.temporal.ai.posthog_code_slack_mention import handle_posthog_code_rules_command_activity
+
+        result = handle_posthog_code_rules_command_activity(
+            self._make_inputs("<@U123> help"),
+            self.channel,
+            self.thread_ts,
+            self.slack_user_id,
+            self.user.id,
+        )
+
+        assert result.status == "handled"
+        msg = mock_slack.client.chat_postMessage.call_args
+        assert "@PostHog <task description>" in msg.kwargs["text"]
+        assert "@PostHog Code" not in msg.kwargs["text"]
+
+    @patch("posthog.models.integration.SlackIntegration")
     def test_list_shows_rules(self, mock_slack_cls):
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
@@ -951,3 +972,33 @@ class TestRepoRoutingRuleModel:
         team_a_rules = list(RepoRoutingRule.objects.filter(team=self.team_a))
         assert len(team_a_rules) == 1
         assert team_a_rules[0].rule_text == "Team A rule"
+
+
+class TestClassifyTaskNeedsRepo:
+    @parameterized.expand(
+        [
+            (
+                "product_debug_automation",
+                "debug why the automation that sends PostHog AI Feedback always gives a thumbs down",
+                False,
+            ),
+            (
+                "product_debug_destination",
+                "investigate the slack destination configuration for this automation",
+                False,
+            ),
+            (
+                "product_debug_report_not_repo",
+                "debug why this dashboard report always shows a thumbs down",
+                False,
+            ),
+            (
+                "explicit_repo_request",
+                "open a PR in posthog/posthog to fix this serializer",
+                True,
+            ),
+        ]
+    )
+    def test_heuristic_classification(self, _name, text, expected):
+        result = classify_task_needs_repo(text, [{"user": "Alessandro", "text": text}])
+        assert result is expected

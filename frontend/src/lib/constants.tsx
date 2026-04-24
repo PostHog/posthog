@@ -328,6 +328,7 @@ export const FEATURE_FLAGS = {
     LLM_ANALYTICS_DISCUSSIONS: 'llm-analytics-discussions', // owner: #team-llm-analytics
     LLM_ANALYTICS_EARLY_ADOPTERS: 'llm-analytics-early-adopters', // owner: #team-llm-analytics
     LLM_ANALYTICS_EVALUATIONS: 'llm-analytics-evaluations', // owner: #team-llm-analytics
+    LLM_ANALYTICS_EVALUATIONS_CLUSTERING: 'llm-analytics-evaluations-clustering', // owner: #team-llm-analytics
     LLM_ANALYTICS_EVALUATIONS_CUSTOM_MODELS: 'llm-analytics-evaluations-custom-models', // owner: #team-llm-analytics
     LLM_ANALYTICS_EVALUATIONS_HOG_CODE: 'llm-analytics-evaluations-hog-code', // owner: #team-llm-analytics
     LLM_ANALYTICS_EVALUATIONS_REPORTS: 'llm-analytics-evaluations-reports', // owner: #team-llm-analytics
@@ -413,6 +414,7 @@ export const FEATURE_FLAGS = {
     PRODUCT_ANALYTICS_INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: #team-product-analytics
     PRODUCT_ANALYTICS_PATHS_V2: 'paths-v2', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_ANALYTICS_RETENTION_AGGREGATION: 'retention-aggregation', // owner: @anirudhpillai #team-product-analytics
+    PRODUCT_ANALYTICS_RETENTION_DWH: 'retention-dwh', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_AUTONOMY: 'product-autonomy', // owner: #team-signals
     PRODUCT_CONVERSATIONS: 'product-conversations', // owner: @veryayskiy #team-conversations
     PRODUCT_SELECTION_SCREEN_VARIANT: 'product-selection-screen-variant', // owner: @fercgomes #team-growth multivariate=control,spotlight,multiproduct
@@ -420,6 +422,7 @@ export const FEATURE_FLAGS = {
     PRODUCT_SUPPORT_AI_SUGGESTION: 'product-support-ai-suggestion', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_EMAIL_CHANNEL: 'product-support-email-channel', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_SIDE_PANEL: 'product-support-side-panel', // owner: @veryayskiy #team-conversations
+    PRODUCT_SUPPORT_TEAMS_ENABLED: 'product-support-teams-enabled', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_TICKET_VIEWS: 'product-support-ticket-views', // owner: @veryayskiy #team-conversations
     PRODUCT_TOURS: 'product-tours-2025', // owner: @adboio #team-surveys
     PRODUCT_TOURS_LOCALIZATION: 'product-tours-localization', // owner: @adboio #team-surveys

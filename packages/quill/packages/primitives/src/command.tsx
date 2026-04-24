@@ -9,6 +9,7 @@ import { cn } from './lib/utils'
 function Command({ className, ...props }: React.ComponentProps<typeof CommandPrimitive>): React.ReactElement {
     return (
         <CommandPrimitive
+            data-quill
             data-slot="command"
             className={cn(
                 'flex size-full flex-col overflow-hidden rounded-xl bg-popover p-1 text-popover-foreground',

@@ -305,4 +305,8 @@ export type IntegrationsGithubReposRetrieveParams = {
      * @minimum 0
      */
     offset?: number
+    /**
+     * Optional case-insensitive repository name search query.
+     */
+    search?: string
 }

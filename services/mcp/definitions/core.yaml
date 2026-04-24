@@ -90,7 +90,7 @@ tools:
             destructive: false
             idempotent: true
         title: Get project
-        description: >
+        description: |
             Retrieve a project and its settings. Pass `@current` as the ID to fetch the caller's active project.
         param_overrides:
             id:
@@ -115,11 +115,9 @@ tools:
             idempotent: true
         title: Update project settings
         description: >
-            Update a project's settings using PATCH semantics — only the fields included in the request body are changed.
-            Use `project-get` first to inspect current settings. Always confirm changes with the user before applying.
-        param_overrides:
-            id:
-                description: Project ID, or `@current` to target the caller's active project.
+            Update a project's settings using PATCH semantics — only the fields included in the request body are
+            changed. Use `project-get` first to inspect current settings. Always confirm changes with the user before
+            applying.
         exclude_params:
             - uuid
             - created_at
@@ -137,6 +135,9 @@ tools:
             - default_modifiers
             - person_on_events_querying_enabled
             - organization
+        param_overrides:
+            id:
+                description: Project ID, or `@current` to target the caller's active project.
     projects-destroy:
         operation: destroy_2
         enabled: false
@@ -579,8 +580,8 @@ tools:
             idempotent: true
         title: Get user
         description: >
-            Retrieve a user's profile and settings. Pass `@me` as the UUID to fetch the authenticated user —
-            non-staff callers may only access their own account.
+            Retrieve a user's profile and settings. Pass `@me` as the UUID to fetch the authenticated user — non-staff
+            callers may only access their own account.
         param_overrides:
             uuid:
                 description: User UUID, or `@me` to target the authenticated user.
@@ -605,13 +606,10 @@ tools:
         title: Update user settings
         description: >
             Update the authenticated user's profile and settings using PATCH semantics — only the fields included in the
-            request body are changed. Pass `@me` as the UUID; non-staff callers may only update their own account.
-            Use `user-get` first to inspect current settings. `notification_settings` merges key-by-key; changing `email`
+            request body are changed. Pass `@me` as the UUID; non-staff callers may only update their own account. Use
+            `user-get` first to inspect current settings. `notification_settings` merges key-by-key; changing `email`
             triggers a verification flow; changing `password` also requires `current_password`. Always confirm changes
             with the user before applying.
-        param_overrides:
-            uuid:
-                description: User UUID, or `@me` to target the authenticated user.
         exclude_params:
             - date_joined
             - uuid
@@ -632,6 +630,9 @@ tools:
             - has_sso_enforcement
             - is_2fa_enabled
             - scene_personalisation
+        param_overrides:
+            uuid:
+                description: User UUID, or `@me` to target the authenticated user.
     users-destroy:
         operation: users_destroy
         enabled: false
@@ -784,4 +785,7 @@ tools:
         enabled: false
     dashboard-templates-copy-between-projects-create:
         operation: dashboard_templates_copy_between_projects_create
+        enabled: false
+    legal-documents-download-retrieve:
+        operation: legal_documents_download_retrieve
         enabled: false

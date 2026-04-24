@@ -14,12 +14,18 @@ import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 const MIN_BREAKDOWN_LIMIT = 1
 const MAX_BREAKDOWN_LIMIT = 1000
 
-export const GlobalBreakdownOptionsMenu = (): JSX.Element => {
+export const GlobalBreakdownOptionsMenu = (): JSX.Element | null => {
     const { insightProps } = useValues(insightLogic)
     const { isTrends } = useValues(insightVizDataLogic(insightProps))
 
-    const { breakdownLimit, breakdownHideOtherAggregation } = useValues(taxonomicBreakdownFilterLogic)
+    const { breakdownLimit, breakdownHideOtherAggregation, breakdownFilter } = useValues(taxonomicBreakdownFilterLogic)
     const { setBreakdownLimit, setBreakdownHideOtherAggregation } = useActions(taxonomicBreakdownFilterLogic)
+
+    // Cohort breakdowns are over an explicit, user-picked set — there's no long-tail to truncate
+    // and nothing to bucket as "Other", so these controls don't apply.
+    if (breakdownFilter?.breakdown_type === 'cohort') {
+        return null
+    }
 
     return (
         <>
