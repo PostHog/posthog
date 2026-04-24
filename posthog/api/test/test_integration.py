@@ -1094,7 +1094,26 @@ class TestStripeIntegration:
     def stripe_settings(self, settings):
         settings.STRIPE_APP_CLIENT_ID = "ca_test123"
         settings.STRIPE_APP_SECRET_KEY = "sk_test_secret"
+        settings.STRIPE_SIGNING_SECRET = "whsec_test_signing"
         return settings
+
+    def _make_install_signature(
+        self, state: str, user_id: str, account_id: str, secret: str = "whsec_test_signing"
+    ) -> str:
+        """Build a valid t=...,v1=... header for a marketplace install callback."""
+        import hmac
+        import json as _json
+        import time as _time
+        import hashlib
+
+        ts = int(_time.time())
+        payload = _json.dumps(
+            {"state": state, "user_id": user_id, "account_id": account_id},
+            separators=(",", ":"),
+        )
+        signed = f"{ts}.{payload}".encode()
+        digest = hmac.new(secret.encode("utf-8"), signed, hashlib.sha256).hexdigest()
+        return f"t={ts},v1={digest}"
 
     @patch("posthog.api.integration.StripeIntegration")
     @patch("posthog.api.integration.OauthIntegration.integration_from_oauth_response")
@@ -1197,6 +1216,31 @@ class TestStripeIntegration:
         mock_instance = MagicMock()
         MockStripeIntegration.return_value = mock_instance
 
+        sig = self._make_install_signature(state="", user_id="usr_abc", account_id="acct_123")
+        client.force_login(self.user)
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "stripe",
+                "config": {
+                    "code": "oauth_code_123",
+                    "stripe_user_id": "acct_123",
+                    "account_id": "acct_123",
+                    "user_id": "usr_abc",
+                    "install_signature": sig,
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        mock_instance.write_posthog_secrets.assert_called_once_with(self.team.pk, self.user)
+
+    @patch("posthog.api.integration.StripeIntegration")
+    @patch("posthog.api.integration.OauthIntegration.integration_from_oauth_response")
+    def test_marketplace_callback_rejects_missing_install_signature(
+        self, mock_oauth_response, MockStripeIntegration, stripe_settings, client: HttpClient
+    ):
         client.force_login(self.user)
         response = client.post(
             f"/api/environments/{self.team.pk}/integrations",
@@ -1212,8 +1256,37 @@ class TestStripeIntegration:
             content_type="application/json",
         )
 
-        assert response.status_code == status.HTTP_201_CREATED
-        mock_instance.write_posthog_secrets.assert_called_once_with(self.team.pk, self.user)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "stripe_install_signature_invalid" in response.content.decode()
+        mock_oauth_response.assert_not_called()
+        MockStripeIntegration.assert_not_called()
+
+    @patch("posthog.api.integration.StripeIntegration")
+    @patch("posthog.api.integration.OauthIntegration.integration_from_oauth_response")
+    def test_marketplace_callback_rejects_invalid_install_signature(
+        self, mock_oauth_response, MockStripeIntegration, stripe_settings, client: HttpClient
+    ):
+        forged = self._make_install_signature(state="", user_id="usr_abc", account_id="acct_123", secret="wrong_secret")
+        client.force_login(self.user)
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "stripe",
+                "config": {
+                    "code": "oauth_code_123",
+                    "stripe_user_id": "acct_123",
+                    "account_id": "acct_123",
+                    "user_id": "usr_abc",
+                    "install_signature": forged,
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "stripe_install_signature_invalid" in response.content.decode()
+        mock_oauth_response.assert_not_called()
+        MockStripeIntegration.assert_not_called()
 
     @patch("posthog.api.integration.StripeIntegration")
     @patch("posthog.api.integration.OauthIntegration.integration_from_oauth_response")
@@ -1222,6 +1295,7 @@ class TestStripeIntegration:
     ):
         self._create_stripe_integration()
 
+        sig = self._make_install_signature(state="", user_id="usr_xyz", account_id="acct_999")
         client.force_login(self.user)
         response = client.post(
             f"/api/environments/{self.team.pk}/integrations",
@@ -1232,6 +1306,7 @@ class TestStripeIntegration:
                     "stripe_user_id": "acct_999",
                     "account_id": "acct_999",
                     "user_id": "usr_xyz",
+                    "install_signature": sig,
                 },
             },
             content_type="application/json",
@@ -1252,6 +1327,7 @@ class TestStripeIntegration:
         mock_instance = MagicMock()
         MockStripeIntegration.return_value = mock_instance
 
+        sig = self._make_install_signature(state="", user_id="usr_abc", account_id="acct_123")
         client.force_login(self.user)
         response = client.post(
             f"/api/environments/{self.team.pk}/integrations",
@@ -1262,6 +1338,7 @@ class TestStripeIntegration:
                     "stripe_user_id": "acct_123",
                     "account_id": "acct_123",
                     "user_id": "usr_abc",
+                    "install_signature": sig,
                 },
             },
             content_type="application/json",
@@ -1276,6 +1353,7 @@ class TestStripeIntegration:
     ):
         mock_oauth_response.side_effect = Exception("Stripe returned invalid_grant")
 
+        sig = self._make_install_signature(state="", user_id="usr_abc", account_id="acct_123")
         client.force_login(self.user)
         response = client.post(
             f"/api/environments/{self.team.pk}/integrations",
@@ -1286,12 +1364,13 @@ class TestStripeIntegration:
                     "stripe_user_id": "acct_123",
                     "account_id": "acct_123",
                     "user_id": "usr_abc",
+                    "install_signature": sig,
                 },
             },
             content_type="application/json",
         )
 
-        assert response.status_code >= 400
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert not Integration.objects.filter(team_id=self.team.pk, kind="stripe").exists()
 
 
