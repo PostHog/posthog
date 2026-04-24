@@ -1,12 +1,145 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "cdc_table_mode": {
+            "anyOf": [
+                {
+                    "anyOf": [
+                        {
+                            "description": "* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both",
+                            "enum": ["consolidated", "cdc_only", "both"],
+                            "type": "string"
+                        },
+                        {
+                            "const": null,
+                            "type": "null"
+                        }
+                    ]
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both"
+        },
         "id": {
             "description": "A UUID string identifying this external data schema.",
             "type": "string"
         },
+        "incremental_field": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Column name used to track sync progress."
+        },
+        "incremental_field_type": {
+            "anyOf": [
+                {
+                    "anyOf": [
+                        {
+                            "description": "* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid",
+                            "enum": ["integer", "numeric", "datetime", "date", "timestamp", "objectid"],
+                            "type": "string"
+                        },
+                        {
+                            "const": null,
+                            "type": "null"
+                        }
+                    ]
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Data type of the incremental field.\n\n* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid"
+        },
+        "primary_key_columns": {
+            "anyOf": [
+                {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Column names for primary key deduplication."
+        },
         "should_sync": {
             "type": "boolean"
+        },
+        "sync_frequency": {
+            "anyOf": [
+                {
+                    "anyOf": [
+                        {
+                            "description": "* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day",
+                            "enum": [
+                                "never",
+                                "1min",
+                                "5min",
+                                "15min",
+                                "30min",
+                                "1hour",
+                                "6hour",
+                                "12hour",
+                                "24hour",
+                                "7day",
+                                "30day"
+                            ],
+                            "type": "string"
+                        },
+                        {
+                            "const": null,
+                            "type": "null"
+                        }
+                    ]
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "How often to sync.\n\n* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day"
+        },
+        "sync_time_of_day": {
+            "anyOf": [
+                {
+                    "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?$",
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "UTC time of day to run the sync (HH:MM:SS)."
+        },
+        "sync_type": {
+            "anyOf": [
+                {
+                    "anyOf": [
+                        {
+                            "description": "* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc",
+                            "enum": ["full_refresh", "incremental", "append", "webhook", "cdc"],
+                            "type": "string"
+                        },
+                        {
+                            "const": null,
+                            "type": "null"
+                        }
+                    ]
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Sync strategy: incremental, full_refresh, append, or cdc.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc"
         }
     },
     "required": ["id"],
