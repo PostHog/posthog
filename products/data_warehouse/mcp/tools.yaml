@@ -141,6 +141,11 @@ tools:
             - client_secret
             - account_id
             - job_inputs
+        param_overrides:
+            source_type:
+                input_schema: ExternalDataSourceTypeSchema
+            payload:
+                input_schema: ExternalDataSourcePayloadSchema
     external-data-sources-retrieve:
         operation: external_data_sources_retrieve
         enabled: true
@@ -245,6 +250,9 @@ tools:
             detected_primary_keys, available_columns (name/type/nullable), rows estimate, and incremental_fields
             (candidate timestamp/integer columns for incremental sync). Use this BEFORE external-data-sources-create so
             the user can pick a sync_type per table. Returns 400 with a message if credentials are invalid.
+        param_overrides:
+            source_type:
+                input_schema: ExternalDataSourceTypeSchema
     external-data-sources-source-prefix-create:
         operation: external_data_sources_source_prefix_create
         enabled: false
@@ -692,6 +700,9 @@ tools:
             enabled (wal_level=logical), replication slot available, publication present, and required permissions.
             Postgres-only. Returns {valid, errors[]}. Use this before configuring a schema with sync_type=cdc, or to
             diagnose why an existing CDC sync has started failing.
+        param_overrides:
+            source_type:
+                input_schema: ExternalDataSourceTypeSchema
     external-data-sources-bulk-update-schemas-partial-update:
         operation: external_data_sources_bulk_update_schemas_partial_update
         enabled: false

@@ -52,6 +52,7 @@ import {
     WarehouseSavedQueriesRunCreateParams,
     WarehouseSavedQueriesRunHistoryRetrieveParams,
 } from '@/generated/data_warehouse/api'
+import { ExternalDataSourcePayloadSchema, ExternalDataSourceTypeSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -120,7 +121,10 @@ const externalDataSourcesList = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesCreateSchema = ExternalDataSourcesCreateBody
+const ExternalDataSourcesCreateSchema = ExternalDataSourcesCreateBody.extend({
+    source_type: ExternalDataSourceTypeSchema,
+    payload: ExternalDataSourcePayloadSchema,
+})
 
 const externalDataSourcesCreate = (): ToolBase<
     typeof ExternalDataSourcesCreateSchema,
@@ -259,7 +263,9 @@ const externalDataSourcesReload = (): ToolBase<typeof ExternalDataSourcesReloadS
     },
 })
 
-const ExternalDataSourcesDbSchemaSchema = ExternalDataSourcesDatabaseSchemaCreateBody
+const ExternalDataSourcesDbSchemaSchema = ExternalDataSourcesDatabaseSchemaCreateBody.extend({
+    source_type: ExternalDataSourceTypeSchema,
+})
 
 const externalDataSourcesDbSchema = (): ToolBase<typeof ExternalDataSourcesDbSchemaSchema, unknown> => ({
     name: 'external-data-sources-db-schema',
@@ -807,7 +813,9 @@ const externalDataSourcesDeleteWebhookCreate = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesCheckCdcPrerequisitesCreateSchema = z.object({})
+const ExternalDataSourcesCheckCdcPrerequisitesCreateSchema = z
+    .object({})
+    .extend({ source_type: ExternalDataSourceTypeSchema })
 
 const externalDataSourcesCheckCdcPrerequisitesCreate = (): ToolBase<
     typeof ExternalDataSourcesCheckCdcPrerequisitesCreateSchema,
@@ -815,12 +823,16 @@ const externalDataSourcesCheckCdcPrerequisitesCreate = (): ToolBase<
 > => ({
     name: 'external-data-sources-check-cdc-prerequisites-create',
     schema: ExternalDataSourcesCheckCdcPrerequisitesCreateSchema,
-    // eslint-disable-next-line no-unused-vars
     handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesCheckCdcPrerequisitesCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.source_type !== undefined) {
+            body['source_type'] = params.source_type
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/check_cdc_prerequisites/`,
+            body,
         })
         return result
     },
