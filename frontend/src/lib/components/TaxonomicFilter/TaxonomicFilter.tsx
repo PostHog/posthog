@@ -4,7 +4,6 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconKeyboard } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import {
@@ -17,7 +16,7 @@ import {
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Icon123 } from 'lib/lemon-ui/icons'
 import { LemonInput, LemonInputPropsText } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { Tooltip, TooltipProps } from 'lib/lemon-ui/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
@@ -192,14 +191,12 @@ export const TaxonomicFilterSearchInput = forwardRef<
     } & Pick<
         LemonInputPropsText,
         'onClick' | 'size' | 'prefix' | 'fullWidth' | 'onChange' | 'autoFocus' | 'placeholder'
-    > &
-        Pick<TooltipProps, 'docLink'>
+    >
 >(function UniversalSearchInput(
     {
         searchInputRef,
         onClose,
         onChange,
-        docLink,
         autoFocus = true,
         placeholder,
         categoryDropdownVariant = 'control',
@@ -265,15 +262,6 @@ export const TaxonomicFilterSearchInput = forwardRef<
                             </span>
                         </Tooltip>
                     )}
-                    <Tooltip
-                        title={
-                            'Fuzzy text search, or filter by specific properties and values.' +
-                            (docLink ? ' Check the documentation for more information.' : '')
-                        }
-                        docLink={docLink}
-                    >
-                        <IconKeyboard style={{ fontSize: '1.2rem' }} className="text-secondary" />
-                    </Tooltip>
                 </>
             }
             onKeyDown={(e) => {
