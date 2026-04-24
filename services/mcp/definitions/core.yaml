@@ -75,13 +75,13 @@ tools:
         operation: oauth_applications_list
         enabled: false
     projects-list:
-        operation: list_2
+        operation: organizations_projects_list
         enabled: false
     projects-create:
-        operation: create_2
+        operation: organizations_projects_create
         enabled: false
     project-get:
-        operation: retrieve_2
+        operation: organizations_projects_retrieve
         enabled: true
         scopes:
             - project:read
@@ -102,10 +102,10 @@ tools:
                 - live_events_token
                 - default_modifiers
     projects-update:
-        operation: update_2
+        operation: organizations_projects_update
         enabled: false
     project-settings-update:
-        operation: partial_update_2
+        operation: organizations_projects_partial_update
         enabled: true
         scopes:
             - project:write
@@ -139,34 +139,34 @@ tools:
             id:
                 description: Project ID, or `@current` to target the caller's active project.
     projects-destroy:
-        operation: destroy_2
+        operation: organizations_projects_destroy
         enabled: false
     activity-retrieve:
-        operation: activity_retrieve
+        operation: organizations_projects_activity_retrieve
         enabled: false
     add-product-intent-partial-update:
-        operation: add_product_intent_partial_update
+        operation: organizations_projects_add_product_intent_partial_update
         enabled: false
     change-organization-create:
-        operation: change_organization_create
+        operation: organizations_projects_change_organization_create
         enabled: false
     complete-product-onboarding-partial-update:
-        operation: complete_product_onboarding_partial_update
+        operation: organizations_projects_complete_product_onboarding_partial_update
         enabled: false
     delete-secret-token-backup-partial-update:
-        operation: delete_secret_token_backup_partial_update
+        operation: organizations_projects_delete_secret_token_backup_partial_update
         enabled: false
     generate-conversations-public-token-create:
-        operation: generate_conversations_public_token_create
+        operation: organizations_projects_generate_conversations_public_token_create
         enabled: false
     is-generating-demo-data-retrieve:
-        operation: is_generating_demo_data_retrieve
+        operation: organizations_projects_is_generating_demo_data_retrieve
         enabled: false
     reset-token-partial-update:
-        operation: reset_token_partial_update
+        operation: organizations_projects_reset_token_partial_update
         enabled: false
     rotate-secret-token-partial-update:
-        operation: rotate_secret_token_partial_update
+        operation: organizations_projects_rotate_secret_token_partial_update
         enabled: false
     roles-list:
         operation: roles_list
@@ -788,4 +788,7 @@ tools:
         enabled: false
     legal-documents-download-retrieve:
         operation: legal_documents_download_retrieve
+        enabled: false
+    cohorts-all-activity-retrieve:
+        operation: cohorts_all_activity_retrieve
         enabled: false

@@ -348,11 +348,14 @@ export const getVisualReviewRunsCompleteCreateUrl = (projectId: string, id: stri
 export const visualReviewRunsCompleteCreate = async (
     projectId: string,
     id: string,
+    runApi: RunApi,
     options?: RequestInit
 ): Promise<RunApi> => {
     return apiMutator<RunApi>(getVisualReviewRunsCompleteCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(runApi),
     })
 }
 
