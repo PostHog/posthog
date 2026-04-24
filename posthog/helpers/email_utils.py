@@ -78,7 +78,7 @@ def validate_message_body(value: str | None) -> str | None:
     control chars, angle brackets, and invisible chars are not.
     """
     if value is None or not value.strip():
-        return value
+        return None
 
     if _NON_NEWLINE_CONTROL_RE.search(value):
         raise serializers.ValidationError(_CONTROL_ERROR, code="invalid_control_char")

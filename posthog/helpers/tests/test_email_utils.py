@@ -316,6 +316,7 @@ class TestValidateDisplayName(SimpleTestCase):
             ("unicode", "Михаил", "Михаил"),
             ("amp", "Ben & Jerry's", "Ben & Jerry's"),
             ("org_dot_com_name", "Acme.com", "Acme.com"),
+            ("www_midword", "Wwwilliam", "Wwwilliam"),
             ("trims", "   Marius   ", "Marius"),
             ("empty", "", ""),
             ("whitespace_only", "   ", ""),
@@ -341,7 +342,7 @@ class TestValidateDisplayName(SimpleTestCase):
             ("line_separator", "foo\u2028bar", "invalid_control_char"),
             ("paragraph_separator", "foo\u2029bar", "invalid_control_char"),
             ("next_line", "foo\u0085bar", "invalid_control_char"),
-            ("www_midword", "Wwwilliam", "invalid_url"),
+            ("www_embedded", "myname www.scam.io", "invalid_url"),
             ("lt", "foo<bar", "invalid_bracket"),
             ("gt", "link > here", "invalid_bracket"),
             ("zero_width", "foo\u200bbar", "invalid_invisible_char"),
@@ -361,16 +362,28 @@ class TestValidateMessageBody(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("url", "Check https://evil.com"),
-            ("www", "Visit www.scam.io"),
-            ("bracket", "hello <there>"),
+            ("url", "Check https://evil.com", "invalid_url"),
+            ("www", "Visit www.scam.io", "invalid_url"),
+            ("bracket", "hello <there>", "invalid_bracket"),
+            ("invisible", "foo\u200bbar", "invalid_invisible_char"),
+            ("rtl_override", "foo\u202ebar", "invalid_invisible_char"),
+            ("non_newline_control", "foo\x01bar", "invalid_control_char"),
+            ("carriage_return", "foo\rbar", "invalid_control_char"),
+            ("del", "foo\x7fbar", "invalid_control_char"),
+            ("line_separator", "foo\u2028bar", "invalid_control_char"),
         ]
     )
-    def test_rejects(self, _name: str, value: str) -> None:
-        with self.assertRaises(serializers.ValidationError):
+    def test_rejects(self, _name: str, value: str, expected_code: str) -> None:
+        with self.assertRaises(serializers.ValidationError) as cm:
             validate_message_body(value)
+        self.assertEqual(cm.exception.detail[0].code, expected_code)
 
-    def test_none_and_empty_pass_through(self) -> None:
+    def test_allows_tab(self) -> None:
+        value = "Indented:\n\tline"
+        self.assertEqual(validate_message_body(value), value)
+
+    def test_blank_normalises_to_none(self) -> None:
         self.assertIsNone(validate_message_body(None))
-        self.assertEqual(validate_message_body(""), "")
+        self.assertIsNone(validate_message_body(""))
+        self.assertIsNone(validate_message_body("   \n\t  "))
         self.assertEqual(validate_message_body("   "), "   ")
