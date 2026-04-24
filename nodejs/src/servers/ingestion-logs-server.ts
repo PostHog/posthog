@@ -3,12 +3,7 @@ import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'
 import { createPosthogRedisConnectionConfig } from '../config/redis-pools'
-import {
-    KafkaIngestionProducerEnvConfig,
-    KafkaProducerEnvConfig,
-    getDefaultKafkaIngestionProducerEnvConfig,
-    getDefaultKafkaProducerEnvConfig,
-} from '../ingestion/common/config'
+import { KafkaIngestionProducerEnvConfig, getDefaultKafkaIngestionProducerEnvConfig } from '../ingestion/common/config'
 import { DatabaseConnectionConfig, KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
 import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
 import {
@@ -20,9 +15,11 @@ import { LogsIngestionConsumer } from '../logs-ingestion/logs-ingestion-consumer
 import { createProducerRegistry } from '../logs-ingestion/outputs/producer-registry'
 import {
     KafkaMskProducerEnvConfig,
+    KafkaWarpstreamLogsProducerEnvConfig,
     LogsProducerName,
     WARPSTREAM_LOGS_PRODUCER,
     getDefaultKafkaMskProducerEnvConfig,
+    getDefaultKafkaWarpstreamLogsProducerEnvConfig,
 } from '../logs-ingestion/outputs/producers'
 import { createOutputsRegistry } from '../logs-ingestion/outputs/registry'
 import { PluginServerService, RedisPool } from '../types'
@@ -46,7 +43,7 @@ import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from 
 export type IngestionLogsServerConfig = BaseServerConfig &
     LogsIngestionConsumerConfig &
     LogsIngestionOutputsConfig &
-    KafkaProducerEnvConfig &
+    KafkaWarpstreamLogsProducerEnvConfig &
     KafkaMskProducerEnvConfig &
     KafkaIngestionProducerEnvConfig &
     KafkaBrokerConfig &
@@ -65,7 +62,7 @@ export class IngestionLogsServer implements NodeServer {
     constructor(config: Partial<IngestionLogsServerConfig> = {}) {
         this.config = {
             ...defaultConfig,
-            ...overrideConfigWithEnv(getDefaultKafkaProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaWarpstreamLogsProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaMskProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaIngestionProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultLogsIngestionOutputsConfig()),
