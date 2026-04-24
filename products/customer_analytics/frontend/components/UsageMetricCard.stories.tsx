@@ -150,7 +150,11 @@ export const NullTrend: StoryObj = {
 }
 
 export const Skeleton: StoryObj = {
-    render: () => <UsageMetricCardSkeleton />,
+    render: () => (
+        <div style={{ width: 1280 }}>
+            <UsageMetricCardSkeleton />
+        </div>
+    ),
     parameters: {
         testOptions: { waitForLoadersToDisappear: false },
     },
