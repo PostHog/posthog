@@ -291,7 +291,11 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
             }
         },
         setDate: ({ dateFrom, dateTo, explicitDate }) => {
-            props.onChange?.(dateFrom, dateTo, explicitDate)
+            // Normalise empty-string to null so consumers (e.g. cohort criteria) don't persist
+            // semantically-empty upper bounds. Several call sites still pass `''` for "no bound".
+            const normalisedFrom = dateFrom === '' ? null : dateFrom
+            const normalisedTo = dateTo === '' ? null : dateTo
+            props.onChange?.(normalisedFrom, normalisedTo, explicitDate)
         },
         setExplicitDate: ({ explicitDate }) => {
             props.onChange?.(values.dateFrom, values.dateTo, explicitDate)

@@ -318,7 +318,9 @@ export function CohortRelativeAndExactTimeField({
                 onChange={(fromDate, toDate) => {
                     onChange({
                         [fieldKey]: fromDate,
-                        explicit_datetime_to: toDate ?? null,
+                        // `|| null` rather than `?? null` so an empty-string `toDate` (some
+                        // callers pass '' to mean "no bound") is normalised to null too.
+                        explicit_datetime_to: toDate || null,
                     })
                 }}
                 max={1000}
