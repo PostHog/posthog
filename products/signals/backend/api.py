@@ -6,6 +6,7 @@ from django.conf import settings
 
 import pydantic
 import tiktoken
+import structlog
 import temporalio
 import posthoganalytics
 
@@ -20,6 +21,8 @@ from products.signals.backend.models import SignalSourceConfig
 from products.signals.backend.temporal.buffer import BufferSignalsWorkflow
 from products.signals.backend.temporal.emitter import SignalEmitterInput, SignalEmitterWorkflow
 from products.signals.backend.temporal.types import BufferSignalsInput, EmitSignalInputs
+
+logger = structlog.get_logger(__name__)
 
 MAX_SIGNAL_DESCRIPTION_TOKENS = 8000
 _tiktoken_encoding = tiktoken.get_encoding("cl100k_base")
@@ -128,16 +131,25 @@ async def emit_signal(
         }
     )
 
-    posthoganalytics.capture(
-        event="signal_emitted",
-        distinct_id=str(team.uuid),
-        properties={
-            "source_product": source_product,
-            "source_type": source_type,
-            "source_id": source_id,
-        },
-        groups=groups(organization, team),
-    )
+    try:
+        posthoganalytics.capture(
+            event="signal_emitted",
+            distinct_id=str(team.uuid),
+            properties={
+                "source_product": source_product,
+                "source_type": source_type,
+                "source_id": source_id,
+            },
+            groups=groups(organization, team),
+        )
+    except Exception:
+        # Swallow the exception, to avoid breaking the flow over failed analytics event
+        logger.exception(
+            "Failed to capture signal_emitted event",
+            source_product=source_product,
+            source_type=source_type,
+            source_id=source_id,
+        )
 
     client = await async_connect()
 
