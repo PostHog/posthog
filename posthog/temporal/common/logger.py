@@ -682,24 +682,30 @@ class KafkaLogProducerFromQueueAsync:
     async def produce(self, msg: bytes):
         """Produce messages to configured topic and key.
 
-        We catch any exceptions so as to continue processing the queue even if the broker is unavailable
-        or we fail to produce for whatever other reason. We log the failure to not fail silently.
-        """
-        fut = await self.producer.produce(
-            topic=self.topic,
-            data=msg,
-            key=self.key,
-            value_serializer=lambda v: v,
-        )
-        fut.add_done_callback(self.mark_queue_done)
+        We catch any exceptions so as to continue processing the queue even if the
+        broker is unavailable we fail to produce for whatever other reason. We log the
+        failure to not fail silently.
 
+        Note that `self.producer.produce` may not immediately produce a message, nor do
+        we wait for the message to be fully produced here. Whether a message is produced
+        depends on the underlying producer's `batch_size` a `buffer_timeout`. To force a
+        message to be produced, call `flush()`.
+        """
         try:
-            await fut
+            fut = await self.producer.produce(
+                topic=self.topic,
+                data=msg,
+                key=self.key,
+                value_serializer=lambda v: v,
+            )
+            fut.add_done_callback(self.mark_queue_done)
+
         except Exception:
             self.logger.exception("Failed to produce log to Kafka topic %s", self.topic)
             self.logger.debug("Message that couldn't be produced to Kafka topic %s: %s", self.topic, msg)
 
     async def flush(self):
+        """Flush underlying producer, effectively producing any messages in the batch."""
         try:
             await self.producer.flush()
         except Exception:
