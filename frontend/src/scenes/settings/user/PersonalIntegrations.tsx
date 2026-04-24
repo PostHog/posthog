@@ -1,56 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconGear, IconGithub, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonSkeleton, Spinner } from '@posthog/lemon-ui'
+import { IconGithub, IconPlus, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { GitHubRepoSummary } from 'lib/integrations/GitHubRepoSummary'
 import { userGithubIntegrationLogic } from 'lib/integrations/userGithubIntegrationLogic'
-import { IconBranch } from 'lib/lemon-ui/icons'
 
 import { personalIntegrationsLogic, PersonalGitHubIntegration } from './personalIntegrationsLogic'
-
-function GitHubRepositoryInfo({ installationId }: { installationId: string }): JSX.Element {
-    const logic = userGithubIntegrationLogic({ installationId })
-    const { repositories, repositoriesLoading } = useValues(logic)
-    const { loadRepositories } = useActions(logic)
-
-    useEffect(() => {
-        loadRepositories()
-    }, [loadRepositories])
-
-    if (repositoriesLoading && repositories.length === 0) {
-        return (
-            <div className="flex items-center gap-1 text-xs text-muted mt-1 min-h-5">
-                <Spinner className="text-sm" />
-                Loading repositories...
-            </div>
-        )
-    }
-
-    if (repositories.length > 0) {
-        return (
-            <div className="text-xs text-muted mt-1 min-h-5">
-                <IconBranch className="inline mr-1 text-sm" />
-                {repositories.length} repositor
-                {repositories.length === 1 ? 'y' : 'ies'} accessible:{' '}
-                {repositories.length <= 3
-                    ? repositories.map((r) => r.name).join(', ')
-                    : `${repositories
-                          .slice(0, 3)
-                          .map((r) => r.name)
-                          .join(', ')} and ${repositories.length - 3} more`}
-            </div>
-        )
-    }
-
-    return (
-        <div className="text-xs text-muted mt-1 min-h-5">
-            <IconBranch className="inline mr-1 text-sm" />
-            No repositories accessible
-        </div>
-    )
-}
 
 function GitHubInstallationRow({ integration }: { integration: PersonalGitHubIntegration }): JSX.Element {
     const { disconnectGitHub } = useActions(personalIntegrationsLogic)
@@ -58,10 +16,16 @@ function GitHubInstallationRow({ integration }: { integration: PersonalGitHubInt
     const installationId = integration.installation_id
     const accountType = integration.account?.type
     const accountName = integration.account?.name
-    const manageUrl =
-        accountType === 'Organization' && accountName
-            ? `https://github.com/organizations/${accountName}/settings/installations/${installationId}`
-            : `https://github.com/settings/installations/${installationId}`
+
+    const logic = installationId ? userGithubIntegrationLogic({ installationId }) : null
+    const { repositories, repositoriesLoading } = useValues(logic ?? userGithubIntegrationLogic({ installationId: '' }))
+    const { loadRepositories } = useActions(logic ?? userGithubIntegrationLogic({ installationId: '' }))
+
+    useEffect(() => {
+        if (installationId) {
+            loadRepositories()
+        }
+    }, [installationId, loadRepositories])
 
     const handleDisconnect = (): void => {
         LemonDialog.open({
@@ -103,18 +67,17 @@ function GitHubInstallationRow({ integration }: { integration: PersonalGitHubInt
                     )}
                     {integration.uses_shared_installation ? ' · Also used by this project' : ''}
                 </div>
-                {installationId ? <GitHubRepositoryInfo installationId={installationId} /> : null}
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-                {installationId ? (
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        icon={<IconGear />}
-                        onClick={() => window.open(manageUrl, '_blank')}
-                        tooltip="Manage repository access on GitHub"
+                <div className="mt-1">
+                    <GitHubRepoSummary
+                        repoNames={repositories.map((r) => r.name)}
+                        loading={repositoriesLoading}
+                        installationId={installationId}
+                        accountType={accountType}
+                        accountName={accountName}
                     />
-                ) : null}
+                </div>
+            </div>
+            <div className="flex shrink-0 items-center">
                 <LemonButton
                     size="small"
                     type="secondary"
@@ -159,7 +122,7 @@ export function PersonalIntegrations(): JSX.Element {
                 )}
                 <div className="px-4 py-3">
                     <LemonButton type="secondary" size="small" icon={<IconPlus />} onClick={connectGitHub}>
-                        {githubIntegrations.length === 0 ? 'Connect GitHub' : 'Add another installation'}
+                        {githubIntegrations.length === 0 ? 'Connect GitHub' : 'Add account/organization'}
                     </LemonButton>
                 </div>
             </div>

@@ -183,9 +183,7 @@ class LinkedAccountsViewSet(viewsets.ViewSet):
 
 @require_http_methods(["GET"])
 @session_auth_required
-def github_link_complete(
-    request: HttpRequest,
-) -> HttpResponseRedirect:  # nosemgrep: python.django.security.injection.ssrf.ssrf-injection-requests.ssrf-injection-requests -- installation_id is validated as digits-only before any URL construction
+def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
     """GitHub App installation + authorization callback.
 
     After the user installs the GitHub App and authorizes it, GitHub redirects
@@ -211,6 +209,7 @@ def github_link_complete(
         )
         return _error(github_error if github_error == "access_denied" else "github_oauth_error")
 
+    # nosemgrep: python.django.security.injection.ssrf.ssrf-injection-requests.ssrf-injection-requests -- validated as digits-only below before any URL construction
     installation_id = request.GET.get("installation_id")
     code = request.GET.get("code")
     state_raw = request.GET.get("state")
