@@ -4,6 +4,8 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 
+from parameterized import parameterized
+
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
 
@@ -154,6 +156,79 @@ class TestCreateNotification(BaseTest):
         from products.notifications.backend.facade.api import ACTIVE_REALTIME_NOTIFICATION_TYPES
 
         assert NotificationType.COMMENT_MENTION in ACTIVE_REALTIME_NOTIFICATION_TYPES
+
+    @parameterized.expand(
+        [
+            (
+                "muted_same_team",
+                lambda team: {"realtime_notifications_disabled": {"comment_mention": {str(team.id): True}}},
+                False,
+            ),
+            (
+                "muted_other_type",
+                lambda team: {"realtime_notifications_disabled": {"alert_firing": {str(team.id): True}}},
+                True,
+            ),
+            (
+                "muted_other_team",
+                lambda team: {"realtime_notifications_disabled": {"comment_mention": {"99999": True}}},
+                True,
+            ),
+            ("settings_none", lambda team: None, True),
+            ("realtime_key_none", lambda team: {"realtime_notifications_disabled": None}, True),
+        ]
+    )
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notifications.backend.logic._publish_to_kafka")
+    def test_create_notification_respects_per_user_pref(
+        self, _name, settings_factory, expect_notified, mock_publish, mock_ff
+    ):
+        settings = settings_factory(self.team)
+        if settings is None:
+            self.user.partial_notification_settings = None
+        else:
+            self.user.partial_notification_settings = settings
+        self.user.save()
+
+        data = NotificationData(
+            team_id=self.team.id,
+            notification_type=NotificationType.COMMENT_MENTION,
+            title="Test",
+            body="",
+            target_type=TargetType.USER,
+            target_id=str(self.user.id),
+        )
+        event = create_notification(data)
+
+        if expect_notified:
+            assert event is not None
+            assert event.resolved_user_ids == [self.user.id]
+        else:
+            assert event is None
+
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notifications.backend.logic._publish_to_kafka")
+    def test_create_notification_filters_org_target_by_per_user_pref(self, mock_publish, mock_ff):
+        user2 = User.objects.create_and_join(self.organization, "muted@test.com", "password")
+        user2.partial_notification_settings = {
+            "realtime_notifications_disabled": {
+                "comment_mention": {str(self.team.id): True},
+            }
+        }
+        user2.save()
+
+        data = NotificationData(
+            team_id=self.team.id,
+            notification_type=NotificationType.COMMENT_MENTION,
+            title="Test",
+            body="",
+            target_type=TargetType.ORGANIZATION,
+            target_id=str(self.organization.id),
+        )
+        event = create_notification(data)
+
+        assert event is not None
+        assert set(event.resolved_user_ids) == {self.user.id}
 
 
 class TestAccessControlFiltering(BaseTest):
