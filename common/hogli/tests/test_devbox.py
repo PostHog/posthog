@@ -213,6 +213,7 @@ class TestCoderConfig:
     ) -> None:
         monkeypatch.setattr(coder, "ensure_tailscale_connected", lambda setup_hint=coder.RUNTIME_SETUP_HINT: None)
         monkeypatch.setattr(coder, "ensure_tailscale_routes_accepted", lambda: None)
+        monkeypatch.setattr(coder, "ensure_coder_reachable", lambda: None)
         monkeypatch.setattr(coder, "coder_installed", lambda: False)
 
         with pytest.raises(SystemExit):
