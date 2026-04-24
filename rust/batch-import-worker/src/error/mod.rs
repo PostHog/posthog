@@ -108,7 +108,8 @@ pub fn is_timeout_error(error: &anyhow::Error) -> bool {
 
 /// Returns true if the error chain contains a transport-level reqwest error
 /// (connection refused/closed/reset, DNS, TLS, premature body close). Transient,
-/// retry with backoff. Excludes timeouts (see is_timeout_error) and HTTP status errors.
+/// retry with backoff. Excludes timeouts (see is_timeout_error), HTTP status errors,
+/// and builder errors (malformed URL / illegal header).
 pub fn is_transient_network_error(error: &anyhow::Error) -> bool {
     if let Some(reqwest_err) = error.downcast_ref::<reqwest::Error>() {
         if !reqwest_err.is_timeout() && reqwest_err.status().is_none() {
@@ -119,7 +120,7 @@ pub fn is_transient_network_error(error: &anyhow::Error) -> bool {
     let mut source = error.source();
     while let Some(err) = source {
         if let Some(reqwest_err) = err.downcast_ref::<reqwest::Error>() {
-            if !reqwest_err.is_timeout() && reqwest_err.status().is_none() {
+            if !reqwest_err.is_timeout() && !reqwest_err.is_builder() && reqwest_err.status().is_none() {
                 return true;
             }
         }
@@ -348,5 +349,19 @@ mod tests {
         let err = anyhow::Error::from(err);
         assert!(is_transient_network_error(&err));
         assert!(!is_timeout_error(&err));
+    }
+
+    #[tokio::test]
+    async fn test_is_transient_network_error_false_for_builder_error() {
+        // Null byte in header value — rejected at request construction, not transient.
+        let client = Client::new();
+        let err = client
+            .get("http://127.0.0.1:1/")
+            .header("X-Test", "bad\0value")
+            .send()
+            .await
+            .unwrap_err();
+        let err = anyhow::Error::from(err);
+        assert!(!is_transient_network_error(&err));
     }
 }
