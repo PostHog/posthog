@@ -331,7 +331,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                                     data-attr="password"
                                     placeholder="••••••••••"
                                     autoComplete="new-password"
-                                    autoFocus
+                                    autoFocus={!passkeySignupEnabled}
                                     disabled={isSignupSubmitting || passkeyRegistered}
                                 />
                             </LemonField>

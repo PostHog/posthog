@@ -62,7 +62,7 @@ export function Login2FA(): JSX.Element {
                         <LemonField name="token" label="Authenticator token">
                             <LemonInput
                                 className="ph-ignore-input"
-                                autoFocus
+                                autoFocus={!passkeysAvailable}
                                 data-attr="token"
                                 placeholder="123456"
                                 inputMode="numeric"
