@@ -14,7 +14,7 @@ class TestGetLimit(BaseTest):
     def test_returns_default_when_no_override(self) -> None:
         assert get_limit(team=self.team, key=self.key) == 500
 
-    def test_returns_team_override(self) -> None:
+    def test_override_above_default_raises_the_limit(self) -> None:
         TeamLimitOverride.objects.create(
             team=self.team,
             limit_key=self.key,
@@ -22,6 +22,18 @@ class TestGetLimit(BaseTest):
             reason="test",
         )
         assert get_limit(team=self.team, key=self.key) == 1000
+
+    def test_override_below_default_does_not_lower_the_limit(self) -> None:
+        # Regression guard: a stale low override (e.g. 300 when the default
+        # has since been bumped to 500) must not cap the team below everyone
+        # else. Override is a floor, not a hard pin.
+        TeamLimitOverride.objects.create(
+            team=self.team,
+            limit_key=self.key,
+            value=300,
+            reason="stale override below default",
+        )
+        assert get_limit(team=self.team, key=self.key) == 500
 
     def test_null_value_override_is_unlimited(self) -> None:
         TeamLimitOverride.objects.create(
