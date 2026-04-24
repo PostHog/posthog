@@ -137,39 +137,61 @@ const PinnedFiltersEmptyState = (): JSX.Element => {
     )
 }
 
+const DescriptiveEmptyState = ({
+    heading,
+    explanation,
+    hint,
+}: {
+    heading: string
+    explanation: string
+    hint: string
+}): JSX.Element => {
+    return (
+        <div className="flex flex-col items-center gap-2 p-8 mt-4 w-full text-center">
+            <p className="text-sm font-semibold text-primary">{heading}</p>
+            <p className="text-sm text-secondary max-w-md">{explanation}</p>
+            <p className="text-xs text-tertiary max-w-md">{hint}</p>
+        </div>
+    )
+}
+
 const PageviewUrlsEmptyState = (): JSX.Element => {
     const { hasPageview } = getProjectEventExistence()
     return (
-        <div className="flex flex-col items-center p-8 mt-4 w-full text-center">
-            <p className="text-sm text-secondary">
-                {hasPageview
-                    ? 'Search to find pageview URLs. Type at least 3 characters to see results.'
-                    : 'No pageview events have been ingested yet. Once your app sends $pageview events, URLs will appear here.'}
-            </p>
-        </div>
+        <DescriptiveEmptyState
+            heading="Pageview events filtered by URL"
+            explanation="Pick a URL to match $pageview events whose current URL equals it — a handy shortcut to saying 'pageviews, but only on this page'."
+            hint={
+                hasPageview
+                    ? 'Type at least 3 characters to search URLs we have seen.'
+                    : 'No $pageview events have been ingested yet. Once your app sends them, URLs will appear here.'
+            }
+        />
     )
 }
 
 const ScreensEmptyState = (): JSX.Element => {
     const { hasScreen } = getProjectEventExistence()
     return (
-        <div className="flex flex-col items-center p-8 mt-4 w-full text-center">
-            <p className="text-sm text-secondary">
-                {hasScreen
-                    ? 'Search to find screens. Type at least 3 characters to see results.'
-                    : 'No screen events have been ingested yet. Once your app sends $screen events, screen names will appear here.'}
-            </p>
-        </div>
+        <DescriptiveEmptyState
+            heading="Screenview events filtered by screen name"
+            explanation="Pick a screen name to match $screen events whose screen equals it — a shortcut for 'screenviews, but only on this screen'."
+            hint={
+                hasScreen
+                    ? 'Type at least 3 characters to search screens we have seen.'
+                    : 'No $screen events have been ingested yet. Once your app sends them, screen names will appear here.'
+            }
+        />
     )
 }
 
 const EmailAddressesEmptyState = (): JSX.Element => {
     return (
-        <div className="flex flex-col items-center p-8 mt-4 w-full text-center">
-            <p className="text-sm text-secondary">
-                Search to find email addresses. Type at least 5 characters to see results.
-            </p>
-        </div>
+        <DescriptiveEmptyState
+            heading="Events filtered by email address"
+            explanation="Pick an email to match events whose user email equals it — a shortcut for 'events, but only by this person'."
+            hint="Type at least 5 characters to search email addresses we have seen."
+        />
     )
 }
 
