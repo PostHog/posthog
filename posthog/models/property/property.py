@@ -123,13 +123,13 @@ VALIDATE_PROP_TYPES = {
 VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES = {
     BehavioralPropertyType.PERFORMED_EVENT: [
         {"time_value", "time_interval"},
+        # explicit_datetime_to is always optional — the existing `{explicit_datetime}` entry
+        # already accepts the both-set case since the validator uses "all required keys present".
         {"explicit_datetime"},
-        {"explicit_datetime", "explicit_datetime_to"},
     ],
     BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE: [
         {"time_value", "time_interval"},
         {"explicit_datetime"},
-        {"explicit_datetime", "explicit_datetime_to"},
     ],
 }
 

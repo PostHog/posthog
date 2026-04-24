@@ -260,9 +260,10 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                         : formatDateRange(dayjs(dateFrom), dayjs(dateTo))
                     : isDateToNow
                       ? `${
-                            allowTimePrecision && dateFromHasTimePrecision
-                                ? formatDateTime(dayjs(dateFrom))
-                                : formatDate(dayjs(dateFrom))
+                            // Preserve pre-PR behavior: honour time precision based on the stored
+                            // value alone. `allowTimePrecision` gating only applies to range
+                            // rendering (to keep fixed ranges date-only in the cohort field).
+                            dateFromHasTimePrecision ? formatDateTime(dayjs(dateFrom)) : formatDate(dayjs(dateFrom))
                         } to now`
                       : isFixedDate
                         ? formatDate(dateStringToDayJs(dateFrom) ?? dayjs(dateFrom))

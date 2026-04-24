@@ -544,8 +544,12 @@ class FOSSCohortQuery(EventQuery):
             if prop.explicit_datetime_to:
                 date_to_param = f"{prepend}_explicit_date_to_{idx}"
                 target_datetime_to = relative_date_parse(prop.explicit_datetime_to, self._team.timezone_info)
+                # Upper bound is inclusive of the full to-date, matching the HogQL engine which
+                # compares a day-precision `date` column with `<= toDate(...)`. Normalising to
+                # end-of-day here keeps both engines producing identical cohort membership.
+                target_datetime_to = target_datetime_to.replace(hour=23, minute=59, second=59, microsecond=999999)
                 params[date_to_param] = target_datetime_to
-                clause = f"{clause} AND timestamp < %({date_to_param})s"
+                clause = f"{clause} AND timestamp <= %({date_to_param})s"
 
             return clause, params
         else:

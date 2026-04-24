@@ -174,6 +174,26 @@ describe('dateFilterLogic', () => {
         })
     })
 
+    it('isDateToNow label preserves time precision even without allowTimePrecision', async () => {
+        // Regression guard: labels for callers that store a time-precise dateFrom but don't pass
+        // `allowTimePrecision` should still render the time — the new `allowSingleAndRange`
+        // gating must not silently strip seconds from unrelated call sites.
+        props = {
+            key: 'test-datetonow-time',
+            onChange,
+            dateFrom: '2024-01-15T10:30:00',
+            dateTo: null,
+            dateOptions: [],
+            isDateFormatted: false,
+        }
+        const logicWithTime = dateFilterLogic(props)
+        logicWithTime.mount()
+
+        await expectLogic(logicWithTime).toMatchValues({
+            label: 'January 15, 2024 10:30:00 to now',
+        })
+    })
+
     it('can set the date range', async () => {
         props = {
             key: 'test',
