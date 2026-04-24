@@ -27,6 +27,13 @@
         margin-bottom: 0.5em;
     }
 
+    // Inline <code>: monospace glyphs appear visually larger at the same em size,
+    // so drop inline code ~1px to match surrounding proportional text.
+    // Block code is rendered by CodeSnippet (pre > code) and sets its own font-size.
+    :not(pre) > code {
+        font-size: 0.8125rem;
+    }
+
     hr {
         margin: 1em 0;
     }
