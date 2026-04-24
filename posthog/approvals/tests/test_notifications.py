@@ -506,3 +506,43 @@ class TestSendRealtimeResolved(TestApprovalNotifications):
         _send_realtime_resolved(change_request, title="x", body="y")
 
         mock_create_notification.assert_not_called()
+
+
+class TestRealtimeDispatchOnResolve(TestApprovalNotifications):
+    @patch("posthog.approvals.notifications.create_notification")
+    @patch("posthog.approvals.notifications._send_approval_email")
+    def test_decision_approved_dispatches_realtime(self, _mock_email, mock_create_notification):
+        change_request = self._create_change_request_with_approvers([])
+        approval = self._create_approval(change_request, decision="approved")
+        send_approval_decision_notification(change_request, approval)
+
+        data = mock_create_notification.call_args.args[0]
+        assert "approved" in data.title.lower()
+
+    @patch("posthog.approvals.notifications.create_notification")
+    @patch("posthog.approvals.notifications._send_approval_email")
+    def test_decision_rejected_dispatches_realtime(self, _mock_email, mock_create_notification):
+        change_request = self._create_change_request_with_approvers([])
+        approval = self._create_approval(change_request, decision="rejected")
+        send_approval_decision_notification(change_request, approval)
+
+        data = mock_create_notification.call_args.args[0]
+        assert "declined" in data.title.lower()
+
+    @patch("posthog.approvals.notifications.create_notification")
+    @patch("posthog.approvals.notifications._send_approval_email")
+    def test_applied_dispatches_realtime(self, _mock_email, mock_create_notification):
+        change_request = self._create_change_request_with_approvers([])
+        send_approval_applied_notification(change_request)
+
+        data = mock_create_notification.call_args.args[0]
+        assert "live" in data.title.lower()
+
+    @patch("posthog.approvals.notifications.create_notification")
+    @patch("posthog.approvals.notifications._send_approval_email")
+    def test_expired_dispatches_realtime(self, _mock_email, mock_create_notification):
+        change_request = self._create_change_request_with_approvers([])
+        send_approval_expired_notification(change_request)
+
+        data = mock_create_notification.call_args.args[0]
+        assert "expired" in data.title.lower()
