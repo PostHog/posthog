@@ -75,9 +75,11 @@ export function TaxonomicFilter({
     const focusInput = (): void => searchInputRef.current?.focus()
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const categoryDropdownVariant = resolveCategoryDropdownVariant(
-        featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
-    )
+    const flagVariant = resolveCategoryDropdownVariant(featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN])
+    // The pill/icon dropdown trigger lives inside the search input's suffix.
+    // When the host hides the input there is nowhere to render it, so fall
+    // back to the control layout so users can still switch categories.
+    const categoryDropdownVariant: CategoryDropdownVariant = hideSearchInput ? 'control' : flagVariant
     const resolvedSuggestedFiltersLabel =
         suggestedFiltersLabel ?? (categoryDropdownVariant === 'control' ? 'Suggestions' : 'All')
 

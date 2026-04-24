@@ -899,6 +899,23 @@ describe('TaxonomicFilter', () => {
             expect(screen.queryByTestId(/taxonomic-category-dropdown-trigger-/)).not.toBeInTheDocument()
         })
 
+        it.each(['pill', 'icon'] as const)(
+            '%s variant with hideSearchInput: falls back to the categories column so users can still switch tabs',
+            async (variant) => {
+                setVariant(variant)
+                renderFilter({
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+                    hideSearchInput: true,
+                })
+
+                await waitFor(() => {
+                    expect(screen.getByText('Categories')).toBeInTheDocument()
+                })
+
+                expect(screen.queryByTestId(/taxonomic-category-dropdown-trigger-/)).not.toBeInTheDocument()
+            }
+        )
+
         it('control variant: default suggested-filters label is "Suggestions"', async () => {
             setVariant('control')
             renderFilter({

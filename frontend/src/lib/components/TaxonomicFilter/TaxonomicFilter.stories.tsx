@@ -448,10 +448,11 @@ function CategoryDropdownStoryRender({
     useMountedLogic(actionsModel)
 
     useEffect(() => {
-        featureFlagLogic.mount()
+        const unmount = featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN], {
             [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: variant,
         })
+        return unmount
     }, [variant])
 
     return (
