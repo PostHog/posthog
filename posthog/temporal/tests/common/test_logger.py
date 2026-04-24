@@ -564,9 +564,6 @@ async def test_logger_produces_to_kafka_from_activity(activity_environment, prod
 
             assert entry["topic"] == KAFKA_LOG_ENTRIES
             assert entry["key"] is None
-            assert entry["partition"] is None
-            assert entry["timestamp_ms"] is None
-            assert entry["headers"] is None
 
             log_dict = json.loads(entry["value"].decode("utf-8"))
 
@@ -736,9 +733,6 @@ async def test_logger_produces_to_kafka_from_workflow(producer, queue, log_entri
 
         assert entry["topic"] == KAFKA_LOG_ENTRIES
         assert entry["key"] is None
-        assert entry["partition"] is None
-        assert entry["timestamp_ms"] is None
-        assert entry["headers"] is None
 
         log_dict = json.loads(entry["value"].decode("utf-8"))
 

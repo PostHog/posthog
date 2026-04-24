@@ -425,7 +425,6 @@ class _AsyncKafkaProducer:
         data: Any,
         key: Any = None,
         value_serializer: Callable[[Any], Any] | None = None,
-        headers: list[tuple[str, str | bytes]] | None = None,
     ) -> asyncio.Future[Any]:
         if not value_serializer:
             value_serializer = self.json_serializer
@@ -433,17 +432,11 @@ class _AsyncKafkaProducer:
         if key is not None:
             if not isinstance(key, bytes):
                 key = str(key).encode("utf-8")
-        encoded_headers: list[tuple[str, str | bytes | None]] | None = (
-            [(h[0], h[1] if isinstance(h[1], bytes) else h[1].encode("utf-8")) for h in headers]
-            if headers is not None
-            else None
-        )
 
         future = await self.producer.produce(
             topic=topic,
             value=b,
             key=key,
-            headers=encoded_headers,
         )
         return future
 
