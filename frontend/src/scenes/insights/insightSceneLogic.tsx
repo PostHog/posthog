@@ -579,7 +579,13 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     const query = queryFromUrl || getDefaultQuery(InsightType.TRENDS, values.filterTestAccountsDefault)
                     const taggedQuery =
                         isInsightVizNode(query) && !query.source.tags?.productKey
-                            ? { ...query, source: { ...query.source, tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } }
+                            ? {
+                                  ...query,
+                                  source: {
+                                      ...query.source,
+                                      tags: { ...query.source.tags, ...PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS },
+                                  },
+                              }
                             : query
                     values.insightLogicRef?.logic.actions.setInsight(
                         {
