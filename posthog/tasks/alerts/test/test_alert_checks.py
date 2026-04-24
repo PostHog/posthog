@@ -364,6 +364,90 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         assert "first anomaly description" in email.html_body
         assert "second anomaly description" in email.html_body
 
+    @parameterized.expand([("one_user", 1), ("two_users", 2), ("three_users", 3)])
+    @patch("posthog.tasks.alerts.utils.EmailMessage")
+    @patch("posthog.tasks.alerts.utils.create_notification")
+    def test_alert_firing_dispatches_one_realtime_notification_per_subscribed_user(
+        self,
+        _name: str,
+        extra_user_count: int,
+        mock_create_notification: MagicMock,
+        MockEmailMessage: MagicMock,
+        mock_send_notifications_for_breaches: MagicMock,
+        mock_send_errors: MagicMock,
+    ) -> None:
+        mock_email_messages(MockEmailMessage)
+        alert = AlertConfiguration.objects.get(pk=self.alert["id"])
+        for i in range(extra_user_count - 1):
+            extra_user = User.objects.create_and_join(self.organization, f"alert-sub-{i}@test.com", "password")
+            AlertSubscription.objects.create(alert_configuration=alert, user=extra_user, created_by=self.user)
+
+        send_notifications_for_breaches(alert, ["first breach"], idempotency_key="test-realtime-fanout")
+
+        expected_user_ids = sorted(str(uid) for uid in alert.subscribed_users.values_list("id", flat=True))
+        assert len(expected_user_ids) == extra_user_count
+        actual_user_ids = sorted(call.args[0].target_id for call in mock_create_notification.call_args_list)
+        assert actual_user_ids == expected_user_ids
+
+        for call in mock_create_notification.call_args_list:
+            data = call.args[0]
+            assert data.notification_type.value == "alert_firing"
+            assert data.team_id == self.team.id
+            assert data.resource_type == "insight"
+            assert data.target_type.value == "user"
+            assert data.source_type.value == "insight"
+            assert data.source_id == str(alert.insight_id)
+            assert data.resource_id == str(alert.insight.short_id)
+            assert data.title.startswith("Alert firing:")
+
+    @patch("posthog.tasks.alerts.utils.EmailMessage")
+    @patch("posthog.tasks.alerts.utils.create_notification", side_effect=RuntimeError("kafka down"))
+    def test_alert_firing_realtime_failure_does_not_break_email_path(
+        self,
+        _mock_create_notification: MagicMock,
+        MockEmailMessage: MagicMock,
+        mock_send_notifications_for_breaches: MagicMock,
+        mock_send_errors: MagicMock,
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        alert = AlertConfiguration.objects.get(pk=self.alert["id"])
+
+        # Must not raise; email send completes despite realtime dispatch failure.
+        send_notifications_for_breaches(alert, ["breach text"], idempotency_key="test-realtime-isolated-failure")
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].to[0]["recipient"] == "user1@posthog.com"
+
+    @parameterized.expand(
+        [
+            ("one_breach", ["first"], "Alert firing: alert name", "first"),
+            ("three_breaches", ["a", "b", "c"], "Alert firing: alert name", "a; b; c"),
+            ("more_than_three_breaches", ["a", "b", "c", "d", "e"], "Alert firing: alert name", "a; b; c (+2 more)"),
+        ]
+    )
+    @patch("posthog.tasks.alerts.utils.EmailMessage")
+    @patch("posthog.tasks.alerts.utils.create_notification")
+    def test_alert_firing_body_truncation(
+        self,
+        _name: str,
+        breaches: list[str],
+        expected_title: str,
+        expected_body: str,
+        mock_create_notification: MagicMock,
+        MockEmailMessage: MagicMock,
+        mock_send_notifications_for_breaches: MagicMock,
+        mock_send_errors: MagicMock,
+    ) -> None:
+        mock_email_messages(MockEmailMessage)
+        alert = AlertConfiguration.objects.get(pk=self.alert["id"])
+
+        send_notifications_for_breaches(alert, breaches, idempotency_key=f"test-body-{_name}")
+
+        assert mock_create_notification.call_count == 1
+        data = mock_create_notification.call_args.args[0]
+        assert data.title == expected_title
+        assert data.body == expected_body
+
     def test_alert_not_recalculated_when_not_due(
         self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
     ) -> None:
