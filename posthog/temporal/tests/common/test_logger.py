@@ -93,12 +93,12 @@ class CaptureKafkaProducer:
     """Wrap a `_AsyncKafkaProducer` to captures calls to `produce`."""
 
     def __init__(self, *args, topic: str, loop: asyncio.AbstractEventLoop, **kwargs):
-        self.entries = []
+        self.entries: list[dict[str, str | bytes]] = []
         self.producer: _AsyncKafkaProducer = new_async_producer(topic=topic, loop=loop)
         self._is_closed = False
 
     async def produce(self, *, topic, data, key=None, value_serializer=None):
-        """Append an entry and delegate to aiokafka.AIOKafkaProducer."""
+        """Append an entry and delegate to `_AsyncKafkaProducer`."""
         if value_serializer is not None:
             data = value_serializer(data)
 
