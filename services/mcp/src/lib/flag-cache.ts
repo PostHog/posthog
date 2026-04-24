@@ -18,7 +18,7 @@ class CloudflareKVFlagCache implements FlagDefinitionCacheProvider {
     async getFlagDefinitions(): Promise<FlagDefinitionCacheData | undefined> {
         try {
             // cacheTtl keeps hot isolates at ~0ms after the first KV read in a colo.
-            const cached = await this.kv.get(this.cacheKey, { cacheTtl: 60 })
+            const cached = await this.kv.get(this.cacheKey, { cacheTtl: 60 * 5 })
             if (cached === null) {
                 return undefined
             }

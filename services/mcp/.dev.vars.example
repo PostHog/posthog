@@ -19,3 +19,4 @@ MCP_CAT_PROJECT_ID=
 # If not set, simply won't capture any analytics
 POSTHOG_ANALYTICS_API_KEY=local_api_key
 POSTHOG_ANALYTICS_HOST=http://localhost:8010
+MCP_FLAG_LOCAL_EVAL_KEY=true
