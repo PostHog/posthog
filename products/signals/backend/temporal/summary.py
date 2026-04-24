@@ -279,16 +279,23 @@ class SignalReportSummaryWorkflow:
             if has_new_signals:
                 workflow.logger.info(f"Report {inputs.report_id} has new signals since run started, looping")
             else:  # Only emit the notification if we're not going to immediately re-run
-                await workflow.execute_activity(
-                    publish_report_completed_activity,
-                    PublishReportCompletedInput(
-                        team_id=inputs.team_id,
-                        report_id=inputs.report_id,
-                        signals=fetch_result.signals,
-                    ),
-                    start_to_close_timeout=timedelta(minutes=1),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                )
+                # Publish is best-effort: a Kafka/notification failure shouldn't flip a
+                # successfully-generated READY report to FAILED.
+                try:
+                    await workflow.execute_activity(
+                        publish_report_completed_activity,
+                        PublishReportCompletedInput(
+                            team_id=inputs.team_id,
+                            report_id=inputs.report_id,
+                            signals=fetch_result.signals,
+                        ),
+                        start_to_close_timeout=timedelta(minutes=1),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                except Exception:
+                    workflow.logger.exception(
+                        f"Failed to publish report_completed notification for {inputs.report_id}",
+                    )
             return has_new_signals
         except Exception as e:
             await workflow.execute_activity(
