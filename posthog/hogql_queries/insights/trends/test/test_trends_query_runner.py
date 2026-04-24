@@ -1022,6 +1022,54 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # action needs to be unset to display custom label
         assert response.results[0]["action"] is None
 
+    def test_cohort_breakdown_does_not_leak_series_filter_cohort(self):
+        # Regression: when a trends series has a `person is in cohort` property filter AND the
+        # breakdown is by a list of other cohorts, the LEFTJOIN_CONJOINED resolver unions every
+        # referenced cohort into the `__in_cohort` join. Previously the breakdown column was
+        # read straight from that join, so the series-filter cohort leaked in as an extra bar.
+        self._create_test_events()
+        cohort_breakdown_a = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "name", "value": "p1", "type": "person"}]}],
+            name="breakdown a",
+        )
+        cohort_breakdown_a.calculate_people_ch(pending_version=0)
+        cohort_breakdown_b = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "name", "value": "p2", "type": "person"}]}],
+            name="breakdown b",
+        )
+        cohort_breakdown_b.calculate_people_ch(pending_version=0)
+        cohort_series_filter = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {"properties": [{"key": "name", "value": ["p1", "p2", "p3"], "type": "person", "operator": "exact"}]}
+            ],
+            name="series filter",
+        )
+        cohort_series_filter.calculate_people_ch(pending_version=0)
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    properties=[{"key": "id", "value": cohort_series_filter.pk, "type": "cohort"}],
+                )
+            ],
+            None,
+            BreakdownFilter(
+                breakdown_type=BreakdownType.COHORT,
+                breakdown=[cohort_breakdown_a.pk, cohort_breakdown_b.pk],
+            ),
+        )
+
+        breakdown_values = {result["breakdown_value"] for result in response.results}
+        assert breakdown_values == {cohort_breakdown_a.pk, cohort_breakdown_b.pk}
+        assert cohort_series_filter.pk not in breakdown_values
+
     def test_trends_avg_session_duration_with_cohort_breakdown(self):
         # Regression test: queries with avg session_duration and multiple cohort
         # breakdowns should not crash with AttributeError on SelectQueryAliasType
@@ -1061,6 +1109,111 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[1]["count"] == 0
         assert len(response.results[1]["data"]) == 12
         assert len(response.results[1]["days"]) == 12
+
+    @parameterized.expand(
+        [
+            ("2_cohorts_limit_1", 2, 1),
+            ("3_cohorts_limit_1", 3, 1),
+            ("5_cohorts_limit_2", 5, 2),
+        ]
+    )
+    def test_cohort_breakdown_with_lower_breakdown_limit(self, _name, cohort_count, breakdown_limit):
+        # Regression: a breakdown_limit smaller than the number of selected cohorts
+        # used to bucket the surplus cohorts as the "Other" sentinel, which then
+        # crashed the label lookup in build_series_response with
+        # ValueError: Field 'id' expected a number but got '$$_posthog_breakdown_other_$$'.
+        self._create_test_events()
+        cohorts = []
+        for i in range(cohort_count):
+            cohort = Cohort.objects.create(
+                team=self.team,
+                groups=[{"properties": [{"key": "name", "value": f"p{i + 1}", "type": "person"}]}],
+                name=f"cohort p{i + 1}",
+            )
+            cohort.calculate_people_ch(pending_version=0)
+            cohorts.append(cohort)
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdown_type=BreakdownType.COHORT,
+                breakdown=[c.pk for c in cohorts],
+                breakdown_limit=breakdown_limit,
+            ),
+        )
+
+        breakdown_values = {result["breakdown_value"] for result in response.results}
+        assert BREAKDOWN_OTHER_STRING_LABEL not in breakdown_values
+        # Every emitted breakdown_value must be one of the selected cohort PKs.
+        assert breakdown_values.issubset({c.pk for c in cohorts})
+
+    @parameterized.expand(
+        [
+            ("total_value_display", TrendsFilter(display=ChartDisplayType.ACTIONS_BAR_VALUE)),
+            ("line_graph_display", None),
+        ]
+    )
+    def test_cohort_breakdown_with_filter_only_cohort(self, _name, trends_filter):
+        # Setup:
+        #   - 4 narrow breakdown cohorts (one person each)
+        #   - 1 broad filter-only cohort, used only in a series `person in cohort` filter
+        #   - `breakdown_limit` below the cohort count
+        # Runs through both outer-query paths (total-value rank and line-chart CTE chain).
+        self._create_test_events()
+
+        breakdown_cohorts = [
+            Cohort.objects.create(
+                team=self.team,
+                groups=[{"properties": [{"key": "name", "value": name, "type": "person"}]}],
+                name=f"breakdown {name}",
+            )
+            for name in ("p1", "p2", "p3", "p4")
+        ]
+        for cohort in breakdown_cohorts:
+            cohort.calculate_people_ch(pending_version=0)
+
+        # Broad enough to outrank any breakdown cohort — so if the filter-only cohort were to
+        # leak into the breakdown, it would push a declared cohort past the limit.
+        filter_only_cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {"key": "name", "value": ["p1", "p2", "p3", "p4"], "type": "person", "operator": "exact"}
+                    ]
+                }
+            ],
+            name="filter only",
+        )
+        filter_only_cohort.calculate_people_ch(pending_version=0)
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.DAU,
+                    properties=[{"key": "id", "value": filter_only_cohort.pk, "type": "cohort"}],
+                )
+            ],
+            trends_filter,
+            BreakdownFilter(
+                breakdown_type=BreakdownType.COHORT,
+                breakdown=[c.pk for c in breakdown_cohorts],
+                breakdown_limit=2,
+            ),
+        )
+
+        breakdown_values = {result["breakdown_value"] for result in response.results}
+        assert BREAKDOWN_OTHER_STRING_LABEL not in breakdown_values
+        assert filter_only_cohort.pk not in breakdown_values
+        assert breakdown_values.issubset({c.pk for c in breakdown_cohorts})
 
     def test_trends_avg_session_duration_with_event_breakdown(self):
         # Regression test: queries with avg session_duration and event property

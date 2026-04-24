@@ -29,6 +29,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.evaluation_context import FeatureFlagEvaluationContext
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.utils import str_to_bool
 
@@ -42,6 +43,7 @@ from products.experiments.backend.models.experiment import (
     experiment_has_legacy_metrics,
     holdout_filters_for_flag,
 )
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
@@ -404,7 +406,7 @@ class ExperimentService:
         create_in_folder: str | None = None,
         filters: dict | None = None,
         scheduling_config: dict | None = None,
-        only_count_matured_users: bool = False,
+        only_count_matured_users: bool | None = None,
         archived: bool = False,
         deleted: bool = False,
         conclusion: str | None = None,
@@ -415,6 +417,8 @@ class ExperimentService:
         creation_mode: ExperimentCreationMode = "new",
     ) -> Experiment:
         """Create experiment with full validation and defaults."""
+        metrics = self._assign_uuids_to_metrics(metrics)
+        metrics_secondary = self._assign_uuids_to_metrics(metrics_secondary)
         self.validate_variant_shapes(parameters)
         self.validate_variant_percentages(parameters)
         self.validate_experiment_metrics(metrics)
@@ -438,14 +442,16 @@ class ExperimentService:
             serializer_context=serializer_context,
         )
 
-        stats_config = self._apply_stats_config_defaults(stats_config)
+        team_config = self._get_team_experiments_config()
+        stats_config = self._apply_stats_config_defaults(stats_config, team_config)
         exposure_criteria = self._apply_exposure_criteria_defaults(exposure_criteria)
+
+        if only_count_matured_users is None:
+            only_count_matured_users = team_config.default_only_count_matured_users
 
         stats_method = "bayesian" if stats_config is None else stats_config.get("method", "bayesian")
         if metrics is not None:
             for metric in metrics:
-                if not metric.get("uuid"):
-                    metric["uuid"] = str(uuid4())
                 metric["fingerprint"] = compute_metric_fingerprint(
                     metric,
                     start_date,
@@ -455,8 +461,6 @@ class ExperimentService:
                 )
         if metrics_secondary is not None:
             for metric in metrics_secondary:
-                if not metric.get("uuid"):
-                    metric["uuid"] = str(uuid4())
                 metric["fingerprint"] = compute_metric_fingerprint(
                     metric,
                     start_date,
@@ -652,6 +656,22 @@ class ExperimentService:
             raise ValidationError("Feature flag must have a variant with key 'control'")
 
     @staticmethod
+    def _assign_uuids_to_metrics(metrics: list[dict] | None) -> list[dict] | None:
+        """Return a deep copy of ``metrics`` with a ``uuid`` filled in on every entry.
+
+        Run this before metric validation so the validated dict already carries its
+        final uuid. Callers pass dicts by reference, so we deepcopy to avoid leaking
+        the generated uuid back into their data.
+        """
+        if metrics is None:
+            return None
+        prepared = deepcopy(metrics)
+        for metric in prepared:
+            if not metric.get("uuid"):
+                metric["uuid"] = str(uuid4())
+        return prepared
+
+    @staticmethod
     def _recompute_fingerprints(
         metrics: list[dict],
         start_date: datetime | None,
@@ -674,14 +694,15 @@ class ExperimentService:
             updated.append(metric_copy)
         return updated
 
-    def _apply_stats_config_defaults(self, stats_config: dict | None) -> dict:
+    def _get_team_experiments_config(self) -> TeamExperimentsConfig:
+        return get_or_create_team_extension(self.team, TeamExperimentsConfig)
+
+    def _apply_stats_config_defaults(
+        self, stats_config: dict | None, team_config: TeamExperimentsConfig | None = None
+    ) -> dict:
         """Apply team-level defaults to stats_config."""
-        from posthog.models.team.extensions import get_or_create_team_extension
-
-        from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-
         result = dict(stats_config or {})
-        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config = team_config or self._get_team_experiments_config()
 
         if not result.get("method"):
             default_method = config.default_experiment_stats_method or "bayesian"
@@ -1289,21 +1310,17 @@ class ExperimentService:
         if "saved_metrics_ids" in update_data:
             self.validate_saved_metrics_ids(update_data["saved_metrics_ids"], self.team.id)
         if "metrics" in update_data:
+            update_data["metrics"] = self._assign_uuids_to_metrics(update_data["metrics"])
             self.validate_experiment_metrics(update_data["metrics"])
             self.validate_metric_action_ids(update_data["metrics"], self.team.id)
             if not allow_unknown_events:
                 self.validate_metric_event_names(update_data["metrics"])
-            for metric in update_data["metrics"] or []:
-                if not metric.get("uuid"):
-                    metric["uuid"] = str(uuid4())
         if "metrics_secondary" in update_data:
+            update_data["metrics_secondary"] = self._assign_uuids_to_metrics(update_data["metrics_secondary"])
             self.validate_experiment_metrics(update_data["metrics_secondary"])
             self.validate_metric_action_ids(update_data["metrics_secondary"], self.team.id)
             if not allow_unknown_events:
                 self.validate_metric_event_names(update_data["metrics_secondary"])
-            for metric in update_data["metrics_secondary"] or []:
-                if not metric.get("uuid"):
-                    metric["uuid"] = str(uuid4())
 
         context = serializer_context or self._build_serializer_context()
         feature_flag = experiment.feature_flag
@@ -1355,22 +1372,27 @@ class ExperimentService:
                 variants = update_data["parameters"].get("feature_flag_variants", [])
                 aggregation_group_type_index = update_data["parameters"].get("aggregation_group_type_index")
 
-                feature_flag_filters = feature_flag.filters
                 existing_groups = feature_flag.filters.get("groups", [])
                 experiment_rollout_percentage = update_data["parameters"].get("rollout_percentage")
                 if experiment_rollout_percentage is not None and existing_groups:
-                    existing_groups[0]["rollout_percentage"] = experiment_rollout_percentage
+                    new_groups = [
+                        {**existing_groups[0], "rollout_percentage": experiment_rollout_percentage},
+                        *existing_groups[1:],
+                    ]
+                else:
+                    new_groups = list(existing_groups)
 
-                feature_flag_filters["groups"] = existing_groups
-                feature_flag_filters["multivariate"] = {"variants": variants or list(DEFAULT_VARIANTS)}
-                feature_flag_filters["aggregation_group_type_index"] = aggregation_group_type_index
-                feature_flag_filters.update(
-                    holdout_filters_for_flag(holdout.id if holdout else None, holdout.filters if holdout else None)
-                )
+                new_filters = {
+                    **feature_flag.filters,
+                    "groups": new_groups,
+                    "multivariate": {"variants": variants or list(DEFAULT_VARIANTS)},
+                    "aggregation_group_type_index": aggregation_group_type_index,
+                    **holdout_filters_for_flag(holdout.id if holdout else None, holdout.filters if holdout else None),
+                }
 
                 existing_flag_serializer = FeatureFlagSerializer(
                     feature_flag,
-                    data={"filters": feature_flag_filters},
+                    data={"filters": new_filters},
                     partial=True,
                     context=context,
                 )
@@ -1554,7 +1576,7 @@ class ExperimentService:
         if should_check_existing:
             existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=target.id).first()
             if existing_flag and existing_flag.filters.get("multivariate", {}).get("variants"):
-                parameters["feature_flag_variants"] = existing_flag.filters["multivariate"]["variants"]
+                parameters["feature_flag_variants"] = deepcopy(existing_flag.filters["multivariate"]["variants"])
 
         self.validate_experiment_parameters(parameters)
         self.validate_experiment_exposure_criteria(source_experiment.exposure_criteria)

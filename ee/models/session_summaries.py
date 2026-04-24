@@ -11,9 +11,8 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, UUIDModel
 
-from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
-
 if TYPE_CHECKING:
+    from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
     from ee.hogai.videos.session_moments import SessionMomentOutput
 
 
@@ -100,7 +99,7 @@ class SingleSessionSummaryManager(models.Manager["SingleSessionSummary"]):
         self,
         team_id: int,
         session_id: str,
-        summary: SessionSummarySerializer,
+        summary: "SessionSummarySerializer",
         exception_event_ids: list[str],
         *,
         extra_summary_context: ExtraSummaryContext | None = None,
@@ -109,14 +108,14 @@ class SingleSessionSummaryManager(models.Manager["SingleSessionSummary"]):
         session_duration: int | None = None,
         distinct_id: str | None = None,
         created_by: User | None = None,
-    ) -> None:
+    ) -> "SingleSessionSummary":
         """Store a new session summary"""
         extra_summary_context_dict = asdict(extra_summary_context) if extra_summary_context else None
         run_metadata_dict = asdict(run_metadata) if run_metadata else None
         # No constraints of adding the summary for the same session.
         # It should be impossible, but we get the latest version anyways, even if it happens miracously.
         # I also see value later in storing summaries with/without visual confirmation, different models, etc.
-        self.create(
+        return self.create(
             team_id=team_id,
             session_id=session_id,
             summary=summary.data,

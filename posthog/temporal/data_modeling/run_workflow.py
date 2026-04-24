@@ -720,7 +720,7 @@ async def materialize_model(
 
 async def mark_job_as_failed(job: DataModelingJob, error_message: str, logger: FilteringBoundLogger) -> None:
     """
-    Mark DataModelingJob as failed and send notification email if applicable.
+    Mark DataModelingJob as failed.
 
     The original error message (with hostnames) is logged for internal debugging,
     but the user-facing error has hostnames stripped to avoid exposing infrastructure details.
@@ -732,14 +732,6 @@ async def mark_job_as_failed(job: DataModelingJob, error_message: str, logger: F
     job.rows_materialized = 0
     job.error = strip_hostname_from_error(error_message)
     await database_sync_to_async(job.save)()
-
-    if job.saved_query_id:
-        try:
-            from posthog.tasks.email import send_saved_query_materialization_failure
-
-            await database_sync_to_async(send_saved_query_materialization_failure)(str(job.saved_query_id))
-        except Exception:
-            await logger.aexception("Failed to send materialization failure notification email")
 
 
 async def revert_materialization(saved_query: DataWarehouseSavedQuery, logger: FilteringBoundLogger) -> None:

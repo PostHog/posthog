@@ -212,13 +212,7 @@ class SessionSummarySerializer(IntermediateSessionSummarySerializer):
     sentiment = SessionSentimentSerializer(required=False, allow_null=True)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        """
-        Validate that all LLM-generated fields are present and properly filled.
-        Fields are optional during streaming but must be complete in final output.
-        """
-        if self.context.get("streaming_validation"):
-            # Disable strict validation for streaming, as the context could be incomplete
-            return attrs
+        """Validate that all LLM-generated fields are present and properly filled."""
         errors: dict[str, list[str]] = {}
         # Validate top-level fields
         segments = attrs.get("segments")
@@ -290,61 +284,48 @@ def _remove_hallucinated_events(
     raw_session_summary: RawSessionSummarySerializer,
     total_summary_events: int,
     session_id: str,
-    final_validation: bool,
 ) -> RawSessionSummarySerializer:
     """
     Remove hallucinated events from the key actions in the raw session summary.
     """
-    # If too many events are hallucinated for the final check - fail the summarization
-    if (
-        final_validation
-        and total_summary_events > 0
-        and len(hallucinated_events) / total_summary_events > HALLUCINATED_EVENTS_MIN_RATIO
-    ):
+    if total_summary_events > 0 and len(hallucinated_events) / total_summary_events > HALLUCINATED_EVENTS_MIN_RATIO:
         msg = (
             f"Too many hallucinated events ({len(hallucinated_events)}/{total_summary_events}) for session id ({session_id})"
             f"in the raw session summary: {[x[-1] for x in hallucinated_events]} "
         )
-        if final_validation:
-            logger.error(msg, session_id=session_id, signals_type="session-summaries")
+        logger.error(msg, session_id=session_id, signals_type="session-summaries")
         raise SummaryValidationError(msg)
     # Reverse to not break indexes
     for group_index, event_index, event in reversed(hallucinated_events):
-        if final_validation:
-            # Log only on final validation to not spam during regular streaming (as validation errors are expected)
-            logger.warning(
-                f"Removing hallucinated event {event} from the raw session summary for session_id {session_id}",
-                session_id=session_id,
-                signals_type="session-summaries",
-            )
+        logger.warning(
+            f"Removing hallucinated event {event} from the raw session summary for session_id {session_id}",
+            session_id=session_id,
+            signals_type="session-summaries",
+        )
         del raw_session_summary.data["key_actions"][group_index]["events"][event_index]
     return raw_session_summary
 
 
 def load_raw_session_summary_from_llm_content(
-    raw_content: str, allowed_event_ids: list[str], session_id: str, *, final_validation: bool
+    raw_content: str, allowed_event_ids: list[str], session_id: str
 ) -> RawSessionSummarySerializer | None:
     if not raw_content:
         msg = f"No LLM content found when summarizing session_id {session_id}"
-        if final_validation:
-            # Log only on final validation to not spam during regular streaming (as validation errors are expected)
-            logger.error(msg, session_id=session_id, signals_type="session-summaries")
+        logger.error(msg, session_id=session_id, signals_type="session-summaries")
         raise SummaryValidationError(msg)
     try:
-        json_content = load_yaml_from_raw_llm_content(raw_content=raw_content, final_validation=final_validation)
+        json_content = load_yaml_from_raw_llm_content(raw_content=raw_content)
         if not isinstance(json_content, dict):
             raise Exception(f"LLM output is not a dictionary: {raw_content}")
     except Exception as err:
         msg = f"Error loading YAML content into JSON when summarizing session_id {session_id}: {err}"
-        if final_validation:
-            logger.exception(msg, session_id=session_id, signals_type="session-summaries")
+        logger.exception(msg, session_id=session_id, signals_type="session-summaries")
         raise SummaryValidationError(msg) from err
     # Validate the LLM output against the schema
     raw_session_summary = RawSessionSummarySerializer(data=json_content)
     if not raw_session_summary.is_valid():
         msg = f"Error validating LLM output against the schema when summarizing session_id {session_id}: {raw_session_summary.errors}"
-        if final_validation:
-            logger.error(msg, session_id=session_id, signals_type="session-summaries")
+        logger.error(msg, session_id=session_id, signals_type="session-summaries")
         raise SummaryValidationError(msg)
     segments = raw_session_summary.data.get("segments")
     if not segments:
@@ -389,16 +370,12 @@ def load_raw_session_summary_from_llm_content(
         raw_session_summary=raw_session_summary,
         total_summary_events=total_summary_events,
         session_id=session_id,
-        final_validation=final_validation,
     )
     return raw_session_summary
 
 
-def _validate_enriched_summary(
-    data: dict[str, Any], session_id: str, final_validation: bool
-) -> SessionSummarySerializer:
-    # Avoid strict validation, if it's not the final step, as the context could be incomplete because of the streaming
-    session_summary = SessionSummarySerializer(data=data, context={"streaming_validation": not final_validation})
+def _validate_enriched_summary(data: dict[str, Any], session_id: str) -> SessionSummarySerializer:
+    session_summary = SessionSummarySerializer(data=data)
     # Validate even when processing incomplete chunks as the `.data` can't be used without validation check
     if not session_summary.is_valid():
         # Most of the fields are optional, so failed validation should be reported
@@ -478,7 +455,6 @@ def _calculate_segment_meta(
     raw_key_actions: list[dict[str, Any]] | None,
     session_duration: int,
     session_id: str,
-    final_validation: bool,
 ) -> SegmentMetaSerializer:
     # Find first and the last event in the segment
     segment_index = raw_segment.get("index")
@@ -490,7 +466,6 @@ def _calculate_segment_meta(
         or start_event_id is None
         or end_event_id is None
         # All the proper event IDs are 8 characters long
-        # If shorter - could still not fully streamed yet
         or len(start_event_id) != 8
         or len(end_event_id) != 8
     ):
@@ -590,7 +565,6 @@ def _calculate_segment_meta(
         fallback_start_event_id is None
         or fallback_end_event_id is None
         # All the proper event IDs are 8 characters long
-        # If shorter - could still not fully streamed yet
         or len(fallback_start_event_id) != 8
         or len(fallback_end_event_id) != 8
     ):
@@ -624,12 +598,11 @@ def _calculate_segment_meta(
     # TODO: Factor of two is arbitrary, find a better solution
     if duration <= 0 or fallback_duration // duration > 2:
         # Checking only duration as events are sorted chronologically
-        if final_validation:
-            logger.warning(
-                f"Duration change is drastic (fallback: {fallback_duration} -> segments: {duration}) - using fallback data for session_id {session_id}",
-                session_id=session_id,
-                signals_type="session-summaries",
-            )
+        logger.warning(
+            f"Duration change is drastic (fallback: {fallback_duration} -> segments: {duration}) - using fallback data for session_id {session_id}",
+            session_id=session_id,
+            signals_type="session-summaries",
+        )
         segment_meta_data["duration"] = fallback_duration
         segment_meta_data["duration_percentage"] = fallback_duration_percentage
         segment_meta_data["events_count"] = fallback_events_count
@@ -652,7 +625,6 @@ def enrich_raw_session_summary_with_meta(
     session_id: str,
     session_start_time_str: str,
     session_duration: int,
-    final_validation: bool,
 ) -> SessionSummarySerializer:
     timestamp_index = get_column_index(simplified_events_columns, "timestamp")
     window_id_index = get_column_index(simplified_events_columns, "$window_id")
@@ -668,9 +640,7 @@ def enrich_raw_session_summary_with_meta(
     enriched_segments = []
     if not raw_segments:
         # If segments aren't generated yet - return the current state
-        session_summary = _validate_enriched_summary(
-            data=raw_session_summary.data, session_id=session_id, final_validation=final_validation
-        )
+        session_summary = _validate_enriched_summary(data=raw_session_summary.data, session_id=session_id)
         return session_summary
     for raw_segment in raw_segments:
         enriched_segment = dict(raw_segment)
@@ -683,14 +653,11 @@ def enrich_raw_session_summary_with_meta(
             simplified_events_mapping=simplified_events_mapping,
             raw_key_actions=raw_key_actions,
             session_id=session_id,
-            final_validation=final_validation,
         )
         # Validate the serializer to be able to use `.data`
         if not segment_meta.is_valid():
-            # Most of the fields are optional, so failed validation should be reported
             msg = f"Error validating segment meta against the schema when summarizing session_id {session_id}: {segment_meta.errors}"
-            if final_validation:
-                logger.error(msg, session_id=session_id, signals_type="session-summaries")
+            logger.error(msg, session_id=session_id, signals_type="session-summaries")
             raise SummaryValidationError(msg)
         enriched_segment["meta"] = segment_meta.data
         enriched_segments.append(enriched_segment)
@@ -699,9 +666,7 @@ def enrich_raw_session_summary_with_meta(
     enriched_key_actions = []
     if not raw_key_actions:
         # If key actions aren't generated yet - return the current state
-        session_summary = _validate_enriched_summary(
-            data=summary_to_enrich, session_id=session_id, final_validation=final_validation
-        )
+        session_summary = _validate_enriched_summary(data=summary_to_enrich, session_id=session_id)
         return session_summary
     # Iterate over key actions groups per segment
     for key_action_group in raw_key_actions:
@@ -757,7 +722,5 @@ def enrich_raw_session_summary_with_meta(
         enriched_key_actions.append({"segment_index": segment_index, "events": enriched_events})
     # Validate the enriched content against the schema
     summary_to_enrich["key_actions"] = enriched_key_actions
-    session_summary = _validate_enriched_summary(
-        data=summary_to_enrich, session_id=session_id, final_validation=final_validation
-    )
+    session_summary = _validate_enriched_summary(data=summary_to_enrich, session_id=session_id)
     return session_summary

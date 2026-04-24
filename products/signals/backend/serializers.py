@@ -165,6 +165,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
         help_text="Whether the issue appears already fixed, from the actionability judgment artefact.",
     )
     is_suggested_reviewer = serializers.BooleanField(read_only=True, default=False)
+    source_products = serializers.SerializerMethodField(
+        help_text="Distinct source products contributing signals to this report (from ClickHouse).",
+    )
+    implementation_pr_url = serializers.SerializerMethodField(
+        help_text="PR URL from the latest implementation task run, if available.",
+    )
 
     class Meta:
         model = SignalReport
@@ -183,6 +189,8 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "actionability",
             "already_addressed",
             "is_suggested_reviewer",
+            "source_products",
+            "implementation_pr_url",
         ]
         read_only_fields = fields
 
@@ -238,6 +246,19 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return None
         value = data.get("already_addressed")
         return value if isinstance(value, bool) else None
+
+    def get_source_products(self, obj: SignalReport) -> list[str]:
+        source_products_map: dict[str, list[str]] | None = self.context.get("source_products_map")
+        if source_products_map is not None:
+            return source_products_map.get(str(obj.id), [])
+        return []
+
+    def get_implementation_pr_url(self, obj: SignalReport) -> str | None:
+        implementation_pr_url_map: dict[str, str] | None = self.context.get("implementation_pr_url_map")
+        if implementation_pr_url_map is not None:
+            return implementation_pr_url_map.get(str(obj.id))
+        value = getattr(obj, "implementation_pr_url", None)
+        return value if isinstance(value, str) else None
 
 
 class SignalReportArtefactSerializer(serializers.ModelSerializer):

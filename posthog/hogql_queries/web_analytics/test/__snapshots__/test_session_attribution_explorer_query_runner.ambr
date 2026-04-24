@@ -34,8 +34,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE equals(raw_sessions.team_id, 99999)
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   WHERE ifNull(equals(sessions.`$entry_utm_source`, 'source1'), 0)
   GROUP BY `context.columns.channel_type`,
            `context.columns.utm_source`,
@@ -89,8 +88,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE equals(raw_sessions.team_id, 99999)
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   WHERE 1
   GROUP BY `context.columns.example_entry_urls`
   ORDER BY `context.columns.count` DESC
@@ -142,8 +140,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE equals(raw_sessions.team_id, 99999)
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   WHERE 1
   ORDER BY `context.columns.count` DESC
   LIMIT 101
@@ -194,8 +191,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE equals(raw_sessions.team_id, 99999)
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   WHERE 1
   GROUP BY `context.columns.channel_type`,
            `context.columns.utm_source`,
@@ -249,8 +245,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE equals(raw_sessions.team_id, 99999)
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   WHERE 1
   ORDER BY `context.columns.count` DESC
   LIMIT 101
