@@ -11,7 +11,7 @@
 //   handler: (...) => Promise<Schemas.Action>
 export namespace Schemas {
     /**
-     *
+     * 
      */
     export type AIEventType = typeof AIEventType[keyof typeof AIEventType];
 
@@ -19442,91 +19442,10 @@ export namespace Schemas {
       Desc: 'DESC',
     } as const;
 
-    /**
-     * * `slack` - Slack
-    * `slack-posthog-code` - Slack Posthog Code
-    * `salesforce` - Salesforce
-    * `hubspot` - Hubspot
-    * `google-pubsub` - Google Pubsub
-    * `google-cloud-storage` - Google Cloud Storage
-    * `google-ads` - Google Ads
-    * `google-sheets` - Google Sheets
-    * `google-cloud-service-account` - Google Cloud Service Account
-    * `snapchat` - Snapchat
-    * `linkedin-ads` - Linkedin Ads
-    * `reddit-ads` - Reddit Ads
-    * `tiktok-ads` - Tiktok Ads
-    * `bing-ads` - Bing Ads
-    * `intercom` - Intercom
-    * `email` - Email
-    * `linear` - Linear
-    * `github` - Github
-    * `gitlab` - Gitlab
-    * `meta-ads` - Meta Ads
-    * `twilio` - Twilio
-    * `clickup` - Clickup
-    * `vercel` - Vercel
-    * `databricks` - Databricks
-    * `azure-blob` - Azure Blob
-    * `firebase` - Firebase
-    * `jira` - Jira
-    * `pinterest-ads` - Pinterest Ads
-    * `stripe` - Stripe
-    * `customerio-app` - Customerio App
-    * `customerio-webhook` - Customerio Webhook
-    * `customerio-track` - Customerio Track
-    * `apns` - Apple Push
-     */
-    export type Kind48dEnum = typeof Kind48dEnum[keyof typeof Kind48dEnum];
-
-
-    export const Kind48dEnum = {
-      Slack: 'slack',
-      SlackPosthogCode: 'slack-posthog-code',
-      Salesforce: 'salesforce',
-      Hubspot: 'hubspot',
-      GooglePubsub: 'google-pubsub',
-      GoogleCloudStorage: 'google-cloud-storage',
-      GoogleAds: 'google-ads',
-      GoogleSheets: 'google-sheets',
-      GoogleCloudServiceAccount: 'google-cloud-service-account',
-      Snapchat: 'snapchat',
-      LinkedinAds: 'linkedin-ads',
-      RedditAds: 'reddit-ads',
-      TiktokAds: 'tiktok-ads',
-      BingAds: 'bing-ads',
-      Intercom: 'intercom',
-      Email: 'email',
-      Linear: 'linear',
-      Github: 'github',
-      Gitlab: 'gitlab',
-      MetaAds: 'meta-ads',
-      Twilio: 'twilio',
-      Clickup: 'clickup',
-      Vercel: 'vercel',
-      Databricks: 'databricks',
-      AzureBlob: 'azure-blob',
-      Firebase: 'firebase',
-      Jira: 'jira',
-      PinterestAds: 'pinterest-ads',
-      Stripe: 'stripe',
-      CustomerioApp: 'customerio-app',
-      CustomerioWebhook: 'customerio-webhook',
-      CustomerioTrack: 'customerio-track',
-      Apns: 'apns',
-    } as const;
-
-    /**
-     * Standard Integration serializer.
-     */
     export interface Integration {
-      readonly id: number;
-      kind: Kind48dEnum;
-      config?: unknown;
-      readonly created_at: string;
-      readonly created_by: UserBasic;
-      readonly errors: string;
-      readonly display_name: string;
+      display_name: string;
+      id: number;
+      kind: IntegrationKind;
     }
 
     /**
@@ -20174,22 +20093,22 @@ export namespace Schemas {
        */
       order?: number | null;
       deleted?: boolean;
-      /**
+      /** 
             DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
             A dashboard ID for each of the dashboards that this insight is displayed on.
              */
       dashboards?: number[];
-      /**
+      /** 
         A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
          */
       readonly dashboard_tiles: readonly DashboardTileBasic[];
       /**
-       *
+       * 
         The datetime this insight's results were generated.
         If added to one or more dashboards the insight can be refreshed separately on each.
         Returns the appropriate last_refresh datetime for the context the insight is viewed in
         (see from_dashboard query parameter).
-
+        
        * @nullable
        */
       readonly last_refresh: string | null;
@@ -20199,10 +20118,10 @@ export namespace Schemas {
        */
       readonly cache_target_age: string | null;
       /**
-       *
+       * 
         The earliest possible datetime at which we'll allow the cached results for this insight to be refreshed
         by querying the database.
-
+        
        * @nullable
        */
       readonly next_allowed_client_refresh: string | null;
@@ -20403,6 +20322,7 @@ export namespace Schemas {
     * `customerio-app` - Customerio App
     * `customerio-webhook` - Customerio Webhook
     * `customerio-track` - Customerio Track
+    * `apns` - Apple Push
      */
     export type IntegrationKindEnum = typeof IntegrationKindEnum[keyof typeof IntegrationKindEnum];
 
@@ -20440,6 +20360,7 @@ export namespace Schemas {
       CustomerioApp: 'customerio-app',
       CustomerioWebhook: 'customerio-webhook',
       CustomerioTrack: 'customerio-track',
+      Apns: 'apns',
     } as const;
 
     /**
@@ -23421,7 +23342,7 @@ export namespace Schemas {
 
     export interface QueryTabState {
       readonly id: string;
-      /**
+      /** 
                 Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
                 and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
                 ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
@@ -24330,7 +24251,7 @@ export namespace Schemas {
       linked_insight_id?: number | null;
       readonly targeting_flag: MinimalFeatureFlag;
       readonly internal_targeting_flag: MinimalFeatureFlag;
-      /**
+      /** 
             The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.
 
             Basic (open-ended question)
@@ -27340,22 +27261,22 @@ export namespace Schemas {
        */
       order?: number | null;
       deleted?: boolean;
-      /**
+      /** 
             DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
             A dashboard ID for each of the dashboards that this insight is displayed on.
              */
       dashboards?: number[];
-      /**
+      /** 
         A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
          */
       readonly dashboard_tiles?: readonly DashboardTileBasic[];
       /**
-       *
+       * 
         The datetime this insight's results were generated.
         If added to one or more dashboards the insight can be refreshed separately on each.
         Returns the appropriate last_refresh datetime for the context the insight is viewed in
         (see from_dashboard query parameter).
-
+        
        * @nullable
        */
       readonly last_refresh?: string | null;
@@ -27365,10 +27286,10 @@ export namespace Schemas {
        */
       readonly cache_target_age?: string | null;
       /**
-       *
+       * 
         The earliest possible datetime at which we'll allow the cached results for this insight to be refreshed
         by querying the database.
-
+        
        * @nullable
        */
       readonly next_allowed_client_refresh?: string | null;
@@ -27456,7 +27377,7 @@ export namespace Schemas {
      */
     export interface PatchedIntegrationConfig {
       readonly id?: number;
-      kind?: Kind48dEnum;
+      kind?: IntegrationKindEnum;
       config?: unknown;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -28889,7 +28810,7 @@ export namespace Schemas {
 
     export interface PatchedQueryTabState {
       readonly id?: string;
-      /**
+      /** 
                 Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
                 and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
                 ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
@@ -29115,16 +29036,7 @@ export namespace Schemas {
     /**
      * Get provider-specific metadata (e.g. repository for GitHub, project for Jira)
      */
-    export type PatchedSessionRecordingExternalReferenceMetadata = {[key: string]: string};
-
-    /**
-     * Read-only serializer for Integration info embedded in external references
-     */
-    export interface SessionRecordingExternalReferenceIntegration {
-      readonly id: number;
-      readonly kind: Kind48dEnum;
-      readonly display_name: string;
-    }
+    export type PatchedSessionRecordingExternalRefMetadata = {[key: string]: string};
 
     /**
      * Serializer for linking session recordings to external issue trackers.
@@ -29709,7 +29621,7 @@ export namespace Schemas {
        */
       remove_targeting_flag?: boolean | null;
       /**
-       *
+       * 
             The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.
 
             Basic (open-ended question)
@@ -29820,7 +29732,7 @@ export namespace Schemas {
                 }
             }
             ```
-
+            
        * @nullable
        */
       questions?: SurveyQuestionInputSchema[] | null;
@@ -31603,7 +31515,7 @@ export namespace Schemas {
     }
 
     export interface Property {
-      /**
+      /** 
      You can use a simplified version:
     ```json
     {
@@ -35042,7 +34954,7 @@ export namespace Schemas {
       targeting_flag_filters?: unknown | null;
       /** @nullable */
       remove_targeting_flag?: boolean | null;
-      /**
+      /** 
             The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.
 
             Basic (open-ended question)
@@ -35260,7 +35172,7 @@ export namespace Schemas {
        */
       remove_targeting_flag?: boolean | null;
       /**
-       *
+       * 
             The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.
 
             Basic (open-ended question)
@@ -35371,7 +35283,7 @@ export namespace Schemas {
                 }
             }
             ```
-
+            
        * @nullable
        */
       questions?: SurveyQuestionInputSchema[] | null;
@@ -38025,7 +37937,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     *
+     * 
     Whether to refresh the retrieved insights, how aggressively, and if sync or async:
     - `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
     - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
@@ -38086,13 +37998,13 @@ export namespace Schemas {
     export type EnvironmentsInsightsRetrieveParams = {
     format?: EnvironmentsInsightsRetrieveFormat;
     /**
-     *
+     * 
     Only if loading an insight in the context of a dashboard: The relevant dashboard's ID.
     When set, the specified dashboard's filters and date range override will be applied.
      */
     from_dashboard?: number;
     /**
-     *
+     * 
     Whether to refresh the insight, how aggresively, and if sync or async:
     - `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
     - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
@@ -42211,7 +42123,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     *
+     * 
     Whether to refresh the retrieved insights, how aggressively, and if sync or async:
     - `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
     - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
@@ -42272,13 +42184,13 @@ export namespace Schemas {
     export type InsightsRetrieveParams = {
     format?: InsightsRetrieveFormat;
     /**
-     *
+     * 
     Only if loading an insight in the context of a dashboard: The relevant dashboard's ID.
     When set, the specified dashboard's filters and date range override will be applied.
      */
     from_dashboard?: number;
     /**
-     *
+     * 
     Whether to refresh the insight, how aggresively, and if sync or async:
     - `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
     - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache

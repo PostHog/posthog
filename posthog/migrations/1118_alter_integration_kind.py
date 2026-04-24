@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1116_datadeletionrequest_hogql_predicate"),
+        ("posthog", "1117_role_external_reference"),
     ]
 
     operations = [
