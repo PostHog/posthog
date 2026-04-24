@@ -51,6 +51,36 @@ class InsightAdminForm(forms.ModelForm):
         return instance
 
 
+class DeletedInsightFilter(admin.SimpleListFilter):
+    title = "deleted"
+    parameter_name = "deleted"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("no", "No"),
+            ("yes", "Yes"),
+            ("all", "All"),
+        )
+
+    def choices(self, changelist):
+        # Override default "All" choice so "No" is the default selected option
+        value = self.value() or "no"
+        for lookup, title in self.lookup_choices:
+            yield {
+                "selected": value == lookup,
+                "query_string": changelist.get_query_string({self.parameter_name: lookup}),
+                "display": title,
+            }
+
+    def queryset(self, request, queryset):
+        value = self.value() or "no"
+        if value == "no":
+            return queryset.filter(deleted=False)
+        if value == "yes":
+            return queryset.filter(deleted=True)
+        return queryset
+
+
 class InsightAdmin(admin.ModelAdmin):
     form = InsightAdminForm
     exclude = ("layouts",)
@@ -64,8 +94,10 @@ class InsightAdmin(admin.ModelAdmin):
         "sampling_factor_display",
         "created_at",
         "created_by",
+        "deleted",
     )
     list_display_links = ("id", "short_id", "effective_name")
+    list_filter = (DeletedInsightFilter,)
     list_select_related = ("team", "team__organization")
     search_fields = ("id", "name", "short_id", "team__name", "team__organization__name")
     readonly_fields = (
@@ -77,6 +109,9 @@ class InsightAdmin(admin.ModelAdmin):
     )
     autocomplete_fields = ("team", "dashboard", "created_by", "last_modified_by")
     ordering = ("-created_at",)
+
+    def get_queryset(self, request):
+        return Insight.objects_including_soft_deleted.all()
 
     fieldsets = (
         (None, {"fields": ("name", "description", "team", "short_id")}),

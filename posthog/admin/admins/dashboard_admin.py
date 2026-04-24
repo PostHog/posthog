@@ -13,6 +13,36 @@ class DashboardTileInline(admin.TabularInline):
     readonly_fields = ("filters_hash",)
 
 
+class DeletedDashboardFilter(admin.SimpleListFilter):
+    title = "deleted"
+    parameter_name = "deleted"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("no", "No"),
+            ("yes", "Yes"),
+            ("all", "All"),
+        )
+
+    def choices(self, changelist):
+        # Override default "All" choice so "No" is the default selected option
+        value = self.value() or "no"
+        for lookup, title in self.lookup_choices:
+            yield {
+                "selected": value == lookup,
+                "query_string": changelist.get_query_string({self.parameter_name: lookup}),
+                "display": title,
+            }
+
+    def queryset(self, request, queryset):
+        value = self.value() or "no"
+        if value == "no":
+            return queryset.filter(deleted=False)
+        if value == "yes":
+            return queryset.filter(deleted=True)
+        return queryset
+
+
 class DashboardAdmin(admin.ModelAdmin):
     list_display = (
         "id",
@@ -21,8 +51,10 @@ class DashboardAdmin(admin.ModelAdmin):
         "organization_link",
         "created_at",
         "created_by",
+        "deleted",
     )
     list_display_links = ("id", "name")
+    list_filter = (DeletedDashboardFilter,)
     list_select_related = ("team", "team__organization")
     search_fields = ("id", "name", "team__name", "team__organization__name")
     readonly_fields = (
@@ -34,6 +66,9 @@ class DashboardAdmin(admin.ModelAdmin):
     autocomplete_fields = ("team", "created_by")
     ordering = ("-created_at", "creation_mode")
     inlines = (DashboardTileInline,)
+
+    def get_queryset(self, request):
+        return Dashboard.objects_including_soft_deleted.all()
 
     @admin.display(description="Team")
     def team_link(self, dashboard: Dashboard):
