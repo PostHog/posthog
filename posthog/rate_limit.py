@@ -861,6 +861,8 @@ class _OrganizationInviteRateThrottleBase(PersonalApiKeyOrUserRateThrottle):
 
         if self.rate is None:
             return True
+        assert self.num_requests is not None
+        assert self.duration is not None
 
         try:
             self.key = self.get_cache_key(request, view)
