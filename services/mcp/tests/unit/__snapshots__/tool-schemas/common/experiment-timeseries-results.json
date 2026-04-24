@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "fingerprint": {
-            "description": "Fingerprint of the metric configuration. Available alongside `metric_uuid` on each metric in the experiment's metrics array.",
+            "description": "Fingerprint of the metric configuration. Available alongside metric_uuid on each metric in the experiment's metrics array.",
             "type": "string"
         },
         "id": {
@@ -10,10 +10,10 @@
             "type": "number"
         },
         "metric_uuid": {
-            "description": "UUID of the metric to fetch timeseries for. Available on each metric in the experiment's metrics array (each metric has a `uuid` field).",
+            "description": "UUID of the metric to fetch timeseries for. Available on each metric in the experiment's metrics array.",
             "type": "string"
         }
     },
-    "required": ["id", "metric_uuid", "fingerprint"],
+    "required": ["id", "fingerprint", "metric_uuid"],
     "type": "object"
 }
