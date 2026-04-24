@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
-_URL_RE = re.compile(r"\w+://|www\.", re.IGNORECASE)
+_URL_RE = re.compile(r"\w{1,32}://|www\.", re.IGNORECASE)
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f\u0085\u2028\u2029]")
 _NON_NEWLINE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f\u0085\u2028\u2029]")
 _BRACKET_RE = re.compile(r"[<>]")
