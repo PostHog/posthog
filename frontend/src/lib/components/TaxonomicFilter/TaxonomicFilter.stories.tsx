@@ -444,7 +444,7 @@ export const AutocaptureContextPromotesElements: Story = {
 function CategoryDropdownStoryRender({
     variant,
     ...args
-}: TaxonomicFilterProps & { variant: Exclude<CategoryDropdownVariant, 'control'> }): JSX.Element {
+}: TaxonomicFilterProps & { variant: CategoryDropdownVariant }): JSX.Element {
     useMountedLogic(actionsModel)
 
     useEffect(() => {
@@ -470,13 +470,25 @@ const CATEGORY_DROPDOWN_ARGS: TaxonomicFilterProps = {
     ],
 }
 
+export const CategoryDropdownControl: Story = {
+    render: (args) => <CategoryDropdownStoryRender {...args} variant="control" />,
+    args: CATEGORY_DROPDOWN_ARGS,
+    parameters: {
+        docs: {
+            description: {
+                story: 'A/B test control: left-hand Categories column is visible and Tab/Shift+Tab cycles between categories.',
+            },
+        },
+    },
+}
+
 export const CategoryDropdownPill: Story = {
     render: (args) => <CategoryDropdownStoryRender {...args} variant="pill" />,
     args: CATEGORY_DROPDOWN_ARGS,
     parameters: {
         docs: {
             description: {
-                story: 'Test variant "pill": left-hand Categories column is hidden; the current category is shown as a pill inside the search input.',
+                story: 'Test variant "pill": left-hand Categories column is hidden; the current category is shown as a pill in the right-hand suffix of the search input.',
             },
         },
     },
@@ -488,7 +500,7 @@ export const CategoryDropdownIcon: Story = {
     parameters: {
         docs: {
             description: {
-                story: 'Test variant "icon": left-hand Categories column is hidden; a generic filter icon opens the category dropdown.',
+                story: 'Test variant "icon": left-hand Categories column is hidden; a generic filter icon in the right-hand suffix opens the category dropdown.',
             },
         },
     },
