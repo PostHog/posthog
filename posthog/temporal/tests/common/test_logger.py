@@ -1,5 +1,4 @@
 import json
-import time
 import uuid
 import random
 import asyncio
@@ -491,6 +490,7 @@ def log_entries_table():
     ACTIVITY_INFOS,
     indirect=True,
 )
+@freezegun.freeze_time("2024-01-01 00:00:00")
 @pytest.mark.parametrize("log_capture", [False], indirect=True)
 async def test_logger_produces_to_kafka_from_activity(activity_environment, producer, queue, log_entries_table):
     """Test whether our log entries logger produces messages to Kafka.
@@ -538,18 +538,10 @@ async def test_logger_produces_to_kafka_from_activity(activity_environment, prod
     )
 
     for activity in activities:
-        with freezegun.freeze_time("2023-11-03 10:00:00.123123"):
-            if fut := activity_environment.run(activity):
-                await fut
+        if fut := activity_environment.run(activity):
+            await fut
 
-        iterations = 0
-        while not queue.entries:
-            # Let the loop run so messages have a chance to be inserted
-            await asyncio.sleep(1)
-
-            iterations += 1
-            if iterations > 10:
-                raise TimeoutError("Timedout waiting for logs")
+        await producer.flush()
 
         assert len(queue.entries) == 2 or len(queue.entries) == 4
 
@@ -573,11 +565,9 @@ async def test_logger_produces_to_kafka_from_activity(activity_environment, prod
             assert log_dict["log_source_id"] == log_source_id
             assert log_dict["message"] == "Hi! This is an external info log from an activity"
             assert log_dict["team_id"] == team_id_producer_counter
-            assert log_dict["timestamp"] == "2023-11-03 10:00:00.123123"
+            assert log_dict["timestamp"] == "2024-01-01 00:00:00.000000"
 
             team_id_producer_counter += 1
-
-        await producer.flush()
 
         results = sync_execute(
             f"SELECT instance_id, level, log_source, log_source_id, message, team_id, timestamp FROM {log_entries_table} WHERE instance_id = '{activity_environment.info.workflow_run_id}' ORDER BY team_id ASC"
@@ -602,7 +592,7 @@ async def test_logger_produces_to_kafka_from_activity(activity_environment, prod
             assert row[3] == log_source_id
             assert row[4] == "Hi! This is an external info log from an activity"
             assert row[5] == team_id_row_counter
-            assert row[6].isoformat() == "2023-11-03T10:00:00.123123+00:00"
+            assert row[6].isoformat() == "2024-01-01T00:00:00+00:00"
             team_id_row_counter += 1
 
         sync_execute(f"TRUNCATE {log_entries_table}")
@@ -709,14 +699,7 @@ async def test_logger_produces_to_kafka_from_workflow(producer, queue, log_entri
                 execution_timeout=dt.timedelta(seconds=5),
             )
 
-    iterations = 0
-    while not queue.entries:
-        # Let the loop run so messages have a chance to be inserted
-        await asyncio.sleep(1)
-
-        iterations += 1
-        if iterations > 10:
-            raise TimeoutError("Timedout waiting for logs")
+    await producer.flush()
 
     assert len(queue.entries) == 2
 
@@ -744,20 +727,17 @@ async def test_logger_produces_to_kafka_from_workflow(producer, queue, log_entri
         assert log_dict["team_id"] == FIRST_WORKFLOW_TEAM_ID + i
         assert log_dict["timestamp"] == "2024-01-01 00:00:00.000000"
 
-    await producer.flush()
+    results = sync_execute(
+        f"SELECT instance_id, level, log_source, log_source_id, message, team_id, timestamp FROM {log_entries_table} ORDER BY team_id ASC"
+    )
 
     iterations = 0
-
-    while True:
+    while not len(results) == entries_captured:
         # It may take a bit for CH to ingest.
+        await asyncio.sleep(1)
         results = sync_execute(
             f"SELECT instance_id, level, log_source, log_source_id, message, team_id, timestamp FROM {log_entries_table} ORDER BY team_id ASC"
         )
-
-        if len(results) == entries_captured:
-            break
-        else:
-            time.sleep(1)
 
         iterations += 1
         if iterations > 10:
