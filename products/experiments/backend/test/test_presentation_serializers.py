@@ -6,13 +6,17 @@ request formats and convert them to facade DTOs.
 """
 
 import pytest
-from posthog.test.base import BaseTest
 
 from products.experiments.backend.facade.contracts import CreateExperimentInput, CreateFeatureFlagInput
 from products.experiments.backend.presentation.serializers import ExperimentCreateSerializer
 
 
-class TestExperimentCreateSerializer(BaseTest):
+@pytest.mark.django_db
+class TestExperimentCreateSerializer:
+    @pytest.fixture(autouse=True)
+    def setup(self, team):
+        self.team = team
+
     @pytest.mark.parametrize(
         "data,expected_valid,expected_attrs",
         [
@@ -142,7 +146,7 @@ class TestExperimentCreateSerializer(BaseTest):
                     assert isinstance(dto.feature_flag_filters, CreateFeatureFlagInput)
             if "has_parameters" in expected_attrs:
                 assert (dto.parameters is not None) == expected_attrs["has_parameters"]
-                if expected_attrs["has_parameters"]:
+                if expected_attrs["has_parameters"] and dto.parameters is not None:
                     assert "feature_flag_variants" in dto.parameters
             if "variant_count" in expected_attrs and dto.feature_flag_filters:
                 assert len(dto.feature_flag_filters.variants) == expected_attrs["variant_count"]
