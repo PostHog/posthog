@@ -721,13 +721,12 @@ class UserViewSet(
                 user.email = user.pending_email
                 user.pending_email = None
                 user.save(update_fields=["email", "pending_email"])
-                # Google identities are associated to the PostHog user independently of the
-                # current PostHog email, so keep them from surviving an email change.
+                # Delete Google auth to prevent login with the old email to the same account.
                 UserSocialAuth.objects.filter(user=user, provider="google-oauth2").delete()
             send_email_change_emails.delay(datetime.now(UTC).isoformat(), user.first_name, old_email, user.email)
 
         user.is_email_verified = True
-        user.save(update_fields=["is_email_verified"])
+        user.save()
         report_user_verified_email(user)
 
         user_has_passkeys = has_passkeys(user)
