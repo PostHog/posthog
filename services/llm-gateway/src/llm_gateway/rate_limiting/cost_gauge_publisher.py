@@ -51,4 +51,3 @@ async def publish_product_cost_gauges_loop(
             logger.exception("product_cost_gauge_publish_loop_failed")
 
         await asyncio.sleep(interval_seconds)
-
