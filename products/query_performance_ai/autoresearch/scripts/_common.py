@@ -7,9 +7,9 @@ transport is now driven by :mod:`transports` instead of shell commands.
 
 from __future__ import annotations
 
-import json
 import re
 import sys
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -40,6 +40,7 @@ def require_dir(path: Path) -> Path:
 
 # ------------------------------------------------------------------ adapter --
 
+
 @dataclass(frozen=True)
 class AdapterConfig:
     """Workspace-local adapter configuration.
@@ -51,7 +52,7 @@ class AdapterConfig:
     raw: dict[str, Any]
 
     @classmethod
-    def load(cls, workspace: Path) -> "AdapterConfig":
+    def load(cls, workspace: Path) -> AdapterConfig:
         path = workspace / "adapter.json"
         require_file(path)
         try:
@@ -70,6 +71,7 @@ class AdapterConfig:
 
 
 # --------------------------------------------------------- run via adapter --
+
 
 def execute_query(
     transport: Transport,
@@ -130,6 +132,7 @@ def execute_query(
 
 # ---------------------------------------------------------------- metrics --
 
+
 def emit_metrics_from_json(metrics_file: Path) -> None:
     """Print ``METRIC name=value`` lines for pi-autoresearch."""
     data = json.loads(metrics_file.read_text())
@@ -144,6 +147,7 @@ def emit_metrics_from_json(metrics_file: Path) -> None:
 
 
 # ---------------------------------------------------------------- runtime --
+
 
 def next_run_id(workspace: Path) -> str:
     """Allocate ``run-XXXX`` matching the four-digit zero-padded convention."""

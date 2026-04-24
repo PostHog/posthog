@@ -7,6 +7,7 @@ import shlex
 import base64
 import shutil
 import socket
+import hashlib
 import logging
 import tempfile
 import subprocess
@@ -58,6 +59,23 @@ logger = logging.getLogger(__name__)
 DEFAULT_IMAGE_NAME = "posthog-sandbox-base"
 NOTEBOOK_IMAGE_NAME = "posthog-sandbox-notebook"
 PI_IMAGE_NAME = "posthog-sandbox-pi"
+
+
+def _hash_build_inputs(dockerfile_path: str, build_args: dict[str, str]) -> str:
+    """Short stable hash of a Dockerfile's bytes + the build args fed to it.
+
+    Used as an image tag so `docker images -q <name>:<hash>` misses when the
+    Dockerfile or its inputs change, which forces a rebuild. Not a security
+    boundary — collision-resistant enough to avoid stale-image confusion.
+    """
+    hasher = hashlib.sha256()
+    with open(dockerfile_path, "rb") as fh:
+        hasher.update(fh.read())
+    for key in sorted(build_args):
+        hasher.update(f"\0{key}={build_args[key]}".encode())
+    return hasher.hexdigest()[:12]
+
+
 AGENT_SERVER_PORT = 47821  # Arbitrary high port unlikely to conflict with dev servers
 
 
@@ -240,8 +258,15 @@ class DockerSandbox(SandboxBase):
             dockerfile_path = os.path.join(
                 settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-pi"
             )
-            DockerSandbox._build_image_if_needed(PI_IMAGE_NAME, dockerfile_path, build_args={"BASE_IMAGE": base_image})
-            return PI_IMAGE_NAME
+            build_args = {"BASE_IMAGE": base_image}
+            # Content-address the tag so bumping the Dockerfile (pi version,
+            # ClickHouse SHA, patch changes) or the base image invalidates the
+            # cache: `docker images -q` would otherwise short-circuit the
+            # build and silently serve a stale image to developers.
+            digest = _hash_build_inputs(dockerfile_path, build_args)
+            image_name = f"{PI_IMAGE_NAME}:{digest}"
+            DockerSandbox._build_image_if_needed(image_name, dockerfile_path, build_args=build_args)
+            return image_name
 
         dockerfile_path = os.path.join(
             settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"

@@ -173,7 +173,24 @@ class PosthogProxyTransport(Transport):
         self.base_url = base_url.rstrip("/")
         self.token = token
 
+    # Server-side CH cap is 300s (MAX_EXECUTION_TIME_SECONDS in the proxy).
+    # Clamp the client-side timeout a touch above that so we always see a
+    # concrete CH error instead of a socket read timeout; reject anything
+    # that tries to invert the ordering (would produce "transport failure"
+    # with no server-side metrics and poison the campaign comparison).
+    _MAX_TIMEOUT_S = 360
+
     def run(self, sql: str, *, timeout_s: int = 310) -> TransportResult:
+        if timeout_s > self._MAX_TIMEOUT_S:
+            # TransportError (not ValueError) so the caller's existing
+            # `except TransportError` path routes this into the orderly
+            # failure-metrics flow instead of crashing the campaign.
+            raise TransportError(
+                f"posthog_proxy timeout_s={timeout_s} exceeds max {self._MAX_TIMEOUT_S}; "
+                "the server caps queries at 300s — clamp the caller.",
+                elapsed_ms=0.0,
+                stdout="",
+            )
         endpoint = f"{self.base_url}/api/query_performance_proxy/execute-test/"
         body = json.dumps({"sql": sql}).encode("utf-8")
         req = urllib.request.Request(

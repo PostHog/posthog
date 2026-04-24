@@ -42,6 +42,14 @@ def log(msg: str) -> None:
     print(f"[campaign] {msg}", file=sys.stderr, flush=True)  # noqa: T201
 
 
+def _atomic_write(path: Path, contents: str) -> None:
+    """Overwrite ``path`` via temp-file + rename so a SIGKILL mid-write leaves
+    the original file intact rather than a half-written patched version."""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(contents)
+    os.replace(tmp, path)
+
+
 def run(cmd: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
     log("$ " + " ".join(cmd) + (f"  (cwd={cwd})" if cwd else ""))
     result = subprocess.run(cmd, check=False, text=True, cwd=cwd)
@@ -126,8 +134,16 @@ def _patch_pi_autoresearch_index_ts() -> None:
     post_marker = f"git clean -fd {preserve} 2>/dev/null"
 
     contents = index_ts.read_text()
-    if pre_marker in contents:
-        index_ts.write_text(contents.replace(pre_marker, post_marker))
+    pre_count = contents.count(pre_marker)
+    if pre_count > 0:
+        if pre_count != 1:
+            # Multiple matches mean upstream has grown a second `git clean`
+            # we're not patching — fail loud rather than half-fix the file.
+            raise CampaignError(
+                f"pi-autoresearch {index_ts.name}: expected exactly 1 `{pre_marker}` "
+                f"occurrence, got {pre_count} — patch needs updating"
+            )
+        _atomic_write(index_ts, contents.replace(pre_marker, post_marker))
         log(f"patched {index_ts.name} to preserve workspace dirs")
     elif post_marker in contents:
         # Already patched (e.g. image bakes it, or a previous run).
@@ -182,11 +198,8 @@ def _patch_pi_ai_anthropic_baseurl() -> None:
     replacement = json.dumps(gateway_base)
     patched = contents.replace(marker, replacement)
     occurrences = contents.count(marker)
-    models_file.write_text(patched)
-    log(
-        f"patched pi-ai models.generated.js: {occurrences} Anthropic baseUrl occurrence(s) "
-        f"rewritten to {replacement}"
-    )
+    _atomic_write(models_file, patched)
+    log(f"patched pi-ai models.generated.js: {occurrences} Anthropic baseUrl occurrence(s) rewritten to {replacement}")
 
 
 def init_campaign(workspace: Path, query_file: Path, *, query_id: str) -> None:
@@ -414,9 +427,9 @@ def _preflight_anthropic_gateway(base_url: str, api_key: str) -> None:
             log(f"gateway preflight OK (status={resp.status})")
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", "replace")[:500]
-        log(f"gateway preflight {e.code}: {detail}")
+        raise CampaignError(f"gateway preflight {e.code} at {endpoint}: {detail}") from e
     except urllib.error.URLError as e:
-        log(f"gateway unreachable at {endpoint}: {e}")
+        raise CampaignError(f"gateway unreachable at {endpoint}: {e}") from e
 
 
 def print_summary(workspace: Path) -> None:

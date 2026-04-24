@@ -76,7 +76,12 @@ def _collect_markdown_dir(sandbox: Sandbox, dir_path: str) -> list[tuple[str, st
 
 
 def _best_run_metrics(sandbox: Sandbox) -> str:
-    """Return metrics.json for the run with the lowest ``primary.value``."""
+    """Return metrics.json for the fastest run whose comparator said matches=true.
+
+    A faster-but-wrong candidate must never be crowned the winner, so we
+    require the adjacent comparison.json to report ``matches == True`` before
+    admitting a run into the ranking.
+    """
     cmd = f'for m in {WORKSPACE_PATH}/runs/*/metrics.json; do   [ -f "$m" ] && echo "$m"; done'
     result = sandbox.execute(cmd, timeout_seconds=15)
     metric_paths = [p for p in (result.stdout or "").splitlines() if p]
@@ -92,6 +97,16 @@ def _best_run_metrics(sandbox: Sandbox) -> str:
             continue
         value = (data.get("primary") or {}).get("value")
         if not isinstance(value, int | float) or value < 0:
+            continue
+        comparison_path = path.rsplit("/", 1)[0] + "/comparison.json"
+        comparison_raw = _read_sandbox_file(sandbox, comparison_path)
+        if not comparison_raw:
+            continue
+        try:
+            comparison = json.loads(comparison_raw)
+        except json.JSONDecodeError:
+            continue
+        if comparison.get("matches") is not True:
             continue
         if best_value is None or value < best_value:
             best_value = value

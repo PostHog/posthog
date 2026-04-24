@@ -3,10 +3,10 @@
 
 from __future__ import annotations
 
-import argparse
-import json
-import subprocess
 import sys
+import json
+import argparse
+import subprocess
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -132,6 +132,25 @@ def main(argv: list[str] | None = None) -> int:
             )
             + "\n"
         )
+        # Overwrite metrics.json with a failure marker and emit METRIC
+        # latency_ms=-1 (matching the execute-failure branch above) so
+        # pi-autoresearch's lane-stagnation heuristic treats a lane full of
+        # crashed comparators the same as one full of failed executes, not
+        # like one that produced nothing. Harvest filters on `value < 0` and
+        # `comparison.matches == True`, so this sentinel won't crown the run.
+        _write_failure_metrics(metrics_file, f"comparator crashed (exit {compare_result.returncode})")
+        write_last_run_json(
+            last_run,
+            kind="candidate",
+            run_id=run_id,
+            label=args.label,
+            run_dir=run_dir,
+            result_file=result_file,
+            metrics_file=metrics_file,
+            comparison_file=comparison_file,
+        )
+        print("METRIC latency_ms=-1")
+        return 0
 
     write_last_run_json(
         last_run,

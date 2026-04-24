@@ -89,11 +89,16 @@ export SESSION_RECORDING_API_REDIS_HOST=${SESSION_RECORDING_API_REDIS_HOST:-redi
 export COOKIELESS_REDIS_HOST=${COOKIELESS_REDIS_HOST:-redis7}
 export TEMPORAL_HOST=${TEMPORAL_HOST:-temporal}
 
-# For the test cluster, in local dev we can just use the regular clickhouse
+# Test cluster — in local dev we hit the regular clickhouse container but
+# through a restricted `autoresearch` user (see docker/clickhouse/users-dev.xml):
+# readonly=2 pinned in the profile, no table-function grants (no url/s3/file/
+# executable/jdbc/...), and SELECT grants only on the events / person /
+# person_distinct_id_overrides / sessions tables. This mirrors the shape the
+# real test cluster user will take in prod, so local behaviour matches.
 export CLICKHOUSE_TEST_CLUSTER_HOST=${CLICKHOUSE_TEST_CLUSTER_HOST:-clickhouse}
 export CLICKHOUSE_TEST_CLUSTER_DATABASE=${CLICKHOUSE_TEST_CLUSTER_DATABASE:-default}
-export CLICKHOUSE_TEST_CLUSTER_USER=${CLICKHOUSE_TEST_CLUSTER_USER:-default}
-export CLICKHOUSE_TEST_CLUSTER_PASSWORD=${CLICKHOUSE_TEST_CLUSTER_PASSWORD:-}
+export CLICKHOUSE_TEST_CLUSTER_USER=${CLICKHOUSE_TEST_CLUSTER_USER:-autoresearch}
+export CLICKHOUSE_TEST_CLUSTER_PASSWORD=${CLICKHOUSE_TEST_CLUSTER_PASSWORD:-autoresearchpass}
 export CLICKHOUSE_TEST_CLUSTER_SECURE=${CLICKHOUSE_TEST_CLUSTER_SECURE:-false}
 export CLICKHOUSE_TEST_CLUSTER_VERIFY=${CLICKHOUSE_TEST_CLUSTER_VERIFY:-true}
 

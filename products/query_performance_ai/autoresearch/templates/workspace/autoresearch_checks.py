@@ -7,8 +7,8 @@ Reads ``runtime/last_run.json`` -> ``comparison.json``. Exits 0 on match,
 
 from __future__ import annotations
 
-import json
 import sys
+import json
 from pathlib import Path
 
 WORKSPACE_DIR = Path(__file__).resolve().parent

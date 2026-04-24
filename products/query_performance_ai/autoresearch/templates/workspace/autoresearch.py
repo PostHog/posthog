@@ -6,8 +6,8 @@ Placeholders (``__KEY__``) are filled in by ``ch_campaign_init.py``.
 
 from __future__ import annotations
 
-import subprocess
 import sys
+import subprocess
 from pathlib import Path
 
 PACKAGE_ROOT = Path("__PACKAGE_ROOT__")

@@ -1,22 +1,28 @@
 """OAuth-gated ClickHouse passthrough for the query-performance autoresearch sandbox.
 
-Dev-only for now (DEBUG gate). The test cluster behind ``CLICKHOUSE_TEST_CLUSTER_HOST``
-must only contain data we're willing to point an autoresearch LLM at — today,
-team 2. SQL is not validated at the Django layer; protection comes from the
-ClickHouse user's readonly profile + the limited scope of data on the cluster.
+Dev-only for now (DEBUG gate). All SQL safety comes from the ClickHouse user
+routed through ``CLICKHOUSE_TEST_CLUSTER_*``: readonly=2 pinned in the profile
+(no writes, no settings overrides), no grants on table functions like
+``url()``/``s3()``/``file()``/``executable()``/``jdbc()`` (so SSRF and exec
+surfaces are rejected by CH itself with a GRANT error), and SELECT grants
+limited to the tables relevant to query-performance work. The Django layer
+does NOT parse or filter SQL — regex-based SQL filtering is unsafe and we
+rely on CH's own authorization.
 
-Once DEBUG is dropped, enabling this in prod also requires a locked-down CH
-user (readonly=2 pinned in the profile, row policies for team scoping).
+Local dev user: ``autoresearch`` (see ``docker/clickhouse/users-dev.xml``),
+set as the default in ``bin/start``. Prod enablement requires an equivalent
+user on the real test cluster.
 """
 
 from __future__ import annotations
 
-import json
 import logging
+import threading
 
 from django.conf import settings
 
 from clickhouse_driver import Client as SyncClient
+from clickhouse_driver import errors as clickhouse_driver_errors
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -32,18 +38,23 @@ from posthog.permissions import APIScopePermission
 logger = logging.getLogger(__name__)
 
 
-# Single-tenant cluster, so we don't need caps aimed at protecting the CH side
-# itself — wall-clock is what bounds how long one iteration can stall the
-# campaign loop. The row / byte caps here protect the _Django worker_: the
-# proxy materializes the result list in memory before DRF-serializing it, so
-# one LLM-drafted `SELECT *` on `events` would otherwise OOM the web process.
+# Single-tenant test cluster: we serialize all proxy calls with _QUERY_LOCK so
+# only one query runs at a time. Wall-clock caps the worst iteration; the row
+# and byte caps make ClickHouse throw (not truncate) on overflow so a runaway
+# `SELECT *` fails loud instead of poisoning the compare oracle. These caps
+# live here (not in the CH user profile) because this endpoint is the only
+# caller with these credentials, so iterating in code is safe. `readonly=2`
+# IS pinned in the profile — the load-bearing safety — and we also pass it
+# below for belt-and-suspenders. The SQL length cap is a Python-memory bound,
+# not a security check; SQL safety comes from the CH user's grants.
+MAX_SQL_LENGTH = 64 * 1024
 MAX_EXECUTION_TIME_SECONDS = 5 * 60
 MAX_RESULT_ROWS = 10_000
 MAX_RESULT_BYTES = 10 * 1024 * 1024  # 10 MiB
 
 
 class ExecuteRequestSerializer(serializers.Serializer):
-    sql = serializers.CharField()
+    sql = serializers.CharField(max_length=MAX_SQL_LENGTH)
 
 
 _ACTION_SCOPES: dict[str, list[str]] = {
@@ -55,22 +66,22 @@ _QUERY_SETTINGS: dict[str, object] = {
     "max_result_rows": MAX_RESULT_ROWS,
     "max_result_bytes": MAX_RESULT_BYTES,
     # "throw" so the caller sees a concrete CH error code on overflow and can
-    # narrow the query, rather than silently receiving a truncated result.
+    # narrow the query, rather than silently receiving a truncated result (the
+    # comparison oracle would then crown a wrong query as "fast + correct").
     "result_overflow_mode": "throw",
     "readonly": 2,
 }
 
 
-# Module-level client cache. `clickhouse-driver.Client` owns a TCP (+ TLS)
-# connection and exposes per-connection state (`last_query`), so reusing one
-# avoids a handshake per request. Keyed on the connection settings tuple so
-# test `override_settings(CLICKHOUSE_TEST_CLUSTER_HOST=...)` rebuilds.
-#
-# The endpoint is DEBUG-gated and single-operator today; when that changes a
-# proper thread-local / pool will be needed because `last_query` is mutable
-# per-client state.
+# Module-level client cache + lock. `clickhouse-driver.Client` owns a TCP (+
+# TLS) connection and exposes per-connection mutable state (`last_query`), so
+# any concurrent use corrupts both the wire protocol and the metrics we return.
+# We guard with a single `_QUERY_LOCK` held across the full `sync_execute` +
+# `last_query` read: one query at a time on the test cluster is what we want
+# anyway (single-tenant; concurrent workloads would be noisy neighbours).
 _SYNC_CLIENT: SyncClient | None = None
 _SYNC_CLIENT_KEY: tuple | None = None
+_QUERY_LOCK = threading.Lock()
 
 
 def _get_sync_client() -> SyncClient:
@@ -99,8 +110,15 @@ def _get_sync_client() -> SyncClient:
 
 
 def _reset_sync_client_cache() -> None:
-    """Test-only: clear the module-level client cache between tests."""
+    """Drop the cached SyncClient. Called from the connection-failure branch in
+    `_run_autoresearch_query` (under `_QUERY_LOCK`) and from test setUp (no
+    lock — test context is single-threaded)."""
     global _SYNC_CLIENT, _SYNC_CLIENT_KEY
+    if _SYNC_CLIENT is not None:
+        try:
+            _SYNC_CLIENT.disconnect()
+        except Exception:
+            logger.debug("sync client disconnect raised during reset", exc_info=True)
     _SYNC_CLIENT = None
     _SYNC_CLIENT_KEY = None
 
@@ -138,40 +156,59 @@ class QueryPerformanceProxyViewSet(viewsets.ViewSet):
 
 
 def _run_autoresearch_query(sql: str) -> Response:
-    client = _get_sync_client()
-    try:
-        # Required: sync_execute raises UntaggedQueryError in DEBUG without these tags.
-        with tags_context(product=Product.INTERNAL, feature=Feature.QUERY):
-            rows = sync_execute(sql, settings=_QUERY_SETTINGS, sync_client=client, readonly=True, flush=False)
-    except InternalCHQueryError as e:
-        # Response carries only the CH error code — CodeQL flags returning
-        # exception text as information exposure.
-        logger.exception("query_performance_proxy: clickhouse query failed")
-        return Response(
-            {
-                "error": "clickhouse query failed",
-                "code": getattr(e, "code", None),
-            },
-            status=status.HTTP_502_BAD_GATEWAY,
-        )
-    except Exception:
-        logger.exception("query_performance_proxy: failed to reach ClickHouse")
-        return Response(
-            {"error": "clickhouse unreachable"},
-            status=status.HTTP_502_BAD_GATEWAY,
-        )
+    # Single global lock: protects `SyncClient` mutable state AND enforces the
+    # single-tenant test cluster's "one query at a time" invariant.
+    with _QUERY_LOCK:
+        client = _get_sync_client()
+        try:
+            with tags_context(product=Product.INTERNAL, feature=Feature.AUTORESEARCH):
+                rows = sync_execute(sql, settings=_QUERY_SETTINGS, sync_client=client, flush=False)
+        except InternalCHQueryError as e:
+            # Response carries only the CH error code — CodeQL flags returning
+            # exception text as information exposure.
+            logger.exception("query_performance_proxy: clickhouse query failed")
+            return Response(
+                {
+                    "error": "clickhouse query failed",
+                    "code": getattr(e, "code", None),
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except (
+            ConnectionError,
+            OSError,  # covers socket.error, BrokenPipeError, TimeoutError
+            EOFError,
+            clickhouse_driver_errors.NetworkError,
+            clickhouse_driver_errors.SocketTimeoutError,
+            clickhouse_driver_errors.UnexpectedPacketFromServerError,
+            clickhouse_driver_errors.UnknownPacketFromServerError,
+            clickhouse_driver_errors.PartiallyConsumedQueryError,
+        ):
+            # Connection-level failure leaves the cached client in an unknown
+            # state; drop it so the next request reconnects rather than looping
+            # on a zombie socket. Other exceptions (programmer errors like
+            # UntaggedQueryError, AttributeError, etc.) propagate as 500 so we
+            # don't flap a healthy socket on a code bug.
+            logger.exception("query_performance_proxy: failed to reach ClickHouse")
+            _reset_sync_client_cache()
+            return Response(
+                {"error": "clickhouse unreachable"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
 
-    # All the metrics come from the driver's `last_query` info so they reflect
-    # ClickHouse's own view of the query (server-side elapsed, scan-side
-    # rows/bytes) — autoresearch compares these across candidates.
-    last_query = getattr(client, "last_query", None)
-    profile_info = getattr(last_query, "profile_info", None)
-    elapsed_seconds = getattr(last_query, "elapsed", None)
+        # Metrics come from the driver's `last_query` info so they reflect
+        # ClickHouse's own view (server-side elapsed, scan-side rows/bytes) —
+        # autoresearch compares these across candidates. Read inside the lock
+        # so a concurrent reset can't null the client between execute and read.
+        last_query = getattr(client, "last_query", None)
+        profile_info = getattr(last_query, "profile_info", None)
+        elapsed_seconds = getattr(last_query, "elapsed", None)
+        query_id = getattr(last_query, "query_id", None)
 
     return Response(
         {
             "result": rows if isinstance(rows, list) else [],
-            "query_id": getattr(last_query, "query_id", None),
+            "query_id": query_id,
             "elapsed_ms": round(elapsed_seconds * 1000.0, 3) if isinstance(elapsed_seconds, int | float) else None,
             "rows_read": getattr(profile_info, "rows", None),
             "bytes_read": getattr(profile_info, "bytes", None),

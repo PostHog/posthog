@@ -21,6 +21,12 @@ export const API_SCOPES: APIScope[] = [
     { key: 'annotation', objectName: 'Annotation', objectPlural: 'annotations' },
     { key: 'approvals', objectName: 'Approvals', objectPlural: 'approvals' },
     { key: 'batch_export', objectName: 'Batch export', objectPlural: 'batch exports' },
+    {
+        key: 'clickhouse_test_cluster_perf',
+        objectName: 'ClickHouse test cluster perf',
+        objectPlural: 'ClickHouse test cluster perf',
+        disabledActions: ['write'],
+    },
     { key: 'cohort', objectName: 'Cohort', objectPlural: 'cohorts' },
     { key: 'comment', objectName: 'Comment', objectPlural: 'comments' },
     { key: 'customer_analytics', objectName: 'Customer analytics', objectPlural: 'customer analytics' },

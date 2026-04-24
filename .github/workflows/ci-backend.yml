@@ -25,6 +25,18 @@ env:
     CLICKHOUSE_HOST: 'localhost'
     CLICKHOUSE_SECURE: 'False'
     CLICKHOUSE_VERIFY: 'False'
+    # Route the query-performance autoresearch proxy (and its integration
+    # tests in posthog/api/test/test_autoresearch_ch_user_enforcement.py)
+    # at the same local CH container, through the restricted `autoresearch`
+    # user defined in docker/clickhouse/users-dev.xml. In CI the Django
+    # integration-test DB is `posthog_test` (see CLICKHOUSE_TEST_DB in
+    # posthog/settings/data_stores.py), not `default` as in regular dev.
+    CLICKHOUSE_TEST_CLUSTER_HOST: 'localhost'
+    CLICKHOUSE_TEST_CLUSTER_DATABASE: 'posthog_test'
+    CLICKHOUSE_TEST_CLUSTER_USER: 'autoresearch'
+    CLICKHOUSE_TEST_CLUSTER_PASSWORD: 'autoresearchpass'
+    CLICKHOUSE_TEST_CLUSTER_SECURE: 'False'
+    CLICKHOUSE_TEST_CLUSTER_VERIFY: 'False'
     TEST: 1
     CLICKHOUSE_SERVER_IMAGE_VERSION: ${{ github.event.inputs.clickhouseServerVersion || '' }}
     CLICKHOUSE_COMPAT_PYTEST_TARGETS: 'posthog/clickhouse ee/clickhouse'

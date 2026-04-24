@@ -8,11 +8,11 @@ query files if a source SQL file is provided.
 
 from __future__ import annotations
 
-import argparse
+import sys
 import json
 import shutil
+import argparse
 import subprocess
-import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
