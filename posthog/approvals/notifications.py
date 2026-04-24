@@ -6,6 +6,15 @@ from posthog.email import EmailMessage, is_email_available
 from posthog.models import User
 from posthog.utils import absolute_uri
 
+from products.notifications.backend.facade.api import (
+    NotificationData,
+    NotificationType,
+    Priority,
+    TargetType,
+    create_notification,
+)
+from products.notifications.backend.facade.enums import NotificationOnlyResourceType
+
 if TYPE_CHECKING:
     from posthog.approvals.models import Approval, ChangeRequest
 
@@ -111,6 +120,32 @@ def send_approval_requested_notification(change_request: "ChangeRequest") -> Non
                 approver_id=approver.id,
                 error=str(e),
             )
+
+    try:
+        title = f"{requester_name} needs your sign-off"[:100]
+        body = f"Action: {change_request.action_key}"[:200]
+        source_url = f"/project/{change_request.team.project_id}/approvals/{change_request.id}"
+        for approver_id in approver_ids:
+            create_notification(
+                NotificationData(
+                    team_id=change_request.team_id,
+                    notification_type=NotificationType.APPROVAL_REQUESTED,
+                    priority=Priority.NORMAL,
+                    title=title,
+                    body=body,
+                    target_type=TargetType.USER,
+                    target_id=str(approver_id),
+                    resource_type=NotificationOnlyResourceType.APPROVAL,
+                    resource_id=str(change_request.id),
+                    source_url=source_url,
+                )
+            )
+    except Exception as e:
+        logger.exception(
+            "send_approval_requested_notification.realtime_failed",
+            change_request_id=str(change_request.id),
+            error=str(e),
+        )
 
 
 def send_approval_decision_notification(
