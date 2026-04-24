@@ -17,7 +17,6 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models.team import Team
-from posthog.models.user import User
 
 OFFSET_NOT_ALLOWED_MESSAGE = (
     "OFFSET is not supported on queries made with a personal API key. "
@@ -60,28 +59,25 @@ class _OffsetDetectingVisitor(TraversingVisitor):
         super().visit_select_set_query(node)
 
 
-def _is_org_exempted_from_offset_block(team: Team, user: User | None) -> bool:
+def _is_org_exempted_from_offset_block(team: Team) -> bool:
     """Return True if the team's org is on the OFFSET allow-list.
 
-    Fail-open on any error (missing user, flag service outage, etc.): a failed check
-    returns True so we don't break personal-API-key traffic on infrastructure issues.
+    The flag is evaluated against the organization group — the distinct_id parameter
+    is required by the SDK but doesn't affect the result (and we disable flag-event
+    tracking so it doesn't affect telemetry either). We pass the organization id as
+    the distinct_id: stable, always present, and self-documenting.
+
+    Fail-open on flag-service errors: a failed check returns True so an outage of
+    the flag service doesn't start rejecting previously-valid traffic.
     """
-    distinct_id = getattr(user, "distinct_id", None) if user is not None else None
-    if not distinct_id:
-        return True
+    org_id = str(team.organization_id)
     try:
         return bool(
             posthoganalytics.feature_enabled(
                 HOGQL_PERSONAL_API_KEY_OFFSET_ALLOWED_FLAG,
-                str(distinct_id),
-                groups={
-                    "organization": str(team.organization_id),
-                    "project": str(team.id),
-                },
-                group_properties={
-                    "organization": {"id": str(team.organization_id)},
-                    "project": {"id": str(team.id)},
-                },
+                org_id,
+                groups={"organization": org_id},
+                group_properties={"organization": {"id": org_id}},
                 send_feature_flag_events=False,
             )
         )
@@ -89,18 +85,14 @@ def _is_org_exempted_from_offset_block(team: Team, user: User | None) -> bool:
         return True
 
 
-def validate_user_query(
-    node: ast.SelectQuery | ast.SelectSetQuery,
-    team: Team,
-    user: User | None,
-) -> None:
+def validate_user_query(node: ast.SelectQuery | ast.SelectSetQuery, team: Team) -> None:
     """Enforce user-query restrictions on a parsed HogQL AST.
 
     Currently: reject any OFFSET clause unless the team's organization is on the
     allow-list feature flag. Callers are expected to have already gated on
     ``is_query_service`` — this function unconditionally applies the policy.
     """
-    if _is_org_exempted_from_offset_block(team, user):
+    if _is_org_exempted_from_offset_block(team):
         return
     try:
         _OffsetDetectingVisitor().visit(node)

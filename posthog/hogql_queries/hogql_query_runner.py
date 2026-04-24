@@ -121,7 +121,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         query = self.to_query()
 
         if self.is_query_service:
-            validate_user_query(query, team=self.team, user=self.user)
+            validate_user_query(query, team=self.team)
 
         paginator = None
         if isinstance(query, ast.SelectQuery) and not query.limit:

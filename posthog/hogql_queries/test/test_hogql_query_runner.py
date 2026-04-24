@@ -293,11 +293,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_query_service_rejects_offset(self):
         # Verifies the hook is actually wired up through runner.calculate() — not just that the
         # validator itself works (that's covered in test_user_query_validator).
-        runner = HogQLQueryRunner(
-            team=self.team,
-            query=HogQLQuery(query="select event from events limit 10 offset 5"),
-            user=self.user,
-        )
+        runner = self._create_runner(HogQLQuery(query="select event from events limit 10 offset 5"))
         runner.is_query_service = True
 
         with patch("posthoganalytics.feature_enabled", side_effect=self._deny_all_flags):
@@ -308,13 +304,11 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_query_service_rejects_offset_after_placeholder_substitution(self):
         # OFFSET supplied via a placeholder must still be caught. This proves the hook runs
         # *after* to_query() — which does placeholder substitution — not before.
-        runner = HogQLQueryRunner(
-            team=self.team,
-            query=HogQLQuery(
+        runner = self._create_runner(
+            HogQLQuery(
                 query="select event from events limit 10 offset {o}",
                 values={"o": 50},
-            ),
-            user=self.user,
+            )
         )
         runner.is_query_service = True
 

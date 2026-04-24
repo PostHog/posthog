@@ -81,7 +81,7 @@ class TestValidateUserQuery(APIBaseTest):
     """Org-level allow-list gate. Callers are assumed to have already gated on is_query_service."""
 
     def _validate(self, sql: str) -> None:
-        validate_user_query(_parse(sql), team=self.team, user=self.user)
+        validate_user_query(_parse(sql), team=self.team)
 
     def test_rejects_offset_by_default(self):
         # Default: no allow-list entry → reject.
