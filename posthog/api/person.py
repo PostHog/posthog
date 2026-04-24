@@ -44,6 +44,7 @@ from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action, format_paginated_url, get_pk_or_uuid, get_target_entity
 from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import INSIGHT_FUNNELS, LIMIT, OFFSET, FunnelVizType
 from posthog.decorators import cached_by_filters
 from posthog.event_usage import get_request_analytics_properties
@@ -489,6 +490,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ],
     )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        tag_queries(product=ProductKey.PERSONS, feature=Feature.QUERY)
         team = self.team
         filter = Filter(request=request, team=self.team)
 
@@ -754,6 +756,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 
+        tag_queries(product=ProductKey.PERSONS, feature=Feature.QUERY)
         with (
             PROPERTY_VALUES_DURATION.labels(endpoint_type="person").time(),
             tracer.start_as_current_span("person_api_property_values") as span,
