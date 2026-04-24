@@ -273,9 +273,17 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
                         'MMMM D, YYYY',
                         true
                     )
+                    const endOfRangeDateValue = values[1]
+                        ? dateFilterToText(values[1], undefined, '', [], false, 'MMMM D, YYYY', true)
+                        : undefined
 
                     return (
-                        <Tooltip key={key} title={makeLabel ? makeLabel(dateValue, startOfRangeDateValue) : undefined}>
+                        <Tooltip
+                            key={key}
+                            title={
+                                makeLabel ? makeLabel(dateValue, startOfRangeDateValue, endOfRangeDateValue) : undefined
+                            }
+                        >
                             <LemonButton
                                 key={key}
                                 data-attr={`date-filter-${key.toLowerCase().replace(/\s+/g, '-')}`}
