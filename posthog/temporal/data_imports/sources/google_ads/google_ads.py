@@ -3,6 +3,7 @@ import datetime as dt
 import collections.abc
 
 from django.conf import settings
+from django.db import close_old_connections
 
 import pyarrow as pa
 from google.ads.googleads.client import GoogleAdsClient
@@ -65,6 +66,10 @@ GoogleAdsSourceConfigUnion = GoogleAdsServiceAccountSourceConfig | GoogleAdsSour
 def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> GoogleAdsClient:
     """Initialize a `GoogleAdsClient` with provided config."""
     if isinstance(config, GoogleAdsSourceConfig):
+        # The pipeline invokes `get_rows` on a long-lived source-iterator thread pool, so the
+        # thread-local Django DB connection can be closed (by PgBouncer or an idle timeout)
+        # between runs. Recycle any stale connection before touching the ORM.
+        close_old_connections()
         integration = Integration.objects.get(id=config.google_ads_integration_id, team_id=team_id)
 
         login_customer_id: str | None = None

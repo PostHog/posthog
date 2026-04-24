@@ -15,6 +15,7 @@ from posthog.temporal.data_imports.sources.generated_configs import GoogleAdsIsM
 from posthog.temporal.data_imports.sources.google_ads.google_ads import (
     GoogleAdsServiceAccountSourceConfig,
     get_schemas,
+    google_ads_client,
     google_ads_source,
 )
 from posthog.temporal.data_imports.sources.google_ads.source import GoogleAdsSource
@@ -200,6 +201,33 @@ def test_google_ads_source(customer_id: str, developer_token: str, service_accou
         items = source.items()
         assert isinstance(items, Iterable)
         list(items)
+
+
+@mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.GoogleAdsClient.load_from_dict")
+@mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.Integration.objects.get")
+@mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.close_old_connections")
+def test_google_ads_client_recycles_stale_db_connections_before_integration_fetch(
+    mock_close_old_connections, mock_integration_get, mock_load_from_dict
+):
+    """Regression test for `OperationalError: the connection is closed`.
+
+    The pipeline invokes `get_rows` on a long-lived source-iterator thread pool. If the
+    thread's Django DB connection has gone stale (closed by PgBouncer or an idle timeout),
+    the `Integration.objects.get(...)` call inside `google_ads_client` crashes with
+    `OperationalError: the connection is closed`. Calling `close_old_connections()` before
+    the ORM fetch recycles the stale connection. This test pins that behavior.
+    """
+    mock_integration = mock.MagicMock()
+    mock_integration.refresh_token = "refresh-token"
+    mock_integration_get.return_value = mock_integration
+    mock_load_from_dict.return_value = mock.MagicMock()
+
+    config = GoogleAdsSourceConfig(customer_id="123-456-7890", google_ads_integration_id=1)
+
+    google_ads_client(config, team_id=1)
+
+    mock_close_old_connections.assert_called_once()
+    mock_integration_get.assert_called_once_with(id=1, team_id=1)
 
 
 class TestGoogleAdsSourceValidation:
