@@ -48,6 +48,7 @@ export type FetchOptions = {
     headers?: HeadersInit
     body?: string | Buffer
     timeoutMs?: number
+    allowH2?: boolean
 }
 
 export type FetchResponse = {
@@ -276,6 +277,15 @@ function makeSecureDispatcher(): Dispatcher {
 }
 
 const sharedSecureAgent = makeSecureDispatcher()
+const sharedSecureH2Agent = new Agent({
+    keepAliveTimeout: Number(requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS),
+    connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
+    allowH2: true,
+    connect: {
+        lookup: httpStaticLookup,
+        timeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
+    },
+})
 const sharedInsecureAgent = new InsecureAgent()
 
 /**
@@ -369,7 +379,8 @@ export async function fetch(url: string, options: FetchOptions = {}): Promise<Fe
     validateHostnameIPLiteral(parsed.hostname, !isProdEnv())
     inflightExternalRequests.inc()
     try {
-        return await _fetch(url, options, sharedSecureAgent)
+        const dispatcher = options.allowH2 ? sharedSecureH2Agent : sharedSecureAgent
+        return await _fetch(url, options, dispatcher)
     } finally {
         inflightExternalRequests.dec()
     }

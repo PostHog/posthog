@@ -5,7 +5,7 @@ export const PushNotificationPayloadSchema = z.object({
     title: z.string(),
     body: z.string().optional(),
     image: z.string().url().optional(),
-    data: z.record(z.string()).optional(),
+    data: z.record(z.string(), z.string()).optional(),
     collapseKey: z.string().optional(),
     ttlSeconds: z.number().int().min(0).optional(),
     // Android-specific overrides (used by FCM)

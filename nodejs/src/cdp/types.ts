@@ -441,7 +441,7 @@ export type DBHogFunctionTemplate = {
 export type IntegrationType = {
     id: number
     team_id: number
-    kind: 'slack' | 'email' | 'oauth' | 'firebase' | 'apple-push'
+    kind: 'slack' | 'email' | 'oauth' | 'firebase' | 'apns'
     config: Record<string, any>
     sensitive_config: Record<string, any>
 }

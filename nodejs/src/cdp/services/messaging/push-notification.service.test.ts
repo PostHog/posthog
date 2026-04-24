@@ -219,7 +219,7 @@ describe('PushNotificationService', () => {
         const apnsIntegration = {
             id: 2,
             team_id: 1,
-            kind: 'apple-push' as const,
+            kind: 'apns' as const,
             config: { key_id: 'KEY123', team_id: 'TEAM456', bundle_id: 'com.example.app' },
             sensitive_config: { signing_key: testEcKey },
         }
@@ -250,6 +250,7 @@ describe('PushNotificationService', () => {
                 url: 'https://api.push.apple.com/3/device/apns-device-token',
                 fetchParams: expect.objectContaining({
                     method: 'POST',
+                    allowH2: true,
                     headers: expect.objectContaining({
                         'apns-topic': 'com.example.app',
                         'apns-push-type': 'alert',
