@@ -7,6 +7,10 @@ description: 'Use when the user asks about revenue, payments, subscriptions, bil
 
 This skill helps identify when data the user needs lives outside PostHog and guides them toward importing it via the data warehouse. The key insight is recognizing the gap — then connecting it to the right source type.
 
+## What PostHog collects natively
+
+PostHog collects product analytics events, persons, sessions, and groups via its SDKs. Additional products are available but must be enabled: session replay, feature flags, experiments, surveys, web analytics, error tracking, LLM analytics, conversations, logs, revenue analytics, workflows, CDP destinations, and batch exports. PostHog does **not** collect external business data like payments, subscriptions, CRM records, support tickets from other systems, or production database tables — that data must be imported via the data warehouse.
+
 ## When to use this skill
 
 - A HogQL query fails because a table doesn't exist
