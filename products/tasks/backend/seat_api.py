@@ -1,4 +1,5 @@
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, cast
 
 import requests
@@ -13,13 +14,25 @@ from rest_framework.response import Response
 
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.cloud_utils import get_cached_instance_license
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
 
 # TODO: Centralize billing proxy through BillingManager (ee/billing/) to avoid
 # duplicating auth header construction and keep all billing communication in one place
 from ee.billing.billing_manager import build_billing_token
 from ee.settings import BILLING_SERVICE_URL
+
+PRO_PLAN_PREFIXES = ("posthog-code-200", "posthog-code-pro-")
+
+
+def _seat_priority(seat: dict[str, Any]) -> int:
+    plan_key = seat.get("plan_key") or ""
+    if any(plan_key.startswith(p) for p in PRO_PLAN_PREFIXES):
+        return 2
+    if plan_key:
+        return 1
+    return 0
+
 
 logger = structlog.get_logger(__name__)
 
@@ -59,17 +72,22 @@ class SeatViewSet(viewsets.ViewSet):
 
     def _get_billing_headers(self, request: Request) -> dict[str, str] | None:
         user = cast(User, request.user)
-        license = get_cached_instance_license()
         org = user.organization
-        if not org or not license:
+        if not org:
+            return None
+        return self._get_billing_headers_for_org(user, org)
+
+    def _get_billing_headers_for_org(self, user: User, org: Organization) -> dict[str, str] | None:
+        license = get_cached_instance_license()
+        if not license:
             return None
         try:
             token = build_billing_token(license, org, user)
         except NotAuthenticated:
-            logger.warning("User not a member of their current organization", user_id=user.id)
+            logger.warning("User not a member of organization", user_id=user.id, org_id=str(org.id))
             return None
         except Exception:
-            logger.exception("Failed to build billing token", user_id=user.id)
+            logger.exception("Failed to build billing token", user_id=user.id, org_id=str(org.id))
             return None
         return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
@@ -195,9 +213,17 @@ class SeatViewSet(viewsets.ViewSet):
         return self._forward_response(resp)
 
     def retrieve(self, request: Request, pk: str | None = None) -> Response:
-        """GET /api/seats/me/ -> GET /api/v2/seats/{distinct_id}/?product_key="""
+        """GET /api/seats/me/ -> GET /api/v2/seats/{distinct_id}/?product_key=
+
+        Pass ``?best=true`` to resolve the highest-tier seat across all
+        the user's organizations (only supported for ``pk=me``).
+        """
         if pk != "me":
             self._require_admin(request)
+
+        use_best = request.query_params.get("best", "").lower() == "true"
+        if use_best and pk == "me":
+            return self._retrieve_best_seat(request)
 
         headers = self._get_billing_headers(request)
         if not headers:
@@ -211,6 +237,55 @@ class SeatViewSet(viewsets.ViewSet):
             query_params=self._filtered_query_params(request),
         )
         return self._forward_response(resp)
+
+    def _retrieve_best_seat(self, request: Request) -> Response:
+        """Return the highest-tier seat across all the user's orgs."""
+        user = cast(User, request.user)
+        distinct_id = str(user.distinct_id)
+        query_params = self._filtered_query_params(request)
+
+        memberships = OrganizationMembership.objects.filter(user=user).select_related("organization")
+        orgs = [m.organization for m in memberships if m.organization is not None]
+
+        if not orgs:
+            return Response({"detail": "No organization found"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if len(orgs) == 1:
+            headers = self._get_billing_headers_for_org(user, orgs[0])
+            if not headers:
+                return Response({"detail": "No license found"}, status=status.HTTP_400_BAD_REQUEST)
+            resp = self._billing_request("GET", f"/api/v2/seats/{distinct_id}/", headers, query_params=query_params)
+            return self._forward_response(resp)
+
+        def fetch_seat(org: Organization) -> dict[str, Any] | None:
+            headers = self._get_billing_headers_for_org(user, org)
+            if not headers:
+                return None
+            resp = self._billing_request("GET", f"/api/v2/seats/{distinct_id}/", headers, query_params=query_params)
+            if resp is None or not resp.ok:
+                return None
+            try:
+                data = resp.json()
+                return data.get("seat", data) if isinstance(data, dict) else None
+            except ValueError:
+                return None
+
+        seats: list[dict[str, Any]] = []
+        with ThreadPoolExecutor(max_workers=min(len(orgs), 5)) as pool:
+            futures = {pool.submit(fetch_seat, org): org for org in orgs}
+            for future in as_completed(futures):
+                try:
+                    seat = future.result()
+                    if seat:
+                        seats.append(seat)
+                except Exception:
+                    logger.exception("Failed to fetch seat for org", org_id=str(futures[future].id))
+
+        if not seats:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        best = max(seats, key=_seat_priority)
+        return Response(best)
 
     def partial_update(self, request: Request, pk: str | None = None) -> Response:
         """PATCH /api/seats/me/ -> PATCH /api/v2/seats/{distinct_id}/"""

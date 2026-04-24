@@ -148,7 +148,7 @@ class TestPlanResolver:
 
         resolver_with_redis._http.get.assert_called_once_with(
             "https://app.posthog.com/api/seats/me/",
-            params={"product_key": "posthog_code"},
+            params={"product_key": "posthog_code", "best": "true"},
             headers={"Authorization": "Bearer phx_test"},
             timeout=2.0,
         )
