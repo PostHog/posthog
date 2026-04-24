@@ -18,10 +18,11 @@ from temporalio.common import SearchAttributePair, TypedSearchAttributes
 
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_schedule_exists, a_update_schedule
-from posthog.temporal.common.search_attributes import POSTHOG_TEAM_ID_KEY
+from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_TYPE_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.session_replay.summarization_sweep.constants import (
     SCHEDULE_ID_PREFIX,
     SCHEDULE_INTERVAL,
+    SCHEDULE_TYPE,
     WORKFLOW_EXECUTION_TIMEOUT,
     WORKFLOW_NAME,
 )
@@ -63,7 +64,10 @@ async def a_upsert_team_schedule(team_id: int) -> None:
     schedule = _build_schedule(team_id)
     schedule_id = team_schedule_id(team_id)
     search_attributes = TypedSearchAttributes(
-        search_attributes=[SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=team_id)]
+        search_attributes=[
+            SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=team_id),
+            SearchAttributePair(key=POSTHOG_SCHEDULE_TYPE_KEY, value=SCHEDULE_TYPE),
+        ]
     )
 
     if await a_schedule_exists(client, schedule_id):

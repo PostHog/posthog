@@ -8,7 +8,6 @@ keeps the set of schedules in sync with Postgres.
 from posthog.temporal.session_replay.summarization_sweep.activities import (
     delete_team_schedule_activity,
     find_sessions_for_team_activity,
-    list_configured_teams_activity,
     list_enabled_teams_activity,
     list_summarization_schedule_team_ids_activity,
     upsert_team_schedule_activity,
@@ -23,7 +22,6 @@ SUMMARIZATION_SWEEP_WORKFLOWS = [
 SUMMARIZATION_SWEEP_ACTIVITIES = [
     find_sessions_for_team_activity,
     delete_team_schedule_activity,
-    list_configured_teams_activity,
     list_enabled_teams_activity,
     list_summarization_schedule_team_ids_activity,
     upsert_team_schedule_activity,

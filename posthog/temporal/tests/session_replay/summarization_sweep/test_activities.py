@@ -290,20 +290,3 @@ async def test_list_enabled_teams_filters_ai_consent(activity_environment, organ
     result = await activity_environment.run(list_enabled_teams_activity)
     assert t_consented.id in result
     assert t_revoked.id not in result
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_list_configured_teams_returns_enabled_and_disabled(activity_environment, organization):
-    from posthog.temporal.session_replay.summarization_sweep.activities import list_configured_teams_activity
-
-    t_enabled = await sync_to_async(Team.objects.create)(organization=organization, name="enabled")
-    t_disabled = await sync_to_async(Team.objects.create)(organization=organization, name="disabled")
-    t_none = await sync_to_async(Team.objects.create)(organization=organization, name="none")
-    await sync_to_async(enable_signal_source)(t_enabled, enabled=True)
-    await sync_to_async(enable_signal_source)(t_disabled, enabled=False)
-
-    result = await activity_environment.run(list_configured_teams_activity)
-    assert t_enabled.id in result
-    assert t_disabled.id in result
-    assert t_none.id not in result

@@ -4,6 +4,9 @@ from datetime import timedelta
 SCHEDULE_ID_PREFIX = "session-summarization-team"
 WORKFLOW_NAME = "summarize-team-sessions"
 
+# Value of the `PostHogScheduleType` search attribute set on every per-team schedule.
+SCHEDULE_TYPE = "summarization-sweep"
+
 SCHEDULE_INTERVAL = timedelta(minutes=5)
 
 # Must be > SCHEDULE_INTERVAL so a session ending just before a tick is picked

@@ -7,13 +7,13 @@ from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.temporal.session_replay.summarization_sweep.constants import (
     CH_QUERY_MAX_EXECUTION_SECONDS,
     SCHEDULE_ID_PREFIX,
+    SCHEDULE_TYPE,
     WORKFLOW_NAME,
 )
 from posthog.temporal.session_replay.summarization_sweep.models import (
     DeleteTeamScheduleInput,
     FindSessionsInput,
     FindSessionsResult,
-    ListScheduleTeamIdsInput,
     UpsertTeamScheduleInput,
 )
 from posthog.temporal.session_replay.summarization_sweep.session_candidates import fetch_recent_session_ids
@@ -122,29 +122,6 @@ async def list_enabled_teams_activity() -> list[int]:
     return await database_sync_to_async(_list_allowed_team_ids)()
 
 
-def _list_configured_team_ids() -> list[int]:
-    # Reconciliation scope includes disabled rows so stale schedules remain in view.
-    return list(
-        SignalSourceConfig.objects.filter(
-            source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-            source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-        )
-        .values_list("team_id", flat=True)
-        .distinct()
-    )
-
-
-@activity.defn
-async def list_configured_teams_activity() -> list[int]:
-    return await database_sync_to_async(_list_configured_team_ids)()
-
-
-def _build_team_filter_query(team_ids: list[int]) -> str:
-    if len(team_ids) == 1:
-        return f"PostHogTeamId = {team_ids[0]}"
-    return f"PostHogTeamId IN ({','.join(str(t) for t in sorted(team_ids))})"
-
-
 def _schedule_workflow_type(listing: object) -> str | None:
     try:
         return listing.schedule.action.workflow  # type: ignore[attr-defined]
@@ -153,20 +130,19 @@ def _schedule_workflow_type(listing: object) -> str | None:
 
 
 @activity.defn
-async def list_summarization_schedule_team_ids_activity(inputs: ListScheduleTeamIdsInput) -> list[int]:
-    if not inputs.team_ids:
-        return []
-
+async def list_summarization_schedule_team_ids_activity() -> list[int]:
     from posthog.temporal.common.client import async_connect
 
     client = await async_connect()
+    # The `PostHogScheduleType` attribute is set only by this module's schedules, so
+    # one visibility query returns exactly our schedules — no namespace-wide scan.
+    query = f'PostHogScheduleType = "{SCHEDULE_TYPE}"'
     prefix = f"{SCHEDULE_ID_PREFIX}-"
-    query = _build_team_filter_query(inputs.team_ids)
     team_ids: list[int] = []
     async for listing in await client.list_schedules(query=query):
         if not listing.id.startswith(prefix):
             continue
-        # PostHogTeamId is shared across workflow types — restrict to ours.
+        # Belt-and-suspenders: the attribute query should already be exact.
         if _schedule_workflow_type(listing) != WORKFLOW_NAME:
             continue
         suffix = listing.id[len(prefix) :]

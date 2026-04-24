@@ -22,7 +22,6 @@ from posthog.temporal.session_replay.summarization_sweep.constants import (
 )
 from posthog.temporal.session_replay.summarization_sweep.models import (
     DeleteTeamScheduleInput,
-    ListScheduleTeamIdsInput,
     ReconcileSchedulesInputs,
     ReconcileSchedulesResult,
     UpsertTeamScheduleInput,
@@ -32,7 +31,6 @@ from posthog.temporal.session_replay.summarization_sweep.models import (
 with workflow.unsafe.imports_passed_through():
     from posthog.temporal.session_replay.summarization_sweep.activities import (
         delete_team_schedule_activity,
-        list_configured_teams_activity,
         list_enabled_teams_activity,
         list_summarization_schedule_team_ids_activity,
         upsert_team_schedule_activity,
@@ -51,25 +49,17 @@ class ReconcileSummarizationSchedulesWorkflow(PostHogWorkflow):
     async def run(self, inputs: ReconcileSchedulesInputs) -> dict[str, Any]:
         # A team enabled between the two listings may get deleted this tick and
         # recreated next tick — worst case ~one RECONCILER_INTERVAL of missed summaries.
-        enabled_ids, configured_ids = await asyncio.gather(
+        enabled_ids, existing_ids = await asyncio.gather(
             workflow.execute_activity(
                 list_enabled_teams_activity,
                 start_to_close_timeout=LIST_ENABLED_TEAMS_TIMEOUT,
                 retry_policy=RetryPolicy(maximum_attempts=3),
             ),
             workflow.execute_activity(
-                list_configured_teams_activity,
-                start_to_close_timeout=LIST_ENABLED_TEAMS_TIMEOUT,
+                list_summarization_schedule_team_ids_activity,
+                start_to_close_timeout=LIST_SCHEDULES_TIMEOUT,
                 retry_policy=RetryPolicy(maximum_attempts=3),
             ),
-        )
-        # Scope keeps list_schedules from scanning every schedule in the namespace;
-        # anything outside self-heals when its per-team workflow fires.
-        existing_ids = await workflow.execute_activity(
-            list_summarization_schedule_team_ids_activity,
-            ListScheduleTeamIdsInput(team_ids=sorted(set(enabled_ids) | set(configured_ids))),
-            start_to_close_timeout=LIST_SCHEDULES_TIMEOUT,
-            retry_policy=RetryPolicy(maximum_attempts=3),
         )
         enabled = set(enabled_ids)
         existing = set(existing_ids)
