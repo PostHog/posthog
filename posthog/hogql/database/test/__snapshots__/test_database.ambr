@@ -1159,16 +1159,6 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "expression"
-              },
-              "$virt_bot_operator": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "`$virt_bot_operator`",
-                  "id": null,
-                  "name": "$virt_bot_operator",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "expression"
               }
           },
           "id": "events",
@@ -7270,16 +7260,6 @@
                   "hogql_value": "`$virt_bot_name`",
                   "id": null,
                   "name": "$virt_bot_name",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "expression"
-              },
-              "$virt_bot_operator": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "`$virt_bot_operator`",
-                  "id": null,
-                  "name": "$virt_bot_operator",
                   "schema_valid": true,
                   "table": null,
                   "type": "expression"

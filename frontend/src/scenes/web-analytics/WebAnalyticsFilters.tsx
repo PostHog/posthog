@@ -71,85 +71,84 @@ const BotTrafficToggle = (): JSX.Element | null => {
 
 interface BotDef {
     name: string
-    operator: string
     category: string
 }
 
 const BOT_DEFINITIONS_LIST: BotDef[] = [
-    { name: 'Ahrefs', operator: 'Ahrefs', category: 'seo_crawler' },
-    { name: 'Ahrefs Site Audit', operator: 'Ahrefs', category: 'seo_crawler' },
-    { name: 'Amazon', operator: 'Amazon', category: 'ai_crawler' },
-    { name: 'Anthropic', operator: 'Anthropic', category: 'ai_crawler' },
-    { name: 'Apache HTTP', operator: 'Apache', category: 'http_client' },
-    { name: 'Apple AI', operator: 'Apple', category: 'ai_search' },
-    { name: 'Applebot', operator: 'Apple', category: 'ai_search' },
-    { name: 'Axios', operator: 'axios', category: 'http_client' },
-    { name: 'Baidu', operator: 'Baidu', category: 'search_crawler' },
-    { name: 'Barkrowler', operator: 'Babbar', category: 'seo_crawler' },
-    { name: 'Bingbot', operator: 'Microsoft', category: 'search_crawler' },
-    { name: 'Brightbot', operator: 'Bright Data', category: 'ai_crawler' },
-    { name: 'ByteDance', operator: 'ByteDance', category: 'ai_crawler' },
-    { name: 'ChatGPT', operator: 'OpenAI', category: 'ai_assistant' },
-    { name: 'Chrome Prefetch Proxy', operator: 'Google', category: 'http_client' },
-    { name: 'Claude', operator: 'Anthropic', category: 'ai_crawler' },
-    { name: 'Claude Search', operator: 'Anthropic', category: 'ai_search' },
-    { name: 'Claude User', operator: 'Anthropic', category: 'ai_assistant' },
-    { name: 'Claude Web', operator: 'Anthropic', category: 'ai_crawler' },
-    { name: 'Cohere', operator: 'Cohere', category: 'ai_crawler' },
-    { name: 'Common Crawl', operator: 'Common Crawl', category: 'ai_crawler' },
-    { name: 'curl', operator: 'curl', category: 'http_client' },
-    { name: 'Datadog', operator: 'Datadog', category: 'monitoring' },
-    { name: 'Diffbot', operator: 'Diffbot', category: 'ai_crawler' },
-    { name: 'DuckDuckGo', operator: 'DuckDuckGo', category: 'search_crawler' },
-    { name: 'DuckDuckGo AI', operator: 'DuckDuckGo', category: 'ai_assistant' },
-    { name: 'Facebook', operator: 'Meta', category: 'social_crawler' },
-    { name: 'Facebook Bot', operator: 'Meta', category: 'social_crawler' },
-    { name: 'Go HTTP', operator: 'Go', category: 'http_client' },
-    { name: 'Google AI', operator: 'Google', category: 'ai_crawler' },
-    { name: 'Google Ads', operator: 'Google', category: 'search_crawler' },
-    { name: 'Google Cloud Vertex', operator: 'Google', category: 'ai_crawler' },
-    { name: 'Google Inspection', operator: 'Google', category: 'search_crawler' },
-    { name: 'GoogleOther', operator: 'Google', category: 'ai_crawler' },
-    { name: 'Googlebot', operator: 'Google', category: 'search_crawler' },
-    { name: 'GPTBot', operator: 'OpenAI', category: 'ai_crawler' },
-    { name: 'Headless Chrome', operator: 'Google', category: 'headless_browser' },
-    { name: 'LinkedIn', operator: 'LinkedIn', category: 'social_crawler' },
-    { name: 'LWP', operator: 'Perl', category: 'http_client' },
-    { name: 'Majestic', operator: 'Majestic', category: 'seo_crawler' },
-    { name: 'Meta AI', operator: 'Meta', category: 'ai_crawler' },
-    { name: 'Meta Fetcher', operator: 'Meta', category: 'ai_assistant' },
-    { name: 'Mistral AI', operator: 'Mistral', category: 'ai_assistant' },
-    { name: 'Moz', operator: 'Moz', category: 'seo_crawler' },
-    { name: 'Mozlila Typo Bot', operator: 'Unknown', category: 'headless_browser' },
-    { name: 'Node Fetch', operator: 'Node.js', category: 'http_client' },
-    { name: 'OkHttp', operator: 'Square', category: 'http_client' },
-    { name: 'OpenAI Search', operator: 'OpenAI', category: 'ai_search' },
-    { name: 'Perplexity', operator: 'Perplexity', category: 'ai_search' },
-    { name: 'Perplexity User', operator: 'Perplexity', category: 'ai_assistant' },
-    { name: 'Petal', operator: 'Huawei', category: 'ai_crawler' },
-    { name: 'PhantomJS', operator: 'PhantomJS', category: 'headless_browser' },
-    { name: 'Pingdom', operator: 'SolarWinds', category: 'monitoring' },
-    { name: 'Pinterest', operator: 'Pinterest', category: 'social_crawler' },
-    { name: 'Playwright', operator: 'Microsoft', category: 'headless_browser' },
-    { name: 'Puppeteer', operator: 'Google', category: 'headless_browser' },
-    { name: 'Python Requests', operator: 'Python', category: 'http_client' },
-    { name: 'Scrapy', operator: 'Scrapy', category: 'http_client' },
-    { name: 'Selenium', operator: 'Selenium', category: 'headless_browser' },
-    { name: 'Semrush', operator: 'Semrush', category: 'seo_crawler' },
-    { name: 'Site24x7', operator: 'Zoho', category: 'monitoring' },
-    { name: 'Slack', operator: 'Salesforce', category: 'social_crawler' },
-    { name: 'StatusCake', operator: 'StatusCake', category: 'monitoring' },
-    { name: 'Telegram', operator: 'Telegram', category: 'social_crawler' },
-    { name: 'TikTok AI', operator: 'ByteDance', category: 'ai_crawler' },
-    { name: 'Timpi', operator: 'Timpi', category: 'ai_crawler' },
-    { name: 'Twitter', operator: 'X', category: 'social_crawler' },
-    { name: 'UptimeRobot', operator: 'UptimeRobot', category: 'monitoring' },
-    { name: 'Webz.io', operator: 'Webz.io', category: 'ai_crawler' },
-    { name: 'Webz.io Extended', operator: 'Webz.io', category: 'ai_crawler' },
-    { name: 'Wget', operator: 'GNU', category: 'http_client' },
-    { name: 'WhatsApp', operator: 'Meta', category: 'social_crawler' },
-    { name: 'Yahoo', operator: 'Yahoo', category: 'search_crawler' },
-    { name: 'Yandex', operator: 'Yandex', category: 'search_crawler' },
+    { name: 'Ahrefs', category: 'seo_crawler' },
+    { name: 'Ahrefs Site Audit', category: 'seo_crawler' },
+    { name: 'Amazon', category: 'ai_crawler' },
+    { name: 'Anthropic', category: 'ai_crawler' },
+    { name: 'Apache HTTP', category: 'http_client' },
+    { name: 'Apple AI', category: 'ai_search' },
+    { name: 'Applebot', category: 'ai_search' },
+    { name: 'Axios', category: 'http_client' },
+    { name: 'Baidu', category: 'search_crawler' },
+    { name: 'Barkrowler', category: 'seo_crawler' },
+    { name: 'Bingbot', category: 'search_crawler' },
+    { name: 'Brightbot', category: 'ai_crawler' },
+    { name: 'ByteDance', category: 'ai_crawler' },
+    { name: 'ChatGPT', category: 'ai_assistant' },
+    { name: 'Chrome Prefetch Proxy', category: 'http_client' },
+    { name: 'Claude', category: 'ai_crawler' },
+    { name: 'Claude Search', category: 'ai_search' },
+    { name: 'Claude User', category: 'ai_assistant' },
+    { name: 'Claude Web', category: 'ai_crawler' },
+    { name: 'Cohere', category: 'ai_crawler' },
+    { name: 'Common Crawl', category: 'ai_crawler' },
+    { name: 'curl', category: 'http_client' },
+    { name: 'Datadog', category: 'monitoring' },
+    { name: 'Diffbot', category: 'ai_crawler' },
+    { name: 'DuckDuckGo', category: 'search_crawler' },
+    { name: 'DuckDuckGo AI', category: 'ai_assistant' },
+    { name: 'Facebook', category: 'social_crawler' },
+    { name: 'Facebook Bot', category: 'social_crawler' },
+    { name: 'Go HTTP', category: 'http_client' },
+    { name: 'Google AI', category: 'ai_crawler' },
+    { name: 'Google Ads', category: 'search_crawler' },
+    { name: 'Google Cloud Vertex', category: 'ai_crawler' },
+    { name: 'Google Inspection', category: 'search_crawler' },
+    { name: 'GoogleOther', category: 'ai_crawler' },
+    { name: 'Googlebot', category: 'search_crawler' },
+    { name: 'GPTBot', category: 'ai_crawler' },
+    { name: 'Headless Chrome', category: 'headless_browser' },
+    { name: 'LinkedIn', category: 'social_crawler' },
+    { name: 'LWP', category: 'http_client' },
+    { name: 'Majestic', category: 'seo_crawler' },
+    { name: 'Meta AI', category: 'ai_crawler' },
+    { name: 'Meta Fetcher', category: 'ai_assistant' },
+    { name: 'Mistral AI', category: 'ai_assistant' },
+    { name: 'Moz', category: 'seo_crawler' },
+    { name: 'Mozlila Typo Bot', category: 'headless_browser' },
+    { name: 'Node Fetch', category: 'http_client' },
+    { name: 'OkHttp', category: 'http_client' },
+    { name: 'OpenAI Search', category: 'ai_search' },
+    { name: 'Perplexity', category: 'ai_search' },
+    { name: 'Perplexity User', category: 'ai_assistant' },
+    { name: 'Petal', category: 'ai_crawler' },
+    { name: 'PhantomJS', category: 'headless_browser' },
+    { name: 'Pingdom', category: 'monitoring' },
+    { name: 'Pinterest', category: 'social_crawler' },
+    { name: 'Playwright', category: 'headless_browser' },
+    { name: 'Puppeteer', category: 'headless_browser' },
+    { name: 'Python Requests', category: 'http_client' },
+    { name: 'Scrapy', category: 'http_client' },
+    { name: 'Selenium', category: 'headless_browser' },
+    { name: 'Semrush', category: 'seo_crawler' },
+    { name: 'Site24x7', category: 'monitoring' },
+    { name: 'Slack', category: 'social_crawler' },
+    { name: 'StatusCake', category: 'monitoring' },
+    { name: 'Telegram', category: 'social_crawler' },
+    { name: 'TikTok AI', category: 'ai_crawler' },
+    { name: 'Timpi', category: 'ai_crawler' },
+    { name: 'Twitter', category: 'social_crawler' },
+    { name: 'UptimeRobot', category: 'monitoring' },
+    { name: 'Webz.io', category: 'ai_crawler' },
+    { name: 'Webz.io Extended', category: 'ai_crawler' },
+    { name: 'Wget', category: 'http_client' },
+    { name: 'WhatsApp', category: 'social_crawler' },
+    { name: 'Yahoo', category: 'search_crawler' },
+    { name: 'Yandex', category: 'search_crawler' },
 ]
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -166,12 +165,10 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 function getFilteredBotOptions(
     selectedCategory: string | null,
-    selectedCrawler: string | null,
-    selectedOperator: string | null
+    selectedCrawler: string | null
 ): {
     categories: { label: string; value: string | null }[]
     crawlers: { label: string; value: string | null }[]
-    operators: { label: string; value: string | null }[]
 } {
     let filtered = BOT_DEFINITIONS_LIST
 
@@ -181,13 +178,9 @@ function getFilteredBotOptions(
     if (selectedCrawler) {
         filtered = filtered.filter((b) => b.name === selectedCrawler)
     }
-    if (selectedOperator) {
-        filtered = filtered.filter((b) => b.operator === selectedOperator)
-    }
 
     const categoryValues = [...new Set(filtered.map((b) => b.category))].sort()
     const crawlerValues = [...new Set(filtered.map((b) => b.name))].sort()
-    const operatorValues = [...new Set(filtered.map((b) => b.operator))].sort()
 
     return {
         categories: [
@@ -195,7 +188,6 @@ function getFilteredBotOptions(
             ...categoryValues.map((c) => ({ label: CATEGORY_LABELS[c] || c, value: c })),
         ],
         crawlers: [{ label: 'All crawlers', value: null }, ...crawlerValues.map((n) => ({ label: n, value: n }))],
-        operators: [{ label: 'All operators', value: null }, ...operatorValues.map((o) => ({ label: o, value: o }))],
     }
 }
 
@@ -256,12 +248,7 @@ export const BotAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
 
     const selectedCategory = getBotFilterValue(rawWebAnalyticsFilters, '$virt_traffic_category')
     const selectedCrawler = getBotFilterValue(rawWebAnalyticsFilters, '$virt_bot_name')
-    const selectedOperator = getBotFilterValue(rawWebAnalyticsFilters, '$virt_bot_operator')
-    const { categories, crawlers, operators } = getFilteredBotOptions(
-        selectedCategory,
-        selectedCrawler,
-        selectedOperator
-    )
+    const { categories, crawlers } = getFilteredBotOptions(selectedCategory, selectedCrawler)
 
     return (
         <FilterBar
@@ -282,11 +269,6 @@ export const BotAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
                         options={categories}
                     />
                     <BotPropertySelect propertyKey="$virt_bot_name" placeholder="All crawlers" options={crawlers} />
-                    <BotPropertySelect
-                        propertyKey="$virt_bot_operator"
-                        placeholder="All operators"
-                        options={operators}
-                    />
                 </>
             }
         />

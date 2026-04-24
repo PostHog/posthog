@@ -2367,7 +2367,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     kind: NodeKind.HogQLQuery,
                                     query: `SELECT
     \`$virt_bot_name\` AS "Crawler",
-    \`$virt_bot_operator\` AS "Operator",
     \`$virt_traffic_category\` AS "Category",
     count() AS "Requests",
     max(timestamp) AS "Last seen"
@@ -2376,7 +2375,7 @@ WHERE \`$virt_is_bot\` = true
     AND \`$virt_bot_name\` != ''
     AND event IN ('$pageview', '$screen')
     AND {filters}
-GROUP BY "Crawler", "Operator", "Category"
+GROUP BY "Crawler", "Category"
 ORDER BY "Requests" DESC
 LIMIT 50`,
                                     filters: {
