@@ -122,17 +122,24 @@ const GetHelp = (): JSX.Element => {
 
 export function VerifyEmail(): JSX.Element {
     const { view } = useValues(verifyEmailLogic)
-    const [progressActive, setProgressActive] = useState(false)
+    // In Storybook we want the progress bar fully filled and un-animated so visual regression
+    // snapshots are deterministic — real users always get the animation.
+    const isStorybook = !!process.env.STORYBOOK
+    const [progressActive, setProgressActive] = useState(isStorybook)
 
     useEffect(() => {
         if (view !== 'success') {
-            setProgressActive(false)
+            setProgressActive(isStorybook)
+            return
+        }
+        if (isStorybook) {
+            setProgressActive(true)
             return
         }
         // Kick off the width transition on the next frame so the initial 0% state is painted first
         const raf = requestAnimationFrame(() => setProgressActive(true))
         return () => cancelAnimationFrame(raf)
-    }, [view])
+    }, [view, isStorybook])
 
     return (
         <div className="flex h-full flex-col">
@@ -201,7 +208,9 @@ export function VerifyEmail(): JSX.Element {
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{
                                         width: progressActive ? '100%' : '0%',
-                                        transition: `width ${VERIFY_EMAIL_REDIRECT_DELAY_MS}ms linear`,
+                                        transition: isStorybook
+                                            ? 'none'
+                                            : `width ${VERIFY_EMAIL_REDIRECT_DELAY_MS}ms linear`,
                                     }}
                                 />
                             </div>
