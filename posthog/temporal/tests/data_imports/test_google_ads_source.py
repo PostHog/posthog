@@ -222,12 +222,20 @@ def test_google_ads_client_recycles_stale_db_connections_before_integration_fetc
     mock_integration_get.return_value = mock_integration
     mock_load_from_dict.return_value = mock.MagicMock()
 
+    # Attach both mocks to a shared manager so we can assert call ordering — two
+    # independent `assert_called_once` calls would pass even if the order were reversed.
+    manager = mock.MagicMock()
+    manager.attach_mock(mock_close_old_connections, "close_old_connections")
+    manager.attach_mock(mock_integration_get, "integration_get")
+
     config = GoogleAdsSourceConfig(customer_id="123-456-7890", google_ads_integration_id=1)
 
     google_ads_client(config, team_id=1)
 
-    mock_close_old_connections.assert_called_once()
-    mock_integration_get.assert_called_once_with(id=1, team_id=1)
+    assert manager.mock_calls == [
+        mock.call.close_old_connections(),
+        mock.call.integration_get(id=1, team_id=1),
+    ]
 
 
 class TestGoogleAdsSourceValidation:
