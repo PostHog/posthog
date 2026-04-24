@@ -44,6 +44,7 @@ export function buildSessionLogsQuery(
         },
         severityLevels: [],
         serviceNames: [],
+        orderBy: 'earliest',
         limit: 1000,
         ...(cursor ? { after: cursor } : {}),
     }
@@ -59,7 +60,6 @@ export const playerInspectorLogsLogic = kea<playerInspectorLogsLogicType>([
     actions(() => ({
         setLogsHasMore: (hasMore: boolean) => ({ hasMore }),
         setLogsNextCursor: (cursor: string | undefined) => ({ cursor }),
-        setLogsLoadError: (error: boolean) => ({ error }),
         markLogsInitialLoadRequested: true,
     })),
     reducers(() => ({
@@ -84,9 +84,12 @@ export const playerInspectorLogsLogic = kea<playerInspectorLogsLogicType>([
         logsLoadError: [
             false,
             {
-                setLogsLoadError: (_, { error }) => error,
+                loadLogs: () => false,
                 loadLogsSuccess: () => false,
+                loadLogsFailure: () => true,
+                loadMoreLogs: () => false,
                 loadMoreLogsSuccess: () => false,
+                loadMoreLogsFailure: () => true,
             },
         ],
     })),
@@ -112,8 +115,7 @@ export const playerInspectorLogsLogic = kea<playerInspectorLogsLogicType>([
                         return response.results
                     } catch (error) {
                         console.error('Failed to load backend logs for session replay', error)
-                        actions.setLogsLoadError(true)
-                        return []
+                        throw error
                     }
                 },
                 loadMoreLogs: async () => {
@@ -138,8 +140,7 @@ export const playerInspectorLogsLogic = kea<playerInspectorLogsLogicType>([
                         return capped ? combined.slice(0, MAX_LOG_ENTRIES) : combined
                     } catch (error) {
                         console.error('Failed to load more backend logs for session replay', error)
-                        actions.setLogsLoadError(true)
-                        return values.logs
+                        throw error
                     }
                 },
             },
