@@ -853,6 +853,7 @@ class _OrganizationInviteRateThrottleBase(PersonalApiKeyOrUserRateThrottle):
         # current history length is below num_requests before delegating
         # here; enforce the stricter "history + count <= num_requests"
         # condition so bulk calls can't burst past the limit.
+        assert self.num_requests is not None
         if len(self.history) + count > self.num_requests:
             return self.throttle_failure()
         self.history = [self.now] * count + self.history
