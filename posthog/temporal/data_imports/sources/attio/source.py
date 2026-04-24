@@ -31,6 +31,10 @@ class AttioSource(SimpleSource[AttioSourceConfig]):
         return {
             "401 Client Error: Unauthorized for url: https://api.attio.com": "Your Attio API key is invalid or expired. Please generate a new key and reconnect.",
             "403 Client Error: Forbidden for url: https://api.attio.com": "Your Attio API key does not have the required scopes. Please check the API key permissions and try again.",
+            # Attio returns 400 from /v2/objects/<slug>/records/query when the object slug does not exist in the
+            # workspace (e.g. users/workspaces/deals, which are optional standard objects that must be enabled).
+            # Our request body is deterministic and valid, so retrying will not recover — surface a clear error instead.
+            "400 Client Error: Bad Request for url: https://api.attio.com/v2/objects/": "Attio rejected the request for this object. The object may not exist in your Attio workspace — enable it in Attio or disable this schema in PostHog.",
         }
 
     @property
