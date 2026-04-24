@@ -1248,7 +1248,7 @@
         "summary": "List usage metrics",
         "title": "List usage metrics",
         "required_scopes": ["usage_metric:read"],
-        "new_mcp": true,
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -1278,7 +1278,7 @@
         "summary": "Get usage metric",
         "title": "Get usage metric",
         "required_scopes": ["usage_metric:read"],
-        "new_mcp": true,
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

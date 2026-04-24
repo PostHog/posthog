@@ -23,6 +23,7 @@ tools:
     usage-metrics-list:
         operation: groups_types_metrics_list
         enabled: true
+        mcp_version: 1
         scopes:
             - usage_metric:read
         annotations:
@@ -62,6 +63,7 @@ tools:
     usage-metrics-retrieve:
         operation: groups_types_metrics_retrieve
         enabled: true
+        mcp_version: 1
         scopes:
             - usage_metric:read
         annotations:

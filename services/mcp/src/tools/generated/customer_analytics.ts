@@ -29,6 +29,7 @@ const usageMetricsList = (): ToolBase<
 > => ({
     name: 'usage-metrics-list',
     schema: UsageMetricsListSchema,
+    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof UsageMetricsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedGroupUsageMetricList>({
@@ -96,6 +97,7 @@ const UsageMetricsRetrieveSchema = GroupsTypesMetricsRetrieveParams.omit({ proje
 const usageMetricsRetrieve = (): ToolBase<typeof UsageMetricsRetrieveSchema, Schemas.GroupUsageMetric> => ({
     name: 'usage-metrics-retrieve',
     schema: UsageMetricsRetrieveSchema,
+    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof UsageMetricsRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.GroupUsageMetric>({
