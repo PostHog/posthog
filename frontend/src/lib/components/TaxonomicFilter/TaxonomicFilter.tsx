@@ -8,7 +8,7 @@ import { Link } from '@posthog/lemon-ui'
 
 import {
     CategoryDropdownVariant,
-    isCategoryDropdownVariant,
+    resolveCategoryDropdownVariant,
     TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
     TaxonomicFilterProps,
@@ -23,10 +23,6 @@ import { urls } from 'scenes/urls'
 import { CategoryDropdown } from './CategoryDropdown'
 import { InfiniteSelectResults } from './InfiniteSelectResults'
 import { defaultDataWarehousePopoverFields, taxonomicFilterLogic } from './taxonomicFilterLogic'
-
-function resolveCategoryDropdownVariant(flagValue: string | boolean | undefined): CategoryDropdownVariant {
-    return isCategoryDropdownVariant(flagValue) ? flagValue : 'control'
-}
 
 let uniqueMemoizedIndex = 0
 
