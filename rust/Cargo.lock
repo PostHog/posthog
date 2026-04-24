@@ -1748,6 +1748,7 @@ dependencies = [
  "rdkafka",
  "redis",
  "reqwest 0.12.28",
+ "rstest",
  "serde",
  "serde_json",
  "serde_urlencoded",
@@ -10241,6 +10242,7 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
+ "zstd",
 ]
 
 [[package]]

@@ -74,6 +74,7 @@ import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics
 import { validateEndpointName } from 'products/endpoints/frontend/common'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
+import { validateSavedQueryName } from '../saved_queries/savedQueryNameValidation'
 import { dataModelingLogic } from '../scene/dataModelingLogic'
 import { draftsLogic } from './draftsLogic'
 import { editorSceneLogic } from './editorSceneLogic'
@@ -1284,12 +1285,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             </>
                         ),
                     errors: {
-                        viewName: (name) =>
-                            !name
-                                ? 'You must enter a name'
-                                : !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)
-                                  ? 'Name must be valid'
-                                  : undefined,
+                        viewName: validateSavedQueryName,
                         dagId: (dagId) => (multiDagEnabled && !dagId ? 'Please select a DAG' : undefined),
                     },
                     onSubmit: async ({ viewName, dagId, folderId, isTest }) => {

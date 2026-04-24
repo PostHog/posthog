@@ -407,10 +407,11 @@ export interface PatchedExternalDataSchemaApi {
  * `BuildBetter` - BuildBetter
  * `Convex` - Convex
  * `ClickHouse` - ClickHouse
+ * `Plain` - Plain
  */
-export type SourceTypeF0aEnumApi = (typeof SourceTypeF0aEnumApi)[keyof typeof SourceTypeF0aEnumApi]
+export type SourceTypeEe8EnumApi = (typeof SourceTypeEe8EnumApi)[keyof typeof SourceTypeEe8EnumApi]
 
-export const SourceTypeF0aEnumApi = {
+export const SourceTypeEe8EnumApi = {
     Ashby: 'Ashby',
     Supabase: 'Supabase',
     CustomerIO: 'CustomerIO',
@@ -553,6 +554,7 @@ export const SourceTypeF0aEnumApi = {
     BuildBetter: 'BuildBetter',
     Convex: 'Convex',
     ClickHouse: 'ClickHouse',
+    Plain: 'Plain',
 } as const
 
 /**
@@ -599,7 +601,7 @@ export interface ExternalDataSourceSerializersApi {
     readonly status: string
     client_secret: string
     account_id: string
-    readonly source_type: SourceTypeF0aEnumApi
+    readonly source_type: SourceTypeEe8EnumApi
     /** @nullable */
     readonly latest_error: string | null
     /**
@@ -653,7 +655,7 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly status?: string
     client_secret?: string
     account_id?: string
-    readonly source_type?: SourceTypeF0aEnumApi
+    readonly source_type?: SourceTypeEe8EnumApi
     /** @nullable */
     readonly latest_error?: string | null
     /**
@@ -1264,7 +1266,7 @@ export interface SimpleExternalDataSourceSerializersApi {
     /** @nullable */
     readonly created_by: number | null
     readonly status: string
-    readonly source_type: SourceTypeF0aEnumApi
+    readonly source_type: SourceTypeEe8EnumApi
 }
 
 export type TableApiColumnsItem = { [key: string]: unknown }

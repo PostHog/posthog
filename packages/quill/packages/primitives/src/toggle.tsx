@@ -33,7 +33,7 @@ function Toggle({
     ...props
 }: TogglePrimitive.Props & VariantProps<typeof toggleVariants>): React.ReactElement {
     return (
-        <TogglePrimitive data-slot="toggle" className={cn(toggleVariants({ variant, size, className }))} {...props} />
+        <TogglePrimitive data-quill data-slot="toggle" className={cn(toggleVariants({ variant, size, className }))} {...props} />
     )
 }
 

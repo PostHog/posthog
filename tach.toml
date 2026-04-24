@@ -493,6 +493,7 @@ from = [
 
 [[interfaces]]
 expose = [
+    "backend\\.admin.*",
     "backend\\.models.*",
     "backend\\.oauth.*",
 ]

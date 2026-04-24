@@ -454,6 +454,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 "sync_frequency": sync_frequency_interval_to_sync_frequency(
                     version.saved_query.sync_frequency_interval
                 ),
+                "saved_query_id": str(version.saved_query.id),
             }
         else:
             can_mat, reason = version.can_materialize()
@@ -504,6 +505,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             "created_by": UserBasicSerializer(endpoint.created_by).data if hasattr(endpoint, "created_by") else None,
             "is_materialized": version.is_materialized,
             "current_version": endpoint.current_version,
+            "current_version_id": str(version.id),
             "versions_count": endpoint.versions.count(),
             "derived_from_insight": endpoint.derived_from_insight,
             "last_executed_at": endpoint.last_executed_at.isoformat() if endpoint.last_executed_at else None,
@@ -2419,9 +2421,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             match = re.search(r"There's no column.*in table", error.message)
             if match:
                 # TODO: remove once we support all column types
-                raise ValidationError(
-                    match.group(0) + ". Note: While in beta, not all column types may be fully supported"
-                )
+                raise ValidationError(match.group(0) + ". Not all column types are fully supported yet.")
         return
 
     def _tag_client_query_id(self, query_id: str | None):

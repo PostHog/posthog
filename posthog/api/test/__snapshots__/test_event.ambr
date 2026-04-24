@@ -1,6 +1,18 @@
 # serializer version: 1
 # name: TestEvents.test_event_property_values
   '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: TestEvents.test_event_property_values.1
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '') AS random_prop
   FROM events
@@ -17,7 +29,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestEvents.test_event_property_values.1
+# name: TestEvents.test_event_property_values.2
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '') AS random_prop
@@ -36,7 +48,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestEvents.test_event_property_values.2
+# name: TestEvents.test_event_property_values.3
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '') AS random_prop
@@ -55,7 +67,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestEvents.test_event_property_values.3
+# name: TestEvents.test_event_property_values.4
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '') AS random_prop
@@ -74,7 +86,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestEvents.test_event_property_values.4
+# name: TestEvents.test_event_property_values.5
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '') AS random_prop
@@ -93,7 +105,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestEvents.test_event_property_values.5
+# name: TestEvents.test_event_property_values.6
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '') AS random_prop
@@ -112,7 +124,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestEvents.test_event_property_values.6
+# name: TestEvents.test_event_property_values.7
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '') AS random_prop

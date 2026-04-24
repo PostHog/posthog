@@ -2,12 +2,15 @@ from typing import cast
 from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.http import HttpResponseRedirect
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, permissions, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.cloud_utils import is_cloud, is_dev_mode
@@ -28,7 +31,7 @@ class IsCloudOrDevDeployment(BasePermission):
 
     message = "Legal documents are only available on PostHog Cloud."
 
-    def has_permission(self, request: Request, view) -> bool:
+    def has_permission(self, request: Request, view: APIView) -> bool:
         if not (is_cloud() or is_dev_mode()):
             raise exceptions.NotFound("Not found.")
         return True
@@ -44,7 +47,7 @@ class IsOrganizationAdminOrOwner(BasePermission):
 
     message = "Your organization access level is insufficient."
 
-    def has_permission(self, request: Request, view) -> bool:
+    def has_permission(self, request: Request, view: "APIView") -> bool:
         organization = getattr(view, "organization", None)
         if organization is None:
             # Mixin hasn't resolved the org yet — defer. TeamAndOrgViewSetMixin
@@ -102,3 +105,21 @@ class LegalDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if dto is None:
             raise exceptions.NotFound()
         return Response(LegalDocumentSerializer(instance=dto).data)
+
+    @extend_schema(responses={302: None, 404: None})
+    @action(detail=True, methods=["GET"], url_path="download")
+    def download(self, request: Request, pk: str, **kwargs) -> HttpResponseRedirect:
+        """
+        Short-lived redirect to the signed PDF in object storage. 404 while the
+        envelope is still out for signature (or if the upload hasn't completed
+        yet). The underlying presigned URL expires in ~60s; clients should hit
+        this endpoint each time they want to view the PDF rather than caching.
+        """
+        try:
+            document_id = UUID(pk)
+        except (ValueError, DjangoValidationError):
+            raise exceptions.NotFound()
+        presigned_url = api.get_signed_pdf_download_url(document_id, self.organization.id)
+        if not presigned_url:
+            raise exceptions.NotFound()
+        return HttpResponseRedirect(presigned_url)

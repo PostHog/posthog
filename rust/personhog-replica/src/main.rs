@@ -8,6 +8,7 @@ use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::PrometheusBuilder;
 use personhog_common::grpc::{tracked_tcp_incoming, GrpcMetricsLayer};
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplicaServer;
+use tonic::codec::CompressionEncoding;
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::fmt;
@@ -237,6 +238,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let grpc_addr = config.grpc_address;
     let keepalive_interval = config.grpc_keepalive_interval();
     let keepalive_timeout = config.grpc_keepalive_timeout();
+    let max_connection_age = config.grpc_max_connection_age();
     let max_send = config.grpc_max_send_message_size;
     let max_recv = config.grpc_max_recv_message_size;
 
@@ -252,14 +254,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
         let incoming = tracked_tcp_incoming(listener);
-        if let Err(e) = Server::builder()
+        let mut server = Server::builder()
             .http2_keepalive_interval(keepalive_interval)
-            .http2_keepalive_timeout(keepalive_timeout)
+            .http2_keepalive_timeout(keepalive_timeout);
+        if let Some(age) = max_connection_age {
+            server = server.max_connection_age(age);
+        }
+        if let Err(e) = server
             .layer(GrpcMetricsLayer)
             .add_service(
                 PersonHogReplicaServer::new(service)
                     .max_encoding_message_size(max_send)
-                    .max_decoding_message_size(max_recv),
+                    .max_decoding_message_size(max_recv)
+                    .accept_compressed(CompressionEncoding::Zstd)
+                    .send_compressed(CompressionEncoding::Zstd),
             )
             .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
             .await
