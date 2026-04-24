@@ -834,9 +834,6 @@ class _OrganizationInviteRateThrottleBase(PersonalApiKeyOrUserRateThrottle):
     # invites per HTTP request, so counting requests would let a caller emit
     # num_requests * 20 invites per window. Subclasses define the window
     # (burst vs sustained); the counting logic lives here.
-    #
-    # Extends PersonalApiKeyOrUserRateThrottle so session-cookie UI users are
-    # also limited — the spam vector is primarily the web UI, not API keys.
     def get_cache_key(self, request, view):
         try:
             organization_id = getattr(view, "organization_id", None)
