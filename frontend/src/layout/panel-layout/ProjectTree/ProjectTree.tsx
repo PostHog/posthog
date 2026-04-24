@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { RefObject, useCallback, useEffect, useRef, useState } from 'react'
+import { RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
     IconCheckbox,
@@ -130,7 +130,8 @@ export function ProjectTree({
     onItemCheckedOverride,
 }: ProjectTreeProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
-    const { viableItems } = useValues(projectTreeDataLogic)
+    const { viableItems, shortcutData } = useValues(projectTreeDataLogic)
+    const { reorderShortcuts } = useActions(projectTreeDataLogic)
     const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root }
     const {
         fullFileSystemFiltered,
@@ -357,6 +358,21 @@ export function ProjectTree({
         [seenCustomProducts, setSeenCustomProducts]
     )
 
+    // Map of shortcut tree item id → underlying FileSystemEntry id, for drag-and-drop reorder
+    // of the top-level Starred list. Children inside an expanded folder-shortcut use the
+    // `project://` protocol and are intentionally excluded.
+    const shortcutEntryIdMap = useMemo(() => {
+        const map = new Map<string, string>()
+        for (const shortcut of shortcutData) {
+            if (!shortcut.id) {
+                continue
+            }
+            const treeId = shortcut.type === 'folder' ? `shortcuts://${shortcut.path}` : `shortcuts/${shortcut.id}`
+            map.set(treeId, shortcut.id)
+        }
+        return map
+    }, [shortcutData])
+
     const tree = (
         <LemonTree
             ref={treeRef}
@@ -445,6 +461,26 @@ export function ProjectTree({
                     return false
                 }
 
+                // Sibling reorder within the Starred (shortcuts://) list.
+                const oldShortcutEntryId = typeof oldId === 'string' ? shortcutEntryIdMap.get(oldId) : undefined
+                const newShortcutEntryId = typeof newId === 'string' ? shortcutEntryIdMap.get(newId) : undefined
+                if (oldShortcutEntryId && newShortcutEntryId) {
+                    if (oldShortcutEntryId === newShortcutEntryId) {
+                        return false
+                    }
+                    const currentIds = shortcutData.map((s) => s.id).filter((id): id is string => !!id)
+                    const fromIndex = currentIds.indexOf(oldShortcutEntryId)
+                    const toIndex = currentIds.indexOf(newShortcutEntryId)
+                    if (fromIndex < 0 || toIndex < 0) {
+                        return false
+                    }
+                    const next = [...currentIds]
+                    next.splice(fromIndex, 1)
+                    next.splice(toIndex, 0, oldShortcutEntryId)
+                    reorderShortcuts(next)
+                    return
+                }
+
                 const items = searchTerm && searchResults.results ? searchResults.results : viableItems
                 const oldItem = items.find((i) => itemToId(i) === oldId)
                 const newItem = items.find((i) => itemToId(i) === newId)
@@ -468,10 +504,18 @@ export function ProjectTree({
                 }
             }}
             isItemDraggable={(item) => {
+                if (shortcutEntryIdMap.has(item.id)) {
+                    return true
+                }
                 return (item.id.startsWith('project/') || item.id.startsWith('project://')) && item.record?.path
             }}
             isItemDroppable={(item) => {
                 const path = item.record?.path || ''
+
+                // Allow dropping onto other top-level starred items to reorder them.
+                if (shortcutEntryIdMap.has(item.id)) {
+                    return true
+                }
 
                 // disable dropping for these IDS
                 if (!item.id.startsWith('project://')) {

@@ -200,6 +200,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         addShortcutItem: (item: FileSystemEntry) => ({ item }),
         deleteShortcut: (id: FileSystemEntry['id']) => ({ id }),
         loadShortcuts: true,
+        reorderShortcuts: (orderedIds: NonNullable<FileSystemEntry['id']>[]) => ({ orderedIds }),
 
         pruneClosedFolders: (expandedFolders: string[]) => ({ expandedFolders }),
     }),
@@ -479,9 +480,22 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             },
                         },
                     })
-                    return [...values.shortcutData, response].sort((a, b) =>
-                        a.path.toLowerCase().localeCompare(b.path.toLowerCase())
-                    )
+                    return [...values.shortcutData, response]
+                },
+                reorderShortcuts: async ({ orderedIds }) => {
+                    const before = values.shortcutData
+                    const byId = new Map(before.map((s) => [s.id, s]))
+                    const reordered = orderedIds.map((id) => byId.get(id)).filter((s): s is FileSystemEntry => !!s)
+                    // Append any shortcuts not referenced in orderedIds (defensive: keeps them visible).
+                    const reorderedIds = new Set(orderedIds)
+                    const trailing = before.filter((s) => s.id && !reorderedIds.has(s.id))
+                    try {
+                        await api.fileSystemShortcuts.reorder(orderedIds)
+                    } catch (error) {
+                        lemonToast.error('Could not save starred order')
+                        throw error
+                    }
+                    return [...reordered, ...trailing]
                 },
                 deleteShortcut: async ({ id }) => {
                     const shortcut = values.shortcutData.find((s) => s.id === id)
@@ -682,6 +696,14 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         }
                         return item
                     })
+                },
+                // Apply reorder optimistically so the UI updates immediately while the API call is in flight.
+                reorderShortcuts: (state, { orderedIds }) => {
+                    const byId = new Map(state.map((s) => [s.id, s]))
+                    const reordered = orderedIds.map((id) => byId.get(id)).filter((s): s is FileSystemEntry => !!s)
+                    const reorderedIds = new Set(orderedIds)
+                    const trailing = state.filter((s) => s.id && !reorderedIds.has(s.id))
+                    return [...reordered, ...trailing]
                 },
             },
         ],
@@ -1135,6 +1157,9 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        reorderShortcutsFailure: () => {
+            actions.loadShortcuts()
+        },
         loadFolder: async ({ folder, forceReload }) => {
             const currentState = values.folderStates[folder]
             if (!forceReload && (currentState === 'loading' || currentState === 'loaded')) {

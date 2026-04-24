@@ -92,3 +92,70 @@ class TestFileSystemShortcutAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         ids = [row["id"] for row in response.json()["results"]]
         self.assertEqual(ids, [str(newer.id), str(older.id)])
+
+    def test_default_list_orders_by_order_then_path(self):
+        # Same order → alphabetical tie-break by path (pre-reorder behavior).
+        a = FileSystemShortcut.objects.create(team=self.team, path="Apples", type="t", user=self.user, order=0)
+        b = FileSystemShortcut.objects.create(team=self.team, path="Bananas", type="t", user=self.user, order=0)
+        # Explicit order wins over alphabetical.
+        z_first = FileSystemShortcut.objects.create(team=self.team, path="Zebra", type="t", user=self.user, order=-1)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system_shortcut/")
+        ids = [row["id"] for row in response.json()["results"]]
+        self.assertEqual(ids, [str(z_first.id), str(a.id), str(b.id)])
+
+    def test_create_appends_to_end_of_order(self):
+        existing = FileSystemShortcut.objects.create(team=self.team, path="Existing", type="t", user=self.user, order=5)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system_shortcut/",
+            {"path": "Aardvark", "type": "t"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        new_id = response.json()["id"]
+        self.assertEqual(response.json()["order"], 6)
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/file_system_shortcut/")
+        ids = [row["id"] for row in list_response.json()["results"]]
+        self.assertEqual(ids, [str(existing.id), new_id])
+
+    def test_reorder_sets_positions_and_returns_new_order(self):
+        s1 = FileSystemShortcut.objects.create(team=self.team, path="One", type="t", user=self.user, order=0)
+        s2 = FileSystemShortcut.objects.create(team=self.team, path="Two", type="t", user=self.user, order=0)
+        s3 = FileSystemShortcut.objects.create(team=self.team, path="Three", type="t", user=self.user, order=0)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system_shortcut/reorder/",
+            {"ordered_ids": [str(s3.id), str(s1.id), str(s2.id)]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        ids = [row["id"] for row in response.json()]
+        self.assertEqual(ids, [str(s3.id), str(s1.id), str(s2.id)])
+
+        s1.refresh_from_db()
+        s2.refresh_from_db()
+        s3.refresh_from_db()
+        self.assertEqual((s3.order, s1.order, s2.order), (0, 1, 2))
+
+    def test_reorder_rejects_foreign_user_shortcuts(self):
+        other_user = self._create_user("other")
+        foreign = FileSystemShortcut.objects.create(team=self.team, path="Foreign", type="t", user=other_user)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system_shortcut/reorder/",
+            {"ordered_ids": [str(foreign.id)]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertIn(str(foreign.id), response.json()["unknown_ids"])
+        foreign.refresh_from_db()
+        self.assertEqual(foreign.order, 0)
+
+    def test_reorder_rejects_empty_list(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system_shortcut/reorder/",
+            {"ordered_ids": []},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
