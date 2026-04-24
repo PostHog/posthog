@@ -285,6 +285,57 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('hasUnsavedChanges selector (drives beforeUnload dialog)', () => {
+        // The beforeUnload hook reads this selector to decide whether to warn on navigation.
+        // User form edits go through kea-forms' setFeatureFlagValue / setFeatureFlagValues,
+        // which update only `featureFlag`. `originalFeatureFlag` is the baseline from server load.
+
+        it('is false after the flag loads cleanly', async () => {
+            await expectLogic(logic).toMatchValues({ hasUnsavedChanges: false })
+        })
+
+        it('becomes true after the name is edited via the form', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValue('name', 'Edited name')
+            }).toMatchValues({ hasUnsavedChanges: true })
+        })
+
+        it('becomes true after the key is edited via the form', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValue('key', 'edited-key')
+            }).toMatchValues({ hasUnsavedChanges: true })
+        })
+
+        it('becomes true after filters change via the form', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValue('filters', {
+                    ...logic.values.featureFlag.filters,
+                    groups: [{ properties: [], rollout_percentage: 42, variant: null }],
+                })
+            }).toMatchValues({ hasUnsavedChanges: true })
+        })
+
+        it('returns to false when the edited value is reverted to the loaded state', async () => {
+            const originalName = logic.values.featureFlag.name
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValue('name', 'temp-edit')
+            }).toMatchValues({ hasUnsavedChanges: true })
+
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValue('name', originalName)
+            }).toMatchValues({ hasUnsavedChanges: false })
+        })
+
+        it('tracks changes when the whole form is replaced via setFeatureFlagValues', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValues({
+                    ...logic.values.featureFlag,
+                    name: 'Bulk edit',
+                })
+            }).toMatchValues({ hasUnsavedChanges: true })
+        })
+    })
+
     describe('experiment loading', () => {
         it('loads experiment data when feature flag has an experiment linked', async () => {
             const flagWithExperiment = {
