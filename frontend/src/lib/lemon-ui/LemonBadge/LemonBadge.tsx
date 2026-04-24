@@ -83,7 +83,7 @@ const LemonBadgeNumber: React.FunctionComponent<LemonBadgeNumberProps & React.Re
             throw new Error('maxDigits must be at least 1')
         }
 
-        let text: string | JSX.Element =
+        let text =
             typeof count === 'object'
                 ? count
                 : typeof count === 'number' && count !== 0
