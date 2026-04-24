@@ -219,6 +219,9 @@ const projectSettingsUpdate = (): ToolBase<typeof ProjectSettingsUpdateSchema, S
         if (params.proactive_tasks_enabled !== undefined) {
             body['proactive_tasks_enabled'] = params.proactive_tasks_enabled
         }
+        if (params.can_query_across_organization_projects !== undefined) {
+            body['can_query_across_organization_projects'] = params.can_query_across_organization_projects
+        }
         const result = await context.api.request<Schemas.ProjectBackwardCompat>({
             method: 'PATCH',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(params.id))}/`,

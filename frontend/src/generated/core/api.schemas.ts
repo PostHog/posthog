@@ -1306,6 +1306,8 @@ export interface ProjectBackwardCompatApi {
     logs_settings?: unknown | null
     /** @nullable */
     proactive_tasks_enabled?: boolean | null
+    /** Whether this project can run HogQL queries against other projects in the same organization. */
+    can_query_across_organization_projects?: boolean
     readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnumApi[]
 }
 
@@ -2106,6 +2108,8 @@ export interface PatchedProjectBackwardCompatApi {
     logs_settings?: unknown | null
     /** @nullable */
     proactive_tasks_enabled?: boolean | null
+    /** Whether this project can run HogQL queries against other projects in the same organization. */
+    can_query_across_organization_projects?: boolean
     readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnumApi[]
 }
 

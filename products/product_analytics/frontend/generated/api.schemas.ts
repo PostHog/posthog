@@ -464,6 +464,8 @@ export interface HogQLQueryModifiersApi {
     sessionsV2JoinMode?: SessionsV2JoinModeApi | null
     /** @nullable */
     timings?: boolean | null
+    /** Controls which PostHog team IDs are included in team-scoped ClickHouse queries. 'self' keeps the current team only, 'all' expands to all teams in the current organization that the request is allowed to query, and a list scopes the query to the provided team IDs. */
+    teamsToQuery?: 'all' | 'self' | number[] | null
     /** @nullable */
     useMaterializedViews?: boolean | null
     /** @nullable */

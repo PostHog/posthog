@@ -336,6 +336,10 @@ export const OrganizationsProjectsCreateBody = /* @__PURE__ */ zod
         conversations_settings: zod.unknown().nullish(),
         logs_settings: zod.unknown().nullish(),
         proactive_tasks_enabled: zod.boolean().nullish(),
+        can_query_across_organization_projects: zod
+            .boolean()
+            .optional()
+            .describe('Whether this project can run HogQL queries against other projects in the same organization.'),
     })
     .describe(
         'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
@@ -529,6 +533,10 @@ export const OrganizationsProjectsUpdateBody = /* @__PURE__ */ zod
         conversations_settings: zod.unknown().nullish(),
         logs_settings: zod.unknown().nullish(),
         proactive_tasks_enabled: zod.boolean().nullish(),
+        can_query_across_organization_projects: zod
+            .boolean()
+            .optional()
+            .describe('Whether this project can run HogQL queries against other projects in the same organization.'),
     })
     .describe(
         'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
@@ -724,6 +732,10 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
         conversations_settings: zod.unknown().nullish(),
         logs_settings: zod.unknown().nullish(),
         proactive_tasks_enabled: zod.boolean().nullish(),
+        can_query_across_organization_projects: zod
+            .boolean()
+            .optional()
+            .describe('Whether this project can run HogQL queries against other projects in the same organization.'),
     })
     .describe(
         'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
@@ -928,6 +940,10 @@ export const OrganizationsProjectsAddProductIntentPartialUpdateBody = /* @__PURE
         conversations_settings: zod.unknown().nullish(),
         logs_settings: zod.unknown().nullish(),
         proactive_tasks_enabled: zod.boolean().nullish(),
+        can_query_across_organization_projects: zod
+            .boolean()
+            .optional()
+            .describe('Whether this project can run HogQL queries against other projects in the same organization.'),
     })
     .describe(
         'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
@@ -1127,6 +1143,10 @@ export const OrganizationsProjectsChangeOrganizationCreateBody = /* @__PURE__ */
         conversations_settings: zod.unknown().nullish(),
         logs_settings: zod.unknown().nullish(),
         proactive_tasks_enabled: zod.boolean().nullish(),
+        can_query_across_organization_projects: zod
+            .boolean()
+            .optional()
+            .describe('Whether this project can run HogQL queries against other projects in the same organization.'),
     })
     .describe(
         'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
@@ -1343,6 +1363,10 @@ export const OrganizationsProjectsCompleteProductOnboardingPartialUpdateBody = /
         conversations_settings: zod.unknown().nullish(),
         logs_settings: zod.unknown().nullish(),
         proactive_tasks_enabled: zod.boolean().nullish(),
+        can_query_across_organization_projects: zod
+            .boolean()
+            .optional()
+            .describe('Whether this project can run HogQL queries against other projects in the same organization.'),
     })
     .describe(
         'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
@@ -1555,6 +1579,10 @@ export const OrganizationsProjectsDeleteSecretTokenBackupPartialUpdateBody = /* 
         conversations_settings: zod.unknown().nullish(),
         logs_settings: zod.unknown().nullish(),
         proactive_tasks_enabled: zod.boolean().nullish(),
+        can_query_across_organization_projects: zod
+            .boolean()
+            .optional()
+            .describe('Whether this project can run HogQL queries against other projects in the same organization.'),
     })
     .describe(
         'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
@@ -1771,6 +1799,10 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
         conversations_settings: zod.unknown().nullish(),
         logs_settings: zod.unknown().nullish(),
         proactive_tasks_enabled: zod.boolean().nullish(),
+        can_query_across_organization_projects: zod
+            .boolean()
+            .optional()
+            .describe('Whether this project can run HogQL queries against other projects in the same organization.'),
     })
     .describe(
         'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
@@ -1966,6 +1998,10 @@ export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ 
         conversations_settings: zod.unknown().nullish(),
         logs_settings: zod.unknown().nullish(),
         proactive_tasks_enabled: zod.boolean().nullish(),
+        can_query_across_organization_projects: zod
+            .boolean()
+            .optional()
+            .describe('Whether this project can run HogQL queries against other projects in the same organization.'),
     })
     .describe(
         'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
@@ -2170,6 +2206,10 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
         conversations_settings: zod.unknown().nullish(),
         logs_settings: zod.unknown().nullish(),
         proactive_tasks_enabled: zod.boolean().nullish(),
+        can_query_across_organization_projects: zod
+            .boolean()
+            .optional()
+            .describe('Whether this project can run HogQL queries against other projects in the same organization.'),
     })
     .describe(
         'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
