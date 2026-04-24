@@ -210,10 +210,24 @@ class ExperimentCreateSerializer(serializers.Serializer):
         """Convert validated data to facade DTO."""
         feature_flag_filters_dto = None
         if self.validated_data.get("feature_flag_filters"):
-            # validated_data already contains the deserialized nested dict
-            flag_serializer = CreateFeatureFlagInputSerializer(data=self.validated_data["feature_flag_filters"])
-            flag_serializer.is_valid(raise_exception=True)
-            feature_flag_filters_dto = flag_serializer.to_dto()
+            # Build DTO directly from already-validated data
+            filters_data = self.validated_data["feature_flag_filters"]
+            variant_dtos = [
+                FeatureFlagVariant(
+                    key=v["key"],
+                    split_percent=v["rollout_percentage"],
+                    name=v.get("name") or None,
+                )
+                for v in filters_data["variants"]
+            ]
+            feature_flag_filters_dto = CreateFeatureFlagInput(
+                key=filters_data["key"],
+                name=filters_data.get("name") or None,
+                variants=tuple(variant_dtos),
+                rollout_percentage=filters_data.get("rollout_percentage"),
+                aggregation_group_type_index=filters_data.get("aggregation_group_type_index"),
+                ensure_experience_continuity=filters_data.get("ensure_experience_continuity"),
+            )
 
         return CreateExperimentInput(
             name=self.validated_data["name"],
