@@ -10,7 +10,6 @@ import { useInView } from 'react-intersection-observer'
 import { ApiError } from 'lib/api'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { accessLevelSatisfied, getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -157,17 +156,18 @@ function InsightCardInternal(
 ): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const { ref: inViewRef, inView } = useInView({ rootMargin: '500px' })
-    const { isVisible: isPageVisible } = usePageVisibility()
 
-    /** Wether the page is active and the line graph is currently in view. Used to free resources, by not rendering
-     * insight cards that aren't visible. See also https://wiki.whatwg.org/wiki/Canvas_Context_Loss_and_Restoration.
+    /** Whether the line graph is currently in view. Used to free resources, by not rendering insight cards that
+     * aren't in the viewport. We intentionally do not also key on page visibility: unmounting on tab switch
+     * destroys transient UI state (e.g. the retention detail modal's `selectedInterval`) that lives inside
+     * insightProps-keyed kea logics, which would close the modal the user had open when they return to the tab.
      *
      * We add an extra check to make sure all insights are visible in Storybook.
      */
     const isVisible =
         featureFlags[FEATURE_FLAGS.EXPERIMENTAL_DASHBOARD_ITEM_RENDERING] === false
             ? true
-            : IS_STORYBOOK || placement === DashboardPlacement.Export || (inView && isPageVisible)
+            : IS_STORYBOOK || placement === DashboardPlacement.Export || inView
 
     const mergedRefs = useMergeRefs([ref, inViewRef])
 
