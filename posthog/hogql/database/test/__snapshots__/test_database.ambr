@@ -5544,6 +5544,154 @@
           "row_count": null,
           "type": "system"
       },
+      "system.integration_repository_cache": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "integration_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "integration_id",
+                  "id": null,
+                  "name": "integration_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "full_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "full_name",
+                  "id": null,
+                  "name": "full_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "description": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "description",
+                  "id": null,
+                  "name": "description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "topics": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "topics",
+                  "id": null,
+                  "name": "topics",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "archived": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "archived",
+                  "id": null,
+                  "name": "archived",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "fork": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "fork",
+                  "id": null,
+                  "name": "fork",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "primary_language": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "primary_language",
+                  "id": null,
+                  "name": "primary_language",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "default_branch": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "default_branch",
+                  "id": null,
+                  "name": "default_branch",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "default_branch_sha": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "default_branch_sha",
+                  "id": null,
+                  "name": "default_branch_sha",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "readme": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "readme",
+                  "id": null,
+                  "name": "readme",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "tree_paths": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "tree_paths",
+                  "id": null,
+                  "name": "tree_paths",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "tree_truncated": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "tree_truncated",
+                  "id": null,
+                  "name": "tree_truncated",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.integration_repository_cache",
+          "name": "system.integration_repository_cache",
+          "row_count": null,
+          "type": "system"
+      },
       "system.insight_variables": {
           "fields": {
               "id": {
@@ -12509,6 +12657,154 @@
           },
           "id": "system.integrations",
           "name": "system.integrations",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.integration_repository_cache": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "integration_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "integration_id",
+                  "id": null,
+                  "name": "integration_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "full_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "full_name",
+                  "id": null,
+                  "name": "full_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "description": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "description",
+                  "id": null,
+                  "name": "description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "topics": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "topics",
+                  "id": null,
+                  "name": "topics",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "archived": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "archived",
+                  "id": null,
+                  "name": "archived",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "fork": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "fork",
+                  "id": null,
+                  "name": "fork",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "primary_language": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "primary_language",
+                  "id": null,
+                  "name": "primary_language",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "default_branch": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "default_branch",
+                  "id": null,
+                  "name": "default_branch",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "default_branch_sha": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "default_branch_sha",
+                  "id": null,
+                  "name": "default_branch_sha",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "readme": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "readme",
+                  "id": null,
+                  "name": "readme",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "tree_paths": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "tree_paths",
+                  "id": null,
+                  "name": "tree_paths",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "tree_truncated": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "tree_truncated",
+                  "id": null,
+                  "name": "tree_truncated",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.integration_repository_cache",
+          "name": "system.integration_repository_cache",
           "row_count": null,
           "type": "system"
       },
