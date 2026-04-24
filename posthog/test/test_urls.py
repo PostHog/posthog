@@ -43,6 +43,17 @@ class TestUrls(APIBaseTest):
         response = self.client.get(f"/login")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    def test_admin_without_trailing_slash_redirects_to_admin_with_slash(self):
+        # APPEND_SLASH is disabled globally, so /admin needs an explicit redirect
+        response = self.client.get("/admin", follow=False)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response["Location"], "/admin/")
+
+    def test_admin_redirect_preserves_query_string(self):
+        response = self.client.get("/admin?foo=bar&baz=qux", follow=False)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response["Location"], "/admin/?foo=bar&baz=qux")
+
     def test_authorize_and_redirect_domain(self):
         self.team.app_urls = ["https://domain.com", "https://not.com"]
         self.team.save()
