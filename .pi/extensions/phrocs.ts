@@ -15,6 +15,8 @@ const CLIENT_VERSION = "1.0.0";
 const STATUS_KEY = "phrocs-mcp";
 const SERVER_CMD = "uv";
 const SERVER_ARGS = ["run", "python", "tools/phrocs/mcp_server.py"];
+const REQUEST_TIMEOUT_MS = 60_000;
+const STDERR_TAIL_BYTES = 8 * 1024;
 
 interface JsonRpcResponse {
     jsonrpc: "2.0";
@@ -53,8 +55,12 @@ interface McpToolResult {
 class McpStdioClient {
     private proc: ChildProcess | null = null;
     private nextId = 1;
-    private pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+    private pending = new Map<
+        number,
+        { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: unknown; onAbort?: () => void; signal?: AbortSignal }
+    >();
     private buffer = "";
+    private stderrTail = "";
 
     async start(command: string, args: string[], cwd: string): Promise<McpTool[]> {
         this.proc = spawn(command, args, {
@@ -70,12 +76,17 @@ class McpStdioClient {
         }
         stdout.setEncoding("utf8");
         stdout.on("data", (chunk: string) => this.onData(chunk));
-        // Drain stderr so the subprocess doesn't block on a full pipe; we don't
-        // surface it — FastMCP logs boot noise there that isn't actionable.
-        stderr?.resume();
+        // Capture a rolling tail of stderr so startup failures (missing uv,
+        // import errors, etc.) show up in error messages and /phrocs-status.
+        stderr?.setEncoding("utf8");
+        stderr?.on("data", (chunk: string) => this.appendStderr(chunk));
 
         this.proc.on("error", (err) => this.failPending(err));
-        this.proc.on("exit", (code) => this.failPending(new Error(`phrocs MCP server exited (code=${code})`)));
+        this.proc.on("exit", (code) => {
+            const tail = this.stderrTail.trim();
+            const detail = tail ? `: ${tail.slice(-500)}` : "";
+            this.failPending(new Error(`phrocs MCP server exited (code=${code})${detail}`));
+        });
 
         await this.request("initialize", {
             protocolVersion: PROTOCOL_VERSION,
@@ -88,8 +99,12 @@ class McpStdioClient {
         return listed.tools ?? [];
     }
 
-    async callTool(name: string, args: Record<string, unknown>): Promise<McpToolResult> {
-        return (await this.request("tools/call", { name, arguments: args })) as McpToolResult;
+    async callTool(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<McpToolResult> {
+        return (await this.request("tools/call", { name, arguments: args }, signal)) as McpToolResult;
+    }
+
+    stderrSnapshot(): string {
+        return this.stderrTail;
     }
 
     async close(): Promise<void> {
@@ -109,6 +124,10 @@ class McpStdioClient {
             });
             proc.kill("SIGTERM");
         });
+    }
+
+    private appendStderr(chunk: string): void {
+        this.stderrTail = (this.stderrTail + chunk).slice(-STDERR_TAIL_BYTES);
     }
 
     private onData(chunk: string): void {
@@ -133,6 +152,10 @@ class McpStdioClient {
         const waiting = this.pending.get(msg.id);
         if (!waiting) return;
         this.pending.delete(msg.id);
+        clearTimeout(waiting.timer);
+        if (waiting.onAbort && waiting.signal) {
+            waiting.signal.removeEventListener("abort", waiting.onAbort);
+        }
         if (msg.error) {
             waiting.reject(new Error(`${msg.error.message} (code ${msg.error.code})`));
         } else {
@@ -140,18 +163,35 @@ class McpStdioClient {
         }
     }
 
-    private request(method: string, params: unknown): Promise<unknown> {
+    private request(method: string, params: unknown, signal?: AbortSignal): Promise<unknown> {
         return new Promise((resolve, reject) => {
             const stdin = this.proc?.stdin;
             if (!stdin) {
                 reject(new Error("phrocs MCP server not started"));
                 return;
             }
+            if (signal?.aborted) {
+                reject(new Error("phrocs MCP request aborted"));
+                return;
+            }
             const id = this.nextId++;
-            this.pending.set(id, { resolve, reject });
+            const timer = setTimeout(() => {
+                if (!this.pending.delete(id)) return;
+                reject(new Error(`phrocs MCP request '${method}' timed out after ${REQUEST_TIMEOUT_MS}ms`));
+            }, REQUEST_TIMEOUT_MS);
+            const onAbort = signal
+                ? () => {
+                      if (!this.pending.delete(id)) return;
+                      clearTimeout(timer);
+                      reject(new Error("phrocs MCP request aborted"));
+                  }
+                : undefined;
+            if (signal && onAbort) signal.addEventListener("abort", onAbort, { once: true });
+            this.pending.set(id, { resolve, reject, timer, onAbort, signal });
             stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`, (err) => {
-                if (err) {
-                    this.pending.delete(id);
+                if (err && this.pending.delete(id)) {
+                    clearTimeout(timer);
+                    if (signal && onAbort) signal.removeEventListener("abort", onAbort);
                     reject(err);
                 }
             });
@@ -163,7 +203,11 @@ class McpStdioClient {
     }
 
     private failPending(err: Error): void {
-        for (const waiter of this.pending.values()) waiter.reject(err);
+        for (const waiter of this.pending.values()) {
+            clearTimeout(waiter.timer);
+            if (waiter.onAbort && waiter.signal) waiter.signal.removeEventListener("abort", waiter.onAbort);
+            waiter.reject(err);
+        }
         this.pending.clear();
     }
 }
@@ -184,7 +228,7 @@ function jsonSchemaToTypeBox(schema: JsonSchema | undefined): TSchema {
     }
     if (type === "string") {
         if (schema.enum?.length) {
-            const literals = schema.enum.map((v) => Type.Literal(v as string));
+            const literals = schema.enum.map((v) => Type.Literal(v));
             return literals.length === 1 ? literals[0] : Type.Union(literals, { description });
         }
         return Type.String({ description, default: schema.default as string | undefined });
@@ -205,7 +249,8 @@ function jsonSchemaToTypeBox(schema: JsonSchema | undefined): TSchema {
     }
     if (type === "null") return Type.Null();
     if (schema.anyOf?.length || schema.oneOf?.length) {
-        return Type.Union((schema.anyOf ?? schema.oneOf)!.map(jsonSchemaToTypeBox), { description });
+        const variants = (schema.anyOf?.length ? schema.anyOf : schema.oneOf)!;
+        return Type.Union(variants.map(jsonSchemaToTypeBox), { description });
     }
     return Type.Any({ description });
 }
@@ -246,6 +291,8 @@ export default function registerPhrocsExtension(pi: ExtensionAPI) {
                 lastError = null;
 
                 for (const tool of tools) {
+                    // Pi has no unregister API, so once a tool is registered
+                    // it stays for the session. Skip silently on reconnect.
                     if (registered.has(tool.name)) continue;
                     if (pi.getAllTools().some((existing) => existing.name === tool.name)) {
                         ctx.ui?.notify(`phrocs: skipped '${tool.name}' (name collision)`, "warning");
@@ -257,9 +304,9 @@ export default function registerPhrocsExtension(pi: ExtensionAPI) {
                         label: tool.title ?? tool.name,
                         description: tool.description ?? `phrocs MCP tool: ${tool.name}`,
                         parameters: jsonSchemaToTypeBox(tool.inputSchema),
-                        async execute(_toolCallId, params) {
+                        async execute(_toolCallId, params, signal) {
                             if (!client) throw new Error("phrocs MCP client not connected");
-                            const result = await client.callTool(tool.name, params as Record<string, unknown>);
+                            const result = await client.callTool(tool.name, params as Record<string, unknown>, signal);
                             const text = formatToolResult(result);
                             if (result.isError) {
                                 throw new Error(text || `phrocs tool '${tool.name}' returned an error`);
@@ -274,8 +321,10 @@ export default function registerPhrocsExtension(pi: ExtensionAPI) {
 
                 setStatus(`phrocs: ${registered.size} tools`, ctx);
             } catch (err) {
-                lastError = err instanceof Error ? err.message : String(err);
-                setStatus(`phrocs: failed`, ctx);
+                const tail = next.stderrSnapshot().trim();
+                const base = err instanceof Error ? err.message : String(err);
+                lastError = tail ? `${base}\n--- stderr tail ---\n${tail.slice(-500)}` : base;
+                setStatus("phrocs: failed", ctx);
                 ctx.ui?.notify(`phrocs MCP failed to start: ${lastError}`, "error");
                 await next.close().catch(() => undefined);
             }
@@ -300,21 +349,25 @@ export default function registerPhrocsExtension(pi: ExtensionAPI) {
     pi.registerCommand("phrocs-status", {
         description: "Show phrocs MCP connection status",
         handler: async (_args, ctx) => {
-            const msg = [
+            const lines = [
                 `connected: ${client !== null}`,
                 `tools: ${registered.size}`,
                 `last_error: ${lastError ?? "none"}`,
-            ].join("\n");
-            ctx.ui.notify(msg, lastError ? "warning" : "info");
+            ];
+            const tail = client?.stderrSnapshot().trim();
+            if (tail) lines.push(`stderr_tail:\n${tail.slice(-500)}`);
+            ctx.ui.notify(lines.join("\n"), lastError ? "warning" : "info");
         },
     });
 
     pi.registerCommand("phrocs-reload", {
-        description: "Reconnect to phrocs MCP and re-register tools",
+        description: "Reconnect to phrocs MCP (tool closures reuse the new client)",
         handler: async (_args, ctx) => {
+            // Intentionally leave `registered` intact: pi has no unregister
+            // API, so the existing tool closures stay wired up and transparently
+            // use the new `client` after reconnect.
             const current = client;
             client = null;
-            registered.clear();
             if (current) await current.close();
             await connect(ctx);
         },

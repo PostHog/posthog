@@ -20,3 +20,9 @@ declare module "node:child_process" {
 declare const process: { env: Record<string, string | undefined> };
 declare function setTimeout(handler: () => void, timeout: number): unknown;
 declare function clearTimeout(handle: unknown): void;
+
+interface AbortSignal {
+    readonly aborted: boolean;
+    addEventListener(type: "abort", listener: () => void, options?: { once?: boolean }): void;
+    removeEventListener(type: "abort", listener: () => void): void;
+}
