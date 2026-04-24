@@ -127,7 +127,8 @@ class ExperimentCreateSerializer(serializers.Serializer):
         """Convert validated data to facade DTO."""
         feature_flag_filters_dto = None
         if self.validated_data.get("feature_flag_filters"):
-            flag_serializer = CreateFeatureFlagInputSerializer(data=self.initial_data.get("feature_flag_filters"))
+            # validated_data already contains the deserialized nested dict
+            flag_serializer = CreateFeatureFlagInputSerializer(data=self.validated_data["feature_flag_filters"])
             flag_serializer.is_valid(raise_exception=True)
             feature_flag_filters_dto = flag_serializer.to_dto()
 
