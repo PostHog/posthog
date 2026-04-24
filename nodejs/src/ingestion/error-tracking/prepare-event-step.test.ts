@@ -177,7 +177,7 @@ describe('createErrorTrackingPrepareEventStep', () => {
             },
         })
 
-        const result = await step({ event, team, person: null, headers: createTestHeaders() })
+        const result = await step({ event, team, person: null, headers: createTestEventHeaders() })
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (isOkResult(result)) {
