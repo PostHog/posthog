@@ -1,5 +1,11 @@
+import { useValues } from 'kea'
+
+import { Link } from '@posthog/lemon-ui'
+
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { ProductIntentContext, ProductKey, WebStatsBreakdown } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, RecordingUniversalFilters } from '~/types'
@@ -58,6 +64,9 @@ interface ReplayButtonProps {
 }
 
 export const ReplayButton = ({ date_from, date_to, breakdownBy, value }: ReplayButtonProps): JSX.Element => {
+    const { currentTeam } = useValues(teamLogic)
+    const recordingsEnabled = !!currentTeam?.session_recording_opt_in
+
     const handleClick = (e: React.MouseEvent): void => {
         e.stopPropagation()
         void addProductIntentForCrossSell({
@@ -67,17 +76,37 @@ export const ReplayButton = ({ date_from, date_to, breakdownBy, value }: ReplayB
         })
     }
 
-    /** If value is empty - just open session replay home page */
-    if (value === '') {
-        const filters: Partial<RecordingUniversalFilters> = {
-            date_from,
-            date_to,
+    const renderButton = (filters: Partial<RecordingUniversalFilters>): JSX.Element => {
+        if (!recordingsEnabled) {
+            return (
+                <ViewRecordingsPlaylistButton
+                    filters={filters}
+                    type="tertiary"
+                    size="xsmall"
+                    disabledReason={
+                        <>
+                            Session recordings are not enabled for this project.{' '}
+                            <Link to={urls.settings('project-replay', 'replay')}>Enable recordings</Link> to use this
+                            cross-sell.
+                        </>
+                    }
+                />
+            )
         }
         return (
             <div onClick={handleClick}>
                 <ViewRecordingsPlaylistButton filters={filters} type="tertiary" size="xsmall" />
             </div>
         )
+    }
+
+    /** If value is empty - just open session replay home page */
+    if (value === '') {
+        const filters: Partial<RecordingUniversalFilters> = {
+            date_from,
+            date_to,
+        }
+        return renderButton(filters)
     }
 
     /** View port is a unique case, so we need to handle it differently */
@@ -108,11 +137,7 @@ export const ReplayButton = ({ date_from, date_to, breakdownBy, value }: ReplayB
                 ],
             },
         }
-        return (
-            <div onClick={handleClick}>
-                <ViewRecordingsPlaylistButton filters={filters} type="tertiary" size="xsmall" />
-            </div>
-        )
+        return renderButton(filters)
     }
 
     /** UTM source, medium, campaign is a unique case, so we need to handle it differently, as combining them with AND */
@@ -150,11 +175,7 @@ export const ReplayButton = ({ date_from, date_to, breakdownBy, value }: ReplayB
                 ],
             },
         }
-        return (
-            <div onClick={handleClick}>
-                <ViewRecordingsPlaylistButton filters={filters} type="tertiary" size="xsmall" />
-            </div>
-        )
+        return renderButton(filters)
     }
 
     /** Referring URL is displayed with query params stripped, so use regex to match the raw value */
@@ -180,11 +201,7 @@ export const ReplayButton = ({ date_from, date_to, breakdownBy, value }: ReplayB
                 ],
             },
         }
-        return (
-            <div onClick={handleClick}>
-                <ViewRecordingsPlaylistButton filters={filters} type="tertiary" size="xsmall" />
-            </div>
-        )
+        return renderButton(filters)
     }
 
     const type = BREAKDOWN_TYPE_MAP[breakdownBy] || PropertyFilterType.Person
@@ -215,9 +232,5 @@ export const ReplayButton = ({ date_from, date_to, breakdownBy, value }: ReplayB
             ],
         },
     }
-    return (
-        <div onClick={handleClick}>
-            <ViewRecordingsPlaylistButton filters={filters} type="tertiary" size="xsmall" />
-        </div>
-    )
+    return renderButton(filters)
 }
