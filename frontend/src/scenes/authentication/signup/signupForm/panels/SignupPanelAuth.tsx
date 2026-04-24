@@ -88,6 +88,7 @@ export function SignupPanelAuth(): JSX.Element | null {
                         className="ph-ignore-input"
                         data-attr="password"
                         placeholder="••••••••••"
+                        autoFocus
                         disabled={isSignupPanelAuthSubmitting || passkeyRegistered}
                     />
                 </LemonField>
