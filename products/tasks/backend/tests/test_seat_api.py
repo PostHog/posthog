@@ -386,6 +386,8 @@ class TestSeatAPIBestPlan(BaseSeatAPITest):
         response = self.client.get("/api/seats/me/?product_key=posthog_code&best=true")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["plan_key"] == "posthog-code-free-20260301"
+        assert response.json()["organization_id"] == str(self.organization.id)
+        assert response.json()["organization_name"] == "Test Org"
 
     @patch("products.tasks.backend.seat_api.requests.request")
     @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
@@ -398,6 +400,7 @@ class TestSeatAPIBestPlan(BaseSeatAPITest):
         response = self.client.get("/api/seats/me/?product_key=posthog_code&best=true")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["plan_key"] == "posthog-code-200-20260301"
+        assert "organization_id" in response.json()
 
     @patch("products.tasks.backend.seat_api.requests.request")
     @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)

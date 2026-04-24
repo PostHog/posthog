@@ -252,13 +252,18 @@ class SeatViewSet(viewsets.ViewSet):
             return Response({"detail": "No organization found"}, status=status.HTTP_400_BAD_REQUEST)
 
         if len(orgs) == 1:
-            headers = self._get_billing_headers_for_org(user, orgs[0])
+            org = orgs[0]
+            headers = self._get_billing_headers_for_org(user, org)
             if not headers:
                 return Response({"detail": "No license found"}, status=status.HTTP_400_BAD_REQUEST)
             resp = self._billing_request("GET", f"/api/v2/seats/{distinct_id}/", headers, query_params=query_params)
-            return self._forward_response(resp)
+            drf_resp = self._forward_response(resp)
+            if 200 <= drf_resp.status_code < 300 and isinstance(drf_resp.data, dict):
+                drf_resp.data["organization_id"] = str(org.id)
+                drf_resp.data["organization_name"] = org.name
+            return drf_resp
 
-        def fetch_seat(org: Organization) -> dict[str, Any] | None:
+        def fetch_seat(org: Organization) -> tuple[Organization, dict[str, Any]] | None:
             headers = self._get_billing_headers_for_org(user, org)
             if not headers:
                 return None
@@ -266,20 +271,22 @@ class SeatViewSet(viewsets.ViewSet):
             drf_resp = self._forward_response(resp)
             if not 200 <= drf_resp.status_code < 300 or not isinstance(drf_resp.data, dict):
                 return None
-            return drf_resp.data
+            return (org, drf_resp.data)
 
-        seats: list[dict[str, Any]] = []
+        results: list[tuple[Organization, dict[str, Any]]] = []
         with ThreadPoolExecutor(max_workers=min(len(orgs), 5)) as pool:
             futures = {pool.submit(fetch_seat, org): org for org in orgs}
             for future in as_completed(futures):
-                seat = future.result()
-                if seat:
-                    seats.append(seat)
+                result = future.result()
+                if result:
+                    results.append(result)
 
-        if not seats:
+        if not results:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
-        best = max(seats, key=_seat_priority)
+        best_org, best = max(results, key=lambda r: _seat_priority(r[1]))
+        best["organization_id"] = str(best_org.id)
+        best["organization_name"] = best_org.name
         return Response(best)
 
     def partial_update(self, request: Request, pk: str | None = None) -> Response:
