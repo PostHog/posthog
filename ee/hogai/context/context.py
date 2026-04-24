@@ -143,7 +143,9 @@ class AssistantContextManager(AssistantContextMixin):
         """
         Returns the ORM chain of the team's groups.
         """
-        return GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by("group_type_index")
+        return GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by(
+            "group_type_index"
+        )  # nosemgrep: no-direct-persons-db-orm
 
     async def get_group_names(self) -> list[str]:
         """

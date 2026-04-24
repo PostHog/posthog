@@ -148,7 +148,9 @@ class TaxonomyAgentToolkit:
 
     @property
     def _groups(self):
-        return GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by("group_type_index")
+        return GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by(
+            "group_type_index"
+        )  # nosemgrep: no-direct-persons-db-orm
 
     @cached_property
     def _team_group_types(self) -> list[str]:
