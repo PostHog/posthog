@@ -1015,6 +1015,13 @@ def property_to_django_filter(queryset: QuerySet, property: ErrorTrackingIssueFi
         ]
         else False
     )
+    # IS_SET / IS_NOT_SET synthesize their own value (True, via __isnull) so they
+    # don't care about `property.value`. Every other operator needs a concrete
+    # value; passing None to Django's ORM raises "Cannot use None as a query value".
+    set_based = operator == PropertyOperator.IS_SET or operator == PropertyOperator.IS_NOT_SET
+    if not set_based and value is None:
+        return queryset
+
     query = f"{field}"
 
     if array_based and not value:
