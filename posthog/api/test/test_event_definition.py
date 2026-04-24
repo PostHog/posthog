@@ -379,30 +379,36 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["name"] == "installed_app"
 
-    def test_promoted_properties_endpoint_returns_only_configured_entries(self):
-        with_promoted = EventDefinition.objects.create(
-            team=self.demo_team, name="order_placed", promoted_property="order_id"
-        )
-        EventDefinition.objects.create(team=self.demo_team, name="no_promotion")
+    @parameterized.expand(
+        [
+            (
+                "filters_to_configured_entries_when_names_given",
+                [("order_placed", "order_id"), ("no_promotion", None)],
+                "?names=order_placed&names=no_promotion&names=missing_event",
+                {"order_placed": "order_id"},
+            ),
+            (
+                "returns_all_configured_entries_when_no_names_given",
+                [("evt_a", "prop_a"), ("evt_b", "prop_b")],
+                "",
+                {"evt_a": "prop_a", "evt_b": "prop_b"},
+            ),
+            (
+                "omits_entries_with_empty_string_promoted_property",
+                [("evt_blank", ""), ("evt_real", "real_prop")],
+                "",
+                {"evt_real": "real_prop"},
+            ),
+        ]
+    )
+    def test_promoted_properties_endpoint_demo_team_scope(self, _name, seed_rows, query_string, expected_body):
+        for name, promoted_property in seed_rows:
+            EventDefinition.objects.create(team=self.demo_team, name=name, promoted_property=promoted_property)
 
-        response = self.client.get(
-            "/api/projects/@current/event_definitions/promoted_properties/?names=order_placed&names=no_promotion&names=missing_event"
-        )
+        response = self.client.get(f"/api/projects/@current/event_definitions/promoted_properties/{query_string}")
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"promoted_properties": {"order_placed": "order_id"}}
-        with_promoted.delete()
-
-    def test_promoted_properties_endpoint_without_names_returns_all_configured(self):
-        EventDefinition.objects.create(team=self.demo_team, name="evt_a", promoted_property="prop_a")
-        EventDefinition.objects.create(team=self.demo_team, name="evt_b", promoted_property="prop_b")
-
-        response = self.client.get("/api/projects/@current/event_definitions/promoted_properties/")
-
-        assert response.status_code == status.HTTP_200_OK
-        body = response.json()["promoted_properties"]
-        assert body["evt_a"] == "prop_a"
-        assert body["evt_b"] == "prop_b"
+        assert response.json() == {"promoted_properties": expected_body}
 
     def test_promoted_properties_endpoint_is_team_scoped(self):
         other_team = create_team(organization=self.organization)

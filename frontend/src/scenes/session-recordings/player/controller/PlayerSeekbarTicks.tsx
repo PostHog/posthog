@@ -56,13 +56,14 @@ function PlayerSeekbarTick({
     endTimeMs,
     zIndex,
     onClick,
+    promotedProperties,
 }: {
     item: InspectorListItemComment | InspectorListItemNotebookComment | InspectorListItemEvent
     endTimeMs: number
     zIndex: number
     onClick: (e: React.MouseEvent) => void
+    promotedProperties: Record<string, string>
 }): JSX.Element | null {
-    const { promotedProperties } = useValues(promotedEventPropertiesModel)
     const position = (item.timeInRecording / endTimeMs) * 100
 
     if (position < 0 || position > 100) {
@@ -143,17 +144,19 @@ function PlayerSeekbarTick({
     )
 }
 
-export const PlayerSeekbarTicks = memo(
-    function PlayerSeekbarTicks({
+const MemoisedPlayerSeekbarTicks = memo(
+    function PlayerSeekbarTicksInner({
         seekbarItems,
         endTimeMs,
         seekToTime,
         hoverRef,
+        promotedProperties,
     }: {
         seekbarItems: (InspectorListItemEvent | InspectorListItemComment | InspectorListItemNotebookComment)[]
         endTimeMs: number
         seekToTime: (timeInMilliseconds: number) => void
         hoverRef: MutableRefObject<HTMLDivElement | null>
+        promotedProperties: Record<string, string>
     }): JSX.Element {
         return (
             <div className="PlayerSeekbarTicks">
@@ -169,6 +172,7 @@ export const PlayerSeekbarTicks = memo(
                                 e.stopPropagation()
                                 seekToTime(item.timeInRecording)
                             }}
+                            promotedProperties={promotedProperties}
                         />
                     )
                 })}
@@ -180,6 +184,34 @@ export const PlayerSeekbarTicks = memo(
             prev.seekbarItems.length === next.seekbarItems.length &&
             prev.seekbarItems.every((item, i) => item.data.id === next.seekbarItems[i].data.id)
 
-        return seekbarItemsAreEqual && prev.endTimeMs === next.endTimeMs && prev.seekToTime === next.seekToTime
+        return (
+            seekbarItemsAreEqual &&
+            prev.endTimeMs === next.endTimeMs &&
+            prev.seekToTime === next.seekToTime &&
+            prev.promotedProperties === next.promotedProperties
+        )
     }
 )
+
+export function PlayerSeekbarTicks({
+    seekbarItems,
+    endTimeMs,
+    seekToTime,
+    hoverRef,
+}: {
+    seekbarItems: (InspectorListItemEvent | InspectorListItemComment | InspectorListItemNotebookComment)[]
+    endTimeMs: number
+    seekToTime: (timeInMilliseconds: number) => void
+    hoverRef: MutableRefObject<HTMLDivElement | null>
+}): JSX.Element {
+    const { promotedProperties } = useValues(promotedEventPropertiesModel)
+    return (
+        <MemoisedPlayerSeekbarTicks
+            seekbarItems={seekbarItems}
+            endTimeMs={endTimeMs}
+            seekToTime={seekToTime}
+            hoverRef={hoverRef}
+            promotedProperties={promotedProperties}
+        />
+    )
+}

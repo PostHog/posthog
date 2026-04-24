@@ -597,7 +597,7 @@ class EventDefinitionViewSet(
         queryset = EventDefinition.objects.filter(
             team__project_id=self.project_id,
             promoted_property__isnull=False,
-        )
+        ).exclude(promoted_property="")
 
         names = [name for name in request.query_params.getlist("names") if name]
         if names:
