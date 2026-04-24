@@ -36,7 +36,7 @@ from posthog.exceptions import (
 from posthog.models import Action, Filter, Team
 from posthog.models.action.util import format_action_filter
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
-from posthog.models.cohort.cohort import Cohort, CohortOrEmpty, CohortPeople
+from posthog.models.cohort.cohort import Cohort, CohortOrEmpty
 from posthog.models.cohort.dependencies import get_cohort_dependents
 from posthog.models.cohort.sql import (
     CALCULATE_COHORT_PEOPLE_SQL,
@@ -636,12 +636,9 @@ def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, 
 
 
 def get_static_cohort_size(*, cohort_id: int, team_id: int, using_database: str | None = None) -> int:
-    qs = CohortPeople.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-        cohort_id=cohort_id, person__team_id=team_id
-    )  # nosemgrep: no-direct-persons-db-orm
-    if using_database:
-        qs = qs.using(using_database)
-    return qs.count()
+    from posthog.models.person.util import count_cohort_members
+
+    return count_cohort_members(team_id=team_id, cohort_id=cohort_id, using_database=using_database)
 
 
 def recalculate_cohortpeople(

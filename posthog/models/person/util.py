@@ -37,6 +37,9 @@ from posthog.personhog_client.metrics import (
 )
 from posthog.personhog_client.proto import (
     CheckCohortMembershipRequest,
+    CountCohortMembersRequest,
+    DeleteCohortMemberRequest,
+    DeleteCohortMembersBulkRequest,
     DeletePersonsRequest,
     GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonsRequest,
@@ -45,6 +48,7 @@ from posthog.personhog_client.proto import (
     GetPersonRequest,
     GetPersonsByDistinctIdsInTeamRequest,
     GetPersonsByUuidsRequest,
+    InsertCohortMembersRequest,
     ListCohortMemberIdsRequest,
 )
 from posthog.settings import TEST
@@ -669,6 +673,181 @@ def list_cohort_member_ids(team_id: int, cohort_id: int) -> list[int]:
     return _personhog_routed(
         "list_cohort_member_ids",
         lambda: _list_cohort_member_ids_via_personhog(cohort_id),
+        orm_fn,
+        team_id=team_id,
+    )
+
+
+# ── Cohort write operations ─────────────────────────────────────────
+
+
+def _insert_cohort_members_via_personhog(cohort_id: int, person_ids: list[int], version: int | None) -> int:
+    from posthog.personhog_client.client import get_personhog_client
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    resp = client.insert_cohort_members(
+        InsertCohortMembersRequest(
+            cohort_id=cohort_id,
+            person_ids=person_ids,
+            version=version,
+        )
+    )
+    return resp.inserted_count
+
+
+def insert_cohort_members(team_id: int, cohort_id: int, person_ids: list[int], version: int | None) -> int:
+    """Insert person IDs into a static cohort's PG membership table.
+
+    Routes through personhog when the gate is enabled, falling back to a raw
+    SQL INSERT against ``posthog_cohortpeople`` (on the persons DB) otherwise.
+    Returns the number of newly inserted rows (duplicates are skipped).
+    """
+    if not person_ids:
+        return 0
+
+    from posthog.models.cohort.cohort import Cohort, CohortPeople
+
+    if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
+        return 0
+
+    def orm_fn() -> int:
+        from django.db import connections, router
+
+        db_write = router.db_for_write(Person) or "default"
+        cursor = connections[db_write].cursor()
+        table = CohortPeople._meta.db_table
+        placeholders = ",".join(["%s"] * len(person_ids))
+        query = f"""
+            INSERT INTO "{table}" ("person_id", "cohort_id", "version")
+            SELECT pid, %s, %s
+            FROM UNNEST(ARRAY[{placeholders}]) AS t(pid)
+            ON CONFLICT DO NOTHING
+        """
+        cursor.execute(query, [cohort_id, version, *person_ids])
+        return cursor.rowcount
+
+    return _personhog_routed(
+        "insert_cohort_members",
+        lambda: _insert_cohort_members_via_personhog(cohort_id, person_ids, version),
+        orm_fn,
+        team_id=team_id,
+    )
+
+
+def _delete_cohort_member_via_personhog(cohort_id: int, person_id: int) -> bool:
+    from posthog.personhog_client.client import get_personhog_client
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    resp = client.delete_cohort_member(DeleteCohortMemberRequest(cohort_id=cohort_id, person_id=person_id))
+    return resp.deleted
+
+
+def delete_cohort_member(team_id: int, cohort_id: int, person_id: int) -> bool:
+    """Remove a single person from a static cohort's PG membership table.
+
+    Routes through personhog when the gate is enabled, falling back to a Django
+    ORM DELETE against ``posthog_cohortpeople`` (on the persons DB) otherwise.
+    Returns ``True`` if a row was deleted, ``False`` otherwise.
+    """
+    from posthog.models.cohort.cohort import Cohort, CohortPeople
+
+    if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
+        return False
+
+    def orm_fn() -> bool:
+        deleted_count, _ = CohortPeople.objects.filter(cohort_id=cohort_id, person_id=person_id).delete()
+        return deleted_count > 0
+
+    return _personhog_routed(
+        "delete_cohort_member",
+        lambda: _delete_cohort_member_via_personhog(cohort_id, person_id),
+        orm_fn,
+        team_id=team_id,
+    )
+
+
+def _delete_cohort_members_bulk_via_personhog(cohort_ids: list[int], batch_size: int) -> int:
+    from posthog.personhog_client.client import get_personhog_client
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    total_deleted = 0
+    while True:
+        resp = client.delete_cohort_members_bulk(
+            DeleteCohortMembersBulkRequest(cohort_ids=cohort_ids, batch_size=batch_size)
+        )
+        total_deleted += resp.deleted_count
+        if resp.deleted_count < batch_size:
+            break
+    return total_deleted
+
+
+def delete_cohort_members_bulk(team_id: int, cohort_ids: list[int], batch_size: int = 10_000) -> int:
+    """Delete all PG cohort membership rows for the given cohort IDs.
+
+    Routes through personhog when the gate is enabled, falling back to the
+    Django ORM ``_raw_delete`` against ``posthog_cohortpeople`` otherwise.
+    Returns the total number of deleted rows.
+    """
+    if not cohort_ids:
+        return 0
+
+    from posthog.models.cohort.cohort import CohortPeople
+
+    def orm_fn() -> int:
+        from django.db import router
+
+        qs = CohortPeople.objects.filter(cohort_id__in=cohort_ids)
+        db_alias = router.db_for_write(CohortPeople)
+        return qs._raw_delete(db_alias)
+
+    return _personhog_routed(
+        "delete_cohort_members_bulk",
+        lambda: _delete_cohort_members_bulk_via_personhog(cohort_ids, batch_size),
+        orm_fn,
+        team_id=team_id,
+    )
+
+
+def _count_cohort_members_via_personhog(cohort_ids: list[int]) -> int:
+    from posthog.personhog_client.client import get_personhog_client
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    resp = client.count_cohort_members(CountCohortMembersRequest(cohort_ids=cohort_ids))
+    return resp.count
+
+
+def count_cohort_members(team_id: int, cohort_id: int, *, using_database: str | None = None) -> int:
+    """Return the number of persons in a static cohort.
+
+    Routes through personhog when the gate is enabled, falling back to a Django
+    ORM COUNT against ``posthog_cohortpeople`` (on the persons DB) otherwise.
+    """
+    from posthog.models.cohort.cohort import Cohort, CohortPeople
+
+    if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
+        return 0
+
+    def orm_fn() -> int:
+        qs = CohortPeople.objects.filter(cohort_id=cohort_id, person__team_id=team_id)
+        if using_database:
+            qs = qs.using(using_database)
+        return qs.count()
+
+    return _personhog_routed(
+        "count_cohort_members",
+        lambda: _count_cohort_members_via_personhog([cohort_id]),
         orm_fn,
         team_id=team_id,
     )
