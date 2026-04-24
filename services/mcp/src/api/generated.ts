@@ -7654,6 +7654,16 @@ export namespace Schemas {
     }
 
     /**
+     * * `claude` - claude
+     */
+    export type ClaudeRuntimeAdapterEnum = typeof ClaudeRuntimeAdapterEnum[keyof typeof ClaudeRuntimeAdapterEnum];
+
+
+    export const ClaudeRuntimeAdapterEnum = {
+      Claude: 'claude',
+    } as const;
+
+    /**
      * * `interactive` - interactive
     * `background` - background
      */
@@ -7687,16 +7697,6 @@ export namespace Schemas {
     export const RunSourceEnum = {
       Manual: 'manual',
       SignalReport: 'signal_report',
-    } as const;
-
-    /**
-     * * `claude` - claude
-     */
-    export type ClaudeTaskRunCreateSchemaRuntimeAdapterEnum = typeof ClaudeTaskRunCreateSchemaRuntimeAdapterEnum[keyof typeof ClaudeTaskRunCreateSchemaRuntimeAdapterEnum];
-
-
-    export const ClaudeTaskRunCreateSchemaRuntimeAdapterEnum = {
-      Claude: 'claude',
     } as const;
 
     /**
@@ -7771,7 +7771,7 @@ export namespace Schemas {
       /** Agent runtime adapter to launch for this run. Must be 'claude' for Claude runtimes.
 
     * `claude` - claude */
-      runtime_adapter: ClaudeTaskRunCreateSchemaRuntimeAdapterEnum;
+      runtime_adapter: ClaudeRuntimeAdapterEnum;
       /** LLM model identifier to run in the Claude runtime. */
       model: string;
       /** Reasoning effort to request for models that expose an effort control.
@@ -8026,10 +8026,10 @@ export namespace Schemas {
     /**
      * * `codex` - codex
      */
-    export type CodexTaskRunCreateSchemaRuntimeAdapterEnum = typeof CodexTaskRunCreateSchemaRuntimeAdapterEnum[keyof typeof CodexTaskRunCreateSchemaRuntimeAdapterEnum];
+    export type CodexRuntimeAdapterEnum = typeof CodexRuntimeAdapterEnum[keyof typeof CodexRuntimeAdapterEnum];
 
 
-    export const CodexTaskRunCreateSchemaRuntimeAdapterEnum = {
+    export const CodexRuntimeAdapterEnum = {
       Codex: 'codex',
     } as const;
 
@@ -8085,7 +8085,7 @@ export namespace Schemas {
       /** Agent runtime adapter to launch for this run. Must be 'codex' for Codex runtimes.
 
     * `codex` - codex */
-      runtime_adapter: CodexTaskRunCreateSchemaRuntimeAdapterEnum;
+      runtime_adapter: CodexRuntimeAdapterEnum;
       /** LLM model identifier to run in the Codex runtime. */
       model: string;
       /** Reasoning effort to request for models that expose an effort control.
@@ -24194,10 +24194,10 @@ export namespace Schemas {
      * * `claude` - claude
     * `codex` - codex
      */
-    export type RuntimeAdapterB33Enum = typeof RuntimeAdapterB33Enum[keyof typeof RuntimeAdapterB33Enum];
+    export type RuntimeAdapterEnum = typeof RuntimeAdapterEnum[keyof typeof RuntimeAdapterEnum];
 
 
-    export const RuntimeAdapterB33Enum = {
+    export const RuntimeAdapterEnum = {
       Claude: 'claude',
       Codex: 'codex',
     } as const;
@@ -24251,7 +24251,7 @@ export namespace Schemas {
     * `cloud` - Cloud */
       environment?: TaskRunDetailEnvironmentEnum;
       /** Configured runtime adapter for this run, such as 'claude' or 'codex'. */
-      readonly runtime_adapter: RuntimeAdapterB33Enum | NullEnum | null;
+      readonly runtime_adapter: RuntimeAdapterEnum | NullEnum | null;
       /** Configured LLM provider for this run, such as 'anthropic' or 'openai'. */
       readonly provider: TaskRunDetailProviderEnum | NullEnum | null;
       /**
@@ -35121,7 +35121,7 @@ export namespace Schemas {
 
     * `interactive` - interactive
     * `background` - background */
-      mode?: Mode051Enum;
+      mode?: TaskExecutionModeEnum;
       /**
        * Git branch to checkout in the sandbox
        * @maxLength 255
@@ -35146,7 +35146,7 @@ export namespace Schemas {
 
     * `claude` - claude
     * `codex` - codex */
-      runtime_adapter?: RuntimeAdapterB33Enum;
+      runtime_adapter?: RuntimeAdapterEnum;
       /** LLM model identifier to run in the selected runtime. */
       model?: string;
       /** Reasoning effort to request for models that expose an effort control.
@@ -36181,6 +36181,11 @@ export namespace Schemas {
       results: _LogAttributeValue[];
       /** Always false — reserved for future cached-value refresh signalling. */
       refreshing: boolean;
+    }
+
+    export interface _SymbolSetDownloadResponse {
+      /** Presigned URL to download the source map file */
+      url: string;
     }
 
     export type EnvironmentsAlertsListParams = {
@@ -37782,8 +37787,6 @@ export namespace Schemas {
 
     export type EnvironmentsLogsHasLogsRetrieve200 = {[key: string]: unknown};
 
-    export type EnvironmentsLogsServicesCreate200 = {[key: string]: unknown};
-
     export type EnvironmentsLogsValuesRetrieveParams = {
     /**
      * Type of attribute: "log" or "resource". Defaults to "log".
@@ -38677,11 +38680,6 @@ export namespace Schemas {
     };
 
     export type EvaluationRunsCreate200 = {[key: string]: unknown};
-
-    /**
-     * Unspecified response body
-     */
-    export type ErrorTrackingSymbolSetsDownloadRetrieve200 = {[key: string]: unknown};
 
     export type EvaluationsListParams = {
     /**
@@ -40609,11 +40607,6 @@ export namespace Schemas {
     offset?: number;
     };
 
-    /**
-     * Unspecified response body
-     */
-    export type ErrorTrackingSymbolSetsDownloadRetrieve2200 = {[key: string]: unknown};
-
     export type EventDefinitionsListParams = {
     /**
      * Number of results to return per page.
@@ -41994,8 +41987,6 @@ export namespace Schemas {
     export type LogsExportCreate201 = {[key: string]: unknown};
 
     export type LogsHasLogsRetrieve200 = {[key: string]: unknown};
-
-    export type LogsServicesCreate200 = {[key: string]: unknown};
 
     export type LogsValuesRetrieveParams = {
     /**

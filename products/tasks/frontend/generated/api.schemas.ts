@@ -358,10 +358,9 @@ export const RunSourceEnumApi = {
 /**
  * * `claude` - claude
  */
-export type ClaudeTaskRunCreateSchemaRuntimeAdapterEnumApi =
-    (typeof ClaudeTaskRunCreateSchemaRuntimeAdapterEnumApi)[keyof typeof ClaudeTaskRunCreateSchemaRuntimeAdapterEnumApi]
+export type ClaudeRuntimeAdapterEnumApi = (typeof ClaudeRuntimeAdapterEnumApi)[keyof typeof ClaudeRuntimeAdapterEnumApi]
 
-export const ClaudeTaskRunCreateSchemaRuntimeAdapterEnumApi = {
+export const ClaudeRuntimeAdapterEnumApi = {
     Claude: 'claude',
 } as const
 
@@ -436,7 +435,7 @@ export interface ClaudeTaskRunCreateSchemaApi {
     /** Agent runtime adapter to launch for this run. Must be 'claude' for Claude runtimes.
 
 * `claude` - claude */
-    runtime_adapter: ClaudeTaskRunCreateSchemaRuntimeAdapterEnumApi
+    runtime_adapter: ClaudeRuntimeAdapterEnumApi
     /** LLM model identifier to run in the Claude runtime. */
     model: string
     /** Reasoning effort to request for models that expose an effort control.
@@ -461,10 +460,9 @@ export interface ClaudeTaskRunCreateSchemaApi {
 /**
  * * `codex` - codex
  */
-export type CodexTaskRunCreateSchemaRuntimeAdapterEnumApi =
-    (typeof CodexTaskRunCreateSchemaRuntimeAdapterEnumApi)[keyof typeof CodexTaskRunCreateSchemaRuntimeAdapterEnumApi]
+export type CodexRuntimeAdapterEnumApi = (typeof CodexRuntimeAdapterEnumApi)[keyof typeof CodexRuntimeAdapterEnumApi]
 
-export const CodexTaskRunCreateSchemaRuntimeAdapterEnumApi = {
+export const CodexRuntimeAdapterEnumApi = {
     Codex: 'codex',
 } as const
 
@@ -520,7 +518,7 @@ export interface CodexTaskRunCreateSchemaApi {
     /** Agent runtime adapter to launch for this run. Must be 'codex' for Codex runtimes.
 
 * `codex` - codex */
-    runtime_adapter: CodexTaskRunCreateSchemaRuntimeAdapterEnumApi
+    runtime_adapter: CodexRuntimeAdapterEnumApi
     /** LLM model identifier to run in the Codex runtime. */
     model: string
     /** Reasoning effort to request for models that expose an effort control.
@@ -776,9 +774,9 @@ export const TaskRunDetailEnvironmentEnumApi = {
  * * `claude` - claude
  * `codex` - codex
  */
-export type RuntimeAdapterB33EnumApi = (typeof RuntimeAdapterB33EnumApi)[keyof typeof RuntimeAdapterB33EnumApi]
+export type RuntimeAdapterEnumApi = (typeof RuntimeAdapterEnumApi)[keyof typeof RuntimeAdapterEnumApi]
 
-export const RuntimeAdapterB33EnumApi = {
+export const RuntimeAdapterEnumApi = {
     Claude: 'claude',
     Codex: 'codex',
 } as const
@@ -813,7 +811,7 @@ export interface TaskRunDetailApi {
 * `cloud` - Cloud */
     environment?: TaskRunDetailEnvironmentEnumApi
     /** Configured runtime adapter for this run, such as 'claude' or 'codex'. */
-    readonly runtime_adapter: RuntimeAdapterB33EnumApi | NullEnumApi | null
+    readonly runtime_adapter: RuntimeAdapterEnumApi | NullEnumApi | null
     /** Configured LLM provider for this run, such as 'anthropic' or 'openai'. */
     readonly provider: TaskRunDetailProviderEnumApi | NullEnumApi | null
     /**
@@ -900,7 +898,7 @@ export interface TaskRunBootstrapCreateRequestApi {
 
 * `interactive` - interactive
 * `background` - background */
-    mode?: Mode051EnumApi
+    mode?: TaskExecutionModeEnumApi
     /**
      * Git branch to checkout in the sandbox
      * @maxLength 255
@@ -925,7 +923,7 @@ export interface TaskRunBootstrapCreateRequestApi {
 
 * `claude` - claude
 * `codex` - codex */
-    runtime_adapter?: RuntimeAdapterB33EnumApi
+    runtime_adapter?: RuntimeAdapterEnumApi
     /** LLM model identifier to run in the selected runtime. */
     model?: string
     /** Reasoning effort to request for models that expose an effort control.

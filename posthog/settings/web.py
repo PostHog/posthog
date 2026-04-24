@@ -470,6 +470,9 @@ SPECTACULAR_SETTINGS = {
         "DateOperatorEnum": ["is_date_exact", "is_date_before", "is_date_after"],
         "DetailModeValueEnum": ["minimal", "detailed"],
         "LogsAlertConfigurationStateEnum": "products.logs.backend.models.LogsAlertConfiguration.State",
+        "RuntimeAdapterEnum": ["claude", "codex"],
+        "ClaudeRuntimeAdapterEnum": ["claude"],
+        "CodexRuntimeAdapterEnum": ["codex"],
     },
 }
 
