@@ -897,9 +897,12 @@ def _update_counts_and_post_status(run: Run) -> None:
 
     snapshots = list(run.snapshots.using(WRITER_DB).select_related("tolerated_hash_match").all())
 
-    run.changed_count = sum(1 for s in snapshots if s.result == SnapshotResult.CHANGED and not s.is_quarantined)
-    run.new_count = sum(1 for s in snapshots if s.result == SnapshotResult.NEW and not s.is_quarantined)
-    run.removed_count = sum(1 for s in snapshots if s.result == SnapshotResult.REMOVED and not s.is_quarantined)
+    def _is_actionable(s) -> bool:
+        return not s.is_quarantined and s.review_state != ReviewState.TOLERATED
+
+    run.changed_count = sum(1 for s in snapshots if s.result == SnapshotResult.CHANGED and _is_actionable(s))
+    run.new_count = sum(1 for s in snapshots if s.result == SnapshotResult.NEW and _is_actionable(s))
+    run.removed_count = sum(1 for s in snapshots if s.result == SnapshotResult.REMOVED and _is_actionable(s))
     run.tolerated_match_count = sum(
         1
         for s in snapshots

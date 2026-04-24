@@ -228,9 +228,9 @@ export function VisualReviewRunScene(): JSX.Element {
     const loadedActionable = reviewPending + reviewApproved + reviewTolerated
     const hasMore = totalActionable > loadedActionable
 
-    // All changes are now covered by quarantine — gate would flip to success on recompute.
+    // All changes are now resolved (quarantined or tolerated) — gate would flip to success on re-trigger.
     // Only reliable when all actionable snapshots are loaded (not paginated).
-    const allChangesQuarantined =
+    const allChangesResolved =
         run.status === 'completed' &&
         !run.approved &&
         !run.is_stale &&
@@ -238,7 +238,7 @@ export function VisualReviewRunScene(): JSX.Element {
         totalActionable > 0 &&
         snapshots
             .filter((s: SnapshotApi) => s.result !== 'unchanged')
-            .every((s: SnapshotApi) => quarantinedIdentifierSet.has(s.identifier))
+            .every((s: SnapshotApi) => quarantinedIdentifierSet.has(s.identifier) || s.review_state === 'tolerated')
 
     // Navigation — use changed snapshots when there are changes, otherwise all snapshots
     const navSnapshots = sortedChangedSnapshots.length > 0 ? sortedChangedSnapshots : snapshots
@@ -293,7 +293,7 @@ export function VisualReviewRunScene(): JSX.Element {
                 </LemonBanner>
             )}
 
-            {allChangesQuarantined && (
+            {allChangesResolved && (
                 <LemonBanner
                     type="info"
                     className="mb-4"
@@ -303,7 +303,7 @@ export function VisualReviewRunScene(): JSX.Element {
                         onClick: recomputeRun,
                     }}
                 >
-                    All changes are quarantined — re-trigger to update the commit status and pass the gate.
+                    All changes are resolved — re-trigger to update the commit status and pass the gate.
                 </LemonBanner>
             )}
 
@@ -434,7 +434,7 @@ export function VisualReviewRunScene(): JSX.Element {
                                 run.status === 'completed' && !run.approved && !run.is_stale ? recomputeRun : undefined
                             }
                             recomputeDisabledReason={
-                                !allChangesQuarantined ? 'Re-trigger would not change the outcome' : undefined
+                                !allChangesResolved ? 'Re-trigger would not change the outcome' : undefined
                             }
                         />
                     ) : snapshotsLoading ? (
