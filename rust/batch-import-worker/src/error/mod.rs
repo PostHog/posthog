@@ -111,22 +111,11 @@ pub fn is_timeout_error(error: &anyhow::Error) -> bool {
 /// retry with backoff. Excludes timeouts (see is_timeout_error), HTTP status errors,
 /// and builder errors (malformed URL / illegal header).
 pub fn is_transient_network_error(error: &anyhow::Error) -> bool {
-    if let Some(reqwest_err) = error.downcast_ref::<reqwest::Error>() {
-        if !reqwest_err.is_timeout() && reqwest_err.status().is_none() {
-            return true;
-        }
-    }
-
-    let mut source = error.source();
-    while let Some(err) = source {
-        if let Some(reqwest_err) = err.downcast_ref::<reqwest::Error>() {
-            if !reqwest_err.is_timeout() && !reqwest_err.is_builder() && reqwest_err.status().is_none() {
-                return true;
-            }
-        }
-        source = err.source();
-    }
-    false
+    error.chain().any(|err| {
+        err.downcast_ref::<reqwest::Error>().is_some_and(|re| {
+            !re.is_timeout() && !re.is_builder() && re.status().is_none()
+        })
+    })
 }
 
 #[cfg(test)]
