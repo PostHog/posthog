@@ -132,6 +132,20 @@ function JobEditor({
 export function ClusteringJobsPanel(): JSX.Element {
     const { isJobsPanelOpen, jobs, jobsLoading, editingJob } = useValues(clusteringJobsLogic)
     const { closeJobsPanel, setEditingJob, createJob, updateJob, deleteJob } = useActions(clusteringJobsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const evaluationsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_CLUSTERING]
+
+    // Hide only the auto-seeded "Default - evaluations" row from the admin
+    // list when the FF is off, so teams that aren't on the feature yet don't
+    // see a mystery default row they didn't create. Any custom evaluation
+    // jobs (rename of the default, or created explicitly when the FF was on
+    // and later toggled off) stay visible — otherwise we'd leave hidden-but-
+    // still-scheduled jobs with no UI surface to manage them.
+    const visibleJobs = evaluationsEnabled
+        ? jobs
+        : jobs.filter(
+              (job: ClusteringJob) => !(job.analysis_level === 'evaluation' && job.name === 'Default - evaluations')
+          )
 
     return (
         <LemonModal
@@ -156,7 +170,7 @@ export function ClusteringJobsPanel(): JSX.Element {
                 />
             ) : (
                 <div className="space-y-3">
-                    {jobs.map((job: ClusteringJob) => (
+                    {visibleJobs.map((job: ClusteringJob) => (
                         <div
                             key={job.id}
                             className="flex items-center justify-between border rounded p-3 hover:bg-surface-secondary transition-colors"
@@ -204,7 +218,7 @@ export function ClusteringJobsPanel(): JSX.Element {
                         </div>
                     ))}
 
-                    {jobs.length === 0 && !jobsLoading && (
+                    {visibleJobs.length === 0 && !jobsLoading && (
                         <div className="text-center text-muted p-4">No clustering jobs configured yet.</div>
                     )}
 
