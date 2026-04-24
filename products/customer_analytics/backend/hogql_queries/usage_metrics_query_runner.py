@@ -6,9 +6,12 @@ from zoneinfo import ZoneInfo
 from posthog.schema import CachedUsageMetricsQueryResponse, UsageMetric, UsageMetricsQuery, UsageMetricsQueryResponse
 
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
 
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models.group_usage_metric import GroupUsageMetric
+
+SourceSignature = tuple
 
 
 class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
@@ -34,9 +37,9 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
     def _calculate(self):
         from posthog.hogql.query import execute_hogql_query
 
-        interval_groups = self._group_metrics_by_interval(self._usage_metrics)
+        source_groups = self._group_metrics_by_source_and_interval(self._usage_metrics)
 
-        if not interval_groups:
+        if not source_groups:
             return UsageMetricsQueryResponse(results=[], modifiers=self.modifiers)
 
         date_to = datetime.now(tz=ZoneInfo("UTC"))
@@ -44,10 +47,10 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
         last_hogql: str | None = None
         all_timings = list(self.timings.to_list())
 
-        for interval, group in interval_groups.items():
-            query = self._build_interval_group_query(interval, group, date_to=date_to)
+        for (source_sig, interval), group in source_groups.items():
+            query = self._build_interval_group_query(source_sig, interval, group, date_to=date_to)
 
-            with self.timings.measure(f"usage_metrics_interval_{interval}_execute"):
+            with self.timings.measure(f"usage_metrics_{source_sig[0]}_{interval}_execute"):
                 response = execute_hogql_query(
                     query_type="usage_metrics_query",
                     query=query,
@@ -60,7 +63,7 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
             if response.timings:
                 all_timings.extend(response.timings)
 
-            with self.timings.measure(f"usage_metrics_interval_{interval}_post_process"):
+            with self.timings.measure(f"usage_metrics_{source_sig[0]}_{interval}_post_process"):
                 results = self._process_group_results(response, interval, group, date_to=date_to)
                 all_results.extend(results)
 
@@ -74,17 +77,17 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
         )
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        interval_groups = self._group_metrics_by_interval(self._usage_metrics)
+        source_groups = self._group_metrics_by_source_and_interval(self._usage_metrics)
 
-        if not interval_groups:
+        if not source_groups:
             from posthog.hogql.database.models import UnknownDatabaseField
 
             return ast.SelectQuery.empty(columns={"day": UnknownDatabaseField(name="day")})
 
         date_to = datetime.now(tz=ZoneInfo("UTC"))
         queries = [
-            self._build_interval_group_query(interval, group, date_to=date_to)
-            for interval, group in interval_groups.items()
+            self._build_interval_group_query(source_sig, interval, group, date_to=date_to)
+            for (source_sig, interval), group in source_groups.items()
         ]
 
         if len(queries) == 1:
@@ -106,37 +109,59 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
                 )
             )
 
-    def _group_metrics_by_interval(
+    @staticmethod
+    def _source_signature(metric: GroupUsageMetric) -> SourceSignature:
+        if metric.is_data_warehouse:
+            filters = metric.filters or {}
+            return (
+                GroupUsageMetric.Source.DATA_WAREHOUSE,
+                filters.get("table_name"),
+                filters.get("timestamp_field"),
+                filters.get("group_key_field"),
+            )
+        return (GroupUsageMetric.Source.EVENTS,)
+
+    def _group_metrics_by_source_and_interval(
         self, metrics: list[GroupUsageMetric]
-    ) -> dict[int, list[tuple[GroupUsageMetric, ast.Expr]]]:
-        groups: dict[int, list[tuple[GroupUsageMetric, ast.Expr]]] = defaultdict(list)
+    ) -> dict[tuple[SourceSignature, int], list[tuple[GroupUsageMetric, ast.Expr]]]:
+        groups: dict[tuple[SourceSignature, int], list[tuple[GroupUsageMetric, ast.Expr]]] = defaultdict(list)
         for metric in metrics:
             if metric.math == GroupUsageMetric.Math.SUM and not metric.math_property:
                 continue
             with self.timings.measure("get_metric_filter_expr"):
                 filter_expr = metric.get_expr()
-            if filter_expr == ast.Constant(value=True):
+            if not metric.is_data_warehouse and filter_expr == ast.Constant(value=True):
+                # Events metrics with no real filter would scan all events; skip them.
+                # DW metrics legitimately have no filter in v1, so they pass through.
                 continue
-            groups[metric.interval].append((metric, filter_expr))
+            source_sig = self._source_signature(metric)
+            groups[(source_sig, metric.interval)].append((metric, filter_expr))
         return dict(groups)
 
     def _build_interval_group_query(
-        self, interval: int, group: list[tuple[GroupUsageMetric, ast.Expr]], date_to: datetime
+        self,
+        source_sig: SourceSignature,
+        interval: int,
+        group: list[tuple[GroupUsageMetric, ast.Expr]],
+        date_to: datetime,
     ) -> ast.SelectQuery:
         date_from = date_to - timedelta(days=interval)
         prev_date_from = date_to - 2 * timedelta(days=interval)
 
-        current_condition = self._build_period_condition(date_from, date_to)
-        previous_condition = self._build_period_condition(prev_date_from, date_from, upper_exclusive=True)
+        table_expr = self._table_expr(source_sig)
+        timestamp_expr = self._timestamp_expr(source_sig)
+
+        current_condition = self._build_period_condition(timestamp_expr, date_from, date_to)
+        previous_condition = self._build_period_condition(
+            timestamp_expr, prev_date_from, date_from, upper_exclusive=True
+        )
 
         select_exprs: list[ast.Expr] = [
             ast.Alias(
                 alias="day",
                 expr=ast.Call(
                     name="toStartOfDay",
-                    args=[
-                        ast.Call(name="toTimeZone", args=[ast.Field(chain=["timestamp"]), ast.Constant(value="UTC")])
-                    ],
+                    args=[ast.Call(name="toTimeZone", args=[timestamp_expr, ast.Constant(value="UTC")])],
                 ),
             ),
         ]
@@ -149,41 +174,54 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
             select_exprs.append(ast.Alias(alias=f"m{i}_previous", expr=prev_expr))
 
         where_exprs: list[ast.Expr] = [
-            self._get_entity_filter(),
+            self._entity_filter_for(source_sig),
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
-                left=ast.Field(chain=["timestamp"]),
+                left=timestamp_expr,
                 right=ast.Constant(value=prev_date_from),
             ),
             ast.CompareOperation(
                 op=ast.CompareOperationOp.LtEq,
-                left=ast.Field(chain=["timestamp"]),
+                left=timestamp_expr,
                 right=ast.Constant(value=date_to),
             ),
         ]
 
         return ast.SelectQuery(
             select=select_exprs,
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            select_from=ast.JoinExpr(table=table_expr),
             where=ast.And(exprs=where_exprs),
             group_by=[ast.Field(chain=["day"])],
             order_by=[ast.OrderExpr(expr=ast.Field(chain=["day"]), order="ASC")],
         )
 
+    @staticmethod
+    def _table_expr(source_sig: SourceSignature) -> ast.Field:
+        if source_sig[0] == GroupUsageMetric.Source.DATA_WAREHOUSE:
+            return ast.Field(chain=[source_sig[1]])
+        return ast.Field(chain=["events"])
+
+    @staticmethod
+    def _timestamp_expr(source_sig: SourceSignature) -> ast.Expr:
+        if source_sig[0] == GroupUsageMetric.Source.DATA_WAREHOUSE:
+            return parse_expr(source_sig[2])
+        return ast.Field(chain=["timestamp"])
+
+    @staticmethod
     def _build_period_condition(
-        self, period_from: datetime, period_to: datetime, upper_exclusive: bool = False
+        timestamp_expr: ast.Expr, period_from: datetime, period_to: datetime, upper_exclusive: bool = False
     ) -> ast.Expr:
         upper_op = ast.CompareOperationOp.Lt if upper_exclusive else ast.CompareOperationOp.LtEq
         return ast.And(
             exprs=[
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
-                    left=ast.Field(chain=["timestamp"]),
+                    left=timestamp_expr,
                     right=ast.Constant(value=period_from),
                 ),
                 ast.CompareOperation(
                     op=upper_op,
-                    left=ast.Field(chain=["timestamp"]),
+                    left=timestamp_expr,
                     right=ast.Constant(value=period_to),
                 ),
             ]
@@ -200,15 +238,18 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
         previous_cond = ast.And(exprs=[filter_expr, previous_condition])
 
         if metric.math == GroupUsageMetric.Math.SUM:
-            prop_as_float = ast.Call(name="toFloat", args=[ast.Field(chain=["properties", metric.math_property])])
+            if metric.is_data_warehouse:
+                value_arg: ast.Expr = ast.Call(name="toFloat", args=[parse_expr(metric.math_property)])
+            else:
+                value_arg = ast.Call(name="toFloat", args=[ast.Field(chain=["properties", metric.math_property])])
             return (
                 ast.Call(
                     name="ifNull",
-                    args=[ast.Call(name="sumIf", args=[prop_as_float, current_cond]), ast.Constant(value=0)],
+                    args=[ast.Call(name="sumIf", args=[value_arg, current_cond]), ast.Constant(value=0)],
                 ),
                 ast.Call(
                     name="ifNull",
-                    args=[ast.Call(name="sumIf", args=[prop_as_float, previous_cond]), ast.Constant(value=0)],
+                    args=[ast.Call(name="sumIf", args=[value_arg, previous_cond]), ast.Constant(value=0)],
                 ),
             )
 
@@ -276,7 +317,16 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
         num_days = (end - start).days + 1
         return [start + timedelta(days=i) for i in range(max(0, num_days))]
 
-    def _get_entity_filter(self) -> ast.CompareOperation:
+    def _entity_filter_for(self, source_sig: SourceSignature) -> ast.Expr:
+        if source_sig[0] == GroupUsageMetric.Source.DATA_WAREHOUSE:
+            if not self._is_group_query:
+                raise ValueError("data_warehouse metrics are not supported for person queries")
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=parse_expr(source_sig[3]),
+                right=ast.Constant(value=self.query.group_key),
+            )
+
         if self._is_group_query:
             return ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
