@@ -36,6 +36,10 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
             "Failed to refresh token for Meta Ads integration. Please re-authorize the integration.": None,
             "Ad account owner has NOT": None,
             "cannot be loaded due to missing permissions": None,
+            # Meta returns this 500 when the requested query is too large for their backend to
+            # service. We already adaptively shrink stats chunks (30 → 7 → 1 day) and detect this
+            # message in `_is_timeout_error`; if it still escapes, retrying the whole job won't help.
+            "Please reduce the amount of data you're asking for": None,
         }
 
     def get_schemas(

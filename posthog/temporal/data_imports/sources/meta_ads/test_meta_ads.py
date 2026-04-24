@@ -11,6 +11,7 @@ from posthog.temporal.data_imports.sources.meta_ads.meta_ads import (
     _iter_time_range_pagination,
     _strip_access_token,
 )
+from posthog.temporal.data_imports.sources.meta_ads.source import MetaAdsSource
 
 
 def _mock_response(status: int, body: dict) -> mock.MagicMock:
@@ -409,3 +410,25 @@ class TestTimeRangePagination:
         # The first successful request was for a 7-day chunk.
         tr = json.loads(mock_get.call_args_list[1].kwargs["params"]["time_range"])
         assert tr == {"since": "2026-03-01", "until": "2026-03-07"}
+
+
+class TestNonRetryableErrors:
+    @pytest.mark.parametrize(
+        "error_message",
+        [
+            # Token refresh failure raised by get_integration.
+            "Failed to refresh token for Meta Ads integration. Please re-authorize the integration.",
+            # 400 from Meta when the ad account no longer belongs to the authorised user.
+            'Meta API request failed: 400 - {"error":{"message":"(#200) Ad account owner has NOT granted ads_management or ads_read permission.","type":"OAuthException","code":200}}',
+            # 400 when a specific endpoint cannot be accessed with the granted permissions.
+            'Meta API request failed: 400 - {"error":{"message":"(#100) This endpoint cannot be loaded due to missing permissions."}}',
+            # 500 when Meta's backend refuses to service the query even after adaptive
+            # chunking has shrunk the window to its smallest size.
+            'Meta API request failed: 500 - {"error":{"code":1,"message":"Please reduce the amount of data you\'re asking for, then retry your request"}}',
+        ],
+    )
+    def test_errors_match_pattern(self, error_message: str) -> None:
+        patterns = MetaAdsSource().get_non_retryable_errors()
+        assert any(pattern in error_message for pattern in patterns), (
+            f"Meta Ads error '{error_message}' does not match any non-retryable pattern"
+        )
