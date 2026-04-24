@@ -9,8 +9,6 @@ import {
     LemonDialog,
     LemonInput,
     LemonInputSelect,
-    LemonModal,
-    LemonSelect,
     LemonTable,
     LemonTableColumns,
     LemonTag,
@@ -22,6 +20,7 @@ import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { fullName } from 'lib/utils'
@@ -31,6 +30,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, RoleType } from '~/types'
 
+import { GitHubRoleMappings } from './GitHubRoleMappings'
 import { roleAccessControlLogic } from './roleAccessControlLogic'
 
 export function RolesAccessControls(): JSX.Element {
@@ -146,6 +146,7 @@ export function RolesAccessControls(): JSX.Element {
 
 function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
     const { user } = useValues(userLogic)
+    const githubRoleMappingsEnabled = useFeatureFlag('ROLE_EXTERNAL_REFERENCE_UI')
     const { sortedMembers, roles, canEditRoles } = useValues(roleAccessControlLogic)
     const { addMembersToRole, removeMemberFromRole } = useActions(roleAccessControlLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
@@ -267,6 +268,8 @@ function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
                 ]}
                 dataSource={role.members}
             />
+
+            {githubRoleMappingsEnabled && <GitHubRoleMappings roleId={role.id} canEditRoles={canEditRoles} />}
         </div>
     )
 }

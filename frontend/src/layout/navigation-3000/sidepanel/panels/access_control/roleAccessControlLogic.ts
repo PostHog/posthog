@@ -97,7 +97,6 @@ export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
                 },
             },
         ],
-
         resourceAccessControls: [
             null as AccessControlResponseType | null,
             {
