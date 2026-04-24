@@ -10,14 +10,18 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     InstallCustomApi,
+    InstallTemplateApi,
     MCPServerInstallationApi,
+    MCPServerInstallationToolApi,
     McpServerInstallationsAuthorizeRetrieveParams,
     McpServerInstallationsListParams,
     McpServersListParams,
     OAuthRedirectResponseApi,
     PaginatedMCPServerInstallationListApi,
-    PaginatedRecommendedServerListApi,
+    PaginatedMCPServerInstallationToolListApi,
+    PaginatedMCPServerTemplateListApi,
     PatchedMCPServerInstallationUpdateApi,
+    PatchedToolApprovalUpdateApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -165,9 +169,77 @@ export const mcpServerInstallationsProxyCreate = async (
     })
 }
 
+export const getMcpServerInstallationsToolsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/mcp_server_installations/${id}/tools/`
+}
+
+export const mcpServerInstallationsToolsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PaginatedMCPServerInstallationToolListApi> => {
+    return apiMutator<PaginatedMCPServerInstallationToolListApi>(
+        getMcpServerInstallationsToolsRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getMcpServerInstallationsToolsPartialUpdateUrl = (projectId: string, id: string, toolName: string) => {
+    return `/api/environments/${projectId}/mcp_server_installations/${id}/tools/${toolName}/`
+}
+
+export const mcpServerInstallationsToolsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    toolName: string,
+    patchedToolApprovalUpdateApi: PatchedToolApprovalUpdateApi,
+    options?: RequestInit
+): Promise<MCPServerInstallationToolApi> => {
+    return apiMutator<MCPServerInstallationToolApi>(
+        getMcpServerInstallationsToolsPartialUpdateUrl(projectId, id, toolName),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedToolApprovalUpdateApi),
+        }
+    )
+}
+
+export const getMcpServerInstallationsToolsRefreshCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/mcp_server_installations/${id}/tools/refresh/`
+}
+
+export const mcpServerInstallationsToolsRefreshCreate = async (
+    projectId: string,
+    id: string,
+    mCPServerInstallationApi: NonReadonly<MCPServerInstallationApi>,
+    options?: RequestInit
+): Promise<PaginatedMCPServerInstallationToolListApi> => {
+    return apiMutator<PaginatedMCPServerInstallationToolListApi>(
+        getMcpServerInstallationsToolsRefreshCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(mCPServerInstallationApi),
+        }
+    )
+}
+
+/**
+ * Start (or re-start) an OAuth flow.
+
+Pass ``template_id`` to (re)connect a catalog template, or
+``installation_id`` to reconnect an existing custom install using its
+cached metadata and per-user DCR creds.
+ */
 export const getMcpServerInstallationsAuthorizeRetrieveUrl = (
     projectId: string,
-    params: McpServerInstallationsAuthorizeRetrieveParams
+    params?: McpServerInstallationsAuthorizeRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -186,7 +258,7 @@ export const getMcpServerInstallationsAuthorizeRetrieveUrl = (
 
 export const mcpServerInstallationsAuthorizeRetrieve = async (
     projectId: string,
-    params: McpServerInstallationsAuthorizeRetrieveParams,
+    params?: McpServerInstallationsAuthorizeRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getMcpServerInstallationsAuthorizeRetrieveUrl(projectId, params), {
@@ -215,6 +287,32 @@ export const mcpServerInstallationsInstallCustomCreate = async (
     )
 }
 
+export const getMcpServerInstallationsInstallTemplateCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/mcp_server_installations/install_template/`
+}
+
+export const mcpServerInstallationsInstallTemplateCreate = async (
+    projectId: string,
+    installTemplateApi: InstallTemplateApi,
+    options?: RequestInit
+): Promise<OAuthRedirectResponseApi | MCPServerInstallationApi> => {
+    return apiMutator<OAuthRedirectResponseApi | MCPServerInstallationApi>(
+        getMcpServerInstallationsInstallTemplateCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(installTemplateApi),
+        }
+    )
+}
+
+/**
+ * Lists curated MCP server templates that users can install with one click.
+
+Templates are seeded by PostHog operators and carry shared, encrypted
+OAuth client credentials. Inactive templates are hidden from the catalog.
+ */
 export const getMcpServersListUrl = (projectId: string, params?: McpServersListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -235,8 +333,8 @@ export const mcpServersList = async (
     projectId: string,
     params?: McpServersListParams,
     options?: RequestInit
-): Promise<PaginatedRecommendedServerListApi> => {
-    return apiMutator<PaginatedRecommendedServerListApi>(getMcpServersListUrl(projectId, params), {
+): Promise<PaginatedMCPServerTemplateListApi> => {
+    return apiMutator<PaginatedMCPServerTemplateListApi>(getMcpServersListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

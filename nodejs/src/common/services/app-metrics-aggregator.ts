@@ -1,6 +1,21 @@
+import { Counter } from 'prom-client'
+
 import { IngestionOutput } from '../../ingestion/outputs/ingestion-output'
 import { TimestampFormat } from '../../types'
+import { safeClickhouseString } from '../../utils/db/utils'
 import { castTimestampOrNow } from '../../utils/utils'
+
+const appMetricsAggregatorQueuedCounter = new Counter({
+    name: 'app_metrics_aggregator_queued_total',
+    help: 'App metric items queued — counted before in-memory dedup.',
+    labelNames: ['app_source'],
+})
+
+const appMetricsAggregatorFlushedCounter = new Counter({
+    name: 'app_metrics_aggregator_flushed_total',
+    help: 'Unique app metric rows produced to Kafka after in-memory dedup. Dedup rate = 1 - (flushed / queued).',
+    labelNames: ['app_source'],
+})
 
 /**
  * One v2 app metric row, matching the ClickHouse `app_metrics2` schema.
@@ -31,6 +46,7 @@ export class AppMetricsAggregator {
     constructor(private readonly output: IngestionOutput) {}
 
     queue(metric: AppMetricInput): void {
+        appMetricsAggregatorQueuedCounter.inc({ app_source: metric.app_source })
         const key = makeKey(metric)
         const existing = this.buffer.get(key)
         if (existing) {
@@ -52,20 +68,31 @@ export class AppMetricsAggregator {
         // irrelevant, and round-robin distributes load evenly across partitions.
         const messages = drained.map((m) => ({
             value: Buffer.from(
-                JSON.stringify({
-                    team_id: m.team_id,
-                    timestamp,
-                    app_source: m.app_source,
-                    app_source_id: m.app_source_id,
-                    instance_id: m.instance_id,
-                    metric_kind: m.metric_kind,
-                    metric_name: m.metric_name,
-                    count: m.count,
-                })
+                // safeClickhouseString strips lone Unicode surrogates that ClickHouse rejects —
+                // identity fields are PostHog-generated UUIDs today, but cheap insurance if
+                // any of them ever take user-controlled values.
+                safeClickhouseString(
+                    JSON.stringify({
+                        team_id: m.team_id,
+                        timestamp,
+                        app_source: m.app_source,
+                        app_source_id: m.app_source_id,
+                        instance_id: m.instance_id,
+                        metric_kind: m.metric_kind,
+                        metric_name: m.metric_name,
+                        count: m.count,
+                    })
+                )
             ),
             key: null,
         }))
         await this.output.queueMessages(messages)
+
+        // Increment after the await so a failed produce isn't counted as flushed —
+        // dedup-rate = 1 - (flushed / queued) stays meaningful in error scenarios.
+        for (const m of drained) {
+            appMetricsAggregatorFlushedCounter.inc({ app_source: m.app_source })
+        }
     }
 }
 

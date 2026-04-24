@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from functools import cached_property
 from typing import Optional
 
 import structlog
@@ -222,6 +223,10 @@ class ExperimentQueryRunner(QueryRunner):
             placeholders=placeholders,
         )
 
+    @cached_property
+    def _team_experiments_config(self) -> TeamExperimentsConfig:
+        return get_or_create_team_extension(self.team, TeamExperimentsConfig)
+
     def _should_precompute(self) -> bool:
         """Resolve whether to use precomputation: query-level override > team-level default."""
         if self.query.precomputation_mode == PrecomputationMode.PRECOMPUTED:
@@ -229,8 +234,15 @@ class ExperimentQueryRunner(QueryRunner):
         if self.query.precomputation_mode == PrecomputationMode.DIRECT:
             return False
 
-        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
-        return config.experiment_precomputation_enabled
+        return self._team_experiments_config.experiment_precomputation_enabled
+
+    def _resolve_funnel_steps_data_disabled(self) -> bool:
+        """Resolve funnel_steps_data_disabled: experiment parameter > team config."""
+        parameters = self.experiment.parameters or {}
+        if "funnel_steps_data_disabled" in parameters:
+            return bool(parameters["funnel_steps_data_disabled"])
+
+        return self._team_experiments_config.funnel_steps_data_disabled
 
     def _get_experiment_query(self) -> ast.SelectQuery:
         """
@@ -248,7 +260,9 @@ class ExperimentQueryRunner(QueryRunner):
             filter_test_accounts,
         ) = get_exposure_config_params_for_builder(self.experiment.exposure_criteria)
 
-        funnel_steps_data_disabled = (self.experiment.parameters or {}).get("funnel_steps_data_disabled", False)
+        funnel_steps_data_disabled = (
+            self._resolve_funnel_steps_data_disabled() if isinstance(self.metric, ExperimentFunnelMetric) else False
+        )
 
         builder = ExperimentQueryBuilder(
             team=self.team,

@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { IconGithub } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
-import { VisualImageDiffViewer, type VisualDiffResult } from 'lib/components/VisualImageDiffViewer'
+import { VisualImageDiffViewer, type ComparisonMode, type VisualDiffResult } from 'lib/components/VisualImageDiffViewer'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -17,12 +17,16 @@ import type {
 } from '../generated/api.schemas'
 import { SnapshotStatusIndicator } from './SnapshotStatusIndicator'
 
-function DiffMinimap({ url }: { url: string }): JSX.Element {
+function DiffMinimap({ url, onClick }: { url: string; onClick?: () => void }): JSX.Element {
     const [loaded, setLoaded] = useState(false)
     return (
         <div>
             <h4 className="text-xs font-semibold text-muted mb-2">Diff map</h4>
-            <div className="relative rounded border border-border overflow-hidden bg-bg-3000">
+            <button
+                type="button"
+                className="relative rounded border border-border overflow-hidden bg-bg-3000 w-full cursor-pointer hover:border-primary transition-colors"
+                onClick={onClick}
+            >
                 {!loaded && <LemonSkeleton className="absolute inset-0" />}
                 <img
                     src={url}
@@ -31,7 +35,7 @@ function DiffMinimap({ url }: { url: string }): JSX.Element {
                     onLoad={() => setLoaded(true)}
                     onError={() => setLoaded(true)}
                 />
-            </div>
+            </button>
         </div>
     )
 }
@@ -202,6 +206,7 @@ export function SnapshotDiffViewer({
     repoFullName,
     runType,
 }: SnapshotDiffViewerProps): JSX.Element {
+    const [comparisonMode, setComparisonMode] = useState<ComparisonMode>('sideBySide')
     const baselineUrl = snapshot.baseline_artifact?.download_url
     const currentUrl = snapshot.current_artifact?.download_url
 
@@ -305,6 +310,9 @@ export function SnapshotDiffViewer({
                         diffPercentage={snapshot.diff_percentage ?? null}
                         result={(snapshot.result || 'unchanged') as VisualDiffResult}
                         imageWidth={width ?? undefined}
+                        imageHeight={height ?? undefined}
+                        mode={comparisonMode}
+                        onModeChange={setComparisonMode}
                         className="min-h-[200px]"
                     />
                 </div>
@@ -312,7 +320,12 @@ export function SnapshotDiffViewer({
                 {/* Right sidebar */}
                 <div className="w-52 shrink-0 border-l pl-4 space-y-4">
                     {/* === Diff minimap === */}
-                    {snapshot.diff_artifact?.download_url && <DiffMinimap url={snapshot.diff_artifact.download_url} />}
+                    {snapshot.diff_artifact?.download_url && (
+                        <DiffMinimap
+                            url={snapshot.diff_artifact.download_url}
+                            onClick={() => setComparisonMode('diff')}
+                        />
+                    )}
 
                     {/* === Run section === */}
                     {(runType || commitSha || prNumber) && (

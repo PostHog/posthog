@@ -7,6 +7,7 @@ function Progress({ className, children, value, ...props }: ProgressPrimitive.Ro
     return (
         <ProgressPrimitive.Root
             value={value}
+            data-quill
             data-slot="progress"
             className={cn('flex flex-wrap gap-3', className)}
             {...props}

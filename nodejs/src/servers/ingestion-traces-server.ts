@@ -9,7 +9,6 @@ import {
     getDefaultKafkaIngestionProducerEnvConfig,
     getDefaultKafkaProducerEnvConfig,
 } from '../ingestion/common/config'
-import { APP_METRICS_OUTPUT } from '../ingestion/common/outputs'
 import { DatabaseConnectionConfig, KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
 import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
 import {
@@ -97,9 +96,7 @@ export class IngestionTracesServer implements NodeServer {
         logger.info('👍', 'Postgres Router ready')
 
         logger.info('🤔', 'Connecting to Kafka...')
-        this.producerRegistry = (await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(
-            this.config
-        )) as KafkaProducerRegistry<LogsProducerName>
+        this.producerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
         logger.info('👍', 'Kafka ready')
 
         logger.info('🤔', 'Connecting to PostHog Redis...')
@@ -124,7 +121,7 @@ export class IngestionTracesServer implements NodeServer {
                 teamManager,
                 quotaLimiting,
                 kafkaProducer: this.producerRegistry!.getProducer(WARPSTREAM_LOGS_PRODUCER),
-                appMetricsOutput: outputs.get(APP_METRICS_OUTPUT),
+                outputs,
             })
             await consumer.start()
             return consumer.service

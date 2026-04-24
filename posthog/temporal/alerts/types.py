@@ -12,6 +12,16 @@ class PrepareAction(StrEnum):
     AUTO_DISABLE = "auto_disable"
 
 
+class SkipReason(StrEnum):
+    NOT_FOUND = "not_found"
+    DISABLED = "disabled"
+    INSIGHT_DELETED = "insight_deleted"
+    NOT_DUE = "not_due"
+    WEEKEND = "weekend"
+    QUIET_HOURS = "quiet_hours"
+    SNOOZED = "snoozed"
+
+
 @dataclasses.dataclass(frozen=True)
 class AlertInfo:
     alert_id: str
@@ -49,12 +59,17 @@ class EvaluateAlertActivityInputs:
 
 @dataclasses.dataclass(frozen=True)
 class EvaluateAlertResult:
-    alert_check_id: int
+    # AlertCheck PK is a UUIDT; stringified here so Temporal's JSON codec can pass it through.
+    alert_check_id: str
     should_notify: bool
     new_state: AlertState
+    # Human-readable breach descriptions the FIRING email uses as match_descriptions.
+    # Not persisted on AlertCheck, so the workflow must pipe them from evaluate to notify.
+    breaches: list[str] | None = None
 
 
 @dataclasses.dataclass(frozen=True)
 class NotifyAlertActivityInputs:
     alert_id: str
-    alert_check_id: int
+    alert_check_id: str
+    breaches: list[str] | None = None

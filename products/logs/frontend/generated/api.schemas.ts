@@ -153,15 +153,22 @@ export const LogsAlertConfigurationStateEnumApi = {
     Broken: 'broken',
 } as const
 
-export interface LogsAlertSparklineBucketApi {
-    /** Bucket start timestamp (UTC, hourly). */
-    timestamp: string
-    /** Count of breached checks in this hour. */
-    breached: number
-    /** Count of errored checks in this hour. */
-    errored: number
-    /** Count of checks that transitioned the alert from firing to resolved in this hour. */
-    resolved: number
+export interface LogsAlertStateIntervalApi {
+    /** Interval start (UTC, inclusive). */
+    start: string
+    /** Interval end (UTC, exclusive). */
+    end: string
+    /** Alert state during this interval.
+
+* `not_firing` - Not firing
+* `firing` - Firing
+* `pending_resolve` - Pending resolve
+* `errored` - Errored
+* `snoozed` - Snoozed
+* `broken` - Broken */
+    state: LogsAlertConfigurationStateEnumApi
+    /** Whether the alert was enabled during this interval. Disabled alerts keep their state but are inactive. */
+    enabled: boolean
 }
 
 /**
@@ -254,8 +261,8 @@ export interface LogsAlertConfigurationApi {
      * @nullable
      */
     readonly last_error_message: string | null
-    /** 24 hourly buckets of breached + errored check counts for the last 24h, ordered oldest-first. Drives the activity column on the alert list — empty sparkline = healthy alert. Ok checks are not included: retention caps OK rows at MAX_EVALUATION_PERIODS (~50min at 5-min cadence), so only events that survive the prune (breached + errored) are meaningful over a 24h window. */
-    readonly sparkline: readonly LogsAlertSparklineBucketApi[]
+    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
+    readonly state_timeline: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
     readonly destination_types: readonly DestinationTypesEnumApi[]
     /** When the alert was created. */
@@ -356,8 +363,8 @@ export interface PatchedLogsAlertConfigurationApi {
      * @nullable
      */
     readonly last_error_message?: string | null
-    /** 24 hourly buckets of breached + errored check counts for the last 24h, ordered oldest-first. Drives the activity column on the alert list — empty sparkline = healthy alert. Ok checks are not included: retention caps OK rows at MAX_EVALUATION_PERIODS (~50min at 5-min cadence), so only events that survive the prune (breached + errored) are meaningful over a 24h window. */
-    readonly sparkline?: readonly LogsAlertSparklineBucketApi[]
+    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
+    readonly state_timeline?: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
     readonly destination_types?: readonly DestinationTypesEnumApi[]
     /** When the alert was created. */
@@ -610,6 +617,19 @@ export interface _LogPropertyFilterApi {
     value?: unknown | null
 }
 
+export interface _LogAttributeEntryApi {
+    name: string
+    /** Property filter type: "log_attribute" or "log_resource_attribute". Use this as the `type` field when filtering. */
+    propertyFilterType: string
+}
+
+export interface _LogsAttributesResponseApi {
+    /** Available attribute keys matching the filters. */
+    results: _LogAttributeEntryApi[]
+    /** Total attribute keys matched (not paginated). */
+    count: number
+}
+
 /**
  * * `trace` - trace
  * `debug` - debug
@@ -668,6 +688,107 @@ export interface _LogsQueryRequestApi {
 }
 
 /**
+ * The parsed query that was executed, echoed back for confirmation.
+ */
+export type _LogsQueryResponseApiQuery = { [key: string]: unknown }
+
+/**
+ * Log-level attributes as a string-keyed map. Values are strings (numeric/datetime attributes are also accessible via materialized columns).
+ */
+export type _LogEntryApiAttributes = { [key: string]: string }
+
+/**
+ * Resource-level attributes (service.name, k8s.*, host.hostname, etc.) as a string-keyed map. Repeats across all logs from the same pod/host.
+ */
+export type _LogEntryApiResourceAttributes = { [key: string]: string }
+
+export interface _LogEntryApi {
+    uuid: string
+    /** ISO 8601 timestamp of the original log event. */
+    timestamp: string
+    /** ISO 8601 timestamp the log pipeline observed the event (may differ from `timestamp`). */
+    observed_timestamp: string
+    body: string
+    /** Log severity as a string (e.g. "info", "error"). Preferred over severity_number. */
+    severity_text: string
+    /** Log severity as a numeric code. Redundant with severity_text; kept for OpenTelemetry compatibility. */
+    severity_number: number
+    /** ClickHouse alias for severity_text. Redundant; prefer severity_text. */
+    level: string
+    /** Trace ID. Returns "00000000000000000000000000000000" when not set (padding, not null). */
+    trace_id: string
+    /** Span ID. Returns "0000000000000000" when not set (padding, not null). */
+    span_id: string
+    /** OpenTelemetry trace flags. */
+    trace_flags?: number
+    /** Log-level attributes as a string-keyed map. Values are strings (numeric/datetime attributes are also accessible via materialized columns). */
+    attributes: _LogEntryApiAttributes
+    /** Resource-level attributes (service.name, k8s.*, host.hostname, etc.) as a string-keyed map. Repeats across all logs from the same pod/host. */
+    resource_attributes: _LogEntryApiResourceAttributes
+    /** OpenTelemetry event name, if set. */
+    event_name?: string
+}
+
+export interface _LogsQueryResponseApi {
+    /** The parsed query that was executed, echoed back for confirmation. */
+    query: _LogsQueryResponseApiQuery
+    /** Log entries matching the query. */
+    results: _LogEntryApi[]
+    /** True if more results exist beyond this page. */
+    hasMore: boolean
+    /**
+     * Opaque cursor to pass as `after` in the next request to fetch the next page. Null when hasMore is false.
+     * @nullable
+     */
+    nextCursor?: string | null
+    /** Maximum number of rows the `export` endpoint will produce — informational. */
+    maxExportableLogs: number
+}
+
+export interface _LogsServicesBodyApi {
+    /** Date range for the services aggregation. Defaults to last hour. */
+    dateRange?: _DateRangeApi
+    /** Filter by log severity levels. */
+    severityLevels?: SeverityLevelsEnumApi[]
+    /** Restrict the aggregation to these service names. */
+    serviceNames?: string[]
+    /** Full-text search term to filter log bodies. */
+    searchTerm?: string
+    /** Property filters for the query. */
+    filterGroup?: _LogPropertyFilterApi[]
+}
+
+export interface _LogsServicesRequestApi {
+    /** The services aggregation query to execute. */
+    query: _LogsServicesBodyApi
+}
+
+export interface _LogsServiceAggregateApi {
+    /** Service name, or "(no value)" / "(no service)" placeholder for unset entries. */
+    service_name: string
+    /** Total log entries from this service in the window. */
+    log_count: number
+    /** Count of logs at severity "error" or "fatal". */
+    error_count: number
+    /** Pre-computed error_count / log_count, rounded to 4 decimals. Useful for ranking noisy services. */
+    error_rate: number
+}
+
+export interface _LogsServicesSparklineBucketApi {
+    /** Bucket start time (ISO 8601). */
+    time: string
+    service_name: string
+    count: number
+}
+
+export interface _LogsServicesResponseApi {
+    /** Per-service aggregates, ordered by log_count descending. Capped at 25 services. */
+    services: _LogsServiceAggregateApi[]
+    /** Time-bucketed counts broken down by service, for plotting volume over time. */
+    sparkline: _LogsServicesSparklineBucketApi[]
+}
+
+/**
  * * `severity` - severity
  * `service` - service
  */
@@ -699,6 +820,35 @@ export interface _LogsSparklineBodyApi {
 export interface _LogsSparklineRequestApi {
     /** The sparkline query to execute. */
     query: _LogsSparklineBodyApi
+}
+
+export interface _LogsSparklineBucketApi {
+    /** Bucket start time (ISO 8601). */
+    time: string
+    /** Severity label when sparklineBreakdownBy="severity". Present only for severity-broken-down sparklines. */
+    severity?: string
+    /** Service name when sparklineBreakdownBy="service". Present only for service-broken-down sparklines. */
+    service?: string
+    count: number
+}
+
+export interface _LogsSparklineResponseApi {
+    /** Time-bucketed log counts. Each bucket carries either `severity` or `service` depending on breakdown. */
+    results: _LogsSparklineBucketApi[]
+}
+
+export interface _LogAttributeValueApi {
+    /** Attribute value (used as the identifier). */
+    id: string
+    /** Display name — currently identical to `id`. */
+    name: string
+}
+
+export interface _LogsValuesResponseApi {
+    /** Distinct values observed for the requested attribute. */
+    results: _LogAttributeValueApi[]
+    /** Always false — reserved for future cached-value refresh signalling. */
+    refreshing: boolean
 }
 
 /**

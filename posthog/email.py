@@ -3,6 +3,8 @@
 import sys
 import html
 import uuid
+import datetime
+import dataclasses
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -285,7 +287,7 @@ def sanitize_email_properties(properties: dict[str, Any] | None) -> dict[str, An
     skip_sanitization_keys = ["utm_tags"]
 
     # Supported types (besides containers like dict and list)
-    supported_types = (str, int, float, bool, type(None), Decimal, uuid.UUID)
+    supported_types = (str, int, float, bool, type(None), Decimal, uuid.UUID, datetime.datetime, datetime.date)
 
     def sanitize_value(value: Any) -> Any:
         if isinstance(value, str):
@@ -297,6 +299,10 @@ def sanitize_email_properties(properties: dict[str, Any] | None) -> dict[str, An
         elif isinstance(value, uuid.UUID):
             # Handle UUID by converting to string and escaping
             return html.escape(str(value))
+        elif isinstance(value, datetime.datetime | datetime.date):
+            # Convert datetime/date to ISO-8601 string and escape — reached via
+            # dataclasses.asdict() for facade contracts with created_at-style fields
+            return html.escape(value.isoformat())
         elif hasattr(value, "_meta") and hasattr(value, "pk"):
             # Handle Django models by converting to string and escaping
             return html.escape(str(value))
@@ -306,11 +312,14 @@ def sanitize_email_properties(properties: dict[str, Any] | None) -> dict[str, An
         elif isinstance(value, int | float | bool | type(None)):
             # These types are safe as-is
             return value
+        elif dataclasses.is_dataclass(value) and not isinstance(value, type):
+            # Convert dataclass instances to a dict and recurse so their string fields get escaped
+            return {k: sanitize_value(v) for k, v in dataclasses.asdict(value).items()}
         else:
             # Raise an error for unsupported types - this is a security measure to prevent uncaught injections
             raise TypeError(
                 f"Unsupported type in email properties: {type(value).__name__}. "
-                f"Only {', '.join(t.__name__ for t in supported_types)}, dict, list, and Django models are supported."
+                f"Only {', '.join(t.__name__ for t in supported_types)}, dict, list, dataclasses, and Django models are supported."
             )
 
     result = {}

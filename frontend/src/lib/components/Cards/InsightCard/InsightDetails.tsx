@@ -50,6 +50,7 @@ import {
 } from '~/queries/schema/schema-general'
 import {
     isActionsNode,
+    isAnyDataWarehouseNode,
     isDataTableNodeWithHogQLQuery,
     isDataVisualizationNode,
     isEventsNode,
@@ -90,25 +91,49 @@ export function InsightDetailSectionDisplay({
     )
 }
 
+function assertNever(value: never): never {
+    throw new Error(`Unexpected entity node: ${(value as { kind?: string } | undefined)?.kind ?? 'unknown'}`)
+}
+
 function EntityDisplay({ entity }: { entity: AnyEntityNode<AnyDataWarehouseNode> }): JSX.Element {
+    let content: JSX.Element
+
+    if (isActionsNode(entity)) {
+        content = (
+            <Link
+                to={urls.action(entity.id)}
+                className="SeriesDisplay__raw-name SeriesDisplay__raw-name--action"
+                title="Action series"
+            >
+                {entity.name}
+            </Link>
+        )
+    } else if (isEventsNode(entity)) {
+        content = (
+            <span className="SeriesDisplay__raw-name SeriesDisplay__raw-name--event" title="Event series">
+                <PropertyKeyInfo value={entity.event || 'All events'} type={TaxonomicFilterGroupType.Events} />
+            </span>
+        )
+    } else if (isAnyDataWarehouseNode(entity)) {
+        content = (
+            <span
+                className="SeriesDisplay__raw-name SeriesDisplay__raw-name--data-warehouse"
+                title="Data warehouse series"
+            >
+                <PropertyKeyInfo
+                    value={entity.name || entity.table_name}
+                    type={TaxonomicFilterGroupType.DataWarehouse}
+                />
+            </span>
+        )
+    } else {
+        return assertNever(entity)
+    }
+
     return (
         <>
             {entity.custom_name && <b> "{entity.custom_name}"</b>}
-            {isActionsNode(entity) ? (
-                <Link
-                    to={urls.action(entity.id)}
-                    className="SeriesDisplay__raw-name SeriesDisplay__raw-name--action"
-                    title="Action series"
-                >
-                    {entity.name}
-                </Link>
-            ) : isEventsNode(entity) ? (
-                <span className="SeriesDisplay__raw-name SeriesDisplay__raw-name--event" title="Event series">
-                    <PropertyKeyInfo value={entity.event || '$pageview'} type={TaxonomicFilterGroupType.Events} />
-                </span>
-            ) : (
-                <i>{entity.kind /* TODO: Support DataWarehouseNode */}</i>
-            )}
+            {content}
         </>
     )
 }

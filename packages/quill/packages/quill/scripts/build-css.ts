@@ -37,8 +37,10 @@ mkdirSync(distDir, { recursive: true })
 
 const tokensSource = resolve(packageRoot, 'node_modules/@posthog/quill-tokens/dist/tailwind-lib.css')
 const colorsSource = resolve(packageRoot, 'node_modules/@posthog/quill-tokens/dist/color-system.css')
+const tokensScopedSource = resolve(packageRoot, 'node_modules/@posthog/quill-tokens/dist/tailwind-lib.scoped.css')
+const colorsScopedSource = resolve(packageRoot, 'node_modules/@posthog/quill-tokens/dist/color-system.scoped.css')
 
-for (const path of [tokensSource, colorsSource]) {
+for (const path of [tokensSource, colorsSource, tokensScopedSource, colorsScopedSource]) {
     if (!existsSync(path)) {
         throw new Error(
             `Cannot build quill CSS: ${path} missing. Run @posthog/quill-tokens build first ` +
@@ -49,6 +51,8 @@ for (const path of [tokensSource, colorsSource]) {
 
 const theme = readFileSync(tokensSource, 'utf8')
 const colors = readFileSync(colorsSource, 'utf8')
+const themeScoped = readFileSync(tokensScopedSource, 'utf8')
+const colorsScoped = readFileSync(colorsScopedSource, 'utf8')
 
 /*
  * Tailwind v4 default theme keys that quill primitives depend on but
@@ -165,4 +169,51 @@ writeFileSync(
 // consumers that only want colour values without the @theme registration.
 copyFileSync(colorsSource, resolve(distDir, 'color-system.css'))
 
-console.info('wrote dist/tokens.css, dist/base.css, dist/tailwind.css, dist/color-system.css')
+// ── Scoped variants ──────────────────────────────────────
+// Gated behind [data-quill] with [theme="dark"] dark mode for
+// consumers migrating from an existing design system.
+
+const themeScopedWithDefaults = themeScoped.replace(/}\s*$/, `${quillTailwindDefaults}}\n`)
+if (themeScopedWithDefaults === themeScoped) {
+    throw new Error(
+        'build-css: failed to inject Tailwind defaults into tailwind-lib.scoped.css — ' +
+            'expected the file to end with a closing brace.'
+    )
+}
+
+writeFileSync(
+    resolve(distDir, 'tokens.scoped.css'),
+    [
+        '/* @posthog/quill — scoped design tokens.',
+        ' * All CSS vars are gated behind [data-quill] so they do not clash',
+        ' * with existing consumer CSS custom properties.',
+        ' * Dark mode uses [theme="dark"] instead of .dark.',
+        ' */',
+        '',
+        colorsScoped,
+        '',
+        themeScopedWithDefaults,
+    ].join('\n')
+)
+
+writeFileSync(
+    resolve(distDir, 'base.scoped.css'),
+    [
+        '/* @posthog/quill — scoped base reset.',
+        ' * Same as base.css but only applies inside [data-quill] boundaries.',
+        ' */',
+        '@layer base {',
+        '    [data-quill], [data-quill] * {',
+        '        @apply border-border outline-ring/50;',
+        '    }',
+        '}',
+        '',
+    ].join('\n')
+)
+
+copyFileSync(colorsScopedSource, resolve(distDir, 'color-system.scoped.css'))
+
+console.info(
+    'wrote dist/tokens.css, dist/base.css, dist/tailwind.css, dist/color-system.css, ' +
+        'dist/tokens.scoped.css, dist/base.scoped.css, dist/color-system.scoped.css'
+)
