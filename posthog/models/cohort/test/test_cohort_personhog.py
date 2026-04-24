@@ -710,6 +710,27 @@ class TestDeleteCohortMembersBulkFallback(BaseTest):
         fake.assert_not_called("delete_cohort_members_bulk")
 
 
+class TestDeleteCohortMembersBulkMaxIterations(BaseTest):
+    def test_stops_after_max_iterations(self):
+        from unittest.mock import MagicMock
+
+        from posthog.models.person import util as person_util
+        from posthog.personhog_client.proto import DeleteCohortMembersBulkResponse
+
+        mock_client = MagicMock()
+        mock_client.delete_cohort_members_bulk.return_value = DeleteCohortMembersBulkResponse(deleted_count=100)
+
+        max_iters = 5
+        with (
+            patch.object(person_util, "_DELETE_BULK_MAX_ITERATIONS", max_iters),
+            patch("posthog.models.person.util.get_personhog_client", return_value=mock_client),
+        ):
+            total = person_util._delete_cohort_members_bulk_via_personhog([1], batch_size=100)
+
+        assert mock_client.delete_cohort_members_bulk.call_count == max_iters
+        assert total == 100 * max_iters
+
+
 @parameterized_class(("personhog",), [(False,), (True,)])
 class TestCountCohortMembers(PersonhogTestMixin, BaseTest):
     def test_returns_count(self):

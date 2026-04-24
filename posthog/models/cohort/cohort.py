@@ -803,12 +803,15 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         """Personhog path for batch cohort member insertion.
 
         Resolves UUIDs → person IDs via personhog, then calls the
-        InsertCohortMembers RPC. ClickHouse inserts (if requested) use
-        the resolved UUIDs directly — CH deduplicates via its engine.
+        InsertCohortMembers RPC. ClickHouse inserts (if requested)
+        exclude persons already in the cohort because the
+        person_static_cohort table's ORDER BY includes a per-row UUID,
+        preventing ReplacingMergeTree from deduplicating repeated inserts.
 
         Returns the last batch index processed.
         """
         from posthog.models.cohort.util import insert_static_cohort
+        from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
         from posthog.models.person.util import get_persons_by_uuids
 
         last_batch_index = -1
@@ -819,14 +822,37 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 continue
 
             person_ids = [p.id for p in persons]
-            person_uuids = [str(p.uuid) for p in persons]
+            person_uuids = [p.uuid for p in persons]
 
             if insert_in_clickhouse:
-                insert_static_cohort(person_uuids, self.pk, team_id=team_id)
+                uuid_strs = [str(u) for u in person_uuids]
+                existing_uuids = self._get_existing_ch_member_uuids(uuid_strs, team_id, PERSON_STATIC_COHORT_TABLE)
+                new_uuids = [u for u in person_uuids if str(u) not in existing_uuids]
+                if new_uuids:
+                    insert_static_cohort(new_uuids, self.pk, team_id=team_id)
 
             insert_cohort_members(team_id, self.pk, person_ids, self.version)
 
         return last_batch_index
+
+    def _get_existing_ch_member_uuids(
+        self,
+        person_uuids: list[str],
+        team_id: int,
+        table: str,
+    ) -> set[str]:
+        """Return the subset of person_uuids that already exist in the CH static cohort table."""
+        if not person_uuids:
+            return set()
+        rows = sync_execute(
+            f"SELECT person_id FROM {table} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id IN %(person_uuids)s GROUP BY person_id",
+            {
+                "team_id": team_id,
+                "cohort_id": self.pk,
+                "person_uuids": person_uuids,
+            },
+        )
+        return {str(row[0]) for row in rows}
 
     def remove_user_by_uuid(self, user_uuid: str, *, team_id: int) -> bool:
         """

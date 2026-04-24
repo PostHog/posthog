@@ -772,6 +772,9 @@ def delete_cohort_member(team_id: int, cohort_id: int, person_id: int) -> bool:
     )
 
 
+_DELETE_BULK_MAX_ITERATIONS = 10_000
+
+
 def _delete_cohort_members_bulk_via_personhog(cohort_ids: list[int], batch_size: int) -> int:
     from posthog.personhog_client.client import get_personhog_client
 
@@ -780,13 +783,20 @@ def _delete_cohort_members_bulk_via_personhog(cohort_ids: list[int], batch_size:
         raise RuntimeError("personhog client not configured")
 
     total_deleted = 0
-    while True:
+    for _ in range(_DELETE_BULK_MAX_ITERATIONS):
         resp = client.delete_cohort_members_bulk(
             DeleteCohortMembersBulkRequest(cohort_ids=cohort_ids, batch_size=batch_size)
         )
         total_deleted += resp.deleted_count
         if resp.deleted_count < batch_size:
             break
+    else:
+        logger.error(
+            "delete_cohort_members_bulk_max_iterations",
+            cohort_ids=cohort_ids,
+            total_deleted=total_deleted,
+            max_iterations=_DELETE_BULK_MAX_ITERATIONS,
+        )
     return total_deleted
 
 
