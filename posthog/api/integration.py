@@ -355,6 +355,10 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                         .exists()
                     )
                     if conflicting:
+                        capture_exception(
+                            Exception("Stripe marketplace callback rejected: conflicting integration"),
+                            {"team_id": team_id, "stripe_user_id": stripe_user_id},
+                        )
                         raise ValidationError(
                             "A different Stripe account is already connected to this team. Disconnect it first.",
                             code="stripe_integration_conflict",
