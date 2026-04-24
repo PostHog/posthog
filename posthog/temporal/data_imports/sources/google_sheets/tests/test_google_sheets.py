@@ -8,6 +8,7 @@ from posthog.temporal.data_imports.sources.google_sheets.google_sheets import (
     cache,
     get_schema_incremental_fields,
     get_schemas,
+    google_sheets_source,
 )
 
 
@@ -134,3 +135,71 @@ def test_get_schema_incremental_fields_retries_on_quota_exceeded():
             get_schema_incremental_fields(config, "sheet1")
 
         assert mock_worksheet.get_all_values.call_count == 10
+
+
+def test_google_sheets_source_retries_get_all_values_on_quota_exceeded():
+    """Regression: google_sheets_source calls worksheet.get_all_values("1:1") to
+    inspect the header row for primary-key detection. This must retry on 429 so a
+    transient per-minute quota hit doesn't fail the whole pipeline setup."""
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.sources.google_sheets.google_sheets.google_sheets_client"
+        ) as mock_google_sheets_client,
+        mock.patch("posthog.temporal.data_imports.sources.google_sheets.google_sheets.time"),
+    ):
+        mock_worksheet = mock.MagicMock()
+        mock_worksheet.id = 1
+        mock_worksheet.title = "Sheet1"
+
+        mock_spreadsheet = mock.MagicMock()
+        mock_spreadsheet.worksheets.return_value = [mock_worksheet]
+        mock_spreadsheet.get_worksheet_by_id.return_value = mock_worksheet
+
+        instance = mock_google_sheets_client.return_value
+        instance.open_by_url.return_value = mock_spreadsheet
+
+        mock_worksheet.get_all_values.side_effect = _quota_exceeded_api_error()
+
+        config = mock.MagicMock()
+        config.spreadsheet_url = "https://docs.google.com/spreadsheets/d/abc/edit"
+
+        with pytest.raises(gspread.exceptions.APIError):
+            google_sheets_source(config, "sheet1", db_incremental_field_last_value=None)
+
+        assert mock_worksheet.get_all_values.call_count == 10
+
+
+def test_google_sheets_source_retries_get_all_records_on_quota_exceeded():
+    """Regression: the per-row generator inside google_sheets_source calls
+    worksheet.get_all_records() to fetch the worksheet contents. This must retry
+    on 429 so a transient per-minute quota hit during data fetching doesn't
+    fail the activity."""
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.sources.google_sheets.google_sheets.google_sheets_client"
+        ) as mock_google_sheets_client,
+        mock.patch("posthog.temporal.data_imports.sources.google_sheets.google_sheets.time"),
+    ):
+        mock_worksheet = mock.MagicMock()
+        mock_worksheet.id = 1
+        mock_worksheet.title = "Sheet1"
+        mock_worksheet.get_all_values.return_value = [["name", "email"]]
+        mock_worksheet.get_all_records.side_effect = _quota_exceeded_api_error()
+
+        mock_spreadsheet = mock.MagicMock()
+        mock_spreadsheet.worksheets.return_value = [mock_worksheet]
+        mock_spreadsheet.get_worksheet_by_id.return_value = mock_worksheet
+
+        instance = mock_google_sheets_client.return_value
+        instance.open_by_url.return_value = mock_spreadsheet
+
+        config = mock.MagicMock()
+        config.spreadsheet_url = "https://docs.google.com/spreadsheets/d/abc/edit"
+
+        response = google_sheets_source(config, "sheet1", db_incremental_field_last_value=None)
+
+        with pytest.raises(gspread.exceptions.APIError):
+            # items is a generator factory; consume it to trigger the API call
+            list(response.items())
+
+        assert mock_worksheet.get_all_records.call_count == 10
