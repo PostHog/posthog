@@ -178,7 +178,7 @@ export class KafkaConsumer {
     private lastStatsEmitTime = 0
     private rebalanceCoordination: RebalanceCoordination = {
         isRebalancing: false,
-        rebalanceTimeoutMs: 20000,
+        rebalanceTimeoutMs: defaultConfig.CONSUMER_REBALANCE_TIMEOUT_MS,
         rebalanceStartTime: 0,
     }
     private consumerLogStatsLevel: LogLevel
