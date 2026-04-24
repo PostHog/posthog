@@ -112,18 +112,16 @@ pub fn is_timeout_error(error: &anyhow::Error) -> bool {
 /// and builder errors (malformed URL / illegal header).
 pub fn is_transient_network_error(error: &anyhow::Error) -> bool {
     error.chain().any(|err| {
-        err.downcast_ref::<reqwest::Error>().is_some_and(|re| {
-            !re.is_timeout() && !re.is_builder() && re.status().is_none()
-        })
+        err.downcast_ref::<reqwest::Error>()
+            .is_some_and(|re| !re.is_timeout() && !re.is_builder() && re.status().is_none())
     })
 }
 
 /// Returns true if the error chain contains a reqwest::Error with HTTP 502/503/504.
 pub fn is_transient_server_error(error: &anyhow::Error) -> bool {
     error.chain().any(|err| {
-        err.downcast_ref::<reqwest::Error>().is_some_and(|re| {
-            matches!(re.status().map(|s| s.as_u16()), Some(502 | 503 | 504))
-        })
+        err.downcast_ref::<reqwest::Error>()
+            .is_some_and(|re| matches!(re.status().map(|s| s.as_u16()), Some(502 | 503 | 504)))
     })
 }
 
@@ -393,7 +391,10 @@ mod tests {
             let resp = client.get(server.url("/e")).send().await.unwrap();
             let http_err = resp.error_for_status().unwrap_err();
             let err = anyhow::Error::from(http_err);
-            assert!(is_transient_server_error(&err), "expected true for {status}");
+            assert!(
+                is_transient_server_error(&err),
+                "expected true for {status}"
+            );
         }
     }
 
@@ -411,7 +412,10 @@ mod tests {
             let resp = client.get(server.url("/e")).send().await.unwrap();
             let http_err = resp.error_for_status().unwrap_err();
             let err = anyhow::Error::from(http_err);
-            assert!(!is_transient_server_error(&err), "expected false for {status}");
+            assert!(
+                !is_transient_server_error(&err),
+                "expected false for {status}"
+            );
         }
     }
 }
