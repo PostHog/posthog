@@ -101,6 +101,24 @@ Hard limits (refuse regardless of who asked):
 After fixing, commit and push so CI can re-run.
 """.strip()
 
+# Rolling-deploy deprecation bundle (TODO slug: tasks-ci-follow-up-pr-context-cleanup)
+# ---------------------------------------------------------------------------
+# The PR-context guard inserted a new `get_pr_context` activity before the
+# existing CI follow-up dispatch. Without versioning, replay of pre-rollout
+# histories failed with nondeterminism because those histories scheduled
+# `send_followup_to_sandbox` directly at this point in the workflow.
+#
+# Cleanup follows the standard two-step Temporal patch lifecycle:
+#   1. First cleanup PR: replace `workflow.patched(...)` with
+#      `workflow.deprecate_patch(...)` and remove the legacy replay-only path.
+#   2. Second cleanup PR (after another full drain): delete this helper and
+#      `_PATCH_ID_CI_FOLLOW_UP_PR_CONTEXT`.
+_PATCH_ID_CI_FOLLOW_UP_PR_CONTEXT = "tasks-ci-follow-up-pr-context"
+
+
+def _deprecate_ci_follow_up_pr_context_patch() -> None:
+    workflow.deprecate_patch(_PATCH_ID_CI_FOLLOW_UP_PR_CONTEXT)
+
 
 @temporalio.workflow.defn(name="process-task")
 class ProcessTaskWorkflow(PostHogWorkflow):
@@ -259,6 +277,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
             return False
 
+    async def _dispatch_ci_follow_up(self) -> None:
+        self._ci_repetitions += 1
+        ci_message = self.context.ci_prompt or DEFAULT_CI_MESSAGE
+        self._last_active_time = workflow.now()
+        await self._send_followup_to_sandbox(ci_message, [])
+
     @workflow.run
     async def run(self, input: ProcessTaskInput) -> ProcessTaskOutput:
         sandbox_id = None
@@ -332,13 +356,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         workflow.logger.info(
                             "CI follow-up event triggered", run_id=self.context.run_id, repetitions=self._ci_repetitions
                         )
+                        _deprecate_ci_follow_up_pr_context_patch()
                         if await self._should_run_ci_follow_up():
-                            self._ci_repetitions += 1
-                            ci_message = self.context.ci_prompt or DEFAULT_CI_MESSAGE
-
-                            self._last_active_time = workflow.now()  # Reset inactivity timer on CI follow-up
-
-                            await self._send_followup_to_sandbox(ci_message, [])
+                            await self._dispatch_ci_follow_up()
                     case TaskEvent.SIGNAL_RECEIVED:
                         if self._pending_followup is not None:
                             workflow.logger.info(

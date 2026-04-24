@@ -63,6 +63,9 @@ export class CdpEventsConsumer<
             return { backgroundTask: Promise.resolve(), invocations: [] }
         }
 
+        // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
+        await this.groupsManager.addGroupsToGlobalsList(invocationGlobals)
+
         const invocationsToBeQueued = [
             ...(await this.createHogFunctionInvocations(invocationGlobals)),
             ...(await this.createHogFlowInvocations(invocationGlobals)),
@@ -94,9 +97,6 @@ export class CdpEventsConsumer<
     protected async createHogFunctionInvocations(
         invocationGlobals: HogFunctionInvocationGlobals[]
     ): Promise<CyclotronJobInvocation[]> {
-        // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
-        await this.groupsManager.addGroupsToGlobalsList(invocationGlobals)
-
         const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
         const hogFunctionsByTeam = await this.hogFunctionManager.getHogFunctionsForTeams(
             teamsToLoad,

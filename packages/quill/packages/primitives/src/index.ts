@@ -72,10 +72,11 @@ export { Dot, dotVariants } from './dot'
 export {
     Drawer,
     DrawerPortal,
-    DrawerOverlay,
+    DrawerBackdrop,
     DrawerTrigger,
     DrawerClose,
     DrawerContent,
+    DrawerHandle,
     DrawerHeader,
     DrawerFooter,
     DrawerTitle,
