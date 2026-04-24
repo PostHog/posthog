@@ -23461,6 +23461,49 @@ export namespace Schemas {
       results: ReviewQueue[];
     }
 
+    export interface RoleExternalReference {
+      readonly id: string;
+      /**
+       * Integration kind (e.g., github, linear, jira, slack).
+       * @maxLength 32
+       */
+      provider: string;
+      /**
+       * Provider organization/workspace/site identifier.
+       * @maxLength 255
+       */
+      provider_organization_id: string;
+      /**
+       * Stable provider role identifier.
+       * @maxLength 255
+       */
+      provider_role_id: string;
+      /**
+       * Human-friendly provider role identifier.
+       * @maxLength 255
+       * @nullable
+       */
+      provider_role_slug?: string | null;
+      /**
+       * Display name of the provider role.
+       * @maxLength 255
+       */
+      provider_role_name: string;
+      /** PostHog role UUID this external role maps to. */
+      role: string;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+    }
+
+    export interface PaginatedRoleExternalReferenceList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: RoleExternalReference[];
+    }
+
     export type RoleMembersItem = {[key: string]: unknown};
 
     export interface Role {
@@ -24005,6 +24048,11 @@ export namespace Schemas {
        * @nullable
        */
       readonly finished_at: string | null;
+      /**
+       * AI-generated summary included in this delivery, when one was produced.
+       * @nullable
+       */
+      readonly change_summary: string | null;
     }
 
     export interface PaginatedSubscriptionDeliveryList {
@@ -34538,6 +34586,11 @@ export namespace Schemas {
       stale: number;
     }
 
+    export interface RoleLookupResponse {
+      /** Matching reference, or null if none exists. */
+      reference: RoleExternalReference | null;
+    }
+
     export interface RunInsightsResponse {
       /** Results for each insight tile on the dashboard. */
       results: DashboardTileResult[];
@@ -36515,6 +36568,29 @@ export namespace Schemas {
       /** Available attribute keys matching the filters. */
       results: _LogAttributeEntry[];
       /** Total attribute keys matched (not paginated). */
+      count: number;
+    }
+
+    export interface _LogsCountBody {
+      /** Date range for the count. Defaults to last hour. */
+      dateRange?: _DateRange;
+      /** Filter by log severity levels. */
+      severityLevels?: SeverityLevelsEnum[];
+      /** Filter by service names. */
+      serviceNames?: string[];
+      /** Full-text search term to filter log bodies. */
+      searchTerm?: string;
+      /** Property filters for the query. */
+      filterGroup?: _LogPropertyFilter[];
+    }
+
+    export interface _LogsCountRequest {
+      /** The count query to execute. */
+      query: _LogsCountBody;
+    }
+
+    export interface _LogsCountResponse {
+      /** Number of log entries matching the filters. */
       count: number;
     }
 
@@ -39937,6 +40013,40 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type RoleExternalReferencesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type RoleExternalReferencesLookupRetrieveParams = {
+    /**
+     * Integration kind (e.g., github, linear, jira, slack).
+     * @minLength 1
+     */
+    provider: string;
+    /**
+     * Provider organization/workspace/site identifier.
+     * @minLength 1
+     */
+    provider_organization_id: string;
+    /**
+     * Stable provider role identifier.
+     * @minLength 1
+     */
+    provider_role_id?: string;
+    /**
+     * Human-friendly provider role identifier.
+     * @minLength 1
+     */
+    provider_role_slug?: string;
     };
 
     export type RolesListParams = {

@@ -9,6 +9,7 @@ from structlog import get_logger
 from posthog.models import Insight
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.subscription import Subscription, SubscriptionDelivery
+from posthog.ph_client import ph_scoped_capture
 from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
 from posthog.temporal.subscriptions.llm_change_summary import generate_change_summary
@@ -210,6 +211,56 @@ def _sanitize_prompt_guide(prompt_guide: str) -> str:
     return re.sub(r"</?[a-zA-Z_][^>]*>", "", prompt_guide)
 
 
+def _capture_summary_generated_event(
+    subscription: Subscription,
+    *,
+    delivery_id: str | None,
+    summary_text: str,
+    insight_count: int,
+    image_count: int,
+    has_previous_snapshot: bool,
+) -> None:
+    """Fire a product analytics event when a summary has been successfully generated.
+
+    Recipients aren't identifiable (email addresses, Slack channels, webhook URLs
+    have no distinct_id), so we attribute the event to the subscription creator —
+    falling back to a `team_<id>` string when the creator has been removed so
+    system-generated deliveries don't pollute real-user counts in analytics.
+    Wrapped in a broad except so a capture failure can never bubble up and
+    poison an otherwise successful activity run.
+    """
+    try:
+        if subscription.created_by and subscription.created_by.distinct_id:
+            distinct_id: str = subscription.created_by.distinct_id
+        else:
+            distinct_id = f"team_{subscription.team_id}"
+        with ph_scoped_capture() as capture:
+            capture(
+                distinct_id=distinct_id,
+                event="subscription_ai_summary_generated",
+                properties={
+                    "subscription_id": subscription.id,
+                    "team_id": subscription.team_id,
+                    "delivery_id": delivery_id,
+                    "target_type": subscription.target_type,
+                    "insight_count": insight_count,
+                    "image_count": image_count,
+                    "has_previous_snapshot": has_previous_snapshot,
+                    "summary_text_length": len(summary_text),
+                    "resource_type": "dashboard" if subscription.dashboard_id else "insight",
+                },
+                groups={"organization": str(subscription.team.organization_id)},
+            )
+    except Exception:
+        LOGGER.warning(
+            "subscription_ai_summary_generated.capture_failed",
+            subscription_id=subscription.id,
+            team_id=subscription.team_id,
+            delivery_id=delivery_id,
+            exc_info=True,
+        )
+
+
 def _load_insight_images(exported_asset_ids: list[int], team_id: int) -> dict[int, bytes]:
     if not exported_asset_ids:
         return {}
@@ -288,7 +339,7 @@ async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) ->
     )
 
     subscription = await database_sync_to_async(
-        Subscription.objects.select_related("team__organization").get,
+        Subscription.objects.select_related("team__organization", "created_by").get,
         thread_sensitive=False,
     )(pk=inputs.subscription_id)
 
@@ -394,6 +445,16 @@ async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) ->
             subscription_id=inputs.subscription_id,
             error=error_msg,
             exc_info=True,
+        )
+
+    if summary_text:
+        await database_sync_to_async(_capture_summary_generated_event, thread_sensitive=False)(
+            subscription,
+            delivery_id=inputs.delivery_id,
+            summary_text=summary_text,
+            insight_count=len(current_states),
+            image_count=len(insight_images),
+            has_previous_snapshot=previous_states is not None,
         )
 
     await LOGGER.ainfo(
