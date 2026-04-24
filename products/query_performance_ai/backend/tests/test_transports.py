@@ -87,7 +87,7 @@ class TestPosthogProxyTransport:
             hdrs=None,  # type: ignore[arg-type]
             fp=None,
         )
-        err.read = lambda: b'{"error":"sql must begin with a read-only statement"}'  # type: ignore[method-assign] # ty: ignore[invalid-assignment]
+        err.read = lambda: b'{"error":"sql must begin with a read-only statement"}'  # type: ignore[method-assign,misc,assignment] # ty: ignore[invalid-assignment]
 
         with patch("transports.urllib.request.urlopen", side_effect=err):
             with pytest.raises(TransportError) as excinfo:

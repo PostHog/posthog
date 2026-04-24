@@ -4,6 +4,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings as django_settings
+from django.http import HttpResponse
 from django.test import override_settings
 from django.utils import timezone
 
@@ -61,7 +62,7 @@ class TestQueryPerformanceProxyViewSet(APIBaseTest):
         )
         return token.token
 
-    def _post(self, path: str, *, token: str, body: dict) -> "object":
+    def _post(self, path: str, *, token: str, body: dict) -> HttpResponse:
         return self.client.post(
             path,
             body,

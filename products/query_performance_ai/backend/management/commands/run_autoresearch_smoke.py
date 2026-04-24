@@ -32,6 +32,7 @@ from django.core.management.base import BaseCommand, CommandError
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.temporal.oauth import create_oauth_access_token_for_user
 
 from products.query_performance_ai.backend.harvest import (
@@ -369,7 +370,7 @@ def _load_sql_from_file(path_str: str) -> str:
     return content
 
 
-def _resolve_team_and_user() -> tuple[Team, object]:
+def _resolve_team_and_user() -> tuple[Team, User]:
     team = Team.objects.select_related("organization").first()
     if not team:
         raise CommandError("No team found in local database")

@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 from django.conf import settings
 
-from products.tasks.backend.services.sandbox import Sandbox
+from products.tasks.backend.services.sandbox import SandboxBase
 
 # Must match run_campaign.py's DEFAULT_WORKSPACE.
 WORKSPACE_PATH = "/tmp/autoresearch-campaign"
@@ -51,20 +51,20 @@ class RunAutoresearchCampaignOutput:
     campaign_stdout_tail: str = ""
 
 
-def _read_sandbox_file(sandbox: Sandbox, path: str) -> str:
+def _read_sandbox_file(sandbox: SandboxBase, path: str) -> str:
     """Return file contents, or empty string when missing."""
     result = sandbox.execute(f"cat {shlex.quote(path)} 2>/dev/null || true", timeout_seconds=30)
     return result.stdout or ""
 
 
-def _list_sandbox_dir(sandbox: Sandbox, dir_path: str) -> list[str]:
+def _list_sandbox_dir(sandbox: SandboxBase, dir_path: str) -> list[str]:
     """Return basenames of files directly inside ``dir_path``."""
     cmd = f"find {shlex.quote(dir_path)} -maxdepth 1 -type f -printf '%f\\n' 2>/dev/null || true"
     result = sandbox.execute(cmd, timeout_seconds=15)
     return [line for line in (result.stdout or "").splitlines() if line]
 
 
-def _collect_markdown_dir(sandbox: Sandbox, dir_path: str) -> list[tuple[str, str]]:
+def _collect_markdown_dir(sandbox: SandboxBase, dir_path: str) -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
     for name in sorted(_list_sandbox_dir(sandbox, dir_path)):
         if not name.endswith(".md") or name == "README.md":
@@ -75,7 +75,7 @@ def _collect_markdown_dir(sandbox: Sandbox, dir_path: str) -> list[tuple[str, st
     return out
 
 
-def _best_run_metrics(sandbox: Sandbox) -> str:
+def _best_run_metrics(sandbox: SandboxBase) -> str:
     """Return metrics.json for the fastest run whose comparator said matches=true.
 
     A faster-but-wrong candidate must never be crowned the winner, so we
@@ -115,7 +115,7 @@ def _best_run_metrics(sandbox: Sandbox) -> str:
 
 
 def harvest_artifacts(
-    sandbox: Sandbox,
+    sandbox: SandboxBase,
     *,
     original_sql: str,
     query_id: str,
