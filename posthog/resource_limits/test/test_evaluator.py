@@ -24,9 +24,6 @@ class TestGetLimit(BaseTest):
         assert get_limit(team=self.team, key=self.key) == 1000
 
     def test_override_below_default_does_not_lower_the_limit(self) -> None:
-        # Regression guard: a stale low override (e.g. 300 when the default
-        # has since been bumped to 500) must not cap the team below everyone
-        # else. The override is a floor, not a hard pin.
         TeamLimitOverride.objects.create(
             team=self.team,
             limit_key=self.key,
