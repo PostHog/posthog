@@ -213,6 +213,14 @@ class TestUserAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"a bag": "of data"}
 
+    def test_users_me_includes_active_realtime_notification_types(self):
+        self.client.force_login(self.user)
+        response = self.client.get("/api/users/@me/")
+        assert response.status_code == 200
+        body = response.json()
+        assert "active_realtime_notification_types" in body
+        assert "comment_mention" in body["active_realtime_notification_types"]
+
     def test_can_only_list_yourself(self):
         """
         At this moment only the current user can be retrieved from this endpoint.

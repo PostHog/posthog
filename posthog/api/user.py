@@ -107,7 +107,7 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.notifications.backend.facade.api import NotificationType
+from products.notifications.backend.facade.api import ACTIVE_REALTIME_NOTIFICATION_TYPES, NotificationType
 
 _VALID_NOTIFICATION_TYPE_VALUES: frozenset[str] = frozenset(t.value for t in NotificationType)
 
@@ -211,6 +211,12 @@ class UserSerializer(serializers.ModelSerializer):
         "to scope the 'waiting for teammate' UI to the org where delegation was initiated.",
     )
     is_organization_first_user = serializers.SerializerMethodField()
+    active_realtime_notification_types = serializers.SerializerMethodField(
+        help_text=(
+            "Real-time notification types that currently have a live dispatch site. "
+            "Drives the in-app notifications settings UI. Read-only."
+        ),
+    )
 
     class Meta:
         model = User
@@ -260,6 +266,7 @@ class UserSerializer(serializers.ModelSerializer):
             "onboarding_delegated_to_organization_id",
             "onboarding_delegation_accepted_at",
             "is_organization_first_user",
+            "active_realtime_notification_types",
             "pending_invites",
         ]
 
@@ -287,6 +294,7 @@ class UserSerializer(serializers.ModelSerializer):
             "onboarding_delegated_to_organization_id",
             "onboarding_delegation_accepted_at",
             "is_organization_first_user",
+            "active_realtime_notification_types",
             "pending_invites",
         ]
 
@@ -382,6 +390,10 @@ class UserSerializer(serializers.ModelSerializer):
         if membership is None:
             return None
         return membership.invited_by_id is None
+
+    @extend_schema_field({"type": "array", "items": {"type": "string"}})
+    def get_active_realtime_notification_types(self, _: User) -> list[str]:
+        return [t.value for t in ACTIVE_REALTIME_NOTIFICATION_TYPES]
 
     @extend_schema_field(PendingInviteSerializer(many=True))
     @tracer.start_as_current_span("user_serializer.pending_invites")
