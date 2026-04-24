@@ -60,7 +60,9 @@ class TestGenerateTraceSummary(BaseTest):
 
         await generator._generate_trace_summary(trace_id="t1", stringified_trace="user: hi")
 
-        call_kwargs = cast(AsyncMock, generator._client.aio.models.generate_content).await_args.kwargs
+        await_args = cast(AsyncMock, generator._client.aio.models.generate_content).await_args
+        assert await_args is not None
+        call_kwargs = await_args.kwargs
         assert call_kwargs["model"] == generator._model_id
         assert "user: hi" in call_kwargs["contents"]
         config = call_kwargs["config"]
