@@ -603,8 +603,25 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         if self._trends_display.display_type == ChartDisplayType.WORLD_MAP:
             return 250
 
-        breakdown_limit = self.query.breakdownFilter.breakdown_limit if self.query.breakdownFilter else None
-        return breakdown_limit or get_breakdown_limit_for_context(self.limit_context)
+        breakdown_filter = self.query.breakdownFilter
+        breakdown_limit = breakdown_filter.breakdown_limit if breakdown_filter else None
+        limit = breakdown_limit or get_breakdown_limit_for_context(self.limit_context)
+
+        # Cohort breakdowns are over a user-picked, enumerable set — a limit smaller than
+        # the cohort count would bucket some selected cohorts as "Other", which then crashes
+        # the label lookup in `build_series_response` (Cohort.objects.get(pk=<Other sentinel>)).
+        # The `+ 1` reserves a rank slot for the NULL bucket that `__in_cohort` produces on the
+        # LEFTJOIN_CONJOINED path when any series has a `person in cohort` filter whose cohort
+        # isn't in the breakdown list — without it, that NULL row steals a slot and one real
+        # cohort overflows into "Other". Proper fix is to drop NULL before ranking; hotfix for now.
+        if (
+            breakdown_filter is not None
+            and breakdown_filter.breakdown_type == "cohort"
+            and isinstance(breakdown_filter.breakdown, list)
+        ):
+            limit = max(limit, len(breakdown_filter.breakdown) + 1)
+
+        return limit
 
     def _inner_breakdown_subquery(self, query: ast.SelectQuery, breakdown: Breakdown) -> ast.SelectQuery:
         assert self.query.breakdownFilter is not None  # type checking

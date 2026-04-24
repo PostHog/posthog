@@ -50,6 +50,11 @@ pub struct Config {
     #[envconfig(default = "http://127.0.0.1:50051")]
     pub replica_url: String,
 
+    /// Number of gRPC channels (HTTP/2 connections) to open to the replica backend.
+    /// Multiple channels distribute requests across K8s service endpoints.
+    #[envconfig(default = "4")]
+    pub replica_channels: usize,
+
     /// Timeout for backend requests in milliseconds
     #[envconfig(default = "5000")]
     pub backend_timeout_ms: u64,

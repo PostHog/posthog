@@ -46,6 +46,7 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
         showMultipleYAxes,
         goalLines,
         getTrendsColor,
+        getTrendsHidden,
         currentPeriodResult,
         breakdownFilter,
         insightData,
@@ -92,6 +93,7 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
                     color: r.compare_label === 'previous' ? hexToRGBA(getTrendsColor(r), 0.5) : getTrendsColor(r),
                     fillArea: display === ChartDisplayType.ActionsAreaGraph,
                     dashedFromIndex,
+                    hidden: getTrendsHidden(r),
                     yAxisId: showMultipleYAxes && index > 0 ? `y${index}` : DEFAULT_Y_AXIS_ID,
                     meta: {
                         action: r.action,
@@ -103,7 +105,15 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
                     },
                 }
             }),
-        [indexedResults, display, getTrendsColor, isInProgress, incompletenessOffsetFromEnd, showMultipleYAxes]
+        [
+            indexedResults,
+            display,
+            getTrendsColor,
+            getTrendsHidden,
+            isInProgress,
+            incompletenessOffsetFromEnd,
+            showMultipleYAxes,
+        ]
     )
 
     const chartConfig: LineChartConfig = useMemo(() => {

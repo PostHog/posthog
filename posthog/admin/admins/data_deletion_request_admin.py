@@ -16,12 +16,21 @@ from posthog.models.data_deletion_request import (
     ExecutionMode,
     RequestStatus,
     RequestType,
+    compile_hogql_predicate,
     event_match_params,
     event_match_sql_fragment,
     jsonhas_expr,
 )
 
-CRITERIA_FIELDS = {"request_type", "events", "delete_all_events", "properties", "start_time", "end_time"}
+CRITERIA_FIELDS = {
+    "request_type",
+    "events",
+    "delete_all_events",
+    "properties",
+    "start_time",
+    "end_time",
+    "hogql_predicate",
+}
 CLICKHOUSE_TEAM_GROUP = "ClickHouse Team"
 
 
@@ -142,15 +151,31 @@ class DataDeletionRequestForm(forms.ModelForm):
         required=False,
         help_text="One property name per line. You can also paste a JSON array. Required for property removal requests.",
     )
+    hogql_predicate = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 4, "style": "font-family: monospace; width: 100%;"}),
+        help_text="Optional HogQL boolean expression (validated against the events table). "
+        "Combined with the other filters via AND. Example: properties.$browser = 'Chrome'.",
+    )
 
     class Meta:
         model = DataDeletionRequest
         fields = "__all__"
 
 
+def _append_hogql_predicate(fragment: str, params: dict, obj) -> tuple[str, dict]:
+    """Append the compiled HogQL predicate (if any) to ``fragment`` and merge params."""
+    hogql_sql, hogql_values = compile_hogql_predicate(obj)
+    if not hogql_sql:
+        return fragment, params
+    combined = f"{fragment} AND ({hogql_sql})".strip() if fragment else f"AND ({hogql_sql})"
+    params.update(hogql_values)
+    return combined, params
+
+
 def _build_event_filter(obj) -> tuple[str, dict]:
     """Build the WHERE clause and params for matching events."""
-    return event_match_sql_fragment(obj), event_match_params(obj)
+    return _append_hogql_predicate(event_match_sql_fragment(obj), event_match_params(obj), obj)
 
 
 def _build_property_filter(obj) -> tuple[str, dict]:
@@ -169,7 +194,38 @@ def _build_property_filter(obj) -> tuple[str, dict]:
             params[f"fp_{i}_{j}"] = part
 
     filter_clause = f"{event_clause} {property_clause}".strip()
-    return filter_clause, params
+    return _append_hogql_predicate(filter_clause, params, obj)
+
+
+def _event_count_query_template(extra_filter: str) -> str:
+    # Counts run against the distributed ``events`` table so operators get a
+    # cluster-wide number; the actual deletions still target ``sharded_events``.
+    # nosemgrep: clickhouse-fstring-param-audit (extra_filter is built from internal helpers, not user input)
+    return f"""
+            SELECT
+                count() AS events,
+                count(DISTINCT _part) AS parts,
+                min(timestamp) AS min_ts,
+                max(timestamp) AS max_ts
+            FROM events
+            WHERE team_id = %(team_id)s
+              AND timestamp >= %(start_time)s
+              AND timestamp < %(end_time)s
+              {extra_filter}
+            """
+
+
+def build_deletion_count_query(obj: DataDeletionRequest) -> tuple[str, dict]:
+    """Return the (SQL template, params) used to count rows matching this request.
+
+    Mirrors ``_fetch_stats`` so admin users can copy the query and run it
+    independently — ``substitute_params_for_display`` is the companion renderer.
+    """
+    if obj.request_type == RequestType.PROPERTY_REMOVAL:
+        extra_filter, params = _build_property_filter(obj)
+    else:
+        extra_filter, params = _build_event_filter(obj)
+    return _event_count_query_template(extra_filter), params
 
 
 def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
@@ -183,20 +239,8 @@ def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
         workload=Workload.OFFLINE,
         query_type="delete_event_count",
     ):
-        # nosemgrep: clickhouse-fstring-param-audit (extra_filter is built from internal helpers, not user input)
         event_result = sync_execute(
-            f"""
-            SELECT
-                count() AS events,
-                count(DISTINCT _part) AS parts,
-                min(timestamp) AS min_ts,
-                max(timestamp) AS max_ts
-            FROM sharded_events
-            WHERE team_id = %(team_id)s
-              AND timestamp >= %(start_time)s
-              AND timestamp < %(end_time)s
-              {extra_filter}
-            """,
+            _event_count_query_template(extra_filter),
             params,
             team_id=team_id,
             readonly=True,
@@ -306,6 +350,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         "approved_by",
         "approved_at",
         "execution_mode",
+        "rendered_count_query",
     )
     ordering = ("-created_at",)
     change_form_template = "admin/posthog/datadeletionrequest/change_form.html"
@@ -323,6 +368,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                     "events",
                     "delete_all_events",
                     "properties",
+                    "hogql_predicate",
                     "notes",
                     "requires_approval",
                 ),
@@ -339,6 +385,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                     "min_timestamp",
                     "max_timestamp",
                     "stats_calculated_at",
+                    "rendered_count_query",
                 ),
                 "description": "Populated by executing a ClickHouse query. Not editable.",
             },
@@ -360,6 +407,23 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             },
         ),
     )
+
+    @admin.display(description="Count query (ready to paste)")
+    def rendered_count_query(self, obj: DataDeletionRequest) -> str:
+        """Show the fully-substituted ClickHouse COUNT query operators can copy/paste."""
+        from posthog.clickhouse.client.escape import substitute_params_for_display
+
+        if obj.pk is None or not obj.team_id or not obj.start_time or not obj.end_time:
+            return "—"
+        try:
+            template, params = build_deletion_count_query(obj)
+            rendered = substitute_params_for_display(template, params)
+        except Exception as exc:
+            return format_html("<em>Could not render query: {}</em>", str(exc))
+        return format_html(
+            '<pre style="white-space: pre-wrap; background: #f5f5f5; padding: 8px;">{}</pre>',
+            rendered,
+        )
 
     def save_model(self, request, obj, form, change):
         if not change:

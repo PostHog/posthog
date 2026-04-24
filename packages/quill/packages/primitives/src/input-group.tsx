@@ -11,6 +11,7 @@ const InputGroup = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'>>
     return (
         <div
             ref={ref}
+            data-quill
             data-slot="input-group"
             role="group"
             className={cn(
