@@ -23,7 +23,7 @@ class Migration(migrations.Migration):
 
     atomic = False
 
-    dependencies = [("posthog", "1119_onboarding_delegation_fields")]
+    dependencies = [("posthog", "1120_onboarding_delegation_fk")]
 
     operations = [
         migrations.RunSQL(
