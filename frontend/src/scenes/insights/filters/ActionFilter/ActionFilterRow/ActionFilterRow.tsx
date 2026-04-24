@@ -32,7 +32,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { MathCategory, mathTypeToApiValues, mathsLogic } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
     BaseMathType,
@@ -676,6 +676,7 @@ export function ActionFilterRow({
                             isDataWarehouseFilter
                                 ? {
                                       kind: NodeKind.HogQLQuery,
+                                      tags: { productKey: ProductKey.PRODUCT_ANALYTICS },
                                       query: `select ${filter.aggregation_target_field} from ${filter.table_name}`,
                                   }
                                 : undefined

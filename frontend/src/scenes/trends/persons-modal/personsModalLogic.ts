@@ -25,6 +25,7 @@ import {
     InsightActorsQueryOptions,
     InsightActorsQueryOptionsResponse,
     NodeKind,
+    ProductKey,
     TrendsQuery,
     insightActorsQueryOptionsResponseKeys,
 } from '~/queries/schema/schema-general'
@@ -280,6 +281,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     const optionsQuery: InsightActorsQueryOptions = setLatestVersionsOnQuery(
                         {
                             kind: NodeKind.InsightActorsQueryOptions,
+                            tags: { productKey: ProductKey.PRODUCT_ANALYTICS },
                             source: query,
                         },
                         { recursion: false }
@@ -461,6 +463,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 return setLatestVersionsOnQuery(
                     {
                         kind: NodeKind.ActorsQuery,
+                        tags: { productKey: ProductKey.PRODUCT_ANALYTICS },
                         source: query,
                         select: selectFields,
                         orderBy: orderBy || [],

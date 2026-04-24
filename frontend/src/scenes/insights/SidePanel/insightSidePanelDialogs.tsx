@@ -2,7 +2,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
-import { AnyDataNode, NodeKind } from '~/queries/schema/schema-general'
+import { AnyDataNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 
 const RESOURCE_TYPE = 'insight'
 
@@ -33,7 +33,12 @@ export function openSaveAsCohortDialog(
         ),
         errors: { name: (name) => (!name ? 'You must enter a name' : undefined) },
         onSubmit: async ({ name }) => {
-            createStaticCohort(name, { kind: NodeKind.HogQLQuery, query: hogQL, variables: hogQLVariables })
+            createStaticCohort(name, {
+                kind: NodeKind.HogQLQuery,
+                tags: { productKey: ProductKey.PRODUCT_ANALYTICS },
+                query: hogQL,
+                variables: hogQLVariables,
+            })
         },
     })
 }

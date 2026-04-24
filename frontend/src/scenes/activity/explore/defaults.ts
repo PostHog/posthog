@@ -1,5 +1,5 @@
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, TeamPublicType, TeamType } from '~/types'
 
 export const getDefaultEventsSceneQuery = (properties?: AnyPropertyFilter[]): DataTableNode => ({
@@ -7,6 +7,7 @@ export const getDefaultEventsSceneQuery = (properties?: AnyPropertyFilter[]): Da
     full: true,
     source: {
         kind: NodeKind.EventsQuery,
+        tags: { productKey: ProductKey.PRODUCT_ANALYTICS },
         select: defaultDataTableColumns(NodeKind.EventsQuery),
         orderBy: ['timestamp DESC'],
         after: '-1h',
