@@ -49,6 +49,11 @@ type NormalizeOptions = {
     onlyAppFrames?: boolean
 }
 
+function stripNonRawFields(record: Record<string, unknown>): Record<string, unknown> {
+    const { junk_drawer: _junkDrawer, raw_id: _rawId, ...rest } = record
+    return rest
+}
+
 function normalizeFrame(frame: unknown, options: NormalizeOptions): Record<string, unknown> | undefined {
     const frameRecord = asRecord(parseJsonish(frame))
     if (!frameRecord) {
@@ -57,9 +62,10 @@ function normalizeFrame(frame: unknown, options: NormalizeOptions): Record<strin
     if (options.onlyAppFrames !== false && frameRecord.in_app !== true) {
         return undefined
     }
+    const baseFrame = options.verbosity === 'raw' ? frameRecord : stripNonRawFields(frameRecord)
 
     return compactObject({
-        ...frameRecord,
+        ...baseFrame,
         mangled_name: frameRecord.mangled_name ?? frameRecord.function ?? frameRecord.name,
         source: frameRecord.source ?? frameRecord.filename ?? frameRecord.abs_path,
         line: frameRecord.line ?? frameRecord.lineno,
@@ -78,9 +84,10 @@ function normalizeStacktrace(stacktrace: unknown, options: NormalizeOptions): Re
               .map((frame) => normalizeFrame(frame, options))
               .filter((frame): frame is Record<string, unknown> => !!frame)
         : undefined
+    const baseStacktrace = options.verbosity === 'raw' ? stacktraceRecord : stripNonRawFields(stacktraceRecord)
 
     return compactObject({
-        ...stacktraceRecord,
+        ...baseStacktrace,
         frames,
     })
 }

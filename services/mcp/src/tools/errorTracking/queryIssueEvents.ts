@@ -92,7 +92,6 @@ const PROPERTY_SELECTS = [
     'properties.$os',
     'properties.$os_version',
     'properties.$current_url',
-    'properties.$sentry_url',
     'properties.$exception_synthetic',
 ]
 

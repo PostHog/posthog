@@ -40,6 +40,8 @@ describe('query-error-tracking-issue-events', () => {
                         {
                             type: 'TypeError',
                             value: 'Cannot read properties of undefined',
+                            raw_id: 'exception-raw-id',
+                            junk_drawer: { sdk: 'noise' },
                             stacktrace: {
                                 frames: [
                                     {
@@ -48,6 +50,8 @@ describe('query-error-tracking-issue-events', () => {
                                         lineno: 42,
                                         colno: 9,
                                         in_app: true,
+                                        raw_id: 'frame-raw-id',
+                                        junk_drawer: { minified: true },
                                     },
                                 ],
                             },
@@ -127,7 +131,11 @@ describe('query-error-tracking-issue-events', () => {
                             type: 'TypeError',
                             value: 'Cannot read properties of undefined',
                             noisy_extra: 'keep only in raw mode',
+                            raw_id: 'exception-raw-id',
+                            junk_drawer: { sdk: 'noise' },
                             stacktrace: {
+                                raw_id: 'stacktrace-raw-id',
+                                junk_drawer: { parser: 'noise' },
                                 frames: [
                                     {
                                         filename: 'https://cdn.example.test/vendor.js',
@@ -135,6 +143,8 @@ describe('query-error-tracking-issue-events', () => {
                                         lineno: 12,
                                         colno: 3,
                                         in_app: false,
+                                        raw_id: 'vendor-frame-raw-id',
+                                        junk_drawer: { minified: true },
                                     },
                                     {
                                         filename: 'https://example.test/app.js',
@@ -142,6 +152,8 @@ describe('query-error-tracking-issue-events', () => {
                                         lineno: 42,
                                         colno: 9,
                                         in_app: true,
+                                        raw_id: 'app-frame-raw-id',
+                                        junk_drawer: { minified: true },
                                     },
                                 ],
                             },
@@ -176,7 +188,19 @@ describe('query-error-tracking-issue-events', () => {
             },
         })
         expect(rawResult.results[0].properties.$exception_list[0].noisy_extra).toBe('keep only in raw mode')
+        expect(rawResult.results[0].properties.$exception_list[0].raw_id).toBe('exception-raw-id')
+        expect(rawResult.results[0].properties.$exception_list[0].junk_drawer).toEqual({ sdk: 'noise' })
+        expect(rawResult.results[0].properties.$exception_list[0].stacktrace.raw_id).toBe('stacktrace-raw-id')
+        expect(rawResult.results[0].properties.$exception_list[0].stacktrace.junk_drawer).toEqual({
+            parser: 'noise',
+        })
         expect(rawResult.results[0].properties.$exception_list[0].stacktrace.frames).toHaveLength(2)
+        expect(rawResult.results[0].properties.$exception_list[0].stacktrace.frames[0].raw_id).toBe(
+            'vendor-frame-raw-id'
+        )
+        expect(rawResult.results[0].properties.$exception_list[0].stacktrace.frames[0].junk_drawer).toEqual({
+            minified: true,
+        })
     })
 
     it('trims limit-plus-one backend event pages to the requested limit', async () => {
