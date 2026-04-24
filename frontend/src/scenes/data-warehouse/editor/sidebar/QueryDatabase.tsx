@@ -106,10 +106,15 @@ export const QueryDatabase = ({
         useActions(sqlEditorLogic)
     const { isEmbeddedMode, sourceQuery } = useValues(sqlEditorLogic)
     const builtTabLogic = useMountedLogic(sqlEditorLogic)
-    const addJoinAccessDisabledReason = getAccessControlDisabledReason(
+    // Project-wide warehouse write actions (Add join, Materialization) — gated at the
+    // resource level regardless of per-object creator bypass. Per-object actions like
+    // Edit view use the view's own user_access_level inline below.
+    const resourceLevelEditorDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.WarehouseObjects,
         AccessControlLevel.Editor
     )
+    const addJoinAccessDisabledReason = resourceLevelEditorDisabledReason
+    const materializationAccessDisabledReason = resourceLevelEditorDisabledReason
     const formatTraversalChain = (chain?: (string | number)[]): string | null => {
         if (!chain || chain.length === 0) {
             return null
@@ -668,9 +673,8 @@ export const QueryDatabase = ({
                         item.name,
                         item.record.type === 'endpoint' ? item.record.tableName : undefined
                     )
-                    // Warehouse write actions (Edit view, Materialization) are per-object;
-                    // respect creator bypass via the view's own user_access_level.
-                    const viewAccessDisabledReason =
+                    // Edit view is per-object — creators can edit their own views.
+                    const editViewAccessDisabledReason =
                         item.record.type !== 'endpoint'
                             ? getAccessControlDisabledReason(
                                   AccessControlResourceType.WarehouseObjects,
@@ -688,7 +692,7 @@ export const QueryDatabase = ({
                                             asChild
                                             onClick={(e) => {
                                                 e.stopPropagation()
-                                                if (viewAccessDisabledReason) {
+                                                if (editViewAccessDisabledReason) {
                                                     return
                                                 }
                                                 openItemEditor(item)
@@ -698,7 +702,9 @@ export const QueryDatabase = ({
                                                 menuItem
                                                 className="flex-1 rounded-r-none"
                                                 disabledReasons={
-                                                    viewAccessDisabledReason ? { [viewAccessDisabledReason]: true } : {}
+                                                    editViewAccessDisabledReason
+                                                        ? { [editViewAccessDisabledReason]: true }
+                                                        : {}
                                                 }
                                             >
                                                 {editLabel}
@@ -708,7 +714,7 @@ export const QueryDatabase = ({
                                             asChild
                                             onClick={(e) => {
                                                 e.stopPropagation()
-                                                if (viewAccessDisabledReason) {
+                                                if (editViewAccessDisabledReason) {
                                                     return
                                                 }
                                                 openItemEditor(item, true)
@@ -720,7 +726,9 @@ export const QueryDatabase = ({
                                                 iconOnly
                                                 tooltip={editLabel}
                                                 disabledReasons={
-                                                    viewAccessDisabledReason ? { [viewAccessDisabledReason]: true } : {}
+                                                    editViewAccessDisabledReason
+                                                        ? { [editViewAccessDisabledReason]: true }
+                                                        : {}
                                                 }
                                             >
                                                 <IconExternal />
@@ -774,7 +782,7 @@ export const QueryDatabase = ({
                                     asChild
                                     onClick={(e) => {
                                         e.stopPropagation()
-                                        if (viewAccessDisabledReason) {
+                                        if (materializationAccessDisabledReason) {
                                             return
                                         }
                                         openMaterializationModal(item.record?.view)
@@ -783,7 +791,9 @@ export const QueryDatabase = ({
                                     <ButtonPrimitive
                                         menuItem
                                         disabledReasons={
-                                            viewAccessDisabledReason ? { [viewAccessDisabledReason]: true } : {}
+                                            materializationAccessDisabledReason
+                                                ? { [materializationAccessDisabledReason]: true }
+                                                : {}
                                         }
                                     >
                                         Materialization
