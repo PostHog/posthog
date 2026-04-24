@@ -307,19 +307,18 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
     def _build_select_query(self, conversion_aggregator: Optional[ConversionGoalsAggregator] = None) -> ast.SelectQuery:
         """Build the complete SELECT query with base columns and conversion goal columns"""
         level = self.config.drill_down_level
-        is_utm_level = level in (
-            MarketingAnalyticsDrillDownLevel.MEDIUM,
-            MarketingAnalyticsDrillDownLevel.CONTENT,
-            MarketingAnalyticsDrillDownLevel.TERM,
+        # Same invariant as _build_select_columns_mapping: if Cost is excluded at this level,
+        # joining campaign_costs buys us nothing but phantom rows from the FULL OUTER JOIN.
+        bypass_campaign_costs = (
+            MarketingAnalyticsBaseColumns.COST in DRILL_DOWN_LEVEL_CONFIG[level]["excluded_base_columns"]
         )
 
         # Get conversion goal components
         conversion_columns_mapping = self._build_select_columns_mapping(conversion_aggregator)
 
-        # UTM levels have no cost data — bypass campaign_costs entirely and select directly
-        # from unified conversions. This avoids phantom rows from the FULL OUTER JOIN and
-        # keeps the query aligned with what's actually computable at UTM granularity.
-        if conversion_aggregator and is_utm_level:
+        # Bypass campaign_costs when cost isn't computable at this level — select directly
+        # from unified conversions to avoid phantom rows.
+        if conversion_aggregator and bypass_campaign_costs:
             coalesce_columns = conversion_aggregator.get_coalesce_fallback_columns(campaign_costs_joined=False)
             for key, coalesce_col in coalesce_columns.items():
                 conversion_columns_mapping[key] = coalesce_col
