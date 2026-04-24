@@ -57,7 +57,7 @@ Examples:
 
 **Required:** Before creating any PR, read `.github/pull_request_template.md` and use its exact section structure.
 Do not invent a different format.
-Always uncomment and fill the `## LLM context` section for agent-authored PRs.
+Always fill the `## 🤖 Agent context` section when creating PRs.
 Keep descriptions high-level, focusing on rationale and architecture for the human reviewer.
 
 ### Rules
