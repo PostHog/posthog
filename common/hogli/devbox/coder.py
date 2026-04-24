@@ -395,9 +395,10 @@ def _install_coder_cli(*, verbose: bool = False) -> None:
     prefix.mkdir(parents=True, exist_ok=True)
     install_url = shlex.quote(f"{coder_url}/install.sh")
     # `set -o pipefail` so a curl failure fails the pipeline; otherwise `sh`
-    # exits 0 with empty stdin and we silently "install" nothing.
+    # exits 0 with empty stdin and we silently "install" nothing. Invoke via
+    # `bash` because `/bin/sh` is `dash` on Debian/Ubuntu and rejects `-o pipefail`.
     cmd = f"set -o pipefail; curl -fsSL {install_url} | sh -s -- --prefix {shlex.quote(str(prefix))}"
-    result = subprocess.run(["sh", "-c", cmd], text=True, capture_output=not verbose)
+    result = subprocess.run(["bash", "-c", cmd], text=True, capture_output=not verbose)
     if result.returncode != 0:
         if not verbose:
             click.echo(result.stdout or "")
