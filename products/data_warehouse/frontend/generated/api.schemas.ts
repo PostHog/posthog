@@ -929,7 +929,7 @@ export interface ExternalDataSourceCreateApi {
 * `Convex` - Convex
 * `ClickHouse` - ClickHouse
 * `Plain` - Plain */
-    source_type: SourceTypeEe8EnumApi
+    source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
     payload: ExternalDataSourceCreateApiPayload
     /**
@@ -1215,7 +1215,7 @@ export interface DatabaseSchemaRequestApi {
 * `Convex` - Convex
 * `ClickHouse` - ClickHouse
 * `Plain` - Plain */
-    source_type: SourceTypeEe8EnumApi
+    source_type: ExternalDataSourceTypeEnumApi
 }
 
 /**
