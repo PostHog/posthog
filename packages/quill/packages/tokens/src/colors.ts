@@ -150,7 +150,7 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
         ],
         // Lightest fill in light mode, darkest in dark mode
         'fill-hover': [
-            'oklch(0.87 0 0 / 20%)',
+            'oklch(0.87 0 0 / 30%)',
             'oklch(0.55 0 0 / 15%)',
             'bg-fill-hover',
         ],

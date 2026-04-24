@@ -1,5 +1,5 @@
 import React from 'react'
-import { Button, Card, CardContent, CardFooter, CardHeader, CardTitle, MenuLabel } from '../../../packages/primitives'
+import { Button, Card, CardContent, CardFooter, CardHeader, CardTitle, MenuLabel } from '../../../packages/primitives/src'
 import type { Meta, StoryObj } from '@storybook/react'
 
 const meta = {
@@ -19,6 +19,11 @@ const Nav = (): React.ReactElement => (
             <li><MenuLabel>Settings</MenuLabel></li>
             <li><Button left>Help</Button></li>
             <li><Button left>Logout</Button></li>
+        </ul>
+        <ul className="p-4 flex flex-col gap-px [&>li]:w-full [&_button]:w-full rounded-lg">
+            <li><Button left variant="primary">Primary</Button></li>
+            <li><Button left aria-selected>Selected</Button></li>
+            <li><Button left>Contact</Button></li>
         </ul>
     </nav>
 )
