@@ -205,7 +205,8 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
     })),
     tabAwareActionToUrl(({ values }) => ({
         setCohortFilters: () => {
-            const searchParams: Record<string, any> = { ...router.values.searchParams }
+            const currentSearchParams = router.values.searchParams
+            const searchParams: Record<string, any> = { ...currentSearchParams }
 
             if (values.cohortFilters.page != null) {
                 searchParams['page'] = values.cohortFilters.page
@@ -219,15 +220,24 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
                 delete searchParams['search']
             }
 
+            if (objectsEqual(searchParams, currentSearchParams)) {
+                return undefined
+            }
+
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         },
         setCohortSorting: () => {
-            const searchParams: Record<string, any> = { ...router.values.searchParams }
+            const currentSearchParams = router.values.searchParams
+            const searchParams: Record<string, any> = { ...currentSearchParams }
 
             if (values.cohortSorting != null) {
                 searchParams['sorting'] = JSON.stringify(values.cohortSorting)
             } else {
                 delete searchParams['sorting']
+            }
+
+            if (objectsEqual(searchParams, currentSearchParams)) {
+                return undefined
             }
 
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
@@ -248,15 +258,18 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
                 filtersFromUrl.created_by_id = parseInt(created_by_id)
             }
 
-            actions.setCohortFilters({ ...DEFAULT_COHORT_FILTERS, ...filtersFromUrl }, true)
+            const nextFilters = { ...DEFAULT_COHORT_FILTERS, ...filtersFromUrl }
+            if (!objectsEqual(nextFilters, values.cohortFilters)) {
+                actions.setCohortFilters(nextFilters, true)
+            }
 
-            let currentSorting = values.cohortSorting
+            let nextSorting = values.cohortSorting
 
             if (sorting != null) {
                 try {
                     const parsedSorting = JSON.parse(sorting)
                     if (parsedSorting) {
-                        currentSorting = parsedSorting
+                        nextSorting = parsedSorting
                     }
                 } catch (error: any) {
                     console.error('Failed to parse sorting', error, { sorting })
@@ -269,7 +282,9 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
                 }
             }
 
-            actions.setCohortSorting(currentSorting)
+            if (!objectsEqual(nextSorting, values.cohortSorting)) {
+                actions.setCohortSorting(nextSorting)
+            }
         },
     })),
     afterMount(({ actions }) => {

@@ -88,6 +88,32 @@ describe('cohortsSceneLogic', () => {
             })
         })
 
+        describe('url sync', () => {
+            it('does not re-dispatch setCohortFilters/setCohortSorting when URL already matches current state', async () => {
+                router.actions.push(urls.cohorts())
+
+                await expectLogic(logic).toDispatchActions(['loadCohorts', 'loadCohortsSuccess'])
+
+                await expectLogic(logic, () => {
+                    router.actions.replace(urls.cohorts())
+                }).toNotHaveDispatchedActions(['setCohortFilters', 'setCohortSorting'])
+            })
+
+            it('does not change the URL when setCohortFilters resolves to the same search params', async () => {
+                router.actions.push(urls.cohorts() + '?page=1')
+
+                await expectLogic(logic).toDispatchActions(['loadCohortsSuccess'])
+
+                const urlBefore = router.values.location.pathname + router.values.location.search
+
+                logic.actions.setCohortFilters({ page: 1 })
+
+                await expectLogic(logic).toDispatchActions(['setCohortFilters'])
+
+                expect(router.values.location.pathname + router.values.location.search).toEqual(urlBefore)
+            })
+        })
+
         describe('cohort filters', () => {
             it('can set and update filters', async () => {
                 // Navigate to cohorts page first
