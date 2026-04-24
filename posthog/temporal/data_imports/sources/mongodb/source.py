@@ -120,7 +120,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             name=SchemaExternalDataSourceType.MONGO_DB,
             label="MongoDB",
             caption="Enter your MongoDB connection string to automatically pull your MongoDB data into the PostHog Data warehouse.",
-            betaSource=True,
+            releaseStatus="beta",
             iconPath="/static/services/Mongodb.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/mongodb",
             fields=cast(

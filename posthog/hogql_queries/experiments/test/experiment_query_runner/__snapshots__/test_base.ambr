@@ -55,7 +55,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -124,7 +125,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -186,7 +188,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -248,7 +251,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -317,7 +321,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -386,7 +391,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -455,7 +461,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -524,7 +531,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -593,7 +601,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -662,7 +671,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -731,7 +741,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -800,7 +811,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -869,7 +881,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -938,7 +951,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -1007,7 +1021,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -1076,7 +1091,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -1145,7 +1161,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -1214,7 +1231,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -1283,7 +1301,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -1352,7 +1371,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -1421,7 +1441,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -1480,7 +1501,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -1539,7 +1561,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -1598,7 +1621,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -1657,7 +1681,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -1716,7 +1741,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -1778,7 +1804,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -1837,7 +1864,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -1909,7 +1937,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -1968,7 +1997,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -2035,7 +2065,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -2094,7 +2125,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -2153,7 +2185,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -2212,7 +2245,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -2281,7 +2315,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -2350,7 +2385,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -2419,7 +2455,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -2488,7 +2525,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -2557,7 +2595,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -2619,7 +2658,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -2688,7 +2728,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
@@ -2757,7 +2798,8 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,

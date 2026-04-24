@@ -36,6 +36,14 @@ class ErrorTrackingExternalReference:
 
 
 @dataclass(frozen=True)
+class ErrorTrackingFingerprint:
+    id: UUID
+    fingerprint: str
+    issue_id: UUID
+    created_at: datetime
+
+
+@dataclass(frozen=True)
 class ErrorTrackingIssuePreview:
     id: UUID
     status: str

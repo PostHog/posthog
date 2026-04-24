@@ -73,7 +73,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 var_values: dict[str, Any] = {"variables": var_dict, **values} if values else {"variables": var_dict}
                 if self.query.variables:
                     for var in list(self.query.variables.values()):
-                        var_values["variables"][var.code_name] = var.value
+                        var_dict[var.code_name] = var.value
                     parsed_select = cast(ast.SelectQuery, replace_placeholders(parsed_select, var_values))
 
         return parsed_select

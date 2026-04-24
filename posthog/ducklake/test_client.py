@@ -54,7 +54,7 @@ class TestExecuteDuckLakeQuery:
     @mock.patch("posthog.ducklake.client.get_duckgres_config")
     @mock.patch("posthog.ducklake.client.compile_hogql_to_ducklake_sql")
     def test_query_path_compiles_and_executes(self, mock_compile, mock_config, mock_psycopg):
-        mock_compile.return_value = ("SELECT count(*) FROM events", "SELECT count() FROM events")
+        mock_compile.return_value = ("SELECT count(*) FROM events", {}, "SELECT count() FROM events")
         mock_config.return_value = {
             "DUCKGRES_HOST": "localhost",
             "DUCKGRES_PORT": "5432",

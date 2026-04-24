@@ -5,7 +5,7 @@ import threading
 import contextvars
 from collections.abc import AsyncIterable, AsyncIterator, Iterable
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Generic, Literal, TypeVar
+from typing import Any, Generic, Literal, TypeVar, cast
 
 import pyarrow as pa
 import deltalake as deltalake
@@ -78,7 +78,7 @@ async def async_iterate(iterable: Iterable[T] | AsyncIterable[T]) -> AsyncIterat
     """
     if isinstance(iterable, AsyncIterable):
         async for item in iterable:
-            yield item
+            yield cast(T, item)
         return
 
     iterator = iter(iterable)
@@ -108,6 +108,7 @@ async def async_iterate(iterable: Iterable[T] | AsyncIterable[T]) -> AsyncIterat
             if not has_value:
                 break
 
+            assert item is not None
             yield item
     finally:
         # Use a fresh context snapshot for cleanup. Reusing `ctx` would fail

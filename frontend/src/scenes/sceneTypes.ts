@@ -32,6 +32,7 @@ export enum Scene {
     CustomerJourneyBuilder = 'CustomerJourneyBuilder',
     Dashboard = 'Dashboard',
     Dashboards = 'Dashboards',
+    DashboardTemplateCopy = 'DashboardTemplateCopy',
     DataManagement = 'DataManagement',
     DataPipelinesNew = 'DataPipelinesNew',
     DataOps = 'DataOps',
@@ -80,6 +81,8 @@ export enum Scene {
     IngestionWarnings = 'IngestionWarnings',
     InviteSignup = 'InviteSignup',
     LegacyPlugin = 'LegacyPlugin',
+    LegalDocuments = 'LegalDocuments',
+    LegalDocumentNew = 'LegalDocumentNew',
     Link = 'Link',
     Links = 'Links',
     LiveDebugger = 'LiveDebugger',
@@ -161,7 +164,6 @@ export enum Scene {
     VercelLinkError = 'VercelLinkError',
     VerifyEmail = 'VerifyEmail',
     WebAnalytics = 'WebAnalytics',
-    WebAnalyticsMarketing = 'WebAnalyticsMarketing',
     WebAnalyticsPageReports = 'WebAnalyticsPageReports',
     WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
     WebAnalyticsHealth = 'WebAnalyticsHealth',
@@ -184,9 +186,12 @@ export enum Scene {
     LLMAnalyticsTrace = 'LLMAnalyticsTrace',
     LLMAnalyticsUsers = 'LLMAnalyticsUsers',
     Logs = 'Logs',
+    LogsAlertNew = 'LogsAlertNew',
+    LogsAlertDetail = 'LogsAlertDetail',
     ManagedMigration = 'ManagedMigration',
     ManagedMigrationNew = 'ManagedMigrationNew',
     MarketingAnalytics = 'MarketingAnalytics',
+    MarketingAnalyticsSettings = 'MarketingAnalyticsSettings',
     MessagingLibraryTemplate = 'MessagingLibraryTemplate',
     NewAction = 'NewAction',
     TaskDetail = 'TaskDetail',
@@ -300,6 +305,7 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Dashboards
     [Scene.Dashboard]: AccessControlResourceType.Dashboard,
     [Scene.Dashboards]: AccessControlResourceType.Dashboard,
+    [Scene.DashboardTemplateCopy]: AccessControlResourceType.Dashboard,
 
     // Insights
     [Scene.Insight]: AccessControlResourceType.Insight,
@@ -319,7 +325,6 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
 
     // Web Analytics
     [Scene.WebAnalytics]: AccessControlResourceType.WebAnalytics,
-    [Scene.WebAnalyticsMarketing]: AccessControlResourceType.WebAnalytics,
     [Scene.WebAnalyticsPageReports]: AccessControlResourceType.WebAnalytics,
     [Scene.WebAnalyticsWebVitals]: AccessControlResourceType.WebAnalytics,
     [Scene.WebAnalyticsHealth]: AccessControlResourceType.WebAnalytics,

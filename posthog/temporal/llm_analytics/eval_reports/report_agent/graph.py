@@ -93,7 +93,7 @@ def _compute_metrics(
             previous_pass_rate=previous_pass_rate,
         )
     except Exception:
-        logger.exception("Failed to compute report metrics")
+        logger.exception("llma_eval_reports_metrics_computation_failed")
         return empty
 
 
@@ -253,6 +253,8 @@ def run_eval_report_agent(
         "report": EvalReportContent(metrics=metrics),
     }
 
+    from posthog.temporal.llm_analytics.eval_reports.metrics import increment_errors, increment_report_generated
+
     # Tag every LLM call made by this agent run so they show up under `ai_product =
     # llma_eval_reports` in LLM analytics, matching the convention used by other
     # PostHog internal AI features. Trace id is unique per run so each invocation
@@ -286,8 +288,10 @@ def run_eval_report_agent(
 
         validation_error = _validate_agent_output(content)
         if validation_error:
+            increment_report_generated("fallback_validation")
+
             logger.warning(
-                "eval_report_agent_validation_failed",
+                "llma_eval_reports_agent_validation_failed",
                 team_id=team_id,
                 evaluation_id=evaluation_id,
                 reason=validation_error,
@@ -298,8 +302,10 @@ def run_eval_report_agent(
 
         _append_references_section(content)
 
+        increment_report_generated("completed")
+
         logger.info(
-            "eval_report_agent_completed",
+            "llma_eval_reports_agent_completed",
             team_id=team_id,
             evaluation_id=evaluation_id,
             title=content.title,
@@ -310,8 +316,11 @@ def run_eval_report_agent(
         return content
 
     except Exception as e:
+        increment_report_generated("fallback_error")
+        increment_errors(f"agent_{type(e).__name__}")
+
         logger.exception(
-            "eval_report_agent_error",
+            "llma_eval_reports_agent_error",
             error=str(e),
             error_type=type(e).__name__,
             team_id=team_id,

@@ -17,6 +17,7 @@ const (
 	iconCharStopped = sharedpalette.IconStopped
 	iconCharDone    = sharedpalette.IconDone
 	iconCharCrashed = sharedpalette.IconCrashed
+	iconCharStandby = sharedpalette.IconStandby
 )
 
 var (
@@ -136,6 +137,8 @@ func statusIconChar(s process.Status) string {
 		return iconCharDone
 	case process.StatusCrashed:
 		return iconCharCrashed
+	case process.StatusStandby:
+		return iconCharStandby
 	default:
 		return iconCharStopped
 	}
@@ -151,6 +154,8 @@ func statusIconColor(s process.Status) color.Color {
 		return nil
 	case process.StatusCrashed:
 		return colorRed
+	case process.StatusStandby:
+		return colorBrightBlack
 	default:
 		return colorYellow
 	}
@@ -180,6 +185,7 @@ type sidebarRow struct {
 	iconColor color.Color
 	selected  bool
 	unread    bool
+	standby   bool
 	innerW    int
 	isDark    bool
 }
@@ -196,6 +202,8 @@ func renderSidebarRow(r sidebarRow) string {
 	nameStyle := lipgloss.NewStyle().Width(nameW)
 	if r.selected {
 		nameStyle = nameStyle.Background(selBg)
+	} else if r.standby {
+		nameStyle = nameStyle.Foreground(colorBrightBlack)
 	} else if r.unread {
 		nameStyle = nameStyle.Bold(true)
 	}

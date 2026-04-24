@@ -93,6 +93,10 @@ type Model struct {
 	// Buffered text for PTY input when the output pane is focused
 	inputBuffer string
 
+	// Show-all mode: display registry processes not in the current intent config
+	showAllRegProcs      bool
+	standbyRegProcs     []*process.Process // standby processes from registry (not in intent config)
+
 	// Setup mode: full-screen intent selection for dev environment config
 	setupMode    bool
 	setupStep    int // 1 = intent selection, 2 = unit exclusion
@@ -230,22 +234,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case process.StatusMsg:
 		m.dbg("status: proc=%s status=%s", msg.Name, msg.Status)
-		// Capture the active name before re-fetching so sortServices
-		// can restore the cursor to the same process.
-		activeName := ""
-		if p := m.activeProc(); p != nil {
-			activeName = p.Name
-		}
-		// Re-fetch the process slice so status icons refresh on next render
-		m.services = m.mgr.Procs()
-		// Restore cursor to the same process in the new (unsorted) slice
-		m.servicesCursor = 0
-		for i, p := range m.services {
-			if p.Name == activeName {
-				m.servicesCursor = i
-				break
-			}
-		}
+		// Re-fetch the process slice (merging standbys if show-all is active)
+		// so status icons refresh on next render
+		m.refetchServices()
 		m.sortServices()
 		m.updateProcKeys()
 
@@ -578,6 +569,8 @@ func (m *Model) reloadActiveLines() {
 	p := m.activeProc()
 	if p == nil {
 		m.activeLines = nil
+	} else if p.IsStandby() {
+		m.activeLines = m.standbyInfoLines(p)
 	} else {
 		m.activeLines = p.Lines()
 	}
@@ -598,6 +591,8 @@ func statusSortOrder(s process.Status) int {
 		return 3
 	case process.StatusDone:
 		return 4
+	case process.StatusStandby:
+		return 6
 	default:
 		return 5
 	}
@@ -672,6 +667,46 @@ func (m *Model) cycleGroup() {
 	m.groupDimIndex++
 	if m.groupDimIndex >= len(m.groupDims) {
 		m.groupDimIndex = -1
+	}
+}
+
+// refetchServices gets the latest process list and keeps the cursor stable.
+// When showAllRegProcs is active, standby processes from the registry are appended.
+func (m *Model) refetchServices() {
+	// Capture the active name before re-fetching so sortServices
+	// can restore the cursor to the same process.
+	activeName := ""
+	if p := m.activeProc(); p != nil {
+		activeName = p.Name
+	}
+
+	// Re-fetch the process slice so status icons refresh on next render
+	real := m.mgr.Procs()
+	if m.showAllRegProcs && len(m.standbyRegProcs) > 0 {
+		// Filter out standbys that were promoted to real (user started them)
+		realNames := make(map[string]bool, len(real))
+		for _, p := range real {
+			realNames[p.Name] = true
+		}
+		var standbys []*process.Process
+		for _, p := range m.standbyRegProcs {
+			if !realNames[p.Name] {
+				standbys = append(standbys, p)
+			}
+		}
+		m.standbyRegProcs = standbys
+		m.services = append(real, standbys...)
+	} else {
+		m.services = real
+	}
+
+	// Restore cursor to the same process in the new (unsorted) slice
+	m.servicesCursor = 0
+	for i, p := range m.services {
+		if p.Name == activeName {
+			m.servicesCursor = i
+			break
+		}
 	}
 }
 

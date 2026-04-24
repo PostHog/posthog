@@ -131,6 +131,13 @@ def transpile_template_code(obj: Any, compiler: JavaScriptCompiler) -> str:
         return json.dumps(obj)
 
 
+@extend_schema_field({"oneOf": [{"type": "boolean"}, {"type": "string", "enum": ["hog", "liquid"]}]})
+class _TemplatingChoiceField(serializers.ChoiceField):
+    """drf-spectacular 0.29 crashes on sorted() with mixed bool/str choice keys."""
+
+    pass
+
+
 class InputsSchemaItemSerializer(serializers.Serializer):
     type = serializers.ChoiceField(
         choices=[
@@ -163,7 +170,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
     integration_field = serializers.CharField(required=False)
     requiredScopes = serializers.CharField(required=False)
     # Indicates if hog templating should be used for this input
-    templating = serializers.ChoiceField(choices=[True, False, "hog", "liquid"], required=False)
+    templating = _TemplatingChoiceField(choices=[True, False, "hog", "liquid"], required=False)
 
     # TODO Validate choices if type=choice
 

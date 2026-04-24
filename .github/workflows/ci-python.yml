@@ -30,7 +30,7 @@ jobs:
             # also want this to run on master so we need to checkout
             - uses: actions/checkout@v6
 
-            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
@@ -130,14 +130,11 @@ jobs:
               run: |
                   echo "::add-matcher::.github/ty-problem-matcher.json"
 
-            - name: Check ty type checking (informational)
+            - name: Check ty type checking
               shell: bash
-              continue-on-error: true
               run: |
-                  echo "👀 Running ty type checker (informational - does not block CI)"
-                  echo "📊 Trial run to evaluate ty vs mypy. Feedback welcome in #team-devex"
-                  echo ""
-                  ./bin/ty.py check posthog ee common dags || echo "⚠️ ty found type issues (annotations below)"
+                  echo "📊 Feedback welcome in #team-devex"
+                  uv run ty check
 
             - name: Add mypy Problem Matcher
               shell: bash

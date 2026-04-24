@@ -36,16 +36,17 @@ class Link(FileSystemSyncMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel
         ]
         constraints = [
             models.UniqueConstraint(
-                fields=["short_link_domain", "short_code"], name="unique_short_link_domain_short_code"
+                fields=["short_link_domain", "short_code"],
+                name="unique_short_link_domain_short_code",
             )
         ]
         db_table = "posthog_link"
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.id} -> {self.redirect_url}"
 
     @classmethod
-    def get_links_for_team(cls, team_id, limit=100, offset=0):
+    def get_links_for_team(cls, team_id: int, limit: int = 100, offset: int = 0) -> QuerySet["Link"]:
         """
         Get all links for a team with pagination.
         Args:

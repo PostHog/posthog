@@ -437,7 +437,6 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 context,
                 previous_report_id=input.report_id if previous_research else None,
                 previous_report_research=previous_research,
-                branch="master",
                 signal_report_id=input.report_id,
             )
             # 4. Persist artefacts, avoid partial data from failed runs
