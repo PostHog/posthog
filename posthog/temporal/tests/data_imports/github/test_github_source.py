@@ -43,7 +43,9 @@ def _make_response(
     if headers:
         hdrs.update(headers)
     resp.headers = hdrs
-    resp.raise_for_status = mock.Mock(side_effect=(requests.HTTPError(f"HTTP {status}") if status >= 400 else None))
+    resp.raise_for_status = mock.Mock(
+        side_effect=(requests.HTTPError(f"HTTP {status}", response=resp) if status >= 400 else None)
+    )
     return resp
 
 
