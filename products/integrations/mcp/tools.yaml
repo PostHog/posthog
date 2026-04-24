@@ -114,3 +114,15 @@ tools:
     integrations-github-repos-refresh-create:
         operation: integrations_github_repos_refresh_create
         enabled: false
+    role-external-references-list:
+        operation: role_external_references_list
+        enabled: false
+    role-external-references-create:
+        operation: role_external_references_create
+        enabled: false
+    role-external-references-destroy:
+        operation: role_external_references_destroy
+        enabled: false
+    role-external-references-lookup-retrieve:
+        operation: role_external_references_lookup_retrieve
+        enabled: false

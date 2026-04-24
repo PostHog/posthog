@@ -956,6 +956,34 @@ snapshots:
         hash: v1.k794b7964.24519a5de47c075829e8edc4a5aa5d230bfc3d8fabd6768f1a48a942b8864b2d.LNJiDFue4r3cWY3uH-RRn4nxvpNpWMCvhrrZvj34_y8
     components-tz-label--with-more-than-one--light:
         hash: v1.k794b7964.eb6c920c0eed0ad217d48efd2fcc25792b567e576b92600e89a06490d7e47365.JlmFQTNBZHp82P-B2gInFlFg-we7jfSULlesHhXa00o
+    components-usagemetriccard--long-metric-name-truncates--dark:
+        hash: v1.k794b7964.3ade5ec86bc22a53d4830926e8360e61b6742f2d0985de2b86559596cbe4eae8.sx7S8XUZ0X51MdIW75MSJ1AXU4Ruf16YwK0JFvw5fiY
+    components-usagemetriccard--long-metric-name-truncates--light:
+        hash: v1.k794b7964.190a40995c7a0aba5e6b0372104bbc1766b96e49f2c048a50d6b133deee280fa.pKz6il9ujCRHpX3Tg-ZyS2mTgXn6UFIkZl-3PAVliU8
+    components-usagemetriccard--mixed-grid-at-narrow-breakpoint--dark:
+        hash: v1.k794b7964.04b86e0726a46225497aa183c56b7cc5b5a762a674b9754abf5c0a7bcaf3b5cb.sri5gwB778PqqHtCFNAqHpZGT75VSivo1KZxnjtKLfs
+    components-usagemetriccard--mixed-grid-at-narrow-breakpoint--light:
+        hash: v1.k794b7964.481cca9cc52233f086b1893dd24ace48873bc93267561f9fde990c1a8700982a.cUya68ErOKpBFRMMSGvtds1NLV_xzm4Jl9XafsSwD9E
+    components-usagemetriccard--null-trend--dark:
+        hash: v1.k794b7964.76153068e21786bd00ad22d779d2aaa8bc5768be10f53e0910de2f3a03779768.BrAJNA-jf4sApYzZ0JOxfUtsYcZu5LLTqbnrdTdG0v8
+    components-usagemetriccard--null-trend--light:
+        hash: v1.k794b7964.6b6012bba04adb3b0dbf0974f34d2d26bca1b798a33f331db2ff48f852d95161.l6hiU2Xdl0WUr5-YFHjzkhMcLgpcC4PalKotBdi5RDU
+    components-usagemetriccard--number-card--dark:
+        hash: v1.k794b7964.da45312db7181a132022880448de5af835ef9eaf36606a66eccf5c48c5e7cb37.3Llv9X5JkLmQO_MgVWdusaH08z0BZ79kzWTS9jHanCI
+    components-usagemetriccard--number-card--light:
+        hash: v1.k794b7964.167d3f4970f091166196c75701c2cff392f00a7bafa1a8e4d830862b8cca5897.dePqLf-_Xlxv73Pu8zFcSbAnPgyctKvnPpC8MfloCv0
+    components-usagemetriccard--positive-and-negative-trends--dark:
+        hash: v1.k794b7964.5b1eabfd3c9a653a9797143ea4f16cfc7016e2b3161394058d04584139d0f867.MNJpyBBhvzRSFPAMAu58p2ptRPkF8N-hvJdhsnkAexg
+    components-usagemetriccard--positive-and-negative-trends--light:
+        hash: v1.k794b7964.c1ea43e82acb211b47bda0f81c3245ed004d8b5b08a7aecfe71e1804bd51fe0f.xgCPyufe_nYzgtgC9sARwa_1-2qn_BNi_9zNeClWHLI
+    components-usagemetriccard--skeleton--dark:
+        hash: v1.k794b7964.67fed89e880c9f8aa3a65d0d50818ecdb26a3756f28d8b6409385e1e9dbdbb83.YRObUP3foi9IZKiRRufymMIe9MnC0gcKsR-IY-dEJgI
+    components-usagemetriccard--skeleton--light:
+        hash: v1.k794b7964.5b5dc4ae8ae7dfc276eb6a18d40280aae255e1c1512216dffd88904a03d6202e.Fwd4-gTNBxl2R6EIEJDOQ5sVYri7oElwZwMfvpYNfBM
+    components-usagemetriccard--sparkline-card--dark:
+        hash: v1.k794b7964.5a9753cce65a9d3a706ca8b97538f30a55a3663501a80a2263654dceb45cbda0.na5FTxzAw6kpcy2WdlPxNjbRRWuc7J_AX1y9eLAW0A8
+    components-usagemetriccard--sparkline-card--light:
+        hash: v1.k794b7964.9522e67e74643f88b41d5c9185e02f5d42ec3e4044254dbcbbe20c42c334ab0b.qPuJHMFFVvPk16dpCzwzckXhiYgoWh5QLZqbavEC1TE
     components-verticalnesteddnd--base--dark:
         hash: v1.k794b7964.ec79c434bdd0a29af24dbee3162d74ac2ac927b1431b29eef0246ef0cd9b5820.BUKk_-UGOgJ-1jJ1Yw5FnL1_yp3UP0y5G7wizjZ2aaE
     components-verticalnesteddnd--base--light:

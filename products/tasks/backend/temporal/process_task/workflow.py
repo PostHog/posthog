@@ -3,7 +3,7 @@ import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from django.conf import settings
 
@@ -238,7 +238,20 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 return task_result
         raise RuntimeError("No event was completed successfully")
 
-    async def _should_run_ci_follow_up(self) -> bool:
+    async def _should_run_ci_follow_up(self) -> Literal["fire", "skip", "no_pr"]:
+        """Check whether a CI follow-up message should be sent to the agent.
+
+        Returns "fire" when the PR has changed and the agent should act,
+        "skip" when the PR exists but hasn't changed (or is closed), and
+        "no_pr" when no PR was created — the caller should stop the CI
+        loop entirely in that case.
+
+        This is safe because the CI timer only fires after the agent has
+        been idle for the full CI_FOLLOW_UP_DELAY (heartbeats preempt
+        and restart the timer). By the time we reach this check, the
+        agent has finished working — if no PR exists at this point, one
+        won't appear later.
+        """
         pr_context = await workflow.execute_activity(
             get_pr_context,
             GetPrContextInput(context=self.context),
@@ -247,10 +260,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
         if not pr_context:
             workflow.logger.info(
-                "PR context is missing, skipping CI follow-up",
+                "PR context is missing, stopping CI follow-up loop",
                 run_id=self.context.run_id,
             )
-            return False
+            return "no_pr"
         if pr_context.pr_state == "closed":
             workflow.logger.info(
                 "PR is closed, skipping CI follow-up",
@@ -258,7 +271,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 pr_url=pr_context.pr_url,
                 pr_state=pr_context.pr_state,
             )
-            return False
+            return "skip"
         if self._pr_fingerprint != pr_context.fingerprint:
             workflow.logger.info(
                 "PR context has changed, running CI follow-up",
@@ -267,7 +280,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 pr_state=pr_context.pr_state,
             )
             self._pr_fingerprint = pr_context.fingerprint
-            return True
+            return "fire"
         else:
             workflow.logger.info(
                 "PR context has not changed, skipping CI follow-up",
@@ -275,7 +288,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 pr_url=pr_context.pr_url,
                 pr_state=pr_context.pr_state,
             )
-            return False
+            return "skip"
 
     async def _dispatch_ci_follow_up(self) -> None:
         self._ci_repetitions += 1
@@ -357,8 +370,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             "CI follow-up event triggered", run_id=self.context.run_id, repetitions=self._ci_repetitions
                         )
                         _deprecate_ci_follow_up_pr_context_patch()
-                        if await self._should_run_ci_follow_up():
+                        follow_up_result = await self._should_run_ci_follow_up()
+                        if follow_up_result == "fire":
                             await self._dispatch_ci_follow_up()
+                        elif follow_up_result == "no_pr":
+                            # No PR will ever appear — stop the CI loop entirely.
+                            self._ci_repetitions = MAX_CI_REPETITIONS
                     case TaskEvent.SIGNAL_RECEIVED:
                         if self._pending_followup is not None:
                             workflow.logger.info(

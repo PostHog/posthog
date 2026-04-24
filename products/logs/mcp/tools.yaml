@@ -316,6 +316,17 @@ tools:
     tasks-runs-logs-retrieve:
         operation: tasks_runs_logs_retrieve
         enabled: false
-    logs-count-create:
+    logs-count:
         operation: logs_count_create
-        enabled: false
+        enabled: true
+        scopes:
+            - logs:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Count logs
+        description_file: ./prompts/logs-count.md
+        response:
+            include:
+                - count
