@@ -231,22 +231,23 @@ class TestBingAdsSource:
         with pytest.raises(ValueError, match="Bing Ads refresh token not found for job test-job-id"):
             self.source.source_for_pipeline(self.valid_config, resumable_manager, inputs)
 
-    def test_get_non_retryable_errors_contains_failed_to_fetch_customer_id(self):
+    @pytest.mark.parametrize(
+        "pattern,raised_message",
+        [
+            # ValueError("Failed to fetch customer ID") raised from client.get_data_by_resource
+            # must be recognised as non-retryable — it indicates the connected Bing Ads account's
+            # OAuth credentials are bad/expired and retrying cannot recover.
+            ("Failed to fetch customer ID", "Failed to fetch customer ID"),
+            ("Bing Ads access token not found", "Bing Ads access token not found for job abc"),
+            ("Bing Ads refresh token not found", "Bing Ads refresh token not found for job abc"),
+            ("Bing Ads developer token not configured", "Bing Ads developer token not configured"),
+        ],
+    )
+    def test_get_non_retryable_errors_pattern_recognised(self, pattern, raised_message):
         non_retryable_errors = self.source.get_non_retryable_errors()
 
-        assert "Failed to fetch customer ID" in non_retryable_errors
-        # ValueError("Failed to fetch customer ID") raised from client.get_data_by_resource
-        # must be recognised as non-retryable — it indicates the connected Bing Ads account's
-        # OAuth credentials are bad/expired and retrying cannot recover.
-        raised_message = str(ValueError("Failed to fetch customer ID"))
-        assert any(pattern in raised_message for pattern in non_retryable_errors)
-
-    def test_get_non_retryable_errors_covers_missing_tokens(self):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-
-        assert any(pattern in "Bing Ads access token not found for job abc" for pattern in non_retryable_errors)
-        assert any(pattern in "Bing Ads refresh token not found for job abc" for pattern in non_retryable_errors)
-        assert "Bing Ads developer token not configured" in non_retryable_errors
+        assert pattern in non_retryable_errors
+        assert any(p in raised_message for p in non_retryable_errors)
 
     def test_get_resumable_source_manager(self):
         """Test that get_resumable_source_manager returns a manager that round-trips BingAdsResumeConfig."""
