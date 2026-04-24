@@ -138,6 +138,42 @@ describe('dateFilterLogic', () => {
         })
     })
 
+    it('renders single custom date as just the date (no "to now") under allowSingleAndRange', async () => {
+        props = {
+            key: 'test-single-date',
+            onChange,
+            dateFrom: '2024-01-15',
+            dateTo: null,
+            dateOptions: dateMapping,
+            isDateFormatted: false,
+            allowSingleAndRange: true,
+        }
+        const withSingleDate = dateFilterLogic(props)
+        withSingleDate.mount()
+
+        await expectLogic(withSingleDate).toMatchValues({
+            label: 'January 15, 2024',
+        })
+    })
+
+    it('renders single custom datetime with time under allowSingleAndRange', async () => {
+        props = {
+            key: 'test-single-datetime',
+            onChange,
+            dateFrom: '2024-01-15 14:30:00',
+            dateTo: null,
+            dateOptions: dateMapping,
+            isDateFormatted: false,
+            allowSingleAndRange: true,
+        }
+        const withSingleDateTime = dateFilterLogic(props)
+        withSingleDateTime.mount()
+
+        await expectLogic(withSingleDateTime).toMatchValues({
+            label: 'January 15, 2024 14:30:00',
+        })
+    })
+
     it('can set the date range', async () => {
         props = {
             key: 'test',
