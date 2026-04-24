@@ -21,7 +21,9 @@ def main():
             "available on your PYTHONPATH environment variable? Did you "
             "forget to activate a virtual environment?"
         ) from exc
-    execute_from_command_line(sys.argv)
+    from posthog.management.audit import run_with_audit
+
+    run_with_audit(execute_from_command_line, sys.argv)
 
 
 if __name__ == "__main__":
