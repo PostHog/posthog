@@ -1608,6 +1608,7 @@ class TestUserAPI(APIBaseTest):
                 "materialized_view_sync_failed": True,
                 "web_analytics_weekly_digest": True,
                 "organization_member_join_email_disabled": {},
+                "realtime_notifications_disabled": {},
             },
         )
 
@@ -1626,6 +1627,7 @@ class TestUserAPI(APIBaseTest):
                 "materialized_view_sync_failed": True,
                 "web_analytics_weekly_digest": True,
                 "organization_member_join_email_disabled": {},
+                "realtime_notifications_disabled": {},
             },
         )
 
@@ -1679,6 +1681,10 @@ class TestUserAPI(APIBaseTest):
             },
         )
 
+    def test_notification_settings_default_includes_realtime_disabled_empty_dict(self):
+        user = self._create_user("rt-defaults@test.com")
+        assert user.notification_settings["realtime_notifications_disabled"] == {}
+
     def test_invalid_notification_settings_returns_error(self):
         response = self.client.patch("/api/users/@me/", {"notification_settings": {"invalid_key": True}})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -1730,6 +1736,7 @@ class TestUserAPI(APIBaseTest):
                 "materialized_view_sync_failed": False,  # Default value
                 "web_analytics_weekly_digest": True,  # Default value
                 "organization_member_join_email_disabled": {},  # Default value
+                "realtime_notifications_disabled": {},  # Default value
             },
         )
 
