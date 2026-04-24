@@ -20,6 +20,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.event_usage import report_user_action
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Action, Cohort, Insight, Team
 from posthog.models.action.action import ACTION_STEP_MATCHING_OPTIONS
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
@@ -420,40 +421,35 @@ def find_action_references(action_id: int, team: Team) -> list[dict[str, Any]]:
     return refs
 
 
-def count_action_references_bulk(action_ids: list[int], team: Team) -> dict[int, int]:
-    """Count references for multiple actions in bulk using the same jsonb_path patterns as find_action_references."""
-    if not action_ids:
-        return {}
+# Defensive cap on how many actions we run the reference-count fan-out for in a single request.
+# The per-entity queries do `unnest(%s::int[]) CROSS JOIN LATERAL (...jsonb_path_exists...)`,
+# which is O(actions x rows) against large jsonb columns and can hit statement timeouts on big teams.
+_REFERENCE_COUNT_MAX_ACTIONS = 500
 
-    counts: Counter[int] = Counter()
-    ids_array = list(action_ids)
 
+def _count_insight_references(cursor, ids_array: list[int], team: Team) -> list[tuple[int, int]]:
     insight_table = Insight._meta.db_table
-    cohort_table = Cohort._meta.db_table
-    team_table = Team._meta.db_table
-    hf_table = HogFunction._meta.db_table
-
     # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (parameterized via %s)
-    with connection.cursor() as cursor:
-        cursor.execute(
-            f"""
-            SELECT aid, count(*) FROM unnest(%s::int[]) AS aid
-            CROSS JOIN LATERAL (
-                SELECT 1 FROM {insight_table}
-                WHERE team_id = %s AND NOT deleted
-                AND (
-                    jsonb_path_exists(query, '{_ACTION_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
-                    OR jsonb_path_exists(filters, '{_ACTION_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
-                    OR jsonb_path_exists(filters, '{_ACTIONS_ARRAY_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
-                )
-            ) AS matched
-            GROUP BY aid
-            """,
-            [ids_array, team.pk],
-        )
-        for aid, cnt in cursor.fetchall():
-            counts[aid] += cnt
+    cursor.execute(
+        f"""
+        SELECT aid, count(*) FROM unnest(%s::int[]) AS aid
+        CROSS JOIN LATERAL (
+            SELECT 1 FROM {insight_table}
+            WHERE team_id = %s AND NOT deleted
+            AND (
+                jsonb_path_exists(query, '{_ACTION_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
+                OR jsonb_path_exists(filters, '{_ACTION_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
+                OR jsonb_path_exists(filters, '{_ACTIONS_ARRAY_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
+            )
+        ) AS matched
+        GROUP BY aid
+        """,
+        [ids_array, team.pk],
+    )
+    return cursor.fetchall()
 
+
+def _count_experiment_references(cursor, ids_array: list[int], team: Team) -> list[tuple[int, int]]:
     exp_conditions = []
     for field in _EXPERIMENT_JSON_FIELDS:
         exp_conditions.append(
@@ -464,60 +460,98 @@ def count_action_references_bulk(action_ids: list[int], team: Team) -> dict[int,
         )
     exp_table = Experiment._meta.db_table
     exp_where = " OR ".join(exp_conditions)
-
     # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (parameterized via %s)
-    with connection.cursor() as cursor:
-        cursor.execute(
-            f"""
-            SELECT aid, count(*) FROM unnest(%s::int[]) AS aid
-            CROSS JOIN LATERAL (
-                SELECT 1 FROM {exp_table}
-                WHERE team_id = %s AND NOT COALESCE(deleted, false)
-                AND ({exp_where})
-            ) AS matched
-            GROUP BY aid
-            """,
-            [ids_array, team.pk],
-        )
-        for aid, cnt in cursor.fetchall():
-            counts[aid] += cnt
+    cursor.execute(
+        f"""
+        SELECT aid, count(*) FROM unnest(%s::int[]) AS aid
+        CROSS JOIN LATERAL (
+            SELECT 1 FROM {exp_table}
+            WHERE team_id = %s AND NOT COALESCE(deleted, false)
+            AND ({exp_where})
+        ) AS matched
+        GROUP BY aid
+        """,
+        [ids_array, team.pk],
+    )
+    return cursor.fetchall()
 
-    # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (parameterized via %s)
-    with connection.cursor() as cursor:
-        cursor.execute(
-            f"""
-            SELECT aid, count(*) FROM unnest(%s::int[]) AS aid
-            CROSS JOIN LATERAL (
-                SELECT 1 FROM {cohort_table}
-                WHERE team_id IN (SELECT id FROM {team_table} WHERE project_id = %s) AND NOT deleted
-                AND (
-                    jsonb_path_exists(filters, '$.** ? (@.event_type == "actions" && (@.key == $id || @.key == $id_str))', jsonb_build_object('id', aid, 'id_str', aid::text))
-                    OR jsonb_path_exists(filters, '$.** ? (@.seq_event_type == "actions" && (@.seq_event == $id || @.seq_event == $id_str))', jsonb_build_object('id', aid, 'id_str', aid::text))
-                )
-            ) AS matched
-            GROUP BY aid
-            """,
-            [ids_array, team.project_id],
-        )
-        for aid, cnt in cursor.fetchall():
-            counts[aid] += cnt
 
+def _count_cohort_references(cursor, ids_array: list[int], team: Team) -> list[tuple[int, int]]:
+    cohort_table = Cohort._meta.db_table
+    team_table = Team._meta.db_table
     # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (parameterized via %s)
-    with connection.cursor() as cursor:
-        cursor.execute(
-            f"""
-            SELECT aid, count(*) FROM unnest(%s::int[]) AS aid
-            CROSS JOIN LATERAL (
-                SELECT 1 FROM {hf_table}
-                WHERE team_id = %s AND NOT deleted
-                AND jsonb_path_exists(filters, '{_ACTIONS_ARRAY_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
-            ) AS matched
-            GROUP BY aid
-            """,
-            [ids_array, team.pk],
-        )
-        for aid, cnt in cursor.fetchall():
-            counts[aid] += cnt
+    cursor.execute(
+        f"""
+        SELECT aid, count(*) FROM unnest(%s::int[]) AS aid
+        CROSS JOIN LATERAL (
+            SELECT 1 FROM {cohort_table}
+            WHERE team_id IN (SELECT id FROM {team_table} WHERE project_id = %s) AND NOT deleted
+            AND (
+                jsonb_path_exists(filters, '$.** ? (@.event_type == "actions" && (@.key == $id || @.key == $id_str))', jsonb_build_object('id', aid, 'id_str', aid::text))
+                OR jsonb_path_exists(filters, '$.** ? (@.seq_event_type == "actions" && (@.seq_event == $id || @.seq_event == $id_str))', jsonb_build_object('id', aid, 'id_str', aid::text))
+            )
+        ) AS matched
+        GROUP BY aid
+        """,
+        [ids_array, team.project_id],
+    )
+    return cursor.fetchall()
+
+
+def _count_hog_function_references(cursor, ids_array: list[int], team: Team) -> list[tuple[int, int]]:
+    hf_table = HogFunction._meta.db_table
+    # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (parameterized via %s)
+    cursor.execute(
+        f"""
+        SELECT aid, count(*) FROM unnest(%s::int[]) AS aid
+        CROSS JOIN LATERAL (
+            SELECT 1 FROM {hf_table}
+            WHERE team_id = %s AND NOT deleted
+            AND jsonb_path_exists(filters, '{_ACTIONS_ARRAY_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
+        ) AS matched
+        GROUP BY aid
+        """,
+        [ids_array, team.pk],
+    )
+    return cursor.fetchall()
+
+
+_REFERENCE_COUNTERS: tuple[tuple[str, Any], ...] = (
+    ("insight", _count_insight_references),
+    ("experiment", _count_experiment_references),
+    ("cohort", _count_cohort_references),
+    ("hog_function", _count_hog_function_references),
+)
+
+
+def count_action_references_bulk(action_ids: list[int], team: Team) -> dict[int, int]:
+    """Count references for multiple actions in bulk using the same jsonb_path patterns as find_action_references.
+
+    Each entity type is counted in its own query with isolated error handling, so a statement timeout
+    or query error for one entity type does not zero out counts for the others.
+    """
+    if not action_ids:
+        return {}
+
+    counts: Counter[int] = Counter()
+    ids_array = list(action_ids[:_REFERENCE_COUNT_MAX_ACTIONS])
+
+    for entity_type, counter_fn in _REFERENCE_COUNTERS:
+        try:
+            with connection.cursor() as cursor:
+                rows = counter_fn(cursor, ids_array, team)
+            for aid, cnt in rows:
+                counts[aid] += cnt
+        except Exception as ex:
+            capture_exception(
+                ex,
+                additional_properties={
+                    "feature": "action_reference_count",
+                    "entity_type": entity_type,
+                    "team_id": team.pk,
+                    "action_count": len(ids_array),
+                },
+            )
 
     return dict(counts)
 
@@ -562,10 +596,23 @@ class ActionViewSet(
         ).data  # type: ignore
 
         if request.query_params.get("include_reference_count"):
-            action_ids = [a["id"] for a in actions_list]
-            ref_counts = count_action_references_bulk(action_ids, self.team)
-            for a in actions_list:
-                a["reference_count"] = ref_counts.get(a["id"], 0)
+            # Reference counting is best-effort: if it fails (timeout, unexpected DB error),
+            # still return the actions list so app bootstrap (actionsModel, taxonomic filter,
+            # insights, replay home) keeps working. Callers that need the count can re-request.
+            try:
+                action_ids = [a["id"] for a in actions_list]
+                ref_counts = count_action_references_bulk(action_ids, self.team)
+                for a in actions_list:
+                    a["reference_count"] = ref_counts.get(a["id"], 0)
+            except Exception as ex:
+                capture_exception(
+                    ex,
+                    additional_properties={
+                        "feature": "action_reference_count",
+                        "team_id": self.team_id,
+                        "action_count": len(actions_list),
+                    },
+                )
 
         return Response({"results": actions_list})
 

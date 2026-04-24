@@ -820,3 +820,48 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         results = response.json()["results"]
         action_result = next(r for r in results if r["id"] == action.id)
         assert action_result["reference_count"] == 4
+
+    def test_include_reference_count_returns_200_when_bulk_count_fails(self):
+        Action.objects.create(team=self.team, name="some action", steps_json=[{"event": "$pageview"}])
+        with patch(
+            "posthog.api.action.count_action_references_bulk",
+            side_effect=Exception("simulated statement timeout"),
+        ):
+            with patch("posthog.api.action.capture_exception") as mock_capture:
+                response = self.client.get(f"/api/projects/{self.team.id}/actions/?include_reference_count=1")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) > 0
+        for result in results:
+            assert "reference_count" not in result
+        mock_capture.assert_called_once()
+
+    def test_include_reference_count_isolates_per_entity_failures(self):
+        action = Action.objects.create(team=self.team, name="action with refs", steps_json=[{"event": "$pageview"}])
+        Insight.objects.create(
+            team=self.team,
+            name="Referencing insight",
+            query={
+                "kind": "DataTableNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "ActionsNode", "id": action.id}],
+                },
+            },
+        )
+        HogFunction.objects.create(
+            team=self.team,
+            name="Hog function ref",
+            filters={"actions": [{"id": str(action.id), "type": "actions"}]},
+        )
+        with patch(
+            "posthog.api.action._count_experiment_references",
+            side_effect=Exception("simulated statement timeout"),
+        ):
+            with patch("posthog.api.action.capture_exception") as mock_capture:
+                response = self.client.get(f"/api/projects/{self.team.id}/actions/?include_reference_count=1")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        action_result = next(r for r in results if r["id"] == action.id)
+        assert action_result["reference_count"] == 2
+        mock_capture.assert_called_once()
