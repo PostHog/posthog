@@ -118,6 +118,15 @@ pub fn is_transient_network_error(error: &anyhow::Error) -> bool {
     })
 }
 
+/// Returns true if the error chain contains a reqwest::Error with HTTP 502/503/504.
+pub fn is_transient_server_error(error: &anyhow::Error) -> bool {
+    error.chain().any(|err| {
+        err.downcast_ref::<reqwest::Error>().is_some_and(|re| {
+            matches!(re.status().map(|s| s.as_u16()), Some(502 | 503 | 504))
+        })
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -352,5 +361,57 @@ mod tests {
             .unwrap_err();
         let err = anyhow::Error::from(err);
         assert!(!is_transient_network_error(&err));
+    }
+
+    #[tokio::test]
+    async fn test_is_transient_server_error_true_for_502() {
+        let server = MockServer::start();
+        let _mock = server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/e");
+            then.status(502);
+        });
+
+        let client = Client::new();
+        let resp = client.get(server.url("/e")).send().await.unwrap();
+        let http_err = resp.error_for_status().unwrap_err();
+        let err = anyhow::Error::from(http_err);
+        assert!(is_transient_server_error(&err));
+        assert!(!is_rate_limited_error(&err));
+        assert!(!is_transient_network_error(&err));
+    }
+
+    #[tokio::test]
+    async fn test_is_transient_server_error_true_for_503_and_504() {
+        for status in [503, 504] {
+            let server = MockServer::start();
+            let _mock = server.mock(|when, then| {
+                when.method(httpmock::Method::GET).path("/e");
+                then.status(status);
+            });
+
+            let client = Client::new();
+            let resp = client.get(server.url("/e")).send().await.unwrap();
+            let http_err = resp.error_for_status().unwrap_err();
+            let err = anyhow::Error::from(http_err);
+            assert!(is_transient_server_error(&err), "expected true for {status}");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_is_transient_server_error_false_for_500_and_4xx() {
+        // 500 is ambiguous (could be a real bug) and 4xx are client errors — neither auto-retries.
+        for status in [500, 400, 404] {
+            let server = MockServer::start();
+            let _mock = server.mock(|when, then| {
+                when.method(httpmock::Method::GET).path("/e");
+                then.status(status);
+            });
+
+            let client = Client::new();
+            let resp = client.get(server.url("/e")).send().await.unwrap();
+            let http_err = resp.error_for_status().unwrap_err();
+            let err = anyhow::Error::from(http_err);
+            assert!(!is_transient_server_error(&err), "expected false for {status}");
+        }
     }
 }
