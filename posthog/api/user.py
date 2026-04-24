@@ -224,8 +224,6 @@ class UserSerializer(serializers.ModelSerializer):
         }
 
     def validate_first_name(self, value: str) -> str:
-        # Display names are interpolated into transactional emails; block
-        # phishing payloads (URLs, control chars, angle brackets) at the edge.
         return validate_display_name(value)
 
     def validate_last_name(self, value: str) -> str:

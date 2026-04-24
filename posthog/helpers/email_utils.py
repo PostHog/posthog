@@ -1,6 +1,6 @@
 """
-Provides utilities for handling email addresses with case-insensitive behavior
-while maintaining backwards compatibility with existing data that may have mixed casing.
+Email-related helpers: address normalisation, ESP suppression lookups, user
+lookup by email, and display-name / message validation.
 """
 
 import re
@@ -26,13 +26,10 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
-# URL-ish tokens that attackers stuff into identity fields (names, org names)
-# so transactional email templates render them as clickable phishing bait.
-_URL_RE = re.compile(r"https?://|\bwww\.", re.IGNORECASE)
-_CONTROL_CHAR_RE = re.compile(r"[\r\n\t\x00-\x08\x0b\x0c\x0e-\x1f]")
-_NON_NEWLINE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+_URL_RE = re.compile(r"https?://|www\.", re.IGNORECASE)
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f\u0085\u2028\u2029]")
+_NON_NEWLINE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u0085\u2028\u2029]")
 _BRACKET_RE = re.compile(r"[<>]")
-# Zero-width and bidi-override chars used to visually disguise names / URLs.
 _INVISIBLE_CHAR_RE = re.compile(r"[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]")
 
 _URL_ERROR = "URLs are not allowed in this field."
@@ -52,12 +49,9 @@ def validate_display_name(value: None) -> None: ...
 def validate_display_name(value: str | None) -> str | None:
     """
     Validate identity fields (`first_name`, `last_name`, organization name,
-    invite recipient name) that get interpolated into transactional emails.
-
-    Rejects URLs (`http://`, `https://`, `www.`), line breaks, control
-    characters, angle brackets, and zero-width / bidi characters. Always
-    returns the stripped value. Empty / blank input passes through — use
-    `allow_blank=False` at the field level to enforce presence.
+    invite recipient name). Rejects URLs, line breaks, control characters,
+    angle brackets, and zero-width / bidi characters. Returns the stripped
+    value; empty / blank input passes through.
     """
     if value is None:
         return None
@@ -80,8 +74,8 @@ def validate_display_name(value: str | None) -> str | None:
 
 def validate_message_body(value: str | None) -> str | None:
     """
-    Validate the free-text invite message. Newlines are allowed here; URLs,
-    non-newline control chars, angle brackets, and invisible chars are not.
+    Validate a free-text message body. Newlines allowed; URLs, non-newline
+    control chars, angle brackets, and invisible chars are not.
     """
     if value is None or not value.strip():
         return value

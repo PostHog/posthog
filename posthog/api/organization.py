@@ -158,8 +158,6 @@ class OrganizationSerializer(
         }
 
     def validate_name(self, value: str) -> str:
-        # Organization names are interpolated into transactional emails
-        # (invites, member-join), so they must not contain phishing payloads.
         return validate_display_name(value)
 
     def validate_logo_media_id(self, value: UploadedMedia | None) -> UploadedMedia | None:

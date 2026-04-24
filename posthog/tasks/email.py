@@ -12,6 +12,7 @@ import structlog
 import posthoganalytics
 from celery import shared_task
 from posthoganalytics import new_context, tag
+from rest_framework import serializers
 
 from posthog.batch_exports.models import BatchExportRun
 from posthog.caching.login_device_cache import check_and_cache_login_device
@@ -20,6 +21,7 @@ from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES, INVITE_DAYS_VALIDITY
 from posthog.email import EMAIL_TASK_KWARGS, EmailMessage, is_email_available
 from posthog.event_usage import groups
 from posthog.geoip import get_geoip_properties
+from posthog.helpers.email_utils import validate_display_name, validate_message_body
 from posthog.models import (
     Organization,
     OrganizationInvite,
@@ -219,6 +221,20 @@ def send_invite(invite_id: str) -> None:
         id=invite_id
     )
     inviter_name = invite.created_by.first_name if invite.created_by else "someone"
+    try:
+        validate_display_name(inviter_name)
+        validate_display_name(invite.organization.name)
+        validate_display_name(invite.first_name)
+        validate_message_body(invite.message)
+    except serializers.ValidationError as err:
+        logger.warning(
+            "send_invite.blocked",
+            invite_id=invite_id,
+            organization_id=str(invite.organization_id),
+            created_by_id=invite.created_by_id,
+            error_code=getattr(err.detail[0], "code", "invalid"),
+        )
+        return
     message = EmailMessage(
         use_http=True,
         campaign_key=campaign_key,
@@ -253,6 +269,18 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
         if user.should_send_organization_member_join_email(organization_id)
     ]
     if len(members_to_email) == 0:
+        return
+
+    try:
+        validate_display_name(invitee.first_name)
+        validate_display_name(organization.name)
+    except serializers.ValidationError as err:
+        logger.warning(
+            "send_member_join.blocked",
+            invitee_uuid=invitee_uuid,
+            organization_id=organization_id,
+            error_code=getattr(err.detail[0], "code", "invalid"),
+        )
         return
 
     campaign_key: str = f"member_join_email_org_{organization_id}_user_{invitee_uuid}"
