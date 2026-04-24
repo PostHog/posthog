@@ -37,7 +37,7 @@ export const hogFunctionExecutionTimeSummary = new Histogram({
 
 const hogFunctionMonitoringPendingMessages = new Gauge({
     name: 'cdp_hog_function_monitoring_pending_messages',
-    help: 'Number of monitoring messages queued and waiting to be flushed to Kafka. High values indicate accumulation and potential memory leak.',
+    help: 'Number of log entries queued and waiting to be flushed to Kafka. App-metric backlog is tracked separately by app_metrics_aggregator_queued_total / app_metrics_aggregator_flushed_total. High values indicate accumulation and potential memory leak.',
 })
 
 const hogFunctionMonitoringPendingEvents = new Gauge({
