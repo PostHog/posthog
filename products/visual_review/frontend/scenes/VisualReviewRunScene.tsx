@@ -6,7 +6,6 @@ import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -145,7 +144,6 @@ export function VisualReviewRunScene(): JSX.Element {
         isApproving,
         isApprovingSnapshot,
         isRecomputing,
-        hasCIMetadata,
     } = useValues(visualReviewRunSceneLogic)
     const {
         setSelectedSnapshotId,
@@ -230,6 +228,16 @@ export function VisualReviewRunScene(): JSX.Element {
     const loadedActionable = reviewPending + reviewApproved + reviewTolerated
     const hasMore = totalActionable > loadedActionable
 
+    // All changes are now covered by quarantine — gate would flip to success on recompute
+    const allChangesQuarantined =
+        run.status === 'completed' &&
+        !run.approved &&
+        !run.is_stale &&
+        totalActionable > 0 &&
+        snapshots
+            .filter((s: SnapshotApi) => s.result !== 'unchanged')
+            .every((s: SnapshotApi) => quarantinedIdentifierSet.has(s.identifier))
+
     // Navigation — use changed snapshots when there are changes, otherwise all snapshots
     const navSnapshots = sortedChangedSnapshots.length > 0 ? sortedChangedSnapshots : snapshots
     const currentIndex = selectedSnapshot
@@ -283,73 +291,18 @@ export function VisualReviewRunScene(): JSX.Element {
                 </LemonBanner>
             )}
 
-            {/* CI context — show when run is completed and not approved */}
-            {run.status === 'completed' && !run.approved && !run.is_stale && (
-                <div className="flex items-center justify-between rounded border px-3 py-2 mb-4 text-xs">
-                    <div className="flex items-center gap-3 text-muted">
-                        {run.pr_number && repoFullName ? (
-                            <Link to={`https://github.com/${repoFullName}/pull/${run.pr_number}`} target="_blank">
-                                PR #{run.pr_number}
-                            </Link>
-                        ) : run.pr_number ? (
-                            <span>PR #{run.pr_number}</span>
-                        ) : null}
-                        <span className="text-muted-alt">·</span>
-                        <span>
-                            {repoFullName && run.commit_sha ? (
-                                <Link
-                                    to={`https://github.com/${repoFullName}/commit/${run.commit_sha}`}
-                                    target="_blank"
-                                    className="font-mono"
-                                >
-                                    {run.commit_sha.slice(0, 8)}
-                                </Link>
-                            ) : (
-                                <span className="font-mono">{run.commit_sha?.slice(0, 8)}</span>
-                            )}
-                        </span>
-                        {hasCIMetadata && (
-                            <>
-                                <span className="text-muted-alt">·</span>
-                                <span>
-                                    CI run{' '}
-                                    {repoFullName ? (
-                                        <Link
-                                            to={`https://github.com/${repoFullName}/actions/runs/${run.metadata?.github_run_id as string}`}
-                                            target="_blank"
-                                        >
-                                            #{run.metadata?.github_run_id as string}
-                                        </Link>
-                                    ) : (
-                                        `#${run.metadata?.github_run_id as string}`
-                                    )}
-                                </span>
-                            </>
-                        )}
-                    </div>
-                    <LemonButton
-                        size="xsmall"
-                        type="secondary"
-                        loading={isRecomputing}
-                        onClick={() => {
-                            LemonDialog.open({
-                                title: 'Recompute run results?',
-                                description: hasCIMetadata
-                                    ? 'This will re-evaluate quarantine and tolerance rules, update the commit status on GitHub, and rerun the CI job so the gate reflects the current state.'
-                                    : 'This will re-evaluate quarantine and tolerance rules and update the commit status on GitHub. The CI job cannot be rerun automatically — upgrade the CLI to enable this.',
-                                primaryButton: {
-                                    children: hasCIMetadata ? 'Recompute and rerun CI' : 'Recompute',
-                                    onClick: recomputeRun,
-                                },
-                                secondaryButton: {
-                                    children: 'Cancel',
-                                },
-                            })
-                        }}
-                    >
-                        Recompute
-                    </LemonButton>
-                </div>
+            {allChangesQuarantined && (
+                <LemonBanner
+                    type="info"
+                    className="mb-4"
+                    action={{
+                        children: 'Re-trigger CI',
+                        loading: isRecomputing,
+                        onClick: recomputeRun,
+                    }}
+                >
+                    All changes are quarantined — re-trigger to update the commit status and pass the gate.
+                </LemonBanner>
             )}
 
             {/* Snapshots panel — thumbnail strip as nav, diff viewer as body */}
@@ -473,6 +426,14 @@ export function VisualReviewRunScene(): JSX.Element {
                             prNumber={run.pr_number}
                             repoFullName={repoFullName}
                             runType={run.run_type}
+                            githubRunId={(run.metadata?.github_run_id as string) || null}
+                            isRecomputing={isRecomputing}
+                            onRecompute={
+                                run.status === 'completed' && !run.approved && !run.is_stale ? recomputeRun : undefined
+                            }
+                            recomputeDisabledReason={
+                                !allChangesQuarantined ? 'Re-trigger would not change the outcome' : undefined
+                            }
                         />
                     ) : snapshotsLoading ? (
                         <div className="space-y-3 py-4">

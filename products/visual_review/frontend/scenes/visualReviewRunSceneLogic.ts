@@ -233,10 +233,6 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 ),
         ],
         repoFullName: [(s) => [s.repo], (repo): string | null => repo?.repo_full_name || null],
-        hasCIMetadata: [
-            (s) => [s.run],
-            (run): boolean => !!(run?.metadata?.github_run_id && run?.metadata?.github_job),
-        ],
         breadcrumbs: [
             (s) => [s.run],
             (run): Breadcrumb[] => [
