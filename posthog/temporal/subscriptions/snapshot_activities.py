@@ -251,6 +251,21 @@ def _load_insight_images(exported_asset_ids: list[int], team_id: int) -> dict[in
 
 @temporalio.activity.defn
 async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> SnapshotInsightsResult:
+    try:
+        return await _run_snapshot_subscription_insights(inputs)
+    except Exception:
+        # The metric survives Kafka log producer init failure in `configure_logger`;
+        # the log emission may not, so both are deliberate.
+        SUBSCRIPTION_SUMMARY_FAILURE.labels(reason="activity_error").inc()
+        await LOGGER.aexception(
+            "snapshot_subscription_insights.failed",
+            subscription_id=inputs.subscription_id,
+            delivery_id=inputs.delivery_id,
+        )
+        raise
+
+
+async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> SnapshotInsightsResult:
     await LOGGER.ainfo(
         "snapshot_subscription_insights.starting",
         subscription_id=inputs.subscription_id,

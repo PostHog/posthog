@@ -16,9 +16,11 @@ import type {
     DataWarehouseSavedQueryApi,
     DataWarehouseSavedQueryDraftApi,
     DataWarehouseSavedQueryFolderApi,
+    DatabaseSchemaRequestApi,
     DeprovisionWarehouseResponseApi,
     ExternalDataSchemaApi,
     ExternalDataSchemasListParams,
+    ExternalDataSourceCreateApi,
     ExternalDataSourceSerializersApi,
     ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams,
     ExternalDataSourcesCheckCdcPrerequisitesCreate200,
@@ -800,14 +802,14 @@ export const getExternalDataSourcesCreateUrl = (projectId: string) => {
 
 export const externalDataSourcesCreate = async (
     projectId: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    externalDataSourceCreateApi: ExternalDataSourceCreateApi,
     options?: RequestInit
 ): Promise<ExternalDataSourceSerializersApi> => {
     return apiMutator<ExternalDataSourceSerializersApi>(getExternalDataSourcesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
+        body: JSON.stringify(externalDataSourceCreateApi),
     })
 }
 
@@ -1160,14 +1162,14 @@ export const getExternalDataSourcesDatabaseSchemaCreateUrl = (projectId: string)
 
 export const externalDataSourcesDatabaseSchemaCreate = async (
     projectId: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    databaseSchemaRequestApi: DatabaseSchemaRequestApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getExternalDataSourcesDatabaseSchemaCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
+        body: JSON.stringify(databaseSchemaRequestApi),
     })
 }
 

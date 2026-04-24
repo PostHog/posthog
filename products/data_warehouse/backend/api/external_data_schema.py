@@ -5,7 +5,7 @@ from typing import Any, Optional
 
 import structlog
 import temporalio
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import extend_schema
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -49,7 +49,7 @@ from products.data_warehouse.backend.models.external_data_schema import (
     sync_frequency_to_sync_frequency_interval,
 )
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalFieldType
 
 logger = structlog.get_logger(__name__)
 
@@ -57,14 +57,55 @@ logger = structlog.get_logger(__name__)
 class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     table = serializers.SerializerMethodField(read_only=True)
     incremental = serializers.SerializerMethodField(read_only=True)
-    sync_type = serializers.SerializerMethodField(read_only=True)
-    incremental_field = serializers.SerializerMethodField(read_only=True)
-    incremental_field_type = serializers.SerializerMethodField(read_only=True)
-    sync_frequency = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
-    sync_time_of_day = serializers.SerializerMethodField(read_only=True)
-    primary_key_columns = serializers.SerializerMethodField(read_only=True)
-    cdc_table_mode = serializers.SerializerMethodField(read_only=False)
+    sync_type = serializers.ChoiceField(
+        choices=ExternalDataSchema.SyncType.choices,
+        required=False,
+        allow_null=True,
+        help_text="Sync strategy: incremental, full_refresh, append, or cdc.",
+    )
+    incremental_field = serializers.CharField(
+        required=False, allow_null=True, help_text="Column name used to track sync progress."
+    )
+    incremental_field_type = serializers.ChoiceField(
+        choices=[(e.value, e.value) for e in IncrementalFieldType],
+        required=False,
+        allow_null=True,
+        help_text="Data type of the incremental field.",
+    )
+    sync_frequency = serializers.ChoiceField(
+        choices=[
+            ("never", "never"),
+            ("1min", "1min"),
+            ("5min", "5min"),
+            ("15min", "15min"),
+            ("30min", "30min"),
+            ("1hour", "1hour"),
+            ("6hour", "6hour"),
+            ("12hour", "12hour"),
+            ("24hour", "24hour"),
+            ("7day", "7day"),
+            ("30day", "30day"),
+        ],
+        required=False,
+        allow_null=True,
+        help_text="How often to sync.",
+    )
+    sync_time_of_day = serializers.TimeField(
+        required=False, allow_null=True, help_text="UTC time of day to run the sync (HH:MM:SS)."
+    )
+    primary_key_columns = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        help_text="Column names for primary key deduplication.",
+    )
+    cdc_table_mode = serializers.ChoiceField(
+        choices=["consolidated", "cdc_only", "both"],
+        required=False,
+        allow_null=True,
+        help_text="For CDC syncs: consolidated, cdc_only, or both.",
+    )
 
     class Meta:
         model = ExternalDataSchema
@@ -112,18 +153,6 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     def get_incremental(self, schema: ExternalDataSchema) -> bool:
         return schema.is_incremental
 
-    def get_incremental_field(self, schema: ExternalDataSchema) -> str | None:
-        return schema.sync_type_config.get("incremental_field")
-
-    def get_incremental_field_type(self, schema: ExternalDataSchema) -> str | None:
-        return schema.sync_type_config.get("incremental_field_type")
-
-    def get_sync_type(self, schema: ExternalDataSchema) -> ExternalDataSchema.SyncType | None:
-        return ExternalDataSchema.SyncType(schema.sync_type) if schema.sync_type is not None else None
-
-    def get_primary_key_columns(self, schema: ExternalDataSchema) -> list[str] | None:
-        return schema.primary_key_columns
-
     def get_table(self, schema: ExternalDataSchema) -> Optional[dict]:
         from products.data_warehouse.backend.api.table import SimpleTableSerializer
 
@@ -136,17 +165,24 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         return SimpleTableSerializer(schema.table, context={"database": hogql_context}).data or None
 
-    @extend_schema_field(serializers.CharField(allow_null=True))
-    def get_sync_frequency(self, schema: ExternalDataSchema):
-        return sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval)
-
-    @extend_schema_field(serializers.TimeField(allow_null=True))
-    def get_sync_time_of_day(self, schema: ExternalDataSchema):
-        return schema.sync_time_of_day
-
-    @extend_schema_field(serializers.ChoiceField(choices=["consolidated", "cdc_only", "both"]))
-    def get_cdc_table_mode(self, schema: ExternalDataSchema) -> str:
-        return schema.cdc_table_mode
+    def to_representation(self, instance: ExternalDataSchema) -> dict:
+        ret = super().to_representation(instance)
+        ret["sync_type"] = ExternalDataSchema.SyncType(instance.sync_type) if instance.sync_type is not None else None
+        ret["sync_frequency"] = sync_frequency_interval_to_sync_frequency(instance.sync_frequency_interval)
+        ret["sync_time_of_day"] = (
+            self.fields["sync_time_of_day"].to_representation(instance.sync_time_of_day)
+            if instance.sync_time_of_day
+            else None
+        )
+        ret["incremental_field"] = (
+            instance.sync_type_config.get("incremental_field") if instance.sync_type_config else None
+        )
+        ret["incremental_field_type"] = (
+            instance.sync_type_config.get("incremental_field_type") if instance.sync_type_config else None
+        )
+        ret["primary_key_columns"] = instance.primary_key_columns
+        ret["cdc_table_mode"] = instance.cdc_table_mode
+        return ret
 
     def _run_temporal_side_effect(self, callback: Callable[[], None]) -> None:
         post_commit_actions = self.context.get("post_commit_actions")
@@ -159,17 +195,16 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     def update(self, instance: ExternalDataSchema, validated_data: dict[str, Any]) -> ExternalDataSchema:
         data = self.initial_data if isinstance(self.initial_data, dict) else {}
 
-        sync_type = data.get("sync_type")
+        # Pop non-model fields from validated_data so super().update() doesn't try to set them
+        validated_data.pop("sync_type", None)
+        validated_data.pop("sync_frequency", None)
+        validated_data.pop("sync_time_of_day", None)
+        validated_data.pop("incremental_field", None)
+        validated_data.pop("incremental_field_type", None)
+        validated_data.pop("primary_key_columns", None)
+        validated_data.pop("cdc_table_mode", None)
 
-        if (
-            sync_type is not None
-            and sync_type != ExternalDataSchema.SyncType.FULL_REFRESH
-            and sync_type != ExternalDataSchema.SyncType.INCREMENTAL
-            and sync_type != ExternalDataSchema.SyncType.APPEND
-            and sync_type != ExternalDataSchema.SyncType.WEBHOOK
-            and sync_type != ExternalDataSchema.SyncType.CDC
-        ):
-            raise ValidationError("Invalid sync type")
+        sync_type = data.get("sync_type")
 
         if sync_type == ExternalDataSchema.SyncType.CDC:
             from posthog.models import Team
@@ -209,10 +244,11 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             incremental_field_changed = False
             incremental_field = data.get("incremental_field")
             if sync_type in (ExternalDataSchema.SyncType.INCREMENTAL, ExternalDataSchema.SyncType.APPEND):
-                incremental_field_changed = (
-                    payload.get("incremental_field") != incremental_field
-                    or payload.get("incremental_field_last_value") is None
-                )
+                if "incremental_field" in data:
+                    incremental_field_changed = (
+                        payload.get("incremental_field") != incremental_field
+                        or payload.get("incremental_field_last_value") is None
+                    )
 
             if "incremental_field" in data:
                 payload["incremental_field"] = incremental_field

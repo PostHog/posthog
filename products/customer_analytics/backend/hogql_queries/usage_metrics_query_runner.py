@@ -252,6 +252,8 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
             total_previous = sum(previous_daily)
             change_pct = ((total_value - total_previous) / total_previous * 100) if total_previous > 0 else None
 
+            is_sparkline = metric.display == GroupUsageMetric.Display.SPARKLINE
+
             results.append(
                 UsageMetric(
                     id=str(metric.id),
@@ -262,6 +264,8 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
                     value=total_value,
                     previous=total_previous,
                     change_from_previous_pct=change_pct,
+                    timeseries=current_daily if is_sparkline else None,
+                    timeseries_labels=[d.isoformat() for d in current_dates] if is_sparkline else None,
                 )
             )
 
@@ -287,13 +291,10 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
         )
 
     def get_cache_payload(self) -> dict:
-        """
-        Override to include metric config in cache key.
-        This ensures cache is invalidated when metrics are created/deleted or their configuration changes.
-        """
         payload = super().get_cache_payload()
-        metric_keys = sorted(
-            f"{metric.id}:{metric.math}:{metric.math_property or ''}" for metric in self._usage_metrics
+        metric_fingerprints = sorted(
+            (str(m.id), m.display, m.math, m.math_property or "", str(m.filters), str(m.interval))
+            for m in self._usage_metrics
         )
-        payload["usage_metric_keys"] = metric_keys
+        payload["usage_metric_fingerprints"] = metric_fingerprints
         return payload

@@ -99,6 +99,12 @@ class GitHubRepoSerializer(serializers.Serializer):
 
 
 class GitHubReposQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Optional case-insensitive repository name search query.",
+    )
     limit = serializers.IntegerField(
         required=False,
         default=100,
@@ -675,11 +681,12 @@ class IntegrationViewSet(
     def github_repos(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         query_serializer = GitHubReposQuerySerializer(data=request.query_params)
         query_serializer.is_valid(raise_exception=True)
+        search = query_serializer.validated_data["search"]
         limit = query_serializer.validated_data["limit"]
         offset = query_serializer.validated_data["offset"]
 
         github = GitHubIntegration(self.get_object())
-        repositories, has_more = github.list_cached_repositories(limit=limit, offset=offset)
+        repositories, has_more = github.list_cached_repositories(search=search, limit=limit, offset=offset)
 
         return Response({"repositories": repositories, "has_more": has_more})
 

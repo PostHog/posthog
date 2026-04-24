@@ -122,6 +122,52 @@ class ConsolidatedVideoSegment(BaseModel):
     abandonment_detected: bool = Field(default=False, description="User abandoned a flow")
 
 
+def classify_consolidated_segment_problem(segment: ConsolidatedVideoSegment) -> str | None:
+    """Return the most severe problem type for a segment, or None if no problem signal would be emitted."""
+    if segment.exception == "blocking":
+        return "blocking_exception"
+    if segment.abandonment_detected:
+        return "abandonment"
+    if segment.exception == "non-blocking":
+        return "non_blocking_exception"
+    if segment.confusion_detected:
+        return "confusion"
+    if not segment.success:
+        return "failure"
+    return None
+
+
+class SessionProblem(BaseModel):
+    """A segment that classifies as a problem and should be emitted as a session_problem signal."""
+
+    model_config = ConfigDict(frozen=True)
+
+    problem_type: str = Field(description="Output of classify_consolidated_segment_problem, e.g. 'blocking_exception'")
+    title: str
+    description: str
+    start_time: str = Field(description="Format: MM:SS or HH:MM:SS")
+    end_time: str = Field(description="Format: MM:SS or HH:MM:SS")
+
+
+def collect_session_problems(segments: list[ConsolidatedVideoSegment]) -> list[SessionProblem]:
+    """Classify segments and return only those that would emit a session_problem signal."""
+    problems: list[SessionProblem] = []
+    for segment in segments:
+        problem_type = classify_consolidated_segment_problem(segment)
+        if problem_type is None:
+            continue
+        problems.append(
+            SessionProblem(
+                problem_type=problem_type,
+                title=segment.title,
+                description=segment.description,
+                start_time=segment.start_time,
+                end_time=segment.end_time,
+            )
+        )
+    return problems
+
+
 class VideoSessionOutcome(BaseModel):
     """Overall session outcome determined from video analysis."""
 

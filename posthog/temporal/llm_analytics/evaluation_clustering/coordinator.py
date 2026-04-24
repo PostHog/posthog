@@ -1,8 +1,4 @@
-"""Coordinator for evaluation clustering Stage A (sampler).
-
-The Stage B clustering coordinator lands alongside the clustering activities
-in a follow-up PR; this module currently only owns the hourly sampler.
-"""
+"""Coordinators for evaluation clustering (Stage A sampler + Stage B clustering)."""
 
 import dataclasses
 from datetime import timedelta
@@ -15,6 +11,8 @@ from temporalio.workflow import ChildWorkflowHandle
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.llm_analytics.evaluation_clustering.constants import (
+    CLUSTERING_CHILD_WORKFLOW_ID_PREFIX,
+    CLUSTERING_COORDINATOR_WORKFLOW_NAME,
     SAMPLER_CHILD_WORKFLOW_ID_PREFIX,
     SAMPLER_CHILD_WORKFLOW_RETRY_POLICY,
     SAMPLER_COORDINATOR_WORKFLOW_NAME,
@@ -26,7 +24,10 @@ from posthog.temporal.llm_analytics.evaluation_clustering.models import (
     SamplerWorkflowInputs,
     SamplerWorkflowResult,
 )
-from posthog.temporal.llm_analytics.evaluation_clustering.workflow import LLMAEvaluationSamplerWorkflow
+from posthog.temporal.llm_analytics.evaluation_clustering.workflow import (
+    LLMAEvaluationClusteringWorkflow,
+    LLMAEvaluationSamplerWorkflow,
+)
 
 with temporalio.workflow.unsafe.imports_passed_through():
     from posthog.temporal.llm_analytics.coordinator_metrics import (
@@ -54,12 +55,11 @@ logger = structlog.get_logger(__name__)
 
 
 @dataclasses.dataclass
-class SamplerCoordinatorInputs:
-    """Inputs for the evaluation sampler coordinator.
+class _LevelCoordinatorInputs:
+    """Shared inputs between the sampler and clustering coordinators.
 
-    The clustering coordinator (Stage B) reuses an identical shape but lives in
-    a follow-up PR — the dataclass split is preserved there so the two
-    coordinators stay independent.
+    Evaluation-level clustering doesn't have trace/generation's analysis_level choice —
+    it's implicitly "evaluation" — but the coordinator shape is otherwise identical.
     """
 
     max_concurrent_teams: int = SAMPLER_DEFAULT_MAX_CONCURRENT_TEAMS
@@ -67,6 +67,16 @@ class SamplerCoordinatorInputs:
     remaining_team_ids: list[int] | None = None
     per_team_jobs: dict[str, list[dict[str, Any]]] | None = None
     results_so_far: dict[str, Any] | None = None
+
+
+@dataclasses.dataclass
+class SamplerCoordinatorInputs(_LevelCoordinatorInputs):
+    pass
+
+
+@dataclasses.dataclass
+class ClusteringCoordinatorInputs(_LevelCoordinatorInputs):
+    pass
 
 
 def _empty_results() -> dict[str, Any]:
@@ -201,6 +211,102 @@ class LLMAEvaluationSamplerCoordinatorWorkflow(PostHogWorkflow):
             "evaluation sampler coordinator completed",
             **results_so_far,
         )
+        return SamplerCoordinatorResult(
+            jobs_dispatched=results_so_far["jobs_dispatched"],
+            jobs_succeeded=results_so_far["jobs_succeeded"],
+            jobs_failed=results_so_far["jobs_failed"],
+            total_sampled=results_so_far["total_sampled"],
+            total_embedded=results_so_far["total_embedded"],
+        )
+
+
+@workflow.defn(name=CLUSTERING_COORDINATOR_WORKFLOW_NAME)
+class LLMAEvaluationClusteringCoordinatorWorkflow(PostHogWorkflow):
+    """Daily coordinator that spawns a clustering workflow per (team, eval job).
+
+    Mirrors the sampler coordinator; the child workflow is currently a stub
+    and will be filled in alongside Stage B activities.
+    """
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> ClusteringCoordinatorInputs:
+        return ClusteringCoordinatorInputs(
+            max_concurrent_teams=int(inputs[0]) if inputs else SAMPLER_DEFAULT_MAX_CONCURRENT_TEAMS,
+        )
+
+    @workflow.run
+    async def run(self, inputs: ClusteringCoordinatorInputs) -> SamplerCoordinatorResult:
+        if inputs.remaining_team_ids is not None:
+            team_ids = inputs.remaining_team_ids
+            per_team_jobs: dict[int, list[JobConfig]] = {}
+            if inputs.per_team_jobs:
+                for k, job_dicts in inputs.per_team_jobs.items():
+                    per_team_jobs[int(k)] = [JobConfig(**jd) for jd in job_dicts]
+            results_so_far = inputs.results_so_far or _empty_results()
+        else:
+            logger.info("Starting evaluation clustering coordinator")
+            team_ids, per_team_jobs = await _discover_teams_and_jobs()
+            record_teams_discovered(len(team_ids), "eval_clustering", "evaluation")
+            results_so_far = _empty_results()
+
+        max_concurrent = inputs.max_concurrent_teams
+        for batch_start in range(0, len(team_ids), max_concurrent):
+            batch = team_ids[batch_start : batch_start + max_concurrent]
+
+            handles: list[
+                tuple[int, str, ChildWorkflowHandle[LLMAEvaluationClusteringWorkflow, SamplerWorkflowResult]]
+            ] = []
+            for team_id in batch:
+                for job in _evaluation_jobs_for_team(per_team_jobs.get(team_id, [])):
+                    handle = await workflow.start_child_workflow(
+                        LLMAEvaluationClusteringWorkflow.run,
+                        SamplerWorkflowInputs(
+                            team_id=team_id,
+                            job_id=job.job_id,
+                            job_name=job.name,
+                            event_filters=job.event_filters,
+                        ),
+                        id=(
+                            f"{CLUSTERING_CHILD_WORKFLOW_ID_PREFIX}-{team_id}-{job.job_id}-{workflow.now().isoformat()}"
+                        ),
+                        execution_timeout=timedelta(minutes=30),
+                        retry_policy=SAMPLER_CHILD_WORKFLOW_RETRY_POLICY,
+                        parent_close_policy=workflow.ParentClosePolicy.TERMINATE,
+                    )
+                    handles.append((team_id, job.job_id, handle))
+
+            if handles:
+                record_jobs_dispatched(len(handles), "eval_clustering", "evaluation")
+                results_so_far["jobs_dispatched"] += len(handles)
+
+            for team_id, job_id, handle in handles:
+                try:
+                    res: SamplerWorkflowResult = await handle
+                    results_so_far["jobs_succeeded"] += 1
+                    # Stage B reuses SamplerWorkflowResult with sampled=total_items_analyzed
+                    # and embedded=num_clusters, so accumulate both for the coordinator
+                    # log / SamplerCoordinatorResult (previously dropped).
+                    results_so_far["total_sampled"] += res.sampled
+                    results_so_far["total_embedded"] += res.embedded
+                    increment_team_succeeded("eval_clustering", "evaluation")
+                except Exception:
+                    logger.exception("eval clustering child failed", team_id=team_id, job_id=job_id)
+                    results_so_far["jobs_failed"] += 1
+                    increment_team_failed("eval_clustering", "evaluation")
+
+            remaining = team_ids[batch_start + max_concurrent :]
+            if remaining and workflow.info().is_continue_as_new_suggested():
+                serializable_jobs = {str(k): [dataclasses.asdict(j) for j in v] for k, v in per_team_jobs.items()}
+                workflow.continue_as_new(
+                    ClusteringCoordinatorInputs(
+                        max_concurrent_teams=inputs.max_concurrent_teams,
+                        remaining_team_ids=remaining,
+                        per_team_jobs=serializable_jobs,
+                        results_so_far=results_so_far,
+                    )
+                )
+
+        logger.info("evaluation clustering coordinator completed", **results_so_far)
         return SamplerCoordinatorResult(
             jobs_dispatched=results_so_far["jobs_dispatched"],
             jobs_succeeded=results_so_far["jobs_succeeded"],
