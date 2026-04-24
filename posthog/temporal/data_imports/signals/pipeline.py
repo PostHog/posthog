@@ -47,16 +47,26 @@ def _capture_pipeline_stage(
     organization: Organization,
     output: SignalEmitterOutput,
 ) -> None:
-    posthoganalytics.capture(
-        event=event,
-        distinct_id=str(team.uuid),
-        properties={
-            "source_product": output.source_product,
-            "source_type": output.source_type,
-            "source_id": output.source_id,
-        },
-        groups=groups(organization, team),
-    )
+    try:
+        posthoganalytics.capture(
+            event=event,
+            distinct_id=str(team.uuid),
+            properties={
+                "source_product": output.source_product,
+                "source_type": output.source_type,
+                "source_id": output.source_id,
+            },
+            groups=groups(organization, team),
+        )
+    except Exception:
+        # Swallow the exception, to avoid breaking the flow over failed analytics event
+        logger.exception(
+            "Failed to capture signal pipeline stage event",
+            event=event,
+            source_product=output.source_product,
+            source_type=output.source_type,
+            source_id=output.source_id,
+        )
 
 
 def _safe_heartbeat() -> None:

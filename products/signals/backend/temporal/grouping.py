@@ -770,19 +770,28 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 signal_id=input.signal_id,
             )
         else:
-            posthoganalytics.capture(
-                event="signal_assigned_to_report",
-                distinct_id=str(team.uuid),
-                properties={
-                    "source_product": input.source_product,
-                    "source_type": input.source_type,
-                    "source_id": input.source_id,
-                    "report_id": report_id,
-                    "is_new_report": isinstance(match_result, NewReportMatch),
-                    "promoted": promoted,
-                },
-                groups=groups(team.organization, team),
-            )
+            try:
+                posthoganalytics.capture(
+                    event="signal_assigned_to_report",
+                    distinct_id=str(team.uuid),
+                    properties={
+                        "source_product": input.source_product,
+                        "source_type": input.source_type,
+                        "source_id": input.source_id,
+                        "report_id": report_id,
+                        "is_new_report": isinstance(match_result, NewReportMatch),
+                        "promoted": promoted,
+                    },
+                    groups=groups(team.organization, team),
+                )
+            except Exception:
+                # Swallow the exception, to avoid breaking the flow over failed analytics event
+                logger.exception(
+                    "Failed to capture signal_assigned_to_report event",
+                    report_id=report_id,
+                    team_id=input.team_id,
+                    source_id=input.source_id,
+                )
 
         logger.debug(
             f"Assigned and emitted signal to report {report_id}",

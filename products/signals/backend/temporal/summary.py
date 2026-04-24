@@ -61,12 +61,20 @@ def _capture_report_event(
         properties["result"] = result
     if failure_reason is not None:
         properties["failure_reason"] = failure_reason
-    posthoganalytics.capture(
-        event=event,
-        distinct_id=str(team.uuid),
-        properties=properties,
-        groups=groups(organization, team),
-    )
+    try:
+        posthoganalytics.capture(
+            event=event,
+            distinct_id=str(team.uuid),
+            properties=properties,
+            groups=groups(organization, team),
+        )
+    except Exception:
+        # Swallow the exception, to avoid breaking the flow over failed analytics event
+        logger.exception(
+            "Failed to capture signal report event",
+            event=event,
+            report_id=report_id,
+        )
 
 
 @dataclass
