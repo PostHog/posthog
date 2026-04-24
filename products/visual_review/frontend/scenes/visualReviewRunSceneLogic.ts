@@ -360,16 +360,18 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 const result = await visualReviewRunsRecomputeCreate(String(values.currentProjectId), props.runId)
                 actions.recomputeRunSuccess()
 
-                const parts: string[] = []
-                if (result.counts_changed) {
-                    parts.push('counts updated')
-                }
                 if (result.ci_rerun_triggered) {
-                    parts.push('CI job rerun triggered')
+                    lemonToast.success(
+                        result.counts_changed ? 'Counts updated, CI job re-triggered' : 'CI job re-triggered'
+                    )
                 } else if (result.ci_rerun_error) {
-                    parts.push(result.ci_rerun_error)
+                    if (result.counts_changed) {
+                        lemonToast.success('Counts updated')
+                    }
+                    lemonToast.warning(`CI re-trigger failed: ${result.ci_rerun_error}`)
+                } else {
+                    lemonToast.success(result.counts_changed ? 'Counts updated' : 'No changes needed')
                 }
-                lemonToast.success(parts.length > 0 ? `Recomputed: ${parts.join(', ')}` : 'No changes needed')
                 actions.loadRun()
                 actions.loadSnapshots()
             } catch (e: any) {
