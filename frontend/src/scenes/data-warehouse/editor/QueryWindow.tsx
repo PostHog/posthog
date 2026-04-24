@@ -30,6 +30,7 @@ import { ConnectionSelector } from './ConnectionSelector'
 import { editorSizingLogic } from './editorSizingLogic'
 import { OutputPane } from './OutputPane'
 import { QueryPane } from './QueryPane'
+import { QueryTeamsToQueryToggle } from './QueryTeamsToQueryToggle'
 import { QueryVariablesMenu } from './QueryVariablesMenu'
 import { sqlEditorLogic } from './sqlEditorLogic'
 
@@ -151,6 +152,9 @@ export function QueryWindow({
                     <RunButton />
                     <CollapsedConnectionSelector mode={mode} isDirectQueryEnabled={isDirectQueryEnabled} />
                     <LemonDivider vertical />
+                    <QueryTeamsToQueryToggle
+                        disabledReason={editingView ? 'Cross-project querying is not allowed in views.' : undefined}
+                    />
                     <QueryVariablesMenu
                         disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
                     />

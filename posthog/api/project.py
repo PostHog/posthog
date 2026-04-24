@@ -180,6 +180,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "conversations_settings",  # Compat with TeamSerializer
             "logs_settings",  # Compat with TeamSerializer
             "proactive_tasks_enabled",  # Compat with TeamSerializer
+            "can_query_across_organization_projects",  # Compat with TeamSerializer
             "available_setup_task_ids",  # Compat with TeamSerializer
         )
         read_only_fields = (
@@ -261,6 +262,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "conversations_settings",
             "logs_settings",
             "proactive_tasks_enabled",
+            "can_query_across_organization_projects",
         }
 
         # help_text entries flow into the generated OpenAPI spec, frontend types, and MCP tool schemas.
@@ -700,7 +702,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
             if is_session_auth:
                 request_fields = set(request.data.keys())
                 non_team_config_fields = request_fields - TEAM_CONFIG_FIELDS_SET
-                if not non_team_config_fields:
+                if not non_team_config_fields and "can_query_across_organization_projects" not in request_fields:
                     return ["project:read"]
 
         # Fall back to the default behavior
@@ -729,6 +731,10 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
             elif self.action != "list":
                 # Skip TeamMemberAccessPermission for list action, as list is serialized with limited TeamBasicSerializer
                 permissions.append(TeamMemberLightManagementPermission)
+                if self.action in ("update", "partial_update") and "can_query_across_organization_projects" in set(
+                    self.request.data.keys()
+                ):
+                    permissions.append(OrganizationAdminWritePermissions)
 
         return [permission() for permission in permissions]
 

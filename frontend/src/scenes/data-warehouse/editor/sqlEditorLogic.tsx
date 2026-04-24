@@ -318,7 +318,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             draftsLogic,
             ['saveAsDraft', 'deleteDraft', 'saveAsDraftSuccess', 'deleteDraftSuccess'],
             databaseTableListLogic,
-            ['setConnection', 'loadDatabase'],
+            ['setConnection', 'loadDatabase', 'setTeamsToQuery'],
         ],
     })),
     actions(() => ({
@@ -961,11 +961,18 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 props.editor?.focus()
             },
             setSourceQuery: ({ sourceQuery }) => {
+                const nextSourceQuery = sanitizeSourceQuery(sourceQuery)
+                const currentTeamsToQuery = values.sourceQuery.source.modifiers?.teamsToQuery
+                const nextTeamsToQuery = nextSourceQuery.source.modifiers?.teamsToQuery
+                actions.setTeamsToQuery(nextTeamsToQuery)
+                if (currentTeamsToQuery !== nextTeamsToQuery) {
+                    actions.loadDatabase()
+                }
+
                 if (!values.activeTab) {
                     return
                 }
 
-                const nextSourceQuery = sanitizeSourceQuery(sourceQuery)
                 const currentTab = values.activeTab
                 if (currentTab) {
                     actions.updateTab({

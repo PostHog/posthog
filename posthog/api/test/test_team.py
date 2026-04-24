@@ -2944,6 +2944,35 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             "Only the team belonging to the scoped organization should be listed, the other one should be excluded",
         )
 
+    def test_member_cannot_enable_cross_project_querying(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/",
+            {"can_query_across_organization_projects": True},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.team.refresh_from_db()
+        self.assertFalse(self.team.can_query_across_organization_projects)
+
+    def test_org_admin_can_enable_cross_project_querying(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/",
+            {"can_query_across_organization_projects": True},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["can_query_across_organization_projects"])
+        self.team.refresh_from_db()
+        self.assertTrue(self.team.can_query_across_organization_projects)
+
     @override_settings(SITE_URL="https://eu.posthog.com", CLOUD_DEPLOYMENT="EU")
     def test_new_eu_organization_defaults_to_anonymize_ips_true(self):
         """New organizations on EU cloud should default to default_anonymize_ips=True"""

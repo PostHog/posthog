@@ -87,7 +87,7 @@ def inline_cohort_query(
         if not _is_cohort_fast_enough_to_inline(cohort_id):
             return None
 
-    cohort = Cohort.objects.get(id=cohort_id, team__project_id=context.project_id)
+    cohort = Cohort.objects.get(id=cohort_id, team_id__in=context.query_team_ids)
 
     if not context.team:
         from posthog.models import Team
@@ -122,7 +122,7 @@ def cohort(node: ast.Expr, args: list[ast.Expr], context: HogQLContext) -> ast.E
 
     if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):
         cohorts1 = Cohort.objects.filter(
-            id=int(arg.value), team__project_id=context.project_id, deleted=False
+            id=int(arg.value), team_id__in=context.query_team_ids, deleted=False
         ).values_list("id", "is_static", "version", "name")
         if len(cohorts1) == 1:
             context.add_notice(
@@ -138,9 +138,9 @@ def cohort(node: ast.Expr, args: list[ast.Expr], context: HogQLContext) -> ast.E
         raise QueryError(f"Could not find cohort with ID {arg.value}", node=arg)
 
     if isinstance(arg.value, str):
-        cohorts2 = Cohort.objects.filter(
-            name=arg.value, team__project_id=context.project_id, deleted=False
-        ).values_list("id", "is_static", "version")
+        cohorts2 = Cohort.objects.filter(name=arg.value, team_id__in=context.query_team_ids, deleted=False).values_list(
+            "id", "is_static", "version"
+        )
         if len(cohorts2) == 1:
             context.add_notice(
                 start=arg.start,

@@ -203,9 +203,11 @@ TEAM_CONFIG_FIELDS = (
     "conversations_enabled",
     "conversations_settings",
     "proactive_tasks_enabled",
+    "can_query_across_organization_projects",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
+ORG_ADMIN_ONLY_TEAM_CONFIG_FIELDS = {"can_query_across_organization_projects"}
 
 
 class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
@@ -1365,7 +1367,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             if is_session_auth:
                 request_fields = set(request.data.keys())
                 non_team_config_fields = request_fields - TEAM_CONFIG_FIELDS_SET
-                if not non_team_config_fields:
+                if not non_team_config_fields and not request_fields.intersection(ORG_ADMIN_ONLY_TEAM_CONFIG_FIELDS):
                     return ["project:read"]
 
         # Team-level config actions that any member should be able to edit via the UI.
@@ -1402,6 +1404,10 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             elif self.action != "list":
                 # Skip TeamMemberAccessPermission for list action, as list is serialized with limited TeamBasicSerializer
                 permissions.append(TeamMemberLightManagementPermission)
+                if self.action in ("update", "partial_update") and set(self.request.data.keys()).intersection(
+                    ORG_ADMIN_ONLY_TEAM_CONFIG_FIELDS
+                ):
+                    permissions.append(OrganizationAdminWritePermissions)
 
         return [permission() for permission in permissions]
 

@@ -616,6 +616,7 @@ export interface CorrelationConfigType {
 
 export interface ProjectType extends ProjectBasicType {
     created_at: string
+    can_query_across_organization_projects?: boolean
 }
 
 export interface TeamSurveyConfigType {
@@ -711,6 +712,7 @@ export interface TeamType extends TeamBasicType {
     heatmaps_opt_in?: boolean
     conversations_enabled?: boolean
     conversations_settings?: ConversationsSettings | null
+    can_query_across_organization_projects?: boolean
     web_analytics_pre_aggregated_tables_enabled?: boolean
     web_analytics_pre_aggregated_tables_version?: 'v1' | 'v2'
     autocapture_exceptions_errors_to_ignore: string[]

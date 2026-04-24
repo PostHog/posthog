@@ -60,13 +60,24 @@ def _join_constraint_has_non_equality(expr: ast.Expr) -> bool:
 
 def team_id_guard_for_table(table_type: ast.TableOrSelectType, context: HogQLContext) -> ast.Expr:
     """Add a mandatory "and(team_id, ...)" filter around the expression."""
-    if not context.team_id:
+    query_team_ids = context.query_team_ids
+    if not query_team_ids:
         raise InternalHogQLError("context.team_id not found")
 
+    if len(query_team_ids) == 1:
+        op = ast.CompareOperationOp.Eq
+        right: ast.Expr = ast.Constant(value=query_team_ids[0])
+    else:
+        op = ast.CompareOperationOp.In
+        right = ast.Tuple(
+            exprs=[ast.Constant(value=team_id) for team_id in query_team_ids],
+            type=ast.TupleType(item_types=[ast.IntegerType() for _ in query_team_ids]),
+        )
+
     return ast.CompareOperation(
-        op=ast.CompareOperationOp.Eq,
+        op=op,
         left=ast.Field(chain=["team_id"], type=ast.FieldType(name="team_id", table_type=table_type)),
-        right=ast.Constant(value=context.team_id),
+        right=right,
         type=ast.BooleanType(),
     )
 

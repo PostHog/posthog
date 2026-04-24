@@ -1699,7 +1699,7 @@ def serialize_fields(
             if field.hidden:
                 continue
 
-        if field_key == "team_id" and table_type == "posthog":
+        if field_key == "team_id" and table_type == "posthog" and not context.query_projects_multiple_teams:
             pass
         elif isinstance(field, DatabaseField):
             if isinstance(field, IntegerDatabaseField):

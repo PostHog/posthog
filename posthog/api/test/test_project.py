@@ -194,6 +194,35 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["name"], "Updated Name")
 
+    def test_member_cannot_enable_cross_project_querying(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"can_query_across_organization_projects": True},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.team.refresh_from_db()
+        self.assertFalse(self.team.can_query_across_organization_projects)
+
+    def test_org_admin_can_enable_cross_project_querying(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"can_query_across_organization_projects": True},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["can_query_across_organization_projects"])
+        self.team.refresh_from_db()
+        self.assertTrue(self.team.can_query_across_organization_projects)
+
     @patch("posthog.api.project.delete_project_data_and_notify_task")
     def test_project_deletion_queues_async_task(self, mock_delete_task):
         """Verify that project deletion queues async task for full deletion."""

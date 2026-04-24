@@ -80,6 +80,30 @@ class HogQLContext:
         if self.team:
             self.team_id = self.team.id
 
+    @cached_property
+    def query_team_ids(self) -> list[int]:
+        from posthog.hogql.team_scoping import get_scoped_team_ids
+
+        from posthog.models import Team
+
+        if not self.team and self.team_id:
+            self.team = Team.objects.select_related("organization").get(id=self.team_id)
+
+        if self.team is None:
+            if self.team_id is None:
+                raise ValueError("Either team or team_id must be set to determine query_team_ids")
+            return [self.team_id]
+
+        return get_scoped_team_ids(
+            team=self.team,
+            user=self.user,
+            teams_to_query=self.modifiers.teamsToQuery,
+        )
+
+    @cached_property
+    def query_projects_multiple_teams(self) -> bool:
+        return len(self.query_team_ids) > 1
+
     def add_value(self, value: Any) -> str:
         key = f"hogql_val_{len(self.values)}"
         self.values[key] = value

@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Literal, Optional, cast
 
 from django.db import models
+from django.db.models import Case, IntegerField, Value, When
 from django.db.models.functions.comparison import Coalesce
 
 from posthog.schema import PersonsOnEventsMode
@@ -56,13 +57,20 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
     property_finder = PropertyFinder(context)
     property_finder.visit(node)
 
+    team_priority = Case(
+        When(team_id=context.team_id, then=Value(0)),
+        default=Value(1),
+        output_field=IntegerField(),
+    )
+
     # Load event property definitions with their materialized slots in a single query
     event_property_definitions = (
         PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+            effective_team_id=Coalesce("team_id", "project_id", output_field=models.BigIntegerField()),
+            team_priority=team_priority,
         )
         .filter(
-            effective_project_id=context.team.project_id,
+            effective_team_id__in=context.query_team_ids,
             name__in=property_finder.event_properties,
             type__in=[None, PropertyDefinition.Type.EVENT],
         )
@@ -74,6 +82,7 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
                 ),
             )
         )
+        .order_by("name", "team_priority", "-property_type")
         if property_finder.event_properties
         else []
     )
@@ -94,13 +103,15 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
 
     person_property_values = (
         PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+            effective_team_id=Coalesce("team_id", "project_id", output_field=models.BigIntegerField()),
+            team_priority=team_priority,
         )
         .filter(
-            effective_project_id=context.team.project_id,
+            effective_team_id__in=context.query_team_ids,
             name__in=property_finder.person_properties,
             type=PropertyDefinition.Type.PERSON,
         )
+        .order_by("name", "team_priority", "-property_type")
         .values_list("name", "property_type")
         if property_finder.person_properties
         else []
@@ -115,14 +126,16 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
             continue
         group_property_values = (
             PropertyDefinition.objects.alias(
-                effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+                effective_team_id=Coalesce("team_id", "project_id", output_field=models.BigIntegerField()),
+                team_priority=team_priority,
             )
             .filter(
-                effective_project_id=context.team.project_id,
+                effective_team_id__in=context.query_team_ids,
                 name__in=properties,
                 type=PropertyDefinition.Type.GROUP,
                 group_type_index=group_id,
             )
+            .order_by("name", "team_priority", "-property_type")
             .values_list("name", "property_type")
         )
         group_properties.update(

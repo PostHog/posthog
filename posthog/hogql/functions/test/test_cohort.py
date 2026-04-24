@@ -18,9 +18,10 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_response_in_tests
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.models import Cohort
+from posthog.models import Cohort, Project
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.cohort.util import recalculate_cohortpeople
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 
@@ -124,6 +125,41 @@ class TestCohort(BaseTest):
                 self.team,
             )
         self.assertEqual(str(e.exception), "Could not find a cohort with the name 'blabla'")
+
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_cohort_function_across_projects_when_enabled(self):
+        _, other_team = Project.objects.create_with_team(organization=self.organization, initiating_user=self.user)
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+            level=OrganizationMembership.Level.ADMIN
+        )
+        self.team.can_query_across_organization_projects = True
+        self.team.save()
+
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
+        _create_person(
+            properties={"$os": "Chrome", "random_uuid": random_uuid},
+            team=other_team,
+            distinct_ids=["other-bla"],
+            is_identified=True,
+        )
+        _create_event(distinct_id="other-bla", event=random_uuid, team=other_team)
+
+        cohort = Cohort.objects.create(
+            team=other_team,
+            groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}],
+        )
+        recalculate_cohortpeople(cohort, pending_version=0, initiating_user_id=None)
+
+        response = execute_hogql_query(
+            f"SELECT event FROM events WHERE person_id IN cohort({cohort.pk}) AND event='{random_uuid}'",
+            self.team,
+            user=self.user,
+            modifiers=HogQLQueryModifiers(teamsToQuery="all", inCohortVia="subquery"),
+            pretty=False,
+        )
+
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0][0], random_uuid)
 
 
 class TestInlineCohortSubquery(BaseTest):

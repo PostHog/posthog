@@ -57,6 +57,7 @@ import {
 } from './environment/ActivityLogSettings'
 import { AutocaptureSettings, WebVitalsAutocaptureSettings } from './environment/AutocaptureSettings'
 import { CorrelationConfig } from './environment/CorrelationConfig'
+import { CrossProjectQuerySettings } from './environment/CrossProjectQuerySettings'
 import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { DataAttributes } from './environment/DataAttributes'
 import { DataColorThemes } from './environment/DataColorThemes'
@@ -283,6 +284,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Set the default currency used for revenue and monetary calculations.',
                 component: <BaseCurrency hideTitle />,
                 keywords: ['money', 'currency', 'usd', 'eur'],
+            },
+            {
+                id: 'cross-project-querying',
+                title: 'Cross-project querying',
+                description:
+                    'Allow organization admins to run HogQL queries from this project across other projects in the same organization.',
+                component: <CrossProjectQuerySettings />,
+                allowForTeam: (t) => (t?.effective_membership_level ?? 0) >= OrganizationMembershipLevel.Admin,
+                keywords: ['hogql', 'sql', 'projects', 'organization'],
             },
         ],
     },

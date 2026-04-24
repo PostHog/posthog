@@ -100,7 +100,7 @@ class MultipleInCohortResolver(TraversingVisitor):
 
             if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):
                 int_cohorts = Cohort.objects.filter(
-                    id=int(arg.value), team__project_id=self.context.project_id, deleted=False
+                    id=int(arg.value), team_id__in=self.context.query_team_ids, deleted=False
                 ).values_list("id", "is_static", "version")
                 if len(int_cohorts) == 1:
                     if node.op == ast.CompareOperationOp.NotInCohort:
@@ -116,7 +116,7 @@ class MultipleInCohortResolver(TraversingVisitor):
 
             if isinstance(arg.value, str):
                 str_cohorts = Cohort.objects.filter(
-                    name=arg.value, team__project_id=self.context.project_id, deleted=False
+                    name=arg.value, team_id__in=self.context.query_team_ids, deleted=False
                 ).values_list("id", "is_static", "version")
                 if len(str_cohorts) == 1:
                     if node.op == ast.CompareOperationOp.NotInCohort:
@@ -303,7 +303,7 @@ class InCohortResolver(TraversingVisitor):
 
             if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):
                 cohorts = Cohort.objects.filter(
-                    id=int(arg.value), team__project_id=self.context.project_id, deleted=False
+                    id=int(arg.value), team_id__in=self.context.query_team_ids, deleted=False
                 ).values_list("id", "is_static", "version", "name")
                 if len(cohorts) == 1:
                     self.context.add_notice(
@@ -325,7 +325,7 @@ class InCohortResolver(TraversingVisitor):
 
             if isinstance(arg.value, str):
                 cohorts2 = Cohort.objects.filter(
-                    name=arg.value, team__project_id=self.context.project_id, deleted=False
+                    name=arg.value, team_id__in=self.context.query_team_ids, deleted=False
                 ).values_list("id", "is_static", "version")
                 if len(cohorts2) == 1:
                     self.context.add_notice(

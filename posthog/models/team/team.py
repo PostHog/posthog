@@ -400,6 +400,15 @@ class Team(UUIDTClassicModel):
     # Proactive tasks (#team-signals)
     proactive_tasks_enabled = models.BooleanField(null=True, blank=True)
 
+    can_query_across_organization_projects = field_access_control(
+        models.BooleanField(
+            default=False,
+            help_text="Whether this project can run HogQL queries against other projects in the same organization.",
+        ),
+        "project",
+        "admin",
+    )
+
     # Surveys
     survey_config = field_access_control(models.JSONField(null=True, blank=True), "project", "admin")
     surveys_opt_in = field_access_control(models.BooleanField(null=True, blank=True), "project", "admin")

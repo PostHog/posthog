@@ -1,10 +1,13 @@
 import pytest
 from posthog.test.base import BaseTest, _create_action, _create_event, _create_person, flush_persons_and_events
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_response_in_tests
 
-from posthog.models import Action
+from posthog.models import Action, Project
+from posthog.models.organization import OrganizationMembership
 from posthog.models.utils import UUIDT
 
 
@@ -79,6 +82,41 @@ class TestAction(BaseTest):
         )
 
         assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
+        assert response.results is not None
+        assert len(response.results) == 1
+        assert response.results[0][0] == random_uuid
+
+    def test_matches_action_across_projects_when_enabled(self):
+        _, other_team = Project.objects.create_with_team(organization=self.organization, initiating_user=self.user)
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+            level=OrganizationMembership.Level.ADMIN
+        )
+        self.team.can_query_across_organization_projects = True
+        self.team.save()
+
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
+        _create_person(
+            properties={"$os": "Chrome", "random_uuid": random_uuid},
+            team=other_team,
+            distinct_ids=["other-bla"],
+            is_identified=True,
+        )
+        _create_event(
+            distinct_id="other-bla",
+            event=random_uuid,
+            team=other_team,
+            properties={"$current_url": "https://posthog.com/feedback/123?vip=1"},
+        )
+        _create_action(team=other_team, name=random_uuid)
+        flush_persons_and_events()
+
+        response = execute_hogql_query(
+            f"SELECT event FROM events WHERE matchesAction('{random_uuid}')",
+            self.team,
+            user=self.user,
+            modifiers=HogQLQueryModifiers(teamsToQuery="all"),
+        )
+
         assert response.results is not None
         assert len(response.results) == 1
         assert response.results[0][0] == random_uuid

@@ -214,8 +214,8 @@ const shouldHideField = (field: DatabaseSchemaField): boolean => {
     return field.name === 'team_id' && field.type === 'unknown'
 }
 
-const shouldHideFieldName = (fieldName: string): boolean => {
-    return fieldName === 'team_id'
+const shouldHideFieldName = (): boolean => {
+    return false
 }
 
 const shouldUseDirectConnectionTree = (connectionId: string | null): boolean => {

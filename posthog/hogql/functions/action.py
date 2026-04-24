@@ -16,7 +16,7 @@ def matches_action(node: ast.Expr, args: list[ast.Expr], context: HogQLContext, 
     from posthog.models import Action
 
     if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):
-        actions = Action.objects.filter(id=int(arg.value), team__project_id=context.project_id).all()
+        actions = Action.objects.filter(id=int(arg.value), team_id__in=context.query_team_ids).all()
         if len(actions) == 1:
             context.add_notice(
                 start=arg.start,
@@ -25,10 +25,10 @@ def matches_action(node: ast.Expr, args: list[ast.Expr], context: HogQLContext, 
                 fix=escape_clickhouse_string(actions[0].name),
             )
             return action_to_expr(actions[0], events_alias=events_alias)
-        raise QueryError(f"Could not find cohort with ID {arg.value}", node=arg)
+        raise QueryError(f"Could not find action with ID {arg.value}", node=arg)
 
     if isinstance(arg.value, str):
-        actions = Action.objects.filter(name=arg.value, team__project_id=context.project_id).all()
+        actions = Action.objects.filter(name=arg.value, team_id__in=context.query_team_ids).all()
         if len(actions) == 1:
             context.add_notice(
                 start=arg.start,

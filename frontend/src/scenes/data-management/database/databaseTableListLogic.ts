@@ -52,6 +52,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setConnection: (connectionId: string | null) => ({ connectionId }),
+        setTeamsToQuery: (teamsToQuery: 'all' | 'self' | number[] | undefined) => ({ teamsToQuery }),
     }),
     loaders(({ values }) => ({
         database: [
@@ -59,7 +60,11 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             {
                 loadDatabase: async (): Promise<Required<DatabaseSchemaQueryResponse> | null> => {
                     const requestConnectionId = isDirectQueryEnabled() ? (values.connectionId ?? undefined) : undefined
-                    const requestKey = requestConnectionId ?? '__posthog__'
+                    const requestTeamsToQuery = values.teamsToQuery
+                    const requestKey = JSON.stringify({
+                        connectionId: requestConnectionId ?? '__posthog__',
+                        teamsToQuery: requestTeamsToQuery ?? 'self',
+                    })
 
                     if (inFlightDatabaseLoadKey === requestKey && inFlightDatabaseLoadPromise) {
                         return await inFlightDatabaseLoadPromise
@@ -69,6 +74,9 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                         setLatestVersionsOnQuery({
                             kind: NodeKind.DatabaseSchemaQuery,
                             connectionId: requestConnectionId,
+                            modifiers: {
+                                teamsToQuery: requestTeamsToQuery,
+                            },
                         }) as DatabaseSchemaQuery
                     )
 
@@ -99,6 +107,10 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
     reducers({
         searchTerm: ['', { setSearchTerm: (_, { searchTerm }) => searchTerm }],
         connectionId: [null as string | null, { setConnection: (_, { connectionId }) => connectionId }],
+        teamsToQuery: [
+            undefined as 'all' | 'self' | number[] | undefined,
+            { setTeamsToQuery: (_, { teamsToQuery }) => teamsToQuery },
+        ],
     }),
     selectors({
         allPosthogTables: [
