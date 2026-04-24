@@ -178,6 +178,13 @@ class OpenAIAdapter:
             if error_code == "insufficient_quota":
                 raise QuotaExceededError(str(e))
             raise RateLimitError(str(e))
+        except openai.APIStatusError as e:
+            # OpenRouter returns 402 when the key can't afford the requested
+            # max_tokens (or is out of credits). Retrying never helps — mirror
+            # the quota path so the workflow marks the key errored and stops.
+            if getattr(e, "status_code", None) == 402:
+                raise QuotaExceededError(str(e))
+            raise
 
     def _complete_with_json_fallback(
         self,

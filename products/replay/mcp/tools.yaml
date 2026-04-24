@@ -7,6 +7,10 @@
 category: Session replays
 feature: replay
 url_prefix: /replay
+ui_apps:
+    session-recording:
+        type: detail
+        view_prop: recording
 tools:
     session-recordings-list:
         operation: session_recordings_list
@@ -20,6 +24,8 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        ui_app: session-recording
+        enrich_url: '{id}'
         title: Get session recording
         description: >
             Get a specific session recording by ID. Returns full recording metadata including

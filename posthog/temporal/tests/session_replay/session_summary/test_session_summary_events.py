@@ -41,11 +41,13 @@ def test_capture_session_summary_ready_emits_internal_project_event(
     )
     settings.SITE_URL = "http://localhost:8000"
     response = mocker.MagicMock()
-    capture_internal = mocker.patch("ee.hogai.session_summaries.events.capture_internal", return_value=response)
+    capture_internal = mocker.patch(
+        "posthog.temporal.session_replay.session_summary.events.capture_internal", return_value=response
+    )
 
-    from ee.hogai.session_summaries.events import capture_session_summary_ready
+    from posthog.temporal.session_replay.session_summary.events import capture_session_summary_ready
 
-    capture_session_summary_ready(summary, summary_origin="single", team_api_token="token-override")
+    capture_session_summary_ready(summary, team_api_token="token-override")
 
     capture_internal.assert_called_once()
     _, kwargs = capture_internal.call_args
@@ -57,12 +59,10 @@ def test_capture_session_summary_ready_emits_internal_project_event(
     assert kwargs["properties"]["session_id"] == "summary-session-1"
     assert kwargs["properties"]["team_id"] == team.id
     assert kwargs["properties"]["summary_id"] == str(summary.id)
-    assert kwargs["properties"]["summary_origin"] == "single"
     assert kwargs["properties"]["session_summary"] == summary.summary
     assert kwargs["properties"]["replay_url"] == f"http://localhost:8000/project/{team.id}/replay/summary-session-1"
     assert kwargs["properties"]["extra_summary_context"] == {"focus_area": "checkout"}
     assert kwargs["properties"]["session_summary_focus_area"] == "checkout"
-    assert kwargs["properties"]["visual_confirmation"] is False
     assert kwargs["properties"]["model_used"] == "gpt-test"
     assert kwargs["properties"]["session_start_time"] is None
     assert kwargs["properties"]["session_duration"] is None
@@ -85,12 +85,12 @@ def test_capture_session_summary_ready_swallow_capture_errors(
     )
     response = mocker.MagicMock()
     response.raise_for_status.side_effect = HTTPError("boom", response=Response())
-    mocker.patch("ee.hogai.session_summaries.events.capture_internal", return_value=response)
-    logger = mocker.patch("ee.hogai.session_summaries.events.logger")
+    mocker.patch("posthog.temporal.session_replay.session_summary.events.capture_internal", return_value=response)
+    logger = mocker.patch("posthog.temporal.session_replay.session_summary.events.logger")
 
-    from ee.hogai.session_summaries.events import capture_session_summary_ready
+    from posthog.temporal.session_replay.session_summary.events import capture_session_summary_ready
 
-    capture_session_summary_ready(summary, summary_origin="single", team_api_token=team.api_token)
+    capture_session_summary_ready(summary, team_api_token=team.api_token)
 
     logger.exception.assert_called_once()
 
@@ -148,13 +148,12 @@ async def test_store_video_session_summary_activity_emits_summary_ready_event(
         sentiment=SessionSentiment(frustration_score=0.8, outcome="blocked", sentiment_signals=[]),
     )
 
-    await store_video_session_summary_activity(inputs, analysis)
+    await store_video_session_summary_activity(inputs, analysis, ateam.api_token)
 
     capture_session_summary_ready.assert_called_once()
     emitted_summary = capture_session_summary_ready.call_args.args[0]
     assert emitted_summary.session_id == "video-session-1"
     assert emitted_summary.team_id == ateam.id
-    assert capture_session_summary_ready.call_args.kwargs["summary_origin"] == "single"
     assert capture_session_summary_ready.call_args.kwargs["team_api_token"] == ateam.api_token
     assert emitted_summary.run_metadata["visual_confirmation"] is True
     assert emitted_summary.run_metadata["model_used"] == "gpt-test"
@@ -204,7 +203,7 @@ async def test_store_video_session_summary_activity_does_not_emit_existing_summa
         sentiment=SessionSentiment(frustration_score=0.8, outcome="blocked", sentiment_signals=[]),
     )
 
-    await store_video_session_summary_activity(inputs, analysis)
+    await store_video_session_summary_activity(inputs, analysis, ateam.api_token)
 
     capture_session_summary_ready.assert_not_called()
     get_data_class_from_redis.assert_not_called()

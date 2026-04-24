@@ -192,3 +192,6 @@ tools:
     persons-deletion-status-list:
         operation: persons_deletion_status_list
         enabled: false
+    persons-all-activity-retrieve:
+        operation: persons_all_activity_retrieve
+        enabled: false

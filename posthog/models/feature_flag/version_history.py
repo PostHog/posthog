@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import Any
 
+from django.utils import timezone
+
 from posthog.models.activity_logging.activity_log import ActivityLog, common_field_exclusions, field_exclusions
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 
@@ -11,6 +13,12 @@ class VersionNotFound(Exception):
 
 class VersionHistoryIncomplete(Exception):
     pass
+
+
+def _validate_aware_timestamp(timestamp: datetime) -> None:
+    """Validate that the timestamp is timezone-aware to avoid comparison errors."""
+    if not timezone.is_aware(timestamp):
+        raise ValueError("timestamp must be timezone-aware")
 
 
 def _get_reconstructable_fields() -> frozenset[str]:
@@ -168,3 +176,88 @@ def reconstruct_flag_at_version(
         version_timestamp=version_timestamp,
         modified_by=modified_by,
     )
+
+
+def find_version_at_timestamp(flag: FeatureFlag, timestamp: datetime, team_id: int) -> int | None:
+    """
+    Find the appropriate version number for a feature flag at a given timestamp.
+
+    Returns the version that was active at the specified timestamp, or None if
+    the flag didn't exist at that time.
+
+    A flag is considered non-existent if:
+    - The timestamp is before the flag's creation
+    - The flag was soft-deleted at or before the timestamp (without subsequent restoration)
+
+    This ensures historical evaluation treats soft-deleted flags consistently
+    with flags that never existed at the given time.
+
+    Raises:
+        VersionHistoryIncomplete: If the flag exists but is missing version metadata.
+        ValueError: If the timestamp is not timezone-aware.
+    """
+    _validate_aware_timestamp(timestamp)
+    if flag.version is None:
+        raise VersionHistoryIncomplete(f"Flag {flag.id} is missing version metadata")
+
+    # If timestamp is before flag creation, flag didn't exist
+    if timestamp < flag.created_at:
+        return None
+
+    # Get activity log entries at or before the timestamp, newest first
+    entries = (
+        ActivityLog.objects.filter(
+            team_id=team_id,
+            scope="FeatureFlag",
+            item_id=str(flag.id),
+            activity__in=["updated", "deleted", "restored"],
+            created_at__lte=timestamp,
+        )
+        .order_by("-created_at", "-id")
+        .values_list("activity", "detail")[:MAX_HISTORY_ENTRIES]
+        .iterator()
+    )
+
+    for activity, detail in entries:
+        changes = (detail or {}).get("changes") or []
+        version_after = _get_version_after(changes)
+
+        # Track deletion/restoration regardless of whether this entry carried a
+        # version change. Bulk deletes are logged with empty changes.
+        if activity == "deleted":
+            return None
+
+        if version_after is not None:
+            return version_after
+
+    # No activity log entries found. If timestamp is after the flag's last update,
+    # return the current version. The scan has authoritative deletion state,
+    # or we wouldn't reach here.
+    if timestamp >= (flag.updated_at or flag.created_at):
+        return flag.version
+
+    return 1
+
+
+def reconstruct_flag_at_timestamp(
+    flag: FeatureFlag,
+    timestamp: datetime,
+    team_id: int,
+) -> dict[str, Any]:
+    """
+    Resolve the version active at timestamp and return that version's state.
+
+    Raises VersionNotFound if the flag did not exist at the timestamp (before creation,
+    or soft-deleted without a subsequent restore).
+    Raises VersionHistoryIncomplete if the flag is missing version metadata, or if the
+    activity log is missing entries needed for reconstruction.
+    Raises ValueError if timestamp is not timezone-aware.
+    """
+    # Find the version that was active at the timestamp
+    target_version = find_version_at_timestamp(flag, timestamp, team_id)
+
+    if target_version is None:
+        raise VersionNotFound(f"Flag did not exist at {timestamp} (created at {flag.created_at})")
+
+    # Use the existing reconstruction logic
+    return reconstruct_flag_at_version(flag, target_version, team_id)

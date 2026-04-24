@@ -44,8 +44,8 @@ class PlanInfo:
     billing_period: BillingPeriod | None = None
 
 
-def _redis_key(user_id: int) -> str:
-    return f"{PLAN_CACHE_PREFIX}:{user_id}"
+def _redis_key(user_id: int, team_id: int | None) -> str:
+    return f"{PLAN_CACHE_PREFIX}:{user_id}:{team_id or 0}"
 
 
 def is_pro_plan(plan_key: str | None) -> bool:
@@ -89,6 +89,7 @@ async def resolve_plan_info(
     request: Request,
     user_id: int,
     product: str,
+    team_id: int | None = None,
 ) -> PlanInfo:
     """Resolve plan info, returning safe defaults on failure."""
     if product != POSTHOG_CODE_PRODUCT:
@@ -100,6 +101,7 @@ async def resolve_plan_info(
         return await plan_resolver.get_plan(
             user_id=user_id,
             auth_header=auth_header,
+            team_id=team_id,
         )
     except Exception:
         logger.warning("plan_resolve_failed", user_id=user_id)
@@ -115,20 +117,26 @@ class PlanResolver:
         self._redis = redis
         self._http = http_client
 
-    async def invalidate(self, user_id: int) -> None:
+    async def invalidate(self, user_id: int, team_id: int | None = None) -> None:
+        """Invalidate the plan cache for a specific (user, team) pair.
+
+        Only deletes the entry for the given team_id. Entries cached under
+        other team_ids are left to expire naturally via TTL since reads are
+        always scoped to the current team's key.
+        """
         if not self._redis:
             return
         try:
-            await self._redis.delete(_redis_key(user_id))
+            await self._redis.delete(_redis_key(user_id, team_id))
         except Exception:
             logger.debug("plan_cache_invalidate_failed", user_id=user_id)
 
-    async def get_plan(self, user_id: int, auth_header: str) -> PlanInfo:
+    async def get_plan(self, user_id: int, auth_header: str, team_id: int | None = None) -> PlanInfo:
         """Return the user's plan info, using cache when available."""
         if not auth_header:
             return PlanInfo(plan_key=None, seat_created_at=None)
 
-        cached = await self._get_cached(user_id)
+        cached = await self._get_cached(user_id, team_id)
         if cached is not None:
             return cached
 
@@ -138,18 +146,18 @@ class PlanResolver:
             logger.warning("seat_fetch_failed", user_id=user_id, exc_info=True)
             return PlanInfo(plan_key=None, seat_created_at=None)
 
-        await self._set_cached(user_id, plan_key, seat_created_at, billing_period)
+        await self._set_cached(user_id, plan_key, seat_created_at, billing_period, team_id)
         return PlanInfo(
             plan_key=plan_key,
             seat_created_at=seat_created_at,
             billing_period=billing_period,
         )
 
-    async def _get_cached(self, user_id: int) -> PlanInfo | None:
+    async def _get_cached(self, user_id: int, team_id: int | None = None) -> PlanInfo | None:
         if not self._redis:
             return None
         try:
-            val = await self._redis.get(_redis_key(user_id))
+            val = await self._redis.get(_redis_key(user_id, team_id))
             if val is not None:
                 data = json.loads(val.decode())
                 plan_key = data.get("plan_key") or None
@@ -170,6 +178,7 @@ class PlanResolver:
         plan_key: str | None,
         seat_created_at: str | None,
         billing_period: BillingPeriod | None = None,
+        team_id: int | None = None,
     ) -> None:
         if not self._redis:
             return
@@ -183,7 +192,7 @@ class PlanResolver:
                     "interval": billing_period.interval,
                 }
             data = json.dumps(payload)
-            await self._redis.set(_redis_key(user_id), data, ex=ttl)
+            await self._redis.set(_redis_key(user_id, team_id), data, ex=ttl)
         except Exception:
             logger.debug("plan_cache_write_failed", user_id=user_id)
 

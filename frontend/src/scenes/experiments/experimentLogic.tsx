@@ -245,20 +245,61 @@ function parseMetricErrorDetail(error: any): { detail: any; hasDiagnostics: bool
     }
 }
 
+// Coerces the parsed error detail into a flat string suitable for telemetry:
+// prefers DRF's `{"detail": "..."}` shape over a raw JSON blob so values group
+// readably in property breakdowns.
+export function extractErrorDetailString(errorDetail: unknown): string | null {
+    if (errorDetail == null) {
+        return null
+    }
+    if (typeof errorDetail === 'string') {
+        return errorDetail
+    }
+    if (typeof errorDetail === 'object' && typeof (errorDetail as { detail?: unknown }).detail === 'string') {
+        return (errorDetail as { detail: string }).detail
+    }
+    try {
+        return JSON.stringify(errorDetail)
+    } catch {
+        return null
+    }
+}
+
 function isTimeoutError(errorDetail: unknown, errorMessage: string | null, statusCode: number | null): boolean {
-    if (statusCode === 504) {
+    if (statusCode === 504 || statusCode === 408) {
         return true
     }
 
     return errorDetail === QUERY_TIMEOUT_ERROR_MESSAGE || errorMessage === QUERY_TIMEOUT_ERROR_MESSAGE
 }
 
-function classifyError(
+const NETWORK_ERROR_MESSAGE_PATTERN = /(NetworkError|Failed to fetch|Load failed|Failed to execute 'fetch')/i
+
+function isNetworkError(errorCode: string | null, errorMessage: string | null, statusCode: number | null): boolean {
+    if (errorCode === 'network_error' || statusCode === 0) {
+        return true
+    }
+    // Only treat as network error when no HTTP response was received
+    return statusCode === null && !!errorMessage && NETWORK_ERROR_MESSAGE_PATTERN.test(errorMessage)
+}
+
+export type ExperimentMetricErrorType =
+    | 'timeout'
+    | 'out_of_memory'
+    | 'server_error'
+    | 'network_error'
+    | 'not_found'
+    | 'authentication'
+    | 'authorization'
+    | 'validation_error'
+    | 'unknown'
+
+export function classifyError(
     errorDetail: unknown,
     errorMessage: string | null,
     errorCode: string | null,
     statusCode: number | null
-): 'timeout' | 'out_of_memory' | 'server_error' | 'network_error' | 'unknown' {
+): ExperimentMetricErrorType {
     if (isTimeoutError(errorDetail, errorMessage, statusCode)) {
         return 'timeout'
     }
@@ -268,8 +309,20 @@ function classifyError(
     if (statusCode !== null && statusCode >= 500) {
         return 'server_error'
     }
-    if (statusCode === 0 || errorCode === 'network_error' || errorMessage?.includes('NetworkError')) {
+    if (isNetworkError(errorCode, errorMessage, statusCode)) {
         return 'network_error'
+    }
+    if (statusCode === 404) {
+        return 'not_found'
+    }
+    if (statusCode === 401 || errorCode === 'not_authenticated') {
+        return 'authentication'
+    }
+    if (statusCode === 403 || errorCode === 'permission_denied') {
+        return 'authorization'
+    }
+    if (statusCode === 400) {
+        return 'validation_error'
     }
     return 'unknown'
 }
@@ -460,21 +513,6 @@ const loadMetrics = async ({
 
                 erroredCount++
 
-                // Keep backwards-compatible events firing
-                if (errorType === 'timeout') {
-                    eventUsageLogic.actions.reportExperimentMetricTimeout(experimentId, metric, teamId, queryId)
-                } else if (errorType === 'out_of_memory') {
-                    eventUsageLogic.actions.reportExperimentMetricOutOfMemory(
-                        experimentId,
-                        metric,
-                        teamId,
-                        queryId,
-                        errorCode,
-                        errorMessage
-                    )
-                }
-
-                // Unified error event for all error types
                 eventUsageLogic.actions.reportExperimentMetricError(experimentId, metric, teamId, queryId, {
                     duration_ms: durationMs,
                     metric_index: metricIndex,
@@ -485,6 +523,7 @@ const loadMetrics = async ({
                     error_type: errorType,
                     error_code: errorCode,
                     error_message: errorMessage,
+                    error_detail: extractErrorDetailString(errorDetail),
                     status_code: statusCode,
                 })
 
@@ -611,7 +650,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentHoldoutAssigned',
                 'reportExperimentSharedMetricAssigned',
                 'reportExperimentDashboardCreated',
-                'reportExperimentMetricTimeout',
                 'reportExperimentTimeseriesViewed',
                 'reportExperimentTimeseriesRecalculated',
                 'reportExperimentAiSummaryRequested',

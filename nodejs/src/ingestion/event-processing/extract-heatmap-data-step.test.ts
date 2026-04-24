@@ -1,3 +1,4 @@
+import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { createMockIngestionOutputs } from '../../../tests/helpers/mock-ingestion-outputs'
 import { ISOTimestamp, PreIngestionEvent, ProjectId } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
@@ -428,6 +429,42 @@ describe('createExtractHeatmapDataStep', () => {
             expect(message.viewport_height).toBe(100) // 1600 / 16
             expect(message.viewport_width).toBe(80) // 1280 / 16
             expect(message.scale_factor).toBe(16)
+        })
+    })
+
+    describe('skip_heatmap_processing header (capture redirect)', () => {
+        it('skips extraction and passes event through unchanged when skip_heatmap_processing is true', async () => {
+            const event = createTestEvent()
+            const headers = createTestEventHeaders({ skip_heatmap_processing: true })
+
+            const result = await step({ preparedEvent: event, headers })
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (result.type === PipelineResultType.OK) {
+                expect(result.value.preparedEvent).toBe(event)
+                expect(result.sideEffects).toEqual([])
+                expect(result.warnings).toEqual([])
+            }
+            expect(mockOutputs.queueMessages).not.toHaveBeenCalled()
+        })
+
+        it('extracts normally when skip_heatmap_processing is false', async () => {
+            const event = createTestEvent()
+            const headers = createTestEventHeaders({ skip_heatmap_processing: false })
+
+            const result = await step({ preparedEvent: event, headers })
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            expect(mockOutputs.queueMessages).toHaveBeenCalledTimes(1)
+        })
+
+        it('extracts normally when headers are not provided', async () => {
+            const event = createTestEvent()
+
+            const result = await step({ preparedEvent: event })
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            expect(mockOutputs.queueMessages).toHaveBeenCalledTimes(1)
         })
     })
 })
