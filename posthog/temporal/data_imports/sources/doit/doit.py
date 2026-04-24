@@ -7,6 +7,7 @@ import requests
 import structlog
 from dateutil import parser
 from structlog.types import FilteringBoundLogger
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -14,6 +15,32 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_it
 from posthog.temporal.data_imports.sources.generated_configs import DoItSourceConfig
 
 from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
+
+DOIT_REQUEST_TIMEOUT_SECONDS = 60
+
+
+class DoItRetryableError(Exception):
+    pass
+
+
+@retry(
+    retry=retry_if_exception_type((DoItRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential_jitter(initial=1, max=30),
+    reraise=True,
+)
+def _doit_get(url: str, api_key: str) -> requests.Response:
+    response = requests.get(
+        url,
+        headers={"Authorization": f"Bearer {api_key}"},
+        timeout=DOIT_REQUEST_TIMEOUT_SECONDS,
+    )
+
+    if response.status_code == 429 or response.status_code >= 500:
+        raise DoItRetryableError(f"DoIt API error (retryable): status={response.status_code}, url={url}")
+
+    return response
+
 
 DOIT_INCREMENTAL_FIELDS: list[IncrementalField] = [
     {
@@ -55,10 +82,8 @@ def doit_list_reports(config: DoItSourceConfig, logger: Optional[FilteringBoundL
     if logger is None:
         logger = structlog.get_logger(__name__)
 
-    res = requests.get(
-        "https://api.doit.com/analytics/v1/reports",
-        headers={"Authorization": f"Bearer {config.api_key}"},
-    )
+    res = _doit_get("https://api.doit.com/analytics/v1/reports", config.api_key)
+    res.raise_for_status()
 
     reports = res.json()["reports"]
 
@@ -139,10 +164,7 @@ def doit_source(
 
         logger.debug(f"Requesting DoIt url: {request_uri}")
 
-        res = requests.get(
-            request_uri,
-            headers={"Authorization": f"Bearer {config.api_key}"},
-        )
+        res = _doit_get(request_uri, config.api_key)
 
         if res.status_code != 200:
             raise Exception(f"Request to get report failed with status: {res.status_code}. With body: {res.text}")
