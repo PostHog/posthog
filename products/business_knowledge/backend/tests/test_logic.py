@@ -117,38 +117,3 @@ class TestCreateTextSource(BaseTest):
 
         assert len(logic.list_for_team(self.team.id)) == 1
         assert len(logic.list_for_team(other_team.id)) == 0
-        assert logic.count_ready_sources_for_team(other_team.id) == 0
-
-
-class TestFormatKnowledgePrompt(BaseTest):
-    def test_returns_empty_when_no_sources(self) -> None:
-        from products.business_knowledge.backend.facade import api
-
-        section = api.format_knowledge_prompt(self.team.id)
-        assert section.has_knowledge is False
-        assert section.prompt == ""
-
-    def test_populates_prompt_with_source_names(self) -> None:
-        from products.business_knowledge.backend.facade import api
-
-        create_text_source(team_id=self.team.id, created_by_id=self.user.id, name="Product FAQ", text="hello")
-        section = api.format_knowledge_prompt(self.team.id)
-        assert section.has_knowledge is True
-        assert "Product FAQ" in section.prompt
-        # Baseline safety rules must always be present so prompt injection
-        # defenses can't silently disappear.
-        assert "UNTRUSTED" in section.prompt
-        assert "business_knowledge_chunks" in section.prompt
-
-    def test_does_not_leak_other_team_sources(self) -> None:
-        from posthog.models.team import Team
-
-        from products.business_knowledge.backend.facade import api
-
-        other_team = Team.objects.create_with_data(
-            organization=self.organization, initiating_user=self.user, name="Other"
-        )
-        create_text_source(team_id=other_team.id, created_by_id=self.user.id, name="Theirs", text="x")
-        section = api.format_knowledge_prompt(self.team.id)
-        assert section.has_knowledge is False
-        assert "Theirs" not in section.prompt

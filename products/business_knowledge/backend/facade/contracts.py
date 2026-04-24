@@ -5,7 +5,7 @@ Frozen dataclasses — the only shape other products (and our own presentation
 layer) are allowed to see. No Django imports, no ORM instances.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
@@ -81,15 +81,3 @@ class KnowledgeChunkPreviewDTO:
     ordinal: int
     content: str
     char_count: int
-
-
-@dataclass(frozen=True)
-class KnowledgePromptSection:
-    """
-    Rendered prompt fragment the support agent splices into its system prompt
-    when a team has ≥1 ready KnowledgeSource. Populated by format_knowledge_prompt.
-    """
-
-    has_knowledge: bool
-    prompt: str
-    source_names: tuple[str, ...] = field(default_factory=tuple)

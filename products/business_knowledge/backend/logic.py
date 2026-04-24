@@ -176,26 +176,6 @@ def get_for_team(source_id: UUID, team_id: int) -> KnowledgeSource | None:
         return None
 
 
-def count_ready_sources_for_team(team_id: int) -> int:
-    return KnowledgeSource.objects.filter(team_id=team_id, status=SourceStatus.READY).count()
-
-
-def list_ready_source_names_for_team(team_id: int, limit: int = 20) -> list[str]:
-    return list(
-        KnowledgeSource.objects.filter(team_id=team_id, status=SourceStatus.READY)
-        .order_by("-created_at")
-        .values_list("name", flat=True)[:limit]
-    )
-
-
-def list_chunks_for_source(source_id: UUID, team_id: int, limit: int = 50) -> list[KnowledgeChunk]:
-    return list(
-        KnowledgeChunk.objects.filter(team_id=team_id, source_id=source_id)
-        .select_related("document")
-        .order_by("document_id", "ordinal")[:limit]
-    )
-
-
 def get_source_text_for_team(source_id: UUID, team_id: int) -> str | None:
     """
     Returns the raw text of a text-type source. Stage 1 has exactly one

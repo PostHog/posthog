@@ -1,11 +1,9 @@
 import asyncio
 
-from asgiref.sync import sync_to_async
 from langchain_core.messages import BaseMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 
-from products.business_knowledge.backend.facade import api as business_knowledge_api
 from products.conversations.backend.ai.prompts import (
     SUPPORT_RESPONSE_FORMAT_PROMPT,
     SUPPORT_ROLE_PROMPT,
@@ -32,14 +30,10 @@ class SupportAgentPromptBuilder(AgentPromptBuilderBase):
         )
 
     async def get_prompts(self, state: AssistantState, config: RunnableConfig) -> list[BaseMessage]:
-        # Mirror the base class' async gather so the knowledge lookup (a tiny
-        # Postgres query) piggybacks on the same round-trip instead of adding
-        # serial latency to every ticket turn.
-        billing_prompt, core_memory, groups, knowledge_section = await asyncio.gather(
+        billing_prompt, core_memory, groups = await asyncio.gather(
             self._get_billing_prompt(),
             self._aget_core_memory_text(),
             self._context_manager.get_group_names(),
-            sync_to_async(business_knowledge_api.format_knowledge_prompt)(self._team.id),
         )
 
         format_args = {
@@ -52,10 +46,5 @@ class SupportAgentPromptBuilder(AgentPromptBuilderBase):
             ("system", self._get_system_prompt()),
             ("system", self._get_core_memory_prompt()),
         ]
-        # Only inject a knowledge system message when the team actually has
-        # ready sources. An empty prompt fragment would otherwise burn tokens
-        # and nudge the model toward hallucinating citations.
-        if knowledge_section.has_knowledge:
-            messages.append(("system", knowledge_section.prompt))
 
         return ChatPromptTemplate.from_messages(messages, template_format="mustache").format_messages(**format_args)
