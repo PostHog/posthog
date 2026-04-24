@@ -9,7 +9,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { verifyEmailLogicType } from './verifyEmailLogicType'
 
-/** Delay between a successful verification and redirecting to the app — also drives the progress bar in VerifyEmail. */
+/** Delay between a successful verification and redirecting to the app.
+ * Must stay in sync with the `VerifyEmail__Progress` animation duration in VerifyEmail.scss. */
 export const VERIFY_EMAIL_REDIRECT_DELAY_MS = 2000
 
 export interface ResponseType {

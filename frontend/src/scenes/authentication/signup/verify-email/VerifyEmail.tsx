@@ -1,5 +1,6 @@
 import './VerifyEmail.scss'
 
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
@@ -12,7 +13,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { VERIFY_EMAIL_REDIRECT_DELAY_MS, verifyEmailLogic } from './verifyEmailLogic'
+import { verifyEmailLogic } from './verifyEmailLogic'
 
 export const scene: SceneExport = {
     component: VerifyEmail,
@@ -172,34 +173,12 @@ export function VerifyEmail(): JSX.Element {
                             <Spinner className="text-4xl" />
                         )}
                         {view === 'success' && (
-                            <div
-                                aria-hidden
-                                className="absolute h-1 overflow-hidden"
-                                // Negative offsets cancel BridgePage__content's 2rem padding so the bar reaches
-                                // the card's rounded bottom edge, while the wrapper's own `relative` keeps the
-                                // anchor under our control rather than relying on BridgePage internals.
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{
-                                    bottom: '-2rem',
-                                    left: '-2rem',
-                                    right: '-2rem',
-                                    borderBottomLeftRadius: 'var(--radius)',
-                                    borderBottomRightRadius: 'var(--radius)',
-                                }}
-                            >
+                            <div aria-hidden className="VerifyEmail__ProgressBar">
                                 <div
-                                    className="h-full bg-accent"
-                                    // In Storybook render at full width with no animation so visual
-                                    // regression snapshots are deterministic — real users get the animation.
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={
-                                        process.env.STORYBOOK
-                                            ? { width: '100%' }
-                                            : {
-                                                  width: '0%',
-                                                  animation: `VerifyEmail__Progress ${VERIFY_EMAIL_REDIRECT_DELAY_MS}ms linear forwards`,
-                                              }
-                                    }
+                                    className={clsx(
+                                        'VerifyEmail__ProgressBarTrack',
+                                        process.env.STORYBOOK && 'VerifyEmail__ProgressBarTrack--static'
+                                    )}
                                 />
                             </div>
                         )}
