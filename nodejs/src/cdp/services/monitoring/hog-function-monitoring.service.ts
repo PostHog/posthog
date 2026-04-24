@@ -1,5 +1,6 @@
 import { Counter, Gauge, Histogram } from 'prom-client'
 
+import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { InternalCaptureEvent, InternalCaptureService } from '~/common/services/internal-capture'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { KAFKA_WAREHOUSE_SOURCE_WEBHOOKS } from '~/config/kafka-topics'
@@ -7,14 +8,11 @@ import { APP_METRICS_OUTPUT, AppMetricsOutput, LOG_ENTRIES_OUTPUT, LogEntriesOut
 import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
 import { KafkaProducerWrapper } from '~/kafka/producer'
 
-import { TimestampFormat } from '../../../types'
 import { safeClickhouseString } from '../../../utils/db/utils'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { TeamManager } from '../../../utils/team-manager'
-import { castTimestampOrNow } from '../../../utils/utils'
 import {
-    AppMetricType,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     LogEntry,
@@ -39,7 +37,7 @@ export const hogFunctionExecutionTimeSummary = new Histogram({
 
 const hogFunctionMonitoringPendingMessages = new Gauge({
     name: 'cdp_hog_function_monitoring_pending_messages',
-    help: 'Number of monitoring messages queued and waiting to be flushed to Kafka. High values indicate accumulation and potential memory leak.',
+    help: 'Number of log entries queued and waiting to be flushed to Kafka. App-metric backlog is tracked separately by app_metrics_aggregator_queued_total / app_metrics_aggregator_flushed_total. High values indicate accumulation and potential memory leak.',
 })
 
 const hogFunctionMonitoringPendingEvents = new Gauge({
@@ -49,12 +47,6 @@ const hogFunctionMonitoringPendingEvents = new Gauge({
 
 export type MonitoringOutput = AppMetricsOutput | LogEntriesOutput
 
-export type HogFunctionMonitoringMessage = {
-    output: MonitoringOutput
-    value: LogEntrySerialized | AppMetricType
-    headers?: Record<string, string>
-}
-
 // Check if the result is of type CyclotronJobInvocationHogFunction
 export const isHogFunctionResult = (
     result: CyclotronJobInvocationResult
@@ -63,25 +55,28 @@ export const isHogFunctionResult = (
 }
 
 export class HogFunctionMonitoringService {
-    messagesToProduce: HogFunctionMonitoringMessage[] = []
+    queuedLogMessages: LogEntrySerialized[] = []
     eventsToCapture: InternalCaptureEvent[] = []
     warehouseWebhookPayloads: WarehouseWebhookPayload[] = []
 
     private warehouseKafkaProducer?: KafkaProducerWrapper
+    private appMetricsAggregator: AppMetricsAggregator
 
     constructor(
         private outputs: IngestionOutputs<MonitoringOutput>,
         private internalCaptureService: InternalCaptureService,
         private teamManager: TeamManager
-    ) {}
+    ) {
+        this.appMetricsAggregator = new AppMetricsAggregator(outputs.get(APP_METRICS_OUTPUT))
+    }
 
     setWarehouseKafkaProducer(producer: KafkaProducerWrapper): void {
         this.warehouseKafkaProducer = producer
     }
 
     async flush() {
-        const messages = [...this.messagesToProduce]
-        this.messagesToProduce = []
+        const messages = [...this.queuedLogMessages]
+        this.queuedLogMessages = []
         hogFunctionMonitoringPendingMessages.set(0)
 
         const eventsToCapture = [...this.eventsToCapture]
@@ -92,22 +87,24 @@ export class HogFunctionMonitoringService {
         this.warehouseWebhookPayloads = []
 
         await Promise.all([
+            this.appMetricsAggregator.flush().catch((error) => {
+                // Best-effort — don't disrupt processing just for metrics.
+                logger.error('⚠️', `failed to flush app metrics: ${error}`, { error: String(error) })
+                captureException(error)
+            }),
             ...messages.map((x) => {
-                const value = x.value ? Buffer.from(safeClickhouseString(JSON.stringify(x.value))) : null
+                const value = x ? Buffer.from(safeClickhouseString(JSON.stringify(x))) : null
                 return this.outputs
-                    .produce(x.output, {
+                    .produce(LOG_ENTRIES_OUTPUT, {
                         key: null,
                         value,
-                        headers: x.headers,
                     })
                     .catch((error) => {
                         // NOTE: We don't hard fail here - this is because we don't want to disrupt the
                         // entire processing just for metrics.
-                        logger.error('⚠️', `failed to produce message: ${error}`, {
+                        logger.error('⚠️', `failed to produce log entry: ${error}`, {
                             error: String(error),
                             messageLength: value?.length,
-                            output: x.output,
-                            headers: x.headers,
                         })
 
                         captureException(error)
@@ -141,19 +138,17 @@ export class HogFunctionMonitoringService {
     }
 
     queueAppMetric(metric: MinimalAppMetric, source: MetricLogSource) {
-        const appMetric: AppMetricType = {
+        counterHogFunctionMetric.labels(metric.metric_kind, metric.metric_name).inc(metric.count)
+
+        this.appMetricsAggregator.queue({
+            team_id: metric.team_id,
             app_source: source,
-            ...metric,
-            timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
-        }
-
-        counterHogFunctionMetric.labels(metric.metric_kind, metric.metric_name).inc(appMetric.count)
-
-        this.messagesToProduce.push({
-            output: APP_METRICS_OUTPUT,
-            value: appMetric,
+            app_source_id: metric.app_source_id,
+            instance_id: metric.instance_id,
+            metric_kind: metric.metric_kind,
+            metric_name: metric.metric_name,
+            count: metric.count,
         })
-        hogFunctionMonitoringPendingMessages.set(this.messagesToProduce.length)
     }
 
     queueAppMetrics(metrics: MinimalAppMetric[], source: MetricLogSource) {
@@ -169,12 +164,9 @@ export class HogFunctionMonitoringService {
         )
 
         logs.forEach((logEntry) => {
-            this.messagesToProduce.push({
-                output: LOG_ENTRIES_OUTPUT,
-                value: logEntry,
-            })
+            this.queuedLogMessages.push(logEntry)
         })
-        hogFunctionMonitoringPendingMessages.set(this.messagesToProduce.length)
+        hogFunctionMonitoringPendingMessages.set(this.queuedLogMessages.length)
     }
 
     async queueInvocationResults(results: CyclotronJobInvocationResult[]): Promise<void> {

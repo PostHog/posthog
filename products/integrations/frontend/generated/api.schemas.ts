@@ -79,29 +79,6 @@ export interface UserBasicApi {
 /**
  * Serializer for organization-level integrations.
  */
-export interface OrganizationIntegrationApi {
-    readonly id: string
-    readonly kind: OrganizationIntegrationKindEnumApi
-    /** @nullable */
-    readonly integration_id: string | null
-    readonly config: unknown
-    readonly created_at: string
-    readonly updated_at: string
-    readonly created_by: UserBasicApi
-}
-
-export interface PaginatedOrganizationIntegrationListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: OrganizationIntegrationApi[]
-}
-
-/**
- * Serializer for organization-level integrations.
- */
 export interface PatchedOrganizationIntegrationApi {
     readonly id?: string
     readonly kind?: OrganizationIntegrationKindEnumApi
@@ -111,6 +88,20 @@ export interface PatchedOrganizationIntegrationApi {
     readonly created_at?: string
     readonly updated_at?: string
     readonly created_by?: UserBasicApi
+}
+
+/**
+ * Serializer for organization-level integrations.
+ */
+export interface OrganizationIntegrationApi {
+    readonly id: string
+    readonly kind: OrganizationIntegrationKindEnumApi
+    /** @nullable */
+    readonly integration_id: string | null
+    readonly config: unknown
+    readonly created_at: string
+    readonly updated_at: string
+    readonly created_by: UserBasicApi
 }
 
 /**
@@ -147,9 +138,9 @@ export interface PatchedOrganizationIntegrationApi {
  * `customerio-webhook` - Customerio Webhook
  * `customerio-track` - Customerio Track
  */
-export type KindE4eEnumApi = (typeof KindE4eEnumApi)[keyof typeof KindE4eEnumApi]
+export type IntegrationKindEnumApi = (typeof IntegrationKindEnumApi)[keyof typeof IntegrationKindEnumApi]
 
-export const KindE4eEnumApi = {
+export const IntegrationKindEnumApi = {
     Slack: 'slack',
     SlackPosthogCode: 'slack-posthog-code',
     Salesforce: 'salesforce',
@@ -187,9 +178,9 @@ export const KindE4eEnumApi = {
 /**
  * Standard Integration serializer.
  */
-export interface IntegrationApi {
+export interface IntegrationConfigApi {
     readonly id: number
-    kind: KindE4eEnumApi
+    kind: IntegrationKindEnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -197,21 +188,21 @@ export interface IntegrationApi {
     readonly display_name: string
 }
 
-export interface PaginatedIntegrationListApi {
+export interface PaginatedIntegrationConfigListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: IntegrationApi[]
+    results: IntegrationConfigApi[]
 }
 
 /**
  * Standard Integration serializer.
  */
-export interface PatchedIntegrationApi {
+export interface PatchedIntegrationConfigApi {
     readonly id?: number
-    kind?: KindE4eEnumApi
+    kind?: IntegrationKindEnumApi
     config?: unknown
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -249,17 +240,6 @@ export interface GitHubReposRefreshResponseApi {
 }
 
 export type IntegrationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type IntegrationsList2Params = {
     /**
      * Number of results to return per page.
      */
