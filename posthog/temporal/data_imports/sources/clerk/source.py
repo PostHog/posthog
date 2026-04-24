@@ -27,6 +27,12 @@ class ClerkSource(SimpleSource[ClerkSourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CLERK
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "401 Client Error: Unauthorized for url: https://api.clerk.com": "Your Clerk secret key is invalid, revoked, or expired. Please generate a new secret key in your Clerk dashboard and reconnect.",
+            "403 Client Error: Forbidden for url: https://api.clerk.com": "Your Clerk secret key does not have permission to access this resource. Please check the key's permissions in your Clerk dashboard and try again.",
+        }
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
