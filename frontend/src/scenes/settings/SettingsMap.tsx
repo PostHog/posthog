@@ -158,21 +158,6 @@ export const SETTINGS_MAP: SettingSection[] = [
     // ENVIRONMENT
     {
         level: 'environment',
-        id: 'environment-limit-requests',
-        title: 'Resource limit requests',
-        hideProjectBanner: true,
-        settings: [
-            {
-                id: 'environment-limit-requests-list',
-                title: 'Resource limit increase requests',
-                description: 'View and add context to requests this project has submitted to raise resource limits.',
-                component: <LimitRequests />,
-                keywords: ['limit', 'quota', 'cap', 'dashboard', 'action', 'alert', 'subscription'],
-            },
-        ],
-    },
-    {
-        level: 'environment',
         id: 'environment-details',
         title: 'General',
         settings: [
@@ -1382,6 +1367,21 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'PostHog Cloud uses static IP addresses for outbound traffic. Add these to your firewall allowlist if needed.',
                 component: <IPAllowListInfo />,
                 keywords: ['whitelist', 'firewall', 'allowlist', 'cidr', 'ip'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-limit-requests',
+        title: 'Resource limit requests',
+        hideProjectBanner: true,
+        settings: [
+            {
+                id: 'environment-limit-requests-list',
+                title: 'Resource limit increase requests',
+                description: 'View and add context to requests this project has submitted to raise resource limits.',
+                component: <LimitRequests />,
+                keywords: ['limit', 'quota', 'cap', 'dashboard', 'action', 'alert', 'subscription'],
             },
         ],
     },
