@@ -41,7 +41,7 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
 
     @property
     @abstractmethod
-    def get_implementation(self) -> SQLSourceImplementation[ConfigType, Any]:
+    def get_implementation(self) -> SQLSourceImplementation[ConfigType, Any, Any]:
         """The driver-layer implementation for this source."""
 
     def _default_primary_key_from_columns(self, columns: list[tuple[str, str, bool]]) -> list[str] | None:
