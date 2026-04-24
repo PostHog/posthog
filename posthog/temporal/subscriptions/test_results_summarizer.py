@@ -1,3 +1,4 @@
+import structlog
 from parameterized import parameterized_class
 
 from posthog.temporal.subscriptions.results_summarizer import MAX_SUMMARY_LENGTH, build_results_summary
@@ -221,10 +222,26 @@ class TestBuildResultsSummaryColumns:
         assert "col1=b" in summary
 
     def test_columns_ignored_for_dict_rows(self):
-        results = [{"label": "Metric", "data": [1, 2, 3]}]
-        summary = build_results_summary("PathsQuery", results, columns=["a", "b", "c"])
-        assert "label=Metric" in summary
-        assert "col0" not in summary
+        # Row key intentionally collides with a positional column label so
+        # the assertions prove we did NOT feed `columns` into the dict branch.
+        results = [{"col0": "wrong"}]
+        summary = build_results_summary("PathsQuery", results, columns=["right"])
+        assert "col0=wrong" in summary
+        assert "right=wrong" not in summary
+
+
+class TestBuildResultsSummaryUnexpectedShape:
+    """Rows that are neither dict nor list/tuple emit a log so we find out about new shapes."""
+
+    def test_unexpected_shape_emits_log(self):
+        with structlog.testing.capture_logs() as captured_logs:
+            summary = build_results_summary("HogQLQuery", ["a bare string", 42])
+        assert "Row 1: a bare string" in summary
+        assert "Row 2: 42" in summary
+        events = [log for log in captured_logs if log.get("event") == "subscription_summary.unexpected_row_shape"]
+        assert len(events) == 2, f"expected one log per unexpected row, got {events}"
+        assert events[0]["row_type"] == "str"
+        assert events[1]["row_type"] == "int"
 
 
 class TestBuildResultsSummaryEdgeCases:

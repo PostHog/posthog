@@ -1,6 +1,10 @@
 import math
 from typing import Any
 
+from structlog import get_logger
+
+LOGGER = get_logger(__name__)
+
 MAX_SUMMARY_LENGTH = 2000
 
 
@@ -152,6 +156,12 @@ def _summarize_generic(results: list[Any], columns: list[str] | None = None) -> 
                 label = _column_label(columns, col_index)
                 parts.append(f"{label}={val}")
         else:
+            # Emit a signal rather than silently producing an ok-ish summary — if a
+            # new shape appears in practice we find out from logs, not from a user.
+            LOGGER.info(
+                "subscription_summary.unexpected_row_shape",
+                row_type=type(row).__name__,
+            )
             parts.append(str(row))
         if parts:
             lines.append(f"- Row {i + 1}: {', '.join(parts)}")
@@ -161,10 +171,8 @@ def _summarize_generic(results: list[Any], columns: list[str] | None = None) -> 
 
 
 def _column_label(columns: list[str] | None, index: int) -> str:
-    if columns and index < len(columns):
-        name = columns[index]
-        if isinstance(name, str) and name.strip():
-            return name
+    if columns and index < len(columns) and columns[index].strip():
+        return columns[index]
     return f"col{index}"
 
 
