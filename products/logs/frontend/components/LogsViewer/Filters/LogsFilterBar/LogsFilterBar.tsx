@@ -213,7 +213,6 @@ const LogsFilterSearch = (): JSX.Element => {
                 onClickOutside={() => onClose()}
             >
                 <TaxonomicFilterSearchInput
-                    docLink="https://posthog.com/docs/logs/search"
                     onClick={() => setVisible(true)}
                     searchInputRef={searchInputRef}
                     onClose={() => onClose()}

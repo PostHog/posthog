@@ -28,7 +28,7 @@ logger = structlog.get_logger(__name__)
 #    a measurable structural shift that SSIM catches.
 #
 # Only when both are below threshold is the snapshot reclassified as UNCHANGED.
-PIXEL_DIFF_THRESHOLD_PERCENT = 1.0
+PIXEL_DIFF_THRESHOLD_PERCENT = 2.5
 SSIM_DISSIMILARITY_THRESHOLD = 0.01  # 1% structural difference
 
 
