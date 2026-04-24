@@ -247,6 +247,30 @@ def _create_error_tracking_issue_fingerprint(team: Team, label: str):
     return ErrorTrackingIssueFingerprintV2.objects.create(team=team, issue=issue, fingerprint=f"fp_{label}")
 
 
+def _create_error_tracking_assignment_rule(team: Team, label: str):
+    from products.error_tracking.backend.models import ErrorTrackingAssignmentRule
+
+    return ErrorTrackingAssignmentRule.objects.create(
+        team=team, filters={"type": "AND", "values": []}, bytecode=[], order_key=0
+    )
+
+
+def _create_error_tracking_suppression_rule(team: Team, label: str):
+    from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
+
+    return ErrorTrackingSuppressionRule.objects.create(
+        team=team, filters={"type": "AND", "values": []}, bytecode=[], order_key=0, sampling_rate=1.0
+    )
+
+
+def _create_error_tracking_release(team: Team, label: str):
+    from products.error_tracking.backend.models import ErrorTrackingRelease
+
+    return ErrorTrackingRelease.objects.create(
+        team=team, hash_id=f"hash_{label}", version=f"v_{label}", project=f"proj_{label}"
+    )
+
+
 def _create_hog_flow(team: Team, label: str) -> HogFlow:
     return HogFlow.objects.create(team=team, name=f"flow_{label}")
 
@@ -361,10 +385,13 @@ SYSTEM_TABLE_FACTORIES = [
     ("early_access_features", _create_early_access_feature),
     ("data_modeling_endpoint_versions", _create_endpoint_version),
     ("data_modeling_endpoints", _create_endpoint),
+    ("error_tracking_assignment_rules", _create_error_tracking_assignment_rule),
     ("error_tracking_issue_assignments", _create_error_tracking_issue_assignment),
     ("error_tracking_issue_fingerprints", _create_error_tracking_issue_fingerprint),
     ("source_sync_jobs", _create_source_sync_job),
     ("error_tracking_issues", _create_error_tracking_issue),
+    ("error_tracking_releases", _create_error_tracking_release),
+    ("error_tracking_suppression_rules", _create_error_tracking_suppression_rule),
     ("experiments", _create_experiment),
     ("exports", _create_export),
     ("feature_flags", _create_feature_flag),

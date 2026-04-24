@@ -610,12 +610,16 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         # Cohort breakdowns are over a user-picked, enumerable set — a limit smaller than
         # the cohort count would bucket some selected cohorts as "Other", which then crashes
         # the label lookup in `build_series_response` (Cohort.objects.get(pk=<Other sentinel>)).
+        # The `+ 1` reserves a rank slot for the NULL bucket that `__in_cohort` produces on the
+        # LEFTJOIN_CONJOINED path when any series has a `person in cohort` filter whose cohort
+        # isn't in the breakdown list — without it, that NULL row steals a slot and one real
+        # cohort overflows into "Other". Proper fix is to drop NULL before ranking; hotfix for now.
         if (
             breakdown_filter is not None
             and breakdown_filter.breakdown_type == "cohort"
             and isinstance(breakdown_filter.breakdown, list)
         ):
-            limit = max(limit, len(breakdown_filter.breakdown))
+            limit = max(limit, len(breakdown_filter.breakdown) + 1)
 
         return limit
 

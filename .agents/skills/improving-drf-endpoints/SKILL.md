@@ -1,6 +1,6 @@
 ---
 name: improving-drf-endpoints
-description: Use when editing, reviewing, or auditing DRF viewsets and serializers in PostHog. Triggers on files in posthog/api/, products/*/backend/api/, products/*/backend/presentation/, or any file importing rest_framework serializers or viewsets. Covers OpenAPI spec quality, field typing, schema annotations, and DRF best practices that flow through the type pipeline to generated TypeScript types and MCP tools.
+description: Use when editing, reviewing, or auditing DRF viewsets and serializers in PostHog. Triggers on files in posthog/api/, products/*/backend/api/, products/*/backend/presentation/, or any file importing rest_framework. Covers field typing, schema annotations, enum collision fixes, and OpenAPI spec quality — everything that flows downstream into generated TypeScript types and MCP tools.
 ---
 
 # Improving DRF Endpoints
@@ -128,3 +128,4 @@ See [common-anti-patterns.md](references/common-anti-patterns.md) for before/aft
 - **Pipeline docs:** `docs/published/handbook/engineering/type-system.md`
 - **Mixins:** `posthog/api/mixins.py` (`@validated_request` source)
 - **drf-spectacular config:** `posthog/settings/web.py` (`SPECTACULAR_SETTINGS`)
+- **Enum collision diagnostic:** `python manage.py find_enum_collisions` — finds unresolved collisions and suggests overrides

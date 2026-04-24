@@ -180,7 +180,7 @@
                                     },
                                     "descriptionContentType": {
                                         "description": "Format for the description field.\n\n* `text` - text\n* `html` - html",
-                                        "enum": ["text", "html"],
+                                        "enum": ["html", "text"],
                                         "type": "string"
                                     },
                                     "optional": {
@@ -212,7 +212,7 @@
                                     },
                                     "descriptionContentType": {
                                         "description": "Format for the description field.\n\n* `text` - text\n* `html` - html",
-                                        "enum": ["text", "html"],
+                                        "enum": ["html", "text"],
                                         "type": "string"
                                     },
                                     "link": {
@@ -327,7 +327,7 @@
                                     },
                                     "descriptionContentType": {
                                         "description": "Format for the description field.\n\n* `text` - text\n* `html` - html",
-                                        "enum": ["text", "html"],
+                                        "enum": ["html", "text"],
                                         "type": "string"
                                     },
                                     "display": {
@@ -465,7 +465,7 @@
                                     },
                                     "descriptionContentType": {
                                         "description": "Format for the description field.\n\n* `text` - text\n* `html` - html",
-                                        "enum": ["text", "html"],
+                                        "enum": ["html", "text"],
                                         "type": "string"
                                     },
                                     "hasOpenChoice": {
@@ -514,7 +514,7 @@
                                     },
                                     "descriptionContentType": {
                                         "description": "Format for the description field.\n\n* `text` - text\n* `html` - html",
-                                        "enum": ["text", "html"],
+                                        "enum": ["html", "text"],
                                         "type": "string"
                                     },
                                     "hasOpenChoice": {
