@@ -74,15 +74,16 @@ export const OutputTypeEnumApi = {
 } as const
 
 /**
- * * `openai` - Openai
- * `anthropic` - Anthropic
- * `gemini` - Gemini
- * `openrouter` - Openrouter
- * `fireworks` - Fireworks
+ * * `openai` - openai
+ * `anthropic` - anthropic
+ * `gemini` - gemini
+ * `openrouter` - openrouter
+ * `fireworks` - fireworks
  */
-export type LLMProviderEnumApi = (typeof LLMProviderEnumApi)[keyof typeof LLMProviderEnumApi]
+export type ModelConfigurationProviderEnumApi =
+    (typeof ModelConfigurationProviderEnumApi)[keyof typeof ModelConfigurationProviderEnumApi]
 
-export const LLMProviderEnumApi = {
+export const ModelConfigurationProviderEnumApi = {
     Openai: 'openai',
     Anthropic: 'anthropic',
     Gemini: 'gemini',
@@ -94,7 +95,7 @@ export const LLMProviderEnumApi = {
  * Nested serializer for model configuration.
  */
 export interface ModelConfigurationApi {
-    provider: LLMProviderEnumApi
+    provider: ModelConfigurationProviderEnumApi
     /** @maxLength 100 */
     model: string
     /** @nullable */
@@ -782,6 +783,23 @@ export interface EvaluationSummaryResponseApi {
     recommendations: string[]
     statistics: EvaluationSummaryStatisticsApi
 }
+
+/**
+ * * `openai` - Openai
+ * `anthropic` - Anthropic
+ * `gemini` - Gemini
+ * `openrouter` - Openrouter
+ * `fireworks` - Fireworks
+ */
+export type LLMProviderEnumApi = (typeof LLMProviderEnumApi)[keyof typeof LLMProviderEnumApi]
+
+export const LLMProviderEnumApi = {
+    Openai: 'openai',
+    Anthropic: 'anthropic',
+    Gemini: 'gemini',
+    Openrouter: 'openrouter',
+    Fireworks: 'fireworks',
+} as const
 
 /**
  * * `unknown` - Unknown

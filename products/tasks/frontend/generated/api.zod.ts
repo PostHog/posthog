@@ -101,7 +101,7 @@ export const TasksCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            '* `error_tracking` - Error Tracking\n* `eval_clusters` - Eval Clusters\n* `user_created` - User Created\n* `automation` - Automation\n* `slack` - Slack\n* `support_queue` - Support Queue\n* `session_summaries` - Session Summaries\n* `signal_report` - Signal Report'
+            '* `error_tracking` - error_tracking\n* `eval_clusters` - eval_clusters\n* `user_created` - user_created\n* `automation` - automation\n* `slack` - slack\n* `support_queue` - support_queue\n* `session_summaries` - session_summaries\n* `signal_report` - signal_report'
         ),
     repository: zod.string().max(tasksCreateBodyRepositoryMax).nullish(),
     github_integration: zod.number().nullish().describe('GitHub integration for this task'),
@@ -145,7 +145,7 @@ export const TasksUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            '* `error_tracking` - Error Tracking\n* `eval_clusters` - Eval Clusters\n* `user_created` - User Created\n* `automation` - Automation\n* `slack` - Slack\n* `support_queue` - Support Queue\n* `session_summaries` - Session Summaries\n* `signal_report` - Signal Report'
+            '* `error_tracking` - error_tracking\n* `eval_clusters` - eval_clusters\n* `user_created` - user_created\n* `automation` - automation\n* `slack` - slack\n* `support_queue` - support_queue\n* `session_summaries` - session_summaries\n* `signal_report` - signal_report'
         ),
     repository: zod.string().max(tasksUpdateBodyRepositoryMax).nullish(),
     github_integration: zod.number().nullish().describe('GitHub integration for this task'),
