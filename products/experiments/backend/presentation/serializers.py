@@ -68,13 +68,15 @@ class CreateFeatureFlagInputSerializer(serializers.Serializer):
 
     def to_dto(self) -> CreateFeatureFlagInput:
         """Convert validated data to DTO."""
-        # Manually validate nested serializers to get DTOs
-        variants_data = self.validated_data["variants"]
-        variant_dtos = []
-        for variant_data in variants_data:
-            variant_serializer = FeatureFlagVariantSerializer(data=variant_data)
-            variant_serializer.is_valid(raise_exception=True)
-            variant_dtos.append(variant_serializer.to_dto())
+        # Build DTOs directly from already-validated data
+        variant_dtos = [
+            FeatureFlagVariant(
+                key=v["key"],
+                split_percent=v["rollout_percentage"],
+                name=v.get("name") or None,
+            )
+            for v in self.validated_data["variants"]
+        ]
 
         return CreateFeatureFlagInput(
             key=self.validated_data["key"],
