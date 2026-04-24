@@ -5,7 +5,6 @@ import posthog from 'posthog-js'
 import { lazy, Suspense, useRef } from 'react'
 
 import { IconApps, IconChat, IconChevronRight, IconSearch } from '@posthog/icons'
-import { Button, ButtonGroup } from '@posthog/quill'
 
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
 import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
@@ -199,24 +198,6 @@ export function Nav(): JSX.Element {
                         )}
                     </div>
                 </div>
-
-                {/* Quill integration smoke test — remove once verified. `data-quill`
-                    activates the scoped design tokens bundled by @posthog/quill. */}
-                {!isLayoutNavCollapsed && (
-                    <div data-quill className="px-2 pb-2">
-                        <ButtonGroup>
-                            <Button variant="outline" size="sm">
-                                One
-                            </Button>
-                            <Button variant="outline" size="sm">
-                                Two
-                            </Button>
-                            <Button variant="outline" size="sm">
-                                Three
-                            </Button>
-                        </ButtonGroup>
-                    </div>
-                )}
 
                 <Tabs.Root
                     className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-hidden"
