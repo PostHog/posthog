@@ -2286,6 +2286,10 @@ class GitHubIntegration:
 
     def list_teams(self, *, search: str = "", limit: int = 100, offset: int = 0) -> tuple[list[dict[str, Any]], bool]:
         """List GitHub teams for the integration account organization with bounded API calls."""
+        account_type = dot_get(self.integration.config, "account.type", "")
+        if isinstance(account_type, str) and account_type.lower() == "user":
+            return [], False
+
         organization = dot_get(self.integration.config, "account.name", "")
         if not organization:
             return [], False
@@ -2315,6 +2319,8 @@ class GitHubIntegration:
                 f"https://api.github.com/orgs/{organization}/teams?page={page}&per_page={per_page}"
             )
             if response is None or response.status_code != 200:
+                if response is not None and response.status_code == 404:
+                    return [], False
                 logger.warning(
                     "GitHubIntegration: list_teams failed",
                     integration_id=self.integration.id,
