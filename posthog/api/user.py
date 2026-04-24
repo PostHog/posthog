@@ -14,6 +14,7 @@ from django.contrib.auth import login, update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils.html import escape
@@ -35,6 +36,7 @@ from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from social_django.models import UserSocialAuth
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
@@ -715,13 +717,17 @@ class UserViewSet(
 
         if user.pending_email:
             old_email = user.email
-            user.email = user.pending_email
-            user.pending_email = None
-            user.save()
+            with transaction.atomic():
+                user.email = user.pending_email
+                user.pending_email = None
+                user.save(update_fields=["email", "pending_email"])
+                # Google identities are associated to the PostHog user independently of the
+                # current PostHog email, so keep them from surviving an email change.
+                UserSocialAuth.objects.filter(user=user, provider="google-oauth2").delete()
             send_email_change_emails.delay(datetime.now(UTC).isoformat(), user.first_name, old_email, user.email)
 
         user.is_email_verified = True
-        user.save()
+        user.save(update_fields=["is_email_verified"])
         report_user_verified_email(user)
 
         user_has_passkeys = has_passkeys(user)
