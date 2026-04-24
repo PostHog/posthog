@@ -318,8 +318,8 @@ class TestValidateDisplayName(SimpleTestCase):
             ("hyphen", "Jean-Luc", "Jean-Luc"),
             ("unicode", "Михаил", "Михаил"),
             ("amp", "Ben & Jerry's", "Ben & Jerry's"),
-            ("org_dot_com_name", "Acme.com", "Acme.com"),
             ("www_midword", "Wwwilliam", "Wwwilliam"),
+            ("dot_acronym", "St. John's, Inc.", "St. John's, Inc."),
             ("trims", "   Marius   ", "Marius"),
             ("empty", "", ""),
             ("whitespace_only", "   ", ""),
@@ -349,6 +349,12 @@ class TestValidateDisplayName(SimpleTestCase):
             ("paragraph_separator", "foo\u2029bar", "invalid_control_char"),
             ("next_line", "foo\u0085bar", "invalid_control_char"),
             ("www_embedded", "myname www.scam.io", "invalid_url"),
+            ("bare_domain", "join evil.com now", "invalid_url"),
+            ("bare_domain_at_start", "Acme.com", "invalid_url"),
+            ("javascript_scheme", "click javascript:alert(1)", "invalid_url"),
+            ("data_scheme", "see data:text/html,x", "invalid_url"),
+            ("vbscript_scheme", "run vbscript:msgbox", "invalid_url"),
+            ("fullwidth_url", "go \uff48\uff54\uff54\uff50\uff1a\uff0f\uff0fevil.com", "invalid_url"),
             ("lt", "foo<bar", "invalid_bracket"),
             ("gt", "link > here", "invalid_bracket"),
             ("zero_width", "foo\u200bbar", "invalid_invisible_char"),
@@ -369,8 +375,21 @@ class TestValidateMessageBody(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("bare_domain_filename", "check the foo.py file"),
+            ("bare_domain_doc", "see README.md"),
+            ("acronym", "contact us at St. John's"),
+        ]
+    )
+    def test_allows_bare_domains(self, _name: str, value: str) -> None:
+        self.assertEqual(validate_message_body(value), value)
+
+    @parameterized.expand(
+        [
             ("url", "Check https://evil.com", "invalid_url"),
             ("www", "Visit www.scam.io", "invalid_url"),
+            ("javascript_scheme", "click javascript:alert(1)", "invalid_url"),
+            ("data_scheme", "see data:text/html,x", "invalid_url"),
+            ("fullwidth_url", "go \uff48\uff54\uff54\uff50\uff1a\uff0f\uff0fevil.com", "invalid_url"),
             ("bracket", "hello <there>", "invalid_bracket"),
             ("invisible", "foo\u200bbar", "invalid_invisible_char"),
             ("rtl_override", "foo\u202ebar", "invalid_invisible_char"),

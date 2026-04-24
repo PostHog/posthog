@@ -21,6 +21,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES, INVITE_DAYS_VALIDITY
 from posthog.email import EMAIL_TASK_KWARGS, EmailMessage, is_email_available
 from posthog.event_usage import groups
+from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.email_utils import validate_display_name, validate_message_body
 from posthog.models import (
@@ -229,12 +230,22 @@ def send_invite(invite_id: str) -> None:
         validate_message_body(invite.message)
     except serializers.ValidationError as err:
         detail = cast(list[ErrorDetail], err.detail)
+        error_code = detail[0].code if detail else "invalid"
         logger.warning(
             "send_invite.blocked",
             invite_id=invite_id,
             organization_id=str(invite.organization_id),
             created_by_id=invite.created_by_id,
-            error_code=detail[0].code if detail else "invalid",
+            error_code=error_code,
+        )
+        capture_exception(
+            err,
+            additional_properties={
+                "task": "send_invite",
+                "invite_id": invite_id,
+                "organization_id": str(invite.organization_id),
+                "error_code": error_code,
+            },
         )
         return
     message = EmailMessage(
@@ -278,11 +289,21 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
         validate_display_name(organization.name)
     except serializers.ValidationError as err:
         detail = cast(list[ErrorDetail], err.detail)
+        error_code = detail[0].code if detail else "invalid"
         logger.warning(
             "send_member_join.blocked",
             invitee_uuid=invitee_uuid,
             organization_id=organization_id,
-            error_code=detail[0].code if detail else "invalid",
+            error_code=error_code,
+        )
+        capture_exception(
+            err,
+            additional_properties={
+                "task": "send_member_join",
+                "invitee_uuid": invitee_uuid,
+                "organization_id": organization_id,
+                "error_code": error_code,
+            },
         )
         return
 
@@ -689,6 +710,25 @@ def send_canary_email(user_email: str) -> None:
 
 @shared_task(**EMAIL_TASK_KWARGS)
 def send_email_change_emails(now_iso: str, user_name: str, old_address: str, new_address: str) -> None:
+    try:
+        validate_display_name(user_name)
+    except serializers.ValidationError as err:
+        detail = cast(list[ErrorDetail], err.detail)
+        error_code = detail[0].code if detail else "invalid"
+        logger.warning(
+            "send_email_change_emails.blocked",
+            old_address=old_address,
+            new_address=new_address,
+            error_code=error_code,
+        )
+        capture_exception(
+            err,
+            additional_properties={
+                "task": "send_email_change_emails",
+                "error_code": error_code,
+            },
+        )
+        return
     message_old_address = EmailMessage(
         use_http=True,
         campaign_key=f"email_change_old_address_{now_iso}",
