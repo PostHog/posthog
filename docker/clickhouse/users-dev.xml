@@ -62,7 +62,7 @@
              stuck autoresearch run from spinning. -->
         <autoresearch>
             <readonly>2</readonly>
-            <compatibility>25.8</compatibility>
+            <compatibility>26.3</compatibility>
             <max_execution_time>300</max_execution_time>
             <constraints>
                 <readonly><readonly/></readonly>
