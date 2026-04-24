@@ -27,6 +27,14 @@
     border: var(--lemon-badge-border-width) solid var(--color-bg-surface-primary);
     border-radius: calc(var(--lemon-badge-size) / 2);
 
+    // The badge stays mounted so CSS can play the fade-out when `visible` flips
+    // to false; on show, the transition plays again from hidden to visible.
+    opacity: 1;
+    transition:
+        opacity 150ms ease-out,
+        transform 150ms ease-out;
+    transform: scale(1);
+
     > * {
         // For non-text content, make sure that content fills up the whole badge, and that the badge stays round
         width: calc(var(--lemon-badge-size) - var(--lemon-badge-border-width) * 2);
@@ -102,5 +110,11 @@
     &.LemonBadge--active {
         z-index: var(--z-raised); // In croweded badge situation, show active ones above the rest
         outline: calc(var(--lemon-badge-font-size) / 5) solid var(--lemon-badge-color);
+    }
+
+    &.LemonBadge--hidden {
+        pointer-events: none;
+        opacity: 0;
+        transform: scale(0.5);
     }
 }

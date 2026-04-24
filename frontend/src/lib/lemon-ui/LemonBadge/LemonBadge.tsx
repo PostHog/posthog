@@ -45,10 +45,7 @@ const LemonBadgeComponent: React.FunctionComponent<LemonBadgeProps & React.RefAt
             ...spanProps
         },
         ref
-    ): JSX.Element | null {
-        if (!visible) {
-            return null
-        }
+    ): JSX.Element {
         return (
             <span
                 ref={ref}
@@ -59,9 +56,11 @@ const LemonBadgeComponent: React.FunctionComponent<LemonBadgeProps & React.RefAt
                     `LemonBadge--${status}`,
                     `LemonBadge--position-${position}`,
                     active && 'LemonBadge--active',
+                    !visible && 'LemonBadge--hidden',
                     className
                 )}
                 {...spanProps}
+                aria-hidden={!visible ? true : undefined}
             >
                 {content}
             </span>
