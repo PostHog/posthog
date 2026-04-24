@@ -468,6 +468,85 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["title"] == "Updated title"
 
+    def test_cannot_set_prompt_guide_when_feature_flag_disabled(self):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=False):
+            response = self._create_subscription(summary_enabled=True, summary_prompt_guide="focus on revenue trends")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "custom AI summary context" in response.json()["detail"]
+
+    def test_can_set_prompt_guide_when_feature_flag_enabled(self):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True):
+            response = self._create_subscription(summary_enabled=True, summary_prompt_guide="focus on revenue trends")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["summary_prompt_guide"] == "focus on revenue trends"
+
+    def test_cannot_patch_prompt_guide_when_feature_flag_disabled(self):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        # Create the subscription with a prompt guide while the flag is on, then try
+        # to edit it after the flag flips off — the edit should be rejected.
+        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True):
+            create_response = self._create_subscription(summary_enabled=True, summary_prompt_guide="original")
+        subscription_id = create_response.json()["id"]
+
+        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=False):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+                {"summary_prompt_guide": "changed"},
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "custom AI summary context" in response.json()["detail"]
+
+    def test_can_clear_prompt_guide_when_feature_flag_disabled(self):
+        """Clearing the field must always be allowed so users never get stuck with a
+        value they can no longer edit if the flag is flipped off after they set one.
+        """
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True):
+            create_response = self._create_subscription(summary_enabled=True, summary_prompt_guide="original")
+        subscription_id = create_response.json()["id"]
+
+        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=False):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+                {"summary_prompt_guide": ""},
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["summary_prompt_guide"] == ""
+
+    def test_can_patch_unrelated_fields_with_existing_prompt_guide_when_flag_disabled(self):
+        """Unrelated PATCHes should not trip the prompt-guide flag check when the field
+        is absent from the payload, even though the persisted subscription has one.
+        """
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True):
+            create_response = self._create_subscription(summary_enabled=True, summary_prompt_guide="original")
+        subscription_id = create_response.json()["id"]
+
+        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=False):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+                {"title": "Updated title"},
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["title"] == "Updated title"
+        assert response.json()["summary_prompt_guide"] == "original"
+
     def test_deliver_subscription(self):
         mock_client = MagicMock()
         mock_client.start_workflow = AsyncMock()

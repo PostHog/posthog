@@ -25,7 +25,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.constants import AvailableFeature
+from posthog.constants import SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY, AvailableFeature
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Insight
@@ -189,9 +189,21 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             if not allowed:
                 raise ValidationError({"target_value": [f"Invalid webhook URL: {error}"]})
 
-        prompt_guide = attrs.get("summary_prompt_guide")
-        if prompt_guide and len(prompt_guide) > 500:
-            raise ValidationError({"summary_prompt_guide": ["AI summary context must be 500 characters or fewer."]})
+        # Only validate / reject prompt-guide writes when the field is explicitly present
+        # in the payload. `attrs.get("summary_prompt_guide")` returns None for both
+        # "field absent" and "field set to null"; the `in attrs` check separates them so
+        # unrelated PATCHes don't trip the gate.
+        if "summary_prompt_guide" in attrs:
+            prompt_guide = attrs["summary_prompt_guide"]
+            if prompt_guide and len(prompt_guide) > 500:
+                raise ValidationError({"summary_prompt_guide": ["AI summary context must be 500 characters or fewer."]})
+            # Only gate on non-empty writes — clearing the field should always be allowed
+            # so users can't get stuck with a value they can no longer edit if the flag
+            # is flipped off after they set one.
+            if prompt_guide and not self._prompt_guide_feature_enabled():
+                raise exceptions.PermissionDenied(
+                    "Setting a custom AI summary context is not enabled for this organization."
+                )
 
         if attrs.get("summary_enabled"):
             organization = self.context["get_organization"]()
@@ -201,6 +213,28 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 )
 
         return attrs
+
+    def _prompt_guide_feature_enabled(self) -> bool:
+        """Evaluate the prompt-guide feature flag for the caller's organization.
+
+        Scoped by organization (not user) so the gate is stable across a team's
+        members. `only_evaluate_locally=False` so we respect server-side cohort
+        / property conditions — this isn't on a hot path.
+        """
+        request = self.context.get("request")
+        if not request or not getattr(request, "user", None) or not getattr(request.user, "distinct_id", None):
+            return False
+        organization = self.context["get_organization"]()
+        org_id = str(organization.id) if organization else ""
+        return bool(
+            posthoganalytics.feature_enabled(
+                SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY,
+                str(request.user.distinct_id),
+                groups={"organization": org_id},
+                group_properties={"organization": {"id": org_id}},
+                only_evaluate_locally=False,
+            )
+        )
 
     def _validate_dashboard_export_subscription(self, attrs):
         dashboard = attrs.get("dashboard") or (self.instance.dashboard if self.instance else None)
