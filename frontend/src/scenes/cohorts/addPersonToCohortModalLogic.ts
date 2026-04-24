@@ -5,7 +5,7 @@ import api, { PaginatedResponse } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { ActorsQuery, NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { ActorsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { CohortType, PersonType } from '~/types'
 
 import type { addPersonToCohortModalLogicType } from './addPersonToCohortModalLogicType'
@@ -19,7 +19,6 @@ export type AddPersonToCohortModalProps = {
 
 const DEFAULT_QUERY: ActorsQuery = {
     kind: NodeKind.ActorsQuery,
-    tags: { productKey: ProductKey.PRODUCT_ANALYTICS },
     fixedProperties: [],
     select: ['id', 'person_display_name -- Person'],
 }

@@ -33,7 +33,6 @@ function getGroupEventsQuery(groupTypeIndex: number, groupKey: string): DataTabl
         full: true,
         source: {
             kind: NodeKind.EventsQuery,
-            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
             select: defaultDataTableColumns(NodeKind.EventsQuery),
             after: '-24h',
             fixedProperties: [

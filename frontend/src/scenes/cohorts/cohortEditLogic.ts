@@ -30,7 +30,7 @@ import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLo
 import { cohortsModel, processCohort } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { ActorsQuery, DataTableNode, HogQLQuery, Node, NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { ActorsQuery, DataTableNode, HogQLQuery, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode } from '~/queries/utils'
 import {
     AnyCohortCriteriaType,
@@ -226,7 +226,6 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 kind: NodeKind.DataTableNode,
                 source: {
                     kind: NodeKind.ActorsQuery,
-                    tags: { productKey: ProductKey.PRODUCT_ANALYTICS },
                     fixedProperties: [
                         { type: PropertyFilterType.Cohort, key: 'id', value: parseInt(String(props.id)) },
                     ],
@@ -255,7 +254,6 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         creationPersonQuery: [
             {
                 kind: NodeKind.ActorsQuery,
-                tags: { productKey: ProductKey.PRODUCT_ANALYTICS },
                 fixedProperties: [],
                 select: ['id', 'person_display_name -- Person'],
             } as ActorsQuery,
@@ -511,7 +509,6 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                             const sourceTable = values.cohort.is_static ? 'static_cohort_people' : 'cohort_people'
                             const query: HogQLQuery = {
                                 kind: NodeKind.HogQLQuery,
-                                tags: { productKey: ProductKey.PRODUCT_ANALYTICS },
                                 query: `SELECT person_id FROM ${sourceTable} WHERE cohort_id = ${values.cohort.id}`,
                             }
                             cohort = await api.create('api/cohort', {

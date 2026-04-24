@@ -18,7 +18,7 @@ import { urls } from 'scenes/urls'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { hogqlQuery } from '~/queries/query'
-import { DataTableNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import {
     ActivityScope,
     AnyPropertyFilter,
@@ -60,7 +60,6 @@ function createInitialEventsPayload(personId: string): DataTableNode {
         hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
         source: {
             kind: NodeKind.EventsQuery,
-            tags: { productKey: ProductKey.PRODUCT_ANALYTICS },
             select: defaultDataTableColumns(NodeKind.EventsQuery),
             personId: personId,
             after: '-24h',
@@ -76,7 +75,6 @@ function createInitialExceptionsPayload(personId: string): DataTableNode {
         hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
         source: {
             kind: NodeKind.EventsQuery,
-            tags: { productKey: ProductKey.PRODUCT_ANALYTICS },
             select: defaultDataTableColumns(NodeKind.EventsQuery),
             personId: personId,
             event: '$exception',
@@ -93,7 +91,6 @@ function createInitialSurveyResponsesPayload(personId: string): DataTableNode {
         hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
         source: {
             kind: NodeKind.EventsQuery,
-            tags: { productKey: ProductKey.PRODUCT_ANALYTICS },
             select: ['*', 'properties.$survey_name', 'properties.$lib', 'timestamp'],
             personId: personId,
             event: 'survey sent',
