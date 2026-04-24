@@ -1,4 +1,4 @@
-from typing import Any, cast
+from typing import Any
 
 from django.db import IntegrityError
 from django.db.models import Q, QuerySet
@@ -10,6 +10,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import OrgScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.role_external_reference import RoleExternalReference
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
@@ -17,10 +18,14 @@ from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitive
 from ee.models.rbac.role import Role
 
 
+class OrganizationRoleScopedPrimaryKeyRelatedField(OrgScopedPrimaryKeyRelatedField):
+    scope_field = "organization"
+
+
 class RoleExternalReferenceSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    role = serializers.PrimaryKeyRelatedField(
-        queryset=Role.objects.none(),
+    role = OrganizationRoleScopedPrimaryKeyRelatedField(
+        queryset=Role.objects.all(),
         help_text="PostHog role UUID this external role maps to.",
     )
 
@@ -45,13 +50,6 @@ class RoleExternalReferenceSerializer(serializers.ModelSerializer):
             "provider_role_slug": {"help_text": "Human-friendly provider role identifier."},
             "provider_role_name": {"help_text": "Display name of the provider role."},
         }
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        view = self.context.get("view")
-        if view and hasattr(view, "organization"):
-            role_field = cast(serializers.PrimaryKeyRelatedField, self.fields["role"])
-            role_field.queryset = Role.objects.filter(organization=view.organization)
 
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
         organization = self.context["view"].organization

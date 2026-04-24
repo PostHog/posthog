@@ -77,14 +77,9 @@ class TestRoleExternalReferenceAPI(APILicensedTest):
         response = self._create_reference(**overrides)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @parameterized.expand(
-        [
-            ({"provider_role_slug": "other-team"},),
-        ]
-    )
-    def test_unique_constraint_on_role_id(self, overrides: dict[str, str]) -> None:
+    def test_unique_constraint_on_role_id(self) -> None:
         self._create_reference()
-        response = self._create_reference(**overrides)
+        response = self._create_reference(provider_role_slug="other-team")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
