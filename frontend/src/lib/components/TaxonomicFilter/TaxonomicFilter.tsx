@@ -221,14 +221,13 @@ export const TaxonomicFilterSearchInput = forwardRef<
     }
 
     const categoriesAreInDropdown = categoryDropdownVariant !== 'control'
-    const affordancePrefix = categoriesAreInDropdown ? (
+    const categoryAffordance = categoriesAreInDropdown ? (
         <CategoryDropdownAffordance
             variant={categoryDropdownVariant}
             eventName={eventName}
             onAfterChange={focusInput}
         />
     ) : null
-    const resolvedPrefix = affordancePrefix ?? prefix
 
     return (
         <LemonInput
@@ -239,9 +238,10 @@ export const TaxonomicFilterSearchInput = forwardRef<
             fullWidth
             placeholder={placeholder ?? `Search ${searchPlaceholder}`}
             value={searchQuery}
-            prefix={resolvedPrefix}
+            prefix={prefix}
             suffix={
                 <>
+                    {categoryAffordance}
                     {showNumericalPropsOnly && (
                         <Tooltip
                             title={
