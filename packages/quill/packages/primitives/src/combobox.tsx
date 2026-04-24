@@ -216,14 +216,14 @@ function ComboboxChip({
 }): React.ReactElement {
     return (
         <ComboboxPrimitive.Chip
-            render={<Chip className="pe-0" title={title ?? (typeof children === 'string' ? children : undefined)} />}
+            render={<Chip title={title ?? (typeof children === 'string' ? children : undefined)} />}
             data-slot="combobox-chip"
             className={cn(className)}
             {...props}
         >
             <span className="truncate flex-1">{children}</span>
             {showRemove && (
-                <ComboboxPrimitive.ChipRemove render={<ChipClose />} data-slot="combobox-chip-remove">
+                <ComboboxPrimitive.ChipRemove render={<ChipClose />}>
                     <XIcon className="pointer-events-none" />
                 </ComboboxPrimitive.ChipRemove>
             )}

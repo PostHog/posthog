@@ -28,7 +28,7 @@
         padding: 0.25rem;
         color: var(--popover-foreground);
         background-color: var(--popover);
-        border-radius: var(--radius-lg);
+        border-radius: var(--radius-md);
         box-shadow:
             0 0 0 1px color-mix(in oklab, var(--foreground) 10%, transparent),
             0 4px 6px -1px rgb(0 0 0 / 10%);

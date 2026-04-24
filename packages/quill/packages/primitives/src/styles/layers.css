@@ -14,15 +14,12 @@
  * `@theme inline` in quill-tokens resolves these vars only during Tailwind
  * utility generation; it does NOT emit them on `:root`. Primitive CSS files
  * reference them via `var()`, so we must materialize them here.
+ *
+ * Radius vars are emitted by @posthog/quill-tokens directly (see
+ * `generateStylesCSS` in packages/tokens/src/colors.ts). Do not re-declare
+ * them here — tokens is the single source of truth for radius values.
  */
 :root {
-    --radius-sm: calc(var(--radius) - 4px);
-    --radius-md: calc(var(--radius) - 2px);
-    --radius-lg: var(--radius);
-    --radius-xl: calc(var(--radius) + 4px);
-    --radius-2xl: calc(var(--radius) + 8px);
-    --radius-3xl: calc(var(--radius) + 12px);
-    --radius-4xl: calc(var(--radius) + 16px);
     --text-xxs: 0.625rem;
     --text-xxs--line-height: 0.75rem;
     --text-xs--line-height: 1rem;

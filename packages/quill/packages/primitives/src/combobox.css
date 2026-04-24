@@ -84,7 +84,7 @@
     /* Chips container */
     .quill-combobox__chips {
         min-height: 2rem;
-        padding-block: 0.25rem;
+        padding-block: 0.75;
         padding-inline: 0.75rem;
         font-size: var(--text-xs, 0.75rem);
         line-height: 1.625;

@@ -74,9 +74,16 @@
 
     /* =========================================================================
        InputGroupAddon
+       Spacing follows shadcn's InputGroup reference:
+         inline padding   → 0.625rem (10px, `px-2.5`)
+         block padding    → 0.375rem (6px,  `py-1.5`)
+         block-start top  → 0.5rem  (8px,  `pt-2`)
+         block-end bottom → 0.5rem  (8px,  `pb-2`)
+       Applied here so all input-group scenarios (inline/block, input/textarea)
+       share the same visual rhythm.
        ========================================================================= */
     .quill-input-group__addon {
-        padding-block: 0.5rem;
+        padding-block: 0.375rem;
         font-size: var(--text-xs, 0.75rem);
         font-weight: 500;
         line-height: 1.625;
@@ -90,7 +97,7 @@
 
     .quill-input-group__addon--align-inline-start {
         order: -1;
-        padding-inline-start: 0.5rem;
+        padding-inline-start: 0.525rem;
     }
 
     .quill-input-group__addon--align-inline-start:has(> button) {
@@ -103,7 +110,7 @@
 
     .quill-input-group__addon--align-inline-end {
         order: 99;
-        padding-inline-end: 0.5rem;
+        padding-inline-end: 0.525rem;
     }
 
     .quill-input-group__addon--align-inline-end:has(> button) {
@@ -122,7 +129,7 @@
         justify-content: flex-start;
         order: -1;
         width: 100%;
-        padding-inline: 0.5rem;
+        padding-inline: 0.625rem;
         padding-top: 0.5rem;
     }
 
@@ -134,7 +141,7 @@
         justify-content: flex-start;
         order: 99;
         width: 100%;
-        padding-inline: 0.5rem;
+        padding-inline: 0.625rem;
         padding-bottom: 0.5rem;
     }
 
@@ -229,6 +236,7 @@
     .quill-textarea.quill-input-group__control {
         flex: 1 1 auto;
         height: auto;
+        padding-inline: 0.625rem;
         background-color: transparent;
         border: 0;
         border-radius: 0;

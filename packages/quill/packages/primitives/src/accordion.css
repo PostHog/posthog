@@ -26,7 +26,8 @@
     }
 
     .quill-accordion__trigger:hover {
-        background-color: var(--accent);
+        background-color: color-mix(in oklab, var(--muted) 50%, transparent);
+        background-color: var(--fill-hover);
     }
 
     .quill-accordion__trigger[aria-disabled='true'] {
