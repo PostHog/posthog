@@ -1,3 +1,4 @@
+import pytest
 from unittest import mock
 
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
@@ -33,11 +34,17 @@ class TestClerkSource:
         assert secret_key_field.type == SourceFieldInputConfigType.PASSWORD
         assert secret_key_field.required is True
 
-    def test_non_retryable_errors_includes_clerk_401(self):
+    @pytest.mark.parametrize(
+        "expected_key",
+        [
+            "401 Client Error: Unauthorized for url: https://api.clerk.com",
+            "403 Client Error: Forbidden for url: https://api.clerk.com",
+        ],
+    )
+    def test_non_retryable_errors_includes_clerk_key(self, expected_key):
         errors = self.source.get_non_retryable_errors()
 
-        assert "401 Client Error: Unauthorized for url: https://api.clerk.com" in errors
-        assert "403 Client Error: Forbidden for url: https://api.clerk.com" in errors
+        assert expected_key in errors
 
     def test_non_retryable_errors_matches_observed_error_message(self):
         # Matches the full error string seen in production for the `users` endpoint.
@@ -46,14 +53,17 @@ class TestClerkSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable_errors)
 
-    def test_non_retryable_errors_does_not_match_other_vendors(self):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-
-        for other in (
+    @pytest.mark.parametrize(
+        "other_vendor_error",
+        [
             "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
             "401 Client Error: Unauthorized for url: https://api.attio.com/v2/objects/users",
-        ):
-            assert not any(key in other for key in non_retryable_errors)
+        ],
+    )
+    def test_non_retryable_errors_does_not_match_other_vendors(self, other_vendor_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+
+        assert not any(key in other_vendor_error for key in non_retryable_errors)
 
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
