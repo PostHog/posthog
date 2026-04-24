@@ -18,12 +18,12 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const PersonsListSchema = PersonsListQueryParams.omit({ format: true, properties: true })
 
-const personsList = (): ToolBase<typeof PersonsListSchema, WithPostHogUrl<Schemas.PaginatedPersonList>> => ({
+const personsList = (): ToolBase<typeof PersonsListSchema, WithPostHogUrl<Schemas.PaginatedPersonRecordList>> => ({
     name: 'persons-list',
     schema: PersonsListSchema,
     handler: async (context: Context, params: z.infer<typeof PersonsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedPersonList>({
+        const result = await context.api.request<Schemas.PaginatedPersonRecordList>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/persons/`,
             query: {
@@ -56,12 +56,12 @@ const personsList = (): ToolBase<typeof PersonsListSchema, WithPostHogUrl<Schema
 
 const PersonsRetrieveSchema = PersonsRetrieveParams.omit({ project_id: true })
 
-const personsRetrieve = (): ToolBase<typeof PersonsRetrieveSchema, WithPostHogUrl<Schemas.Person>> => ({
+const personsRetrieve = (): ToolBase<typeof PersonsRetrieveSchema, WithPostHogUrl<Schemas.PersonRecord>> => ({
     name: 'persons-retrieve',
     schema: PersonsRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof PersonsRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.Person>({
+        const result = await context.api.request<Schemas.PersonRecord>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/persons/${encodeURIComponent(String(params.id))}/`,
         })

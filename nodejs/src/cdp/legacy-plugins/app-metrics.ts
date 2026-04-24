@@ -1,10 +1,11 @@
 import { DateTime } from 'luxon'
 
-import { KAFKA_APP_METRICS_2 } from '../../config/kafka-topics'
-import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
+import { IngestionOutputs } from '../../ingestion/outputs/ingestion-outputs'
+import { IngestionOutputMessage } from '../../ingestion/outputs/types'
 import { TeamId, TimestampFormat } from '../../types'
 import { logger } from '../../utils/logger'
 import { castTimestampOrNow } from '../../utils/utils'
+import { LEGACY_PLUGIN_APP_METRICS_OUTPUT, LegacyPluginAppMetricsOutput } from '../outputs/outputs'
 
 export interface AppMetricIdentifier {
     teamId: TeamId
@@ -45,7 +46,7 @@ interface AppMetric2Row {
 }
 
 export class LegacyPluginAppMetrics {
-    kafkaProducer: KafkaProducerWrapper
+    outputs: IngestionOutputs<LegacyPluginAppMetricsOutput>
     queuedData: Record<string, QueuedMetric>
 
     flushFrequencyMs: number
@@ -55,10 +56,14 @@ export class LegacyPluginAppMetrics {
     // For quick access to queueSize instead of using Object.keys(queuedData).length every time
     queueSize: number
 
-    constructor(kafkaProducer: KafkaProducerWrapper, flushFrequencyMs: number, maxQueueSize: number) {
+    constructor(
+        outputs: IngestionOutputs<LegacyPluginAppMetricsOutput>,
+        flushFrequencyMs: number,
+        maxQueueSize: number
+    ) {
         this.queuedData = {}
 
-        this.kafkaProducer = kafkaProducer
+        this.outputs = outputs
         this.flushFrequencyMs = flushFrequencyMs
         this.maxQueueSize = maxQueueSize
         this.lastFlushTime = Date.now()
@@ -118,7 +123,7 @@ export class LegacyPluginAppMetrics {
         this.queueSize = 0
         this.queuedData = {}
 
-        const messages: TopicMessage['messages'] = Object.values(queue).flatMap((value) => {
+        const messages: IngestionOutputMessage[] = Object.values(queue).flatMap((value) => {
             const timestamp = castTimestampOrNow(DateTime.fromMillis(value.lastTimestamp), TimestampFormat.ClickHouse)
             const base = {
                 team_id: value.metric.teamId,
@@ -143,17 +148,14 @@ export class LegacyPluginAppMetrics {
             if (value.failures > 0) {
                 rows.push({ ...base, metric_kind: 'failure', metric_name: 'failed', count: value.failures })
             }
-            return rows.map((row) => ({ value: JSON.stringify(row) }))
+            return rows.map((row) => ({ value: Buffer.from(JSON.stringify(row)) }))
         })
 
         if (messages.length === 0) {
             return
         }
 
-        await this.kafkaProducer.queueMessages({
-            topic: KAFKA_APP_METRICS_2,
-            messages: messages,
-        })
+        await this.outputs.queueMessages(LEGACY_PLUGIN_APP_METRICS_OUTPUT, messages)
         logger.debug('🚽', `Finished flushing app metrics, took ${Date.now() - startTime}ms`)
     }
 

@@ -140,6 +140,7 @@
           ExternalDataSourceType.PINTERESTADS: PinterestAdsSourceConfig,
           ExternalDataSourceType.PIPEDRIVE: PipedriveSourceConfig,
           ExternalDataSourceType.PLAID: PlaidSourceConfig,
+          ExternalDataSourceType.PLAIN: PlainSourceConfig,
           ExternalDataSourceType.POLAR: PolarSourceConfig,
           ExternalDataSourceType.POSTGRES: PostgresSourceConfig,
           ExternalDataSourceType.POSTMARK: PostmarkSourceConfig,
