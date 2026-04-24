@@ -197,6 +197,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     errors_calculating = models.IntegerField(default=0)
     last_error_at = models.DateTimeField(blank=True, null=True)
     last_backfill_person_properties_at = models.DateTimeField(blank=True, null=True)
+    last_realtime_cohort_calculation_at = models.DateTimeField(blank=True, null=True)
 
     is_static = models.BooleanField(default=False)
     kind = models.CharField(
