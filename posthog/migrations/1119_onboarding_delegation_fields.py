@@ -19,13 +19,13 @@ class Migration(migrations.Migration):
 
     atomic=False because SeparateDatabaseAndState with RunSQL for NOT VALID cannot run inside
     Django's default transaction. The associated index on onboarding_delegated_to_invite_id is
-    built out-of-band (CONCURRENTLY) in 1119_onboarding_delegated_to_invite_index.py.
+    built out-of-band (CONCURRENTLY) in 1120_onboarding_delegated_to_invite_index.py.
     """
 
     atomic = False
 
     dependencies = [
-        ("posthog", "1117_role_external_reference"),
+        ("posthog", "1118_subscriptiondelivery_change_summary"),
     ]
 
     operations = [
