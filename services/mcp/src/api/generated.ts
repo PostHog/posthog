@@ -21892,37 +21892,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `later` - later
-    * `other` - other
-     */
-    export type OnboardingSkipRequestReasonEnum = typeof OnboardingSkipRequestReasonEnum[keyof typeof OnboardingSkipRequestReasonEnum];
-
-
-    export const OnboardingSkipRequestReasonEnum = {
-      Later: 'later',
-      Other: 'other',
-    } as const;
-
-    export interface OnboardingSkipRequest {
-      reason: OnboardingSkipRequestReasonEnum;
-      step_at_skip?: string;
-    }
-
-    /**
-     * * `delegated` - Delegated to teammate
-    * `later` - Skipped for later
-    * `other` - Other
-     */
-    export type OnboardingSkippedReasonEnum = typeof OnboardingSkippedReasonEnum[keyof typeof OnboardingSkippedReasonEnum];
-
-
-    export const OnboardingSkippedReasonEnum = {
-      Delegated: 'delegated',
-      Later: 'later',
-      Other: 'other',
-    } as const;
-
-    /**
      * * `latest` - latest
     * `earliest` - earliest
      */
@@ -22146,14 +22115,6 @@ export namespace Schemas {
       private_project_access?: unknown | null;
       send_email?: boolean;
       combine_pending_invites?: boolean;
-    }
-
-    export interface OrganizationInviteDelegate {
-      target_email: string;
-      /** @maxLength 1000 */
-      message?: string;
-      /** @maxLength 64 */
-      step_at_delegation?: string;
     }
 
     export interface OrganizationMember {
@@ -25204,18 +25165,6 @@ export namespace Schemas {
        */
       passkeys_enabled_for_2fa?: boolean | null;
       /** @nullable */
-      readonly onboarding_skipped_at: string | null;
-      onboarding_skipped_reason?: OnboardingSkippedReasonEnum | NullEnum | null;
-      /** @nullable */
-      readonly onboarding_delegated_to_invite: string | null;
-      /**
-       * Organization ID of the pending delegation invite, if any. Used by the frontend to scope the 'waiting for teammate' UI to the org where delegation was initiated.
-       * @nullable
-       */
-      readonly onboarding_delegated_to_organization_id: string | null;
-      /** @nullable */
-      readonly onboarding_delegation_accepted_at: string | null;
-      /** @nullable */
       readonly is_organization_first_user: boolean | null;
       readonly pending_invites: readonly PendingInvite[];
     }
@@ -25238,10 +25187,10 @@ export namespace Schemas {
     * `new_product` - New Product
     * `sales_led` - Sales Led
      */
-    export type UserProductListReasonEnum = typeof UserProductListReasonEnum[keyof typeof UserProductListReasonEnum];
+    export type ReasonEnum = typeof ReasonEnum[keyof typeof ReasonEnum];
 
 
-    export const UserProductListReasonEnum = {
+    export const ReasonEnum = {
       Onboarding: 'onboarding',
       ProductIntent: 'product_intent',
       UsedByColleagues: 'used_by_colleagues',
@@ -25255,7 +25204,7 @@ export namespace Schemas {
       readonly id: string;
       readonly product_path: string;
       enabled?: boolean;
-      readonly reason: UserProductListReasonEnum | NullEnum | null;
+      readonly reason: ReasonEnum | NullEnum | null;
       /** @nullable */
       readonly reason_text: string | null;
       readonly created_at: string;
@@ -30414,18 +30363,6 @@ export namespace Schemas {
        */
       passkeys_enabled_for_2fa?: boolean | null;
       /** @nullable */
-      readonly onboarding_skipped_at?: string | null;
-      onboarding_skipped_reason?: OnboardingSkippedReasonEnum | NullEnum | null;
-      /** @nullable */
-      readonly onboarding_delegated_to_invite?: string | null;
-      /**
-       * Organization ID of the pending delegation invite, if any. Used by the frontend to scope the 'waiting for teammate' UI to the org where delegation was initiated.
-       * @nullable
-       */
-      readonly onboarding_delegated_to_organization_id?: string | null;
-      /** @nullable */
-      readonly onboarding_delegation_accepted_at?: string | null;
-      /** @nullable */
       readonly is_organization_first_user?: boolean | null;
       readonly pending_invites?: readonly PendingInvite[];
     }
@@ -30444,7 +30381,7 @@ export namespace Schemas {
       readonly id?: string;
       readonly product_path?: string;
       enabled?: boolean;
-      readonly reason?: UserProductListReasonEnum | NullEnum | null;
+      readonly reason?: ReasonEnum | NullEnum | null;
       /** @nullable */
       readonly reason_text?: string | null;
       readonly created_at?: string;
