@@ -52,6 +52,7 @@ export const CODING_AGENT_CLIENT_NAME_FRAGMENTS = [
     'zed',
     'aider',
     'copilot',
+    'gemini-cli',
 ] as const
 
 // Value sent in `x-posthog-mcp-consumer` by PostHog Code (the Tasks sandbox
