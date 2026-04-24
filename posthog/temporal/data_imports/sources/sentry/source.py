@@ -83,7 +83,7 @@ Create a token in Sentry and make sure it includes the scopes below if you want 
                     ),
                 ],
             ),
-            betaSource=True,
+            releaseStatus="beta",
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:

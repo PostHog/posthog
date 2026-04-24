@@ -1224,7 +1224,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             try {
                 const schemas = await api.externalDataSources.database_schema(
                     values.selectedConnector.name,
-                    values.source.payload ?? {}
+                    getDatabaseSchemaPayload(values.source)
                 )
 
                 let showToast = false
@@ -1541,6 +1541,13 @@ export const getInitialSourceConnectionDetailsValues = (
     ...savedValues,
     access_method:
         savedValues && typeof savedValues.access_method === 'string' ? savedValues.access_method : accessMethod,
+})
+
+export const getDatabaseSchemaPayload = (
+    source: Pick<ExternalDataSourceCreatePayload, 'access_method' | 'payload'>
+): Record<string, any> => ({
+    ...source.payload,
+    access_method: source.access_method ?? 'warehouse',
 })
 
 export const getErrorsForFields = (

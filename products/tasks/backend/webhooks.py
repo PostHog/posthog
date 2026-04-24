@@ -1,5 +1,6 @@
 import hmac
 import json
+import uuid
 import hashlib
 
 from django.http import HttpRequest, HttpResponse
@@ -151,6 +152,9 @@ def github_pr_webhook(request: HttpRequest) -> HttpResponse:
         run_id=str(task_run.id),
     )
 
-    task_run.capture_event(analytics_event, {"pr_url": pr_url})
+    # Generate a deterministic UUID from the PR URL and event type so that
+    # duplicate webhook deliveries for the same PR action are deduplicated.
+    event_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{pr_url}:{analytics_event}"))
+    task_run.capture_event(analytics_event, {"pr_url": pr_url}, event_uuid=event_uuid)
 
     return HttpResponse(status=200)

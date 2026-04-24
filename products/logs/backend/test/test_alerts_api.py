@@ -601,11 +601,16 @@ class TestLogsAlertAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         ids = response.json()["hog_function_ids"]
-        assert len(ids) == 3  # firing + resolved + broken
+        assert len(ids) == 4  # firing + resolved + broken + errored
 
         hog_functions = HogFunction.objects.filter(id__in=ids).order_by("name")
         event_ids = sorted([(hf.filters or {})["events"][0]["id"] for hf in hog_functions])
-        assert event_ids == ["$logs_alert_auto_disabled", "$logs_alert_firing", "$logs_alert_resolved"]
+        assert event_ids == [
+            "$logs_alert_auto_disabled",
+            "$logs_alert_errored",
+            "$logs_alert_firing",
+            "$logs_alert_resolved",
+        ]
         for hf in hog_functions:
             assert hf.template_id == "template-slack"
             inputs = hf.inputs or {}
@@ -636,7 +641,7 @@ class TestLogsAlertAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         ids = response.json()["hog_function_ids"]
-        assert len(ids) == 3
+        assert len(ids) == 4  # firing + resolved + broken + errored
 
         hog_functions = HogFunction.objects.filter(id__in=ids)
         for hf in hog_functions:
@@ -644,7 +649,12 @@ class TestLogsAlertAPI(APIBaseTest):
             inputs = hf.inputs or {}
             assert inputs["url"]["value"] == "https://example.com/hook"
             body = inputs["body"]["value"]
-            assert body["event"] in ("firing", "resolved", "broken")
+            assert body["type"] in (
+                "logs_alert.firing",
+                "logs_alert.resolved",
+                "logs_alert.auto_disabled",
+                "logs_alert.errored",
+            )
 
     @parameterized.expand(
         [
@@ -1030,21 +1040,7 @@ class TestLogsAlertAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    # --- Sparkline ---
-
-    @freeze_time("2025-12-16T10:30:00Z")
-    def test_sparkline_has_24_hourly_buckets_on_empty_alert(self):
-        created = self._create_via_api()
-
-        response = self.client.get(f"{self.base_url}{created['id']}/")
-
-        assert response.status_code == status.HTTP_200_OK
-        sparkline = response.json()["sparkline"]
-        assert len(sparkline) == 24
-        assert all(bucket["breached"] == 0 and bucket["errored"] == 0 for bucket in sparkline)
-        # Buckets are ordered oldest-first, hourly-aligned.
-        timestamps = [bucket["timestamp"] for bucket in sparkline]
-        assert timestamps == sorted(timestamps)
+    # --- State timeline ---
 
     def _make_event_at(self, alert_id: str, when: datetime, **fields) -> LogsAlertEvent:
         """Create a LogsAlertEvent at a specific timestamp (works around auto_now_add)."""
@@ -1061,7 +1057,24 @@ class TestLogsAlertAPI(APIBaseTest):
         return event
 
     @freeze_time("2025-12-16T10:30:00Z")
-    def test_sparkline_buckets_breached_and_errored_events(self):
+    def test_state_timeline_single_interval_for_empty_alert(self):
+        created = self._create_via_api()
+
+        response = self.client.get(f"{self.base_url}{created['id']}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        timeline = response.json()["state_timeline"]
+        assert len(timeline) == 1
+        interval = timeline[0]
+        assert interval["state"] == "not_firing"
+        assert interval["enabled"] is True
+        start = datetime.fromisoformat(interval["start"].replace("Z", "+00:00"))
+        end = datetime.fromisoformat(interval["end"].replace("Z", "+00:00"))
+        # 24h span, ending at "now".
+        assert (end - start) == timedelta(hours=24)
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    def test_state_timeline_splits_on_state_transitions(self):
         created = self._create_via_api()
         alert_id = created["id"]
         self._make_event_at(
@@ -1073,48 +1086,92 @@ class TestLogsAlertAPI(APIBaseTest):
         )
         self._make_event_at(
             alert_id,
-            datetime(2025, 12, 16, 9, 10, tzinfo=UTC),
+            datetime(2025, 12, 16, 8, 30, tzinfo=UTC),
             state_before="firing",
-            state_after="errored",
-            error_message="Query timeout",
-        )
-        self._make_event_at(
-            alert_id,
-            datetime(2025, 12, 16, 9, 45, tzinfo=UTC),
-            threshold_breached=True,
-            state_before="not_firing",
-            state_after="firing",
+            state_after="not_firing",
         )
 
         response = self.client.get(f"{self.base_url}{alert_id}/")
 
         assert response.status_code == status.HTTP_200_OK
-        sparkline = response.json()["sparkline"]
-        total_breached = sum(b["breached"] for b in sparkline)
-        total_errored = sum(b["errored"] for b in sparkline)
-        assert total_breached == 2
-        assert total_errored == 1
+        timeline = response.json()["state_timeline"]
+        assert [i["state"] for i in timeline] == ["not_firing", "firing", "not_firing"]
+        assert all(i["enabled"] for i in timeline)
+        assert datetime.fromisoformat(timeline[0]["end"].replace("Z", "+00:00")) == datetime(
+            2025, 12, 16, 7, 15, tzinfo=UTC
+        )
+        assert datetime.fromisoformat(timeline[1]["end"].replace("Z", "+00:00")) == datetime(
+            2025, 12, 16, 8, 30, tzinfo=UTC
+        )
 
-    @parameterized.expand([(k.value, k) for k in LogsAlertEvent.Kind if k != LogsAlertEvent.Kind.CHECK])
     @freeze_time("2025-12-16T10:30:00Z")
-    def test_sparkline_excludes_control_plane_row(self, _name: str, kind: LogsAlertEvent.Kind):
+    def test_state_timeline_collapses_same_state_checks(self):
         created = self._create_via_api()
         alert_id = created["id"]
-        self._make_event_at(alert_id, datetime(2025, 12, 16, 9, 0, tzinfo=UTC), kind=kind)
+        # Three CHECK events, all not_firing → single collapsed interval.
+        for hour in (7, 8, 9):
+            self._make_event_at(alert_id, datetime(2025, 12, 16, hour, 0, tzinfo=UTC))
 
         response = self.client.get(f"{self.base_url}{alert_id}/")
 
-        sparkline = response.json()["sparkline"]
-        assert all(b["breached"] == 0 and b["errored"] == 0 for b in sparkline)
+        timeline = response.json()["state_timeline"]
+        assert len(timeline) == 1
+        assert timeline[0]["state"] == "not_firing"
+        assert timeline[0]["enabled"] is True
 
     @freeze_time("2025-12-16T10:30:00Z")
-    def test_sparkline_excludes_events_older_than_24h(self):
+    def test_state_timeline_tracks_enable_disable_toggles(self):
         created = self._create_via_api()
         alert_id = created["id"]
-        # 26h before frozen time — outside the lookback window.
         self._make_event_at(
             alert_id,
-            datetime(2025, 12, 15, 8, 0, tzinfo=UTC),
+            datetime(2025, 12, 16, 8, 0, tzinfo=UTC),
+            kind=LogsAlertEvent.Kind.DISABLE,
+            state_before="not_firing",
+            state_after="not_firing",
+        )
+        self._make_event_at(
+            alert_id,
+            datetime(2025, 12, 16, 9, 30, tzinfo=UTC),
+            kind=LogsAlertEvent.Kind.ENABLE,
+            state_before="not_firing",
+            state_after="not_firing",
+        )
+
+        response = self.client.get(f"{self.base_url}{alert_id}/")
+
+        timeline = response.json()["state_timeline"]
+        # Seed from first in-window toggle (DISABLE) → enabled was True before it fired.
+        assert [i["enabled"] for i in timeline] == [True, False, True]
+        assert all(i["state"] == "not_firing" for i in timeline)
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    def test_state_timeline_seeds_enabled_from_pre_window_toggle(self):
+        created = self._create_via_api()
+        alert_id = created["id"]
+        # Pre-window DISABLE at 30h ago — no in-window toggles.
+        self._make_event_at(
+            alert_id,
+            datetime(2025, 12, 15, 4, 0, tzinfo=UTC),
+            kind=LogsAlertEvent.Kind.DISABLE,
+            state_before="not_firing",
+            state_after="not_firing",
+        )
+
+        response = self.client.get(f"{self.base_url}{alert_id}/")
+
+        timeline = response.json()["state_timeline"]
+        assert len(timeline) == 1
+        assert timeline[0]["enabled"] is False
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    def test_state_timeline_excludes_events_older_than_24h(self):
+        created = self._create_via_api()
+        alert_id = created["id"]
+        # 30h before frozen time — outside the window.
+        self._make_event_at(
+            alert_id,
+            datetime(2025, 12, 15, 4, 0, tzinfo=UTC),
             threshold_breached=True,
             state_before="not_firing",
             state_after="firing",
@@ -1122,8 +1179,12 @@ class TestLogsAlertAPI(APIBaseTest):
 
         response = self.client.get(f"{self.base_url}{alert_id}/")
 
-        sparkline = response.json()["sparkline"]
-        assert all(b["breached"] == 0 and b["errored"] == 0 for b in sparkline)
+        timeline = response.json()["state_timeline"]
+        # Out-of-window events still seed state_after for the window — but since the pre-window
+        # event left state=firing, and the alert's current state may be stale, we use the first
+        # in-window event's state_before. No in-window events here → fall back to obj.state.
+        assert len(timeline) == 1
+        assert timeline[0]["state"] == "not_firing"
 
     # --- Simulate ---
 

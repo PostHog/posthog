@@ -60,6 +60,12 @@
             "default": "PathsQuery",
             "type": "string"
         },
+        "output_format": {
+            "default": "optimized",
+            "description": "Output format. \"optimized\" returns a human-readable summary from server-side formatters (recommended for analysis). \"json\" returns the raw query results as JSON.",
+            "enum": ["optimized", "json"],
+            "type": "string"
+        },
         "pathsFilter": {
             "description": "Properties specific to the paths insight. Paths show the most common sequences of events or pages that users navigate through, helping identify popular user flows and drop-off points.",
             "properties": {

@@ -69,8 +69,8 @@ posthog/models/sessions/** @PostHog/team-analytics-platform
 posthog/tasks/alerts/** @PostHog/team-analytics-platform
 posthog/tasks/exports/** @PostHog/team-analytics-platform
 
-# Revenue Analytics - owned by @rafaeelaudibert and @PostHog/team-customer-analytics
-products/revenue_analytics/\*\* @rafaeelaudibert @PostHog/team-customer-analytics
+# Revenue Analytics - owned by @rafaeelaudibert and @PostHog/team-web-analytics
+products/revenue_analytics/\*\* @rafaeelaudibert @PostHog/team-web-analytics
 
 # Feature Flags platform (the `/flags` endpoint + associated utils) - owned by @PostHog/team-flags-platform
 rust/feature-flags/ @PostHog/team-flags-platform
