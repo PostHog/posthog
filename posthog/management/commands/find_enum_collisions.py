@@ -63,10 +63,10 @@ class Command(BaseCommand):
         self.stderr.write("Generating schema (this takes ~30s)...")
         gen = SchemaGenerator()
 
-        orig_hooks = list(spectacular_settings.POSTPROCESSING_HOOKS)  # type: ignore[attr-defined]
-        spectacular_settings.POSTPROCESSING_HOOKS = []  # type: ignore[attr-defined]
+        orig_hooks = list(spectacular_settings.POSTPROCESSING_HOOKS)
+        spectacular_settings.POSTPROCESSING_HOOKS = []
         schema = gen.get_schema(request=None, public=True)
-        spectacular_settings.POSTPROCESSING_HOOKS = orig_hooks  # type: ignore[attr-defined]
+        spectacular_settings.POSTPROCESSING_HOOKS = orig_hooks
 
         schemas = schema.get("components", {}).get("schemas", {})
         overrides = load_enum_name_overrides()

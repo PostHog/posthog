@@ -67,7 +67,7 @@ class PostHogAutoSchema(AutoSchema):
                 # No queryset — try to resolve from the URL pattern (e.g. <int:id>),
                 # otherwise default to string without warning. Method-level
                 # @extend_schema(parameters=...) provides the proper type per-endpoint.
-                schema = build_basic_type(OpenApiTypes.STR)
+                schema: dict[str, Any] = build_basic_type(OpenApiTypes.STR) or {"type": "string"}
                 resolved = resolve_django_path_parameter(
                     self.path_regex,
                     variable,
