@@ -343,8 +343,8 @@ def ensure_loop(loop: asyncio.AbstractEventLoop | None) -> Iterator[asyncio.Abst
     try:
         running_loop = asyncio.get_running_loop()
     except RuntimeError:
-        # We are being called from a sync context, a running event loop must be provided
-        if loop is None or not loop.is_running():
+        # We are being called from a sync context, an event loop must be provided
+        if loop is None:
             raise
 
         asyncio.set_event_loop(loop)
