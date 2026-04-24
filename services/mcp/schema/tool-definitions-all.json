@@ -434,17 +434,18 @@
         }
     },
     "external-data-sources-db-schema": {
-        "description": "Validate source credentials and return the available tables from the remote database. Use this before creating a source to verify connectivity and discover tables. Pass source_type and credential fields in the payload object. The response includes per-table: available sync methods (incremental, full_refresh, append, cdc), available incremental fields with types, detected primary keys, available columns with types and nullability, and row counts. Present all of this to the user so they can configure each table before creation: which tables to sync, sync method, incremental field (and type), and primary key overrides.",
+        "description": "Validate credentials against a remote source and return the list of tables available to sync. Each table entry includes: table name, incremental_available, append_available, cdc_available, supports_webhooks, detected_primary_keys, available_columns (name/type/nullable), rows estimate, and incremental_fields (candidate timestamp/integer columns for incremental sync). Use this BEFORE external-data-sources-create so the user can pick a sync_type per table. Returns 400 with a message if credentials are invalid.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
-        "summary": "Preview remote database schema before creating a source.",
-        "title": "Preview remote database schema",
+        "summary": "Discover tables and sync methods for a source",
+        "title": "Discover tables and sync methods for a source",
         "required_scopes": ["external_data_source:write"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
-            "readOnlyHint": false
+            "readOnlyHint": true
         }
     },
     "external-data-sources-jobs": {
@@ -1316,6 +1317,21 @@
             "readOnlyHint": false
         }
     },
+    "data-warehouse-data-health-issues-retrieve": {
+        "description": "Return all failed or degraded items across the data pipeline: materialized saved queries that failed, external data schemas in Failed or BillingLimitReached state, sources in Error state, failed batch exports, and disabled/degraded transformations. Each entry includes id, name, type (materialized_view, external_data_sync, source, destination, transformation), status, error message, failed_at, and url. Use this for a one-shot audit of what's broken in a project's data warehouse.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "List data pipeline health issues",
+        "title": "List data pipeline health issues",
+        "required_scopes": ["warehouse_view:read", "external_data_source:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "external-data-schemas-list": {
         "description": "List all table schemas across all data warehouse sources. Each schema represents one table being synced from an external source. Returns the schema name, sync status, sync frequency, incremental field configuration, and latest error. Use this to see which tables are actively syncing and their health.",
         "category": "Data warehouse",
@@ -1631,6 +1647,81 @@
             "readOnlyHint": true
         }
     },
+    "external-data-sources-create-webhook-create": {
+        "description": "For sources that support real-time webhook ingestion (currently Stripe), create the HogFunction handler and register the webhook URL with the external service using the source's stored credentials. Requires at least one schema on the source with sync_type='webhook' and should_sync=true. Returns the webhook_url, success flag, and any error. NOT idempotent — each successful call registers a new endpoint on the external service, so retrying after a network error or calling twice can create duplicate webhook endpoints (e.g. duplicate Stripe webhook endpoints delivering the same events twice). Always check webhook-info-retrieve first and only re-call if `exists: false`. For Stripe the signing_secret is auto-captured from the Stripe API response and stored securely; if auto-registration fails (e.g. the API key lacks webhook permissions), the user must create the webhook manually in Stripe and submit the signing_secret via update-webhook-inputs.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Create and register a webhook for a source",
+        "title": "Create and register a webhook for a source",
+        "required_scopes": ["external_data_source:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "external-data-sources-update-webhook-inputs-create": {
+        "description": "Update the webhook-specific inputs on an already-created webhook — for example when a signing secret has been rotated on the source side, or when the webhook was registered manually and the signing_secret needs to be supplied. Only accepts keys defined in the source type's webhookFields (e.g. Stripe's signing_secret). Fails if no webhook has been created for this source yet — call create-webhook first.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Update webhook inputs (signing secret, etc.)",
+        "title": "Update webhook inputs (signing secret, etc.)",
+        "required_scopes": ["external_data_source:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "external-data-sources-webhook-info-retrieve": {
+        "description": "Return webhook state for a source: supports_webhooks (is this source type webhook-capable), exists (has a webhook been created), webhook_url (the PostHog endpoint the external service should POST to), schema_mapping (external event type → PostHog schema id), and external_status (what the remote service reports about the webhook — enabled_events, status, created_at, error). Use this to check whether a webhook is healthy and whether the external registration is still valid.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Get webhook status for a source",
+        "title": "Get webhook status for a source",
+        "required_scopes": ["external_data_source:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "external-data-sources-delete-webhook-create": {
+        "description": "Unregister the webhook with the external service and delete the PostHog HogFunction that was handling it. Any webhook-type schemas under the source will stop receiving real-time events. The source and its schemas are preserved — only the webhook is removed. After deletion, schemas can be switched to a polling sync_type (incremental/full_refresh) via external-data-schemas-partial-update, or a new webhook can be created with create-webhook.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Delete a source's webhook",
+        "title": "Delete a source's webhook",
+        "required_scopes": ["external_data_source:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "external-data-sources-check-cdc-prerequisites-create": {
+        "description": "Validate that a live Postgres database meets Change Data Capture prerequisites — logical replication enabled (wal_level=logical), replication slot available, publication present, and required permissions. Postgres-only. Returns {valid, errors[]}. Use this before configuring a schema with sync_type=cdc, or to diagnose why an existing CDC sync has started failing.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Check Postgres CDC prerequisites",
+        "title": "Check Postgres CDC prerequisites",
+        "required_scopes": ["external_data_source:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "external-data-schemas-retrieve": {
         "description": "Get a single table schema by ID. Returns full details including sync status, sync frequency, incremental field, latest error, and the associated source and table metadata.",
         "category": "Data warehouse",
@@ -1689,6 +1780,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "external-data-schemas-incremental-fields-create": {
+        "description": "Re-inspect the source for a single table schema and return the currently available incremental fields, detected primary keys, column list, and which sync methods (incremental/append/cdc/webhook) are available. Use this when the source schema has changed, an incremental field has been dropped, or the user wants to switch to a different incremental_field/sync_type on an existing schema. The operation_id is external_data_schemas_incremental_fields_create but semantically this is a read-only refresh.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Refresh candidate incremental fields for a schema",
+        "title": "Refresh candidate incremental fields for a schema",
+        "required_scopes": ["external_data_source:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "external-data-schemas-reload": {
