@@ -209,7 +209,7 @@ dev = [
     "fakeredis[lua]==2.23.3",
     "hypothesis~=6.151.9",
     "pytest-rerunfailures~=16.1",
-    "freezegun==1.2.2",
+    "freezegun==1.5.5",
     "grpcio-tools~=1.71.0",
     "protoletariat~=3.3.10",
     "ipython~=9.3.0",

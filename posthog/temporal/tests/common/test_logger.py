@@ -484,13 +484,22 @@ def log_entries_table():
     sync_execute(TRUNCATE_LOG_ENTRIES_TABLE_SQL)
 
 
+async def wait_for_queue_entries(queue):
+    iterations = 0
+    while not queue.entries:
+        await asyncio.sleep(0)
+
+        iterations += 1
+        if iterations > 10:
+            raise TimeoutError("Timedout waiting for logs")
+
+
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     "activity_environment",
     ACTIVITY_INFOS,
     indirect=True,
 )
-@freezegun.freeze_time("2024-01-01 00:00:00")
 @pytest.mark.parametrize("log_capture", [False], indirect=True)
 async def test_logger_produces_to_kafka_from_activity(activity_environment, producer, queue, log_entries_table):
     """Test whether our log entries logger produces messages to Kafka.
@@ -538,10 +547,11 @@ async def test_logger_produces_to_kafka_from_activity(activity_environment, prod
     )
 
     for activity in activities:
-        if fut := activity_environment.run(activity):
-            await fut
+        with freezegun.freeze_time("2024-01-01 00:00:00", real_asyncio=True):
+            if fut := activity_environment.run(activity):
+                await fut
 
-        await producer.flush()
+        await wait_for_queue_entries(queue)
 
         assert len(queue.entries) == 2 or len(queue.entries) == 4
 
@@ -550,6 +560,8 @@ async def test_logger_produces_to_kafka_from_activity(activity_environment, prod
 
         entries_captured = len(producer.entries)
         assert entries_captured == 2 or entries_captured == 4
+
+        await producer.flush()
 
         for _ in range(len(producer.entries)):
             entry = producer.entries.pop(0)
@@ -644,7 +656,7 @@ async def test_logger_produces_to_log_queue_from_workflow(queue):
 
     iterations = 0
     while not queue.entries:
-        await asyncio.sleep(1)
+        await asyncio.sleep(0)
 
         iterations += 1
         if iterations > 10:
@@ -666,7 +678,6 @@ async def test_logger_produces_to_log_queue_from_workflow(queue):
 
 
 @pytest.mark.django_db
-@freezegun.freeze_time("2024-01-01 00:00:00")
 @pytest.mark.parametrize("log_capture", [False], indirect=True)
 async def test_logger_produces_to_kafka_from_workflow(producer, queue, log_entries_table):
     """Test whether our log entries logger produces messages to Kafka.
@@ -691,15 +702,16 @@ async def test_logger_produces_to_kafka_from_workflow(producer, queue, log_entri
             activities=[],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            await workflow_environment.client.execute_workflow(
-                TestWorkflow.run,
-                id=workflow_id,
-                task_queue=task_queue,
-                retry_policy=RetryPolicy(maximum_attempts=1),
-                execution_timeout=dt.timedelta(seconds=5),
-            )
+            with freezegun.freeze_time("2024-01-01 00:00:00", real_asyncio=True):
+                await workflow_environment.client.execute_workflow(
+                    TestWorkflow.run,
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=dt.timedelta(seconds=5),
+                )
 
-    await producer.flush()
+    await wait_for_queue_entries(queue)
 
     assert len(queue.entries) == 2
 
@@ -708,6 +720,8 @@ async def test_logger_produces_to_kafka_from_workflow(producer, queue, log_entri
 
     entries_captured = len(producer.entries)
     assert entries_captured == 2
+
+    await producer.flush()
 
     log_source, log_source_id = resolve_log_source("external-data-job", workflow_id)
 
