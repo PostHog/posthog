@@ -12,7 +12,7 @@ from typing import Any
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttributes, WorkflowIDReusePolicy
-from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.search_attributes import POSTHOG_TEAM_ID_KEY
@@ -115,8 +115,10 @@ class SummarizeTeamSessionsWorkflow(PostHogWorkflow):
         )
         started = 0
         skipped = 0
+        failed = 0
         for r in start_results:
             if isinstance(r, BaseException):
+                failed += 1
                 workflow.logger.warning(
                     "summarization_sweep.start_child_failed",
                     extra={"team_id": inputs.team_id, "error": str(r)},
@@ -125,6 +127,13 @@ class SummarizeTeamSessionsWorkflow(PostHogWorkflow):
                 started += 1
             else:
                 skipped += 1
+
+        # All-fail is systemic (queue config, permissions, Temporal outage) — surface it.
+        if failed > 0 and started == 0 and skipped == 0:
+            raise ApplicationError(
+                f"All {failed} child workflow starts failed for team {inputs.team_id}",
+                type="AllChildStartsFailed",
+            )
 
         return {
             "team_id": inputs.team_id,

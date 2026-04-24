@@ -37,6 +37,11 @@ class UpsertTeamScheduleInput:
 
 
 @dataclass
+class ListScheduleTeamIdsInput:
+    team_ids: list[int]
+
+
+@dataclass
 class ReconcileSchedulesInputs:
     dry_run: bool = False
 

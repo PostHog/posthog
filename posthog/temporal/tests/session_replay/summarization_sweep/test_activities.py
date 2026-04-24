@@ -192,3 +192,118 @@ async def test_find_sessions_handles_config_disabled_between_check_and_ch_query(
 
     assert result.team_disabled is False
     assert result.session_ids == []
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_find_sessions_returns_team_disabled_when_ai_consent_revoked(activity_environment, team):
+    await sync_to_async(enable_signal_source)(team, enabled=True)
+
+    def _revoke() -> None:
+        team.organization.is_ai_data_processing_approved = False
+        team.organization.save(update_fields=["is_ai_data_processing_approved"])
+
+    await sync_to_async(_revoke)()
+    result = await activity_environment.run(
+        find_sessions_for_team_activity,
+        FindSessionsInput(team_id=team.id, lookback_minutes=30, max_sessions=5),
+    )
+    assert result.team_disabled is True
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_find_sessions_prefers_created_by_user(activity_environment, organization, team):
+    from posthog.models.user import User
+
+    first_user = await sync_to_async(User.objects.create_and_join)(organization, "first@posthog.com", "pw", "First")
+    second_user = await sync_to_async(User.objects.create_and_join)(organization, "second@posthog.com", "pw", "Second")
+    try:
+        await sync_to_async(enable_signal_source)(team, created_by=second_user)
+        assert first_user.id < second_user.id
+
+        with (
+            patch(
+                "posthog.temporal.session_replay.summarization_sweep.activities.fetch_recent_session_ids",
+                return_value=["s1"],
+            ),
+            patch(
+                "ee.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
+                return_value={"s1": False},
+            ),
+        ):
+            result = await activity_environment.run(
+                find_sessions_for_team_activity,
+                FindSessionsInput(team_id=team.id, lookback_minutes=30, max_sessions=5),
+            )
+        assert result.user_id == second_user.id
+    finally:
+        await sync_to_async(first_user.delete)()
+        await sync_to_async(second_user.delete)()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_find_sessions_falls_back_when_created_by_is_null(activity_environment, organization, team):
+    from posthog.models.user import User
+
+    await sync_to_async(enable_signal_source)(team)
+    user = await sync_to_async(User.objects.create_and_join)(organization, "fallback@posthog.com", "pw", "Fallback")
+    try:
+        with (
+            patch(
+                "posthog.temporal.session_replay.summarization_sweep.activities.fetch_recent_session_ids",
+                return_value=["s1"],
+            ),
+            patch(
+                "ee.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
+                return_value={"s1": False},
+            ),
+        ):
+            result = await activity_environment.run(
+                find_sessions_for_team_activity,
+                FindSessionsInput(team_id=team.id, lookback_minutes=30, max_sessions=5),
+            )
+        assert result.user_id == user.id
+    finally:
+        await sync_to_async(user.delete)()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_list_enabled_teams_filters_ai_consent(activity_environment, organization):
+    from posthog.temporal.session_replay.summarization_sweep.activities import list_enabled_teams_activity
+
+    t_consented = await sync_to_async(Team.objects.create)(organization=organization, name="consented")
+    await sync_to_async(enable_signal_source)(t_consented, enabled=True)
+
+    revoked_org = await sync_to_async(Organization.objects.create)(name="revoked-org")
+    t_revoked = await sync_to_async(Team.objects.create)(organization=revoked_org, name="revoked")
+    await sync_to_async(enable_signal_source)(t_revoked, enabled=True)
+
+    def _revoke() -> None:
+        revoked_org.is_ai_data_processing_approved = False
+        revoked_org.save(update_fields=["is_ai_data_processing_approved"])
+
+    await sync_to_async(_revoke)()
+
+    result = await activity_environment.run(list_enabled_teams_activity)
+    assert t_consented.id in result
+    assert t_revoked.id not in result
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_list_configured_teams_returns_enabled_and_disabled(activity_environment, organization):
+    from posthog.temporal.session_replay.summarization_sweep.activities import list_configured_teams_activity
+
+    t_enabled = await sync_to_async(Team.objects.create)(organization=organization, name="enabled")
+    t_disabled = await sync_to_async(Team.objects.create)(organization=organization, name="disabled")
+    t_none = await sync_to_async(Team.objects.create)(organization=organization, name="none")
+    await sync_to_async(enable_signal_source)(t_enabled, enabled=True)
+    await sync_to_async(enable_signal_source)(t_disabled, enabled=False)
+
+    result = await activity_environment.run(list_configured_teams_activity)
+    assert t_enabled.id in result
+    assert t_disabled.id in result
+    assert t_none.id not in result

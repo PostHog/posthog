@@ -3,15 +3,17 @@ from temporalio import activity
 
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.temporal.session_replay.summarization_sweep.constants import (
     CH_QUERY_MAX_EXECUTION_SECONDS,
     SCHEDULE_ID_PREFIX,
+    WORKFLOW_NAME,
 )
 from posthog.temporal.session_replay.summarization_sweep.models import (
     DeleteTeamScheduleInput,
     FindSessionsInput,
     FindSessionsResult,
+    ListScheduleTeamIdsInput,
     UpsertTeamScheduleInput,
 )
 from posthog.temporal.session_replay.summarization_sweep.session_candidates import fetch_recent_session_ids
@@ -23,13 +25,30 @@ from ee.models.session_summaries import SingleSessionSummary
 logger = structlog.get_logger(__name__)
 
 
-def _is_team_enabled(team_id: int) -> bool:
+def _is_team_summarization_allowed(team_id: int) -> bool:
     return SignalSourceConfig.objects.filter(
         team_id=team_id,
         source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
         source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
         enabled=True,
+        team__organization__is_ai_data_processing_approved=True,
     ).exists()
+
+
+def _select_summarization_user(team: Team) -> User | None:
+    # Stability matters: the chosen user is embedded in the child's `redis_key_base`.
+    config = (
+        SignalSourceConfig.objects.filter(
+            team_id=team.id,
+            source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+            source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+        )
+        .select_related("created_by")
+        .first()
+    )
+    if config is not None and config.created_by_id is not None:
+        return config.created_by
+    return team.all_users_with_access().order_by("id").first()
 
 
 def _load_team_user_and_sessions(team_id: int, lookback_minutes: int) -> tuple[Team, list[str], User | None]:
@@ -41,19 +60,17 @@ def _load_team_user_and_sessions(team_id: int, lookback_minutes: int) -> tuple[T
     )
     if not session_ids:
         return team, [], None
-    # Stable ordering — the chosen user is embedded in the child's `redis_key_base`.
-    system_user = team.all_users_with_access().order_by("id").first()
-    return team, session_ids, system_user
+    return team, session_ids, _select_summarization_user(team)
 
 
 @activity.defn
 async def find_sessions_for_team_activity(inputs: FindSessionsInput) -> FindSessionsResult:
     """Surfaces `team_disabled=True` so the workflow can tear down its own schedule."""
-    enabled = await database_sync_to_async(_is_team_enabled)(inputs.team_id)
+    enabled = await database_sync_to_async(_is_team_summarization_allowed)(inputs.team_id)
     if not enabled:
         return FindSessionsResult(team_id=inputs.team_id, team_disabled=True)
 
-    team, session_ids, system_user = await database_sync_to_async(_load_team_user_and_sessions)(
+    team, session_ids, system_user = await database_sync_to_async_pool(_load_team_user_and_sessions)(
         inputs.team_id, inputs.lookback_minutes
     )
     if not session_ids:
@@ -62,7 +79,7 @@ async def find_sessions_for_team_activity(inputs: FindSessionsInput) -> FindSess
         logger.warning("No user found to run summarization", team_id=inputs.team_id)
         return FindSessionsResult(team_id=inputs.team_id)
 
-    existing_summaries = await database_sync_to_async(SingleSessionSummary.objects.summaries_exist)(
+    existing_summaries = await database_sync_to_async_pool(SingleSessionSummary.objects.summaries_exist)(
         team_id=inputs.team_id,
         session_ids=session_ids,
         extra_summary_context=None,
@@ -89,30 +106,68 @@ async def delete_team_schedule_activity(inputs: DeleteTeamScheduleInput) -> None
     await a_delete_team_schedule(inputs.team_id)
 
 
-def _list_enabled_team_ids() -> list[int]:
+def _list_allowed_team_ids() -> list[int]:
     return list(
         SignalSourceConfig.objects.filter(
             source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
             source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
             enabled=True,
+            team__organization__is_ai_data_processing_approved=True,
         ).values_list("team_id", flat=True)
     )
 
 
 @activity.defn
 async def list_enabled_teams_activity() -> list[int]:
-    return await database_sync_to_async(_list_enabled_team_ids)()
+    return await database_sync_to_async(_list_allowed_team_ids)()
+
+
+def _list_configured_team_ids() -> list[int]:
+    # Reconciliation scope includes disabled rows so stale schedules remain in view.
+    return list(
+        SignalSourceConfig.objects.filter(
+            source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+            source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+        )
+        .values_list("team_id", flat=True)
+        .distinct()
+    )
 
 
 @activity.defn
-async def list_summarization_schedule_team_ids_activity() -> list[int]:
+async def list_configured_teams_activity() -> list[int]:
+    return await database_sync_to_async(_list_configured_team_ids)()
+
+
+def _build_team_filter_query(team_ids: list[int]) -> str:
+    if len(team_ids) == 1:
+        return f"PostHogTeamId = {team_ids[0]}"
+    return f"PostHogTeamId IN ({','.join(str(t) for t in sorted(team_ids))})"
+
+
+def _schedule_workflow_type(listing: object) -> str | None:
+    try:
+        return listing.schedule.action.workflow  # type: ignore[attr-defined]
+    except AttributeError:
+        return None
+
+
+@activity.defn
+async def list_summarization_schedule_team_ids_activity(inputs: ListScheduleTeamIdsInput) -> list[int]:
+    if not inputs.team_ids:
+        return []
+
     from posthog.temporal.common.client import async_connect
 
     client = await async_connect()
     prefix = f"{SCHEDULE_ID_PREFIX}-"
+    query = _build_team_filter_query(inputs.team_ids)
     team_ids: list[int] = []
-    async for listing in await client.list_schedules():
+    async for listing in await client.list_schedules(query=query):
         if not listing.id.startswith(prefix):
+            continue
+        # PostHogTeamId is shared across workflow types — restrict to ours.
+        if _schedule_workflow_type(listing) != WORKFLOW_NAME:
             continue
         suffix = listing.id[len(prefix) :]
         try:

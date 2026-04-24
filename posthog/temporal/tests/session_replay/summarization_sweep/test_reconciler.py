@@ -15,9 +15,14 @@ from posthog.temporal.session_replay.summarization_sweep.activities import (
     list_summarization_schedule_team_ids_activity,
     upsert_team_schedule_activity,
 )
-from posthog.temporal.session_replay.summarization_sweep.constants import RECONCILER_WORKFLOW_NAME, SCHEDULE_ID_PREFIX
+from posthog.temporal.session_replay.summarization_sweep.constants import (
+    RECONCILER_WORKFLOW_NAME,
+    SCHEDULE_ID_PREFIX,
+    WORKFLOW_NAME,
+)
 from posthog.temporal.session_replay.summarization_sweep.models import (
     DeleteTeamScheduleInput,
+    ListScheduleTeamIdsInput,
     ReconcileSchedulesInputs,
     UpsertTeamScheduleInput,
 )
@@ -70,31 +75,56 @@ async def test_list_enabled_teams_ignores_other_source_types(activity_environmen
     assert team.id not in result
 
 
+def _make_listing(schedule_id: str, workflow_type: str = WORKFLOW_NAME) -> Any:
+    action = MagicMock()
+    action.workflow = workflow_type
+    schedule = MagicMock()
+    schedule.action = action
+    listing = MagicMock()
+    listing.id = schedule_id
+    listing.schedule = schedule
+    return listing
+
+
+class _AsyncIter:
+    def __init__(self, items: list[Any]) -> None:
+        self._items = items
+
+    def __aiter__(self):
+        self._iter = iter(self._items)
+        return self
+
+    async def __anext__(self):
+        try:
+            return next(self._iter)
+        except StopIteration:
+            raise StopAsyncIteration
+
+
 @pytest.mark.asyncio
-async def test_list_summarization_schedule_team_ids_parses_suffix(activity_environment):
-    class _Listing:
-        def __init__(self, id: str) -> None:
-            self.id = id
+async def test_list_summarization_schedule_team_ids_returns_empty_when_no_scope(activity_environment):
+    client = MagicMock()
+    client.list_schedules = AsyncMock()
+    with patch(
+        "posthog.temporal.common.client.async_connect",
+        AsyncMock(return_value=client),
+    ):
+        result = await activity_environment.run(
+            list_summarization_schedule_team_ids_activity,
+            ListScheduleTeamIdsInput(team_ids=[]),
+        )
+    assert result == []
+    client.list_schedules.assert_not_called()
 
-    class _AsyncIter:
-        def __init__(self, items: list[Any]) -> None:
-            self._items = items
 
-        def __aiter__(self):
-            self._iter = iter(self._items)
-            return self
-
-        async def __anext__(self):
-            try:
-                return next(self._iter)
-            except StopIteration:
-                raise StopAsyncIteration
-
+@pytest.mark.asyncio
+async def test_list_summarization_schedule_team_ids_filters_by_scope_and_workflow_type(activity_environment):
     listings = [
-        _Listing(f"{SCHEDULE_ID_PREFIX}-101"),
-        _Listing(f"{SCHEDULE_ID_PREFIX}-202"),
-        _Listing("some-other-schedule-id"),
-        _Listing(f"{SCHEDULE_ID_PREFIX}-notanint"),
+        _make_listing(f"{SCHEDULE_ID_PREFIX}-101"),
+        _make_listing(f"{SCHEDULE_ID_PREFIX}-202"),
+        _make_listing(f"{SCHEDULE_ID_PREFIX}-303", workflow_type="some-other-workflow"),
+        _make_listing("some-other-schedule-id"),
+        _make_listing(f"{SCHEDULE_ID_PREFIX}-notanint"),
     ]
     client = MagicMock()
     client.list_schedules = AsyncMock(return_value=_AsyncIter(listings))
@@ -102,8 +132,30 @@ async def test_list_summarization_schedule_team_ids_parses_suffix(activity_envir
         "posthog.temporal.common.client.async_connect",
         AsyncMock(return_value=client),
     ):
-        result = await activity_environment.run(list_summarization_schedule_team_ids_activity)
+        result = await activity_environment.run(
+            list_summarization_schedule_team_ids_activity,
+            ListScheduleTeamIdsInput(team_ids=[101, 202, 303]),
+        )
     assert sorted(result) == [101, 202]
+    call_kwargs = client.list_schedules.call_args.kwargs
+    assert "query" in call_kwargs
+    assert "PostHogTeamId IN (101,202,303)" in call_kwargs["query"]
+
+
+@pytest.mark.asyncio
+async def test_list_summarization_schedule_team_ids_single_team_uses_equality(activity_environment):
+    client = MagicMock()
+    client.list_schedules = AsyncMock(return_value=_AsyncIter([]))
+    with patch(
+        "posthog.temporal.common.client.async_connect",
+        AsyncMock(return_value=client),
+    ):
+        await activity_environment.run(
+            list_summarization_schedule_team_ids_activity,
+            ListScheduleTeamIdsInput(team_ids=[42]),
+        )
+    call_kwargs = client.list_schedules.call_args.kwargs
+    assert call_kwargs["query"] == "PostHogTeamId = 42"
 
 
 @pytest.mark.asyncio
@@ -116,6 +168,22 @@ async def test_upsert_team_schedule_activity_delegates(activity_environment):
     mock_upsert.assert_awaited_once_with(42)
 
 
+def _make_list_configured_activity(configured_ids: list[int]):
+    @activity.defn(name="list_configured_teams_activity")
+    async def list_configured_mocked() -> list[int]:
+        return configured_ids
+
+    return list_configured_mocked
+
+
+def _make_list_schedule_team_ids_activity(scheduled_ids: list[int]):
+    @activity.defn(name="list_summarization_schedule_team_ids_activity")
+    async def list_schedules_mocked(inputs: ListScheduleTeamIdsInput) -> list[int]:
+        return [tid for tid in scheduled_ids if tid in inputs.team_ids]
+
+    return list_schedules_mocked
+
+
 @pytest.mark.asyncio
 async def test_reconcile_workflow_upserts_new_and_deletes_stale():
     upserted_ids: list[int] = []
@@ -125,9 +193,9 @@ async def test_reconcile_workflow_upserts_new_and_deletes_stale():
     async def list_enabled_mocked() -> list[int]:
         return [1, 2, 3]
 
-    @activity.defn(name="list_summarization_schedule_team_ids_activity")
-    async def list_schedules_mocked() -> list[int]:
-        return [2, 3, 4]
+    # Team 4 stays in the configured set (disabled row) so its stale schedule is in scope.
+    list_configured_mocked = _make_list_configured_activity([1, 2, 3, 4])
+    list_schedules_mocked = _make_list_schedule_team_ids_activity([2, 3, 4])
 
     @activity.defn(name="upsert_team_schedule_activity")
     async def upsert_mocked(inputs: UpsertTeamScheduleInput) -> None:
@@ -144,7 +212,13 @@ async def test_reconcile_workflow_upserts_new_and_deletes_stale():
             env.client,
             task_queue=task_queue,
             workflows=[ReconcileSummarizationSchedulesWorkflow],
-            activities=[list_enabled_mocked, list_schedules_mocked, upsert_mocked, delete_mocked],
+            activities=[
+                list_enabled_mocked,
+                list_configured_mocked,
+                list_schedules_mocked,
+                upsert_mocked,
+                delete_mocked,
+            ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
             result = await env.client.execute_workflow(
@@ -168,9 +242,8 @@ async def test_reconcile_workflow_noop_when_in_sync():
     async def list_enabled_mocked() -> list[int]:
         return [1, 2]
 
-    @activity.defn(name="list_summarization_schedule_team_ids_activity")
-    async def list_schedules_mocked() -> list[int]:
-        return [1, 2]
+    list_configured_mocked = _make_list_configured_activity([1, 2])
+    list_schedules_mocked = _make_list_schedule_team_ids_activity([1, 2])
 
     upsert_mock = AsyncMock()
     delete_mock = AsyncMock()
@@ -189,7 +262,13 @@ async def test_reconcile_workflow_noop_when_in_sync():
             env.client,
             task_queue=task_queue,
             workflows=[ReconcileSummarizationSchedulesWorkflow],
-            activities=[list_enabled_mocked, list_schedules_mocked, upsert_mocked, delete_mocked],
+            activities=[
+                list_enabled_mocked,
+                list_configured_mocked,
+                list_schedules_mocked,
+                upsert_mocked,
+                delete_mocked,
+            ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
             result = await env.client.execute_workflow(
@@ -210,9 +289,8 @@ async def test_reconcile_workflow_isolates_per_team_failures():
     async def list_enabled_mocked() -> list[int]:
         return [1, 2, 3]
 
-    @activity.defn(name="list_summarization_schedule_team_ids_activity")
-    async def list_schedules_mocked() -> list[int]:
-        return []
+    list_configured_mocked = _make_list_configured_activity([1, 2, 3])
+    list_schedules_mocked = _make_list_schedule_team_ids_activity([])
 
     seen: list[int] = []
 
@@ -232,7 +310,13 @@ async def test_reconcile_workflow_isolates_per_team_failures():
             env.client,
             task_queue=task_queue,
             workflows=[ReconcileSummarizationSchedulesWorkflow],
-            activities=[list_enabled_mocked, list_schedules_mocked, upsert_mocked, delete_mocked],
+            activities=[
+                list_enabled_mocked,
+                list_configured_mocked,
+                list_schedules_mocked,
+                upsert_mocked,
+                delete_mocked,
+            ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
             result = await env.client.execute_workflow(
@@ -258,9 +342,8 @@ async def test_reconcile_workflow_dry_run_does_not_mutate():
     async def list_enabled_mocked() -> list[int]:
         return [1, 2]
 
-    @activity.defn(name="list_summarization_schedule_team_ids_activity")
-    async def list_schedules_mocked() -> list[int]:
-        return [2, 3]
+    list_configured_mocked = _make_list_configured_activity([1, 2, 3])
+    list_schedules_mocked = _make_list_schedule_team_ids_activity([2, 3])
 
     @activity.defn(name="upsert_team_schedule_activity")
     async def upsert_mocked(inputs: UpsertTeamScheduleInput) -> None:
@@ -276,7 +359,13 @@ async def test_reconcile_workflow_dry_run_does_not_mutate():
             env.client,
             task_queue=task_queue,
             workflows=[ReconcileSummarizationSchedulesWorkflow],
-            activities=[list_enabled_mocked, list_schedules_mocked, upsert_mocked, delete_mocked],
+            activities=[
+                list_enabled_mocked,
+                list_configured_mocked,
+                list_schedules_mocked,
+                upsert_mocked,
+                delete_mocked,
+            ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
             result = await env.client.execute_workflow(

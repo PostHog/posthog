@@ -63,7 +63,7 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
             temporal = sync_connect()
 
             async def has_running() -> bool:
-                async for _ in temporal.list_workflows(query=query):
+                async for _ in temporal.list_workflows(query=query, page_size=1):
                     return True
                 return False
 
@@ -101,11 +101,22 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs: dict) -> dict:
         source_product = attrs.get("source_product", getattr(self.instance, "source_product", None))
+        source_type = attrs.get("source_type", getattr(self.instance, "source_type", None))
+        enabled = attrs.get("enabled", getattr(self.instance, "enabled", False))
         config = attrs.get("config", {})
         if source_product == SignalSourceConfig.SourceProduct.SESSION_REPLAY and config:
             recording_filters = config.get("recording_filters")
             if recording_filters is not None and not isinstance(recording_filters, dict):
                 raise serializers.ValidationError({"config": "recording_filters must be a JSON object"})
+        if enabled and source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER:
+            get_team = self.context.get("get_team")
+            team = get_team() if get_team else None
+            if team is not None and not team.organization.is_ai_data_processing_approved:
+                raise serializers.ValidationError(
+                    {
+                        "enabled": "AI data processing must be approved at the organization level to enable session analysis."
+                    }
+                )
         return attrs
 
 
