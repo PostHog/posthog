@@ -677,6 +677,7 @@ class TestTaskAPI(BaseTaskAPITest):
             ("acceptEdits",),
             ("plan",),
             ("bypassPermissions",),
+            ("auto",),
         ]
     )
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
@@ -826,8 +827,8 @@ class TestTaskAPI(BaseTaskAPITest):
                 "claude_rejects_codex_mode",
                 "claude",
                 "claude-opus-4-6",
-                "auto",
-                "Invalid choice 'auto' for runtime_adapter 'claude'. Supported values: 'default', 'acceptEdits', 'plan', 'bypassPermissions'.",
+                "full-access",
+                "Invalid choice 'full-access' for runtime_adapter 'claude'. Supported values: 'default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto'.",
             ),
             (
                 "codex_rejects_claude_mode",

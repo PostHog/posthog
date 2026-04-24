@@ -1648,6 +1648,38 @@ class TestIterateDateWindowsFake:
         total = sum(t.num_rows for t in tables)
         assert total == 3
 
+    def test_handles_naive_cursor_against_aware_partition_bounds(self):
+        # Pipeline can persist the incremental cursor as a naive datetime, but
+        # partition bounds parsed from the catalog are always UTC-aware. The
+        # walker must coerce naive->aware before comparing or Python raises
+        # `can't compare offset-naive and offset-aware datetimes`.
+        child = ChildPartition(
+            oid=1,
+            schema="public",
+            name="p",
+            partbound="FOR VALUES FROM ('2026-01-01 00:00:00') TO ('2026-01-02 00:00:00')",
+        )
+        factory = _FakeConnectionFactory([[(1, 10)]])
+        tables = list(
+            iterate_date_windows(
+                get_connection=cast(Any, factory),
+                build_windowed_query=_build_fake_query,
+                schema="public",
+                table_name="t",
+                incremental_field="x",
+                incremental_field_type=IncrementalFieldType.DateTime,
+                db_incremental_field_last_value=datetime(2025, 12, 31, 23, 59, 59),  # naive!
+                child_partitions=[child],
+                chunk_size=1000,
+                arrow_schema=_arrow_schema(),
+                logger=structlog.get_logger(),
+                initial_window=timedelta(days=1),
+                clock=_FakeClock(),
+                sleeper=lambda _s: None,
+            )
+        )
+        assert sum(t.num_rows for t in tables) == 1
+
     def test_walks_multiple_windows(self):
         # Two partitions, each 1 day; with initial_window=1 day, expect two windows.
         children = [

@@ -1,6 +1,6 @@
 import type { ApiClient, GroupType } from '@/api/client'
 import { getPostHogClient } from '@/lib/analytics'
-import { ErrorCode, wrapError } from '@/lib/errors'
+import { ErrorCode, MissingProjectContextError, wrapError } from '@/lib/errors'
 import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
 import { sanitizeHeaderValue } from '@/lib/utils'
 import type { ApiUser } from '@/schema/api'
@@ -89,50 +89,73 @@ export class StateManager {
         return _distinctId
     }
 
+    /**
+     * Resolve a default `(organizationId, projectId)` for a session that hasn't
+     * pinned them via header. The user's currently active team/org from
+     * `users/@me` is the source of truth; the API key's `scoped_teams` /
+     * `scoped_organizations` are treated as filters, not directives.
+     *
+     * Never throws. The agent can always recover via `switch-project` /
+     * `switch-organization` tools, so an opaque 500 here would be strictly
+     * worse than a best-effort default.
+     */
     private async _getDefaultOrganizationAndProject(): Promise<{
         organizationId?: string
-        projectId: number
+        projectId?: number
     }> {
-        const { scoped_organizations, scoped_teams } = await this.getApiKey()
-        const { organization: activeOrganization, team: activeTeam } = await this.getUser()
+        const [{ scoped_organizations, scoped_teams }, user] = await Promise.all([this.getApiKey(), this.getUser()])
+        const { organization: activeOrganization, team: activeTeam } = user
 
+        // Team-scoped key: prefer the active team if the scope allows it,
+        // otherwise pick the first scoped team deterministically. The org is
+        // omitted here — `getAnalyticsContext` recovers it from the project.
         if (scoped_teams.length > 0) {
-            // Keys scoped to projects should only be scoped to one project
-            if (scoped_teams.length > 1) {
-                throw new Error(
-                    'API key has access to multiple projects, please specify a single project ID or change the API key to have access to an organization to include the projects within it.'
-                )
+            if (scoped_teams.includes(activeTeam.id)) {
+                return { projectId: activeTeam.id }
             }
-
-            const projectId = scoped_teams[0]!
-
-            return { projectId }
+            return { projectId: scoped_teams[0]! }
         }
 
+        // No team scoping: prefer the user's active org/team when the scope
+        // allows it.
         if (scoped_organizations.length === 0 || scoped_organizations.includes(activeOrganization.id)) {
             return { organizationId: activeOrganization.id, projectId: activeTeam.id }
         }
 
+        // Active org isn't in the scope. Pick the first allowed org and fall
+        // back to its first project. If the project lookup fails or the org has
+        // no projects, return the org alone and let the agent disambiguate.
         const organizationId = scoped_organizations[0]!
-
-        const projectsResult = await this._api.organizations().projects({ orgId: organizationId }).list()
-
-        if (!projectsResult.success) {
-            throw projectsResult.error
+        try {
+            const projectsResult = await this._api.organizations().projects({ orgId: organizationId }).list()
+            if (projectsResult.success && projectsResult.data.length > 0) {
+                return { organizationId, projectId: Number(projectsResult.data[0]!) }
+            }
+            if (!projectsResult.success) {
+                this._reportException(projectsResult.error, 'default_org_project_projects_list_failed', {
+                    organization_id: organizationId,
+                })
+            }
+        } catch (error) {
+            this._reportException(error, 'default_org_project_projects_list_threw', {
+                organization_id: organizationId,
+            })
         }
 
-        if (projectsResult.data.length === 0) {
-            throw new Error('API key does not have access to any projects')
+        return { organizationId }
+    }
+
+    private _reportException(error: unknown, context: string, extra: Record<string, unknown> = {}): void {
+        try {
+            getPostHogClient().captureException(error, undefined, { tag: 'mcp', team: 'posthog_ai', context, ...extra })
+        } catch {
+            // Never let observability break the request.
         }
-
-        const projectId = projectsResult.data[0]!
-
-        return { organizationId, projectId: Number(projectId) }
     }
 
     async setDefaultOrganizationAndProject(): Promise<{
         organizationId: string | undefined
-        projectId: number
+        projectId: number | undefined
     }> {
         const { organizationId, projectId } = await this._getDefaultOrganizationAndProject()
 
@@ -140,7 +163,9 @@ export class StateManager {
             await this._cache.set('orgId', organizationId)
         }
 
-        await this._cache.set('projectId', projectId.toString())
+        if (projectId !== undefined) {
+            await this._cache.set('projectId', projectId.toString())
+        }
 
         return { organizationId, projectId }
     }
@@ -161,8 +186,11 @@ export class StateManager {
         const projectId = await this._cache.get('projectId')
 
         if (!projectId) {
-            const { projectId } = await this.setDefaultOrganizationAndProject()
-            return projectId.toString()
+            const { organizationId, projectId: resolved } = await this.setDefaultOrganizationAndProject()
+            if (resolved === undefined) {
+                throw new MissingProjectContextError({ organizationId })
+            }
+            return resolved.toString()
         }
 
         return projectId
@@ -201,10 +229,7 @@ export class StateManager {
             ])
             return data as State[D]
         } catch (error) {
-            getPostHogClient().captureException(error, undefined, {
-                tag: 'max_ai',
-                context: `get_or_fetch_${opts.name}`,
-            })
+            this._reportException(error, `get_or_fetch_${opts.name}`)
             return cached
         }
     }

@@ -31,7 +31,6 @@ import type { DualWriteMode } from './outputs/types'
 export type KafkaBrokerConfig = Pick<
     CommonConfig,
     | 'KAFKA_HOSTS'
-    | 'KAFKA_SECURITY_PROTOCOL'
     | 'KAFKA_CLIENT_RACK'
     | 'KAFKA_CLIENT_CERT_B64'
     | 'KAFKA_CLIENT_CERT_KEY_B64'
@@ -106,7 +105,6 @@ export type IngestionConsumerConfig = {
     INGESTION_CONSUMER_OVERFLOW_TOPIC: string
 
     // Ingestion pipeline config
-    INGESTION_CONCURRENCY: number
     INGESTION_BATCH_SIZE: number
     INGESTION_OVERFLOW_ENABLED: boolean
     INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: string
@@ -207,7 +205,6 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         INGESTION_CONSUMER_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 
         // Ingestion pipeline config
-        INGESTION_CONCURRENCY: 10,
         INGESTION_BATCH_SIZE: 500,
         INGESTION_OVERFLOW_ENABLED: false,
         INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: '',

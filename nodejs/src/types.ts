@@ -34,14 +34,7 @@ type Brand<K, T> = K & { __brand: T }
 // Re-export config types from domain-specific files, this is to avoid mass refactors, we can eventually update it
 export { CdpConfig } from './cdp/config'
 export { LlmAnalyticsConfig } from './llm-analytics/config'
-export {
-    CommonConfig,
-    KafkaSaslMechanism,
-    KafkaSecurityProtocol,
-    LogLevel,
-    PluginServerMode,
-    stringToPluginServerMode,
-} from './common/config'
+export { CommonConfig, KafkaSaslMechanism, LogLevel, PluginServerMode, stringToPluginServerMode } from './common/config'
 export {
     IngestionConsumerConfig,
     IngestionLane,
