@@ -62,10 +62,10 @@ export interface PopoverProps {
     matchWidth?: boolean
     maxContentWidth?: boolean
     /**
-     * Caps the popover content width. Defaults to prose (`65ch`).
-     * Tier vocabulary: `'48rem'` for wide content, `'90vw'` for extra-wide.
-     * Pass the CSS literal `'none'` (i.e. `max-width: none`) for overlays
-     * whose content is naturally wider than prose and should not be capped.
+     * Optional cap on the popover content width. Not applied by default so
+     * naturally wider overlays (e.g. TaxonomicFilter, column pickers) keep
+     * their intrinsic size. Pass `'65ch'` for prose-style pop-ins,
+     * `'48rem'` for wide content, `'90vw'` for extra-wide.
      */
     maxWidth?: number | string
     className?: string
@@ -118,7 +118,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         middleware,
         matchWidth = false,
         maxContentWidth = false,
-        maxWidth = '65ch',
+        maxWidth,
         additionalRefs = [],
         closeParentPopoverOnClickInside = false,
         referenceRef: extraReferenceRef,
