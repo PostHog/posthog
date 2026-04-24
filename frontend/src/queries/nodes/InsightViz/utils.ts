@@ -12,6 +12,7 @@ import {
     InsightVizNode,
     Node,
     NodeKind,
+    ProductKey,
 } from '~/queries/schema/schema-general'
 import { isInsightQueryWithSeries, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
@@ -121,6 +122,7 @@ export const queryFromKind = (
         kind: NodeKind.InsightVizNode,
         source: {
             ...getNodeKindToDefaultQuery()[kind],
+            tags: { productKey: ProductKey.PRODUCT_ANALYTICS },
             ...(filterTestAccountsDefault ? { filterTestAccounts: true } : {}),
         },
     })

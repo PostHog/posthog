@@ -6,7 +6,6 @@ import {
     LifecycleQuery,
     NodeKind,
     PathsQuery,
-    ProductKey,
     RetentionQuery,
     StickinessComputationModes,
     StickinessQuery,
@@ -19,7 +18,6 @@ function getTrendsQueryDefault(): TrendsQuery {
     const defaultLabel = getDefaultEventLabel()
     return {
         kind: NodeKind.TrendsQuery,
-        tags: { productKey: ProductKey.PRODUCT_ANALYTICS },
         series: [
             {
                 kind: NodeKind.EventsNode,
@@ -37,7 +35,6 @@ function getCalendarHeatmapQueryDefault(): TrendsQuery {
     const defaultLabel = getDefaultEventLabel()
     return {
         kind: NodeKind.TrendsQuery,
-        tags: { productKey: ProductKey.PRODUCT_ANALYTICS },
         series: [
             {
                 kind: NodeKind.EventsNode,
@@ -57,7 +54,6 @@ function getFunnelsQueryDefault(): FunnelsQuery {
     const defaultLabel = getDefaultEventLabel()
     return {
         kind: NodeKind.FunnelsQuery,
-        tags: { productKey: ProductKey.PRODUCT_ANALYTICS },
         series: [
             {
                 kind: NodeKind.EventsNode,
@@ -76,7 +72,6 @@ function getRetentionQueryDefault(): RetentionQuery {
     const defaultLabel = getDefaultEventLabel()
     return {
         kind: NodeKind.RetentionQuery,
-        tags: { productKey: ProductKey.PRODUCT_ANALYTICS },
         retentionFilter: {
             period: RetentionPeriod.Day,
             totalIntervals: 8,
@@ -108,7 +103,6 @@ function getPathsQueryDefault(): PathsQuery {
     }
     return {
         kind: NodeKind.PathsQuery,
-        tags: { productKey: ProductKey.PRODUCT_ANALYTICS },
         pathsFilter: {
             includeEventTypes: [pathType],
             pathReplacements: true,
@@ -122,7 +116,6 @@ function getStickinessQueryDefault(): StickinessQuery {
     const defaultLabel = getDefaultEventLabel()
     return {
         kind: NodeKind.StickinessQuery,
-        tags: { productKey: ProductKey.PRODUCT_ANALYTICS },
         series: [
             {
                 kind: NodeKind.EventsNode,
@@ -142,7 +135,6 @@ function getLifecycleQueryDefault(): LifecycleQuery {
     const defaultLabel = getDefaultEventLabel()
     return {
         kind: NodeKind.LifecycleQuery,
-        tags: { productKey: ProductKey.PRODUCT_ANALYTICS },
         series: [
             {
                 kind: NodeKind.EventsNode,
