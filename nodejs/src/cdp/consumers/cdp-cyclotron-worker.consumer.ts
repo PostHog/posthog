@@ -143,8 +143,10 @@ export class CdpCyclotronWorker<
     @instrumented({ key: 'cdpConsumer.backgroundTask.monitoringFlush', timeoutMs: 15_000, sendException: false })
     private async flushMonitoring(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
         try {
-            await this.hogFunctionMonitoringService.queueInvocationResults(invocationResults)
-            await this.hogFunctionMonitoringService.flush()
+            await Promise.all([
+                this.hogFunctionMonitoringService.queueInvocationResultsAndFlush(invocationResults),
+                this.warehouseWebhooksService.queueInvocationResultsAndFlush(invocationResults),
+            ])
         } catch (err) {
             captureException(err)
             logger.error('Error processing invocation results', { err })

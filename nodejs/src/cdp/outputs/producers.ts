@@ -7,7 +7,7 @@
  */
 import { AllowedConfigKey } from '../../ingestion/outputs/kafka-producer-config'
 
-/** Targets the legacy MSK cluster. */
+/** Targets the legacy MSK cluster. Default CDP cluster for every output that isn't monitoring/warehouse. */
 export const MSK_PRODUCER = 'MSK_PRODUCER' as const
 export type MskProducer = typeof MSK_PRODUCER
 
@@ -15,8 +15,12 @@ export type MskProducer = typeof MSK_PRODUCER
 export const WARPSTREAM_INGESTION_PRODUCER = 'WARPSTREAM_INGESTION_PRODUCER' as const
 export type WarpstreamIngestionProducer = typeof WARPSTREAM_INGESTION_PRODUCER
 
+/** Targets the warehouse webhook Kafka cluster (`KAFKA_WAREHOUSE_PRODUCER_*`). */
+export const WAREHOUSE_PRODUCER = 'WAREHOUSE_PRODUCER' as const
+export type WarehouseProducer = typeof WAREHOUSE_PRODUCER
+
 /** Producer names registered by the CDP deployments. */
-export type CdpProducerName = MskProducer | WarpstreamIngestionProducer
+export type CdpProducerName = MskProducer | WarpstreamIngestionProducer | WarehouseProducer
 
 /** Cluster-named env var prefix mirroring the producer it configures. */
 export const MSK_PRODUCER_CONFIG_MAP = {
@@ -162,5 +166,82 @@ export function getDefaultKafkaWarpstreamIngestionProducerEnvConfig(): KafkaWarp
         KAFKA_WARPSTREAM_INGESTION_PRODUCER_METADATA_MAX_AGE_MS: '',
         KAFKA_WARPSTREAM_INGESTION_PRODUCER_RETRIES: '',
         KAFKA_WARPSTREAM_INGESTION_PRODUCER_MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION: '',
+    }
+}
+
+/**
+ * Warehouse-webhook producer. Targets the dedicated cluster for warehouse source
+ * webhooks — matches the env-var shape the old `KafkaProducerWrapper.create(rack,
+ * 'WAREHOUSE_PRODUCER')` path already read via `getKafkaConfigFromEnv`.
+ */
+export const WAREHOUSE_PRODUCER_CONFIG_MAP = {
+    'client.id': 'KAFKA_WAREHOUSE_PRODUCER_CLIENT_ID',
+    'metadata.broker.list': 'KAFKA_WAREHOUSE_PRODUCER_METADATA_BROKER_LIST',
+    'security.protocol': 'KAFKA_WAREHOUSE_PRODUCER_SECURITY_PROTOCOL',
+    'sasl.mechanisms': 'KAFKA_WAREHOUSE_PRODUCER_SASL_MECHANISMS',
+    'sasl.username': 'KAFKA_WAREHOUSE_PRODUCER_SASL_USERNAME',
+    'sasl.password': 'KAFKA_WAREHOUSE_PRODUCER_SASL_PASSWORD',
+    'compression.codec': 'KAFKA_WAREHOUSE_PRODUCER_COMPRESSION_CODEC',
+    'linger.ms': 'KAFKA_WAREHOUSE_PRODUCER_LINGER_MS',
+    'batch.size': 'KAFKA_WAREHOUSE_PRODUCER_BATCH_SIZE',
+    'queue.buffering.max.messages': 'KAFKA_WAREHOUSE_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES',
+    'queue.buffering.max.kbytes': 'KAFKA_WAREHOUSE_PRODUCER_QUEUE_BUFFERING_MAX_KBYTES',
+    'enable.ssl.certificate.verification': 'KAFKA_WAREHOUSE_PRODUCER_ENABLE_SSL_CERTIFICATE_VERIFICATION',
+    'enable.idempotence': 'KAFKA_WAREHOUSE_PRODUCER_ENABLE_IDEMPOTENCE',
+    'message.max.bytes': 'KAFKA_WAREHOUSE_PRODUCER_MESSAGE_MAX_BYTES',
+    'batch.num.messages': 'KAFKA_WAREHOUSE_PRODUCER_BATCH_NUM_MESSAGES',
+    'sticky.partitioning.linger.ms': 'KAFKA_WAREHOUSE_PRODUCER_STICKY_PARTITIONING_LINGER_MS',
+    'topic.metadata.refresh.interval.ms': 'KAFKA_WAREHOUSE_PRODUCER_TOPIC_METADATA_REFRESH_INTERVAL_MS',
+    'metadata.max.age.ms': 'KAFKA_WAREHOUSE_PRODUCER_METADATA_MAX_AGE_MS',
+    'message.send.max.retries': 'KAFKA_WAREHOUSE_PRODUCER_RETRIES',
+    'max.in.flight.requests.per.connection': 'KAFKA_WAREHOUSE_PRODUCER_MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION',
+} as const satisfies Partial<Record<AllowedConfigKey, string>>
+
+/** Typed env vars referenced by `WAREHOUSE_PRODUCER_CONFIG_MAP`. */
+export type KafkaWarehouseProducerEnvConfig = {
+    KAFKA_WAREHOUSE_PRODUCER_CLIENT_ID: string
+    KAFKA_WAREHOUSE_PRODUCER_METADATA_BROKER_LIST: string
+    KAFKA_WAREHOUSE_PRODUCER_SECURITY_PROTOCOL: string
+    KAFKA_WAREHOUSE_PRODUCER_SASL_MECHANISMS: string
+    KAFKA_WAREHOUSE_PRODUCER_SASL_USERNAME: string
+    KAFKA_WAREHOUSE_PRODUCER_SASL_PASSWORD: string
+    KAFKA_WAREHOUSE_PRODUCER_COMPRESSION_CODEC: string
+    KAFKA_WAREHOUSE_PRODUCER_LINGER_MS: string
+    KAFKA_WAREHOUSE_PRODUCER_BATCH_SIZE: string
+    KAFKA_WAREHOUSE_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: string
+    KAFKA_WAREHOUSE_PRODUCER_QUEUE_BUFFERING_MAX_KBYTES: string
+    KAFKA_WAREHOUSE_PRODUCER_ENABLE_SSL_CERTIFICATE_VERIFICATION: string
+    KAFKA_WAREHOUSE_PRODUCER_ENABLE_IDEMPOTENCE: string
+    KAFKA_WAREHOUSE_PRODUCER_MESSAGE_MAX_BYTES: string
+    KAFKA_WAREHOUSE_PRODUCER_BATCH_NUM_MESSAGES: string
+    KAFKA_WAREHOUSE_PRODUCER_STICKY_PARTITIONING_LINGER_MS: string
+    KAFKA_WAREHOUSE_PRODUCER_TOPIC_METADATA_REFRESH_INTERVAL_MS: string
+    KAFKA_WAREHOUSE_PRODUCER_METADATA_MAX_AGE_MS: string
+    KAFKA_WAREHOUSE_PRODUCER_RETRIES: string
+    KAFKA_WAREHOUSE_PRODUCER_MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION: string
+}
+
+export function getDefaultKafkaWarehouseProducerEnvConfig(): KafkaWarehouseProducerEnvConfig {
+    return {
+        KAFKA_WAREHOUSE_PRODUCER_CLIENT_ID: '',
+        KAFKA_WAREHOUSE_PRODUCER_METADATA_BROKER_LIST: '',
+        KAFKA_WAREHOUSE_PRODUCER_SECURITY_PROTOCOL: '',
+        KAFKA_WAREHOUSE_PRODUCER_SASL_MECHANISMS: '',
+        KAFKA_WAREHOUSE_PRODUCER_SASL_USERNAME: '',
+        KAFKA_WAREHOUSE_PRODUCER_SASL_PASSWORD: '',
+        KAFKA_WAREHOUSE_PRODUCER_COMPRESSION_CODEC: '',
+        KAFKA_WAREHOUSE_PRODUCER_LINGER_MS: '',
+        KAFKA_WAREHOUSE_PRODUCER_BATCH_SIZE: '',
+        KAFKA_WAREHOUSE_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: '',
+        KAFKA_WAREHOUSE_PRODUCER_QUEUE_BUFFERING_MAX_KBYTES: '',
+        KAFKA_WAREHOUSE_PRODUCER_ENABLE_SSL_CERTIFICATE_VERIFICATION: '',
+        KAFKA_WAREHOUSE_PRODUCER_ENABLE_IDEMPOTENCE: '',
+        KAFKA_WAREHOUSE_PRODUCER_MESSAGE_MAX_BYTES: '',
+        KAFKA_WAREHOUSE_PRODUCER_BATCH_NUM_MESSAGES: '',
+        KAFKA_WAREHOUSE_PRODUCER_STICKY_PARTITIONING_LINGER_MS: '',
+        KAFKA_WAREHOUSE_PRODUCER_TOPIC_METADATA_REFRESH_INTERVAL_MS: '',
+        KAFKA_WAREHOUSE_PRODUCER_METADATA_MAX_AGE_MS: '',
+        KAFKA_WAREHOUSE_PRODUCER_RETRIES: '',
+        KAFKA_WAREHOUSE_PRODUCER_MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION: '',
     }
 }

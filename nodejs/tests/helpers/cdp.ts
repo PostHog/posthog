@@ -1,6 +1,11 @@
 import { CdpConsumerBaseDeps } from '../../src/cdp/consumers/cdp-base.consumer'
 import { CdpLegacyEventsConsumerDeps } from '../../src/cdp/consumers/cdp-legacy-event.consumer'
-import { CdpProducerName, MSK_PRODUCER, WARPSTREAM_INGESTION_PRODUCER } from '../../src/cdp/outputs/producers'
+import {
+    CdpProducerName,
+    MSK_PRODUCER,
+    WAREHOUSE_PRODUCER,
+    WARPSTREAM_INGESTION_PRODUCER,
+} from '../../src/cdp/outputs/producers'
 import { KafkaProducerRegistry } from '../../src/ingestion/outputs/kafka-producer-registry'
 import { Hub } from '../../src/types'
 
@@ -12,6 +17,7 @@ function buildTestCdpProducerRegistry(hub: Hub): KafkaProducerRegistry<CdpProduc
     return new KafkaProducerRegistry<CdpProducerName>({
         [WARPSTREAM_INGESTION_PRODUCER]: hub.kafkaProducer,
         [MSK_PRODUCER]: hub.kafkaProducer,
+        [WAREHOUSE_PRODUCER]: hub.kafkaProducer,
     })
 }
 
@@ -22,7 +28,6 @@ export function createCdpConsumerDeps(hub: Hub): CdpConsumerBaseDeps {
         encryptedFields: hub.encryptedFields,
         teamManager: hub.teamManager,
         integrationManager: hub.integrationManager,
-        kafkaProducer: hub.kafkaProducer,
         cdpProducerRegistry: buildTestCdpProducerRegistry(hub),
         internalCaptureService: hub.internalCaptureService,
         personRepository: hub.personRepository,

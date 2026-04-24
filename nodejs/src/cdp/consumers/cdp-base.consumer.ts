@@ -2,13 +2,12 @@ import { RedisV2 } from '~/common/redis/redis-v2'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 
 import type { CommonConfig } from '../../common/config'
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { HealthCheckResult, PluginServerService, TeamId } from '../../types'
 import { GeoIPService } from '../../utils/geoip'
 import { logger } from '../../utils/logger'
 import { GroupRepository } from '../../worker/ingestion/groups/repositories/group-repository.interface'
 import { PersonRepository } from '../../worker/ingestion/persons/repositories/person-repository'
-import { CdpCoreServicesConfig, CdpCoreServicesDeps, createCdpCoreServices } from '../cdp-services'
+import { CdpCoreServicesConfig, CdpCoreServicesDeps, CdpOutputs, createCdpCoreServices } from '../cdp-services'
 import type { CdpConfig } from '../config'
 import { HogExecutorService } from '../services/hog-executor.service'
 import { HogFlowExecutorService } from '../services/hogflows/hogflow-executor.service'
@@ -26,6 +25,7 @@ import { HogMaskerService } from '../services/monitoring/hog-masker.service'
 import { HogWatcherService } from '../services/monitoring/hog-watcher.service'
 import { NativeDestinationExecutorService } from '../services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from '../services/segment-destination-executor.service'
+import { WarehouseWebhooksService } from '../services/warehouse/warehouse-webhooks.service'
 
 export type CdpConsumerBaseConfig = CdpCoreServicesConfig &
     Pick<CommonConfig, 'KAFKA_CLIENT_RACK'> &
@@ -61,13 +61,13 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
     recipientsManager: RecipientsManagerService
 
     hogFunctionMonitoringService: HogFunctionMonitoringService
+    warehouseWebhooksService: WarehouseWebhooksService
     nativeDestinationExecutorService: NativeDestinationExecutorService
     pluginDestinationExecutorService: LegacyPluginExecutorService
     recipientPreferencesService: RecipientPreferencesService
     segmentDestinationExecutorService: SegmentDestinationExecutorService
 
-    protected kafkaProducer?: KafkaProducerWrapper
-    protected warehouseKafkaProducer?: KafkaProducerWrapper
+    protected outputs: CdpOutputs
     protected abstract name: string
 
     protected heartbeat = () => {}
@@ -89,8 +89,10 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         this.recipientPreferencesService = services.recipientPreferencesService
         this.hogFlowExecutor = services.hogFlowExecutor
         this.hogFunctionMonitoringService = services.hogFunctionMonitoringService
+        this.warehouseWebhooksService = services.warehouseWebhooksService
         this.nativeDestinationExecutorService = services.nativeDestinationExecutorService
         this.segmentDestinationExecutorService = services.segmentDestinationExecutorService
+        this.outputs = services.outputs
 
         // Base-only services
         this.hogMasker = new HogMaskerService(services.redis)
@@ -117,26 +119,16 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
     }
 
     public async start(): Promise<void> {
-        // NOTE: This is only for starting shared services
-        await Promise.all([
-            KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK).then((producer) => {
-                this.kafkaProducer = producer
-            }),
-            KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK, 'WAREHOUSE_PRODUCER').then((producer) => {
-                this.warehouseKafkaProducer = producer
-                this.hogFunctionMonitoringService.setWarehouseKafkaProducer(producer)
-            }),
-        ])
+        // Outputs are resolved in the constructor via `createCdpCoreServices` — no
+        // per-consumer producer lifecycle. The outer server owns producer shutdown
+        // through `cdpProducerRegistry.disconnectAll()`.
     }
 
-    public async stop(): Promise<void> {
+    public stop(): Promise<void> {
         logger.info('🔁', `${this.name} - stopping`)
         this.isStopping = true
-
-        // Mark as stopping so that we don't actually process any more incoming messages, but still keep the process alive
-        logger.info('🔁', `${this.name} - stopping kafka producers`)
-        await Promise.all([this.kafkaProducer?.disconnect(), this.warehouseKafkaProducer?.disconnect()])
         logger.info('👍', `${this.name} - stopped!`)
+        return Promise.resolve()
     }
 
     public abstract isHealthy(): HealthCheckResult

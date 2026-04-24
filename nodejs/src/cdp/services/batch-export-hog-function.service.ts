@@ -18,6 +18,7 @@ import { GroupsManagerService } from './managers/groups-manager.service'
 import { HogFunctionManagerService } from './managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
 import { HogWatcherService } from './monitoring/hog-watcher.service'
+import { WarehouseWebhooksService } from './warehouse/warehouse-webhooks.service'
 
 // TODO: This might be too strict so we need to validate that it matches well what we would expect to get from batch exports
 const batchExportRequestBodySchema = z.object({
@@ -46,7 +47,8 @@ export class BatchExportHogFunctionService {
         private hogFunctionManager: HogFunctionManagerService,
         private hogExecutor: HogExecutorService,
         private hogWatcher: HogWatcherService,
-        private hogFunctionMonitoringService: HogFunctionMonitoringService
+        private hogFunctionMonitoringService: HogFunctionMonitoringService,
+        private warehouseWebhooksService: WarehouseWebhooksService
     ) {
         this.promiseScheduler = new PromiseScheduler()
     }
@@ -94,9 +96,12 @@ export class BatchExportHogFunctionService {
         // We have the parent_id but that overrides the function id which is not always what we want
         // Likely after v0 we will want to add an extra field or concept depending on whether it is a backfill vs a standard run
 
-        await this.hogFunctionMonitoringService.queueInvocationResults([result])
         void this.promiseScheduler.schedule(
-            Promise.all([this.hogFunctionMonitoringService.flush(), this.hogWatcher.observeResultsBuffered(result)])
+            Promise.all([
+                this.hogFunctionMonitoringService.queueInvocationResultsAndFlush([result]),
+                this.warehouseWebhooksService.queueInvocationResultsAndFlush([result]),
+                this.hogWatcher.observeResultsBuffered(result),
+            ])
         )
 
         return result

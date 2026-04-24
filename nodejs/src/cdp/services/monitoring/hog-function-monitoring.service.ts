@@ -3,10 +3,8 @@ import { Counter, Gauge, Histogram } from 'prom-client'
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { InternalCaptureEvent, InternalCaptureService } from '~/common/services/internal-capture'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
-import { KAFKA_WAREHOUSE_SOURCE_WEBHOOKS } from '~/config/kafka-topics'
 import { AppMetricsOutput, LOG_ENTRIES_OUTPUT, LogEntriesOutput } from '~/ingestion/common/outputs'
 import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
-import { KafkaProducerWrapper } from '~/kafka/producer'
 
 import { safeClickhouseString } from '../../../utils/db/utils'
 import { logger } from '../../../utils/logger'
@@ -19,7 +17,6 @@ import {
     LogEntrySerialized,
     MetricLogSource,
     MinimalAppMetric,
-    WarehouseWebhookPayload,
 } from '../../types'
 import { fixLogDeduplication } from '../../utils'
 
@@ -57,9 +54,7 @@ export const isHogFunctionResult = (
 export class HogFunctionMonitoringService {
     queuedLogMessages: LogEntrySerialized[] = []
     eventsToCapture: InternalCaptureEvent[] = []
-    warehouseWebhookPayloads: WarehouseWebhookPayload[] = []
 
-    private warehouseKafkaProducer?: KafkaProducerWrapper
     private appMetricsAggregator: AppMetricsAggregator
 
     constructor(
@@ -70,10 +65,6 @@ export class HogFunctionMonitoringService {
         this.appMetricsAggregator = new AppMetricsAggregator(outputs)
     }
 
-    setWarehouseKafkaProducer(producer: KafkaProducerWrapper): void {
-        this.warehouseKafkaProducer = producer
-    }
-
     async flush() {
         const messages = [...this.queuedLogMessages]
         this.queuedLogMessages = []
@@ -82,9 +73,6 @@ export class HogFunctionMonitoringService {
         const eventsToCapture = [...this.eventsToCapture]
         this.eventsToCapture = []
         hogFunctionMonitoringPendingEvents.set(0)
-
-        const warehouseWebhookPayloads = [...this.warehouseWebhookPayloads]
-        this.warehouseWebhookPayloads = []
 
         await Promise.all([
             this.appMetricsAggregator.flush().catch((error) => {
@@ -116,24 +104,6 @@ export class HogFunctionMonitoringService {
                     captureException(error)
                 })
             ),
-            ...(this.warehouseKafkaProducer
-                ? warehouseWebhookPayloads.map((payload) =>
-                      this.warehouseKafkaProducer!.produce({
-                          topic: KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
-                          key: Buffer.from(`${payload.team_id}:${payload.schema_id}`),
-                          value: Buffer.from(
-                              JSON.stringify({
-                                  schema_id: payload.schema_id,
-                                  team_id: payload.team_id,
-                                  payload: JSON.stringify(payload.payload),
-                              })
-                          ),
-                      }).catch((error) => {
-                          logger.error('Error producing warehouse webhook payload', { error })
-                          captureException(error)
-                      })
-                  )
-                : []),
         ])
     }
 
@@ -213,11 +183,6 @@ export class HogFunctionMonitoringService {
                         )
                     }
 
-                    // Warehouse webhook payloads
-                    for (const payload of result.warehouseWebhookPayloads ?? []) {
-                        this.warehouseWebhookPayloads.push(payload)
-                    }
-
                     // PostHog capture events
                     const capturedEvents = result.capturedPostHogEvents
 
@@ -239,5 +204,11 @@ export class HogFunctionMonitoringService {
                 })
             )
         })
+    }
+
+    /** Queue invocation result payloads and immediately flush them. */
+    async queueInvocationResultsAndFlush(results: CyclotronJobInvocationResult[]): Promise<void> {
+        await this.queueInvocationResults(results)
+        await this.flush()
     }
 }

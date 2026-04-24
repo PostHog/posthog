@@ -2,11 +2,6 @@ import { DateTime } from 'luxon'
 import express from 'ultimate-express'
 
 import { ModifiedRequest } from '~/api/router'
-import { KAFKA_CDP_BATCH_HOGFLOW_REQUESTS } from '~/config/kafka-topics'
-import { APP_METRICS_OUTPUT, LOG_ENTRIES_OUTPUT } from '~/ingestion/common/outputs'
-import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
-import { SingleIngestionOutput } from '~/ingestion/outputs/single-ingestion-output'
-import { KafkaProducerWrapper } from '~/kafka/producer'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import {
@@ -20,7 +15,7 @@ import { logger } from '../utils/logger'
 import { UUID, UUIDT, delay } from '../utils/utils'
 import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from './async-function-registry'
 import './async-functions'
-import { createCdpCoreServices } from './cdp-services'
+import { CdpOutputs, createCdpCoreServices } from './cdp-services'
 import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import {
     CdpSourceWebhooksConsumer,
@@ -28,6 +23,7 @@ import {
     SourceWebhookError,
 } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService, createHogTransformerService } from './hog-transformations/hog-transformer.service'
+import { BATCH_HOGFLOW_REQUESTS_OUTPUT } from './outputs/outputs'
 import { BatchExportHogFunctionService, NotFoundError, ParseError } from './services/batch-export-hog-function.service'
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
@@ -41,6 +37,7 @@ import { HogFunctionMonitoringService } from './services/monitoring/hog-function
 import { HogWatcherService, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
+import { WarehouseWebhooksService } from './services/warehouse/warehouse-webhooks.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
 import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
 import { convertToHogFunctionInvocationGlobals, isNativeHogFunction, isSegmentPluginHogFunction } from './utils'
@@ -85,11 +82,12 @@ export class CdpApi {
     private hogWatcher: HogWatcherService
     private hogTransformer: HogTransformerService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
+    private warehouseWebhooksService: WarehouseWebhooksService
     private cdpSourceWebhooksConsumer: CdpSourceWebhooksConsumer
     private cyclotronJobQueue: CyclotronJobQueue
     private emailTrackingService: EmailTrackingService
     private recipientTokensService: RecipientTokensService
-    private cdpWarehouseKafkaProducer?: KafkaProducerWrapper
+    private outputs: CdpOutputs
     private batchExportHogFunctionService: BatchExportHogFunctionService
 
     constructor(
@@ -107,24 +105,14 @@ export class CdpApi {
         this.segmentDestinationExecutorService = services.segmentDestinationExecutorService
         this.hogWatcher = services.hogWatcher
         this.hogFunctionMonitoringService = services.hogFunctionMonitoringService
+        this.warehouseWebhooksService = services.warehouseWebhooksService
+        this.outputs = services.outputs
 
-        // API-only services
+        // API-only services. The hog-transformer's monitoring service reuses the same
+        // resolved outputs registry as the core CDP services — no separate construction.
         this.hogTransformer = createHogTransformerService(config, {
             ...deps,
-            monitoringOutputs: new IngestionOutputs({
-                [APP_METRICS_OUTPUT]: new SingleIngestionOutput(
-                    APP_METRICS_OUTPUT,
-                    config.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC,
-                    deps.kafkaProducer,
-                    'default'
-                ),
-                [LOG_ENTRIES_OUTPUT]: new SingleIngestionOutput(
-                    LOG_ENTRIES_OUTPUT,
-                    config.HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC,
-                    deps.kafkaProducer,
-                    'default'
-                ),
-            }),
+            monitoringOutputs: services.outputs,
         })
         this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(config, deps)
         this.cyclotronJobQueue = new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
@@ -141,7 +129,8 @@ export class CdpApi {
             this.hogFunctionManager,
             this.hogExecutor,
             this.hogWatcher,
-            this.hogFunctionMonitoringService
+            this.hogFunctionMonitoringService,
+            this.warehouseWebhooksService
         )
     }
 
@@ -154,18 +143,12 @@ export class CdpApi {
     }
 
     async start(): Promise<void> {
-        this.cdpWarehouseKafkaProducer = await KafkaProducerWrapper.create(
-            this.config.KAFKA_CLIENT_RACK,
-            'WAREHOUSE_PRODUCER'
-        )
-        this.hogFunctionMonitoringService.setWarehouseKafkaProducer(this.cdpWarehouseKafkaProducer)
         await this.cdpSourceWebhooksConsumer.start()
         await this.cyclotronJobQueue.startAsProducer()
     }
 
     async stop(): Promise<void> {
         await Promise.all([
-            this.cdpWarehouseKafkaProducer?.disconnect(),
             this.cdpSourceWebhooksConsumer.stop(),
             this.cyclotronJobQueue.stop(),
             this.batchExportHogFunctionService.stop(),
@@ -471,7 +454,7 @@ export class CdpApi {
             console.error(e)
             res.status(500).json({ errors: [e.message] })
         } finally {
-            await this.hogFunctionMonitoringService.flush()
+            await Promise.all([this.hogFunctionMonitoringService.flush(), this.warehouseWebhooksService.flush()])
         }
     }
 
@@ -646,12 +629,6 @@ export class CdpApi {
                 return res.status(404).json({ error: 'Workflow not found' })
             }
 
-            // Queue a message for the CDP batch producer to consume
-            const kafkaProducer = this.deps.kafkaProducer
-            if (!kafkaProducer) {
-                return res.status(500).json({ error: 'Kafka producer not available' })
-            }
-
             if (hogFlow.trigger.type !== 'batch') {
                 return res.status(400).json({ error: 'Only batch Workflows are supported for batch jobs' })
             }
@@ -666,8 +643,7 @@ export class CdpApi {
                 },
             }
 
-            await kafkaProducer.produce({
-                topic: KAFKA_CDP_BATCH_HOGFLOW_REQUESTS,
+            await this.outputs.produce(BATCH_HOGFLOW_REQUESTS_OUTPUT, {
                 value: Buffer.from(JSON.stringify(batchHogFlowRequest)),
                 key: `${team.id}_${hogFlow.id}`,
             })

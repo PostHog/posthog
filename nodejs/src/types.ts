@@ -7,7 +7,11 @@ import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { Element, PluginEvent, Properties } from '~/plugin-scaffold'
 
 import type { CdpConfig } from './cdp/config'
-import type { KafkaMskProducerEnvConfig, KafkaWarpstreamIngestionProducerEnvConfig } from './cdp/outputs/producers'
+import type {
+    KafkaMskProducerEnvConfig,
+    KafkaWarehouseProducerEnvConfig,
+    KafkaWarpstreamIngestionProducerEnvConfig,
+} from './cdp/outputs/producers'
 import { IntegrationManagerService } from './cdp/services/managers/integration-manager.service'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import type { CommonConfig } from './common/config'
@@ -119,7 +123,8 @@ export interface PluginsServerConfig
         SessionRecordingApiConfig,
         // Producer envs needed by the CDP producer registry the legacy big server builds.
         KafkaMskProducerEnvConfig,
-        KafkaWarpstreamIngestionProducerEnvConfig {}
+        KafkaWarpstreamIngestionProducerEnvConfig,
+        KafkaWarehouseProducerEnvConfig {}
 
 export interface HubServices {
     postgres: PostgresRouter

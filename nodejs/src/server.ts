@@ -26,7 +26,6 @@ import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfi
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
 import { KafkaProducerRegistry } from './ingestion/outputs/kafka-producer-registry'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from './ingestion/personhog'
-import { KafkaProducerWrapper } from './kafka/producer'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
 import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
 import { ServerCommands } from './utils/commands'
@@ -51,7 +50,6 @@ export class PluginServer implements NodeServer {
     private config: PluginsServerConfig
 
     // Infrastructure resources (tracked for shutdown cleanup)
-    private kafkaProducer?: KafkaProducerWrapper
     private cdpProducerRegistry?: KafkaProducerRegistry<CdpProducerName>
     private postgres?: PostgresRouter
     private redisPool?: RedisPool
@@ -116,7 +114,6 @@ export class PluginServer implements NodeServer {
                   encryptedFields: cdpServices!.encryptedFields,
                   teamManager,
                   integrationManager: cdpServices!.integrationManager,
-                  kafkaProducer: this.kafkaProducer!,
                   cdpProducerRegistry: this.cdpProducerRegistry!,
                   internalCaptureService: cdpServices!.internalCaptureService,
                   personRepository: cdpServices!.personRepository,
@@ -273,7 +270,7 @@ export class PluginServer implements NodeServer {
 
     private getCleanupResources(): CleanupResources {
         return {
-            kafkaProducers: [this.kafkaProducer].filter(Boolean) as KafkaProducerWrapper[],
+            kafkaProducers: [],
             redisPools: [this.redisPool, this.posthogRedisPool].filter(Boolean) as RedisPool[],
             postgres: this.postgres,
             pubsub: this.pubsub,
@@ -292,10 +289,6 @@ export class PluginServer implements NodeServer {
 
         this.postgres = new PostgresRouter(this.config, this.config.PLUGIN_SERVER_MODE ?? undefined)
         logger.info('👍', 'Postgres Router ready')
-
-        logger.info('🤔', 'Connecting to Kafka...')
-        this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
-        logger.info('👍', 'Kafka ready')
 
         logger.info('🤔', 'Connecting to ingestion Redis...')
         this.redisPool = createRedisPoolFromConfig({

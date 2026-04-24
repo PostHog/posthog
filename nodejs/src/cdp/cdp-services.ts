@@ -2,12 +2,20 @@ import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 
 import type { CommonConfig } from '../common/config'
 import { InternalCaptureService } from '../common/services/internal-capture'
+import { AppMetricsOutput, LogEntriesOutput } from '../ingestion/common/outputs'
+import { IngestionOutputs } from '../ingestion/outputs/ingestion-outputs'
 import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
-import { KafkaProducerWrapper } from '../kafka/producer'
 import { PostgresRouter } from '../utils/db/postgres'
 import { PubSub } from '../utils/pubsub'
 import { TeamManager } from '../utils/team-manager'
 import type { CdpConfig } from './config'
+import {
+    BatchHogflowRequestsOutput,
+    LegacyPluginAppMetricsOutput,
+    PrecalculatedPersonPropertiesOutput,
+    PrefilteredEventsOutput,
+    WarehouseSourceWebhooksOutput,
+} from './outputs/outputs'
 import { CdpProducerName } from './outputs/producers'
 import { createCdpOutputsRegistry } from './outputs/registry'
 import { HogExecutorService } from './services/hog-executor.service'
@@ -26,7 +34,20 @@ import { HogFunctionMonitoringService } from './services/monitoring/hog-function
 import { HogWatcherService } from './services/monitoring/hog-watcher.service'
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
+import { WarehouseWebhooksService } from './services/warehouse/warehouse-webhooks.service'
 import { EncryptedFields } from './utils/encryption-utils'
+
+/** Union of every output name resolved by `createCdpOutputsRegistry()`. */
+export type CdpOutput =
+    | AppMetricsOutput
+    | LogEntriesOutput
+    | PrefilteredEventsOutput
+    | PrecalculatedPersonPropertiesOutput
+    | LegacyPluginAppMetricsOutput
+    | BatchHogflowRequestsOutput
+    | WarehouseSourceWebhooksOutput
+
+export type CdpOutputs = IngestionOutputs<CdpOutput>
 
 export interface CdpCoreServices {
     redis: RedisV2
@@ -40,9 +61,12 @@ export interface CdpCoreServices {
     recipientPreferencesService: RecipientPreferencesService
     hogFlowExecutor: HogFlowExecutorService
     hogFunctionMonitoringService: HogFunctionMonitoringService
+    warehouseWebhooksService: WarehouseWebhooksService
     nativeDestinationExecutorService: NativeDestinationExecutorService
     segmentDestinationExecutorService: SegmentDestinationExecutorService
     recipientTokensService: RecipientTokensService
+    /** Resolved outputs shared across every CDP service/consumer. */
+    outputs: CdpOutputs
 }
 
 export type CdpCoreServicesConfig = Pick<
@@ -81,6 +105,16 @@ export type CdpCoreServicesConfig = Pick<
         | 'HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER'
         | 'HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC'
         | 'HOG_FUNCTION_MONITORING_LOG_ENTRIES_PRODUCER'
+        | 'CDP_PREFILTERED_EVENTS_TOPIC'
+        | 'CDP_PREFILTERED_EVENTS_PRODUCER'
+        | 'CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC'
+        | 'CDP_PRECALCULATED_PERSON_PROPERTIES_PRODUCER'
+        | 'CDP_LEGACY_PLUGIN_APP_METRICS_TOPIC'
+        | 'CDP_LEGACY_PLUGIN_APP_METRICS_PRODUCER'
+        | 'CDP_BATCH_HOGFLOW_REQUESTS_TOPIC'
+        | 'CDP_BATCH_HOGFLOW_REQUESTS_PRODUCER'
+        | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC'
+        | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER'
     >
 
 export interface CdpCoreServicesDeps {
@@ -89,8 +123,7 @@ export interface CdpCoreServicesDeps {
     encryptedFields: EncryptedFields
     teamManager: TeamManager
     integrationManager: IntegrationManagerService
-    kafkaProducer: KafkaProducerWrapper
-    /** Registry of producers used by the CDP monitoring outputs (MSK / Warpstream-ingestion / Warpstream-cdp). */
+    /** Registry of producers backing the CDP outputs (DEFAULT / MSK / Warpstream-ingestion / Warehouse). */
     cdpProducerRegistry: KafkaProducerRegistry<CdpProducerName>
     internalCaptureService: InternalCaptureService
 }
@@ -176,11 +209,14 @@ export function createCdpCoreServices(
     const recipientPreferencesService = new RecipientPreferencesService(recipientsManager)
     const hogFlowExecutor = new HogFlowExecutorService(hogFlowFunctionsService, recipientPreferencesService, redis)
 
+    const outputs = createCdpOutputsRegistry().build(deps.cdpProducerRegistry, config)
+
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(
-        createCdpOutputsRegistry().build(deps.cdpProducerRegistry, config),
+        outputs,
         deps.internalCaptureService,
         deps.teamManager
     )
+    const warehouseWebhooksService = new WarehouseWebhooksService(outputs)
 
     const nativeDestinationExecutorService = new NativeDestinationExecutorService(config)
     const segmentDestinationExecutorService = new SegmentDestinationExecutorService(config)
@@ -197,8 +233,10 @@ export function createCdpCoreServices(
         recipientPreferencesService,
         hogFlowExecutor,
         hogFunctionMonitoringService,
+        warehouseWebhooksService,
         nativeDestinationExecutorService,
         segmentDestinationExecutorService,
         recipientTokensService,
+        outputs,
     }
 }
