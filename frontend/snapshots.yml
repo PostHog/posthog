@@ -3719,7 +3719,7 @@ snapshots:
     scenes-app-experiments--experiment-with-funnel-metric--light:
         hash: v1.k794b7964.f305aeb1f57f2b5067d6ae0b812f75a63f88cf5c40d15caa863bc805664d5375.mY8pmFLkdB5pzrPDozUDx4CgAHJa6pFcvQH41UDz_FE
     scenes-app-experiments--experiment-with-legacy-funnels-query--dark:
-        hash: v1.k794b7964.e395675ce6eb10390482d4523e21d63081cafdcc768e231306b83a5071f44e47.1sUPKo3i-J7YjYoUn5t_lYE1YNk-9GEVApXwLAs6Dno
+        hash: v1.k794b7964.644aff531876ec747a85c5099e7ddbb60ffbfd7e4f4ed28662a5146af0a26843.GYAVO2-jhLe_UkKQOnYr9myeAypZvqUiZRv5wDGbeI4
     scenes-app-experiments--experiment-with-legacy-funnels-query--light:
         hash: v1.k794b7964.fabdc62ca5cb61aca244403b553abe1ffd659a21ff593b2b168d82f05239b411.7-3vcjv_cV7Ztuez1Q_QtUQoB7ZO-HkLQmATqkcUR8k
     scenes-app-experiments--experiment-with-legacy-trends-query--dark:
@@ -5095,9 +5095,13 @@ snapshots:
     scenes-app-subscriptions-subscription-delivery-history--empty--light:
         hash: v1.k794b7964.c72c5b7863664b1c1ea4e8abdc5bf56918dab59e050f6116185f8518f9efb5b2.45meu1Hs_0bQH_0wef3uO0Nh9bZurHS6Tv5AIh1dyn4
     scenes-app-subscriptions-subscription-delivery-history--with-deliveries--dark:
-        hash: v1.k794b7964.6c19b1e8e1f147fd08f288e80a755aadde9be86b88ded7c3581fbd106aa2a839.Lyuv_980jZ4Cr83B3uxyJP_Zet9e_SdSyGEh_VbLI-k
+        hash: v1.k794b7964.8dc27daaa52f16e8b77336e1fb79f7a64d397bfd3f60c094d05c26dbebf83c4e.cHgoN4Wj0ymKgsuIqUVzkDwlPFTT_ayh0KFB3EmulMM
     scenes-app-subscriptions-subscription-delivery-history--with-deliveries--light:
-        hash: v1.k794b7964.01ad2b57615b4b70823cb0f233eeb6343d8905636d5b2d08278a72f685e73663.Tsj8PpPPks_jlGjwZI-LuA0cXj4mwi8LnMMQSAHlnJE
+        hash: v1.k794b7964.4eccc5a8001ea330117d160d8f746d2c2abe28c874c8dcccdf2b3c1e1966ebf8.Bderyl9H4RRPrJvA7AYJo5UEkxBBuoysDy06xsD1TCg
+    scenes-app-subscriptions-subscription-delivery-history--with-expanded-summary--dark:
+        hash: v1.k794b7964.48cfc29c556e4c14ebbbf3204d68aa1780f8369bc4490d4ccba69d50a9d80332.aGh5rdk-dfLUbTodUiaWdwA10qTpFun-SQpiFNSpCk4
+    scenes-app-subscriptions-subscription-delivery-history--with-expanded-summary--light:
+        hash: v1.k794b7964.f58b7e5cca056568f7b162500bf9398d93ceb4eeba21370ba6fbe7dd78b26e7e.9alri9vQxdIsQ9PIqSFni9YX8Vop10qcopcvYaEM7eA
     scenes-app-subscriptions-subscription-summary--dashboard-many-destinations--dark:
         hash: v1.k794b7964.7d485db03fdf1d3e0755da316af49809b9d7f79e9cb32b62d9d2bd6b7b25e51c.ms5hToDkHnhkyc3b_uGaOVFfoSzX5Bubio_q7tqx4Yw
     scenes-app-subscriptions-subscription-summary--dashboard-many-destinations--light:
