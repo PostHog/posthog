@@ -14,8 +14,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
-from products.experiments.backend.facade import create_experiment
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.api import create_experiment
 from products.experiments.backend.presentation.serializers import ExperimentCreateSerializer
 
 
@@ -29,7 +28,6 @@ class ExperimentViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, views
     """
 
     scope_object: Literal["experiment"] = "experiment"
-    queryset = Experiment.objects.all()
 
     def get_serializer_class(self):
         """Return appropriate serializer based on action."""
@@ -69,20 +67,18 @@ class ExperimentViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, views
             # (will be caught by DRF's exception handler)
             raise
 
-        # Convert DTO to response format
-        # For now, return a simple dict matching the Experiment model structure
-        # In the future, we can create a response serializer
-        experiment = Experiment.objects.get(id=experiment_dto.id)
+        # Convert DTO to response format using data from the facade
+        # The experiment_dto already has all the data we need
         response_data = {
-            "id": experiment.id,
-            "name": experiment.name,
-            "description": experiment.description,
-            "feature_flag_key": experiment.feature_flag.key,
-            "feature_flag": experiment.feature_flag.id,
-            "start_date": experiment.start_date,
-            "end_date": experiment.end_date,
-            "created_at": experiment.created_at,
-            "updated_at": experiment.updated_at,
+            "id": experiment_dto.id,
+            "name": experiment_dto.name,
+            "description": experiment_dto.description,
+            "feature_flag_key": experiment_dto.feature_flag_key,
+            "feature_flag": experiment_dto.feature_flag_id,
+            "start_date": experiment_dto.start_date,
+            "end_date": experiment_dto.end_date,
+            "created_at": experiment_dto.created_at,
+            "updated_at": experiment_dto.updated_at,
         }
 
         return Response(response_data, status=status.HTTP_201_CREATED)
