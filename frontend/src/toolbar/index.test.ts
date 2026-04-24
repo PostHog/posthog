@@ -141,6 +141,61 @@ describe('Toolbar flag loading', () => {
         expect(mockPostHog.featureFlags.overrideFeatureFlags).not.toHaveBeenCalled()
     })
 
+    it('should fall back to legacy override() when overrideFeatureFlags is missing', async () => {
+        await import('./index')
+
+        // Simulate an older posthog-js that only exposes `override(...)` (flat flags map or false)
+        const mockPostHog = {
+            featureFlags: {
+                override: jest.fn(),
+            },
+        }
+
+        const toolbarParams: ToolbarParams = {
+            apiURL: 'http://localhost:8010',
+            toolbarFlagsKey: 'test-key-123',
+            token: 'test-token',
+        }
+
+        const mockFlags = { 'flag-1': true, 'flag-2': 'variant-a' }
+
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ featureFlags: mockFlags }),
+        })
+
+        // Must not throw — this is the stack frame that surfaced in production.
+        await expect((window as any).ph_load_toolbar(toolbarParams, mockPostHog)).resolves.not.toThrow()
+
+        // Legacy signature receives the flat flags map directly (no payloads wrapper).
+        expect(mockPostHog.featureFlags.override).toHaveBeenCalledWith(mockFlags)
+    })
+
+    it('should not throw when posthog-js exposes neither override API', async () => {
+        const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation()
+
+        await import('./index')
+
+        const mockPostHog = {
+            featureFlags: {},
+        }
+
+        const toolbarParams: ToolbarParams = {
+            apiURL: 'http://localhost:8010',
+            toolbarFlagsKey: 'test-key-123',
+            token: 'test-token',
+        }
+
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ featureFlags: { 'flag-1': true } }),
+        })
+
+        await expect((window as any).ph_load_toolbar(toolbarParams, mockPostHog)).resolves.not.toThrow()
+
+        consoleWarnSpy.mockRestore()
+    })
+
     it('should still load toolbar even if flag fetching fails', async () => {
         await import('./index')
 

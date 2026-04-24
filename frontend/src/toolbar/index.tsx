@@ -13,6 +13,7 @@ import type { PostHog } from 'posthog-js'
 import { createRoot } from 'react-dom/client'
 
 import { disposablesPlugin } from '~/kea-disposables'
+import { applyFeatureFlagOverrides } from '~/toolbar/flags/flagsToolbarLogic'
 import { ToolbarApp } from '~/toolbar/ToolbarApp'
 import { posthogToolbarController, setToolbarRefs } from '~/toolbar/toolbarController'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
@@ -95,7 +96,7 @@ win['ph_load_toolbar'] = async function (toolbarParams: ToolbarParams, posthog?:
             .then((response) => response.json())
             .then((data) => {
                 if (data.featureFlags) {
-                    posthog.featureFlags.overrideFeatureFlags({ flags: data.featureFlags })
+                    applyFeatureFlagOverrides(posthog, { flags: data.featureFlags })
                 } else {
                     toolbarLogger.error('flags', 'Feature flags not found', { response: data })
                     captureToolbarException(

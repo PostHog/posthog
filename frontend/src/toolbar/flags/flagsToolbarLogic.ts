@@ -15,6 +15,37 @@ import type { flagsToolbarLogicType } from './flagsToolbarLogicType'
 
 export type PayloadOverrides = Record<string, any>
 
+type FeatureFlagOverridePayload = false | { flags: Record<string, string | boolean>; payloads?: Record<string, any> }
+
+let hasWarnedAboutMissingOverrideApi = false
+
+/**
+ * Apply feature flag overrides against the host page's posthog-js instance, tolerating older
+ * versions that predate `featureFlags.overrideFeatureFlags`. The toolbar is embedded on customer
+ * sites whose posthog-js version we don't control, so we probe the new API, fall back to the
+ * legacy `override(...)` signature (flat flags map or `false`) when absent, and warn once if
+ * neither is available.
+ */
+export function applyFeatureFlagOverrides(clientPostHog: PostHog, payload: FeatureFlagOverridePayload): boolean {
+    const featureFlags = clientPostHog.featureFlags as any
+    if (typeof featureFlags?.overrideFeatureFlags === 'function') {
+        featureFlags.overrideFeatureFlags(payload)
+        return true
+    }
+    if (typeof featureFlags?.override === 'function') {
+        featureFlags.override(payload === false ? false : payload.flags)
+        return true
+    }
+    if (!hasWarnedAboutMissingOverrideApi) {
+        hasWarnedAboutMissingOverrideApi = true
+        toolbarLogger.warn(
+            'flags',
+            'Loaded toolbar via a posthog-js version that does not support feature flag overrides'
+        )
+    }
+    return false
+}
+
 type EvaluationReasonsResponse = Record<
     string,
     { value: boolean | string; evaluation: { reason: string; condition_index: number | null } }
@@ -234,7 +265,7 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
         const clearFeatureFlagOverrides = (): void => {
             const clientPostHog = values.posthog
             if (clientPostHog) {
-                clientPostHog.featureFlags.overrideFeatureFlags(false)
+                applyFeatureFlagOverrides(clientPostHog, false)
                 clientPostHog.featureFlags.reloadFeatureFlags()
                 actions.storeLocalOverrides({})
             }
@@ -252,7 +283,7 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                 const clientPostHog = values.posthog
                 if (clientPostHog) {
                     const payloads = payloadOverride ? { [flagKey]: payloadOverride } : undefined
-                    clientPostHog.featureFlags.overrideFeatureFlags({
+                    applyFeatureFlagOverrides(clientPostHog, {
                         flags: { ...values.localOverrides, [flagKey]: overrideValue },
                         payloads: payloads,
                     })
@@ -270,9 +301,9 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                     const updatedFlags = { ...values.localOverrides }
                     delete updatedFlags[flagKey]
                     if (Object.keys(updatedFlags).length > 0) {
-                        clientPostHog.featureFlags.overrideFeatureFlags({ flags: updatedFlags })
+                        applyFeatureFlagOverrides(clientPostHog, { flags: updatedFlags })
                     } else {
-                        clientPostHog.featureFlags.overrideFeatureFlags(false)
+                        applyFeatureFlagOverrides(clientPostHog, false)
                     }
                     toolbarPosthogJS.capture('toolbar feature flag override removed')
                     actions.checkLocalOverrides()
@@ -321,7 +352,7 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                 // Apply as overrides so the page actually re-renders with these flags
                 const clientPostHog = values.posthog
                 if (clientPostHog) {
-                    clientPostHog.featureFlags.overrideFeatureFlags({ flags: flagValues })
+                    applyFeatureFlagOverrides(clientPostHog, { flags: flagValues })
                     actions.checkLocalOverrides()
                 }
                 toolbarPosthogJS.capture('toolbar flags impersonated', { distinct_id: distinctId })
