@@ -103,26 +103,4 @@
         z-index: var(--z-raised); // In croweded badge situation, show active ones above the rest
         outline: calc(var(--lemon-badge-font-size) / 5) solid var(--lemon-badge-color);
     }
-
-    &.LemonBadge--enter {
-        opacity: 0;
-        transform: scale(0.5);
-    }
-
-    &.LemonBadge--enter-active {
-        opacity: 1;
-        transition: all 200ms ease-out;
-        transform: scale(1);
-    }
-
-    &.LemonBadge--exit {
-        opacity: 1;
-        transform: scale(1);
-    }
-
-    &.LemonBadge--exit-active {
-        opacity: 0;
-        transition: all 200ms ease-in;
-        transform: scale(0.5);
-    }
 }
