@@ -11,6 +11,8 @@ import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
 import { KAFKA_APP_METRICS_2 } from '../config/kafka-topics'
+import { APP_METRICS_OUTPUT } from '../ingestion/common/outputs'
+import { SingleIngestionOutput } from '../ingestion/outputs/single-ingestion-output'
 import { parseJSON } from '../utils/json-parse'
 import { LogRecord, encodeLogRecords } from './log-record-avro'
 import {
@@ -113,7 +115,16 @@ describe('LogsIngestionConsumer', () => {
     const createLogsIngestionConsumer = async (hub: Hub, overrides: any = {}) => {
         const consumer = new LogsIngestionConsumer(
             hub,
-            { ...hub, kafkaProducer: mockProducer, mskProducer: mockProducer },
+            {
+                ...hub,
+                kafkaProducer: mockProducer,
+                appMetricsOutput: new SingleIngestionOutput(
+                    APP_METRICS_OUTPUT,
+                    KAFKA_APP_METRICS_2,
+                    mockProducer,
+                    'test'
+                ),
+            },
             overrides
         )
         // NOTE: We don't actually use kafka so we skip instantiation for faster tests
@@ -1034,7 +1045,7 @@ describe('LogsIngestionConsumer', () => {
         })
     })
 
-    describe('produceUsageMetric', () => {
+    describe('queueUsageMetric', () => {
         const parseMetricValue = (value: any): any => {
             if (Buffer.isBuffer(value)) {
                 return parseJSON(value.toString())
@@ -1044,8 +1055,10 @@ describe('LogsIngestionConsumer', () => {
             }
             return value
         }
-        it('should produce metric with correct structure', async () => {
-            await consumer['produceUsageMetric'](123, 'test_metric', 500, '2025-01-01 00:00:00.000')
+
+        it('should queue + flush metric with correct structure', async () => {
+            consumer['queueUsageMetric'](123, 'test_metric', 500)
+            await consumer['appMetricsAggregator'].flush()
 
             const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
 
@@ -1058,11 +1071,13 @@ describe('LogsIngestionConsumer', () => {
             expect(value?.metric_kind).toBe('usage')
             expect(value?.metric_name).toBe('test_metric')
             expect(value?.count).toBe(500)
-            expect(value?.timestamp).toBe('2025-01-01 00:00:00.000')
+            // timestamp is now set at flush time, not by the caller
+            expect(typeof value?.timestamp).toBe('string')
         })
 
-        it('should not produce metric when count is zero', async () => {
-            await consumer['produceUsageMetric'](123, 'test_metric', 0, '2025-01-01 00:00:00.000')
+        it('should not queue metric when count is zero', async () => {
+            consumer['queueUsageMetric'](123, 'test_metric', 0)
+            await consumer['appMetricsAggregator'].flush()
 
             const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
 

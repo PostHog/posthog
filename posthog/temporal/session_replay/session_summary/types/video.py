@@ -45,6 +45,7 @@ class PrepSessionVideoAssetResult(BaseModel):
 
     asset_id: int
     needs_export: bool
+    team_api_token: str
 
 
 class UploadedVideo(BaseModel):

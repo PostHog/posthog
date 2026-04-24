@@ -64,6 +64,10 @@ class ErrorTrackingSymbolSetUploadSerializer(serializers.Serializer):
     content_hash = serializers.CharField(allow_null=True, default=None)
 
 
+class _SymbolSetDownloadResponseSerializer(serializers.Serializer):
+    url = serializers.URLField(help_text="Presigned URL to download the source map file")
+
+
 @extend_schema(tags=[ProductKey.ERROR_TRACKING])
 class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "error_tracking"
@@ -121,7 +125,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         return Response({"deleted": deleted_count}, status=status.HTTP_200_OK)
 
     @extend_schema(
-        responses={200: serializers.DictField(help_text="Presigned URL to download the source map file")},
+        responses={200: _SymbolSetDownloadResponseSerializer},
     )
     @action(methods=["GET"], detail=True, parser_classes=[JSONParser])
     def download(self, request, **kwargs) -> Response:

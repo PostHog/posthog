@@ -171,7 +171,7 @@ tools:
         operation: insights_activity_retrieve
         enabled: false
     insights-activity-retrieve-2:
-        operation: insights_activity_retrieve_2
+        operation: insights_activity_retrieve
         enabled: false
     insights-my-last-viewed-retrieve:
         operation: insights_my_last_viewed_retrieve
@@ -238,6 +238,9 @@ tools:
         enabled: false
     insights-viewed-create:
         operation: insights_viewed_create
+        enabled: false
+    insights-all-activity-retrieve:
+        operation: insights_all_activity_retrieve
         enabled: false
     insights-bulk-update-tags-create:
         operation: insights_bulk_update_tags_create

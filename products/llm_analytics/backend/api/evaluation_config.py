@@ -1,9 +1,12 @@
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
@@ -42,8 +45,10 @@ class EvaluationConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Team-level evaluation configuration"""
 
     scope_object = "llm_provider_key"
+    serializer_class = _FallbackSerializer
     permission_classes = [IsAuthenticated, AccessControlPermission]
 
+    @extend_schema(responses={200: OpenApiTypes.OBJECT})
     @llma_track_latency("llma_evaluation_config_list")
     @monitor(feature=None, endpoint="llma_evaluation_config_list", method="GET")
     def list(self, request: Request, **kwargs) -> Response:
@@ -52,6 +57,7 @@ class EvaluationConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         serializer = EvaluationConfigSerializer(config)
         return Response(serializer.data)
 
+    @extend_schema(responses={200: OpenApiTypes.OBJECT})
     @action(detail=False, methods=["post"])
     @llma_track_latency("llma_evaluation_config_set_active_key")
     @monitor(feature=None, endpoint="llma_evaluation_config_set_active_key", method="POST")

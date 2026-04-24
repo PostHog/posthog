@@ -6,7 +6,8 @@ from django.http import JsonResponse, StreamingHttpResponse
 
 import orjson
 import structlog
-from drf_spectacular.utils import OpenApiResponse
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 from prometheus_client import Counter
 from pydantic import BaseModel
 from rest_framework import status, viewsets
@@ -30,7 +31,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
 from posthog import settings
-from posthog.api.documentation import extend_schema
+from posthog.api.documentation import _FallbackSerializer, extend_schema
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.query_coalescer import QueryCoalescingMixin
@@ -120,6 +121,7 @@ def _process_query_request(
 class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "query"
+    serializer_class = _FallbackSerializer
     # Special case for query - these are all essentially read actions
     scope_object_read_actions = ["retrieve", "create", "list", "destroy"]
     scope_object_write_actions: list[str] = []
@@ -258,6 +260,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
 
     @extend_schema(
         description="(Experimental)",
+        parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],
         responses={200: QueryStatusResponse},
     )
     @monitor(feature=Feature.QUERY, endpoint="query", method="GET")
@@ -280,6 +283,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
 
         return JsonResponse(query_status_response.model_dump(), safe=False, status=http_code)
 
+    @extend_schema(responses={200: OpenApiTypes.OBJECT})
     @action(methods=["POST"], detail=False)
     def check_auth_for_async(self, request: Request, *args, **kwargs):
         return JsonResponse({"user": "ok"}, status=status.HTTP_200_OK)
@@ -297,6 +301,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
 
         return Response(status=200, data={"message": message})
 
+    @extend_schema(responses={200: OpenApiTypes.OBJECT})
     @action(methods=["GET"], detail=False)
     def draft_sql(self, request: Request, *args, **kwargs) -> Response:
         if not isinstance(request.user, User):
@@ -329,7 +334,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
 
     @extend_schema(
         description="Get query log details from query_log_archive table for a specific query_id, the query must have been issued in last 24 hours.",
-        responses={200: "Query log details"},
+        responses={200: OpenApiTypes.OBJECT},
     )
     @action(methods=["GET"], detail=True, url_path="log")
     def get_query_log(self, request: Request, pk: str, *args, **kwargs) -> Response:
@@ -371,6 +376,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
 
         tag_queries(client_query_id=query_id)
 
+    @extend_schema(operation_id="query_create_with_kind")
     @action(methods=["POST"], detail=False, url_path=r"(?P<query_kind>[A-Z][A-Za-z]*)")
     def create_with_kind(self, request: Request, *args, **kwargs) -> Response:
         return self.create(request, *args, **kwargs)

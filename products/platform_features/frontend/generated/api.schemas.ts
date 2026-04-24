@@ -194,9 +194,10 @@ export interface PaginatedChangeRequestListApi {
     results: ChangeRequestApi[]
 }
 
-export type MembershipLevelEnumApi = (typeof MembershipLevelEnumApi)[keyof typeof MembershipLevelEnumApi]
+export type EffectiveMembershipLevelEnumApi =
+    (typeof EffectiveMembershipLevelEnumApi)[keyof typeof EffectiveMembershipLevelEnumApi]
 
-export const MembershipLevelEnumApi = {
+export const EffectiveMembershipLevelEnumApi = {
     Number1: 1,
     Number8: 8,
     Number15: 15,
@@ -245,7 +246,7 @@ export interface OrganizationApi {
     logo_media_id?: string | null
     readonly created_at: string
     readonly updated_at: string
-    readonly membership_level: MembershipLevelEnumApi | null
+    readonly membership_level: EffectiveMembershipLevelEnumApi | null
     readonly plugins_access_level: PluginsAccessLevelEnumApi
     readonly teams: readonly OrganizationApiTeamsItem[]
     readonly projects: readonly OrganizationApiProjectsItem[]
@@ -319,7 +320,7 @@ export interface PatchedOrganizationApi {
     logo_media_id?: string | null
     readonly created_at?: string
     readonly updated_at?: string
-    readonly membership_level?: MembershipLevelEnumApi | null
+    readonly membership_level?: EffectiveMembershipLevelEnumApi | null
     readonly plugins_access_level?: PluginsAccessLevelEnumApi
     readonly teams?: readonly PatchedOrganizationApiTeamsItem[]
     readonly projects?: readonly PatchedOrganizationApiProjectsItem[]
@@ -373,10 +374,10 @@ export interface PatchedOrganizationApi {
  * `8` - administrator
  * `15` - owner
  */
-export type OrganizationMembershipLevelApi =
-    (typeof OrganizationMembershipLevelApi)[keyof typeof OrganizationMembershipLevelApi]
+export type OrganizationMembershipLevelEnumApi =
+    (typeof OrganizationMembershipLevelEnumApi)[keyof typeof OrganizationMembershipLevelEnumApi]
 
-export const OrganizationMembershipLevelApi = {
+export const OrganizationMembershipLevelEnumApi = {
     Number1: 1,
     Number8: 8,
     Number15: 15,
@@ -389,7 +390,7 @@ export interface OrganizationMemberApi {
      * @minimum 0
      * @maximum 32767
      */
-    level?: OrganizationMembershipLevelApi
+    level?: OrganizationMembershipLevelEnumApi
     readonly joined_at: string
     readonly updated_at: string
     readonly is_2fa_enabled: boolean
@@ -413,7 +414,7 @@ export interface PatchedOrganizationMemberApi {
      * @minimum 0
      * @maximum 32767
      */
-    level?: OrganizationMembershipLevelApi
+    level?: OrganizationMembershipLevelEnumApi
     readonly joined_at?: string
     readonly updated_at?: string
     readonly is_2fa_enabled?: boolean
