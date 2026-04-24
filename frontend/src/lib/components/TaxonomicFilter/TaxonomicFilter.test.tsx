@@ -872,12 +872,16 @@ describe('TaxonomicFilter', () => {
     })
 
     describe('category dropdown A/B test', () => {
+        let unmountFeatureFlagLogic: (() => void) | null = null
+
         beforeEach(() => {
-            featureFlagLogic.mount()
+            unmountFeatureFlagLogic = featureFlagLogic.mount()
         })
 
         afterEach(() => {
             featureFlagLogic.actions.setFeatureFlags([], {})
+            unmountFeatureFlagLogic?.()
+            unmountFeatureFlagLogic = null
         })
 
         function setVariant(variant: string): void {
