@@ -106,6 +106,28 @@ pub fn is_timeout_error(error: &anyhow::Error) -> bool {
     false
 }
 
+/// Returns true if the error chain contains a transport-level reqwest error
+/// (connection refused/closed/reset, DNS, TLS, premature body close). Transient,
+/// retry with backoff. Excludes timeouts (see is_timeout_error) and HTTP status errors.
+pub fn is_transient_network_error(error: &anyhow::Error) -> bool {
+    if let Some(reqwest_err) = error.downcast_ref::<reqwest::Error>() {
+        if !reqwest_err.is_timeout() && reqwest_err.status().is_none() {
+            return true;
+        }
+    }
+
+    let mut source = error.source();
+    while let Some(err) = source {
+        if let Some(reqwest_err) = err.downcast_ref::<reqwest::Error>() {
+            if !reqwest_err.is_timeout() && reqwest_err.status().is_none() {
+                return true;
+            }
+        }
+        source = err.source();
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -268,6 +290,63 @@ mod tests {
         let resp = client.get(server.url("/ok")).send().await.unwrap();
         let http_err = resp.error_for_status().unwrap_err();
         let err = anyhow::Error::from(http_err);
+        assert!(!is_timeout_error(&err));
+    }
+
+    #[tokio::test]
+    async fn test_is_transient_network_error_true_for_connection_refused() {
+        // Bind to get a free port, then drop so nothing is listening.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        drop(listener);
+
+        let client = Client::new();
+        let err = client
+            .get(format!("http://{addr}/"))
+            .send()
+            .await
+            .unwrap_err();
+        let err = anyhow::Error::from(err);
+        assert!(is_transient_network_error(&err));
+        assert!(!is_timeout_error(&err));
+        assert!(!is_rate_limited_error(&err));
+    }
+
+    #[tokio::test]
+    async fn test_is_transient_network_error_false_for_http_status() {
+        let server = MockServer::start();
+        let _mock = server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/err");
+            then.status(500);
+        });
+
+        let client = Client::new();
+        let resp = client.get(server.url("/err")).send().await.unwrap();
+        let http_err = resp.error_for_status().unwrap_err();
+        let err = anyhow::Error::from(http_err);
+        assert!(!is_transient_network_error(&err));
+    }
+
+    #[tokio::test]
+    async fn test_is_transient_network_error_true_for_connection_closed_mid_request() {
+        // Server accepts the TCP connection then immediately drops it — reproduces
+        // the "connection closed before message completed" reqwest variant we saw in prod.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            if let Ok((stream, _)) = listener.accept() {
+                drop(stream);
+            }
+        });
+
+        let client = Client::new();
+        let err = client
+            .get(format!("http://{addr}/"))
+            .send()
+            .await
+            .unwrap_err();
+        let err = anyhow::Error::from(err);
+        assert!(is_transient_network_error(&err));
         assert!(!is_timeout_error(&err));
     }
 }
