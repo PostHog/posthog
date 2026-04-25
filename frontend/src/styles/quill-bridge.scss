@@ -1,29 +1,50 @@
 /*
- * Quill ↔ PostHog token bridge — scoped to `[data-quill]` subtrees.
+ * Quill ↔ PostHog integration bridge.
  *
- * Why this exists:
+ * Two scopes — read carefully before editing:
  *
- *   1. TOKEN NAME COLLISION. Both `@posthog/tailwind` and `@posthog/quill`
- *      compile a `bg-muted` utility class, but they reference different CSS
- *      custom properties (`var(--muted-3000)` vs `var(--muted)`). PostHog's
- *      compiled CSS wins globally because the class name is identical. We
- *      can't change which `var(--xyz)` the class points at, but we *can*
- *      redefine PostHog's `--xyz` value inside `[data-quill]` to whatever
- *      quill expects. Inside the subtree, the class then resolves to the
- *      quill colour; outside, it keeps PostHog's. Pure CSS scope, no JS.
+ *   - `:root` block: maps Quill's portal z-index tokens (`--quill-z-*`) onto
+ *     PostHog's existing `--z-*` scale. Set globally so the vars cascade
+ *     into portal subtrees mounted at `<body>`. See base.scss for the
+ *     PostHog scale.
  *
- *   2. MISSING UTILITIES. Quill primitives use class names PostHog's
- *      tailwind config never declared (`bg-popover`, `bg-card`,
- *      `bg-background`, `text-foreground`, `text-muted-foreground`,
- *      `border-border`, etc.). PostHog's pre-compiled bundle therefore
- *      emits no rule for them and the elements render unstyled. We
- *      register them here as plain CSS rules pointing at quill's tokens.
+ *   - `[data-quill]` block: rebinds colour vars inside Quill subtrees only.
+ *     Two reasons for the scoping:
  *
- * Long-term plan: rename quill's tokens to `--quill-*` so this bridge
- * becomes unnecessary. Tracked separately. Until then, this file is the
- * single integration seam — every new colour utility quill introduces
- * lands here.
+ *       1. TOKEN NAME COLLISION. Both `@posthog/tailwind` and `@posthog/quill`
+ *          compile a `bg-muted` utility class, but they reference different
+ *          CSS custom properties (`var(--muted-3000)` vs `var(--muted)`).
+ *          PostHog's compiled CSS wins globally because the class name is
+ *          identical. We can't change which `var(--xyz)` the class points
+ *          at, but we *can* redefine PostHog's `--xyz` value inside
+ *          `[data-quill]` to whatever quill expects. Inside the subtree the
+ *          class resolves to the quill colour; outside, it keeps PostHog's.
+ *
+ *       2. MISSING UTILITIES. Quill primitives use class names PostHog's
+ *          tailwind config never declared (`bg-popover`, `bg-card`,
+ *          `bg-background`, `text-foreground`, `text-muted-foreground`,
+ *          `border-border`, etc.). PostHog's pre-compiled bundle therefore
+ *          emits no rule for them and the elements render unstyled. We
+ *          register them as plain CSS rules pointing at quill's tokens.
+ *
+ * Long-term plan: rename quill's colour tokens to `--quill-*` so the
+ * `[data-quill]` colour rebindings become unnecessary. Tracked separately.
+ * Until then, this file is the single integration seam — every new colour
+ * utility quill introduces lands here.
  */
+
+/*
+ * Z-index mapping: slot Quill's portal layers into PostHog's existing scale.
+ * Set on `:root` (not just `[data-quill]`) so the vars cascade into portal
+ * subtrees mounted at `<body>`. See base.scss for the PostHog `--z-*` scale.
+ */
+:root {
+    --quill-z-popover: var(--z-popover);
+    --quill-z-tooltip: var(--z-tooltip);
+    --quill-z-modal: var(--z-modal);
+    --quill-z-overlay: var(--z-modal);
+    --quill-z-toast: var(--z-bottom-notice);
+}
 
 [data-quill] {
     /*
@@ -160,18 +181,4 @@
 
 [data-quill] .ring-destructive\/20 {
     --tw-ring-color: color-mix(in oklab, var(--destructive) 20%, transparent);
-}
-
-/*
- * Elevate quill portals above PostHog's nav. Every quill floating primitive
- * (popover, tooltip, dropdown, combobox, select) puts `data-quill` on its
- * positioner *with* `z-50`. PostHog's `--z-layout-navbar` is 756 — far above
- * Tailwind's `z-50` — so quill popups end up rendered behind the side nav.
- * Map them to PostHog's `--z-popover` layer (1200) inside the subtree.
- *
- * Specificity (0,2,0) + `!important` beats `@posthog/tailwind`'s
- * `important: true` `.z-50 { z-index: 50 !important }`.
- */
-[data-quill].z-50 {
-    z-index: var(--z-popover) !important;
 }
