@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useCallback, useEffect } from 'react'
 
 import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
@@ -44,6 +44,15 @@ export function InsightAIAnalysis({ query }: InsightAIAnalysisProps): JSX.Elemen
         resetAnalysis()
     }, [insight.id, JSON.stringify(query), resetAnalysis])
 
+    const handleExplainClick = useCallback(() => {
+        openSidePanel(SidePanelTab.Max, '!Explain this insight')
+    }, [openSidePanel])
+
+    const handleSuggestionsClick = useCallback(() => {
+        setHasClickedSuggestions()
+        loadSuggestions({})
+    }, [setHasClickedSuggestions, loadSuggestions])
+
     if (!insight.id) {
         return null
     }
@@ -57,9 +66,8 @@ export function InsightAIAnalysis({ query }: InsightAIAnalysisProps): JSX.Elemen
 
             {!hasClickedAnalyze ? (
                 <>
-                    <p className="text-muted mb-4">
-                        Get AI-powered insights about your data, including trends, patterns, and actionable
-                        recommendations. Find similar insights and get suggestions for next steps.
+                    <p className="text-muted text-sm mb-2">
+                        Explain this insight or get suggestions for related questions to explore next.
                     </p>
                     {analysisError && (
                         <LemonBanner type="error" className="mb-4">
@@ -67,12 +75,10 @@ export function InsightAIAnalysis({ query }: InsightAIAnalysisProps): JSX.Elemen
                         </LemonBanner>
                     )}
                     <div className="flex gap-2 flex-wrap">
-                        <AIConsentPopoverWrapper
-                            onApprove={() => openSidePanel(SidePanelTab.Max, '!Explain this insight')}
-                        >
+                        <AIConsentPopoverWrapper onApprove={handleExplainClick}>
                             <LemonButton
                                 type="secondary"
-                                onClick={() => openSidePanel(SidePanelTab.Max, '!Explain this insight')}
+                                onClick={handleExplainClick}
                                 sideIcon={null}
                                 data-attr="insight-ai-explain-button"
                                 disabledReason={
@@ -82,18 +88,10 @@ export function InsightAIAnalysis({ query }: InsightAIAnalysisProps): JSX.Elemen
                                 Explain this insight
                             </LemonButton>
                         </AIConsentPopoverWrapper>
-                        <AIConsentPopoverWrapper
-                            onApprove={() => {
-                                setHasClickedSuggestions()
-                                loadSuggestions({})
-                            }}
-                        >
+                        <AIConsentPopoverWrapper onApprove={handleSuggestionsClick}>
                             <LemonButton
                                 type="secondary"
-                                onClick={() => {
-                                    setHasClickedSuggestions()
-                                    loadSuggestions({})
-                                }}
+                                onClick={handleSuggestionsClick}
                                 sideIcon={null}
                                 data-attr="insight-ai-suggestions-button"
                                 disabledReason={
