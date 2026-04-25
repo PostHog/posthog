@@ -408,6 +408,50 @@ describe('personsModalLogic', () => {
             })
         })
 
+        it("propagates the insight's date range when session IDs are available (funnel)", () => {
+            logic = personsModalLogic({
+                query: {
+                    kind: NodeKind.FunnelsActorsQuery,
+                    source: {
+                        kind: NodeKind.FunnelsQuery,
+                        series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                        dateRange: { date_from: '-30d', date_to: '-1d' },
+                    } as any,
+                    funnelStep: 1,
+                    includeRecordings: true,
+                } as any,
+                url: '/api/environments/1/persons?',
+                additionalSelect: { matched_recordings: 'matched_recordings' },
+            })
+            logic.mount()
+
+            logic.actions.loadActorsSuccess({
+                results: [
+                    {
+                        count: 1,
+                        people: [
+                            {
+                                type: 'person',
+                                id: 'person-1',
+                                distinct_ids: ['user-1'],
+                                is_identified: true,
+                                properties: {},
+                                created_at: '2024-01-01',
+                                matched_recordings: [{ session_id: 'session-1', events: [] }],
+                                value_at_data_point: null,
+                            },
+                        ],
+                    },
+                ],
+                missing_persons: 0,
+            })
+
+            const filters = logic.values.recordingFilters
+            expect(filters.session_ids).toEqual(['session-1'])
+            expect(filters.date_from).toEqual('-30d')
+            expect(filters.date_to).toEqual('-1d')
+        })
+
         it('falls back to event filters when no session IDs are available', () => {
             logic = personsModalLogic({
                 query: {
