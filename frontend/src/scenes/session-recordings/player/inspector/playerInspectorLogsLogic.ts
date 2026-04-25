@@ -134,7 +134,7 @@ export const playerInspectorLogsLogic = kea<playerInspectorLogsLogicType>([
                             query: buildSessionLogsQuery(props.sessionRecordingId, values.start, values.end, cursor),
                         })
                         const combined = [...values.logs, ...response.results]
-                        const capped = combined.length > MAX_LOG_ENTRIES
+                        const capped = combined.length >= MAX_LOG_ENTRIES
                         actions.setLogsHasMore(capped ? false : response.hasMore)
                         actions.setLogsNextCursor(capped ? undefined : response.nextCursor)
                         return capped ? combined.slice(0, MAX_LOG_ENTRIES) : combined
