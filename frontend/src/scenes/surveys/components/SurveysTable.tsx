@@ -145,7 +145,28 @@ export function SurveysTable(): JSX.Element {
                 rowKey="name"
                 nouns={['survey', 'surveys']}
                 data-attr="surveys-table"
-                emptyState={tab === SurveysTabs.Active ? 'No surveys. Create a new survey?' : 'No surveys found'}
+                emptyState={
+                    tab === SurveysTabs.Active ? (
+                        <div className="flex flex-col items-center gap-2 py-4">
+                            <span>No surveys match these filters.</span>
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Survey}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    to={urls.surveyWizard()}
+                                    data-attr="surveys-table-empty-state-new-survey"
+                                >
+                                    Create a new survey
+                                </LemonButton>
+                            </AccessControlAction>
+                        </div>
+                    ) : (
+                        'No surveys found'
+                    )
+                }
                 loading={isTableLoading}
                 footer={
                     (searchTerm ? hasNextSearchPage : hasNextPage) && (
