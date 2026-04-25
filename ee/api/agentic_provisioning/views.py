@@ -1807,13 +1807,9 @@ def deep_links(request: Request) -> Response:
 
     if not access_token.application.provisioning_can_issue_deep_links:
         _capture_provisioning_event("deep_link_created", "not_enabled")
-        return Response(
-            {
-                "error": {
-                    "code": "deep_links_not_enabled",
-                    "message": "Deep links are not enabled for this partner",
-                }
-            },
+        return _error_response(
+            "deep_links_not_enabled",
+            "Deep links are not enabled for this partner",
             status=403,
         )
 
