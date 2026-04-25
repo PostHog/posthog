@@ -9,6 +9,7 @@ import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { ImageCarousel } from 'lib/components/ImageCarousel/ImageCarousel'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
@@ -362,7 +363,11 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                                 <b>
                                     {effective ? (
                                         <span className="flex items-center gap-1">
-                                            <code className="text-xs">{effective}</code>
+                                            <PropertyKeyInfo
+                                                value={effective}
+                                                type={TaxonomicFilterGroupType.EventProperties}
+                                                disableIcon
+                                            />
                                             {isBuiltIn && (
                                                 <Tooltip title="This is a built-in default for this event. Team overrides are not applied to events with a built-in promoted property.">
                                                     <LemonTag type="muted" size="small">
