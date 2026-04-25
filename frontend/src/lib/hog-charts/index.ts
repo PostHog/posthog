@@ -31,3 +31,4 @@ export { DefaultTooltip } from './overlays/DefaultTooltip'
 // Optional overlays
 export { ValueLabels } from './overlays/ValueLabels'
 export type { ValueLabelsProps } from './overlays/ValueLabels'
+export { AnnotationsLayer } from './overlays/AnnotationsLayer'
