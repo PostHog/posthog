@@ -480,6 +480,39 @@ def _event_schema_factory(team: Team) -> models.Model:
 register_label_fixture("event_definitions.EventSchema", _event_schema_factory)
 
 
+# Organization membership (cross-org user FK) -----------------------------
+
+
+def _organization_membership_factory(team: Team) -> models.Model:
+    """Resolve the victim user's existing membership in the victim org.
+
+    The IDORTestMixin's `setUpTestData` creates `victim_user` via
+    `create_and_join(victim_org, ...)`, which in turn creates an
+    OrganizationMembership row. We just look that one up — creating a
+    second membership on the same (user, org) pair would violate the
+    unique constraint.
+    """
+    user = _victim_user()
+    return user.organization_memberships.get(organization=team.organization)
+
+
+register_label_fixture("posthog.OrganizationMembership", _organization_membership_factory)
+
+
+# Integration --------------------------------------------------------------
+
+
+def _integration_factory(team: Team) -> models.Model:
+    from posthog.models.integration import Integration
+
+    # `kind` is a CharField with TextChoices; auto-introspection would fill
+    # with a sentinel string (invalid choice). Pin to a known-valid kind.
+    return Integration.objects.create(team=team, kind="slack", config={})
+
+
+register_label_fixture("posthog.Integration", _integration_factory)
+
+
 # Session recording external reference ------------------------------------
 
 
