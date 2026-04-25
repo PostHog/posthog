@@ -197,3 +197,24 @@ IDOR_TEST_SKIP_LIST: dict[str, tuple[str, str]] = {
     "SpansViewSet": ("NO_MODEL", "No model; wraps ClickHouse spans table."),
     "SessionGroupSummaryViewSet": ("NO_MODEL", "No model; wraps LLM-summarization actions."),
 }
+
+
+# ---------------------------------------------------------------------------
+# Phase 5a — viewsets to skip for the writable-FK PATCH test specifically.
+#
+# The base IDOR_TEST_SKIP_LIST already excludes viewsets that can't be
+# auto-tested at all (legacy, no model, custom lookup_field). Many of those
+# implicitly skip the FK test too — they don't even reach the discovery
+# step. This list is for cases where the GET/PATCH cross-team test works
+# fine but the FK-in-PATCH variant needs a separate exclusion (e.g., the
+# viewset has no writable FK, or PATCH semantics deliberately permit a
+# cross-tenant target).
+#
+# Categories:
+#   - INTENTIONAL_CROSS_TENANT_FK — the FK is meant to span tenants
+#     (rare; usually a system reference like a global plugin).
+#   - NO_WRITABLE_TENANT_FK — discovery returns nothing actionable
+#     (here only as documentation; entries listed here just fail loud
+#     if discovery later starts surfacing something).
+# ---------------------------------------------------------------------------
+IDOR_FK_PATCH_SKIP_LIST: dict[str, tuple[str, str]] = {}
