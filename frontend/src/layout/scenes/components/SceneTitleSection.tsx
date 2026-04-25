@@ -719,12 +719,16 @@ function SceneDescription({
                     >
                         <ButtonPrimitive
                             onClick={() => {
-                                if (!isGeneratingMetadata) {
-                                    setIsEditing(true)
+                                if (isGeneratingMetadata) {
+                                    return
                                 }
+                                if (window.getSelection()?.toString()) {
+                                    return
+                                }
+                                setIsEditing(true)
                             }}
                             disabled={isGeneratingMetadata}
-                            className="flex text-start px-[var(--button-padding-x-sm)] py-[var(--button-padding-y-base)] [&_.LemonIcon]:size-4 focus-visible:z-50"
+                            className="flex text-start px-[var(--button-padding-x-sm)] py-[var(--button-padding-y-base)] [&_.LemonIcon]:size-4 focus-visible:z-50 select-text"
                             autoHeight
                             size="base"
                         >
