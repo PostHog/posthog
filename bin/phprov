@@ -1,0 +1,517 @@
+#!/usr/bin/env python3
+"""phprov — manual test harness for PostHog's agentic provisioning API.
+
+Drives the full partner flow against a running PostHog instance:
+  partner register -> account-request -> authorize -> exchange ->
+  resources / deep-link.
+
+State (PKCE verifier, partner credentials, last access token) is persisted
+to ~/.phprov/state.json so commands chain naturally without copy-paste.
+
+Examples:
+  bin/phprov partner create --client-id test-partner
+  bin/phprov account-request --email alice@example.com --scopes user:read
+  # open the printed authorize URL in a browser, approve consent
+  bin/phprov exchange --code <code from callback>
+  bin/phprov token show
+  bin/phprov deep-link --open
+
+Run with -v to print request/response bodies, -vv for curl-equivalents.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+import json
+import shlex
+import base64
+import hashlib
+import secrets
+import argparse
+import textwrap
+import subprocess
+import urllib.parse
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+try:
+    import requests
+except ImportError:
+    sys.stderr.write("phprov requires `requests`. Install with: pip install requests\n")
+    sys.exit(2)
+
+
+STATE_DIR = Path(os.environ.get("PHPROV_STATE_DIR", Path.home() / ".phprov"))
+STATE_FILE = STATE_DIR / "state.json"
+DEFAULT_HOST = os.environ.get("PHPROV_HOST", "http://localhost:8000")
+DEFAULT_REGION = os.environ.get("PHPROV_REGION", "US")
+API_VERSION = "0.1d"
+
+
+@dataclass
+class State:
+    host: str = DEFAULT_HOST
+    region: str = DEFAULT_REGION
+    client_id: str | None = None
+    redirect_uri: str = "http://localhost:9999/callback"
+    code_verifier: str | None = None
+    code_challenge: str | None = None
+    request_id: str | None = None
+    auth_url: str | None = None
+    access_token: str | None = None
+    refresh_token: str | None = None
+    scope: str | None = None
+    scoped_teams: list[int] = field(default_factory=list)
+
+    @classmethod
+    def load(cls) -> State:
+        if not STATE_FILE.exists():
+            return cls()
+        try:
+            data = json.loads(STATE_FILE.read_text())
+        except (OSError, json.JSONDecodeError):
+            return cls()
+        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+
+    def save(self) -> None:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        STATE_FILE.write_text(json.dumps(self.__dict__, indent=2, default=str))
+
+
+# ---------------------------------------------------------------------------
+# HTTP helpers
+# ---------------------------------------------------------------------------
+
+
+def _http(
+    method: str,
+    url: str,
+    *,
+    json_body: dict[str, Any] | None = None,
+    form: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
+    verbosity: int = 0,
+    allow_redirects: bool = True,
+) -> requests.Response:
+    hdrs = {"API-Version": API_VERSION}
+    if headers:
+        hdrs.update(headers)
+    if verbosity >= 1:
+        sys.stderr.write(f">>> {method} {url}\n")
+        if json_body is not None:
+            sys.stderr.write(f">>> body: {json.dumps(json_body)}\n")
+        if form is not None:
+            sys.stderr.write(f">>> form: {form}\n")
+    if verbosity >= 2:
+        sys.stderr.write("$ " + _curl_equivalent(method, url, hdrs, json_body, form) + "\n")
+    resp = requests.request(
+        method,
+        url,
+        json=json_body,
+        data=form,
+        headers=hdrs,
+        timeout=30,
+        allow_redirects=allow_redirects,
+    )
+    if verbosity >= 1:
+        sys.stderr.write(f"<<< {resp.status_code}\n")
+        if resp.text:
+            sys.stderr.write(f"<<< {resp.text[:1000]}\n")
+    return resp
+
+
+def _curl_equivalent(
+    method: str,
+    url: str,
+    headers: dict[str, str],
+    json_body: dict[str, Any] | None,
+    form: dict[str, Any] | None,
+) -> str:
+    parts = ["curl", "-sS", "-X", method, shlex.quote(url)]
+    for k, v in headers.items():
+        parts.extend(["-H", shlex.quote(f"{k}: {v}")])
+    if json_body is not None:
+        parts.extend(["-H", "'Content-Type: application/json'", "-d", shlex.quote(json.dumps(json_body))])
+    elif form is not None:
+        parts.extend(["-d", shlex.quote(urllib.parse.urlencode(form))])
+    return " ".join(parts)
+
+
+def _bearer(state: State) -> dict[str, str]:
+    if not state.access_token:
+        sys.exit("No access token in state. Run `phprov exchange` first.")
+    return {"Authorization": f"Bearer {state.access_token}"}
+
+
+def _emit(payload: Any, raw: bool = False) -> None:
+    if raw or not sys.stdout.isatty():
+        sys.stdout.write(json.dumps(payload, indent=2, default=str) + "\n")
+        return
+    sys.stdout.write(json.dumps(payload, indent=2, default=str) + "\n")
+
+
+# ---------------------------------------------------------------------------
+# Management-command shellout
+# ---------------------------------------------------------------------------
+
+
+def _manage(args: list[str]) -> dict[str, Any]:
+    """Invoke `python manage.py phprov_partner <args>` and parse the JSON line."""
+    cmd = ["python", "manage.py", "phprov_partner", *args]
+    if shlex_which("flox"):
+        cmd = ["flox", "activate", "--", *cmd]
+    try:
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as e:
+        sys.stderr.write(e.stderr or "")
+        sys.exit(e.returncode)
+    line = result.stdout.strip().splitlines()[-1]
+    return json.loads(line)
+
+
+def shlex_which(name: str) -> str | None:
+    from shutil import which
+
+    return which(name)
+
+
+# ---------------------------------------------------------------------------
+# PKCE
+# ---------------------------------------------------------------------------
+
+
+def _pkce_pair() -> tuple[str, str]:
+    verifier = secrets.token_urlsafe(64)[:96]
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    return verifier, challenge
+
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
+
+
+def cmd_partner_create(args: argparse.Namespace, state: State) -> None:
+    extra: list[str] = []
+    if args.can_create_accounts:
+        extra.append("--can-create-accounts")
+    if args.skip_existing_user_consent:
+        extra.append("--skip-existing-user-consent")
+    payload = _manage(
+        [
+            "create",
+            "--client-id",
+            args.client_id,
+            "--name",
+            args.name,
+            "--auth-method",
+            args.auth_method,
+            "--redirect-uri",
+            args.redirect_uri,
+            *extra,
+        ]
+    )
+    state.client_id = args.client_id
+    state.redirect_uri = args.redirect_uri
+    state.save()
+    _emit(payload)
+
+
+def cmd_partner_show(args: argparse.Namespace, state: State) -> None:
+    client_id = args.client_id or state.client_id
+    if not client_id:
+        sys.exit("No client_id. Pass --client-id or run `phprov partner create` first.")
+    _emit(_manage(["show", "--client-id", client_id]))
+
+
+def cmd_partner_delete(args: argparse.Namespace, state: State) -> None:
+    client_id = args.client_id or state.client_id
+    if not client_id:
+        sys.exit("No client_id.")
+    _emit(_manage(["delete", "--client-id", client_id]))
+
+
+def cmd_account_request(args: argparse.Namespace, state: State) -> None:
+    if not state.client_id:
+        sys.exit("No client_id in state. Run `phprov partner create` first.")
+    verifier, challenge = _pkce_pair()
+    state.code_verifier = verifier
+    state.code_challenge = challenge
+    request_id = f"phprov-{secrets.token_hex(8)}"
+    body = {
+        "id": request_id,
+        "email": args.email,
+        "scopes": [s.strip() for s in args.scopes.split(",") if s.strip()],
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+        "client_id": state.client_id,
+        "configuration": {"region": state.region},
+        "orchestrator": {"type": "phprov"},
+    }
+    resp = _http(
+        "POST",
+        f"{state.host}/api/provisioning/account_requests",
+        json_body=body,
+        verbosity=args.verbose,
+    )
+    data = _safe_json(resp)
+    if resp.status_code >= 400:
+        _emit({"status": resp.status_code, **data})
+        sys.exit(1)
+    state.request_id = request_id
+    auth_url = data.get("auth_url") or data.get("url")
+    if auth_url:
+        state.auth_url = auth_url
+    state.save()
+    _emit({"status": resp.status_code, **data})
+
+
+def cmd_authorize_url(args: argparse.Namespace, state: State) -> None:
+    if not state.auth_url:
+        sys.exit("No auth_url in state. Run `phprov account-request` first.")
+    _emit({"auth_url": state.auth_url})
+
+
+def cmd_exchange(args: argparse.Namespace, state: State) -> None:
+    if not state.code_verifier:
+        sys.exit("No PKCE verifier in state. Run `phprov account-request` first.")
+    code = args.code
+    if not code:
+        sys.exit("Pass --code <auth code from callback>.")
+    form = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "code_verifier": state.code_verifier,
+    }
+    if state.client_id:
+        form["client_id"] = state.client_id
+    resp = _http(
+        "POST",
+        f"{state.host}/api/provisioning/oauth/token",
+        form=form,
+        verbosity=args.verbose,
+    )
+    data = _safe_json(resp)
+    if resp.status_code >= 400:
+        _emit({"status": resp.status_code, **data})
+        sys.exit(1)
+    state.access_token = data.get("access_token")
+    state.refresh_token = data.get("refresh_token")
+    # Backfill scope + scoped_teams from the DB row — the /oauth/token response
+    # doesn't include them.
+    if state.access_token:
+        try:
+            decoded = _manage(["decode-token", "--token", state.access_token])
+            state.scope = decoded.get("scope")
+            state.scoped_teams = list(decoded.get("scoped_teams") or [])
+        except Exception as e:
+            sys.stderr.write(f"warning: failed to decode token from DB: {e}\n")
+    state.save()
+    _emit({"status": resp.status_code, **data})
+
+
+def cmd_token_show(args: argparse.Namespace, state: State) -> None:
+    _emit(
+        {
+            "access_token": _redact(state.access_token, args.reveal),
+            "refresh_token": _redact(state.refresh_token, args.reveal),
+            "scope": state.scope,
+            "scoped_teams": state.scoped_teams,
+        }
+    )
+
+
+def cmd_token_decode(args: argparse.Namespace, state: State) -> None:
+    if not state.access_token:
+        sys.exit("No access token in state.")
+    _emit(_manage(["decode-token", "--token", state.access_token]))
+
+
+def cmd_deep_link(args: argparse.Namespace, state: State) -> None:
+    headers = _bearer(state)
+    body = {"purpose": args.purpose}
+    resp = _http(
+        "POST",
+        f"{state.host}/api/provisioning/deep_links",
+        json_body=body,
+        headers=headers,
+        verbosity=args.verbose,
+    )
+    data = _safe_json(resp)
+    _emit({"status": resp.status_code, **data})
+
+    if resp.status_code >= 400:
+        sys.exit(1)
+    url = data.get("url")
+    if not url:
+        return
+
+    if args.open:
+        import webbrowser
+
+        webbrowser.open(url)
+
+
+def cmd_flow_run(args: argparse.Namespace, state: State) -> None:
+    """Chain account-request -> exchange -> deep-link in one go.
+
+    Requires --code provided manually after the user consents in a browser
+    (we don't drive the consent UI)."""
+    if not state.client_id:
+        sys.exit("Run `phprov partner create` first.")
+    cmd_account_request(args, state)
+    sys.stderr.write("\nOpen the auth_url printed above, approve consent, then re-run with --code.\n")
+    if not args.code:
+        return
+    cmd_exchange(args, state)
+    cmd_deep_link(args, state)
+
+
+def cmd_rate_limit_hammer(args: argparse.Namespace, state: State) -> None:
+    headers = _bearer(state)
+    last_status = None
+    boundary = None
+    for i in range(1, args.n + 1):
+        resp = _http(
+            "POST",
+            f"{state.host}/api/provisioning/deep_links",
+            json_body={"purpose": "dashboard"},
+            headers=headers,
+            verbosity=0,
+        )
+        last_status = resp.status_code
+        if resp.status_code == 429 and boundary is None:
+            boundary = i
+            break
+    _emit({"requests": args.n, "last_status": last_status, "first_429_at": boundary})
+
+
+# ---------------------------------------------------------------------------
+# Misc helpers
+# ---------------------------------------------------------------------------
+
+
+def _safe_json(resp: requests.Response) -> dict[str, Any]:
+    try:
+        return resp.json()
+    except ValueError:
+        return {"_text": resp.text[:500]}
+
+
+def _redact(value: str | None, reveal: bool) -> str | None:
+    if value is None:
+        return None
+    if reveal:
+        return value
+    if len(value) <= 8:
+        return "***"
+    return f"{value[:4]}…{value[-4:]}"
+
+
+# ---------------------------------------------------------------------------
+# Argument parsing
+# ---------------------------------------------------------------------------
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="phprov",
+        description="Manual test harness for PostHog agentic provisioning.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=textwrap.dedent(
+            """\
+            State file: ~/.phprov/state.json (override with PHPROV_STATE_DIR).
+            Default host: http://localhost:8000 (override with PHPROV_HOST or --host).
+            """
+        ),
+    )
+    p.add_argument("--host", default=None, help="PostHog host. Stored in state.")
+    p.add_argument("--region", default=None, help="us|eu|dev. Stored in state.")
+    p.add_argument("-v", "--verbose", action="count", default=0)
+
+    sub = p.add_subparsers(dest="command", required=True)
+
+    partner = sub.add_parser("partner", help="Manage the OAuthApplication used for testing.")
+    partner_sub = partner.add_subparsers(dest="subcommand", required=True)
+    pc = partner_sub.add_parser("create")
+    pc.add_argument("--client-id", required=True)
+    pc.add_argument("--name", default="phprov test partner")
+    pc.add_argument("--auth-method", choices=["pkce", "bearer", "hmac"], default="pkce")
+    pc.add_argument("--redirect-uri", default="http://localhost:9999/callback")
+    pc.add_argument("--can-create-accounts", action="store_true")
+    pc.add_argument("--skip-existing-user-consent", action="store_true")
+    pc.set_defaults(func=cmd_partner_create)
+
+    ps = partner_sub.add_parser("show")
+    ps.add_argument("--client-id", default=None)
+    ps.set_defaults(func=cmd_partner_show)
+
+    pd = partner_sub.add_parser("delete")
+    pd.add_argument("--client-id", default=None)
+    pd.set_defaults(func=cmd_partner_delete)
+
+    ar = sub.add_parser("account-request", help="POST /api/provisioning/account_requests")
+    ar.add_argument("--email", required=True)
+    ar.add_argument("--scopes", default="user:read", help="Comma-separated scopes.")
+    ar.set_defaults(func=cmd_account_request)
+
+    au = sub.add_parser("authorize-url", help="Reprint the stored authorize URL.")
+    au.set_defaults(func=cmd_authorize_url)
+
+    ex = sub.add_parser("exchange", help="POST /api/provisioning/oauth/token")
+    ex.add_argument("--code", required=True)
+    ex.set_defaults(func=cmd_exchange)
+
+    tok = sub.add_parser("token", help="Inspect the stored access token.")
+    tok_sub = tok.add_subparsers(dest="subcommand", required=True)
+    ts = tok_sub.add_parser("show")
+    ts.add_argument("--reveal", action="store_true", help="Print the raw token.")
+    ts.set_defaults(func=cmd_token_show)
+    td = tok_sub.add_parser("decode")
+    td.set_defaults(func=cmd_token_decode)
+
+    dl = sub.add_parser("deep-link", help="POST /api/provisioning/deep_links")
+    dl.add_argument("--purpose", default="dashboard")
+    dl.add_argument("--open", action="store_true", help="Open the URL in a browser.")
+    dl.set_defaults(func=cmd_deep_link)
+
+    fl = sub.add_parser("flow", help="Multi-step flows.")
+    fl_sub = fl.add_subparsers(dest="subcommand", required=True)
+    fr = fl_sub.add_parser("run")
+    fr.add_argument("--email", required=True)
+    fr.add_argument("--scopes", default="user:read")
+    fr.add_argument("--code", default=None, help="Auth code from callback. If omitted, stops after account-request.")
+    fr.add_argument("--purpose", default="dashboard")
+    fr.add_argument("--open", action="store_true")
+    fr.set_defaults(func=cmd_flow_run)
+
+    rl = sub.add_parser("rate-limit", help="Rate limit probes.")
+    rl_sub = rl.add_subparsers(dest="subcommand", required=True)
+    rh = rl_sub.add_parser("hammer")
+    rh.add_argument("--endpoint", default="deep_links", choices=["deep_links"])
+    rh.add_argument("--n", type=int, default=20)
+    rh.set_defaults(func=cmd_rate_limit_hammer)
+
+    return p
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    state = State.load()
+    if args.host:
+        state.host = args.host.rstrip("/")
+    if args.region:
+        state.region = args.region.upper()
+    state.save()
+    func = getattr(args, "func", None)
+    if func is None:
+        parser.print_help()
+        sys.exit(2)
+    func(args, state)
+
+
+if __name__ == "__main__":
+    main()
