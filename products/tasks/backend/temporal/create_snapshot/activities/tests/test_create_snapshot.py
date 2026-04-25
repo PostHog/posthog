@@ -62,22 +62,19 @@ class TestCreateSnapshotActivity:
         mock_sandbox.id = "sb-test789"
         mock_sandbox.create_snapshot.return_value = "im-test012"
 
-        try:
-            with patch(f"{SANDBOX_CLASS}.get_by_id", return_value=mock_sandbox) as mock_get:
-                context = self._create_context(github_integration, "new-owner/new-repo")
-                input_data = CreateSnapshotInput(context=context, sandbox_id="sb-test789")
+        with patch(f"{SANDBOX_CLASS}.get_by_id", return_value=mock_sandbox) as mock_get:
+            context = self._create_context(github_integration, "new-owner/new-repo")
+            input_data = CreateSnapshotInput(context=context, sandbox_id="sb-test789")
 
-                result = async_to_sync(activity_environment.run)(create_snapshot, input_data)
+            result = async_to_sync(activity_environment.run)(create_snapshot, input_data)
 
-                mock_get.assert_called_once_with("sb-test789")
-                mock_sandbox.create_snapshot.assert_called_once()
+            mock_get.assert_called_once_with("sb-test789")
+            mock_sandbox.create_snapshot.assert_called_once()
 
-                created_snapshot = SandboxSnapshot.objects.get(id=result)
-                assert created_snapshot.repos == ["new-owner/new-repo"]
-                assert len(created_snapshot.repos) == 1
-                assert "existing-owner/existing-repo" not in created_snapshot.repos
-        finally:
-            base_snapshot.delete()
+            created_snapshot = SandboxSnapshot.objects.get(id=result)
+            assert created_snapshot.repos == ["new-owner/new-repo"]
+            assert len(created_snapshot.repos) == 1
+            assert "existing-owner/existing-repo" not in created_snapshot.repos
 
     @pytest.mark.django_db
     def test_create_snapshot_sandbox_not_found(self, activity_environment, github_integration):
