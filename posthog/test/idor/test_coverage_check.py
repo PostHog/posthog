@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import unittest
 
-from posthog.test.idor.skip_list import IDOR_FK_PATCH_SKIP_LIST, IDOR_TEST_SKIP_LIST
+from posthog.test.idor.skip_list import IDOR_FK_PATCH_SKIP_LIST, IDOR_FK_POST_SKIP_LIST, IDOR_TEST_SKIP_LIST
 
 
 class TestSkipListWellFormed(unittest.TestCase):
@@ -64,6 +64,30 @@ class TestFKSkipListWellFormed(unittest.TestCase):
         unknown = used - documented_fk_categories
         assert not unknown, (
             f"FK skip list uses undocumented categories: {sorted(unknown)}. "
+            f"Either add them to the documented set in test_coverage_check.py or fix the skip_list entry."
+        )
+
+
+class TestFKPostSkipListWellFormed(unittest.TestCase):
+    def test_every_entry_has_category_and_reason(self) -> None:
+        for name, entry in IDOR_FK_POST_SKIP_LIST.items():
+            assert isinstance(entry, tuple), f"FK POST skip entry for {name!r} must be a (category, reason) tuple"
+            assert len(entry) == 2, f"FK POST skip entry for {name!r} must be (category, reason)"
+            category, reason = entry
+            assert isinstance(category, str) and category, f"{name!r}: category must be a non-empty string"
+            assert isinstance(reason, str) and reason, f"{name!r}: reason must be a non-empty string"
+
+    def test_fk_post_categories_are_documented(self) -> None:
+        documented_fk_post_categories = {
+            "POST_NOT_ALLOWED",
+            "BODY_SYNTHESIS_INFEASIBLE",
+            "INTENTIONAL_CROSS_TENANT_FK",
+            "REQUIRES_FILESYSTEM_OR_TEMPORAL",
+        }
+        used = {cat for (cat, _) in IDOR_FK_POST_SKIP_LIST.values()}
+        unknown = used - documented_fk_post_categories
+        assert not unknown, (
+            f"FK POST skip list uses undocumented categories: {sorted(unknown)}. "
             f"Either add them to the documented set in test_coverage_check.py or fix the skip_list entry."
         )
 

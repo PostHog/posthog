@@ -218,3 +218,24 @@ IDOR_TEST_SKIP_LIST: dict[str, tuple[str, str]] = {
 #     if discovery later starts surfacing something).
 # ---------------------------------------------------------------------------
 IDOR_FK_PATCH_SKIP_LIST: dict[str, tuple[str, str]] = {}
+
+
+# ---------------------------------------------------------------------------
+# Phase 5b — viewsets to skip for the writable-FK POST (CREATE) test.
+#
+# Unlike PATCH, CREATE has to synthesize a full valid request body.
+# Some viewsets need explicit skips even when their PATCH variant works:
+#   - POST disabled (read-only or detail-only viewsets)
+#   - Body synthesis infeasible (custom validators we can't satisfy and
+#     no body fixture is registered yet)
+#   - POST kicks off external side effects (Temporal workflows, file
+#     writes) we don't want exercising in the test path
+#
+# Categories:
+#   - POST_NOT_ALLOWED — viewset's create action is disabled or 405s.
+#   - BODY_SYNTHESIS_INFEASIBLE — serializer needs a custom body shape
+#     that introspection can't build, no fixture registered.
+#   - INTENTIONAL_CROSS_TENANT_FK — the FK is meant to span tenants.
+#   - REQUIRES_FILESYSTEM_OR_TEMPORAL — POST triggers heavy side effects.
+# ---------------------------------------------------------------------------
+IDOR_FK_POST_SKIP_LIST: dict[str, tuple[str, str]] = {}
