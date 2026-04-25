@@ -152,7 +152,8 @@ export const RecordingsUniversalFiltersEmbedButton = ({
                         'Show recordings of people who faced bugs',
                     ]}
                     onMaxOpen={() => setIsFiltersExpanded(false)}
-                    className="grow"
+                    // pr-6 reserves space for the absolutely-positioned AI overlay (size-7 at -right-2) so it doesn't sit on top of the fullWidth toggle's hit area
+                    className="grow pr-6"
                 >
                     <LemonButton
                         active={isFiltersExpanded}
