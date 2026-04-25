@@ -124,6 +124,12 @@ Two classes of IDOR are covered:
   - **Implicit** — `<thing>_id = IntegerField()` / `UUIDField()` / `CharField()`, where `Meta.model._meta.get_field('<thing>')` resolves to a `ForeignKey`. Common in older serializers that hand-roll validation in `validate()`.
   - **M2M** — `PrimaryKeyRelatedField(many=True, ...)` (or M2M model fields surfaced as `ManyRelatedField`). PATCH replaces the M2M set; the test sends `[victim_pk]` and verifies the related manager doesn't include it. Empty-list edge case: PATCHing `[]` clears the M2M, so tests run on a freshly-built attacker-owned instance to avoid order-dependence.
 
+- **Writable FK in POST** (`test_cross_tenant_fk_in_post`) — attacker POSTs a brand-new resource into their own team's list URL with a body that smuggles a victim's tenant FK pk. Catches the IDOR shape where a FK is **only writable at create time** and becomes immutable afterwards (e.g., `Node.dag`, `PluginConfig.plugin`) — these slip past the PATCH variant entirely. Body construction has two layers:
+  - **Generic synthesis** (`body_factory.build_minimal_post_body`) — walks the serializer's required, writable fields and fills sensible defaults (CharField → sentinel, ChoiceField → first choice, FK → attacker-owned instance pk via `build_minimal_instance`). Optional fields are omitted to avoid tripping unrelated validators.
+  - **Per-viewset registry** (`post_body_fixtures.register_post_body`) — explicit factories for serializers where introspection can't satisfy custom `validate()` methods or shape constraints (e.g., `MessageTemplateSerializer` requires `content.email.subject` if `type='email'`).
+
+  When body synthesis can't satisfy a serializer (`BodyUnfillable`), the test skips with a hint rather than asserting a false signal. 5xx responses also skip — they're latent server bugs, not data leaks. To skip a viewset entirely (POST disabled, custom permissions, side-effect-heavy create), add an entry to `IDOR_FK_POST_SKIP_LIST` in `posthog/test/idor/skip_list.py` with one of `POST_NOT_ALLOWED`, `BODY_SYNTHESIS_INFEASIBLE`, `INTENTIONAL_CROSS_TENANT_FK`, `REQUIRES_FILESYSTEM_OR_TEMPORAL`.
+
 **When you add a new tenant-scoped viewset:**
 
 Your PR will fail CI via `.github/scripts/check-idor-test-coverage.py` unless the viewset is one of:
