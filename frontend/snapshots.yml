@@ -444,6 +444,18 @@ snapshots:
         hash: v1.k794b7964.61cfe187b6ffb1afbbe249728e25564b649d867594361c942f272177a30a2512.DcZXxZ_ile6MrnQzOW4qcytPJNg_6XmoWp0quap7xyc
     components-hogcharts-referenceline--vertical-reference-lines--light:
         hash: v1.k794b7964.57e8def3f05c5ce3e99c0683e22615bdb04488249dc65b8ea0b7478a4808a94f.4_lE_Bg7_SUhLYhtKvMXD_yFzvqdBbC9npoDyMjFVbA
+    components-hogcharts-trendlines--multi-series-with-trend-lines--dark:
+        hash: v1.k794b7964.78033802ebf740d7ab89be2be4f2193c43a14966c0402026bd45dddbb4269396.RUWWv6pYa_wo0a1Usu3f62Wk4EvQ0rGgPfKIf3UQJDc
+    components-hogcharts-trendlines--multi-series-with-trend-lines--light:
+        hash: v1.k794b7964.ba1dd4a8fa2093e58823dbeaccea10509d588023fae750089fcd3caed6e05de2.dH5SqXb2RXB8MCVqO-0Z5rVWBUlFUbA0hlXuZjzgyao
+    components-hogcharts-trendlines--trend-line-with-incomplete-period--dark:
+        hash: v1.k794b7964.04241a23b9362ec83f80d010699220a08fbc9d3904718780fc6abf26d4a0dd4c.eUPFh_Gb0JsPkx0jz0HMEkNi0srWCh7faDntW1Uv-28
+    components-hogcharts-trendlines--trend-line-with-incomplete-period--light:
+        hash: v1.k794b7964.71a62e5f098e7ff225ee1a222242e60eafd0bceda1316b1af89254bd5fa845de.dy66a2lxQ9B2eVXUo_rUqpMSCuO24AAAiFx2LPVcD1Q
+    components-hogcharts-trendlines--with-trend-line--dark:
+        hash: v1.k794b7964.da7509fa2d50594b97da227743df5d6c8dc2fba68319cdb63e0c0a783a9e8a56.VyeZQIl63pbC3dTu5fIiBCqjLA97n2KDMSesUBp-3yc
+    components-hogcharts-trendlines--with-trend-line--light:
+        hash: v1.k794b7964.276799f30320d0d543bbad2ab88ae343d86e5bc2b6deb8e64db0c27b96beab8a.54U0eAaXpU1eM76JrzJxGfYdtTlQ3nPCHmTuv_lgwjc
     components-hogcharts-valuelabels--dual-y-axes--dark:
         hash: v1.k794b7964.90610149a5326e633baa49e9873a88386caf9d74956025d507a5acb091f4e9f6.aovJ-42i8bFRGXdJhTjYGV2tAekmSMSl2SUTDIurqN4
     components-hogcharts-valuelabels--dual-y-axes--light:
@@ -4285,7 +4297,7 @@ snapshots:
     scenes-app-insights-user-paths--user-paths-edit--dark:
         hash: v1.k794b7964.49cb94ded5400950ff52cfcf899a91644a5fc52315f3e3d1994c1e550b8b97aa.RY6xnm8QoMji88whvowfUqINH60aaqwoKVYiDeNgH4o
     scenes-app-insights-user-paths--user-paths-edit--light:
-        hash: v1.k794b7964.18c85f4016b260304fd26e08f6aa9b89edd3be6cf557e6218b5939c343647783.62fMBIDorfURbvudXkFEdLaZp2Tg_5JH0AtCAp77k9I
+        hash: v1.k794b7964.91454a843bd2caaa6df0eb2b179262413dcfa5d5e4204be87032fd51f59cb18f.uLjnPAzYscHzKxTzxisjDnufL-2VWnoxX-utYI3VKYw
     scenes-app-insights-worldmap--default--dark:
         hash: v1.k794b7964.6c0d91b07e971d6e0efdefe4974c303232f4fb96b3746ebfbf5aa7f460ed80ee.QIP22_VR42_X3gh1ObltZBoE5ExnX6jLulV5BQojNfA
     scenes-app-insights-worldmap--default--light:
