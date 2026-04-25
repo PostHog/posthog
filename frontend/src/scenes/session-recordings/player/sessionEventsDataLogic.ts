@@ -9,7 +9,7 @@ import { ViewportResolution } from '@posthog/replay-shared'
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { chainToElements } from 'lib/utils/elements-chain'
-import { getPromotedPropertyForEvent } from 'lib/utils/promotedEventProperty'
+import { getEventsWithPromotedProperty } from 'lib/utils/promotedEventProperty'
 import { TimeTree } from 'lib/utils/time-tree'
 
 import { promotedEventPropertiesModel } from '~/models/promotedEventPropertiesModel'
@@ -246,9 +246,7 @@ AND properties.$lib != 'web'`
         eventsWithPromotedProperty: [
             (s) => [s.sessionEventsData, s.promotedProperties],
             (sessionEventsData, promotedProperties): RecordingEventType[] =>
-                (sessionEventsData || []).filter(
-                    (e) => getPromotedPropertyForEvent(e.event, promotedProperties) !== null
-                ),
+                getEventsWithPromotedProperty(sessionEventsData || [], promotedProperties),
         ],
         preloadableEvents: [
             (s) => [s.webVitalsEvents, s.AIEvents, s.exceptionEvents, s.eventsWithPromotedProperty],

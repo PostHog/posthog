@@ -83,16 +83,15 @@ QUERY_VALIDATION_ERROR_TOTAL = Counter(
 # which is the signal to register them.
 _SCENE_TO_TAGS: dict[str, dict[str, Product | ProductKey | Feature]] = {
     "Cohort": {"product": ProductKey.COHORTS, "feature": Feature.COHORT},
-    # Data management surfaces are introspecting the schema (which properties have been seen on
-    # which events) rather than running customer-facing analytics queries. The frontend already
-    # stamps the originating scene id onto every query payload (see addTags in dataNodeLogic),
-    # which surfaces in the `scene` query tag for per-page analysis.
-    "EventDefinition": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.SCHEMA_INTROSPECTION},
-    "EventDefinitionEdit": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.SCHEMA_INTROSPECTION},
-    "EventDefinitions": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.SCHEMA_INTROSPECTION},
-    "PropertyDefinition": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.SCHEMA_INTROSPECTION},
-    "PropertyDefinitionEdit": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.SCHEMA_INTROSPECTION},
-    "PropertyDefinitions": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.SCHEMA_INTROSPECTION},
+    # Data management surfaces fan out into ad-hoc queries (e.g. the promoted-property picker
+    # introspecting which keys exist on an event). Tagged with scene-specific features so query
+    # usage analysis can attribute load to the originating product surface.
+    "EventDefinition": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
+    "EventDefinitionEdit": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
+    "EventDefinitions": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
+    "PropertyDefinition": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.PROPERTY_DEFINITION_SCENE},
+    "PropertyDefinitionEdit": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.PROPERTY_DEFINITION_SCENE},
+    "PropertyDefinitions": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.PROPERTY_DEFINITION_SCENE},
 }
 
 

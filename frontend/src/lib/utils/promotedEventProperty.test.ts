@@ -1,4 +1,8 @@
-import { getPromotedPropertyForEvent, hasTaxonomyPromotedProperty } from './promotedEventProperty'
+import {
+    getEventsWithPromotedProperty,
+    getPromotedPropertyForEvent,
+    hasTaxonomyPromotedProperty,
+} from './promotedEventProperty'
 
 describe('getPromotedPropertyForEvent', () => {
     it('returns the core taxonomy default for built-in events', () => {
@@ -32,6 +36,45 @@ describe('getPromotedPropertyForEvent', () => {
 
     it('returns null when no override and no taxonomy default', () => {
         expect(getPromotedPropertyForEvent('order_placed', { other_event: 'x' })).toBeNull()
+    })
+})
+
+describe('getEventsWithPromotedProperty', () => {
+    it('returns events that have a taxonomy default', () => {
+        const events = [
+            { event: '$pageview', id: 1 },
+            { event: '$autocapture', id: 2 },
+            { event: '$screen', id: 3 },
+        ]
+        expect(getEventsWithPromotedProperty(events)).toEqual([
+            { event: '$pageview', id: 1 },
+            { event: '$screen', id: 3 },
+        ])
+    })
+
+    it('returns events that have a team override (no taxonomy default)', () => {
+        const events = [
+            { event: 'order_placed', id: 1 },
+            { event: 'just_viewed', id: 2 },
+        ]
+        expect(getEventsWithPromotedProperty(events, { order_placed: 'order_id' })).toEqual([
+            { event: 'order_placed', id: 1 },
+        ])
+    })
+
+    it('does not include events whose only override is on a taxonomy-fixed event', () => {
+        // Taxonomy wins, so an attempted override on $pageview is moot — but the event is still
+        // included because the taxonomy default already counts as a promoted property.
+        const events = [{ event: '$pageview', id: 1 }]
+        expect(getEventsWithPromotedProperty(events, { $pageview: '$current_url' })).toEqual(events)
+    })
+
+    it('returns an empty list when nothing has a promoted property', () => {
+        const events = [
+            { event: '$autocapture', id: 1 },
+            { event: 'arbitrary_custom', id: 2 },
+        ]
+        expect(getEventsWithPromotedProperty(events)).toEqual([])
     })
 })
 

@@ -74,6 +74,10 @@ class Feature(StrEnum):
     DATA_DELETION = "data_deletion"
     ENRICHMENT = "enrichment"  # background tasks that derive/sync data (not customer-facing)
     SCHEMA_INTROSPECTION = "schema_introspection"
+    # Specific scenes that fan out into multiple ad-hoc queries; tagged separately so query
+    # usage analysis can attribute load to the originating product surface.
+    EVENT_DEFINITION_SCENE = "event_definition_scene"
+    PROPERTY_DEFINITION_SCENE = "property_definition_scene"
     USAGE_REPORT = "usage_report"
     BILLING_ETL = "billing_etl"
     QUOTA_LIMITING = "quota_limiting"

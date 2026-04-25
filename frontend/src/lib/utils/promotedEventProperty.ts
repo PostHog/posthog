@@ -10,6 +10,10 @@ export function hasTaxonomyPromotedProperty(eventName: string | null | undefined
  * Taxonomy-configured defaults (e.g. `$pageview` -> `$pathname`) are immutable and
  * always win; team-configured overrides only apply to events that do not have a
  * taxonomy default.
+ *
+ * This is a pure client-side lookup — both the taxonomy and the overrides map are
+ * already in memory, so callers can invoke this in tight loops (e.g. selectors
+ * filtering all events in a session) without n+1 risk.
  */
 export function getPromotedPropertyForEvent(
     eventName: string | null | undefined,
@@ -23,4 +27,16 @@ export function getPromotedPropertyForEvent(
         return taxonomyDefault
     }
     return overrides?.[eventName] ?? null
+}
+
+/**
+ * Filters a list of events down to those that have a promoted property
+ * (taxonomy default or team override). Pure client-side — wraps
+ * `getPromotedPropertyForEvent` so the intent reads as one operation.
+ */
+export function getEventsWithPromotedProperty<T extends { event: string }>(
+    events: T[],
+    overrides?: Record<string, string | null | undefined>
+): T[] {
+    return events.filter((e) => getPromotedPropertyForEvent(e.event, overrides) !== null)
 }
