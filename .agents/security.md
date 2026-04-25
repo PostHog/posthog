@@ -116,6 +116,11 @@ docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/ru
 
 All tenant-scoped DRF viewsets with detail endpoints have automated cross-team IDOR coverage via `posthog/test/test_idor_coverage.py`. The test walks `posthog.api.router.urls` at collection time, generates one test per viewset, and verifies that an attacker (authenticated in team A) hitting the detail URL with a victim's resource id (from team B) receives 403/404/405 — never the victim's data.
 
+Two classes of IDOR are covered:
+
+- **Cross-team detail access** (`test_cross_team_get_detail` / `_patch_detail` / `_delete_detail`) — attacker hits the detail URL with the victim's pk on their own root URL. Verifies queryset scoping.
+- **Writable FK in PATCH** (`test_cross_tenant_fk_in_patch`) — attacker PATCHes their **own** resource with a body that smuggles a victim's tenant FK pk into a writable serializer field. Verifies the field's queryset is scoped (e.g., via `TeamScopedPrimaryKeyRelatedField`) so the cross-tenant FK is rejected. The framework discovers writable tenant FKs from each viewset's serializer via `posthog/test/idor/fk_discovery.py`; tenant-scoped target models are pulled from `.semgrep/rules/idor-team-scoped-models.yaml` to avoid drift.
+
 **When you add a new tenant-scoped viewset:**
 
 Your PR will fail CI via `.github/scripts/check-idor-test-coverage.py` unless the viewset is one of:
@@ -124,15 +129,34 @@ Your PR will fail CI via `.github/scripts/check-idor-test-coverage.py` unless th
 2. **Covered by a fixture** — if the model has required FKs or custom validation the auto-factory can't satisfy, add a factory to `posthog/test/idor/fixtures.py` keyed by `app_label.ModelName`.
 3. **Explicitly skipped** — if the viewset has a custom `lookup_field`, is a tenant-root resource (Organization/Team/Project itself), has no model, or is a legacy flat-URL viewset, add an entry to `posthog/test/idor/skip_list.py` with a documented category + reason.
 
+**When you add a new writable FK to a serializer:**
+
+`test_cross_tenant_fk_in_patch` automatically picks up any writable `PrimaryKeyRelatedField` (or one-level nested `ModelSerializer`) whose target model is in the semgrep tenant-scoped allowlist. You don't need to do anything for the auto-coverage.
+
+If the field is **intentionally** cross-tenant (rare, e.g., a global system reference), or your viewset has no writable tenant FK and you want to silence the parametric, add an entry to `IDOR_FK_PATCH_SKIP_LIST` in `posthog/test/idor/skip_list.py` with one of these categories:
+
+- `INTENTIONAL_CROSS_TENANT_FK` — the FK is meant to span tenants (document the threat model).
+- `NO_WRITABLE_TENANT_FK` — discovery returns nothing actionable; the entry is documentation that something _was_ checked.
+
+Stale entries (skip-list keys that no longer match a discovered viewset) fail CI. Defense in depth: the framework still tests fields that already use `TeamScopedPrimaryKeyRelatedField` / `OrgScopedPrimaryKeyRelatedField` so a regression in the scoping field itself is caught.
+
+**Out-of-scope IDOR shapes** (covered separately):
+
+- **String-by-name cross-tenant lookups** (e.g., looking up a Dashboard by `name=` rather than `id=`). Best caught by a semgrep rule (`idor-implicit-fk-in-serializer`) or manual taint review.
+- **CREATE bodies** (POST). Phase 5b will add body synthesis; until then, audit POST handlers manually when adding a new tenant-FK serializer field.
+
 **Running locally:**
 
 ```bash
 # The full IDOR test suite
 hogli test posthog/test/test_idor_coverage.py
 
+# Just the FK-in-PATCH variant
+hogli test posthog/test/test_idor_coverage.py -k test_cross_tenant_fk_in_patch
+
 # The coverage check (same script CI runs)
 python .github/scripts/check-idor-test-coverage.py
 
-# URL parser unit tests (pure; no Django boot)
-python -m pytest posthog/test/idor/test_url_structure.py
+# Pure unit tests (no Django boot)
+python -m pytest posthog/test/idor/test_url_structure.py posthog/test/idor/test_fk_discovery.py posthog/test/idor/test_fk_target_models.py posthog/test/idor/test_fk_canary.py
 ```
