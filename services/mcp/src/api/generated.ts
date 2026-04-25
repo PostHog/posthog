@@ -17385,6 +17385,9 @@ export namespace Schemas {
       rollout_percentage?: number | null;
     }
 
+    /**
+     * Serializer for the join table between experiments and saved metrics.
+     */
     export interface ExperimentToSavedMetric {
       readonly id: number;
       experiment: number;
@@ -17736,7 +17739,9 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Mixin for serializers to add user access control fields
+     * Serializer for saved metrics.
+
+    Handles DRF request/response format and routes to facade layer for business logic.
      */
     export interface ExperimentSavedMetric {
       readonly id: number;
@@ -28729,7 +28734,9 @@ export namespace Schemas {
     }
 
     /**
-     * Mixin for serializers to add user access control fields
+     * Serializer for saved metrics.
+
+    Handles DRF request/response format and routes to facade layer for business logic.
      */
     export interface PatchedExperimentSavedMetric {
       readonly id?: number;

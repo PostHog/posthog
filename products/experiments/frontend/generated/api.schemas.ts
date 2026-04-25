@@ -106,7 +106,9 @@ export interface PatchedExperimentHoldoutApi {
 }
 
 /**
- * Mixin for serializers to add user access control fields
+ * Serializer for saved metrics.
+
+Handles DRF request/response format and routes to facade layer for business logic.
  */
 export interface ExperimentSavedMetricApi {
     readonly id: number
@@ -139,7 +141,9 @@ export interface PaginatedExperimentSavedMetricListApi {
 }
 
 /**
- * Mixin for serializers to add user access control fields
+ * Serializer for saved metrics.
+
+Handles DRF request/response format and routes to facade layer for business logic.
  */
 export interface PatchedExperimentSavedMetricApi {
     readonly id?: number
@@ -197,6 +201,9 @@ export interface ExperimentParametersApi {
     rollout_percentage?: number | null
 }
 
+/**
+ * Serializer for the join table between experiments and saved metrics.
+ */
 export interface ExperimentToSavedMetricApi {
     readonly id: number
     experiment: number

@@ -39,6 +39,11 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod.object({
     filters: zod.unknown().optional(),
 })
 
+/**
+ * ViewSet for experiment saved metrics.
+
+All operations route through the facade layer instead of calling service directly.
+ */
 export const experimentSavedMetricsCreateBodyNameMax = 400
 
 export const experimentSavedMetricsCreateBodyDescriptionMax = 400
@@ -50,8 +55,15 @@ export const ExperimentSavedMetricsCreateBody = /* @__PURE__ */ zod
         query: zod.unknown(),
         tags: zod.array(zod.unknown()).optional(),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe(
+        'Serializer for saved metrics.\n\nHandles DRF request/response format and routes to facade layer for business logic.'
+    )
 
+/**
+ * ViewSet for experiment saved metrics.
+
+All operations route through the facade layer instead of calling service directly.
+ */
 export const experimentSavedMetricsUpdateBodyNameMax = 400
 
 export const experimentSavedMetricsUpdateBodyDescriptionMax = 400
@@ -63,8 +75,15 @@ export const ExperimentSavedMetricsUpdateBody = /* @__PURE__ */ zod
         query: zod.unknown(),
         tags: zod.array(zod.unknown()).optional(),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe(
+        'Serializer for saved metrics.\n\nHandles DRF request/response format and routes to facade layer for business logic.'
+    )
 
+/**
+ * ViewSet for experiment saved metrics.
+
+All operations route through the facade layer instead of calling service directly.
+ */
 export const experimentSavedMetricsPartialUpdateBodyNameMax = 400
 
 export const experimentSavedMetricsPartialUpdateBodyDescriptionMax = 400
@@ -76,7 +95,9 @@ export const ExperimentSavedMetricsPartialUpdateBody = /* @__PURE__ */ zod
         query: zod.unknown().optional(),
         tags: zod.array(zod.unknown()).optional(),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe(
+        'Serializer for saved metrics.\n\nHandles DRF request/response format and routes to facade layer for business logic.'
+    )
 
 /**
  * Create a new experiment in draft status with optional metrics.
