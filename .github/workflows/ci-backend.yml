@@ -1355,6 +1355,21 @@ jobs:
                   docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" || true
                   echo "==================================="
 
+            # Run the IDOR test sweep first (cheap, ~60s) so failures jump out
+            # without waiting for the full Core sweep. The same tests run again
+            # via `pytest posthog` below; pytest --reuse-db keeps the cost small.
+            # Limited to one shard (group=1) to avoid duplicate work across the matrix.
+            - name: Run IDOR tests
+              if: |
+                  needs.changes.outputs.backend == 'true' &&
+                  matrix.segment == 'Core' && matrix.group == '1' &&
+                  !matrix.compat && !matrix.person-on-events
+              shell: bash
+              run: |
+                  pytest -v --tb=short --no-header --reuse-db --timeout=120 \
+                      posthog/test/test_idor_coverage.py \
+                      posthog/test/idor/
+
             - name: Run Core tests
               id: run-core-tests
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
