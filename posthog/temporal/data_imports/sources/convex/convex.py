@@ -5,12 +5,40 @@ from typing import Any
 from urllib.parse import urlparse
 
 import requests
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 
 logger = logging.getLogger(__name__)
 
 _CONVEX_CLOUD_HOST_RE = re.compile(r"^[a-z0-9][a-z0-9-]*\.convex\.cloud$")
+
+_TRANSIENT_STATUS_CODES = frozenset({502, 503, 504})
+
+
+class _ConvexTransientError(Exception):
+    """Raised for transient Convex responses (5xx) so the retry layer kicks in."""
+
+    pass
+
+
+@retry(
+    retry=retry_if_exception_type((requests.exceptions.ConnectionError, _ConvexTransientError)),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential_jitter(initial=1, max=30),
+    reraise=True,
+)
+def _get_with_retry(url: str, **kwargs: Any) -> requests.Response:
+    """GET with retries on transient connection / proxy errors and 502/503/504 responses.
+
+    Non-transient HTTP responses (4xx, including the 400 InvalidWindowToReadDocuments and
+    401/403 auth errors) are returned to the caller unchanged so the existing handling
+    in get_non_retryable_errors stays effective.
+    """
+    response = requests.get(url, **kwargs)
+    if response.status_code in _TRANSIENT_STATUS_CODES:
+        raise _ConvexTransientError(f"Convex returned transient status {response.status_code}")
+    return response
 
 
 class InvalidDeployUrlError(Exception):
@@ -54,7 +82,7 @@ def _headers(deploy_key: str) -> dict[str, str]:
 
 def get_json_schemas(deploy_url: str, deploy_key: str) -> dict[str, Any]:
     url = f"{deploy_url.rstrip('/')}/api/json_schemas"
-    response = requests.get(
+    response = _get_with_retry(
         url, headers=_headers(deploy_key), params={"deltaSchema": "true", "format": "json"}, timeout=30
     )
     response.raise_for_status()
@@ -78,7 +106,7 @@ def list_snapshot(deploy_url: str, deploy_key: str, table_name: str) -> Generato
         if snapshot is not None:
             params["snapshot"] = snapshot
 
-        response = requests.get(base_url, headers=_headers(deploy_key), params=params, timeout=60)
+        response = _get_with_retry(base_url, headers=_headers(deploy_key), params=params, timeout=60)
         response.raise_for_status()
         data = response.json()
 
@@ -116,7 +144,7 @@ def document_deltas(
     while True:
         params: dict[str, Any] = {"tableName": table_name, "cursor": current_cursor, "format": "json"}
 
-        response = requests.get(base_url, headers=_headers(deploy_key), params=params, timeout=60)
+        response = _get_with_retry(base_url, headers=_headers(deploy_key), params=params, timeout=60)
 
         if response.status_code == 400:
             error_data = response.json()
