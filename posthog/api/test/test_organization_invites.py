@@ -7,6 +7,7 @@ from unittest.mock import ANY, patch
 
 from django.core import mail
 from django.core.cache import cache
+from django.test import override_settings
 from django.utils.timezone import now
 
 from parameterized import parameterized
@@ -1522,6 +1523,9 @@ class TestOrganizationInviteRateLimits(APIBaseTest):
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    # Bump the session-sensitive action threshold past the 8-hour test window so
+    # TimeSensitiveActionPermission doesn't 403 the later iterations under freeze_time.
+    @override_settings(SESSION_SENSITIVE_ACTIONS_AGE=24 * 60 * 60)
     @patch("posthog.rate_limit.OrganizationInviteBurstThrottle.rate", new="1000/hour")
     @patch("posthog.rate_limit.OrganizationInviteSustainedThrottle.rate", new="3/day")
     def test_sustained_limit_caps_invites_over_longer_window(self, _rate_limit_enabled_mock):
