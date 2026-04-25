@@ -159,6 +159,24 @@ class _ManyRelatedReadOnlySerializer(serializers.ModelSerializer):
         fields = ["id", "related_dashboards"]
 
 
+class _NestedManyRelatedSerializer(serializers.ModelSerializer):
+    """Inner ModelSerializer carrying a writable many=True PK field."""
+
+    related_dashboards = serializers.PrimaryKeyRelatedField(many=True, queryset=Dashboard.objects.all(), required=False)
+
+    class Meta:
+        model = Integration
+        fields = ["id", "related_dashboards"]
+
+
+class _ParentWithNestedManyRelatedSerializer(serializers.ModelSerializer):
+    destination = _NestedManyRelatedSerializer()
+
+    class Meta:
+        model = Insight
+        fields = ["id", "destination"]
+
+
 class TestDiscoverWritableTenantFks:
     def test_plain_pk_field_classified_team_scoped_unscoped(self) -> None:
         result = discover_writable_tenant_fks(_PlainSerializer)
@@ -246,3 +264,14 @@ class TestDiscoverWritableTenantFks:
 
     def test_many_related_read_only_skipped(self) -> None:
         assert discover_writable_tenant_fks(_ManyRelatedReadOnlySerializer) == []
+
+    def test_nested_many_related_one_level_deep(self) -> None:
+        """A many=True PK field inside a nested ModelSerializer is still discovered."""
+        result = discover_writable_tenant_fks(_ParentWithNestedManyRelatedSerializer)
+        nested = [fk for fk in result if fk.nested_path]
+        assert len(nested) == 1
+        fk = nested[0]
+        assert fk.serializer_field_name == "related_dashboards"
+        assert fk.nested_path == ("destination",)
+        assert fk.is_many is True
+        assert fk.target_model is Dashboard
