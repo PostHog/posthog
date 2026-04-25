@@ -55,11 +55,10 @@
             <profile>default</profile>
         </app>
 
-        <!-- readonly=2 pinned via <constraints> is the load-bearing safety (no
-             writes, no client-side settings changes). This file is local dev
-             only, but even in prod, autoresearch gets a dedicated cluster, so
-             max_execution_time is the only resource constraint - enough to stop a
-             stuck autoresearch run from spinning. -->
+        <!-- Of course this is only for local dev, but mirrors prod to make tests useful.
+             readonly=2 pinned via <constraints> is the load-bearing safety (no writes, no client-side settings changes).
+             No resource constraints necessary, as autoresearch gets a dedicated cluster.
+             Add max_execution_time to prevent autoresearch run from spinning. -->
         <autoresearch>
             <readonly>2</readonly>
             <max_execution_time>300</max_execution_time>
@@ -181,14 +180,11 @@
             <quota>default</quota>
         </app>
 
-        <!-- Mirrors the locked-down autoresearch user on the real test cluster:
-             - readonly=2 pinned via the `autoresearch` profile
+        <!-- Of course this is local dev, but mirrors prod to make tests useful.
              - no table-function grants (url / s3 / file / executable / jdbc / ...)
              - no DDL
              - SELECT only on an explicit whitelist of PostHog tables
-             Grants are duplicated across `default` (bin/start local dev) and
-             `posthog_test` (CI integration-test DB) because ClickHouse has no
-             cross-database table wildcard. -->
+             Grants are duplicated to support integration tests + regular usage -->
         <autoresearch>
             <password>autoresearchpass</password>
             <networks>
