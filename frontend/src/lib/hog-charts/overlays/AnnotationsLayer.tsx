@@ -22,7 +22,11 @@ const WRAPPER_STYLE: React.CSSProperties = {
     pointerEvents: 'auto',
 }
 
-export function AnnotationsLayer({ insightNumericId, dates, xTickFormatter }: AnnotationsLayerProps): React.ReactElement | null {
+export function AnnotationsLayer({
+    insightNumericId,
+    dates,
+    xTickFormatter,
+}: AnnotationsLayerProps): React.ReactElement | null {
     const { scales, dimensions, labels } = useChart()
 
     const chartLike = useMemo(() => {
