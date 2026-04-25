@@ -121,7 +121,7 @@ export function ItemEvent({ item, groupCount, groupedItems }: ItemEventProps): J
     return (
         <div data-attr="item-event" className="font-light w-full @container">
             <div className="flex flex-row w-full justify-between gap-2 items-center px-2 py-1 text-xs cursor-pointer">
-                <div className="truncate">
+                <div className="truncate min-w-0">
                     <PropertyKeyInfo
                         className="font-medium"
                         disablePopover={true}
@@ -132,16 +132,25 @@ export function ItemEvent({ item, groupCount, groupedItems }: ItemEventProps): J
                     />
                     {item.data.event === '$autocapture' ? <span className="text-secondary">(Autocapture)</span> : null}
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="flex items-center gap-1 min-w-0">
                     {subValue ? (
-                        <div className="text-secondary truncate" title={isString(subValue) ? subValue : undefined}>
+                        <div
+                            className={clsx(
+                                'text-secondary',
+                                // Only string sub-values (e.g. a promoted property's value) need to truncate; the
+                                // component sub-values like SummarizeWebVitals or ExceptionTitlePill manage their
+                                // own layout and shouldn't be clipped.
+                                isString(subValue) && 'truncate min-w-0 max-w-[60%] ml-auto'
+                            )}
+                            title={isString(subValue) ? subValue : undefined}
+                        >
                             {subValue}
                         </div>
                     ) : null}
                     {groupCount && groupCount > 1 ? (
                         <span
                             className={clsx(
-                                'inline-flex items-center justify-center rounded-full min-w-4 h-4 px-0.5 text-white text-xxs font-bold',
+                                'inline-flex shrink-0 items-center justify-center rounded-full min-w-4 h-4 px-0.5 text-white text-xxs font-bold',
                                 item.highlightColor === 'danger' ? 'bg-fill-error-highlight' : 'bg-secondary-3000-hover'
                             )}
                         >
