@@ -844,6 +844,16 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             return value
         return [url for url in value if url]
 
+    def validate_test_account_filters(self, value: list | None) -> list | None:
+        if value is None:
+            return value
+        if not isinstance(value, list):
+            raise exceptions.ValidationError("Must provide a list of property filter objects.")
+        for index, item in enumerate(value):
+            if not isinstance(item, dict):
+                raise exceptions.ValidationError(f"Each test account filter must be an object (item at index {index}).")
+        return value
+
     def validate_recording_domains(self, value: list[str | None] | None) -> list[str] | None:
         if value is None:
             return value

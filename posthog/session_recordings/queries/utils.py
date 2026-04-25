@@ -97,6 +97,9 @@ def is_recording_property(p: AnyPropertyFilter) -> bool:
 def expand_test_account_filters(team: Team) -> list[AnyPropertyFilter]:
     prop_filters: list[AnyPropertyFilter] = []
     for prop in team.test_account_filters:
+        if not isinstance(prop, dict):
+            logger.warn("non-dict test account filter", filter=prop, team_id=team.pk)
+            continue
         match prop.get("type", None):
             case "person":
                 prop_filters.append(PersonPropertyFilter(**prop))
