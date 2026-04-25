@@ -370,9 +370,7 @@ class TestRunOperations:
 
         logic.complete_run(run.id)
 
-        mock_resolve.assert_called_once_with(
-            repo, RunType.STORYBOOK, "master", commit_sha="deadbeef123"
-        )
+        mock_resolve.assert_called_once_with(repo, RunType.STORYBOOK, "master", commit_sha="deadbeef123")
 
     def test_create_run_with_purpose(self, repo):
         run, _ = logic.create_run(
@@ -1485,9 +1483,7 @@ class TestMergeBaseBaselineHealing:
             commit_sha_baselines={"deadbeef": commit_baseline},
         )
 
-        merged, healed = logic._resolve_baselines_with_merge_base(
-            repo, "storybook", "master", commit_sha=commit_sha
-        )
+        merged, healed = logic._resolve_baselines_with_merge_base(repo, "storybook", "master", commit_sha=commit_sha)
 
         assert merged == expected_baseline
         assert healed == 0
@@ -1504,9 +1500,7 @@ class TestMergeBaseBaselineHealing:
             commit_sha_baselines={"deadbeef": commit_baseline},
         )
 
-        merged, healed = logic._resolve_baselines_with_merge_base(
-            repo, "storybook", "my-branch", commit_sha="deadbeef"
-        )
+        merged, healed = logic._resolve_baselines_with_merge_base(repo, "storybook", "my-branch", commit_sha="deadbeef")
 
         # Should use branch baseline + merge-base healing, NOT the commit baseline
         assert merged == {"A": "h1", "C": "h3"}
@@ -1610,8 +1604,12 @@ class TestMergeBaseBaselineHealing:
         # Branch tip (after commit B landed): 3 + 6 = 9 stories
         branch_tip_baseline = {
             **commit_a_baseline,
-            "new1": "n1", "new2": "n2", "new3": "n3",
-            "new4": "n4", "new5": "n5", "new6": "n6",
+            "new1": "n1",
+            "new2": "n2",
+            "new3": "n3",
+            "new4": "n4",
+            "new5": "n5",
+            "new6": "n6",
         }
         self._mock_github(
             mocker,
