@@ -343,32 +343,25 @@ describe('resolveTraceEventById', () => {
 })
 
 describe('getHighlightedEventId', () => {
-    it('returns event.id when event is an LLMTraceEvent', () => {
-        const event: LLMTraceEvent = {
-            id: 'internal-uuid',
-            event: '$ai_generation',
-            properties: { $ai_span_id: 'my-span' },
-            createdAt: '2024-01-01T00:00:00Z',
-        }
-        expect(getHighlightedEventId(event, 'my-span')).toBe('internal-uuid')
-    })
+    const llmTraceEvent: LLMTraceEvent = {
+        id: 'internal-uuid',
+        event: '$ai_generation',
+        properties: { $ai_span_id: 'my-span' },
+        createdAt: '2024-01-01T00:00:00Z',
+    }
+    const llmTrace: LLMTrace = {
+        id: 'trace-id',
+        distinctId: 'user-1',
+        events: [],
+        createdAt: '2024-01-01T00:00:00Z',
+    }
 
-    it('returns effectiveEventId when event is an LLMTrace', () => {
-        const trace: LLMTrace = {
-            id: 'trace-id',
-            distinctId: 'user-1',
-            events: [],
-            createdAt: '2024-01-01T00:00:00Z',
-        }
-        expect(getHighlightedEventId(trace, 'fallback-id')).toBe('fallback-id')
-    })
-
-    it('returns effectiveEventId when event is null', () => {
-        expect(getHighlightedEventId(null, 'fallback-id')).toBe('fallback-id')
-    })
-
-    it('returns null when both event and effectiveEventId are null', () => {
-        expect(getHighlightedEventId(null, null)).toBeNull()
+    it.each<[string, LLMTrace | LLMTraceEvent | null, string | null]>([
+        ['LLMTraceEvent', llmTraceEvent, 'internal-uuid'],
+        ['LLMTrace', llmTrace, null],
+        ['null', null, null],
+    ])('returns correct id for %s', (_label, event, expected) => {
+        expect(getHighlightedEventId(event)).toBe(expected)
     })
 })
 

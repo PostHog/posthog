@@ -395,9 +395,8 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
             },
         ],
         highlightedEventId: [
-            (s) => [s.event, s.effectiveEventId],
-            (event: LLMTrace | LLMTraceEvent | null, effectiveEventId: string | null): string | null =>
-                getHighlightedEventId(event, effectiveEventId),
+            (s) => [s.event],
+            (event: LLMTrace | LLMTraceEvent | null): string | null => getHighlightedEventId(event),
         ],
         selectedNode: [
             (s) => [s.event, s.enrichedTree],
@@ -686,14 +685,8 @@ export function resolveTraceEventById(showableEvents: LLMTraceEvent[], effective
     )
 }
 
-export function getHighlightedEventId(
-    event: LLMTrace | LLMTraceEvent | null,
-    effectiveEventId: string | null
-): string | null {
-    if (event && isLLMEvent(event)) {
-        return event.id
-    }
-    return effectiveEventId
+export function getHighlightedEventId(event: LLMTrace | LLMTraceEvent | null): string | null {
+    return event && isLLMEvent(event) ? event.id : null
 }
 
 function findOrphanedRoots(idMap: Map<string, LLMTraceEvent>, traceId: string): string[] {
