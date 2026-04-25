@@ -80,6 +80,14 @@ QUERY_VALIDATION_ERROR_TOTAL = Counter(
 # which is the signal to register them.
 _SCENE_TO_TAGS: dict[str, dict[str, Product | ProductKey | Feature]] = {
     "Cohort": {"product": ProductKey.COHORTS, "feature": Feature.COHORT},
+    # Data management surfaces fire ad-hoc EventsQueries to discover which properties have been
+    # seen on a definition (e.g. the promoted-property picker on the EventDefinition edit page).
+    "EventDefinition": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.QUERY},
+    "EventDefinitionEdit": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.QUERY},
+    "EventDefinitions": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.QUERY},
+    "PropertyDefinition": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.QUERY},
+    "PropertyDefinitionEdit": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.QUERY},
+    "PropertyDefinitions": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.QUERY},
 }
 
 
