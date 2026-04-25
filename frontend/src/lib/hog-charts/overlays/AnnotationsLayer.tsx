@@ -39,9 +39,9 @@ export function AnnotationsLayer({ insightNumericId, dates, xTickFormatter }: An
             },
             _metasets: [{ data: points }],
         }
-    }, [labels, scales, dimensions.plotLeft, dimensions.plotTop, dimensions.plotHeight, xTickFormatter])
+    }, [labels, scales.x, dimensions.plotLeft, dimensions.plotTop, dimensions.plotHeight, xTickFormatter])
 
-    if (chartLike.scales.x.ticks.length < 2 || labels.length === 0) {
+    if (chartLike.scales.x.ticks.length < 2) {
         return null
     }
 
