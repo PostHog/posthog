@@ -66,6 +66,26 @@ class TestFKDiscoveryCanary(unittest.TestCase):
 
         assert discover_writable_tenant_fks(_NoFKsSerializer) == []
 
+    def test_implicit_id_pattern_is_flagged(self) -> None:
+        """Canary for the `<thing>_id = IntegerField()` shape — must surface as `is_implicit=True`."""
+        from posthog.models.annotation import Annotation
+
+        from products.dashboards.backend.models.dashboard import Dashboard
+
+        class _ImplicitIdSerializer(serializers.ModelSerializer):
+            dashboard_id = serializers.IntegerField(required=False, allow_null=True)
+
+            class Meta:
+                model = Annotation
+                fields = ["id", "dashboard_id"]
+
+        result = discover_writable_tenant_fks(_ImplicitIdSerializer)
+        assert len(result) == 1, "canary failed: implicit `<thing>_id` pattern not discovered"
+        fk = result[0]
+        assert fk.is_implicit is True, "canary failed: implicit field not marked is_implicit"
+        assert fk.target_model is Dashboard
+        assert fk.scope == "team"
+
 
 if __name__ == "__main__":
     unittest.main()

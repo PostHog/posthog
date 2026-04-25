@@ -100,6 +100,39 @@ class _OrgScopedSerializer(serializers.ModelSerializer):
         fields = ["id", "integration"]
 
 
+class _ImplicitIntegerIdSerializer(serializers.ModelSerializer):
+    """The classic AnnotationSerializer shape — `<thing>_id = IntegerField()`."""
+
+    dashboard_id = serializers.IntegerField(required=False, allow_null=True)
+
+    class Meta:
+        # Annotation has a `dashboard` ForeignKey that auto-populates `dashboard_id`.
+        from posthog.models.annotation import Annotation as _Annotation
+
+        model = _Annotation
+        fields = ["id", "dashboard_id"]
+
+
+class _ImplicitNonFKIntegerSerializer(serializers.ModelSerializer):
+    """`order_id` looks FK-shaped but the model has no `order` ForeignKey — must NOT match."""
+
+    order_id = serializers.IntegerField()
+
+    class Meta:
+        model = Insight
+        fields = ["id", "order_id"]
+
+
+class _ImplicitIdToNonTenantSerializer(serializers.ModelSerializer):
+    """`created_by_id` — User isn't tenant-scoped — must NOT match."""
+
+    created_by_id = serializers.IntegerField()
+
+    class Meta:
+        model = Insight
+        fields = ["id", "created_by_id"]
+
+
 class TestDiscoverWritableTenantFks:
     def test_plain_pk_field_classified_team_scoped_unscoped(self) -> None:
         result = discover_writable_tenant_fks(_PlainSerializer)
@@ -149,3 +182,23 @@ class TestDiscoverWritableTenantFks:
                 raise RuntimeError("intentional")
 
         assert discover_writable_tenant_fks(_Broken) == []
+
+    def test_implicit_integer_id_to_tenant_model_is_flagged(self) -> None:
+        from products.dashboards.backend.models.dashboard import Dashboard as _Dashboard
+
+        result = discover_writable_tenant_fks(_ImplicitIntegerIdSerializer)
+        assert len(result) == 1
+        fk = result[0]
+        assert fk.serializer_field_name == "dashboard_id"
+        assert fk.target_model is _Dashboard
+        assert fk.scope == "team"
+        assert fk.is_implicit is True
+        assert fk.is_already_scoped is False
+
+    def test_implicit_id_with_no_matching_fk_is_skipped(self) -> None:
+        # Insight has no `order` ForeignKey, so `order_id` is just a number.
+        assert discover_writable_tenant_fks(_ImplicitNonFKIntegerSerializer) == []
+
+    def test_implicit_id_to_non_tenant_model_is_skipped(self) -> None:
+        # Insight.created_by → User globally; not a tenant-scoped target.
+        assert discover_writable_tenant_fks(_ImplicitIdToNonTenantSerializer) == []

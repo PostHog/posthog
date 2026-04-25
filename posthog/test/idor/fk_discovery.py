@@ -2,16 +2,26 @@
 Discover writable tenant-FK serializer fields.
 
 Walks a DRF `ModelSerializer` (or generic `Serializer`) and emits one
-`WritableFKField` per writable PrimaryKeyRelatedField (or nested
-ModelSerializer one level deep) whose target model is tenant-scoped per
-the semgrep allowlist. The emitted records drive the parametric
-`test_cross_tenant_fk_in_patch` test.
+`WritableFKField` per writable FK reference whose target is tenant-
+scoped per the semgrep allowlist. The emitted records drive the
+parametric `test_cross_tenant_fk_in_patch` test.
+
+What we detect:
+
+  - **Explicit PK fields**: `serializers.PrimaryKeyRelatedField(...)` —
+    the canonical shape, including `TeamScopedPrimaryKeyRelatedField`
+    subclasses (defense in depth).
+  - **Implicit string-id fields**: `dashboard_id = IntegerField()` /
+    `UUIDField()` / `CharField()` — common in older serializers that
+    accept the FK as a raw scalar plus a hand-rolled `validate()`.
+    We resolve the target by stripping the `_id` suffix and looking
+    up the corresponding Django ForeignKey on `Meta.model`.
+  - **One level of nested serializer fields**. The common BatchExport-
+    style "destination.id" case is depth 1; deeper nesting is rare
+    (Phase 5c follow-up).
 
 Boundaries:
 
-  - Top-level fields and **one** level of nested serializer fields. The
-    common BatchExport-style "destination.id" case is depth 1; deeper
-    nesting is rare and tracked as Phase 5c follow-up.
   - Read-only fields (`read_only=True` or in `Meta.read_only_fields`)
     are skipped — they can't be written via PATCH.
   - Fields whose target model is not tenant-scoped are skipped (e.g. a
@@ -56,6 +66,17 @@ class WritableFKField:
     nested_path: tuple[str, ...] = field(default_factory=tuple)
     """Empty for top-level; ('destination',) for one-level nested."""
 
+    is_implicit: bool = False
+    """True if discovered via the string-id naming pattern rather than an explicit PrimaryKeyRelatedField."""
+
+
+# DRF field types that can carry a raw FK pk in the string-id naming pattern.
+_IMPLICIT_FK_FIELD_TYPES = (
+    serializers.IntegerField,
+    serializers.UUIDField,
+    serializers.CharField,
+)
+
 
 def discover_writable_tenant_fks(serializer_cls: type[serializers.Serializer]) -> list[WritableFKField]:
     """Return every writable tenant-FK field on the serializer (top-level + 1 nested)."""
@@ -80,11 +101,12 @@ def _walk_fields(
     nested_path: tuple[str, ...],
     out: list[WritableFKField],
 ) -> None:
+    serializer_model = _serializer_meta_model(instance)
     fields_dict = _safe_get_fields(instance)
     for field_name, drf_field in fields_dict.items():
         if drf_field.read_only:
             continue
-        record = _classify_field(field_name, drf_field, nested_path)
+        record = _classify_field(field_name, drf_field, nested_path, serializer_model)
         if record is not None:
             out.append(record)
             continue
@@ -102,13 +124,29 @@ def _safe_get_fields(instance: serializers.Serializer) -> dict[str, serializers.
         return {}
 
 
+def _serializer_meta_model(instance: serializers.Serializer) -> Optional[type[models.Model]]:
+    meta = getattr(type(instance), "Meta", None)
+    if meta is None:
+        return None
+    return getattr(meta, "model", None)
+
+
 def _classify_field(
     field_name: str,
     drf_field: serializers.Field,
     nested_path: tuple[str, ...],
+    serializer_model: Optional[type[models.Model]],
 ) -> Optional[WritableFKField]:
-    if not isinstance(drf_field, serializers.PrimaryKeyRelatedField):
-        return None
+    if isinstance(drf_field, serializers.PrimaryKeyRelatedField):
+        return _classify_explicit_fk(field_name, drf_field, nested_path)
+    return _classify_implicit_id(field_name, drf_field, nested_path, serializer_model)
+
+
+def _classify_explicit_fk(
+    field_name: str,
+    drf_field: serializers.PrimaryKeyRelatedField,
+    nested_path: tuple[str, ...],
+) -> Optional[WritableFKField]:
     target = _resolve_target_model(drf_field)
     if target is None:
         return None
@@ -123,6 +161,74 @@ def _classify_field(
         is_already_scoped=_is_scoped_field(drf_field),
         nested_path=nested_path,
     )
+
+
+def _classify_implicit_id(
+    field_name: str,
+    drf_field: serializers.Field,
+    nested_path: tuple[str, ...],
+    serializer_model: Optional[type[models.Model]],
+) -> Optional[WritableFKField]:
+    """Catch the `<thing>_id = IntegerField()` / `UUIDField()` / `CharField()` pattern.
+
+    Many serializers accept an FK as a raw scalar with a hand-rolled
+    `validate()`. The naming pattern + a corresponding `ForeignKey` on
+    the model lets us still recognize the field as an FK reference.
+    """
+    if serializer_model is None:
+        return None
+    if not isinstance(drf_field, _IMPLICIT_FK_FIELD_TYPES):
+        return None
+    if not field_name.endswith("_id"):
+        return None
+    related_attr = field_name[:-3]
+    target = _resolve_implicit_target_model(serializer_model, drf_field, related_attr)
+    if target is None:
+        return None
+    scope = classify_model_scope(target.__name__)
+    if scope is None:
+        return None
+    source_attr = getattr(drf_field, "source", None)
+    if source_attr == field_name:
+        source_attr = None
+    return WritableFKField(
+        serializer_field_name=field_name,
+        source_attr=source_attr,
+        target_model=target,
+        scope=scope,
+        # By construction the field is a raw scalar with no queryset
+        # filtering — there's no way it scopes itself to the tenant.
+        is_already_scoped=False,
+        nested_path=nested_path,
+        is_implicit=True,
+    )
+
+
+def _resolve_implicit_target_model(
+    serializer_model: type[models.Model],
+    drf_field: serializers.Field,
+    related_attr: str,
+) -> Optional[type[models.Model]]:
+    """Look up the FK target by stripping `_id` and inspecting the model.
+
+    `source=` overrides take precedence — if the serializer field is
+    `dashboard_id` but `source=dashboard`, we look up `dashboard`.
+    """
+    candidate_names = []
+    source_attr = getattr(drf_field, "source", None)
+    if source_attr and source_attr != drf_field.field_name:  # type: ignore[attr-defined]
+        candidate_names.append(source_attr.removesuffix("_id"))
+    candidate_names.append(related_attr)
+    for name in candidate_names:
+        try:
+            model_field = serializer_model._meta.get_field(name)
+        except Exception:
+            continue
+        if isinstance(model_field, models.ForeignKey):
+            related = model_field.related_model
+            if isinstance(related, type) and issubclass(related, models.Model):
+                return related
+    return None
 
 
 def _resolve_target_model(drf_field: serializers.PrimaryKeyRelatedField) -> Optional[type[models.Model]]:
