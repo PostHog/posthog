@@ -124,10 +124,15 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
 
     const statusProps = getStatusProps(isProperty)
 
+    const formattedName = getFilterLabel(
+        definition.name,
+        isEvent ? TaxonomicFilterGroupType.Events : TaxonomicFilterGroupType.EventProperties
+    )
+
     return (
         <SceneContent>
             <SceneTitleSection
-                name={definition.name}
+                name={formattedName}
                 resourceType={
                     isEvent
                         ? {
@@ -241,6 +246,12 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
             />
 
             <div className="deprecated-space-y-2">
+                {formattedName !== definition.name && (
+                    <div className="flex flex-wrap items-center gap-2 text-secondary">
+                        <div>{isProperty ? 'Property' : 'Event'} name:</div>
+                        <LemonTag className="font-mono">{definition.name}</LemonTag>
+                    </div>
+                )}
                 <h5>Description</h5>
                 <div className="definition-description my-2" data-attr="definition-description-view">
                     {definition.description || (
