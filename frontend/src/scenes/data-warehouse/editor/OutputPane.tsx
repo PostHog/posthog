@@ -328,6 +328,41 @@ export function OutputPane(): JSX.Element {
 
     const columns = useMemo(() => {
         const types = response?.types
+        const responseColumns: string[] | undefined = response?.columns
+        const responseResults: any[][] | undefined = response?.results || (response as any)?.result
+
+        // Pre-compute which columns have long content in a single O(rows × cols) pass with
+        // short-circuit once every column has crossed the 100-char threshold. This replaces
+        // a per-column `Math.max(column.length, ...rows.map(...))` that spread every row into
+        // `Math.max` — which both blocked the main thread on large result sets and could throw
+        // `RangeError: Maximum call stack size exceeded` past argument-count limits.
+        const numColumns = responseColumns?.length ?? 0
+        const isLongContentByIndex: boolean[] = Array.from({ length: numColumns }, () => false)
+        let remainingColumns = 0
+        for (let i = 0; i < numColumns; i++) {
+            if ((responseColumns as string[])[i].length > 100) {
+                isLongContentByIndex[i] = true
+            } else {
+                remainingColumns++
+            }
+        }
+        if (responseResults && remainingColumns > 0) {
+            for (let r = 0; r < responseResults.length && remainingColumns > 0; r++) {
+                const row = responseResults[r]
+                for (let i = 0; i < numColumns; i++) {
+                    if (isLongContentByIndex[i]) {
+                        continue
+                    }
+                    const content = row[i]
+                    const length =
+                        typeof content === 'string' ? content.length : content === null ? 0 : content.toString().length
+                    if (length > 100) {
+                        isLongContentByIndex[i] = true
+                        remainingColumns--
+                    }
+                }
+            }
+        }
 
         const baseColumns: DataGridProps<Record<string, any>>['columns'] = [
             {
@@ -348,22 +383,11 @@ export function OutputPane(): JSX.Element {
                     </div>
                 ),
             },
-            ...(response?.columns?.map((column: string, index: number) => {
+            ...(responseColumns?.map((column: string, index: number) => {
                 const type = types?.[index]?.[1]
                 const isDateTimeColumn = isDateTimeType(type)
 
-                const maxContentLength = Math.max(
-                    column.length,
-                    ...(response.results || (response as any).result).map((row: any[]) => {
-                        const content = row[index]
-                        return typeof content === 'string'
-                            ? content.length
-                            : content === null
-                              ? 0
-                              : content.toString().length
-                    })
-                )
-                const isLongContent = maxContentLength > 100
+                const isLongContent = isLongContentByIndex[index]
                 const finalWidth = isLongContent ? 600 : undefined
 
                 const baseColumn: DataGridProps<Record<string, any>>['columns'][0] = {
