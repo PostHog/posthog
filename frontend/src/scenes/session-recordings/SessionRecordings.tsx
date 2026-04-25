@@ -190,6 +190,8 @@ function Warnings(): JSX.Element {
 
 function MainPanel({ tabId }: { tabId: string }): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const recordingsDisabled = !!currentTeam && !currentTeam.session_recording_opt_in
     const isRedesignEnabled = useFeatureFlag('REPLAY_UI_REDESIGN_2026', 'test')
 
     const playlistLogicProps: SessionRecordingPlaylistLogicProps = {
@@ -206,13 +208,15 @@ function MainPanel({ tabId }: { tabId: string }): JSX.Element {
             {!tab ? (
                 <Spinner />
             ) : tab === ReplayTabs.Home ? (
-                <div className="SessionRecordingPlaylistHeightWrapper grow">
-                    {isRedesignEnabled ? (
-                        <SessionRecordingsPlaylistRedesign {...playlistLogicProps} />
-                    ) : (
-                        <SessionRecordingsPlaylist {...playlistLogicProps} />
-                    )}
-                </div>
+                recordingsDisabled ? null : (
+                    <div className="SessionRecordingPlaylistHeightWrapper grow">
+                        {isRedesignEnabled ? (
+                            <SessionRecordingsPlaylistRedesign {...playlistLogicProps} />
+                        ) : (
+                            <SessionRecordingsPlaylist {...playlistLogicProps} />
+                        )}
+                    </div>
+                )
             ) : tab === ReplayTabs.Playlists ? (
                 <SessionRecordingCollections />
             ) : tab === ReplayTabs.Templates ? (
