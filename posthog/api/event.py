@@ -262,6 +262,7 @@ class EventViewSet(
         ],
     )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.QUERY)
         try:
             is_csv_request = self.request.accepted_renderer.format == "csv"
 
@@ -455,6 +456,7 @@ class EventViewSet(
 
     @action(methods=["GET"], detail=False, required_scopes=["query:read"])
     def values(self, request: request.Request, **kwargs) -> response.Response:
+        tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.QUERY)
         team = self.team
 
         key = request.GET.get("key")
