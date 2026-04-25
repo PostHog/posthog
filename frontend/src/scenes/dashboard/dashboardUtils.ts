@@ -116,6 +116,8 @@ const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800
 export const QUICK_FILTER_DEBOUNCE_MS = 1500
+/** Coalesce rapid filter/mode toggles so we don't fire abort/restart waves on every keystroke. */
+export const PREVIEW_REFRESH_DEBOUNCE_MS = 150
 
 // Helper function for exponential backoff
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))

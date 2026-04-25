@@ -851,6 +851,41 @@ describe('dashboardLogic', () => {
                 }
             })
 
+            it('aborted insight fetch only clears its own refresh status', async () => {
+                const dashboard = dashboards[5]
+                const insight1 = dashboard.tiles[0].insight!
+                const insight2 = dashboard.tiles[1].insight!
+
+                // Fail insight1 with an AbortError to trigger the cancel branch.
+                // Abort errors used to dispatch abortQuery, whose reducer reset the
+                // entire refreshStatus map to {} — wiping any tiles that a concurrent
+                // newer wave had just queued. Ensure we now only clear the affected tile.
+                const abortError = new Error('Aborted')
+                abortError.name = 'AbortError'
+                const getInsightWithRetrySpy = jest
+                    .spyOn(dashboardUtils, 'getInsightWithRetry')
+                    .mockImplementation(async (_team, insight) => {
+                        if (insight.short_id === insight1.short_id) {
+                            throw abortError
+                        }
+                        return insight
+                    })
+
+                try {
+                    await expectLogic(logic, () => {
+                        logic.actions.triggerDashboardRefresh()
+                    }).toFinishAllListeners()
+
+                    // The aborted tile is cleared (no loading/queued/error flags),
+                    // and the successful tile keeps its refreshed state.
+                    expect(logic.values.refreshStatus[insight1.short_id]?.loading).toBeFalsy()
+                    expect(logic.values.refreshStatus[insight1.short_id]?.queued).toBeFalsy()
+                    expect(logic.values.refreshStatus[insight2.short_id]?.refreshed).toBe(true)
+                } finally {
+                    getInsightWithRetrySpy.mockRestore()
+                }
+            })
+
             it('manual refresh does not update last refresh when insights fail', async () => {
                 const dashboard = dashboards[5]
                 const insight1 = dashboard.tiles[0].insight!
