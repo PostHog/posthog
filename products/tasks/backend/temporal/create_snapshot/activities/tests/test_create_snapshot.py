@@ -51,7 +51,7 @@ class TestCreateSnapshotActivity:
     @pytest.mark.django_db
     def test_create_snapshot_contains_only_current_repo(self, activity_environment, github_integration):
         """Verify that snapshots only contain the current repository, not accumulated repos from base."""
-        base_snapshot = SandboxSnapshot.objects.create(
+        SandboxSnapshot.objects.create(
             integration=github_integration,
             external_id=f"fake_base_{uuid.uuid4().hex[:8]}",
             repos=["existing-owner/existing-repo"],
