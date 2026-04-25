@@ -55,10 +55,22 @@ class URLStructure:
     def build_url(
         self, *, root_id: int | str, pk: int | str, intermediate_ids: Optional[dict[str, int | str]] = None
     ) -> str:
-        """Construct a concrete URL from this structure.
+        """Construct a concrete detail URL from this structure.
 
         `intermediate_ids` maps each intermediate parent's kwarg name to an id.
         """
+        prefix = self._build_prefix(root_id=root_id, intermediate_ids=intermediate_ids)
+        return prefix + str(pk) + "/"
+
+    def build_list_url(self, *, root_id: int | str, intermediate_ids: Optional[dict[str, int | str]] = None) -> str:
+        """Construct a concrete list URL (no detail pk) from this structure.
+
+        Used by the FK-in-POST parametric test, which POSTs to the resource's
+        list endpoint rather than a detail one.
+        """
+        return self._build_prefix(root_id=root_id, intermediate_ids=intermediate_ids)
+
+    def _build_prefix(self, *, root_id: int | str, intermediate_ids: Optional[dict[str, int | str]]) -> str:
         parts: list[str] = ["api", self.root, str(root_id)]
         for prefix, kwarg in self.intermediate_parents:
             if intermediate_ids is None or kwarg not in intermediate_ids:
@@ -66,7 +78,6 @@ class URLStructure:
             parts.append(prefix)
             parts.append(str(intermediate_ids[kwarg]))
         parts.append(self.resource_prefix)
-        parts.append(str(pk))
         return "/" + "/".join(parts) + "/"
 
     @property

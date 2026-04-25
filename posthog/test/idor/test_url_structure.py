@@ -131,5 +131,41 @@ class TestBuildURL(unittest.TestCase):
             s.build_url(root_id=1, pk="abc")
 
 
+class TestBuildListURL(unittest.TestCase):
+    def test_simple(self) -> None:
+        s = URLStructure(
+            root="projects",
+            root_kwarg="parent_lookup_project_id",
+            resource_prefix="annotations",
+            pk_kwarg="pk",
+        )
+        assert s.build_list_url(root_id=42) == "/api/projects/42/annotations/"
+
+    def test_with_intermediate(self) -> None:
+        s = URLStructure(
+            root="environments",
+            root_kwarg="parent_lookup_team_id",
+            resource_prefix="runs",
+            pk_kwarg="pk",
+            intermediate_parents=[("batch_exports", "parent_lookup_batch_export_id")],
+        )
+        url = s.build_list_url(
+            root_id=1,
+            intermediate_ids={"parent_lookup_batch_export_id": "xyz"},
+        )
+        assert url == "/api/environments/1/batch_exports/xyz/runs/"
+
+    def test_missing_intermediate_raises(self) -> None:
+        s = URLStructure(
+            root="environments",
+            root_kwarg="parent_lookup_team_id",
+            resource_prefix="runs",
+            pk_kwarg="pk",
+            intermediate_parents=[("batch_exports", "parent_lookup_batch_export_id")],
+        )
+        with self.assertRaises(KeyError):
+            s.build_list_url(root_id=1)
+
+
 if __name__ == "__main__":
     unittest.main()
