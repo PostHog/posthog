@@ -83,7 +83,7 @@ function ExceptionTitlePill({ event }: { event: Record<string, any> }): JSX.Elem
     )
 }
 
-export function ItemEvent({ item, groupCount }: ItemEventProps): JSX.Element {
+export function ItemEvent({ item, groupCount, groupedItems }: ItemEventProps): JSX.Element {
     const { promotedProperties } = useValues(promotedEventPropertiesModel)
     const { ensureLoadedForEvents } = useActions(promotedEventPropertiesModel)
     useEffect(() => {
@@ -91,7 +91,17 @@ export function ItemEvent({ item, groupCount }: ItemEventProps): JSX.Element {
     }, [item.data.event, ensureLoadedForEvents])
 
     const promotedPropertyKey = getPromotedPropertyForEvent(item.data.event, promotedProperties)
-    const promotedValue = promotedPropertyKey ? item.data.properties?.[promotedPropertyKey] : null
+    // When events are grouped at the top level, only surface the promoted-property value if every
+    // grouped child has the same value for it — otherwise it would be misleading to label the
+    // group with the first child's value (e.g. five `$pageview`s on different pathnames).
+    const isGrouped = groupedItems && groupedItems.length > 1
+    const groupedValuesAgree =
+        !isGrouped ||
+        !promotedPropertyKey ||
+        groupedItems.every(
+            (g) => g.data.properties?.[promotedPropertyKey] === item.data.properties?.[promotedPropertyKey]
+        )
+    const promotedValue = promotedPropertyKey && groupedValuesAgree ? item.data.properties?.[promotedPropertyKey] : null
 
     const subValue =
         item.data.event === '$web_vitals' ? (
@@ -261,9 +271,13 @@ function SingleEventDetail({ item }: ItemEventProps): JSX.Element {
 
 function GroupedEventRow({ event, index }: { event: InspectorListItemEvent; index: number }): JSX.Element {
     const { seekToTime } = useActions(sessionRecordingPlayerLogic)
+    const { promotedProperties } = useValues(promotedEventPropertiesModel)
     const [expanded, setExpanded] = useState(false)
 
     const seekToEvent = (): void => seekToTime(ceilMsToClosestSecond(event.timeInRecording) - 1000)
+
+    const promotedPropertyKey = getPromotedPropertyForEvent(event.data.event, promotedProperties)
+    const promotedValue = promotedPropertyKey ? event.data.properties?.[promotedPropertyKey] : null
 
     return (
         <div className={index > 0 ? 'border-t' : ''}>
@@ -285,6 +299,14 @@ function GroupedEventRow({ event, index }: { event: InspectorListItemEvent; inde
                         value={capitalizeFirstLetter(autoCaptureEventToDescription(event.data))}
                         type={TaxonomicFilterGroupType.Events}
                     />
+                    {promotedValue != null && promotedValue !== '' ? (
+                        <span
+                            className="text-secondary truncate"
+                            title={isString(promotedValue) ? promotedValue : undefined}
+                        >
+                            {String(promotedValue)}
+                        </span>
+                    ) : null}
                 </div>
             </div>
             {expanded ? (
