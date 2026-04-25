@@ -1,5 +1,6 @@
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 from typing import Any, cast
 
 import requests
@@ -26,16 +27,21 @@ from ee.settings import BILLING_SERVICE_URL
 PRO_PLAN_PREFIXES = ("posthog-code-200", "posthog-code-pro-")
 
 
-def _seat_priority(seat: dict[str, Any]) -> tuple[bool, int]:
-    # Tuple comparison: active (True > False) takes precedence, then tier.
-    # So active-free (True, 1) beats canceled-pro (False, 2).
+def _seat_priority(seat: dict[str, Any]) -> tuple[bool, int, float]:
+    # Tuple comparison: active (True > False) first, then tier, then
+    # earliest created_at wins ties (oldest seat is the stable pick).
     active = seat.get("status") == "active"
     plan_key = seat.get("plan_key") or ""
+    created_at = seat.get("created_at") or ""
+    try:
+        ts = datetime.fromisoformat(created_at).timestamp()
+    except (ValueError, TypeError):
+        ts = float("inf")
     if any(plan_key.startswith(p) for p in PRO_PLAN_PREFIXES):
-        return (active, 2)
+        return (active, 2, -ts)
     if plan_key:
-        return (active, 1)
-    return (active, 0)
+        return (active, 1, -ts)
+    return (active, 0, -ts)
 
 
 logger = structlog.get_logger(__name__)

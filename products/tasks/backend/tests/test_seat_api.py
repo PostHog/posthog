@@ -520,6 +520,20 @@ class TestSeatAPIBestPlan(BaseSeatAPITest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["plan_key"] == "posthog-code-free-20260301"
 
+    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+    def test_same_tier_picks_oldest_seat(self, _mock_token, mock_request, _mock_license):
+        newer_pro = {**MOCK_PRO_SEAT, "id": "seat_newer", "created_at": "2026-06-01T00:00:00Z"}
+        older_pro = {**MOCK_PRO_SEAT, "id": "seat_older", "created_at": "2026-03-01T00:00:00Z"}
+        mock_request.side_effect = [
+            _billing_response({"seat": newer_pro}),
+            _billing_response({"seat": older_pro}),
+        ]
+        self._auth_as_member()
+        response = self.client.get("/api/seats/me/?product_key=posthog_code&best=true")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == "seat_older"
+
 
 @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
 @patch("products.tasks.backend.seat_api.get_cached_instance_license", return_value=MagicMock())
