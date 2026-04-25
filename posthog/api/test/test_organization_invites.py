@@ -7,7 +7,6 @@ from unittest.mock import ANY, patch
 
 from django.core import mail
 from django.core.cache import cache
-from django.test import override_settings
 from django.utils.timezone import now
 
 from parameterized import parameterized
@@ -1439,6 +1438,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
 
+@patch("posthog.permissions.TimeSensitiveActionPermission.has_permission", return_value=True)
 @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
 class TestOrganizationInviteRateLimits(APIBaseTest):
     # These tests exercise OrganizationInviteBurstThrottle (50/hour) and
@@ -1458,7 +1458,7 @@ class TestOrganizationInviteRateLimits(APIBaseTest):
         return [{"target_email": f"test+{seed}_{i}@posthog.com"} for i in range(count)]
 
     @patch("posthog.rate_limit.OrganizationInviteBurstThrottle.rate", new="3/hour")
-    def test_burst_limit_rejects_single_invites_over_cap(self, _rate_limit_enabled_mock):
+    def test_burst_limit_rejects_single_invites_over_cap(self, _rate_limit_enabled_mock, _time_sensitive_mock):
         for i in range(3):
             response = self.client.post(
                 "/api/organizations/@current/invites/",
@@ -1473,7 +1473,7 @@ class TestOrganizationInviteRateLimits(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
     @patch("posthog.rate_limit.OrganizationInviteBurstThrottle.rate", new="10/hour")
-    def test_bulk_counts_invites_not_requests(self, _rate_limit_enabled_mock):
+    def test_bulk_counts_invites_not_requests(self, _rate_limit_enabled_mock, _time_sensitive_mock):
         # Two bulk requests of 6 each: the second is blocked because 6+6 > 10,
         # even though the second request is only the caller's second HTTP hit.
         response = self.client.post(
@@ -1491,7 +1491,7 @@ class TestOrganizationInviteRateLimits(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
     @patch("posthog.rate_limit.OrganizationInviteBurstThrottle.rate", new="5/hour")
-    def test_bulk_request_larger_than_cap_is_rejected_even_on_empty_bucket(self, _rate_limit_enabled_mock):
+    def test_bulk_request_larger_than_cap_is_rejected_even_on_empty_bucket(self, _rate_limit_enabled_mock, _time_sensitive_mock):
         response = self.client.post(
             "/api/organizations/@current/invites/bulk/",
             self._payload(6, seed="oversize"),
@@ -1501,7 +1501,7 @@ class TestOrganizationInviteRateLimits(APIBaseTest):
         self.assertEqual(OrganizationInvite.objects.count(), 0)
 
     @patch("posthog.rate_limit.OrganizationInviteBurstThrottle.rate", new="2/hour")
-    def test_burst_bucket_resets_after_window(self, _rate_limit_enabled_mock):
+    def test_burst_bucket_resets_after_window(self, _rate_limit_enabled_mock, _time_sensitive_mock):
         base_time = now()
         with freeze_time(base_time):
             for i in range(2):
@@ -1523,12 +1523,9 @@ class TestOrganizationInviteRateLimits(APIBaseTest):
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    # Bump the session-sensitive action threshold past the 8-hour test window so
-    # TimeSensitiveActionPermission doesn't 403 the later iterations under freeze_time.
-    @override_settings(SESSION_SENSITIVE_ACTIONS_AGE=24 * 60 * 60)
     @patch("posthog.rate_limit.OrganizationInviteBurstThrottle.rate", new="1000/hour")
     @patch("posthog.rate_limit.OrganizationInviteSustainedThrottle.rate", new="3/day")
-    def test_sustained_limit_caps_invites_over_longer_window(self, _rate_limit_enabled_mock):
+    def test_sustained_limit_caps_invites_over_longer_window(self, _rate_limit_enabled_mock, _time_sensitive_mock):
         base_time = now()
         # Space requests more than 1 hour apart (defeating any burst bucket)
         # but still well within the 24h sustained window.
@@ -1548,7 +1545,7 @@ class TestOrganizationInviteRateLimits(APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
     @patch("posthog.rate_limit.OrganizationInviteBurstThrottle.rate", new="2/hour")
-    def test_rate_limit_is_scoped_per_organization(self, _rate_limit_enabled_mock):
+    def test_rate_limit_is_scoped_per_organization(self, _rate_limit_enabled_mock, _time_sensitive_mock):
         other_org = Organization.objects.create(name="Other Org")
         OrganizationMembership.objects.create(
             user=self.user, organization=other_org, level=OrganizationMembership.Level.OWNER
