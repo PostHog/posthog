@@ -456,9 +456,10 @@ class EventViewSet(
 
     @action(methods=["GET"], detail=False, required_scopes=["query:read"])
     def values(self, request: request.Request, **kwargs) -> response.Response:
-        # /events/values is by definition schema introspection — looking up which values have
-        # been seen for a given property, optionally scoped to a specific event_name.
-        tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.SCHEMA_INTROSPECTION)
+        # `/events/values` is hit from every taxonomic property-value picker across the app, so
+        # tag by the endpoint name rather than a generic introspection feature — that makes load
+        # from this specific path easy to attribute in query log analysis.
+        tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.EVENTS_VALUES_API)
         team = self.team
 
         key = request.GET.get("key")

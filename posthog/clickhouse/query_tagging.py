@@ -78,6 +78,10 @@ class Feature(StrEnum):
     # usage analysis can attribute load to the originating product surface.
     EVENT_DEFINITION_SCENE = "event_definition_scene"
     PROPERTY_DEFINITION_SCENE = "property_definition_scene"
+    # Specific endpoints whose load is worth analysing on its own. The `/events/values` endpoint
+    # is hit from every taxonomic property-value picker across the app, so attribution by scene
+    # would be misleading; tagging by endpoint name keeps the signal honest.
+    EVENTS_VALUES_API = "events_values_api"
     USAGE_REPORT = "usage_report"
     BILLING_ETL = "billing_etl"
     QUOTA_LIMITING = "quota_limiting"
