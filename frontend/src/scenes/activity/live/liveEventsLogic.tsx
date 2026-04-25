@@ -23,6 +23,7 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
     props({} as LiveEventsLogicProps),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
+        actions: [teamLogic, ['loadCurrentTeam']],
     })),
     actions(() => ({
         addEvents: (events: LiveEvent[]) => ({ events }),
@@ -183,6 +184,13 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
                     const eventHost = new URL(eventUrl).host
                     const eventProtocol = new URL(eventUrl).protocol
                     actions.addEventHost(`${eventProtocol}//${eventHost}`)
+                }
+                // The team's `ingested_event` flag is flipped server-side when the first event is
+                // processed, but only reaches the frontend on the next ~30s team refresh. Refresh
+                // immediately when we observe a live event so banners that depend on the flag
+                // (e.g. the "no events yet" project notice) can't contradict the on-screen feed.
+                if (values.currentTeam && !values.currentTeam.ingested_event) {
+                    actions.loadCurrentTeam()
                 }
             }
         },
