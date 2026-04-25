@@ -3,8 +3,9 @@ import React, { useState } from 'react'
 
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { PostHogCaptureOnViewed } from '@posthog/react'
 
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { DetectiveHog } from 'lib/components/hedgehogs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -126,6 +127,29 @@ function SnapshotThumbnail({
     )
 }
 
+function RunInProgressEmptyState({ isProcessing }: { isProcessing: boolean }): JSX.Element {
+    const title = isProcessing ? 'Processing diffs' : 'Waiting for snapshots'
+    const copy = isProcessing
+        ? 'Snapshots are being compared against the baseline. This usually takes under a minute.'
+        : 'This run is waiting for the CI job to upload snapshot artifacts. It will appear here once the upload completes.'
+
+    return (
+        <PostHogCaptureOnViewed
+            name="visual-review-run-in-progress-shown"
+            properties={{ is_processing: isProcessing }}
+            className="flex flex-col items-center justify-center text-center gap-3 py-12 px-6"
+            data-attr="visual-review-run-in-progress"
+        >
+            <DetectiveHog className="w-32 h-32" />
+            <h2 className="m-0">{title}</h2>
+            <p className="max-w-md text-tertiary m-0">
+                {copy}
+                {isProcessing && <Spinner textColored className="ml-2 align-middle" />}
+            </p>
+        </PostHogCaptureOnViewed>
+    )
+}
+
 export function VisualReviewRunScene(): JSX.Element {
     const {
         run,
@@ -143,6 +167,8 @@ export function VisualReviewRunScene(): JSX.Element {
         repoFullName,
         isApproving,
         isApprovingSnapshot,
+        isRunInProgress,
+        isRunProcessing,
     } = useValues(visualReviewRunSceneLogic)
     const {
         setSelectedSnapshotId,
@@ -170,26 +196,11 @@ export function VisualReviewRunScene(): JSX.Element {
         )
     }
 
-    if (run.status === 'pending' || run.status === 'processing') {
+    if (isRunInProgress) {
         return (
             <SceneContent>
                 <SceneTitleSection name={run.branch} resourceType={{ type: 'visual_review' }} />
-                <ProductIntroduction
-                    isEmpty
-                    productName="Visual review"
-                    thingName="snapshot"
-                    titleOverride={run.status === 'pending' ? 'Waiting for snapshots' : 'Processing diffs'}
-                    description={
-                        run.status === 'pending'
-                            ? 'This run is waiting for the CI job to upload snapshot artifacts. It will appear here once the upload completes.'
-                            : 'Snapshots are being compared against the baseline. This usually takes under a minute — refresh the page to check for results.'
-                    }
-                    customHog={
-                        run.status === 'processing'
-                            ? ({ className }: { className?: string }) => <Spinner className={className} />
-                            : undefined
-                    }
-                />
+                <RunInProgressEmptyState isProcessing={isRunProcessing} />
             </SceneContent>
         )
     }
