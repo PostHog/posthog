@@ -64,7 +64,8 @@ def main() -> int:
     from posthog.api import router
     from posthog.api.routing import TeamAndOrgViewSetMixin
     from posthog.test.idor.discovery import discover_idor_test_cases
-    from posthog.test.idor.skip_list import IDOR_TEST_SKIP_LIST
+    from posthog.test.idor.fk_discovery import discover_writable_tenant_fks
+    from posthog.test.idor.skip_list import IDOR_FK_PATCH_SKIP_LIST, IDOR_TEST_SKIP_LIST
 
     # 1. Enumerate every unique tenant-scoped viewset that has a detail endpoint
     #    (i.e. a URL matching something other than `format` / `parent_lookup_*` as its final kwarg).
@@ -128,6 +129,47 @@ def main() -> int:
             "must return a URLStructure for the viewset's detail URL."
         )
         return 1
+
+    # 4. Phase 5a — every (auto-tested viewset × writable tenant-FK field) pair
+    #    must either be covered by `test_cross_tenant_fk_in_patch` or be in
+    #    IDOR_FK_PATCH_SKIP_LIST (with the entire viewset skipped). The
+    #    parametric test enumerates the same product, so this exists primarily
+    #    to surface counts and to keep IDOR_FK_PATCH_SKIP_LIST entries honest.
+    fk_total = 0
+    fk_already_scoped = 0
+    fk_unscoped = 0
+    fk_pairs_by_viewset: dict[str, list[str]] = {}
+    for case in discover_idor_test_cases():
+        if case.name in IDOR_FK_PATCH_SKIP_LIST:
+            continue
+        serializer_cls = getattr(case.viewset_cls, "serializer_class", None)
+        if serializer_cls is None:
+            continue
+        for fk in discover_writable_tenant_fks(serializer_cls):
+            fk_total += 1
+            if fk.is_already_scoped:
+                fk_already_scoped += 1
+            else:
+                fk_unscoped += 1
+            label = ".".join((*fk.nested_path, fk.serializer_field_name))
+            fk_pairs_by_viewset.setdefault(case.name, []).append(label)
+
+    fk_skips = set(IDOR_FK_PATCH_SKIP_LIST.keys())
+    stale_fk_skips = sorted(s for s in fk_skips if s not in {c.name for c in discover_idor_test_cases()})
+    if stale_fk_skips:
+        print()
+        print("ERROR: IDOR_FK_PATCH_SKIP_LIST contains entries that no longer match any auto-tested viewset:")
+        for name in stale_fk_skips:
+            print(f"  - {name}")
+        print("Remove stale entries from posthog/test/idor/skip_list.py.")
+        return 1
+
+    print()
+    print(f"[idor-fk-coverage]   writable tenant-FK fields covered: {fk_total}")
+    print(f"[idor-fk-coverage]     - already-scoped (defense in depth): {fk_already_scoped}")
+    print(f"[idor-fk-coverage]     - unscoped (primary IDOR risk):     {fk_unscoped}")
+    print(f"[idor-fk-coverage]   viewsets explicitly skipped:        {len(fk_skips)}")
+    print(f"[idor-fk-coverage]   viewsets with at least one FK pair: {len(fk_pairs_by_viewset)}")
 
     print()
     print("OK — all tenant-scoped detail viewsets are IDOR-covered.")
