@@ -15,6 +15,7 @@ import {
     IconExpand,
     IconEye,
     IconLeave,
+    IconLive,
     IconLogomark,
     IconRedux,
     IconTerminal,
@@ -100,6 +101,10 @@ const typeToIconAndDescription: Record<InspectorListItem['type'], IconAndDescrip
     inactivity: {
         Icon: undefined,
         tooltip: undefined,
+    },
+    logs: {
+        Icon: IconLive,
+        tooltip: 'Log entry',
     },
 }
 

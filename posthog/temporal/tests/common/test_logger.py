@@ -29,7 +29,6 @@ from posthog.clickhouse.log_entries import (
     TRUNCATE_LOG_ENTRIES_TABLE_SQL,
 )
 from posthog.kafka_client.client import _AsyncKafkaProducer
-from posthog.kafka_client.routing import new_async_producer
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 from posthog.temporal.common.logger import BACKGROUND_LOGGER_TASKS, configure_logger, resolve_log_source
 
@@ -92,9 +91,9 @@ async def queue():
 class CaptureKafkaProducer:
     """Wrap a `_AsyncKafkaProducer` to captures calls to `produce`."""
 
-    def __init__(self, *args, topic: str, loop: asyncio.AbstractEventLoop, **kwargs):
+    def __init__(self, *args, topic: str, producer: _AsyncKafkaProducer, **kwargs):
         self.entries: list[dict[str, str | bytes]] = []
-        self.producer: _AsyncKafkaProducer = new_async_producer(topic=topic, loop=loop)
+        self.producer: _AsyncKafkaProducer = producer
         self._is_closed = False
 
     async def produce(self, *, topic, data, key=None, value_serializer=None):
@@ -132,9 +131,11 @@ async def producer():
 
     After usage, we ensure the producer was closed to avoid leaking/warnings.
     """
-    loop = asyncio.get_running_loop()
+    from posthog.kafka_client.routing import new_async_producer
+
+    kafka_producer = await new_async_producer(topic=KAFKA_LOG_ENTRIES)
     producer = CaptureKafkaProducer(
-        topic=KAFKA_LOG_ENTRIES, bootstrap_servers=settings.KAFKA_PROFILES["default"].hosts, loop=loop
+        topic=KAFKA_LOG_ENTRIES, bootstrap_servers=settings.KAFKA_PROFILES["default"].hosts, producer=kafka_producer
     )
 
     yield producer

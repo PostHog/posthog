@@ -148,6 +148,14 @@ class OAuthApplication(AbstractApplication):
     provisioning_rate_limit_resource_creates: models.IntegerField = models.IntegerField(
         null=True, blank=True, help_text="Override default rate limit for resource creates (per hour)"
     )
+    provisioning_skip_existing_user_consent: models.BooleanField = models.BooleanField(
+        default=False,
+        help_text="Skip user consent when linking existing accounts. Only enable for fully trusted partners.",
+    )
+    provisioning_can_issue_deep_links: models.BooleanField = models.BooleanField(
+        default=False,
+        help_text="Allow this app to issue deep links that mint full web sessions. Only enable for fully trusted partners.",
+    )
 
     @property
     def is_provisioning_partner(self) -> bool:
