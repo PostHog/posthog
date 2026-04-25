@@ -15059,7 +15059,7 @@ export namespace Schemas {
       hidden?: boolean | null;
       enforcement_mode?: EnforcementModeEnum;
       /**
-       * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$current_url` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
+       * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
        * @maxLength 400
        * @nullable
        */
@@ -15917,7 +15917,7 @@ export namespace Schemas {
       tags?: unknown[];
       enforcement_mode?: EnforcementModeEnum;
       /**
-       * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$current_url` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
+       * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
        * @maxLength 400
        * @nullable
        */
@@ -26377,7 +26377,7 @@ export namespace Schemas {
       hidden?: boolean | null;
       enforcement_mode?: EnforcementModeEnum;
       /**
-       * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$current_url` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
+       * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
        * @maxLength 400
        * @nullable
        */

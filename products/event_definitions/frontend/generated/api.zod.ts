@@ -29,7 +29,7 @@ export const EventDefinitionsCreateBody = /* @__PURE__ */ zod
             .max(eventDefinitionsCreateBodyPromotedPropertyMax)
             .nullish()
             .describe(
-                "Name of a single property on this event that PostHog UIs should display alongside the event (for example `$current_url` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event."
+                "Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event."
             ),
         post_to_slack: zod.boolean().default(eventDefinitionsCreateBodyPostToSlackDefault),
         default_columns: zod.array(zod.string()).optional(),
@@ -56,7 +56,7 @@ export const EventDefinitionsUpdateBody = /* @__PURE__ */ zod
             .max(eventDefinitionsUpdateBodyPromotedPropertyMax)
             .nullish()
             .describe(
-                "Name of a single property on this event that PostHog UIs should display alongside the event (for example `$current_url` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event."
+                "Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event."
             ),
         post_to_slack: zod.boolean().default(eventDefinitionsUpdateBodyPostToSlackDefault),
         default_columns: zod.array(zod.string()).optional(),
@@ -83,7 +83,7 @@ export const EventDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
             .max(eventDefinitionsPartialUpdateBodyPromotedPropertyMax)
             .nullish()
             .describe(
-                "Name of a single property on this event that PostHog UIs should display alongside the event (for example `$current_url` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event."
+                "Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event."
             ),
         post_to_slack: zod.boolean().default(eventDefinitionsPartialUpdateBodyPostToSlackDefault),
         default_columns: zod.array(zod.string()).optional(),
