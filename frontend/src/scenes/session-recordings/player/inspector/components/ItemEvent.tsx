@@ -310,7 +310,7 @@ function GroupedEventRow({ event, index }: { event: InspectorListItemEvent; inde
                     />
                     {promotedValue != null && promotedValue !== '' ? (
                         <span
-                            className="text-secondary truncate ml-auto pl-2 min-w-0 max-w-[50%]"
+                            className="text-secondary truncate ml-auto pl-2 pr-2 min-w-0 max-w-[50%]"
                             title={isString(promotedValue) ? promotedValue : undefined}
                         >
                             {String(promotedValue)}
