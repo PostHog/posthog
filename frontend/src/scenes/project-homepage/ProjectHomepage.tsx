@@ -20,7 +20,7 @@ import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { WelcomeDialog } from 'scenes/welcome/WelcomeDialog'
-import { wasWelcomeDismissed } from 'scenes/welcome/welcomeDialogLogic'
+import { wasWelcomeDismissed, wasWelcomeLookedAround } from 'scenes/welcome/welcomeDialogLogic'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -32,7 +32,15 @@ import { AiFirstHomepage } from './ai-first/AiFirstHomepage'
 /** Only mount the welcome dialog (and its kea logic) for users actually eligible to see it. */
 function MaybeWelcomeDialog(): JSX.Element | null {
     const { user } = useValues(userLogic)
-    if (!user || user.is_organization_first_user !== false || wasWelcomeDismissed(user.uuid, user.organization?.id)) {
+    if (
+        !user ||
+        user.is_organization_first_user !== false ||
+        wasWelcomeDismissed(user.uuid, user.organization?.id) ||
+        // Defense-in-depth: if the kea logic remounts (e.g. ProjectHomepage swapping branches),
+        // the in-memory `locallyClosed` reducer resets. Short-circuit at the React boundary so
+        // the dialog doesn't pop back up before the selector has had a chance to re-run.
+        wasWelcomeLookedAround(user.uuid, user.organization?.id)
+    ) {
         return null
     }
     return <WelcomeDialog />
@@ -119,30 +127,33 @@ export function ProjectHomepage(): JSX.Element {
     const { dashboardLogicProps } = useValues(projectHomepageLogic)
     const isAIFirst = useFeatureFlag('AI_FIRST')
 
+    let content: JSX.Element
     if (isAIFirst) {
-        return (
+        content = (
             <div className="flex-1 min-h-0">
                 <AiFirstHomepage />
-                <MaybeWelcomeDialog />
+            </div>
+        )
+    } else if (dashboardLogicProps?.id) {
+        // if there is no numeric dashboard id, the dashboard logic will throw...
+        // so we check it here first
+        content = <HomePageContent />
+    } else {
+        // Negative margin to counter-act the scene configs default padding
+        content = (
+            <div className="-m-4">
+                <NewTabScene />
             </div>
         )
     }
 
-    // if there is no numeric dashboard id, the dashboard logic will throw...
-    // so we check it here first
-    if (dashboardLogicProps?.id) {
-        return (
-            <>
-                <HomePageContent />
-                <MaybeWelcomeDialog />
-            </>
-        )
-    }
-    // Negative margin to counter-act the scene configs default padding
+    // Mount the welcome dialog once at a stable position so it doesn't unmount/remount
+    // when the homepage swaps branches (e.g. dashboardLogicProps.id resolving async).
+    // Each remount resets `welcomeDialogLogic`'s in-memory state and re-fires the dialog.
     return (
-        <div className="-m-4">
-            <NewTabScene />
+        <>
+            {content}
             <MaybeWelcomeDialog />
-        </div>
+        </>
     )
 }

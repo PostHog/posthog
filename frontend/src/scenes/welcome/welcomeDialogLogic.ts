@@ -77,7 +77,13 @@ export type WelcomeCardKind = 'members' | 'activity' | 'dashboards' | 'products'
 const LOCAL_DISMISSED_KEY_PREFIX = 'posthog_welcome_dismissed:'
 // SessionStorage key used to suppress the dialog for the remainder of a tab's session after
 // the user clicks "I'll look around" — avoids re-opening on every project-home remount.
-const SESSION_LOOKED_AROUND_KEY = 'posthog_welcome_looked_around'
+// Keyed by user uuid so that two users sharing a tab session (rare, but possible via
+// account switching) don't suppress each other's welcome.
+const SESSION_LOOKED_AROUND_KEY_PREFIX = 'posthog_welcome_looked_around:'
+// Sentinel stored when the user closes the dialog before `user.organization?.id` is populated.
+// Reads treat this as "looked around for any org of this user" — we'd rather under-show than
+// re-open the dialog right after the user just closed it.
+const LOOKED_AROUND_UNKNOWN_ORG = '__unknown__'
 
 function dismissedKey(userUuid: string | undefined, orgId: string | undefined): string | null {
     return userUuid && orgId ? `${LOCAL_DISMISSED_KEY_PREFIX}${userUuid}:${orgId}` : null
@@ -111,23 +117,45 @@ function wasDismissed(userUuid: string | undefined, orgId: string | undefined): 
     }
 }
 
-function rememberLookedAround(orgId: string | undefined): void {
-    if (typeof window === 'undefined' || !orgId) {
+function lookedAroundKey(userUuid: string | undefined): string | null {
+    return userUuid ? `${SESSION_LOOKED_AROUND_KEY_PREFIX}${userUuid}` : null
+}
+
+function rememberLookedAround(userUuid: string | undefined, orgId: string | undefined): void {
+    const key = lookedAroundKey(userUuid)
+    if (typeof window === 'undefined' || !key) {
         return
     }
     try {
-        window.sessionStorage.setItem(SESSION_LOOKED_AROUND_KEY, orgId)
+        // Persist close intent even when orgId isn't ready yet — otherwise a fast close
+        // before the org is hydrated leaves no signal and the dialog re-opens on remount.
+        window.sessionStorage.setItem(key, orgId ?? LOOKED_AROUND_UNKNOWN_ORG)
     } catch {
         // sessionStorage can be unavailable (privacy mode, etc.) — degrade gracefully.
     }
 }
 
-function wasLookedAround(orgId: string | undefined): boolean {
-    if (typeof window === 'undefined' || !orgId) {
+export function wasWelcomeLookedAround(userUuid: string | undefined, orgId: string | undefined): boolean {
+    const key = lookedAroundKey(userUuid)
+    if (typeof window === 'undefined' || !key) {
         return false
     }
     try {
-        return window.sessionStorage.getItem(SESSION_LOOKED_AROUND_KEY) === orgId
+        const stored = window.sessionStorage.getItem(key)
+        if (!stored) {
+            return false
+        }
+        // Always suppress when the recorded close used the unknown-org sentinel — we don't
+        // know which org it was, so the safest behaviour is to honour the user's intent.
+        if (stored === LOOKED_AROUND_UNKNOWN_ORG) {
+            return true
+        }
+        // Per-org match: switching to a different org gives a fresh welcome.
+        if (!orgId) {
+            // We have a recorded org but no current org — selector is asked too early; suppress.
+            return true
+        }
+        return stored === orgId
     } catch {
         return false
     }
@@ -254,7 +282,7 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
                     return false
                 }
                 // Also suppress if the user opted to look around earlier in this tab's session.
-                return !wasLookedAround(orgId)
+                return !wasWelcomeLookedAround(user.uuid, orgId)
             },
         ],
     }),
@@ -279,7 +307,7 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
         },
         closeDialog: () => {
             // Persist "I'll look around" across remounts in the same tab.
-            rememberLookedAround(values.user?.organization?.id)
+            rememberLookedAround(values.user?.uuid, values.user?.organization?.id)
         },
         dismissWelcome: () => {
             const interactedCount = Object.keys(values.interactedCards).length
@@ -294,7 +322,7 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
             actions.markCardInteracted(card)
             // Clicking an in-app card link counts as engagement — persist the "looked around"
             // marker so the dialog doesn't re-appear the next time the user lands on home.
-            rememberLookedAround(values.user?.organization?.id)
+            rememberLookedAround(values.user?.uuid, values.user?.organization?.id)
             posthog.capture('welcome_screen_card_clicked', {
                 card,
                 target_href: targetHref,

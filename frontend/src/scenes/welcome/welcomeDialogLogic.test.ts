@@ -8,7 +8,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { UserType } from '~/types'
 
-import { welcomeDialogLogic } from './welcomeDialogLogic'
+import { wasWelcomeLookedAround, welcomeDialogLogic } from './welcomeDialogLogic'
 
 const INVITED_USER: UserType = {
     ...MOCK_DEFAULT_USER,
@@ -132,5 +132,45 @@ describe('welcomeDialogLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadWelcomeDataSuccess'])
         logic.actions.trackCardClick('dashboards', '/project/1/dashboard/42')
         expect(logic.values.interactedCards.dashboards).toBe(true)
+    })
+
+    it('persists "looked around" to sessionStorage on closeDialog so a remount does not reopen', async () => {
+        userLogic.actions.loadUserSuccess(INVITED_USER)
+        logic = welcomeDialogLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadWelcomeDataSuccess'])
+        logic.actions.closeDialog()
+        expect(wasWelcomeLookedAround(INVITED_USER.uuid, INVITED_USER.organization?.id)).toBe(true)
+
+        // Simulate the React tree swapping branches and remounting the logic — the in-memory
+        // `locallyClosed` reducer resets, but the sessionStorage marker should still suppress.
+        logic.unmount()
+        logic = welcomeDialogLogic()
+        logic.mount()
+        expect(logic.values.shouldShowDialog).toBe(false)
+    })
+
+    it('persists "looked around" even when orgId is not yet populated at close time', async () => {
+        const userWithoutOrg: UserType = { ...INVITED_USER, organization: null }
+        userLogic.actions.loadUserSuccess(userWithoutOrg)
+        logic = welcomeDialogLogic()
+        logic.mount()
+
+        logic.actions.closeDialog()
+        expect(wasWelcomeLookedAround(userWithoutOrg.uuid, undefined)).toBe(true)
+        // And the marker also suppresses once the org hydrates afterwards.
+        expect(wasWelcomeLookedAround(userWithoutOrg.uuid, 'org-123')).toBe(true)
+    })
+
+    it('does not suppress for a different org once "looked around" is per-org', async () => {
+        userLogic.actions.loadUserSuccess(INVITED_USER)
+        logic = welcomeDialogLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadWelcomeDataSuccess'])
+        logic.actions.closeDialog()
+        // Same user, different org — switching orgs should give a fresh welcome.
+        expect(wasWelcomeLookedAround(INVITED_USER.uuid, 'some-other-org')).toBe(false)
     })
 })
