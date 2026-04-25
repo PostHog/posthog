@@ -13,6 +13,7 @@ import { pluralize } from 'lib/utils'
 import { ReplayPlatform, replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
 import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { AccessControlResourceType, AvailableFeature, TeamPublicType, TeamType } from '~/types'
 
@@ -531,7 +532,8 @@ const RecordingTriggersSummary = ({
     if (!currentTeam?.session_recording_opt_in) {
         return (
             <LemonBanner type="warning">
-                <strong>Recording is disabled.</strong> Enable it in General settings.
+                <strong>Recording is disabled.</strong> Enable it in{' '}
+                <Link to={urls.settings('project-replay', 'replay')}>General settings</Link>.
             </LemonBanner>
         )
     }
