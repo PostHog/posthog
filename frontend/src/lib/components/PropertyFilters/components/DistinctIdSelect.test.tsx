@@ -130,6 +130,44 @@ describe('DistinctIdSelect', () => {
         })
     })
 
+    it('renders one option per distinct_id when a person owns multiple ids', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team/persons/': {
+                    results: [
+                        {
+                            id: 99,
+                            uuid: 'person-uuid-multi',
+                            distinct_ids: ['anon-uuid-aaa', 'multi@example.com', 'device-uuid-bbb'],
+                            properties: { email: 'multi@example.com', name: 'Multi User' },
+                            created_at: '2024-01-01',
+                            is_identified: true,
+                        },
+                    ],
+                    next: null,
+                },
+            },
+        })
+
+        render(
+            <Provider>
+                <DistinctIdSelect value={null} operator={PropertyOperator.Exact} onChange={jest.fn()} />
+            </Provider>
+        )
+
+        const input = screen.getByRole('textbox')
+        await userEvent.click(input)
+
+        // All three distinct_ids should appear as separate options. The email also
+        // appears as the muted secondary line on the two UUID options, so we expect
+        // multiple occurrences of it but only one of each UUID.
+        await waitFor(() => {
+            expect(screen.getByText('anon-uuid-aaa')).toBeInTheDocument()
+            expect(screen.getByText('device-uuid-bbb')).toBeInTheDocument()
+            expect(screen.getAllByText('multi@example.com').length).toBeGreaterThanOrEqual(1)
+        })
+    })
+
     it('keeps state isolated when two pickers are mounted side by side', async () => {
         const onChangeA = jest.fn()
         const onChangeB = jest.fn()

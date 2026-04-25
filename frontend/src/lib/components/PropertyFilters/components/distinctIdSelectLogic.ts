@@ -84,20 +84,21 @@ export const distinctIdSelectLogic = kea<distinctIdSelectLogicType>([
         personOptions: [
             (s) => [s.persons],
             (persons: PersonType[]): { key: string; label: string; person: PersonType }[] => {
+                // Emit one option per (person, distinct_id) so the user can see and pick any of
+                // a person's identifiers. Flag evaluation matches against the literal distinct_id
+                // the SDK passes — picking the right one (or several) matters when a person
+                // owns both an anonymous UUID and an identified email-style id.
                 const options: { key: string; label: string; person: PersonType }[] = []
                 const seen = new Set<string>()
                 for (const person of persons) {
-                    // Use the primary distinct_id (first in the list — sorted by is_anonymous_id server-side)
-                    const distinctId = person.distinct_ids?.[0]
-                    if (!distinctId || seen.has(distinctId)) {
-                        continue
+                    const label = asDisplay(person)
+                    for (const distinctId of person.distinct_ids ?? []) {
+                        if (!distinctId || seen.has(distinctId)) {
+                            continue
+                        }
+                        seen.add(distinctId)
+                        options.push({ key: distinctId, label, person })
                     }
-                    seen.add(distinctId)
-                    options.push({
-                        key: distinctId,
-                        label: asDisplay(person),
-                        person,
-                    })
                 }
                 return options
             },
