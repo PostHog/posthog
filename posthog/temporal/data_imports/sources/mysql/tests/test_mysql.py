@@ -8,6 +8,7 @@ import pymysql
 
 from posthog.temporal.data_imports.sources.common.sql import Table
 from posthog.temporal.data_imports.sources.mysql.mysql import (
+    _POSTHOG_EXECUTED_QUERY_ATTR,
     STATEMENT_TIMEOUT_SECONDS,
     MySQLColumn,
     _build_query,
@@ -229,6 +230,168 @@ class TestStreamingConnectionTimeouts:
         assert ss_cursor.execute.called
 
 
+class TestConnectPhase2013FallbackGating:
+    """A 2013 raised by `pymysql.connect()` (handshake/network drop) shares the
+    error code with a true bad-plan filesort timeout but happens before any
+    query was sent — so the FORCE INDEX retry path must not engage. Verifies
+    the executed_query gate added on top of `_is_bad_plan_timeout`.
+    """
+
+    @pytest.fixture
+    def metadata_only_mocks(self, mocker):
+        fake_table = Table(
+            name="messages",
+            parents=("mydb",),
+            columns=[MySQLColumn(name="id", data_type="int", column_type="int", nullable=False)],
+        )
+        mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql._get_table", return_value=fake_table)
+        mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql._get_primary_keys", return_value=["id"])
+        mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql._get_rows_to_sync", return_value=0)
+        mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql._get_table_chunk_size", return_value=1000)
+        mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql._get_partition_settings", return_value=None)
+
+        metadata_cursor = MagicMock()
+        metadata_cursor.__enter__.return_value = metadata_cursor
+        metadata_connection = MagicMock()
+        metadata_connection.__enter__.return_value = metadata_connection
+        metadata_connection.cursor.return_value = metadata_cursor
+        return metadata_connection
+
+    def test_connect_phase_2013_propagates_without_force_index_probe(self, mocker, metadata_only_mocks):
+        connect_calls: list[dict] = []
+
+        def connect_side_effect(*args, **kwargs):
+            connect_calls.append(kwargs)
+            if len(connect_calls) == 1:
+                # Metadata pass — succeeds.
+                return metadata_only_mocks
+            # Streaming pass — handshake/network drop surfaces as 2013 from
+            # inside `pymysql.connect()` before any query was sent.
+            raise pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query")
+
+        mocker.patch(
+            "posthog.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=connect_side_effect,
+        )
+
+        find_index_spy = mocker.patch(
+            "posthog.temporal.data_imports.sources.mysql.mysql._find_index_for_cursor",
+            return_value=None,
+        )
+
+        with pytest.raises(pymysql.err.OperationalError) as excinfo:
+            list(
+                mysql_source(
+                    tunnel=_fake_tunnel,
+                    user="u",
+                    password="p",
+                    database="d",
+                    using_ssl=False,
+                    schema="mydb",
+                    table_names=["messages"],
+                    should_use_incremental_field=True,
+                    logger=MagicMock(),
+                    db_incremental_field_last_value="2025-01-01",
+                    incremental_field="created_at",
+                    incremental_field_type=IncrementalFieldType.DateTime,
+                ).items()  # type: ignore[arg-type]  # MySQL source is always sync
+            )
+
+        assert excinfo.value.args[0] == 2013
+        # Two connects total: metadata + the failing streaming attempt. No probe
+        # connection (would be the 3rd) and no retry connection (would be the
+        # 4th) — those are gated behind executed_query=True.
+        assert len(connect_calls) == 2
+        find_index_spy.assert_not_called()
+
+    def test_post_execute_2013_still_triggers_force_index_retry(self, mocker, metadata_only_mocks):
+        # Sanity check: when the 2013 fires after `cursor.execute()` succeeds
+        # (the original bad-plan filesort timeout case), the retry path still
+        # runs as before. This guards against regressions where the gate
+        # accidentally swallows the retry too.
+        connect_count = {"n": 0}
+        ss_cursor = MagicMock()
+        ss_cursor.__enter__.return_value = ss_cursor
+        ss_cursor.description = [("id",)]
+
+        # First fetchmany on the original streaming cursor raises; the retry
+        # cursor returns no rows so iteration completes cleanly.
+        post_execute_error = pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query")
+        fetch_calls = {"n": 0}
+
+        def fetchmany_side_effect(*args, **kwargs):
+            fetch_calls["n"] += 1
+            if fetch_calls["n"] == 1:
+                raise post_execute_error
+            return []
+
+        ss_cursor.fetchmany.side_effect = fetchmany_side_effect
+
+        setup_cursor = MagicMock()
+        setup_cursor.__enter__.return_value = setup_cursor
+
+        probe_cursor = MagicMock()
+        probe_cursor.__enter__.return_value = probe_cursor
+
+        def make_streaming_connection():
+            conn = MagicMock()
+            conn.__enter__.return_value = conn
+
+            cursor_state = {"setup_done": False}
+
+            def cursor_factory(*args, **kwargs):
+                if args or kwargs:
+                    return ss_cursor
+                if not cursor_state["setup_done"]:
+                    cursor_state["setup_done"] = True
+                    return setup_cursor
+                return probe_cursor
+
+            conn.cursor.side_effect = cursor_factory
+            return conn
+
+        def connect_side_effect(*args, **kwargs):
+            connect_count["n"] += 1
+            if connect_count["n"] == 1:
+                return metadata_only_mocks
+            # Streaming connection (call 2), probe connection (call 3),
+            # and retry streaming connection (call 4) all share the same
+            # mock connection shape.
+            return make_streaming_connection()
+
+        mocker.patch(
+            "posthog.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=connect_side_effect,
+        )
+        mocker.patch(
+            "posthog.temporal.data_imports.sources.mysql.mysql._find_index_for_cursor",
+            return_value="idx_created_at",
+        )
+
+        list(
+            mysql_source(
+                tunnel=_fake_tunnel,
+                user="u",
+                password="p",
+                database="d",
+                using_ssl=False,
+                schema="mydb",
+                table_names=["messages"],
+                should_use_incremental_field=True,
+                logger=MagicMock(),
+                db_incremental_field_last_value="2025-01-01",
+                incremental_field="created_at",
+                incremental_field_type=IncrementalFieldType.DateTime,
+            ).items()  # type: ignore[arg-type]  # MySQL source is always sync
+        )
+
+        # Metadata + initial streaming + probe + retry streaming = 4 connects.
+        assert connect_count["n"] == 4
+        # The error annotated by the streaming generator must indicate it
+        # passed `cursor.execute()` — that's what unlocks the retry.
+        assert getattr(post_execute_error, _POSTHOG_EXECUTED_QUERY_ATTR, None) is True
+
+
 def _show_index_rows(*triples: tuple[str, str, int]) -> list[tuple]:
     """Build fake SHOW INDEX rows from (key_name, column_name, seq_in_index) triples.
 
@@ -321,8 +484,23 @@ class TestFindIndexForCursor:
 
 
 class TestIsBadPlanTimeout:
-    def test_matches_error_2013(self):
-        assert _is_bad_plan_timeout(pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query"))
+    def test_matches_error_2013_when_executed_query_flag_is_set(self):
+        e = pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query")
+        setattr(e, _POSTHOG_EXECUTED_QUERY_ATTR, True)
+        assert _is_bad_plan_timeout(e)
+
+    def test_does_not_match_error_2013_without_executed_query_flag(self):
+        # Connect/handshake-phase 2013 — pymysql raises before any query is sent,
+        # so the streaming generator never flips the flag. This must not be
+        # treated as a bad-plan timeout, otherwise we waste a probe connection
+        # on a transient network blip.
+        e = pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query")
+        assert not _is_bad_plan_timeout(e)
+
+    def test_does_not_match_error_2013_with_executed_query_flag_false(self):
+        e = pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query")
+        setattr(e, _POSTHOG_EXECUTED_QUERY_ATTR, False)
+        assert not _is_bad_plan_timeout(e)
 
     @pytest.mark.parametrize(
         "code,message",
@@ -332,7 +510,9 @@ class TestIsBadPlanTimeout:
         ],
     )
     def test_does_not_match_other_error_codes(self, code, message):
-        assert not _is_bad_plan_timeout(pymysql.err.OperationalError(code, message))
+        e = pymysql.err.OperationalError(code, message)
+        setattr(e, _POSTHOG_EXECUTED_QUERY_ATTR, True)
+        assert not _is_bad_plan_timeout(e)
 
     def test_does_not_match_error_without_args(self):
         assert not _is_bad_plan_timeout(pymysql.err.OperationalError())

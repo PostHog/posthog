@@ -204,18 +204,31 @@ def _build_query(
 # pymysql error code for "Lost connection to MySQL server during query" — the
 # symptom we see when the optimizer picks a bad plan (full scan + filesort) and
 # the filesort preparation exceeds a middlebox / server-side query timeout
-# before any rows stream back.
+# before any rows stream back. Note: this same code also surfaces on plain
+# mid-handshake disconnects, server restarts, and middlebox idle kills, so
+# matching on it alone is not enough — callers must also confirm the failure
+# happened post-execute (see `_POSTHOG_EXECUTED_QUERY_ATTR`).
 _LOST_CONNECTION_DURING_QUERY_CODE = 2013
+
+# Attribute name set on `OperationalError` instances escaping the streaming
+# generator to record whether `cursor.execute()` had succeeded before the
+# failure. The outer FORCE INDEX retry only fires when this is True.
+_POSTHOG_EXECUTED_QUERY_ATTR = "_posthog_executed_query"
 
 
 def _is_bad_plan_timeout(e: pymysql.err.OperationalError) -> bool:
-    """Return True if the error suggests we hit a bad-plan-induced query timeout.
+    """Return True if the error looks like a bad-plan-induced query timeout.
 
-    Narrowly matches `OperationalError(2013, ...)`. Other `OperationalError`s
-    (access denied, table missing, etc.) should propagate untouched.
+    Matches `OperationalError(2013, ...)` AND requires that the streaming
+    generator marked the failure as having happened after `cursor.execute()`
+    succeeded. A bare 2013 from the connect/handshake phase shares the error
+    code but indicates a generic network drop, not a planner pathology, so we
+    must not trigger the FORCE INDEX retry for those.
     """
     code = e.args[0] if e.args else None
-    return code == _LOST_CONNECTION_DURING_QUERY_CODE
+    if code != _LOST_CONNECTION_DURING_QUERY_CODE:
+        return False
+    return bool(getattr(e, _POSTHOG_EXECUTED_QUERY_ATTR, False))
 
 
 def _find_index_for_cursor(
@@ -772,63 +785,74 @@ def mysql_source(
         original starting cursor is correct but occasionally replays a few
         already-processed rows; the delta merge dedupes by primary key.
         """
-        with tunnel() as (host, port):
-            # PlanetScale needs this to be set
-            init_command = "SET workload = 'OLAP';" if host.endswith("psdb.cloud") else None
+        # Annotates `OperationalError`s that escape this generator so the outer
+        # handler can tell a true bad-plan filesort timeout (post-execute) from
+        # a connect/handshake-phase 2013 — the latter shares the error code
+        # but happens before any query was sent and would not benefit from a
+        # FORCE INDEX retry. See `_POSTHOG_EXECUTED_QUERY_ATTR`.
+        executed_query = False
+        try:
+            with tunnel() as (host, port):
+                # PlanetScale needs this to be set
+                init_command = "SET workload = 'OLAP';" if host.endswith("psdb.cloud") else None
 
-            with pymysql.connect(
-                host=host,
-                port=port,
-                database=database,
-                user=user,
-                password=password,
-                connect_timeout=10,
-                read_timeout=STATEMENT_TIMEOUT_SECONDS,
-                ssl_ca=ssl_ca,
-                init_command=init_command,
-                conv=_MYSQL_SAFE_CONVERSIONS,
-            ) as connection:
-                # Bump server-side timeouts for large table scans. The
-                # defaults (60s each) are too low for multi-GB unbuffered
-                # queries — the server drops the connection before the first
-                # rows are ready.
-                try:
-                    with connection.cursor() as setup_cursor:
-                        setup_cursor.execute(
-                            f"SET SESSION net_write_timeout = {STATEMENT_TIMEOUT_SECONDS}, net_read_timeout = {STATEMENT_TIMEOUT_SECONDS}"
+                with pymysql.connect(
+                    host=host,
+                    port=port,
+                    database=database,
+                    user=user,
+                    password=password,
+                    connect_timeout=10,
+                    read_timeout=STATEMENT_TIMEOUT_SECONDS,
+                    ssl_ca=ssl_ca,
+                    init_command=init_command,
+                    conv=_MYSQL_SAFE_CONVERSIONS,
+                ) as connection:
+                    # Bump server-side timeouts for large table scans. The
+                    # defaults (60s each) are too low for multi-GB unbuffered
+                    # queries — the server drops the connection before the first
+                    # rows are ready.
+                    try:
+                        with connection.cursor() as setup_cursor:
+                            setup_cursor.execute(
+                                f"SET SESSION net_write_timeout = {STATEMENT_TIMEOUT_SECONDS}, net_read_timeout = {STATEMENT_TIMEOUT_SECONDS}"
+                            )
+                    except Exception as e:
+                        logger.warning(f"Failed to set session timeouts on MySQL sync connection: {e}")
+                    with connection.cursor(SSCursor) as cursor:
+                        query, args = _build_query(
+                            schema,
+                            table_name,
+                            should_use_incremental_field,
+                            incremental_field,
+                            incremental_field_type,
+                            db_incremental_field_last_value,
+                            force_index_name=force_index_name,
                         )
-                except Exception as e:
-                    logger.warning(f"Failed to set session timeouts on MySQL sync connection: {e}")
-                with connection.cursor(SSCursor) as cursor:
-                    query, args = _build_query(
-                        schema,
-                        table_name,
-                        should_use_incremental_field,
-                        incremental_field,
-                        incremental_field_type,
-                        db_incremental_field_last_value,
-                        force_index_name=force_index_name,
-                    )
-                    logger.debug(f"MySQL query: {query.format(args)}")
+                        logger.debug(f"MySQL query: {query.format(args)}")
 
-                    # EXPLAIN before the streaming query to help diagnose
-                    # failures where MySQL picks full scan + filesort over
-                    # the incremental index. _explain_query consumes its
-                    # rows via fetchall(), leaving the cursor in a clean
-                    # state for the streaming execute() below.
-                    _explain_query(cursor, query, args, logger)
+                        # EXPLAIN before the streaming query to help diagnose
+                        # failures where MySQL picks full scan + filesort over
+                        # the incremental index. _explain_query consumes its
+                        # rows via fetchall(), leaving the cursor in a clean
+                        # state for the streaming execute() below.
+                        _explain_query(cursor, query, args, logger)
 
-                    cursor.execute(query, args)
+                        cursor.execute(query, args)
+                        executed_query = True
 
-                    column_names = [column[0] for column in cursor.description or []]
+                        column_names = [column[0] for column in cursor.description or []]
 
-                    while True:
-                        # use chunk_size to fetch rows instead of DEFAULT_CHUNK_SIZE
-                        rows = cursor.fetchmany(chunk_size)
-                        if not rows:
-                            break
+                        while True:
+                            # use chunk_size to fetch rows instead of DEFAULT_CHUNK_SIZE
+                            rows = cursor.fetchmany(chunk_size)
+                            if not rows:
+                                break
 
-                        yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+                            yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+        except pymysql.err.OperationalError as e:
+            setattr(e, _POSTHOG_EXECUTED_QUERY_ATTR, executed_query)
+            raise
 
     def get_rows() -> Iterator[Any]:
         # Track whether any batch reached the pipeline. If one did, the retry
