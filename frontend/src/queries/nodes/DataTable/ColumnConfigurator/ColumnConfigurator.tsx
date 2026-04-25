@@ -1,6 +1,6 @@
 import './ColumnConfigurator.scss'
 
-import { DndContext } from '@dnd-kit/core'
+import { DndContext, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -167,6 +167,10 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
         isSessionsQuery(query.source) ||
         isActorsQuery(query.source)
 
+    // Require an 8px pointer movement before activating drag so clicks on
+    // Edit/Remove buttons inside the row still register as clicks.
+    const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
+
     return (
         <LemonModal
             isOpen={modalVisible}
@@ -201,6 +205,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                             Visible columns ({columns.length}) - Drag to reorder
                         </h4>
                         <DndContext
+                            sensors={sensors}
                             onDragEnd={({ active, over }) => {
                                 if (over && active.id !== over.id) {
                                     moveColumn(
@@ -318,9 +323,10 @@ const SelectedColumn = ({
                 transition,
             }}
             {...attributes}
+            {...listeners}
         >
             <div className="SelectedColumn">
-                <span {...listeners} className="drag-handle">
+                <span className="drag-handle" aria-hidden="true">
                     <SortableDragIcon />
                 </span>
                 {columnType && <PropertyFilterIcon type={columnType} />}

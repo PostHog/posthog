@@ -6,8 +6,13 @@
         padding: 0 0.5rem;
         margin: calc(var(--radius) / 2) 0;
         overflow: hidden;
+        cursor: grab;
         background-color: var(--color-accent-highlight-secondary);
         border-radius: var(--radius);
+
+        &:active {
+            cursor: grabbing;
+        }
     }
 
     .selected-column-col {
@@ -19,7 +24,6 @@
         padding-right: 0.25rem;
         font-size: 1.2em;
         color: var(--text-3000);
-        cursor: move;
 
         svg {
             transform: rotate(90deg);
