@@ -17,6 +17,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { getPromotedPropertyForEvent } from 'lib/utils/promotedEventProperty'
 import { DefinitionLogicProps, definitionLogic } from 'scenes/data-management/definition/definitionLogic'
 import { EventDefinitionInsights } from 'scenes/data-management/events/EventDefinitionInsights'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
@@ -333,23 +334,39 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                     </div>
                 )}
 
-                {isEvent && (
-                    <div className="flex flex-col flex-1">
-                        <h5>
-                            Promoted property{' '}
-                            <Tooltip title="If set, this property's value is shown alongside the event name in surfaces like the session replay inspector.">
-                                <IconInfo className="text-sm" />
-                            </Tooltip>
-                        </h5>
-                        <b>
-                            {(definition as EventDefinition).promoted_property ? (
-                                <code className="text-xs">{(definition as EventDefinition).promoted_property}</code>
-                            ) : (
-                                '-'
-                            )}
-                        </b>
-                    </div>
-                )}
+                {isEvent &&
+                    (() => {
+                        const taxonomyPromoted = getPromotedPropertyForEvent(definition.name)
+                        const teamOverride = (definition as EventDefinition).promoted_property
+                        const effective = taxonomyPromoted ?? teamOverride
+                        const isBuiltIn = !!taxonomyPromoted
+                        return (
+                            <div className="flex flex-col flex-1">
+                                <h5>
+                                    Promoted property{' '}
+                                    <Tooltip title="If set, this property's value is shown alongside the event name in surfaces like the session replay inspector.">
+                                        <IconInfo className="text-sm" />
+                                    </Tooltip>
+                                </h5>
+                                <b>
+                                    {effective ? (
+                                        <span className="flex items-center gap-1">
+                                            <code className="text-xs">{effective}</code>
+                                            {isBuiltIn && (
+                                                <Tooltip title="This is a built-in default for this event. Team overrides are not applied to events with a built-in promoted property.">
+                                                    <LemonTag type="muted" size="small">
+                                                        Built-in
+                                                    </LemonTag>
+                                                </Tooltip>
+                                            )}
+                                        </span>
+                                    ) : (
+                                        '-'
+                                    )}
+                                </b>
+                            </div>
+                        )
+                    })()}
             </div>
 
             <SceneDivider />

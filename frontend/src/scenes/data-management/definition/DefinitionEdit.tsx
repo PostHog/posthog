@@ -22,7 +22,7 @@ import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { hasTaxonomyPromotedProperty } from 'lib/utils/promotedEventProperty'
+import { getPromotedPropertyForEvent, hasTaxonomyPromotedProperty } from 'lib/utils/promotedEventProperty'
 import { definitionEditLogic } from 'scenes/data-management/definition/definitionEditLogic'
 import { DefinitionLogicProps, definitionLogic } from 'scenes/data-management/definition/definitionLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -267,6 +267,23 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
                                         />
                                     )}
                                 </LemonField>
+                            </div>
+                        )}
+
+                        {!isProperty && hasTaxonomyPromotedProperty(editDefinition.name) && (
+                            <div className="ph-ignore-input">
+                                <LemonLabel info="This event has a built-in promoted property that PostHog ships with — it can't be overridden on a per-team basis.">
+                                    Promoted property
+                                </LemonLabel>
+                                <div
+                                    className="flex items-center gap-2 mt-1"
+                                    data-attr="definition-promoted-property-builtin"
+                                >
+                                    <code className="text-xs">{getPromotedPropertyForEvent(editDefinition.name)}</code>
+                                    <LemonTag type="muted" size="small">
+                                        Built-in
+                                    </LemonTag>
+                                </div>
                             </div>
                         )}
 
