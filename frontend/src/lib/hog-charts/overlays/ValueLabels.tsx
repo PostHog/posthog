@@ -26,7 +26,7 @@ function getMeasureCtx(): CanvasRenderingContext2D | null {
     return measureCtx
 }
 
-const LABEL_HEIGHT = 18
+const LABEL_HEIGHT = 22
 
 interface Candidate {
     key: string

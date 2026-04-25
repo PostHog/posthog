@@ -36,6 +36,9 @@ export interface Series<Meta = unknown> {
     hideFromTooltip?: boolean
     /** When true, the ValueLabels overlay skips this series. */
     hideValueLabels?: boolean
+    /** When true, the series is excluded from d3 stack computation. Use for auxiliary
+     *  overlays (trend lines, moving averages) that should not affect cumulative area heights. */
+    excludeFromStack?: boolean
     /** Radius in px for data point dots. Set to 0 or omit to hide dots. */
     pointRadius?: number
     /** Arbitrary consumer data attached to this series. Flows through to TooltipContext

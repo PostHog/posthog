@@ -150,6 +150,7 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
                         dashPattern: [10, 3],
                         pointRadius: 0,
                         hideFromTooltip: true,
+                        excludeFromStack: true,
                         yAxisId,
                         meta,
                     })
@@ -164,6 +165,7 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
                             dashPattern: [1, 3],
                             pointRadius: 0,
                             hideFromTooltip: true,
+                            excludeFromStack: true,
                             hideValueLabels: true,
                         })
                     }
@@ -183,6 +185,7 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
                         dashPattern: [1, 3],
                         pointRadius: 0,
                         hideFromTooltip: true,
+                        excludeFromStack: true,
                         hideValueLabels: true,
                     })
                 }

@@ -119,7 +119,13 @@ function resolveDashedToIndex(idx: number | undefined, length: number): number |
     return Math.min(length - 1, rounded)
 }
 
-function createHatchPattern(ctx: CanvasRenderingContext2D, color: string): CanvasPattern | string {
+const hatchPatternCache = new Map<string, CanvasPattern>()
+
+function getHatchPattern(ctx: CanvasRenderingContext2D, color: string): CanvasPattern | string {
+    const cached = hatchPatternCache.get(color)
+    if (cached) {
+        return cached
+    }
     const size = 14
     const patCanvas = document.createElement('canvas')
     patCanvas.width = size
@@ -142,7 +148,12 @@ function createHatchPattern(ctx: CanvasRenderingContext2D, color: string): Canva
     patCtx.moveTo(size / 2, size + size / 2)
     patCtx.lineTo(size + size / 2, size / 2)
     patCtx.stroke()
-    return ctx.createPattern(patCanvas, 'repeat') ?? color
+    const pattern = ctx.createPattern(patCanvas, 'repeat')
+    if (pattern) {
+        hatchPatternCache.set(color, pattern)
+        return pattern
+    }
+    return color
 }
 
 interface AreaPoint {
@@ -198,7 +209,7 @@ export function drawArea(drawCtx: DrawContext, series: Series, yValues?: number[
 
             if (splitIdx >= 0 && splitIdx < top.length) {
                 const hatchStart = Math.max(0, splitIdx - 1)
-                ctx.fillStyle = createHatchPattern(ctx, series.color)
+                ctx.fillStyle = getHatchPattern(ctx, series.color)
                 fillAreaPath(ctx, top.slice(hatchStart), bottom.slice(hatchStart))
             }
         }
