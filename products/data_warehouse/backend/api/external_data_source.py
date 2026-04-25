@@ -198,12 +198,14 @@ def get_direct_postgres_connection_metadata(
     if not callable(metadata_fetcher):
         return fallback or {}
 
-    from posthog.temporal.data_imports.sources.postgres.postgres import source_requires_ssl
+    from posthog.temporal.data_imports.sources.postgres.postgres import SSLRequiredError, source_requires_ssl
 
     require_ssl = source_model is not None and source_requires_ssl(source_model, source_config)
 
     try:
         metadata = metadata_fetcher(source_config, team_id, require_ssl=require_ssl)
+    except SSLRequiredError:
+        return fallback or {}
     except Exception as error:
         capture_exception(error)
         return fallback or {}
