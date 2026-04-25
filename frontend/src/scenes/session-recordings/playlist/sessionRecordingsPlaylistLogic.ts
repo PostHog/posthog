@@ -1518,6 +1518,33 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
         ],
 
+        // Signals about user-scoped filters that may silently hide recordings the
+        // user expects to see. Used by the empty-state troubleshooting UI to surface
+        // affordances that clear individual filters so users aren't left staring at
+        // an unexplained empty list while the data exists elsewhere.
+        userScopedFilterHints: [
+            (s) => [s.filters, s.hideViewedRecordings],
+            (
+                filters,
+                hideViewedRecordings
+            ): {
+                hidesViewed: boolean
+                filterTestAccounts: boolean
+                isDefaultDateRange: boolean
+                anyActive: boolean
+            } => {
+                const hidesViewed = hideViewedRecordings !== false
+                const filterTestAccounts = filters.filter_test_accounts === true
+                const isDefaultDateRange = filters.date_from === '-3d' && !filters.date_to
+                return {
+                    hidesViewed,
+                    filterTestAccounts,
+                    isDefaultDateRange,
+                    anyActive: hidesViewed || filterTestAccounts || isDefaultDateRange,
+                }
+            },
+        ],
+
         allowHogQLFilters: [
             (s) => [s.featureFlags],
             (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.REPLAY_HOGQL_FILTERS],

@@ -878,6 +878,65 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
     })
 
+    describe('userScopedFilterHints', () => {
+        beforeEach(() => {
+            logic = sessionRecordingsPlaylistLogic({
+                logicKey: 'user-scoped-hints',
+            })
+            logic.mount()
+            playerSettingsLogic.mount()
+            // make sure other tests' lingering player settings don't leak in
+            playerSettingsLogic.actions.setHideViewedRecordings(false)
+        })
+
+        it('flags the default -3d date range as a user-scoped hint', () => {
+            expect(logic.values.userScopedFilterHints).toEqual({
+                hidesViewed: false,
+                filterTestAccounts: false,
+                isDefaultDateRange: true,
+                anyActive: true,
+            })
+        })
+
+        it('does not flag a custom date range', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ date_from: '-30d' })
+            }).toMatchValues({
+                userScopedFilterHints: {
+                    hidesViewed: false,
+                    filterTestAccounts: false,
+                    isDefaultDateRange: false,
+                    anyActive: false,
+                },
+            })
+        })
+
+        it('flags filter_test_accounts when active', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ filter_test_accounts: true, date_from: '-30d' })
+            }).toMatchValues({
+                userScopedFilterHints: expect.objectContaining({
+                    filterTestAccounts: true,
+                    isDefaultDateRange: false,
+                    anyActive: true,
+                }),
+            })
+        })
+
+        it('flags hideViewedRecordings when set', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ date_from: '-30d' })
+                playerSettingsLogic.actions.setHideViewedRecordings('current-user')
+            }).toMatchValues({
+                userScopedFilterHints: expect.objectContaining({
+                    hidesViewed: true,
+                    isDefaultDateRange: false,
+                    anyActive: true,
+                }),
+            })
+        })
+    })
+
     describe('convertUniversalFiltersToRecordingsQuery', () => {
         it('passes the visited_page filter as a recording property', () => {
             const result = convertUniversalFiltersToRecordingsQuery({

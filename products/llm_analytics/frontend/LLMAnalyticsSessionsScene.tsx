@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import posthog from 'posthog-js'
+import { useEffect, useRef } from 'react'
 
 import { IconChevronDown, IconChevronRight, IconInfo } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
@@ -19,6 +21,84 @@ import { useSortableColumns } from './hooks/useSortableColumns'
 import { buildApplyUrlStatePayload, llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmAnalyticsSessionsViewLogic } from './tabs/llmAnalyticsSessionsViewLogic'
 import { formatLLMCost, getTraceTimestamp, sanitizeTraceUrlSearchParams } from './utils'
+
+function LLMAnalyticsSessionsEmptyStateDetail(): JSX.Element {
+    const { setShouldFilterTestAccounts, setPropertyFilters, setDates } = useActions(llmAnalyticsSharedLogic)
+    const {
+        dateFilter,
+        propertyFilters: currentPropertyFilters,
+        shouldFilterTestAccounts,
+    } = useValues(llmAnalyticsSharedLogic)
+
+    const hasPropertyFilters = currentPropertyFilters.length > 0
+    const isShortDateRange =
+        !!dateFilter.dateFrom && /^-(?:[1-9]|1[0-9]|20)([hd])$/.test(dateFilter.dateFrom) && !dateFilter.dateTo
+    const hasActiveScopingFilters = shouldFilterTestAccounts || hasPropertyFilters || isShortDateRange
+
+    const reportedRef = useRef<string | null>(null)
+    useEffect(() => {
+        if (!hasActiveScopingFilters) {
+            return
+        }
+        const signature = `${shouldFilterTestAccounts ? 't' : ''}|${hasPropertyFilters ? 'p' : ''}|${
+            isShortDateRange ? 'd' : ''
+        }`
+        if (reportedRef.current === signature) {
+            return
+        }
+        reportedRef.current = signature
+        posthog.capture('llm_analytics_sessions_empty_with_active_filters', {
+            filter_test_accounts: shouldFilterTestAccounts,
+            has_property_filters: hasPropertyFilters,
+            is_short_date_range: isShortDateRange,
+            date_from: dateFilter.dateFrom ?? null,
+        })
+    }, [hasActiveScopingFilters, shouldFilterTestAccounts, hasPropertyFilters, isShortDateRange, dateFilter.dateFrom])
+
+    return (
+        <>
+            Try changing the date range or filters. AI sessions require the <code>$ai_session_id</code> property to
+            group related traces.{' '}
+            <Link to="https://posthog.com/docs/llm-analytics/sessions" target="_blank">
+                Learn more →
+            </Link>
+            {hasActiveScopingFilters && (
+                <span className="flex flex-wrap items-center justify-center gap-2 mt-2">
+                    {shouldFilterTestAccounts && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            data-attr="llm-analytics-sessions-empty-include-test-accounts"
+                            onClick={() => setShouldFilterTestAccounts(false)}
+                        >
+                            Include test accounts
+                        </LemonButton>
+                    )}
+                    {hasPropertyFilters && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            data-attr="llm-analytics-sessions-empty-clear-property-filters"
+                            onClick={() => setPropertyFilters([])}
+                        >
+                            Clear property filters
+                        </LemonButton>
+                    )}
+                    {isShortDateRange && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            data-attr="llm-analytics-sessions-empty-expand-date-range"
+                            onClick={() => setDates('-30d', null)}
+                        >
+                            Search last 30 days
+                        </LemonButton>
+                    )}
+                </span>
+            )}
+        </>
+    )
+}
 
 export function LLMAnalyticsSessionsScene(): JSX.Element {
     const { applyUrlState } = useActions(llmAnalyticsSharedLogic)
@@ -69,15 +149,7 @@ export function LLMAnalyticsSessionsScene(): JSX.Element {
             }}
             context={{
                 emptyStateHeading: 'There were no AI sessions in this period',
-                emptyStateDetail: (
-                    <>
-                        Try changing the date range or filters. AI sessions require the <code>$ai_session_id</code>{' '}
-                        property to group related traces.{' '}
-                        <Link to="https://posthog.com/docs/llm-analytics/sessions" target="_blank">
-                            Learn more →
-                        </Link>
-                    </>
-                ),
+                emptyStateDetail: <LLMAnalyticsSessionsEmptyStateDetail />,
                 columns: {
                     session_id: {
                         title: 'Session ID',
