@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
@@ -10,6 +11,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -22,6 +25,26 @@ import { maxLogic, mergeConversationHistory, mergeConversations } from './maxLog
 // Keep this stored across all projects, only display this once per device
 const AI_LIABILITY_NOTICE_STORAGE_KEY = 'posthog_ai_liability_notice_dismissed'
 const AI_DATA_PROCESSING_DISMISSED_STORAGE_KEY = 'posthog_ai_data_processing_dismissed'
+
+// Scenes where the user does not yet have a usable team (or is mid-activation),
+// so auto-loading conversation history would either fail or produce a confusing toast
+// for a feature they haven't reached yet.
+const PRE_ACTIVATION_SCENES = new Set<Scene>([
+    Scene.Login,
+    Scene.Login2FA,
+    Scene.EmailMFAVerify,
+    Scene.Signup,
+    Scene.InviteSignup,
+    Scene.PasswordReset,
+    Scene.PasswordResetComplete,
+    Scene.TwoFactorReset,
+    Scene.PreflightCheck,
+    Scene.Onboarding,
+    Scene.OnboardingCoupon,
+    Scene.OrganizationCreateFirst,
+    Scene.OrganizationCreationConfirm,
+    Scene.ProjectCreateFirst,
+])
 
 /** Tools available everywhere. These CAN be shadowed by contextual tools for scene-specific handling (e.g. to intercept insight creation). */
 export const STATIC_TOOLS: ToolRegistration[] = [
@@ -84,6 +107,8 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             ['featureFlags'],
             sidePanelStateLogic,
             ['sidePanelOpen', 'selectedTab'],
+            teamLogic,
+            ['currentTeamId'],
         ],
         actions: [router, ['locationChanged'], sidePanelStateLogic, ['openSidePanel']],
     })),
@@ -170,7 +195,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         acceptDataProcessing: async ({ testOnlyOverride }) => {
             await organizationLogic.asyncActions.updateOrganization({
                 is_ai_data_processing_approved: testOnlyOverride ?? true,
@@ -192,14 +217,48 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 logic.actions.openConversation(conversationId)
             }
         },
+        loadConversationHistorySuccess: () => {
+            cache.autoLoadInProgress = false
+        },
         loadConversationHistoryFailure: ({ errorObject }) => {
+            // The afterMount auto-load fires for every AI_FIRST user — including those mid-onboarding
+            // or right after login when the create-org modal is showing — so a failure there shouldn't
+            // surface a scary toast for a feature the user hasn't even opened yet. User-initiated
+            // loads (from Max itself) still toast on failure.
+            if (cache.autoLoadInProgress) {
+                cache.autoLoadInProgress = false
+                return
+            }
             lemonToast.error(errorObject?.data?.detail || 'Failed to load conversation history.')
         },
     })),
-    afterMount(({ actions, values }) => {
-        if (values.featureFlags[FEATURE_FLAGS.AI_FIRST]) {
-            actions.loadConversationHistory()
+    subscriptions(({ actions, values, cache }) => ({
+        currentTeamId: (currentTeamId: number | null) => {
+            if (currentTeamId && cache.autoLoadPending) {
+                cache.autoLoadPending = false
+                if (!PRE_ACTIVATION_SCENES.has(values.sceneId as Scene)) {
+                    cache.autoLoadInProgress = true
+                    actions.loadConversationHistory()
+                }
+            }
+        },
+    })),
+    afterMount(({ actions, values, cache }) => {
+        if (!values.featureFlags[FEATURE_FLAGS.AI_FIRST]) {
+            return
         }
+        if (PRE_ACTIVATION_SCENES.has(values.sceneId as Scene)) {
+            // Defer until the user has navigated past activation — the currentTeamId
+            // subscription fires the auto-load once a usable team becomes available.
+            cache.autoLoadPending = true
+            return
+        }
+        if (!values.currentTeamId) {
+            cache.autoLoadPending = true
+            return
+        }
+        cache.autoLoadInProgress = true
+        actions.loadConversationHistory()
     }),
 
     selectors({
