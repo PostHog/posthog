@@ -4,11 +4,14 @@ import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
+import { nextWideningSuggestion } from './troubleshootingSuggestions'
 
 export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
     const { setHideViewedRecordings } = useActions(playerSettingsLogic)
-    const { hiddenRecordingsCount } = useValues(sessionRecordingsPlaylistLogic)
+    const { hiddenRecordingsCount, filters } = useValues(sessionRecordingsPlaylistLogic)
     const { setShowSettings, setFilters } = useActions(sessionRecordingsPlaylistLogic)
+
+    const widening = nextWideningSuggestion(filters.date_from)
 
     return (
         <>
@@ -31,17 +34,19 @@ export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
                             </LemonButton>
                         </li>
                     )}
-                    <li>
-                        <LemonButton
-                            type="secondary"
-                            fullWidth={true}
-                            size="xsmall"
-                            data-attr="expand-replay-listing-from-default-seven-days-to-twenty-one"
-                            onClick={() => setFilters({ date_from: '-30d' })}
-                        >
-                            Search over the last 30 days
-                        </LemonButton>
-                    </li>
+                    {widening && (
+                        <li>
+                            <LemonButton
+                                type="secondary"
+                                fullWidth={true}
+                                size="xsmall"
+                                data-attr="replay-empty-state-widen-date-range"
+                                onClick={() => setFilters({ date_from: widening.value })}
+                            >
+                                {widening.label}
+                            </LemonButton>
+                        </li>
+                    )}
                     <LemonDivider dashed={true} />
                     <li>
                         <Link to="https://posthog.com/docs/session-replay/data-retention" target="_blank">
