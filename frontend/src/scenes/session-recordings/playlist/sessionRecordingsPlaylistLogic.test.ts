@@ -157,6 +157,37 @@ describe('sessionRecordingsPlaylistLogic', () => {
             })
         })
 
+        describe('error handling', () => {
+            it('flips sessionRecordingsAPIErrored on failure and clears it on retry success', async () => {
+                await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toMatchValues({
+                    sessionRecordingsAPIErrored: false,
+                })
+
+                useMocks({
+                    get: {
+                        '/api/environments/:team_id/session_recordings': () => [500, {}],
+                    },
+                })
+
+                await expectLogic(logic, () => logic.actions.loadSessionRecordings())
+                    .toDispatchActions(['loadSessionRecordingsFailure'])
+                    .toMatchValues({ sessionRecordingsAPIErrored: true })
+
+                useMocks({
+                    get: {
+                        '/api/environments/:team_id/session_recordings': () => [
+                            200,
+                            { results: listOfSessionRecordings },
+                        ],
+                    },
+                })
+
+                await expectLogic(logic, () => logic.actions.loadSessionRecordings())
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({ sessionRecordingsAPIErrored: false })
+            })
+        })
+
         describe('activeSessionRecording', () => {
             it('starts as null', () => {
                 expectLogic(logic).toMatchValues({ activeSessionRecording: undefined })

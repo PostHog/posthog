@@ -699,7 +699,23 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     await breakpoint(400) // Debounce for lots of quick filter changes
 
                     const startTime = performance.now()
-                    const response = await api.recordings.list(params)
+                    let response: RecordingsQueryResponse
+                    try {
+                        response = await api.recordings.list(params)
+                    } catch (error: unknown) {
+                        const isNetworkFailure =
+                            error instanceof TypeError || (error as { name?: string } | null)?.name === 'NetworkError'
+                        posthog.captureException(error, {
+                            feature: 'session-recordings-playlist',
+                            is_network_failure: isNetworkFailure,
+                        })
+                        lemonToast.error(
+                            isNetworkFailure
+                                ? 'Could not load recordings. Check your connection and try again.'
+                                : 'Failed to load recordings. Please try again.'
+                        )
+                        throw error
+                    }
                     const loadTimeMs = performance.now() - startTime
 
                     actions.reportRecordingsListFetched(loadTimeMs, values.filters, defaultRecordingDurationFilter)
@@ -859,7 +875,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             false,
             {
                 loadSessionRecordingsFailure: () => true,
-                loadSessionRecordingSuccess: () => false,
+                loadSessionRecordings: () => false,
+                loadSessionRecordingsSuccess: () => false,
                 setFilters: () => false,
                 setAdvancedFilters: () => false,
                 loadNext: () => false,

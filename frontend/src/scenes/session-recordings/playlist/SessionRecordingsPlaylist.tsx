@@ -1,6 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useRef } from 'react'
 
+import { LemonBanner } from '@posthog/lemon-ui'
+
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { FilmCameraHog } from 'lib/components/hedgehogs'
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -179,8 +181,9 @@ function PlayerWrapper({
         nextSessionRecording,
         pinnedFilters,
         sessionRecordingsResponseLoading,
+        sessionRecordingsAPIErrored,
     } = useValues(sessionRecordingsPlaylistLogic)
-    const { setFilters, resetFilters, setSelectedRecordingId, loadAllRecordings } =
+    const { setFilters, resetFilters, setSelectedRecordingId, loadAllRecordings, loadSessionRecordings } =
         useActions(sessionRecordingsPlaylistLogic)
 
     const { isFiltersExpanded } = useValues(playlistFiltersLogic)
@@ -257,6 +260,19 @@ function PlayerWrapper({
                             <span className="text-secondary">Loading recordings...</span>
                         </div>
                     </div>
+                </div>
+            ) : sessionRecordingsAPIErrored ? (
+                <div className="mt-20 px-4">
+                    <LemonBanner
+                        type="error"
+                        action={{
+                            children: 'Retry',
+                            onClick: () => loadSessionRecordings(),
+                            'data-attr': 'session-recordings-player-retry-load',
+                        }}
+                    >
+                        Error while trying to load recordings.
+                    </LemonBanner>
                 </div>
             ) : (
                 <div className="mt-20">
