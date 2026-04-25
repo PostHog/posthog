@@ -1491,7 +1491,9 @@ class TestOrganizationInviteRateLimits(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
     @patch("posthog.rate_limit.OrganizationInviteBurstThrottle.rate", new="5/hour")
-    def test_bulk_request_larger_than_cap_is_rejected_even_on_empty_bucket(self, _rate_limit_enabled_mock, _time_sensitive_mock):
+    def test_bulk_request_larger_than_cap_is_rejected_even_on_empty_bucket(
+        self, _rate_limit_enabled_mock, _time_sensitive_mock
+    ):
         response = self.client.post(
             "/api/organizations/@current/invites/bulk/",
             self._payload(6, seed="oversize"),
