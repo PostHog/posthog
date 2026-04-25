@@ -2090,6 +2090,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const iframe = values.rootFrame?.querySelector('iframe')
             const iframeHtml = iframe?.contentWindow?.document?.documentElement?.innerHTML
             if (!iframeHtml) {
+                posthog.capture('inspect dom clicked while not ready', {
+                    sessionRecordingId: values.sessionRecordingId,
+                    hasRootFrame: !!values.rootFrame,
+                    hasIframe: !!iframe,
+                })
+                lemonToast.warning('Recording is still loading, try again in a moment')
                 return
             }
 
