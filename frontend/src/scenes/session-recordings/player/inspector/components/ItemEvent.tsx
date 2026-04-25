@@ -120,8 +120,8 @@ export function ItemEvent({ item, groupCount, groupedItems }: ItemEventProps): J
 
     return (
         <div data-attr="item-event" className="font-light w-full @container">
-            <div className="flex flex-row w-full justify-between gap-2 items-center px-2 py-1 text-xs cursor-pointer">
-                <div className="truncate min-w-0">
+            <div className="flex flex-row w-full gap-2 items-center px-2 py-1 text-xs cursor-pointer">
+                <div className="truncate flex-1 min-w-0">
                     <PropertyKeyInfo
                         className="font-medium"
                         disablePopover={true}
@@ -132,15 +132,15 @@ export function ItemEvent({ item, groupCount, groupedItems }: ItemEventProps): J
                     />
                     {item.data.event === '$autocapture' ? <span className="text-secondary">(Autocapture)</span> : null}
                 </div>
-                <div className="flex items-center gap-1 min-w-0">
+                <div className="flex items-center gap-1 shrink-0">
                     {subValue ? (
                         <div
                             className={clsx(
                                 'text-secondary',
                                 // Only string sub-values (e.g. a promoted property's value) need to truncate; the
                                 // component sub-values like SummarizeWebVitals or ExceptionTitlePill manage their
-                                // own layout and shouldn't be clipped.
-                                isString(subValue) && 'truncate min-w-0 max-w-[60%] ml-auto'
+                                // own layout and must not be clipped or wrapped.
+                                isString(subValue) && 'truncate max-w-[40ch] min-w-0'
                             )}
                             title={isString(subValue) ? subValue : undefined}
                         >
@@ -301,7 +301,7 @@ function GroupedEventRow({ event, index }: { event: InspectorListItemEvent; inde
                         className="shrink-0 text-secondary !py-0"
                     />
                     <PropertyKeyInfo
-                        className="truncate min-w-0"
+                        className="truncate flex-1 min-w-0"
                         disablePopover
                         disableIcon
                         ellipsis
@@ -310,7 +310,7 @@ function GroupedEventRow({ event, index }: { event: InspectorListItemEvent; inde
                     />
                     {promotedValue != null && promotedValue !== '' ? (
                         <span
-                            className="text-secondary truncate ml-auto pl-2 pr-2 min-w-0 max-w-[50%]"
+                            className="text-secondary truncate shrink-0 max-w-[40ch] pl-2 pr-2"
                             title={isString(promotedValue) ? promotedValue : undefined}
                         >
                             {String(promotedValue)}
