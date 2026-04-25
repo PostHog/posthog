@@ -86,6 +86,48 @@ class TestFKDiscoveryCanary(unittest.TestCase):
         assert fk.target_model is Dashboard
         assert fk.scope == "team"
 
+    def test_many_related_unscoped_is_flagged(self) -> None:
+        """Canary for ManyRelatedField — unscoped many=True PK field must surface as is_many=True, is_already_scoped=False."""
+        from products.dashboards.backend.models.dashboard import Dashboard
+
+        class _VulnerableManySerializer(serializers.ModelSerializer):
+            related_dashboards = serializers.PrimaryKeyRelatedField(
+                many=True, queryset=Dashboard.objects.all(), required=False
+            )
+
+            class Meta:
+                model = Insight
+                fields = ["id", "related_dashboards"]
+
+        result = discover_writable_tenant_fks(_VulnerableManySerializer)
+        assert len(result) == 1, "canary failed: M2M many=True field not discovered"
+        fk = result[0]
+        assert fk.is_many is True, "canary failed: M2M field not marked is_many"
+        assert fk.is_already_scoped is False, (
+            "canary failed: discovery marked an UNSCOPED many=True PK field as already_scoped"
+        )
+        assert fk.target_model is Dashboard
+
+    def test_many_related_scoped_is_marked_already_scoped(self) -> None:
+        from products.dashboards.backend.models.dashboard import Dashboard
+
+        class _SafeManySerializer(serializers.ModelSerializer):
+            related_dashboards = TeamScopedPrimaryKeyRelatedField(
+                many=True, queryset=Dashboard.objects.all(), required=False
+            )
+
+            class Meta:
+                model = Insight
+                fields = ["id", "related_dashboards"]
+
+        result = discover_writable_tenant_fks(_SafeManySerializer)
+        assert len(result) == 1
+        fk = result[0]
+        assert fk.is_many is True
+        assert fk.is_already_scoped is True, (
+            "canary failed: discovery did not recognize TeamScopedPrimaryKeyRelatedField(many=True) as scoped"
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
