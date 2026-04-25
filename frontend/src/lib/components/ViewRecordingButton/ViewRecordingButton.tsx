@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { isValidElement, ReactNode, useEffect } from 'react'
+import { isValidElement, ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconWarning } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
@@ -93,6 +93,32 @@ export default function ViewRecordingButton({
         hasRecording,
     })
 
+    // Transient optimistic feedback: tab-swap navigation has no immediate mutation
+    // near the click target, so the click can register as a $dead_click and users
+    // hammer the button. Flipping to a spinner gives both visual feedback and a
+    // DOM mutation that satisfies the dead-click heuristic.
+    const [isOpening, setIsOpening] = useState(false)
+    const openingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+    useEffect(() => {
+        return () => {
+            if (openingTimeoutRef.current) {
+                clearTimeout(openingTimeoutRef.current)
+            }
+        }
+    }, [])
+
+    const handleClick = useCallback((): void => {
+        setIsOpening(true)
+        if (openingTimeoutRef.current) {
+            clearTimeout(openingTimeoutRef.current)
+        }
+        openingTimeoutRef.current = setTimeout(() => setIsOpening(false), 600)
+        onClick()
+    }, [onClick])
+
+    const showLoading = isOpening || props.loading
+
     const { recordingViewed, recordingViewedLoading } = useValues(
         sessionRecordingViewedLogic({ sessionRecordingId: sessionId ?? '' })
     )
@@ -124,7 +150,7 @@ export default function ViewRecordingButton({
     if (variant === ViewRecordingButtonVariant.Link) {
         return (
             <Link
-                onClick={disabledReason || props.loading ? undefined : onClick}
+                onClick={disabledReason || showLoading ? undefined : handleClick}
                 disabledReason={
                     typeof disabledReason === 'string'
                         ? disabledReason
@@ -134,13 +160,13 @@ export default function ViewRecordingButton({
                 }
                 className={clsx(
                     props.className,
-                    props.loading && 'opacity-50',
+                    showLoading && 'opacity-50',
                     props.fullWidth && 'w-full',
                     disabledReason && 'opacity-50'
                 )}
                 data-attr={props['data-attr']}
             >
-                {props.loading ? <Spinner className="text-sm" /> : null}
+                {showLoading ? <Spinner className="text-sm" /> : null}
                 {label ?? 'View recording'}
                 {sideIcon}
                 {maybeUnwatchedIndicator}
@@ -153,12 +179,13 @@ export default function ViewRecordingButton({
             <LemonButton
                 disabledReason={disabledReason}
                 disabledReasonInteractive={isValidElement(disabledReason)}
-                onClick={onClick}
+                onClick={handleClick}
                 icon={sideIcon}
                 tooltip="View recording"
                 aria-label="View recording"
                 noPadding={noPadding}
                 {...props}
+                loading={showLoading}
             />
         )
     }
@@ -167,9 +194,10 @@ export default function ViewRecordingButton({
         <LemonButton
             disabledReason={disabledReason}
             disabledReasonInteractive={isValidElement(disabledReason)}
-            onClick={onClick}
+            onClick={handleClick}
             sideIcon={sideIcon}
             {...props}
+            loading={showLoading}
         >
             <div className="flex items-center gap-2 whitespace-nowrap">
                 <span>{label ? label : 'View recording'}</span>
