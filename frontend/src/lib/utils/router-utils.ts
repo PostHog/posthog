@@ -37,6 +37,11 @@ function addProjectIdUnlessPresent(path: string, teamId?: TeamType['id']): strin
         if (path == '/') {
             return prefix
         }
+        // Bare `/project` (no team ID) means "current project root" — return prefix
+        // instead of producing the broken `/project/<id>/project` duplicate segment.
+        if (path === '/project' || path === '/project/') {
+            return prefix
+        }
     } catch {
         // Not logged in
     }

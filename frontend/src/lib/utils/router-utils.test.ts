@@ -13,4 +13,13 @@ describe('router-utils', () => {
         const altered = addProjectIdIfMissing('/project/phc_gE7SWBNBgFbA4eQ154KPXebyB8KyLJuypR8jg1DSo9Z/replay', 123)
         expect(altered).toEqual('/project/phc_gE7SWBNBgFbA4eQ154KPXebyB8KyLJuypR8jg1DSo9Z/replay')
     })
+    it('does not duplicate the project segment when the path is bare /project', () => {
+        // Regression: previously produced `/project/123/project`, which was a 404.
+        const altered = addProjectIdIfMissing('/project', 123)
+        expect(altered).toEqual('/project/123')
+    })
+    it('does not duplicate the project segment when the path is /project/', () => {
+        const altered = addProjectIdIfMissing('/project/', 123)
+        expect(altered).toEqual('/project/123')
+    })
 })

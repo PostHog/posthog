@@ -680,8 +680,15 @@ export const redirects: Record<
     '/me/settings': urls.settings('user'),
     '/new': urls.newTab(),
     '/live-debugger': urls.liveDebugger(),
+    // Bare `/project` (with no team ID) is not stripped by `removeProjectIdIfPresent` and would
+    // otherwise hit the wildcard 404 route. Redirect to the project root so the homepage handler runs.
+    '/project': urls.projectRoot(),
+    '/organization': urls.settings('organization'),
+    '/organization/projects': urls.settings('organization'),
     '/organization/members': urls.settings('organization'),
     '/organization/settings': urls.settings('organization'),
+    // `/project/<id>/products` strips to `/products` here — used to be a discovery route, now lives under search.
+    '/products': urls.newTab(),
     '/pipeline': urls.sources(),
     '/pipelines': urls.sources(),
     '/pipeline/new/site-app': urls.webScriptsNew(),
