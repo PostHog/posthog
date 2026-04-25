@@ -69,7 +69,22 @@ export function CollapsibleExceptionHeader({
                         className={cn('text-[var(--gray-8)] leading-6 whitespace-pre-wrap', {
                             'line-clamp-1': truncate,
                             'line-clamp-3': !truncate && !expanded,
+                            'cursor-pointer': !truncate && isClamped,
                         })}
+                        role={!truncate && isClamped ? 'button' : undefined}
+                        tabIndex={!truncate && isClamped ? 0 : undefined}
+                        aria-expanded={!truncate && isClamped ? expanded : undefined}
+                        onClick={!truncate && isClamped ? () => setExpanded(!expanded) : undefined}
+                        onKeyDown={
+                            !truncate && isClamped
+                                ? (e) => {
+                                      if (e.key === 'Enter' || e.key === ' ') {
+                                          e.preventDefault()
+                                          setExpanded(!expanded)
+                                      }
+                                  }
+                                : undefined
+                        }
                     >
                         {loading ? <LemonSkeleton className="w-[50%] h-2" /> : value}
                     </div>
