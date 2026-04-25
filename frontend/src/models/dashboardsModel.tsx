@@ -157,11 +157,22 @@ export const dashboardsModel = kea<dashboardsModelType>([
                         url ||
                         `api/environments/${teamLogic.values.currentTeamId}/dashboards/?limit=2000&exclude_generated=true`
 
-                    const dashboards: PaginatedResponse<DashboardType> = await api.get(apiUrl)
+                    try {
+                        const dashboards: PaginatedResponse<DashboardType> = await api.get(apiUrl)
 
-                    return {
-                        ...dashboards,
-                        results: dashboards.results?.map((dashboard) => getQueryBasedDashboard(dashboard)!),
+                        return {
+                            ...dashboards,
+                            results: dashboards.results?.map((dashboard) => getQueryBasedDashboard(dashboard)!),
+                        }
+                    } catch (error: any) {
+                        // Stale `currentTeamId` in client state can produce a 404 on the environment-scoped
+                        // dashboards list. Reconcile by refreshing the team, and return an empty page so the
+                        // app shell doesn't surface an uncaught exception while the team loads.
+                        if (error.status === 404) {
+                            teamLogic.actions.loadCurrentTeam()
+                            return { count: 0, next: null, previous: null, results: [] }
+                        }
+                        throw error
                     }
                 },
             },

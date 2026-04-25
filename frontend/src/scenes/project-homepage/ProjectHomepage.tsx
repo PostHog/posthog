@@ -46,14 +46,26 @@ export const scene: SceneExport = {
 function HomePageContent(): JSX.Element {
     const { dashboardLogicProps } = useValues(projectHomepageLogic)
     const { showInviteModal } = useActions(inviteLogic)
-    const { dashboard } = useValues(dashboardLogic(dashboardLogicProps as DashboardLogicProps))
+    const { dashboard, error404, dashboardFailedToLoad } = useValues(
+        dashboardLogic(dashboardLogicProps as DashboardLogicProps)
+    )
     const { showConfigurePinnedTabsModal } = useActions(navigationLogic)
-
     // TODO: Remove this after AA test is over
     const { featureFlags } = useValues(featureFlagLogic)
     const aaTestBayesianLegacy = featureFlags[FEATURE_FLAGS.AA_TEST_BAYESIAN_LEGACY]
     const aaTestBayesianNew = featureFlags[FEATURE_FLAGS.AA_TEST_BAYESIAN_NEW]
     const isAiFirst = featureFlags[FEATURE_FLAGS.AI_FIRST]
+
+    // If the primary dashboard has been deleted or its load otherwise failed (e.g. revoked access),
+    // surface the NewTabScene fallback instead of letting the embedded `Dashboard` render an inline
+    // NotFound on the first thing a user sees after login.
+    if (error404 || dashboardFailedToLoad) {
+        return (
+            <div className="-m-4">
+                <NewTabScene />
+            </div>
+        )
+    }
 
     return (
         <SceneContent className={cn('ProjectHomepage', !isAiFirst && 'p-4')}>

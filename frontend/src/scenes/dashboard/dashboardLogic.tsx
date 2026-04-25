@@ -371,6 +371,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         return getQueryBasedDashboard(dashboard)
                     } catch (error: any) {
                         if (error.status === 404) {
+                            // Preserve a previously loaded dashboard on transient 404s (e.g. a refresh
+                            // triggered by an optimistic mutation racing a delete in another tab).
+                            // Without this, the implicit loader reducer would overwrite `dashboard`
+                            // with null and the scene would flip to NotFound after a successful render.
+                            if (values.dashboard) {
+                                return values.dashboard
+                            }
                             return null
                         }
                         if (error.status === 403 && error.code === 'permission_denied') {
@@ -556,14 +563,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     if (fromDashboard !== props.id) {
                         return values.dashboard
                     }
-                    const dashboard: DashboardType<InsightModel> = await api.update(
-                        `api/environments/${teamLogic.values.currentTeamId}/dashboards/${props.id}/move_tile`,
-                        {
-                            tile,
-                            toDashboard,
+                    try {
+                        const dashboard: DashboardType<InsightModel> = await api.update(
+                            `api/environments/${teamLogic.values.currentTeamId}/dashboards/${props.id}/move_tile`,
+                            {
+                                tile,
+                                toDashboard,
+                            }
+                        )
+                        return getQueryBasedDashboard(dashboard)
+                    } catch (error: any) {
+                        if (error.status === 404) {
+                            lemonToast.error('Tile or destination dashboard no longer exists')
+                            return values.dashboard
                         }
-                    )
-                    return getQueryBasedDashboard(dashboard)
+                        throw error
+                    }
                 },
                 copyToDashboard: async ({ tile, fromDashboard, toDashboard, toDashboardName }) => {
                     if (!tile?.insight && !tile?.text && !tile?.button_tile) {
@@ -1795,7 +1810,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         tileStreamingFailure: ({ error }) => {
             if (error?.message?.includes('404') || error?.status === 404) {
-                actions.dashboardNotFound()
+                // Only flip to NotFound on the initial load — once metadata has populated the dashboard,
+                // a transient streaming 404 (e.g. a deleted tile racing the stream) should not replace
+                // the rendered dashboard with the not-found page.
+                if (!values.dashboard) {
+                    actions.dashboardNotFound()
+                } else {
+                    lemonToast.error('Dashboard streaming failed: some tiles could not be loaded')
+                }
             } else if (error?.message?.includes('403') || error?.status === 403) {
                 actions.setAccessDeniedToDashboard()
             } else {
@@ -2289,9 +2311,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             sharedListeners.handleDashboardLoadComplete,
         ],
         loadDashboardMetadataSuccess: ({ dashboard }) => {
-            if (!dashboard) {
+            // Only flip to the sticky `dashboardNotFound` state on an initial 404 — when streaming
+            // metadata returns null after a previous successful load (e.g. a transient/auto-refresh
+            // race), preserve the already-rendered dashboard instead of dropping the user onto the
+            // NotFound page until the next reload.
+            if (!dashboard && !values.dashboard) {
                 actions.dashboardNotFound()
-                return // We hit a 404
             }
         },
         tileStreamingComplete: sharedListeners.handleDashboardLoadComplete,
