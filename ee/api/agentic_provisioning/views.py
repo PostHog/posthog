@@ -1805,6 +1805,18 @@ def deep_links(request: Request) -> Response:
     if error := verify_api_version(request):
         return error
 
+    if not access_token.application.provisioning_can_issue_deep_links:
+        _capture_provisioning_event("deep_link_created", "not_enabled")
+        return Response(
+            {
+                "error": {
+                    "code": "deep_links_not_enabled",
+                    "message": "Deep links are not enabled for this partner",
+                }
+            },
+            status=403,
+        )
+
     purpose = request.data.get("purpose", "dashboard")
     if purpose not in SUPPORTED_DEEP_LINK_PURPOSES:
         _capture_provisioning_event("deep_link_created", "unsupported_purpose", purpose=purpose)

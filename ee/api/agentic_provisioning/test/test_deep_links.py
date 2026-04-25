@@ -37,6 +37,19 @@ class TestDeepLinks(ProvisioningTestBase):
         res = self._post_signed("/api/agentic/provisioning/deep_links", data={"purpose": "dashboard"})
         assert res.status_code == 401
 
+    def test_deep_link_denied_when_partner_not_allowed(self):
+        from posthog.models.oauth import OAuthApplication
+
+        token = self._get_bearer_token()
+        OAuthApplication.objects.all().update(provisioning_can_issue_deep_links=False)
+        res = self._post_signed_with_bearer(
+            "/api/agentic/provisioning/deep_links",
+            data={"purpose": "dashboard"},
+            token=token,
+        )
+        assert res.status_code == 403
+        assert res.json()["error"]["code"] == "deep_links_not_enabled"
+
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
 class TestAgenticLogin(ProvisioningTestBase):
