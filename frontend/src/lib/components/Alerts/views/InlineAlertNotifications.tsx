@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconExternal, IconTrash } from '@posthog/icons'
+import { IconExternal, IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
@@ -55,6 +55,7 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
         selectedType,
         slackChannelValue,
         webhookUrl,
+        editingHogFunctionId,
     } = useValues(logic)
     const {
         addPendingNotification,
@@ -63,6 +64,9 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
         setSelectedType,
         setSlackChannelValue,
         setWebhookUrl,
+        startEditingHogFunction,
+        cancelEditingHogFunction,
+        saveEditingHogFunction,
     } = useActions(logic)
 
     const slackLogic = slackIntegrationLogic({ id: firstSlackIntegration?.id ?? 0 })
@@ -118,6 +122,7 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
                         <div className="space-y-2">
                             {existingHogFunctions.map((hf) => {
                                 const { type: destType, detail } = getHogFunctionDestination(hf, slackChannels)
+                                const isEditing = editingHogFunctionId === hf.id
                                 return (
                                     <div
                                         key={hf.id}
@@ -129,12 +134,26 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
                                                 <LemonTag type={hf.enabled ? 'success' : 'default'} size="small">
                                                     {hf.enabled ? 'Active' : 'Paused'}
                                                 </LemonTag>
+                                                {isEditing && (
+                                                    <LemonTag type="warning" size="small">
+                                                        Editing
+                                                    </LemonTag>
+                                                )}
                                             </div>
                                             {detail && (
                                                 <span className="text-xs text-muted-alt truncate block">{detail}</span>
                                             )}
                                         </div>
                                         <div className="flex items-center gap-1 shrink-0">
+                                            <LemonButton
+                                                icon={<IconPencil />}
+                                                size="xsmall"
+                                                onClick={() =>
+                                                    isEditing ? cancelEditingHogFunction() : startEditingHogFunction(hf)
+                                                }
+                                                tooltip={isEditing ? 'Cancel editing' : 'Edit destination'}
+                                                active={isEditing}
+                                            />
                                             <LemonButton
                                                 icon={<IconExternal />}
                                                 size="xsmall"
@@ -180,6 +199,11 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
             )}
 
             <div className="space-y-3 border rounded p-3">
+                {editingHogFunctionId && (
+                    <div className="text-xs text-muted-alt">
+                        Editing existing destination — change the channel or URL below and save.
+                    </div>
+                )}
                 <div className="flex gap-2 items-end">
                     <div className="flex-1">
                         <LemonSelect
@@ -187,6 +211,11 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
                             options={ALERT_NOTIFICATION_TYPE_OPTIONS}
                             value={selectedType}
                             onChange={(value) => setSelectedType(value)}
+                            disabledReason={
+                                editingHogFunctionId
+                                    ? 'Delete this destination and add a new one to change its type.'
+                                    : undefined
+                            }
                         />
                     </div>
                 </div>
@@ -214,24 +243,52 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
                     />
                 )}
 
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    onClick={handleAdd}
-                    disabledReason={
-                        selectedType === ALERT_NOTIFICATION_TYPE_SLACK
-                            ? !firstSlackIntegration
-                                ? 'Connect Slack first'
-                                : !slackChannelValue
-                                  ? 'Select a Slack channel'
-                                  : undefined
-                            : !webhookUrl
-                              ? 'Enter a webhook URL'
-                              : undefined
-                    }
-                >
-                    Add notification
-                </LemonButton>
+                <div className="flex gap-2">
+                    {editingHogFunctionId ? (
+                        <>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={() => saveEditingHogFunction()}
+                                disabledReason={
+                                    selectedType === ALERT_NOTIFICATION_TYPE_SLACK
+                                        ? !firstSlackIntegration
+                                            ? 'Connect Slack first'
+                                            : !slackChannelValue
+                                              ? 'Select a Slack channel'
+                                              : undefined
+                                        : !webhookUrl
+                                          ? 'Enter a webhook URL'
+                                          : undefined
+                                }
+                            >
+                                Save changes
+                            </LemonButton>
+                            <LemonButton type="secondary" size="small" onClick={() => cancelEditingHogFunction()}>
+                                Cancel
+                            </LemonButton>
+                        </>
+                    ) : (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={handleAdd}
+                            disabledReason={
+                                selectedType === ALERT_NOTIFICATION_TYPE_SLACK
+                                    ? !firstSlackIntegration
+                                        ? 'Connect Slack first'
+                                        : !slackChannelValue
+                                          ? 'Select a Slack channel'
+                                          : undefined
+                                    : !webhookUrl
+                                      ? 'Enter a webhook URL'
+                                      : undefined
+                            }
+                        >
+                            Add notification
+                        </LemonButton>
+                    )}
+                </div>
             </div>
         </div>
     )

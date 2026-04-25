@@ -48,6 +48,9 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
         setSelectedType: (selectedType: AlertNotificationType) => ({ selectedType }),
         setSlackChannelValue: (slackChannelValue: string | null) => ({ slackChannelValue }),
         setWebhookUrl: (webhookUrl: string) => ({ webhookUrl }),
+        startEditingHogFunction: (hogFunction: HogFunctionType) => ({ hogFunction }),
+        cancelEditingHogFunction: true,
+        saveEditingHogFunction: true,
     }),
 
     reducers({
@@ -83,6 +86,13 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
             {
                 // Optimistic removal so the item disappears immediately
                 deleteExistingHogFunction: (state, { hogFunction }) => state.filter((hf) => hf.id !== hogFunction.id),
+            },
+        ],
+        editingHogFunctionId: [
+            null as string | null,
+            {
+                startEditingHogFunction: (_, { hogFunction }) => hogFunction.id,
+                cancelEditingHogFunction: () => null,
             },
         ],
     }),
@@ -121,6 +131,9 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
             }
         },
         deleteExistingHogFunction: async ({ hogFunction }) => {
+            if (values.editingHogFunctionId === hogFunction.id) {
+                actions.cancelEditingHogFunction()
+            }
             await deleteWithUndo({
                 endpoint: `projects/${values.currentProjectId}/hog_functions`,
                 object: {
@@ -133,6 +146,62 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
                     }
                 },
             })
+        },
+        startEditingHogFunction: ({ hogFunction }) => {
+            const channelValue = hogFunction.inputs?.channel?.value
+            const urlValue = hogFunction.inputs?.url?.value
+            if (typeof channelValue === 'string' && channelValue.length > 0) {
+                actions.setSelectedType(ALERT_NOTIFICATION_TYPE_SLACK)
+                actions.setSlackChannelValue(channelValue)
+                actions.setWebhookUrl('')
+            } else if (typeof urlValue === 'string' && urlValue.length > 0) {
+                actions.setSelectedType(ALERT_NOTIFICATION_TYPE_WEBHOOK)
+                actions.setWebhookUrl(urlValue)
+                actions.setSlackChannelValue(null)
+            }
+        },
+        cancelEditingHogFunction: () => {
+            actions.setSlackChannelValue(null)
+            actions.setWebhookUrl('')
+        },
+        saveEditingHogFunction: async () => {
+            const hogFunctionId = values.editingHogFunctionId
+            if (!hogFunctionId) {
+                return
+            }
+            const existing = values.existingHogFunctions.find((hf) => hf.id === hogFunctionId)
+            if (!existing) {
+                return
+            }
+
+            let updatedInputs: Record<string, unknown>
+            if (values.selectedType === ALERT_NOTIFICATION_TYPE_SLACK) {
+                if (!values.slackChannelValue) {
+                    return
+                }
+                const channelId = values.slackChannelValue.split('|')[0]
+                updatedInputs = {
+                    ...existing.inputs,
+                    channel: { value: channelId },
+                }
+            } else {
+                if (!values.webhookUrl) {
+                    return
+                }
+                updatedInputs = {
+                    ...existing.inputs,
+                    url: { value: values.webhookUrl },
+                }
+            }
+
+            try {
+                await api.hogFunctions.update(hogFunctionId, { inputs: updatedInputs })
+                lemonToast.success('Notification updated.')
+                actions.cancelEditingHogFunction()
+                actions.loadExistingHogFunctions()
+            } catch {
+                lemonToast.error('Failed to update notification. Please try again.')
+            }
         },
 
         createPendingHogFunctions: async ({ alertId, alertName }) => {
