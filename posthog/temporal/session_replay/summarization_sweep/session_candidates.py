@@ -6,7 +6,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.schema import PropertyOperator, RecordingPropertyFilter, RecordingsQuery
 
-from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
@@ -111,7 +111,7 @@ def fetch_recent_session_ids(
             having_predicates=_BASELINE_HAVING_PREDICATES,
         )
 
-    with tags_context(product=Product.SESSION_SUMMARY):
+    with tags_context(product=Product.SESSION_SUMMARY, feature=Feature.ENRICHMENT):
         result = SessionRecordingListFromQuery(
             team=team,
             query=query,
