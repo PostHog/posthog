@@ -447,10 +447,7 @@ def _handle_existing_user(
     code_challenge: str = "",
     code_challenge_method: str = "S256",
 ) -> Response:
-    # Only server-to-server partners with shared secrets skip consent.
-    # Everything else (pkce, future methods) requires browser approval.
-    TRUSTED_AUTH_METHODS = ("hmac", "bearer")
-    if partner and partner.provisioning_auth_method not in TRUSTED_AUTH_METHODS:
+    if partner and not partner.provisioning_skip_existing_user_consent:
         if not code_challenge:
             return Response(
                 {
@@ -725,7 +722,6 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
         _capture_provisioning_event("authorize", "auto_created_project", team_id=team.id)
 
     # Re-check partner is still active (could have been deactivated since account_requests)
-    TRUSTED_AUTH_METHODS = ("hmac", "bearer")
     partner_id = pending.get("partner_id", "")
     is_trusted_partner = not partner_id
     if partner_id:
@@ -735,7 +731,7 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
                 cache.delete(pending_key)
                 _capture_provisioning_event("authorize", "partner_deactivated")
                 return HttpResponseRedirect(f"{settings.SITE_URL}?error=partner_deactivated")
-            is_trusted_partner = partner_app.provisioning_auth_method in TRUSTED_AUTH_METHODS
+            is_trusted_partner = partner_app.provisioning_skip_existing_user_consent
         except OAuthApplication.DoesNotExist:
             pass
 
