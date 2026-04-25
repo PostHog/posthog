@@ -168,12 +168,14 @@ jobs:
                   VR_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
                   VR_PR: ${{ github.event.pull_request.number }}
               run: |
+                  PURPOSE=${{ github.event_name == 'push' && 'observe' || 'review' }}
                   RUN_ID=$(vr run create \
                     --type storybook \
                     --baseline frontend/snapshots.yml \
                     --branch "$VR_BRANCH" \
                     --commit "$VR_COMMIT" \
                     --pr "$VR_PR" \
+                    --purpose "$PURPOSE" \
                     --token "$VR_TOKEN")
                   echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
 
@@ -467,8 +469,12 @@ jobs:
                   fi
 
                   if [[ "${{ needs.vr-complete.result }}" != "success" && "${{ needs.vr-complete.result }}" != "skipped" ]]; then
-                    echo "Visual Review did not complete successfully (result: ${{ needs.vr-complete.result }})."
-                    exit 1
+                    if [[ "${{ github.event_name }}" == "push" ]]; then
+                      echo "Visual Review reported changes on master (result: ${{ needs.vr-complete.result }}). Not gating — master runs are observational."
+                    else
+                      echo "Visual Review did not complete successfully (result: ${{ needs.vr-complete.result }})."
+                      exit 1
+                    fi
                   fi
 
                   echo "All jobs passed or were skipped successfully."
