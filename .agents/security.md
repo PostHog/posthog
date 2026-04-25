@@ -119,7 +119,10 @@ All tenant-scoped DRF viewsets with detail endpoints have automated cross-team I
 Two classes of IDOR are covered:
 
 - **Cross-team detail access** (`test_cross_team_get_detail` / `_patch_detail` / `_delete_detail`) — attacker hits the detail URL with the victim's pk on their own root URL. Verifies queryset scoping.
-- **Writable FK in PATCH** (`test_cross_tenant_fk_in_patch`) — attacker PATCHes their **own** resource with a body that smuggles a victim's tenant FK pk into a writable serializer field. Verifies the field's queryset is scoped (e.g., via `TeamScopedPrimaryKeyRelatedField`) so the cross-tenant FK is rejected. The framework discovers writable tenant FKs from each viewset's serializer via `posthog/test/idor/fk_discovery.py`; tenant-scoped target models are pulled from `.semgrep/rules/idor-team-scoped-models.yaml` to avoid drift.
+- **Writable FK in PATCH** (`test_cross_tenant_fk_in_patch`) — attacker PATCHes their **own** resource with a body that smuggles a victim's tenant FK pk into a writable serializer field. Verifies the field's queryset is scoped (e.g., via `TeamScopedPrimaryKeyRelatedField`) so the cross-tenant FK is rejected. The framework discovers writable tenant FKs from each viewset's serializer via `posthog/test/idor/fk_discovery.py`; tenant-scoped target models are pulled from `.semgrep/rules/idor-team-scoped-models.yaml` to avoid drift. Three FK shapes are detected:
+  - **Explicit** — `serializers.PrimaryKeyRelatedField(...)` (and subclasses).
+  - **Implicit** — `<thing>_id = IntegerField()` / `UUIDField()` / `CharField()`, where `Meta.model._meta.get_field('<thing>')` resolves to a `ForeignKey`. Common in older serializers that hand-roll validation in `validate()`.
+  - **M2M** — `PrimaryKeyRelatedField(many=True, ...)` (or M2M model fields surfaced as `ManyRelatedField`). PATCH replaces the M2M set; the test sends `[victim_pk]` and verifies the related manager doesn't include it. Empty-list edge case: PATCHing `[]` clears the M2M, so tests run on a freshly-built attacker-owned instance to avoid order-dependence.
 
 **When you add a new tenant-scoped viewset:**
 
