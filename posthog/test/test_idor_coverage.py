@@ -178,15 +178,17 @@ class TestAutomatedIDORCoverage(IDORTestMixin, APIBaseTest):
         victim_fk_pk: Any = victim_fk.pk
 
         # 3. PATCH body — top-level keys map directly; nested keys wrap once.
+        #    M2M fields take a list (DRF replaces the set on PATCH).
+        scalar_value: Any = [victim_fk_pk] if fk.is_many else victim_fk_pk
         body: dict[str, Any]
         if fk.nested_path:
-            inner: dict[str, Any] = {fk.serializer_field_name: victim_fk_pk}
+            inner: dict[str, Any] = {fk.serializer_field_name: scalar_value}
             wrapper = inner
             for part in reversed(fk.nested_path):
                 wrapper = {part: wrapper}
             body = wrapper
         else:
-            body = {fk.serializer_field_name: victim_fk_pk}
+            body = {fk.serializer_field_name: scalar_value}
 
         response = self.client.patch(url, data=body, format="json")  # type: ignore[attr-defined]
 
@@ -205,24 +207,64 @@ class TestAutomatedIDORCoverage(IDORTestMixin, APIBaseTest):
             # status code alone here.
             return
 
-        attr = fk.source_attr or fk.serializer_field_name
         reloaded = case.model_cls.objects.filter(pk=instance.pk).first()  # type: ignore[attr-defined]
         if reloaded is None:
             return
-        try:
-            actual = getattr(reloaded, attr + "_id", None) or getattr(reloaded, attr, None)
-        except Exception:
-            actual = None
-        if actual is None:
+
+        if fk.is_many:
+            _assert_m2m_does_not_contain_victim(reloaded, fk, victim_fk_pk, url, case)
             return
-        if hasattr(actual, "pk"):
-            actual = actual.pk
-        if actual == victim_fk_pk:
-            raise AssertionError(
-                f"IDOR: PATCH {url} bound attacker's {case.model_cls.__name__}.{attr} "
-                f"to victim's {fk.target_model.__name__}(pk={victim_fk_pk}) — "
-                f"writable FK accepted across tenant boundary"
-            )
+
+        _assert_single_fk_not_bound_to_victim(reloaded, fk, victim_fk_pk, url, case)
+
+
+def _assert_single_fk_not_bound_to_victim(
+    reloaded: object,
+    fk: WritableFKField,
+    victim_fk_pk: Any,
+    url: str,
+    case: IDORTestCase,
+) -> None:
+    """For top-level single-FK PATCH: reload, fetch the FK attr, compare to victim pk."""
+    attr = fk.source_attr or fk.serializer_field_name
+    try:
+        actual = getattr(reloaded, attr + "_id", None) or getattr(reloaded, attr, None)
+    except Exception:
+        actual = None
+    if actual is None:
+        return
+    if hasattr(actual, "pk"):
+        actual = actual.pk
+    if actual == victim_fk_pk:
+        raise AssertionError(
+            f"IDOR: PATCH {url} bound attacker's {case.model_cls.__name__}.{attr} "
+            f"to victim's {fk.target_model.__name__}(pk={victim_fk_pk}) — "
+            f"writable FK accepted across tenant boundary"
+        )
+
+
+def _assert_m2m_does_not_contain_victim(
+    reloaded: object,
+    fk: WritableFKField,
+    victim_fk_pk: Any,
+    url: str,
+    case: IDORTestCase,
+) -> None:
+    """For M2M PATCH: reload, walk the related manager, fail if victim pk landed in the set."""
+    attr = fk.source_attr or fk.serializer_field_name
+    related_manager = getattr(reloaded, attr, None)
+    if related_manager is None:
+        return
+    try:
+        linked_pks = set(related_manager.values_list("pk", flat=True))
+    except Exception:
+        return
+    if victim_fk_pk in linked_pks:
+        raise AssertionError(
+            f"IDOR: PATCH {url} added victim's {fk.target_model.__name__}(pk={victim_fk_pk}) "
+            f"to attacker's {case.model_cls.__name__}.{attr} M2M set — "
+            f"writable many=True FK accepted across tenant boundary"
+        )
 
 
 def _assert_resource_unchanged(test_case: object, case: IDORTestCase, instance: object, sentinel: str) -> None:
