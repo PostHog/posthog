@@ -128,6 +128,43 @@ class TestFKDiscoveryCanary(unittest.TestCase):
             "canary failed: discovery did not recognize TeamScopedPrimaryKeyRelatedField(many=True) as scoped"
         )
 
+    def test_post_body_factory_omits_optional_fields(self) -> None:
+        """Canary for the POST body synthesizer.
+
+        If `build_minimal_post_body` ever starts including optional fields,
+        the FK-in-POST test will trip noise from validators on those fields
+        instead of cleanly failing on the FK we care about.
+        """
+        from posthog.test.idor.body_factory import build_minimal_post_body
+
+        class _Team:
+            pk = 0
+            id = 0
+
+        class _OptionalCharSerializer(serializers.Serializer):
+            name = serializers.CharField(required=False)
+
+        body = build_minimal_post_body(_OptionalCharSerializer, team=_Team)  # type: ignore[arg-type]
+        assert body == {}, f"canary failed: optional field synthesized into POST body: {body!r}"
+
+    def test_post_body_factory_raises_on_unfillable(self) -> None:
+        """If body synthesis silently returns garbage instead of raising, the FK POST test
+        would receive a 4xx for the wrong reason and look like it 'passed'."""
+        from posthog.test.idor.body_factory import BodyUnfillable, build_minimal_post_body
+
+        class _Team:
+            pk = 0
+            id = 0
+
+        class _Unsupported(serializers.Serializer):
+            blob = serializers.FileField(required=True)
+
+        try:
+            build_minimal_post_body(_Unsupported, team=_Team)  # type: ignore[arg-type]
+        except BodyUnfillable:
+            return
+        raise AssertionError("canary failed: build_minimal_post_body did not raise on unsupported field")
+
 
 if __name__ == "__main__":
     unittest.main()
