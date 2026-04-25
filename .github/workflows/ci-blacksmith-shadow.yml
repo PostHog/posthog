@@ -55,7 +55,7 @@ jobs:
         outputs:
             backend: ${{ steps.filter.outputs.backend }}
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
             - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: filter
               with:
@@ -122,7 +122,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 20
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
             - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
             - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
@@ -148,7 +148,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 30
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
             - run: |
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
@@ -169,7 +169,7 @@ jobs:
                       pnpm-lock.yaml
                       .github/workflows/ci-backend.yml
             - run: pnpm install --frozen-lockfile --filter=@posthog/root
-            - uses: actions/setup-python@v6
+            - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
               with:
                   python-version: 3.12.12
             - id: setup-uv
@@ -226,7 +226,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 20
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
               with:
                   clean: false
             - run: |
@@ -299,7 +299,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 30
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
               with:
                   fetch-depth: 1
                   lfs: true

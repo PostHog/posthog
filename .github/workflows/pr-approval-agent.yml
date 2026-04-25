@@ -35,7 +35,7 @@ jobs:
             # Always run the approval script from master — hardcoded so a PR
             # targeting a non-master branch can't supply a tampered script.
             - name: Checkout master (blobless, full history)
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
               with:
                   token: ${{ steps.app-token.outputs.token }}
                   ref: master
@@ -94,7 +94,7 @@ jobs:
 
             - name: Upload evidence
               if: always()
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
               with:
                   name: review-${{ github.event.pull_request.number }}
                   path: /tmp/review.json
