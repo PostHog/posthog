@@ -292,7 +292,7 @@ function GroupedEventRow({ event, index }: { event: InspectorListItemEvent; inde
                         className="shrink-0 text-secondary !py-0"
                     />
                     <PropertyKeyInfo
-                        className="truncate"
+                        className="truncate min-w-0"
                         disablePopover
                         disableIcon
                         ellipsis
@@ -301,7 +301,7 @@ function GroupedEventRow({ event, index }: { event: InspectorListItemEvent; inde
                     />
                     {promotedValue != null && promotedValue !== '' ? (
                         <span
-                            className="text-secondary truncate"
+                            className="text-secondary truncate ml-auto pl-2 min-w-0 max-w-[50%]"
                             title={isString(promotedValue) ? promotedValue : undefined}
                         >
                             {String(promotedValue)}
