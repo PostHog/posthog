@@ -315,9 +315,11 @@ const LeftHandColumn = ({ isMobile }: { isMobile: boolean }): JSX.Element => {
 }
 
 const ExceptionsTab = (): JSX.Element => {
-    const { eventsQuery, eventsQueryKey, selectedEvent, issueFingerprints, issueFingerprintsLoading } =
+    const { eventsQuery, eventsQueryKey, selectedEvent, selectionTick, issueFingerprints, issueFingerprintsLoading } =
         useValues(errorTrackingIssueSceneLogic)
-    const { selectEvent } = useActions(errorTrackingIssueSceneLogic)
+    const { selectEvent, setMobileDetailOpen } = useActions(errorTrackingIssueSceneLogic)
+    const { isWindowLessThan } = useWindowSize()
+    const isMobile = isWindowLessThan('md')
 
     return (
         <div className="flex flex-col h-full min-h-0">
@@ -341,9 +343,13 @@ const ExceptionsTab = (): JSX.Element => {
                         query={eventsQuery}
                         queryKey={eventsQueryKey}
                         selectedEvent={selectedEvent}
+                        selectionTick={selectionTick}
                         onEventSelect={(selectedEvent) => {
                             if (selectedEvent) {
                                 selectEvent(selectedEvent)
+                                if (isMobile) {
+                                    setMobileDetailOpen(true)
+                                }
                             }
                         }}
                     />

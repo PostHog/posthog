@@ -28,10 +28,17 @@ export interface EventsTableProps {
     query: EventsQuery
     queryKey: string
     selectedEvent: ErrorEventType | null
+    selectionTick?: number
     onEventSelect: (event: ErrorEventType | null) => void
 }
 
-export function EventsTable({ query, queryKey, onEventSelect, selectedEvent }: EventsTableProps): JSX.Element {
+export function EventsTable({
+    query,
+    queryKey,
+    onEventSelect,
+    selectedEvent,
+    selectionTick = 0,
+}: EventsTableProps): JSX.Element {
     const tagRenderer = useErrorTagRenderer()
     const dataSource = eventsSourceLogic({ queryKey, query })
 
@@ -52,7 +59,9 @@ export function EventsTable({ query, queryKey, onEventSelect, selectedEvent }: E
                 }
                 description={
                     <div className="space-y-0.5">
-                        <span className="line-clamp-1">{record.properties.$exception_values[0]}</span>
+                        <span className="line-clamp-1 block cursor-pointer hover:text-accent-hover">
+                            {record.properties.$exception_values[0]}
+                        </span>
                         <div className="flex items-center">
                             <div>{renderTime(record)}</div>
                             <CustomSeparator />
@@ -78,12 +87,14 @@ export function EventsTable({ query, queryKey, onEventSelect, selectedEvent }: E
     }
 
     function renderRowSelectedIndicator(record: ErrorEventType): JSX.Element {
+        const selected = isEventSelected(record)
         return (
             <div
+                key={selected ? `selected-${selectionTick}` : 'not-selected'}
                 className={cn(
                     'w-1 min-h-[84px]',
-                    isEventSelected(record)
-                        ? 'bg-primary-3000 hover:bg-primary-3000'
+                    selected
+                        ? 'bg-primary-3000 hover:bg-primary-3000 animate-error-tracking-row-flash'
                         : 'hover:bg-color-accent-highlight-secondary'
                 )}
             />

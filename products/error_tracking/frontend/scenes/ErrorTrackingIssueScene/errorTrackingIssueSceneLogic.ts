@@ -97,6 +97,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         selectEvent: (event: ErrorEventType | null) => ({
             event,
         }),
+        bumpSelectionTick: true,
         createExternalReference: (integrationId: IntegrationType['id'], config: Record<string, string>) => ({
             integrationId,
             config,
@@ -116,6 +117,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         lastSeen: null as Dayjs | null,
         initialEvent: null as ErrorEventType | null,
         selectedEvent: null as ErrorEventType | null,
+        selectionTick: 0 as number,
         mobileDetailOpen: false as boolean,
         initialEventTimestamp: null as string | null,
         initialEventLoading: true as boolean,
@@ -158,6 +160,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 }
                 return event
             },
+        },
+        selectionTick: {
+            bumpSelectionTick: (state) => state + 1,
         },
         mobileDetailOpen: {
             setMobileDetailOpen: (_, { mobileDetailOpen }) => mobileDetailOpen,
@@ -438,6 +443,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             updateAssignee: ({ assignee }) => actions.updateIssueAssignee(props.id, assignee),
             updateStatus: ({ status }) => actions.updateIssueStatus(props.id, status),
             selectEvent: ({ event }) => {
+                actions.bumpSelectionTick()
                 if (event) {
                     router.actions.replace(
                         router.values.currentLocation.pathname,

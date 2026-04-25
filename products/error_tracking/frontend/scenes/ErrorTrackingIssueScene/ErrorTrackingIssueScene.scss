@@ -4,3 +4,20 @@
         margin: 0 auto;
     }
 }
+
+@keyframes ErrorTrackingRow__flash {
+    0% {
+        opacity: 0.35;
+        transform: scaleX(2.5);
+    }
+
+    100% {
+        opacity: 1;
+        transform: scaleX(1);
+    }
+}
+
+.animate-error-tracking-row-flash {
+    transform-origin: left center;
+    animation: ErrorTrackingRow__flash 350ms ease-out;
+}
