@@ -64,6 +64,7 @@ import { OrgCombobox } from './OrgCombobox'
 
 interface AccountMenuProps extends DropdownMenuContentProps {
     trigger: JSX.Element
+    hideProfileLink?: boolean
 }
 
 function ThemeMenu(): JSX.Element {
@@ -136,7 +137,7 @@ function ThemeMenu(): JSX.Element {
     )
 }
 
-export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Element {
+export function AccountMenu({ trigger, hideProfileLink, ...props }: AccountMenuProps): JSX.Element {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { isCloudOrDev, isCloud, preflight } = useValues(preflightLogic)
@@ -163,28 +164,38 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                         Signed in as
                     </Label>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem asChild>
-                        <Link
-                            to={urls.settings(user?.organization?.id ? 'user' : 'user-danger-zone')}
-                            buttonProps={{
-                                className: 'flex items-center gap-2 h-fit',
-                                menuItem: true,
-                                truncate: true,
-                            }}
-                            tooltip="Account settings"
-                            tooltipPlacement="right"
-                            data-attr="top-menu-account-owner"
-                        >
+                    {hideProfileLink ? (
+                        <div className="flex items-center gap-2 px-2 py-1.5">
                             <ProfilePicture user={user} size="xs" />
                             <span className="flex flex-col truncate">
                                 <span className="font-semibold truncate">{user?.first_name}</span>
                                 <span className="text-tertiary text-xs truncate">{user?.email}</span>
                             </span>
-                            <div className="ml-auto">
-                                <IconGear className="text-tertiary" />
-                            </div>
-                        </Link>
-                    </DropdownMenuItem>
+                        </div>
+                    ) : (
+                        <DropdownMenuItem asChild>
+                            <Link
+                                to={urls.settings(user?.organization?.id ? 'user' : 'user-danger-zone')}
+                                buttonProps={{
+                                    className: 'flex items-center gap-2 h-fit',
+                                    menuItem: true,
+                                    truncate: true,
+                                }}
+                                tooltip="Account settings"
+                                tooltipPlacement="right"
+                                data-attr="top-menu-account-owner"
+                            >
+                                <ProfilePicture user={user} size="xs" />
+                                <span className="flex flex-col truncate">
+                                    <span className="font-semibold truncate">{user?.first_name}</span>
+                                    <span className="text-tertiary text-xs truncate">{user?.email}</span>
+                                </span>
+                                <div className="ml-auto">
+                                    <IconGear className="text-tertiary" />
+                                </div>
+                            </Link>
+                        </DropdownMenuItem>
+                    )}
                     {isCloudOrDev && canAccessBilling ? (
                         <DropdownMenuItem asChild>
                             <Link

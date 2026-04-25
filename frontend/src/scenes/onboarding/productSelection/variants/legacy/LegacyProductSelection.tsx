@@ -5,7 +5,9 @@ import { LemonBanner, LemonButton, LemonCard, LemonLabel, LemonSelect, Link } fr
 
 import { Logomark } from 'lib/brand/Logomark'
 import { getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
@@ -147,6 +149,9 @@ function ProductSelectionStep(): JSX.Element {
     const { toggleProduct, setFirstProductOnboarding, handleStartOnboarding, setShowAllProducts, setStep } =
         useActions(productSelectionLogic)
     const { showInviteModal } = useActions(inviteLogic)
+    const { billingLoading } = useValues(billingLogic)
+    const { currentTeamLoading } = useValues(teamLogic)
+    const isStartOnboardingLoading = billingLoading || currentTeamLoading
 
     const availableRecommendedProducts = recommendedProducts.filter(isAvailableOnboardingProductKey)
     const availableOtherProducts = otherProducts.filter(isAvailableOnboardingProductKey)
@@ -221,6 +226,7 @@ function ProductSelectionStep(): JSX.Element {
                             onClick={handleStartOnboarding}
                             type="primary"
                             status="alt"
+                            loading={isStartOnboardingLoading}
                             data-attr="onboarding-continue"
                         >
                             Go
@@ -233,6 +239,7 @@ function ProductSelectionStep(): JSX.Element {
                         onClick={handleStartOnboarding}
                         data-attr="onboarding-continue"
                         sideIcon={<IconArrowRight />}
+                        loading={isStartOnboardingLoading}
                         disabledReason={!canContinue ? 'Select at least one product to continue' : undefined}
                     >
                         Get started

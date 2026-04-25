@@ -54,6 +54,7 @@ export function MinimalNavigation(): JSX.Element {
                     align="end"
                     side="bottom"
                     alignOffset={10}
+                    hideProfileLink={shouldShowOnboarding}
                     trigger={
                         <LemonButton type="tertiary" icon={<ProfilePicture user={user} size="md" />}>
                             {user?.first_name || user?.email}
