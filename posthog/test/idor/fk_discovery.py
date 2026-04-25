@@ -69,6 +69,9 @@ class WritableFKField:
     is_implicit: bool = False
     """True if discovered via the string-id naming pattern rather than an explicit PrimaryKeyRelatedField."""
 
+    is_many: bool = False
+    """True if the field is a ManyRelatedField (PrimaryKeyRelatedField with many=True)."""
+
 
 # DRF field types that can carry a raw FK pk in the string-id naming pattern.
 _IMPLICIT_FK_FIELD_TYPES = (
@@ -137,9 +140,42 @@ def _classify_field(
     nested_path: tuple[str, ...],
     serializer_model: Optional[type[models.Model]],
 ) -> Optional[WritableFKField]:
+    if isinstance(drf_field, serializers.ManyRelatedField):
+        return _classify_many_related(field_name, drf_field, nested_path)
     if isinstance(drf_field, serializers.PrimaryKeyRelatedField):
         return _classify_explicit_fk(field_name, drf_field, nested_path)
     return _classify_implicit_id(field_name, drf_field, nested_path, serializer_model)
+
+
+def _classify_many_related(
+    field_name: str,
+    drf_field: serializers.ManyRelatedField,
+    nested_path: tuple[str, ...],
+) -> Optional[WritableFKField]:
+    """Detect `PrimaryKeyRelatedField(many=True)`, surfaced by DRF as ManyRelatedField.
+
+    The wrapping ManyRelatedField doesn't carry a queryset; the underlying
+    `child_relation` is a single-item PK field with the queryset and any
+    scoped subclass. We reuse the explicit-FK classifier and stamp the
+    `is_many` flag.
+    """
+    child = drf_field.child_relation
+    if not isinstance(child, serializers.PrimaryKeyRelatedField):
+        return None
+    record = _classify_explicit_fk(field_name, child, nested_path)
+    if record is None:
+        return None
+    # `replace` avoids re-implementing all the field copy-construction.
+    return WritableFKField(
+        serializer_field_name=record.serializer_field_name,
+        source_attr=record.source_attr,
+        target_model=record.target_model,
+        scope=record.scope,
+        is_already_scoped=record.is_already_scoped,
+        nested_path=record.nested_path,
+        is_implicit=record.is_implicit,
+        is_many=True,
+    )
 
 
 def _classify_explicit_fk(

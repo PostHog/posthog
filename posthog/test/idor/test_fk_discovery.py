@@ -133,6 +133,32 @@ class _ImplicitIdToNonTenantSerializer(serializers.ModelSerializer):
         fields = ["id", "created_by_id"]
 
 
+class _ManyRelatedUnscopedSerializer(serializers.ModelSerializer):
+    """Vulnerable many=True: queryset isn't tenant-scoped at the single-item level."""
+
+    related_dashboards = serializers.PrimaryKeyRelatedField(many=True, queryset=Dashboard.objects.all(), required=False)
+
+    class Meta:
+        model = Insight
+        fields = ["id", "related_dashboards"]
+
+
+class _ManyRelatedScopedSerializer(serializers.ModelSerializer):
+    related_dashboards = TeamScopedPrimaryKeyRelatedField(many=True, queryset=Dashboard.objects.all(), required=False)
+
+    class Meta:
+        model = Insight
+        fields = ["id", "related_dashboards"]
+
+
+class _ManyRelatedReadOnlySerializer(serializers.ModelSerializer):
+    related_dashboards = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+
+    class Meta:
+        model = Insight
+        fields = ["id", "related_dashboards"]
+
+
 class TestDiscoverWritableTenantFks:
     def test_plain_pk_field_classified_team_scoped_unscoped(self) -> None:
         result = discover_writable_tenant_fks(_PlainSerializer)
@@ -202,3 +228,21 @@ class TestDiscoverWritableTenantFks:
     def test_implicit_id_to_non_tenant_model_is_skipped(self) -> None:
         # Insight.created_by → User globally; not a tenant-scoped target.
         assert discover_writable_tenant_fks(_ImplicitIdToNonTenantSerializer) == []
+
+    def test_many_related_unscoped_is_flagged(self) -> None:
+        result = discover_writable_tenant_fks(_ManyRelatedUnscopedSerializer)
+        assert len(result) == 1
+        fk = result[0]
+        assert fk.serializer_field_name == "related_dashboards"
+        assert fk.target_model is Dashboard
+        assert fk.is_many is True
+        assert fk.is_already_scoped is False
+
+    def test_many_related_scoped_marked_already_scoped(self) -> None:
+        result = discover_writable_tenant_fks(_ManyRelatedScopedSerializer)
+        assert len(result) == 1
+        assert result[0].is_many is True
+        assert result[0].is_already_scoped is True
+
+    def test_many_related_read_only_skipped(self) -> None:
+        assert discover_writable_tenant_fks(_ManyRelatedReadOnlySerializer) == []
