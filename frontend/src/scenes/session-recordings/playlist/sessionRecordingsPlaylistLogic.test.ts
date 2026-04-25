@@ -818,6 +818,14 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 })
             }).toMatchValues({ totalFiltersCount: 1 })
         })
+
+        it('counts session_ids so the reset button activates on direct ID lookup', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({
+                    session_ids: ['019dc1da-7d21-790a-8a71-41100acc95b7'],
+                })
+            }).toMatchValues({ totalFiltersCount: 1 })
+        })
     })
 
     describe('resetting filters', () => {

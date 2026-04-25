@@ -486,6 +486,9 @@ function SavedFilterNameEditor({
     )
 }
 
+// UUID v1-v8 with optional surrounding whitespace; covers UUIDv7 session IDs we issue today.
+const SESSION_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
 const ReplayFiltersTab = ({
     filters,
     setFilters,
@@ -499,6 +502,22 @@ const ReplayFiltersTab = ({
 
     const [isPopoverVisible, setIsPopoverVisible] = useState(false)
     const [addFilterSearchQuery, setAddFilterSearchQuery] = useState('')
+
+    const trimmedSearchQuery = addFilterSearchQuery.trim()
+    const isSessionIdQuery = SESSION_ID_REGEX.test(trimmedSearchQuery)
+
+    const applySessionIdFilter = (sessionId: string): void => {
+        // A direct session-ID lookup should not be hidden by the default 3-day window or the
+        // test-accounts filter — the user has named exactly the recording they want.
+        setFilters({
+            session_ids: [sessionId],
+            date_from: '-5y',
+            date_to: null,
+            filter_test_accounts: false,
+        })
+        setAddFilterSearchQuery('')
+        setIsPopoverVisible(false)
+    }
 
     useMountedLogic(cohortsModel)
     useMountedLogic(actionsModel)
@@ -686,15 +705,34 @@ const ReplayFiltersTab = ({
                             >
                                 <Popover
                                     overlay={
-                                        <UniversalFilters.PureTaxonomicFilter
-                                            fullWidth={false}
-                                            onChange={() => {
-                                                setIsPopoverVisible(false)
-                                                setAddFilterSearchQuery('')
-                                            }}
-                                            searchQuery={addFilterSearchQuery}
-                                            hideSearchInput
-                                        />
+                                        <>
+                                            {isSessionIdQuery && (
+                                                <div className="border-b p-1">
+                                                    <LemonButton
+                                                        fullWidth
+                                                        size="small"
+                                                        type="tertiary"
+                                                        icon={<IconSearch />}
+                                                        data-attr="replay-filters-search-by-session-id"
+                                                        onClick={() => applySessionIdFilter(trimmedSearchQuery)}
+                                                    >
+                                                        <span className="truncate">
+                                                            Search by session ID:{' '}
+                                                            <code className="font-mono">{trimmedSearchQuery}</code>
+                                                        </span>
+                                                    </LemonButton>
+                                                </div>
+                                            )}
+                                            <UniversalFilters.PureTaxonomicFilter
+                                                fullWidth={false}
+                                                onChange={() => {
+                                                    setIsPopoverVisible(false)
+                                                    setAddFilterSearchQuery('')
+                                                }}
+                                                searchQuery={addFilterSearchQuery}
+                                                hideSearchInput
+                                            />
+                                        </>
                                     }
                                     placement="bottom-start"
                                     visible={isPopoverVisible}
@@ -710,7 +748,7 @@ const ReplayFiltersTab = ({
                                             fullWidth
                                             data-attr="replay-filters-add-filter-input"
                                             prefix={<IconSearch />}
-                                            placeholder="Search suggested filters, URLs, email addresses, recent, pinned..."
+                                            placeholder="Search by session ID, URL, email, suggested filters…"
                                             value={addFilterSearchQuery}
                                             onChange={(value) => {
                                                 setAddFilterSearchQuery(value)
@@ -723,6 +761,9 @@ const ReplayFiltersTab = ({
                                                 if (e.key === 'Escape') {
                                                     setIsPopoverVisible(false)
                                                     setAddFilterSearchQuery('')
+                                                    e.preventDefault()
+                                                } else if (e.key === 'Enter' && isSessionIdQuery) {
+                                                    applySessionIdFilter(trimmedSearchQuery)
                                                     e.preventDefault()
                                                 }
                                             }}
@@ -777,6 +818,21 @@ const ReplayFiltersTab = ({
                             size="small"
                         />
                         <RecordingsUniversalFilterGroup hideAddFilterButton={true} pinnedFilters={pinnedFilters} />
+                        {filters.session_ids?.map((sessionId) => (
+                            <LemonTag
+                                key={sessionId}
+                                type="primary"
+                                closable
+                                onClose={() =>
+                                    setFilters({
+                                        session_ids: filters.session_ids?.filter((id) => id !== sessionId) ?? [],
+                                    })
+                                }
+                                data-attr="replay-filters-session-id-tag"
+                            >
+                                <span className="font-mono truncate max-w-[200px]">Session ID: {sessionId}</span>
+                            </LemonTag>
+                        ))}
                     </div>
                 </div>
             </UniversalFilters>

@@ -1402,7 +1402,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     (equal(filters.duration[0], defaultFilters.duration[0]) ? 0 : 1) +
                     (filters.date_from === defaultFilters.date_from && filters.date_to === defaultFilters.date_to
                         ? 0
-                        : 1)
+                        : 1) +
+                    (filters.session_ids?.length ?? 0)
                 )
             },
         ],
