@@ -35,9 +35,10 @@ from parameterized import parameterized
 
 from posthog.models.team import Team
 from posthog.test.idor import IDORTestCase, IDORTestMixin, build_minimal_instance, discover_idor_test_cases
+from posthog.test.idor.body_factory import BodyUnfillable, build_minimal_post_body
 from posthog.test.idor.factory import reset_sentinel
 from posthog.test.idor.fk_discovery import WritableFKField, discover_writable_tenant_fks
-from posthog.test.idor.skip_list import IDOR_FK_PATCH_SKIP_LIST
+from posthog.test.idor.skip_list import IDOR_FK_PATCH_SKIP_LIST, IDOR_FK_POST_SKIP_LIST
 
 DISCOVERED_CASES: list[IDORTestCase] = discover_idor_test_cases()
 
@@ -63,6 +64,44 @@ def _iter_fk_cases() -> list[tuple[str, IDORTestCase, WritableFKField]]:
 
 
 FK_PATCH_CASES = _iter_fk_cases()
+
+
+def _iter_fk_post_cases() -> list[tuple[str, IDORTestCase, WritableFKField]]:
+    """Same product as PATCH, minus viewsets explicitly skipped for POST."""
+    out: list[tuple[str, IDORTestCase, WritableFKField]] = []
+    for case in DISCOVERED_CASES:
+        if case.name in IDOR_FK_PATCH_SKIP_LIST or case.name in IDOR_FK_POST_SKIP_LIST:
+            continue
+        serializer_cls = getattr(case.viewset_cls, "serializer_class", None)
+        if serializer_cls is None:
+            continue
+        if not _viewset_supports_post(case.viewset_cls):
+            continue
+        for fk in discover_writable_tenant_fks(serializer_cls):
+            label = f"{case.name}__{'__'.join((*fk.nested_path, fk.serializer_field_name))}"
+            out.append((label, case, fk))
+    return out
+
+
+def _viewset_supports_post(viewset_cls: type) -> bool:
+    """Heuristic — check whether the viewset's `create` is enabled.
+
+    DRF generic viewsets expose `create` via `CreateModelMixin`; if the
+    viewset overrides the method or the parent class strips it, POST will
+    405. This is a fast filter; the test still skips on 5xx responses
+    rather than asserting.
+    """
+    create = getattr(viewset_cls, "create", None)
+    if create is None:
+        return False
+    # `http_method_names` is a DRF gate — if `post` isn't listed, the route doesn't exist.
+    methods = [m.lower() for m in getattr(viewset_cls, "http_method_names", [])]
+    if methods and "post" not in methods:
+        return False
+    return True
+
+
+FK_POST_CASES = _iter_fk_post_cases()
 
 
 class TestAutomatedIDORCoverage(IDORTestMixin, APIBaseTest):
@@ -153,6 +192,112 @@ class TestAutomatedIDORCoverage(IDORTestMixin, APIBaseTest):
             f"IDOR: DELETE {url} actually removed the victim's {case.model_cls.__name__}"
         )
 
+    @parameterized.expand(FK_POST_CASES)
+    def test_cross_tenant_fk_in_post(
+        self,
+        _name: str,
+        case: IDORTestCase,
+        fk: WritableFKField,
+    ) -> None:
+        """Attacker cannot smuggle a victim's tenant FK into a NEW resource via POST."""
+        # 1. Synthesize a body that should pass validation in attacker's team.
+        try:
+            body = build_minimal_post_body(case.viewset_cls.serializer_class, team=self.team)
+        except BodyUnfillable as exc:
+            self.skipTest(f"{case.name}.{fk.serializer_field_name}: body unfillable ({exc})")
+        except Exception as exc:
+            self.skipTest(f"{case.name}.{fk.serializer_field_name}: body error ({type(exc).__name__}: {exc})")
+
+        # 2. Build the victim FK target.
+        try:
+            victim_fk = build_minimal_instance(fk.target_model, team=self.victim_team)
+        except Exception as exc:
+            self.skipTest(
+                f"{case.name}.{fk.serializer_field_name}: could not build victim "
+                f"{fk.target_model.__name__} ({type(exc).__name__}: {exc})"
+            )
+
+        victim_fk_pk: Any = victim_fk.pk
+
+        # 3. Inject the victim FK into the body, replacing whatever the
+        #    synthesizer chose. M2M wraps in a list to match DRF semantics.
+        scalar: Any = [victim_fk_pk] if fk.is_many else victim_fk_pk
+        body = _inject_fk_into_body(body, fk, scalar)
+
+        # 4. Build list URL on the attacker's tenant root.
+        list_url = self._build_list_url_for_attacker(case)
+        if list_url is None:
+            return  # skipTest already called
+
+        response = self.client.post(list_url, data=body, format="json")  # type: ignore[attr-defined]
+
+        # 5. Outcomes:
+        #    - 5xx: latent bug, can't tell if FK was applied — skip rather than mis-attribute.
+        #    - non-2xx: validation rejected. Pass.
+        #    - 2xx + reloaded created instance has FK pointing at victim_pk: IDOR.
+        if response.status_code >= 500:
+            self.skipTest(f"{case.name}.{fk.serializer_field_name}: POST returned {response.status_code}")
+        if response.status_code not in range(200, 300):
+            return
+        if fk.nested_path:
+            return  # nested verification needs case-specific knowledge
+
+        try:
+            payload = response.json()
+            created_id = payload.get("id") or payload.get("pk")
+        except Exception:
+            return
+        if created_id is None:
+            return
+        try:
+            created = case.model_cls.objects.filter(pk=created_id).first()  # type: ignore[attr-defined]
+        except Exception:
+            return
+        if created is None:
+            return
+
+        if fk.is_many:
+            _assert_m2m_does_not_contain_victim(created, fk, victim_fk_pk, list_url, case)
+        else:
+            _assert_single_fk_not_bound_to_victim(created, fk, victim_fk_pk, list_url, case)
+
+    def _build_list_url_for_attacker(self, case: IDORTestCase) -> str | None:
+        """Construct the list URL on the attacker's tenant root for POST.
+
+        Skips the test when the URL has intermediate parents that would
+        require victim-side context to resolve.
+        """
+        if case.url.root == "projects":
+            root_id: int | str = self.project.pk  # type: ignore[attr-defined]
+        elif case.url.root == "environments":
+            root_id = self.team.pk  # type: ignore[attr-defined]
+        elif case.url.root == "organizations":
+            root_id = str(self.organization.id)  # type: ignore[attr-defined]
+        else:
+            self.skipTest(f"Unknown URL root: {case.url.root}")
+            return None
+
+        intermediate_ids: dict[str, int | str] = {}
+        for _, kwarg in case.url.intermediate_parents:
+            field_name = kwarg.removeprefix("parent_lookup_")
+            # Build the intermediate parent in the attacker's team so the URL
+            # resolves to a real owned resource. If we can't build it, skip.
+            parent_model = _resolve_intermediate_parent_model(case.model_cls, field_name)
+            if parent_model is None:
+                self.skipTest(f"{case.name}: cannot resolve intermediate parent model for {field_name!r}")
+                return None
+            try:
+                parent_instance = build_minimal_instance(parent_model, team=self.team)
+            except Exception as exc:
+                self.skipTest(
+                    f"{case.name}: could not build intermediate parent {parent_model.__name__} "
+                    f"({type(exc).__name__}: {exc})"
+                )
+                return None
+            intermediate_ids[kwarg] = parent_instance.pk
+
+        return case.url.build_list_url(root_id=root_id, intermediate_ids=intermediate_ids or None)  # type: ignore[attr-defined]
+
     @parameterized.expand(FK_PATCH_CASES)
     def test_cross_tenant_fk_in_patch(
         self,
@@ -216,6 +361,42 @@ class TestAutomatedIDORCoverage(IDORTestMixin, APIBaseTest):
             return
 
         _assert_single_fk_not_bound_to_victim(reloaded, fk, victim_fk_pk, url, case)
+
+
+def _inject_fk_into_body(body: dict[str, Any], fk: WritableFKField, value: Any) -> dict[str, Any]:
+    """Set the victim FK at the right depth, mutating a copy of `body`."""
+    body = dict(body)
+    if not fk.nested_path:
+        body[fk.serializer_field_name] = value
+        return body
+    cursor = body
+    *path_to_last, last = fk.nested_path
+    for segment in path_to_last:
+        nested = dict(cursor.get(segment) or {})
+        cursor[segment] = nested
+        cursor = nested
+    inner = dict(cursor.get(last) or {})
+    inner[fk.serializer_field_name] = value
+    cursor[last] = inner
+    return body
+
+
+def _resolve_intermediate_parent_model(model_cls: type, parent_attr_name: str) -> type | None:
+    """Find the FK target model for an intermediate URL parent.
+
+    The viewset's URL like `/api/environments/<team_id>/batch_exports/<batch_export_id>/runs/<pk>/`
+    has `batch_export` as an intermediate parent. The corresponding model
+    field is `BatchExportRun.batch_export`, a ForeignKey. We resolve it
+    so the test can build a parent instance in the attacker's team.
+    """
+    try:
+        meta_field = model_cls._meta.get_field(parent_attr_name)  # type: ignore[attr-defined]
+    except Exception:
+        return None
+    related = getattr(meta_field, "related_model", None)
+    if isinstance(related, type):
+        return related
+    return None
 
 
 def _assert_single_fk_not_bound_to_victim(
