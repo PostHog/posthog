@@ -87,6 +87,14 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
                 summarizeSessionFailure: (state, { error }) => [...state, error],
             },
         ],
+        sessionsLoadError: [
+            null as string | null,
+            {
+                loadSessionsTimeline: () => null,
+                loadSessionsTimelineSuccess: () => null,
+                loadSessionsTimelineFailure: (_, { error }) => error || 'Failed to load sessions',
+            },
+        ],
     })),
 
     selectors({

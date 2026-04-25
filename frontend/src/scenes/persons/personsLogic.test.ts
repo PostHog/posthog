@@ -141,6 +141,55 @@ describe('personsLogic', () => {
         })
     })
 
+    describe('reloadPerson', () => {
+        it('dispatches loadPerson when urlId is provided', async () => {
+            logic.unmount()
+            // Use a real person object to avoid async-listener errors leaking into other tests
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/persons/': () => [
+                        200,
+                        {
+                            results: [
+                                {
+                                    id: 1,
+                                    name: 'abc',
+                                    distinct_ids: ['abc'],
+                                    uuid: 'abc-uuid',
+                                    properties: {},
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
+            logic = personsLogic({ syncWithUrl: true, urlId: 'abc' })
+            logic.mount()
+
+            // Land on a /person/* URL so the listener picks loadPerson over loadPersonUUID
+            router.actions.push('/person/abc')
+            await expectLogic(logic).toDispatchActions(['loadPerson', 'loadPersonSuccess']).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.reloadPerson()
+            })
+                .toDispatchActions(['reloadPerson', 'loadPerson', 'loadPersonSuccess'])
+                .toFinishAllListeners()
+        })
+
+        it('is a noop when urlId prop is missing', async () => {
+            logic.unmount()
+            logic = personsLogic({ syncWithUrl: true })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.reloadPerson()
+            })
+                .toDispatchActions(['reloadPerson'])
+                .toNotHaveDispatchedActions(['loadPerson', 'loadPersonUUID'])
+        })
+    })
+
     describe('Load cohorts', () => {
         it("Doesn't load cohort if we're on", async () => {
             await expectLogic(logic, () => {

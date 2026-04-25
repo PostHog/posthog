@@ -1,6 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { useEffect, useState } from 'react'
 
-import { IconChevronDown, IconCopy, IconInfo, IconTrash } from '@posthog/icons'
+import { IconChevronDown, IconCopy, IconInfo, IconRefresh, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -15,7 +16,7 @@ import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { isMobile, pluralize } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -164,6 +165,48 @@ function LaunchToolbarButton({ distinctId }: LaunchToolbarButtonProps): JSX.Elem
     )
 }
 
+const PERSON_SLOW_LOAD_MS = 15_000
+
+function PersonLoadingState({ onRetry }: { onRetry: () => void }): JSX.Element {
+    const [slow, setSlow] = useState(false)
+    useEffect(() => {
+        const timer = setTimeout(() => setSlow(true), PERSON_SLOW_LOAD_MS)
+        return () => clearTimeout(timer)
+    }, [])
+
+    if (!slow) {
+        return <SpinnerOverlay sceneLevel />
+    }
+    return (
+        <div className="flex flex-col items-center justify-center gap-3 p-8 text-center">
+            <Spinner className="text-3xl" />
+            <h3 className="text-base font-semibold mb-0">Still loading this person…</h3>
+            <p className="text-sm text-secondary mb-0">
+                The persons API is taking longer than usual. You can keep waiting or retry the request.
+            </p>
+            <LemonButton type="secondary" size="small" icon={<IconRefresh />} onClick={onRetry}>
+                Retry
+            </LemonButton>
+        </div>
+    )
+}
+
+function PersonLoadError({ onRetry, urlId }: { onRetry: () => void; urlId?: string }): JSX.Element {
+    return (
+        <div className="flex flex-col items-center justify-center gap-3 p-8 text-center">
+            <h3 className="text-2xl font-bold mb-0">Could not load person</h3>
+            <p className="text-sm text-secondary mb-0">
+                {urlId
+                    ? `Something went wrong loading the profile for ${urlId}.`
+                    : 'Something went wrong loading this profile.'}
+            </p>
+            <LemonButton type="primary" size="small" icon={<IconRefresh />} onClick={onRetry}>
+                Try again
+            </LemonButton>
+        </div>
+    )
+}
+
 export function PersonScene(): JSX.Element | null {
     const mountedPersonsLogic = useMountedLogic(personsLogic)
     const {
@@ -190,6 +233,7 @@ export function PersonScene(): JSX.Element | null {
         setEventsQuery,
         setExceptionsQuery,
         setSurveyResponsesQuery,
+        reloadPerson,
     } = useActions(mountedPersonsLogic)
     const { showPersonDeleteModal } = useActions(personDeleteModalLogic)
     const { deletedPersonLoading } = useValues(personDeleteModalLogic)
@@ -198,11 +242,15 @@ export function PersonScene(): JSX.Element | null {
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { user } = useValues(userLogic)
 
-    if (personError) {
-        return <NotFound object="person" meta={{ urlId }} />
+    if (personError && !personLoading) {
+        return <PersonLoadError onRetry={() => reloadPerson()} urlId={urlId} />
     }
     if (!person) {
-        return personLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="person" meta={{ urlId }} />
+        return personLoading ? (
+            <PersonLoadingState onRetry={() => reloadPerson()} />
+        ) : (
+            <NotFound object="person" meta={{ urlId }} />
+        )
     }
 
     return (

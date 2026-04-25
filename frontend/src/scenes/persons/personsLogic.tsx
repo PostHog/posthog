@@ -126,6 +126,7 @@ export const personsLogic = kea<personsLogicType>([
         setPersons: (persons: PersonType[]) => ({ persons }),
         loadPerson: (id: string) => ({ id }),
         loadPersonUUID: (uuid: string) => ({ uuid }),
+        reloadPerson: true,
         loadPersons: (url: string | null = '') => ({ url }),
         setListFilters: (payload: PersonListParams) => ({ payload }),
         setHiddenListProperties: (payload: AnyPropertyFilter[]) => ({ payload }),
@@ -394,7 +395,19 @@ export const personsLogic = kea<personsLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
+        reloadPerson: () => {
+            const id = props.urlId
+            if (!id) {
+                return
+            }
+            const path = router.values.location.pathname
+            if (path.startsWith('/persons/')) {
+                actions.loadPersonUUID(id)
+            } else {
+                actions.loadPerson(id)
+            }
+        },
         editProperty: async ({ key, newValue }) => {
             const person = values.person
 

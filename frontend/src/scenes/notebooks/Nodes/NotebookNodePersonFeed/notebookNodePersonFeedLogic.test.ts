@@ -196,6 +196,35 @@ describe('notebookNodePersonFeedLogic', () => {
                     sessions: null,
                     sessionsLoading: false,
                 })
+
+            expect(logic.values.sessionsLoadError).toBeTruthy()
+        })
+
+        it('clears sessionsLoadError on retry success', async () => {
+            let shouldFail = true
+            useMocks({
+                post: {
+                    [`/api/environments/${MOCK_TEAM_ID}/query/:kind/`]: () => {
+                        if (shouldFail) {
+                            return [500, { detail: 'Internal badaras error' }]
+                        }
+                        return [200, { results: mockSessionsWithRecording }]
+                    },
+                },
+            })
+
+            logic = notebookNodePersonFeedLogic({ personId: 'test-person-123' })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadSessionsTimelineFailure'])
+            expect(logic.values.sessionsLoadError).toBeTruthy()
+
+            shouldFail = false
+            logic.actions.loadSessionsTimeline()
+
+            await expectLogic(logic).toDispatchActions(['loadSessionsTimelineSuccess']).toMatchValues({
+                sessionsLoadError: null,
+            })
         })
     })
 
