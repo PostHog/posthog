@@ -1413,12 +1413,6 @@ class SessionRecordingViewSet(
 
         recording = self.get_object()
 
-        cache_key = f"summarize_recording_{self.team.pk}_{recording.session_id}"
-        # Check if the response is cached
-        cached_response = cache.get(cache_key)
-        if cached_response is not None:
-            return Response(cached_response)
-
         if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
             raise exceptions.NotFound("Recording not found")
 

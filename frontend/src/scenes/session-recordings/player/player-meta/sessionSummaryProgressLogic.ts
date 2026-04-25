@@ -122,6 +122,13 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
                 actions.setLoading(sessionId, false)
             }, SUMMARIZATION_TIMEOUT_MS)
 
+            // Tracks whether the stream emitted a terminal event for this run
+            // (a final summary or an error). If the SSE body drains via the
+            // reader's `done` signal without one, the loading flag would
+            // otherwise stay true until the 10-minute timeout — pin loading
+            // off via setError so the UI can surface a retry instead.
+            let receivedTerminalEvent = false
+
             try {
                 const response = await api.recordings.summarizeStream(sessionId)
                 const reader = response.body?.getReader()
@@ -133,6 +140,7 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
                     onEvent: ({ event, data }) => {
                         try {
                             if (event === 'session-summary-error') {
+                                receivedTerminalEvent = true
                                 lemonToast.error(data)
                                 actions.setError(sessionId, data)
                                 return
@@ -143,6 +151,7 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
                             }
                             const parsedData = JSON.parse(data)
                             if (parsedData) {
+                                receivedTerminalEvent = true
                                 actions.setSummary(sessionId, parsedData)
                             }
                         } catch {
@@ -157,6 +166,11 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
                         break
                     }
                     parser.feed(decoder.decode(value))
+                }
+                if (!receivedTerminalEvent) {
+                    const message = 'Summary stream ended unexpectedly. Please try again.'
+                    lemonToast.error(message)
+                    actions.setError(sessionId, message)
                 }
             } catch (err) {
                 if (err instanceof ApiError) {
