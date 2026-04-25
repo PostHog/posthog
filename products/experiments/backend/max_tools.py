@@ -13,8 +13,8 @@ from posthog.event_usage import EventSource
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.models import FeatureFlag
 from posthog.session_recordings.session_recording_api import list_recordings_from_query
-from posthog.session_recordings.utils import filter_from_params_to_query
 from posthog.sync import database_sync_to_async
+from posthog.temporal.session_replay.count_playlist_items import convert_filters_to_recordings_query
 
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.experiment_summary_data_service import ExperimentSummaryDataService
@@ -476,7 +476,7 @@ class SessionReplaySummaryTool(MaxTool):
 
                 # Convert to RecordingsQuery and count
                 try:
-                    query = filter_from_params_to_query(filters)
+                    query = convert_filters_to_recordings_query(filters)
                     query.limit = 100
 
                     @database_sync_to_async
@@ -570,34 +570,48 @@ class SessionReplaySummaryTool(MaxTool):
         """
         Build recording filters for experiment variant.
 
-        Replicates frontend getViewRecordingFilters() logic from experiments/utils.ts
+        Emits the MaxRecordingUniversalFilters shape (wrapped form with `filter_group` +
+        `duration`) so the same payload can be passed to `filter_session_recordings`
+        and consumed by `convert_filters_to_recordings_query`. Top-level `events` were
+        previously dropped by the universal-filters converter, leading to zero-result
+        drill-downs.
         """
         feature_flag_key = experiment.feature_flag.key
 
-        # Build filter structure matching RecordingUniversalFilters
         return {
             "date_from": experiment.start_date.isoformat() if experiment.start_date else None,
             "date_to": experiment.end_date.isoformat() if experiment.end_date else datetime.now(UTC).isoformat(),
-            "events": [
-                {
-                    "id": "$feature_flag_called",
-                    "type": "events",
-                    "properties": [
-                        {
-                            "key": "$feature_flag",
-                            "value": [feature_flag_key],
-                            "operator": "exact",
-                            "type": "event",
-                        },
-                        {
-                            "key": f"$feature/{feature_flag_key}",
-                            "value": [variant_key],
-                            "operator": "exact",
-                            "type": "event",
-                        },
-                    ],
-                }
-            ],
+            "duration": [],
+            "filter_test_accounts": True,
+            "filter_group": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "id": "$feature_flag_called",
+                                "name": "$feature_flag_called",
+                                "type": "events",
+                                "properties": [
+                                    {
+                                        "key": "$feature_flag",
+                                        "value": [feature_flag_key],
+                                        "operator": "exact",
+                                        "type": "event",
+                                    },
+                                    {
+                                        "key": f"$feature/{feature_flag_key}",
+                                        "value": [variant_key],
+                                        "operator": "exact",
+                                        "type": "event",
+                                    },
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            },
         }
 
     def _format_summary_for_user(

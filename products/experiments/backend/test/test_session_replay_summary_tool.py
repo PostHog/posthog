@@ -257,25 +257,30 @@ class TestSessionReplaySummaryTool(APIBaseTest):
         self.assertIn("variant_b: 50 (50.0%)", result)
 
     async def test_build_experiment_recording_filters(self):
-        """Test that recording filters are built correctly for experiment variants."""
+        """Test that recording filters are built in MaxRecordingUniversalFilters shape."""
         feature_flag = await self.acreate_feature_flag(key="test-flag")
         experiment = await self.acreate_experiment(name="filter-test", feature_flag=feature_flag)
 
         tool = await self.create_tool()
         filters = tool._build_experiment_recording_filters(experiment, "control")
 
-        # Verify filter structure
         self.assertIn("date_from", filters)
         self.assertIn("date_to", filters)
-        self.assertIn("events", filters)
-        self.assertEqual(len(filters["events"]), 1)
+        self.assertEqual(filters["duration"], [])
+        self.assertTrue(filters["filter_test_accounts"])
 
-        # Verify event filter
-        event_filter = filters["events"][0]
+        filter_group = filters["filter_group"]
+        self.assertEqual(filter_group["type"], "AND")
+        self.assertEqual(len(filter_group["values"]), 1)
+
+        inner_group = filter_group["values"][0]
+        self.assertEqual(inner_group["type"], "AND")
+        self.assertEqual(len(inner_group["values"]), 1)
+
+        event_filter = inner_group["values"][0]
         self.assertEqual(event_filter["id"], "$feature_flag_called")
         self.assertEqual(event_filter["type"], "events")
 
-        # Verify properties
         properties = event_filter["properties"]
         self.assertEqual(len(properties), 2)
 
@@ -286,6 +291,22 @@ class TestSessionReplaySummaryTool(APIBaseTest):
         self.assertEqual(properties[1]["key"], "$feature/test-flag")
         self.assertEqual(properties[1]["value"], ["control"])
         self.assertEqual(properties[1]["operator"], "exact")
+
+    async def test_build_experiment_recording_filters_validates_against_max_schema(self):
+        """The emitted shape must validate against MaxRecordingUniversalFilters so it can
+        be passed to filter_session_recordings without losing event entities."""
+        from posthog.schema import MaxRecordingUniversalFilters
+
+        feature_flag = await self.acreate_feature_flag(key="schema-flag")
+        experiment = await self.acreate_experiment(name="schema-check", feature_flag=feature_flag)
+
+        tool = await self.create_tool()
+        filters = tool._build_experiment_recording_filters(experiment, "control")
+
+        # Should validate cleanly — extra='forbid' means any unknown top-level key would raise.
+        validated = MaxRecordingUniversalFilters.model_validate(filters)
+        self.assertEqual(validated.duration, [])
+        self.assertEqual(len(validated.filter_group.values[0].values), 1)
 
     @patch("products.experiments.backend.max_tools.list_recordings_from_query")
     async def test_date_range_in_artifact(self, mock_list_recordings):

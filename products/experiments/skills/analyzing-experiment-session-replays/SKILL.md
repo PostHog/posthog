@@ -81,38 +81,52 @@ The variant `key` values (e.g., "control", "test", "variant_a") are what you'll 
 
 For each variant in the experiment, construct recording filters that match users exposed to that variant.
 
+**IMPORTANT**: `filter_session_recordings` validates input against `MaxRecordingUniversalFilters` (`extra='forbid'`), which requires the wrapped `filter_group` structure plus a `duration` array. A flat top-level `events: [...]` shape is **silently dropped** by the universal-filters converter and produces zero-result drill-downs — always nest event entities inside `filter_group.values[0].values`.
+
 **Filter structure for a variant:**
 
 ```json
 {
   "date_from": "<experiment.start_date>",
   "date_to": "<experiment.end_date or current time>",
+  "duration": [],
   "filter_test_accounts": true,
-  "events": [
-    {
-      "id": "$feature_flag_called",
-      "type": "events",
-      "properties": [
-        {
-          "key": "$feature_flag",
-          "value": ["<feature_flag_key>"],
-          "operator": "exact",
-          "type": "event"
-        },
-        {
-          "key": "$feature/<feature_flag_key>",
-          "value": ["<variant_key>"],
-          "operator": "exact",
-          "type": "event"
-        }
-      ]
-    }
-  ]
+  "filter_group": {
+    "type": "AND",
+    "values": [
+      {
+        "type": "AND",
+        "values": [
+          {
+            "id": "$feature_flag_called",
+            "name": "$feature_flag_called",
+            "type": "events",
+            "properties": [
+              {
+                "key": "$feature_flag",
+                "value": ["<feature_flag_key>"],
+                "operator": "exact",
+                "type": "event"
+              },
+              {
+                "key": "$feature/<feature_flag_key>",
+                "value": ["<variant_key>"],
+                "operator": "exact",
+                "type": "event"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
 }
 ```
 
 **Key points:**
 
+- Nest event entities inside `filter_group.values[0].values` — the universal-filters converter only reads from this path
+- `duration` is required (use `[]` when the user did not ask about recording length)
 - Filter by `$feature_flag_called` events where the flag matches the experiment's feature flag
 - Use `$feature/<flag_key>` property to filter for the specific variant value
 - Set the date range to the experiment's start and end dates
