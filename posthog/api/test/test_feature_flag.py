@@ -8890,6 +8890,75 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         response_json = response.json()
         self.assertLessEqual({"affected": 5, "total": 5}.items(), response_json.items())
 
+    def test_user_blast_radius_with_distinct_id_filter(self):
+        # Regression: distinct_id is not stored in person.properties — it lives in the
+        # person_distinct_id2 table and must be joined via pdi. Filtering by distinct_id
+        # in a release condition should match the persons that own that distinct_id.
+        for i in range(5):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[f"person{i}"],
+                properties={"group": f"{i}"},
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "distinct_id",
+                            "type": "person",
+                            "value": ["person1", "person3"],
+                            "operator": "exact",
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        self.assertLessEqual({"affected": 2, "total": 5}.items(), response_json.items())
+
+    def test_user_blast_radius_with_distinct_id_filter_multiple_distinct_ids_per_person(self):
+        # A single person can own multiple distinct_ids; filtering by any one should still
+        # count that person exactly once.
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["alias-a", "alias-b"],
+            properties={"group": "0"},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["other"],
+            properties={"group": "1"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "distinct_id",
+                            "type": "person",
+                            "value": ["alias-a", "alias-b"],
+                            "operator": "exact",
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        self.assertLessEqual({"affected": 1, "total": 2}.items(), response_json.items())
+
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_single_cohort(self):
         # Just to shake things up, we're using integers for the group property
