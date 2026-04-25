@@ -3,11 +3,14 @@ import geminiImage from 'scenes/onboarding/sdks/logos/gemini.svg'
 import { OpenAILogo } from 'scenes/onboarding/sdks/logos/OpenAILogo'
 import { OpenRouterLogo } from 'scenes/onboarding/sdks/logos/OpenRouterLogo'
 
+import azureImage from 'public/services/azure.png'
+
 import { LLMProvider, LLM_PROVIDER_LABELS } from './settings/llmProviderKeysLogic'
 
 const PROVIDER_IMAGES: Partial<Record<LLMProvider, string>> = {
     gemini: geminiImage,
     fireworks: 'https://res.cloudinary.com/dmukukwp6/image/upload/fireworks_ai_a3d8a59e96.svg',
+    azure_openai: azureImage,
 }
 
 const PROVIDER_COMPONENTS: Partial<Record<LLMProvider, React.ComponentType>> = {

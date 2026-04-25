@@ -25,7 +25,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 bytes = { workspace = true }
 url = "2.5"
-once_cell = "1.18.0"
+once_cell = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -53,8 +53,8 @@ tower-http = { workspace = true }
 petgraph = "0.8"
 moka = { workspace = true }
 dateparser = "0.2.1"
-rust_decimal = "1.37.1"
-rayon = "1.10.0"
+rust_decimal = "1.41.0"
+rayon = "1.11.0"
 percent-encoding = "2.3.1"
 md5 = "0.8"
 opentelemetry = { workspace = true }
@@ -63,7 +63,7 @@ opentelemetry_sdk = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 tokio-retry = "0.3"
 serde-pickle = { version = "1.1.1" }
-semver = "1.0.27"
+semver = "1.0.28"
 
 [lints]
 workspace = true

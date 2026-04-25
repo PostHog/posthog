@@ -3,6 +3,7 @@ import re
 import uuid
 import asyncio
 import datetime as dt
+from typing import cast
 
 import pytest
 import unittest.mock
@@ -1211,7 +1212,8 @@ async def test_materialize_model_with_decimal256_fix(ateam, bucket_name, minio_c
         )
 
         batch1 = pa.RecordBatch.from_arrays(
-            [problematic_data, pa.array([1], type=pa.int64())], names=["high_precision_decimal", "regular_column"]
+            cast(list[pa.Array], [problematic_data, pa.array([1], type=pa.int64())]),
+            names=["high_precision_decimal", "regular_column"],
         )
 
         async def async_generator():
@@ -1283,7 +1285,8 @@ async def test_materialize_model_with_decimal256_downscale_to_decimal128(ateam, 
         )
 
         batch1 = pa.RecordBatch.from_arrays(
-            [manageable_data, pa.array([1], type=pa.int64())], names=["manageable_decimal", "regular_column"]
+            cast(list[pa.Array], [manageable_data, pa.array([1], type=pa.int64())]),
+            names=["manageable_decimal", "regular_column"],
         )
 
         async def async_generator():

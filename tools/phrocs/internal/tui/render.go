@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	sharedpalette "github.com/posthog/posthog/phrocs/internal/palette"
@@ -56,9 +57,14 @@ func (m Model) renderHeader() string {
 		sortInfo = headerMetaStyle.Render(fmt.Sprintf("▼ %s", m.sortMode))
 	}
 
-	spacerW := max(m.width-lipgloss.Width(stripesStyle)-lipgloss.Width(brand)-lipgloss.Width(sortInfo)-lipgloss.Width(procInfo)-lipgloss.Width(meta)-1, 0)
+	var groupInfo string
+	if m.isGrouped() {
+		groupInfo = headerMetaStyle.Render(fmt.Sprintf("☰ %s", m.activeGroupDim()))
+	}
+
+	spacerW := max(m.width-lipgloss.Width(stripesStyle)-lipgloss.Width(brand)-lipgloss.Width(groupInfo)-lipgloss.Width(sortInfo)-lipgloss.Width(procInfo)-lipgloss.Width(meta)-1, 0)
 	spacer := lipgloss.NewStyle().Width(spacerW).Render("")
-	return lipgloss.JoinHorizontal(lipgloss.Top, stripesStyle, brand, spacer, sortInfo, procInfo, "•", meta)
+	return lipgloss.JoinHorizontal(lipgloss.Top, stripesStyle, brand, spacer, groupInfo, sortInfo, procInfo, "•", meta)
 }
 
 func (m Model) renderSidebar() string {
@@ -66,6 +72,10 @@ func (m Model) renderSidebar() string {
 
 	// Usable column width inside the border
 	innerW := m.effectiveSidebarWidth() - 1
+
+	if m.isGrouped() {
+		return m.renderGroupedSidebar(h, innerW)
+	}
 
 	// Determine the vertical slice of the services list to render based
 	// on the current cursor position and servicesOffset
@@ -98,6 +108,7 @@ func (m Model) renderSidebar() string {
 			iconColor: iconColor,
 			selected:  i == m.servicesCursor,
 			unread:    p.Unread(),
+			standby:   status.IsStandby(),
 			innerW:    innerW,
 			isDark:    m.isDark,
 		}))
@@ -108,6 +119,75 @@ func (m Model) renderSidebar() string {
 	}
 
 	// Pad remaining rows so the sidebar border extends the full height
+	for len(rows) < h {
+		rows = append(rows, procInactiveStyle.Width(innerW).Render(""))
+	}
+
+	return borderFor(m.isDark, m.focusedPane == focusServices).Height(h).Render(strings.Join(rows, "\n"))
+}
+
+// renderGroupedSidebar renders the sidebar with group headers interspersed.
+func (m Model) renderGroupedSidebar(h, innerW int) string {
+	entries := m.sidebarEntries
+	n := len(entries)
+
+	// Compute scroll state for entries (similar to sidebarScrollState but for entries)
+	start := min(max(m.servicesOffset, 0), max(0, n-1))
+	canScrollUp := start > 0
+	avail := h
+	if canScrollUp {
+		avail--
+	}
+	canScrollDown := start+avail < n
+	if canScrollDown {
+		avail--
+	}
+	avail = max(avail, 1)
+	visibleEnd := min(n, start+avail)
+
+	var rows []string
+
+	if canScrollUp {
+		rows = append(rows, scrollArrowStyle.Width(innerW).Render("▲"))
+	}
+
+	for i := start; i < visibleEnd; i++ {
+		e := entries[i]
+		if e.spacer {
+			rows = append(rows, procInactiveStyle.Width(innerW).Render(""))
+			continue
+		}
+		if e.isHeader() {
+			label := truncate(e.groupHeader, innerW-1)
+			rows = append(rows, groupHeaderStyle.Width(innerW).Render(label))
+			continue
+		}
+
+		p := e.proc
+		status := p.Status()
+		iconChar := statusIconChar(status)
+		if status == process.StatusPending {
+			iconChar = ansi.Strip(m.spinner.View())
+		}
+		iconColor := statusIconColor(status)
+
+		name := truncate(p.Name, innerW-3)
+		rows = append(rows, renderSidebarRow(sidebarRow{
+			icon:      iconChar,
+			name:      name,
+			iconColor: iconColor,
+			selected:  i == m.entryCursor,
+			unread:    p.Unread(),
+			standby:   status.IsStandby(),
+			innerW:    innerW,
+			isDark:    m.isDark,
+		}))
+	}
+
+	if canScrollDown {
+		rows = append(rows, scrollArrowStyle.Width(innerW).Render("▼"))
+	}
+
 	for len(rows) < h {
 		rows = append(rows, procInactiveStyle.Width(innerW).Render(""))
 	}
@@ -128,6 +208,9 @@ func (m Model) sidebarHeight() int {
 func (m Model) sidebarScrollState() (canScrollUp, canScrollDown bool, visibleH int) {
 	h := m.sidebarHeight()
 	n := len(m.services)
+	if m.isGrouped() {
+		n = len(m.sidebarEntries)
+	}
 	if n <= h {
 		return false, false, h
 	}
@@ -150,6 +233,10 @@ func (m Model) sidebarScrollState() (canScrollUp, canScrollDown bool, visibleH i
 // Keep selected process row within the visible
 // sidebar window by adjusting servicesOffset
 func (m *Model) ensureSidebarCursorVisible() {
+	if m.isGrouped() {
+		m.ensureGroupedCursorVisible()
+		return
+	}
 	_, _, h := m.sidebarScrollState()
 	if len(m.services) <= m.sidebarHeight() {
 		m.servicesOffset = 0
@@ -166,6 +253,45 @@ func (m *Model) ensureSidebarCursorVisible() {
 	}
 	if m.servicesCursor >= m.servicesOffset+h {
 		m.servicesOffset = m.servicesCursor - h + 1
+	}
+}
+
+// ensureGroupedCursorVisible keeps the entryCursor visible in grouped mode.
+func (m *Model) ensureGroupedCursorVisible() {
+	n := len(m.sidebarEntries)
+	h := m.sidebarHeight()
+
+	if n <= h {
+		m.servicesOffset = 0
+		return
+	}
+
+	// Compute available rows accounting for scroll arrows
+	canScrollUp := m.servicesOffset > 0
+	avail := h
+	if canScrollUp {
+		avail--
+	}
+	canScrollDown := m.servicesOffset+avail < n
+	if canScrollDown {
+		avail--
+	}
+	avail = max(avail, 1)
+
+	maxOffset := n - avail
+	if m.servicesOffset > maxOffset {
+		m.servicesOffset = max(maxOffset, 0)
+	}
+
+	if m.entryCursor < m.servicesOffset {
+		m.servicesOffset = m.entryCursor
+		// Show the group header above if immediately preceding
+		if m.entryCursor > 0 && m.sidebarEntries[m.entryCursor-1].isHeader() {
+			m.servicesOffset = m.entryCursor - 1
+		}
+	}
+	if m.entryCursor >= m.servicesOffset+avail {
+		m.servicesOffset = m.entryCursor - avail + 1
 	}
 }
 
@@ -232,17 +358,28 @@ func (m Model) renderFooter() string {
 		return footerStyle.Width(m.width - 2).Render(
 			lipgloss.NewStyle().Foreground(colorYellow).Render(hint),
 		)
+	} else if m.filterMode {
+		matchInfo := ""
+		if m.searchQuery != "" {
+			if count := m.viewport.TotalLineCount(); count == 0 {
+				matchInfo = "  [no matches]"
+			} else {
+				matchInfo = fmt.Sprintf("  [%d lines]", count)
+			}
+		}
+		prompt := lipgloss.NewStyle().Foreground(colorGreen).Render(fmt.Sprintf("| %s▌%s", m.searchQuery, matchInfo))
+		return footerStyle.Width(m.width - 2).Render(m.joinPromptWithHelp(prompt, m.keys.FilterModeHelp()))
 	} else if m.searchMode {
-		var matchInfo string
-		if m.searchQuery == "" {
-			matchInfo = ""
-		} else if len(m.searchMatches) == 0 {
-			matchInfo = "  [no matches]"
-		} else {
-			matchInfo = fmt.Sprintf("  [%d/%d]", m.searchCursor+1, len(m.searchMatches))
+		matchInfo := ""
+		if m.searchQuery != "" {
+			if len(m.searchMatches) == 0 {
+				matchInfo = "  [no matches]"
+			} else {
+				matchInfo = fmt.Sprintf("  [%d/%d]", m.searchCursor+1, len(m.searchMatches))
+			}
 		}
 		prompt := lipgloss.NewStyle().Foreground(colorYellow).Render(fmt.Sprintf("/ %s▌%s", m.searchQuery, matchInfo))
-		return footerStyle.Width(m.width - 2).Render(prompt)
+		return footerStyle.Width(m.width - 2).Render(m.joinPromptWithHelp(prompt, m.keys.SearchModeHelp()))
 	} else if m.setupMode {
 		var hint string
 		if m.setupError != "" {
@@ -282,6 +419,15 @@ func (m Model) renderFooter() string {
 		content = m.help.ShortHelpView(m.keys.ShortHelp())
 	}
 	return footerStyle.Width(m.width - 2).Render(content)
+}
+
+// Joins a prompt line with a help bar, or returns the prompt alone when help
+// is hidden — keeps search/filter footer height consistent with footerHeight().
+func (m Model) joinPromptWithHelp(prompt string, helpBindings []key.Binding) string {
+	if m.hideHelp {
+		return prompt
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, prompt, m.help.ShortHelpView(helpBindings))
 }
 
 // Rebuilds the info content and sets it on the viewport.

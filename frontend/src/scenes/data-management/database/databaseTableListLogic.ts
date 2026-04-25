@@ -76,7 +76,16 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                     inFlightDatabaseLoadPromise = request
 
                     try {
-                        return await request
+                        const database = await request
+                        const currentConnectionId = isDirectQueryEnabled()
+                            ? (values.connectionId ?? undefined)
+                            : undefined
+
+                        if (currentConnectionId !== requestConnectionId) {
+                            return values.database
+                        }
+
+                        return database
                     } finally {
                         if (inFlightDatabaseLoadKey === requestKey) {
                             inFlightDatabaseLoadKey = null

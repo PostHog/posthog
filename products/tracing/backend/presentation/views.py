@@ -27,9 +27,11 @@ from posthog.schema import (
     TraceSpansQueryResponse,
 )
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
 
 from ..logic import (
     TraceSpansQueryRunner,
@@ -42,6 +44,7 @@ from ..sparkline_query_runner import TraceSpansSparklineQueryRunner
 
 class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "INTERNAL"
+    serializer_class = _FallbackSerializer
 
     @action(detail=False, methods=["GET"], url_path="service-names")
     def service_names(self, request: Request, *args, **kwargs) -> Response:
@@ -89,11 +92,16 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             prefetchSpans=prefetch_spans,
         )
 
-        runner = TraceSpansQueryRunner(spans_query, self.team)
-        response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-        assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
+        def make_runner(dr: DateRange) -> TraceSpansQueryRunner:
+            return TraceSpansQueryRunner(TraceSpansQuery(**{**spans_query.model_dump(), "dateRange": dr}), self.team)
 
-        results = response.results
+        results = list(
+            time_sliced_results(
+                runner=TraceSpansQueryRunner(spans_query, self.team),
+                order_by_earliest=order_by == "earliest",
+                make_runner=make_runner,
+            )
+        )
 
         return Response(
             {
@@ -145,6 +153,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             dateRange=date_range,
             traceId=trace_id,
             limit=1000,
+            prefetchSpans=2000,
             rootSpans=False,
         )
 

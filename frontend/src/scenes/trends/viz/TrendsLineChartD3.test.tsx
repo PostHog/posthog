@@ -17,6 +17,7 @@ import { setupJsdom } from 'lib/hog-charts/test-helpers'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { buildTrendsQuery, chart, personsModal, renderInsight } from '~/test/insight-testing'
+import { createTooltipAccessor } from '~/test/insight-testing/tooltip-helpers'
 import { ChartDisplayType } from '~/types'
 
 let cleanupJsdom: () => void
@@ -73,8 +74,11 @@ describe('TrendsLineChartD3', () => {
                 featureFlags: HOG_CHARTS_FLAG,
             })
 
-            const tooltip = await chart.hoverTooltip(2)
+            // Breakdown data produces multiple series, so the chart requires a
+            // click to pin the tooltip (hover alone won't render it).
+            await chart.clickAtIndex(2)
 
+            const tooltip = createTooltipAccessor(chart.getTooltip()!)
             expect(tooltip.row('Spike')).toContain('3')
         })
 
@@ -133,7 +137,7 @@ describe('TrendsLineChartD3', () => {
             expect(tooltip.element.querySelector('.graph-series-glyph')).not.toBeInTheDocument()
         })
 
-        it('excludes zero-count series', async () => {
+        it('shows zero-count series alongside active ones', async () => {
             renderInsight({
                 query: buildTrendsQuery({
                     series: [{ kind: NodeKind.EventsNode, event: 'ZeroCounts', name: 'ZeroCounts' }],
@@ -144,7 +148,7 @@ describe('TrendsLineChartD3', () => {
             const tooltip = await chart.hoverTooltip(2)
 
             expect(tooltip.row('ActiveSeries')).toContain('3')
-            expect(tooltip.row('EmptySeries')).toBeUndefined()
+            expect(tooltip.row('EmptySeries')).toContain('0')
         })
 
         it('renders correctly when series has no action metadata', async () => {
@@ -158,6 +162,50 @@ describe('TrendsLineChartD3', () => {
             const tooltip = await chart.hoverTooltip(0)
 
             expect(tooltip.row('Minimal')).toContain('1')
+        })
+    })
+
+    describe('moving average overlay', () => {
+        it('adds a dashed moving-average series per result when enabled', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    trendsFilter: {
+                        showMovingAverage: true,
+                        movingAverageIntervals: 3,
+                    },
+                }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            // One data series + one moving-average overlay = 2 rendered series.
+            await waitFor(() => {
+                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+            })
+        })
+
+        it('omits the moving-average series from tooltip rows', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    trendsFilter: {
+                        showMovingAverage: true,
+                        movingAverageIntervals: 3,
+                    },
+                }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            const tooltip = await chart.hoverTooltip(2)
+
+            expect(tooltip.row('Pageview')).toContain('134')
+            expect(tooltip.element.textContent).not.toContain('Moving avg')
+        })
+
+        it('renders only the main series when disabled', async () => {
+            renderInsight({ query: buildTrendsQuery(), featureFlags: HOG_CHARTS_FLAG })
+
+            await waitFor(() => {
+                expect(screen.getByRole('img', { name: /chart with 1 data series/i })).toBeInTheDocument()
+            })
         })
     })
 

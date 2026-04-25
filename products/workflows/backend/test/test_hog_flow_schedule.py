@@ -112,6 +112,41 @@ class TestHogFlowScheduleAPI(APIBaseTest):
         schedule.refresh_from_db()
         assert schedule.next_run_at == expected_next_run
 
+    def test_update_completed_schedule_reactivates(self):
+        workflow = self._create_batch_workflow()
+        create_response = self.client.post(self._schedules_url(workflow["id"]), SCHEDULE_DATA)
+        schedule_id = create_response.json()["id"]
+
+        schedule = HogFlowSchedule.objects.get(id=schedule_id)
+        schedule.status = "completed"
+        schedule.save(update_fields=["status"])
+
+        response = self.client.patch(
+            self._schedule_detail_url(workflow["id"], schedule_id),
+            {"rrule": "FREQ=MONTHLY;BYMONTHDAY=1"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        schedule.refresh_from_db()
+        assert schedule.status == "active"
+
+    def test_update_paused_schedule_stays_paused(self):
+        workflow = self._create_batch_workflow()
+        create_response = self.client.post(self._schedules_url(workflow["id"]), SCHEDULE_DATA)
+        schedule_id = create_response.json()["id"]
+
+        schedule = HogFlowSchedule.objects.get(id=schedule_id)
+        schedule.status = "paused"
+        schedule.save(update_fields=["status"])
+
+        response = self.client.patch(
+            self._schedule_detail_url(workflow["id"], schedule_id),
+            {"rrule": "FREQ=MONTHLY;BYMONTHDAY=1"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        schedule.refresh_from_db()
+        assert schedule.status == "paused"
+        assert schedule.next_run_at is None
+
     def test_delete_schedule(self):
         workflow = self._create_batch_workflow()
         create_response = self.client.post(self._schedules_url(workflow["id"]), SCHEDULE_DATA)
@@ -355,3 +390,114 @@ class TestProcessDueSchedules(APIBaseTest):
 
         schedule.refresh_from_db()
         assert schedule.next_run_at is None
+
+
+@override_settings(INTERNAL_API_SECRET="test-secret")
+@unittest.mock.patch("posthog.api.hog_flow.create_hog_flow_scheduled_invocation")
+class TestProcessDueScheduleTriggers(APIBaseTest):
+    INTERNAL_URL = "/api/internal/hog_flows/process_due_schedules"
+
+    def _create_workflow_with_schedule(self, next_run_at=None, rrule="FREQ=HOURLY;INTERVAL=1"):
+        hog_flow = HogFlow.objects.create(
+            team=self.team,
+            name="Test Schedule Workflow",
+            status="active",
+            trigger={"type": "schedule"},
+            actions=[],
+            variables=[{"key": "greeting", "default": "Hello"}],
+        )
+        schedule = HogFlowSchedule.objects.create(
+            team=self.team,
+            hog_flow=hog_flow,
+            rrule=rrule,
+            starts_at=datetime(2026, 1, 1, 9, 0, 0, tzinfo=UTC),
+            timezone="UTC",
+            status="active",
+            next_run_at=next_run_at,
+        )
+        return hog_flow, schedule
+
+    def _post(self):
+        return self.client.post(
+            self.INTERNAL_URL,
+            content_type="application/json",
+            HTTP_X_INTERNAL_API_SECRET="test-secret",
+        )
+
+    def test_due_schedule_trigger_dispatches_scheduled_invocation(self, mock_invocation):
+        hog_flow, schedule = self._create_workflow_with_schedule(
+            next_run_at=datetime(2020, 1, 1, tzinfo=UTC),
+        )
+        response = self._post()
+        assert response.status_code == 200
+        assert str(schedule.id) in response.json()["processed"]
+
+        mock_invocation.assert_called_once()
+        call_kwargs = mock_invocation.call_args.kwargs
+        assert call_kwargs["team_id"] == self.team.id
+        assert call_kwargs["hog_flow_id"] == str(hog_flow.id)
+        assert call_kwargs["variables"] == {"greeting": "Hello"}
+
+    def test_schedule_trigger_advances_next_run_at(self, mock_invocation):
+        _, schedule = self._create_workflow_with_schedule(
+            next_run_at=datetime(2020, 1, 1, tzinfo=UTC),
+        )
+        response = self._post()
+        assert response.status_code == 200
+
+        schedule.refresh_from_db()
+        assert schedule.next_run_at is not None
+        assert schedule.next_run_at > datetime(2020, 1, 1, tzinfo=UTC)
+
+    def test_schedule_trigger_uses_variable_overrides(self, mock_invocation):
+        hog_flow, schedule = self._create_workflow_with_schedule(
+            next_run_at=datetime(2020, 1, 1, tzinfo=UTC),
+        )
+        schedule.variables = {"greeting": "Hi there", "extra": "value"}
+        schedule.save()
+
+        response = self._post()
+        assert response.status_code == 200
+
+        mock_invocation.assert_called_once()
+        variables = mock_invocation.call_args.kwargs["variables"]
+        assert variables["greeting"] == "Hi there"
+        assert variables["extra"] == "value"
+
+    def test_inactive_schedule_trigger_workflow_clears_next_run_at(self, mock_invocation):
+        hog_flow, schedule = self._create_workflow_with_schedule(
+            next_run_at=datetime(2020, 1, 1, tzinfo=UTC),
+        )
+        hog_flow.status = "draft"
+        hog_flow.save()
+
+        response = self._post()
+        assert response.status_code == 200
+        assert len(response.json()["processed"]) == 0
+
+        schedule.refresh_from_db()
+        assert schedule.next_run_at is None
+        mock_invocation.assert_not_called()
+
+    def test_uninitialized_schedule_trigger_gets_next_run_at(self, mock_invocation):
+        _, schedule = self._create_workflow_with_schedule(next_run_at=None)
+        response = self._post()
+        assert response.status_code == 200
+        assert str(schedule.id) in response.json()["initialized"]
+
+        schedule.refresh_from_db()
+        assert schedule.next_run_at is not None
+
+    def test_cdp_api_error_lands_in_failed(self, mock_invocation):
+        mock_response = unittest.mock.MagicMock()
+        mock_response.status_code = 500
+        mock_response.raise_for_status.side_effect = Exception("CDP API returned 500")
+        mock_invocation.return_value = mock_response
+
+        _, schedule = self._create_workflow_with_schedule(
+            next_run_at=datetime(2020, 1, 1, tzinfo=UTC),
+        )
+        response = self._post()
+        assert response.status_code == 200
+        assert str(schedule.id) in response.json()["failed"]
+        assert len(response.json()["processed"]) == 0

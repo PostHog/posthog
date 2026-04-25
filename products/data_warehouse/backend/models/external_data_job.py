@@ -19,6 +19,7 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     class PipelineVersion(models.TextChoices):
         V1 = "v1-dlt-sync", "v1-dlt-sync"
         V2 = "v2-non-dlt", "v2-non-dlt"
+        V3 = "v3-kafka-s3", "v3-kafka-s3"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     pipeline = models.ForeignKey("data_warehouse.ExternalDataSource", related_name="jobs", on_delete=models.CASCADE)
@@ -34,6 +35,11 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     billable = models.BooleanField(default=True, null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
     storage_delta_mib = models.FloatField(null=True, blank=True, default=0)
+    schema_snapshot = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Snapshot of the ExternalDataSchema at the time this job was created.",
+    )
 
     __repr__ = sane_repr("id")
 

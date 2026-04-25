@@ -2108,7 +2108,7 @@
   '''
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
+  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
@@ -2218,7 +2218,7 @@
   GROUP BY source_label, customer_id, subscription_id
   ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
   GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__pdi__person__revenue_analytics ON equals(toString(e__pdi__person.e__pdi__person___id), toString(e__pdi__person__revenue_analytics.person_id))
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
   GROUP BY day_start, breakdown_value_1)
   GROUP BY day_start, breakdown_value_1
   ORDER BY day_start ASC, breakdown_value ASC)
@@ -2234,7 +2234,7 @@
   '''
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
+  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
@@ -2417,7 +2417,7 @@
                     ORDER BY customer_id ASC,
                              subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
                  GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__poe__revenue_analytics ON equals(toString(e.person_id), toString(e__poe__revenue_analytics.person_id))
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
                     breakdown_value_1)
         GROUP BY day_start,
@@ -2445,7 +2445,7 @@
   '''
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
+  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
@@ -2804,12 +2804,12 @@
                                              mrr_agg.customer_id)) AS e__poe__revenue_analytics ON equals(toString(if(not(empty(e__override.distinct_id)), e__override.person_id,
                                                                                                                                                            e.person_id)), toString(e__poe__revenue_analytics.person_id))
   WHERE and(equals(e.team_id,
-                   99999), greaterOrEquals(toTimeZone(e.timestamp,
-                                                      'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00',
-                                                                                                         'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp,
-                                                                                                                                                              'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59',
-                                                                                                                                                                                               'UTC'))), equals(e.event,
-                                                                                                                                                                                                                '$pageview'))
+                   99999), greaterOrEquals(e.timestamp,
+                                           toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00',
+                                                                                      'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp,
+                                                                                                                                assumeNotNull(toDateTime('2025-05-30 23:59:59',
+                                                                                                                                                         'UTC'))), equals(e.event,
+                                                                                                                                                                          '$pageview'))
   GROUP BY day_start,
            breakdown_value_1)
   GROUP BY day_start,
@@ -2845,7 +2845,7 @@
   '''
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
+  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
@@ -2955,7 +2955,7 @@
   GROUP BY source_label, customer_id, subscription_id
   ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
   GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__person__revenue_analytics ON equals(toString(e__person.e__person___id), toString(e__person__revenue_analytics.person_id))
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
   GROUP BY day_start, breakdown_value_1)
   GROUP BY day_start, breakdown_value_1
   ORDER BY day_start ASC, breakdown_value ASC)
@@ -3229,7 +3229,7 @@
   '''
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
+  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
@@ -3291,7 +3291,7 @@
                         sum(`revenue_analytics.events.purchase.mrr_events_revenue_view`.mrr) AS mrr
                  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_mrr_events_revenue_view/revenue_analytics.events.purchase.mrr_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`mrr` Nullable(Decimal64(10)), `customer_id` Nullable(String), `source_label` Nullable(String), `subscription_id` Nullable(String)') AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
                  GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__pdi__person__revenue_analytics ON equals(toString(e__pdi__person.e__pdi__person___id), toString(e__pdi__person__revenue_analytics.person_id))
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
                     breakdown_value_1)
         GROUP BY day_start,
@@ -3375,7 +3375,7 @@
   '''
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
+  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
@@ -3422,7 +3422,7 @@
                         sum(`revenue_analytics.events.purchase.mrr_events_revenue_view`.mrr) AS mrr
                  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_mrr_events_revenue_view/revenue_analytics.events.purchase.mrr_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`mrr` Nullable(Decimal64(10)), `customer_id` Nullable(String), `source_label` Nullable(String), `subscription_id` Nullable(String)') AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
                  GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__poe__revenue_analytics ON equals(toString(e.person_id), toString(e__poe__revenue_analytics.person_id))
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
                     breakdown_value_1)
         GROUP BY day_start,
@@ -3506,7 +3506,7 @@
   '''
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
+  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
@@ -3560,7 +3560,7 @@
                         sum(`revenue_analytics.events.purchase.mrr_events_revenue_view`.mrr) AS mrr
                  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_mrr_events_revenue_view/revenue_analytics.events.purchase.mrr_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`mrr` Nullable(Decimal64(10)), `customer_id` Nullable(String), `source_label` Nullable(String), `subscription_id` Nullable(String)') AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
                  GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__poe__revenue_analytics ON equals(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), toString(e__poe__revenue_analytics.person_id))
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
                     breakdown_value_1)
         GROUP BY day_start,
@@ -3644,7 +3644,7 @@
   '''
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
+  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
@@ -3705,7 +3705,7 @@
                         sum(`revenue_analytics.events.purchase.mrr_events_revenue_view`.mrr) AS mrr
                  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_mrr_events_revenue_view/revenue_analytics.events.purchase.mrr_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`mrr` Nullable(Decimal64(10)), `customer_id` Nullable(String), `source_label` Nullable(String), `subscription_id` Nullable(String)') AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
                  GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__person__revenue_analytics ON equals(toString(e__person.e__person___id), toString(e__person__revenue_analytics.person_id))
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
                     breakdown_value_1)
         GROUP BY day_start,

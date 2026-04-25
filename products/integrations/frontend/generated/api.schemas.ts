@@ -79,6 +79,20 @@ export interface UserBasicApi {
 /**
  * Serializer for organization-level integrations.
  */
+export interface PatchedOrganizationIntegrationApi {
+    readonly id?: string
+    readonly kind?: OrganizationIntegrationKindEnumApi
+    /** @nullable */
+    readonly integration_id?: string | null
+    readonly config?: unknown
+    readonly created_at?: string
+    readonly updated_at?: string
+    readonly created_by?: UserBasicApi
+}
+
+/**
+ * Serializer for organization-level integrations.
+ */
 export interface OrganizationIntegrationApi {
     readonly id: string
     readonly kind: OrganizationIntegrationKindEnumApi
@@ -90,27 +104,52 @@ export interface OrganizationIntegrationApi {
     readonly created_by: UserBasicApi
 }
 
-export interface PaginatedOrganizationIntegrationListApi {
+export interface RoleExternalReferenceApi {
+    readonly id: string
+    /**
+     * Integration kind (e.g., github, linear, jira, slack).
+     * @maxLength 32
+     */
+    provider: string
+    /**
+     * Provider organization/workspace/site identifier.
+     * @maxLength 255
+     */
+    provider_organization_id: string
+    /**
+     * Stable provider role identifier.
+     * @maxLength 255
+     */
+    provider_role_id: string
+    /**
+     * Human-friendly provider role identifier.
+     * @maxLength 255
+     * @nullable
+     */
+    provider_role_slug?: string | null
+    /**
+     * Display name of the provider role.
+     * @maxLength 255
+     */
+    provider_role_name: string
+    /** PostHog role UUID this external role maps to. */
+    role: string
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+}
+
+export interface PaginatedRoleExternalReferenceListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: OrganizationIntegrationApi[]
+    results: RoleExternalReferenceApi[]
 }
 
-/**
- * Serializer for organization-level integrations.
- */
-export interface PatchedOrganizationIntegrationApi {
-    readonly id?: string
-    readonly kind?: OrganizationIntegrationKindEnumApi
-    /** @nullable */
-    readonly integration_id?: string | null
-    readonly config?: unknown
-    readonly created_at?: string
-    readonly updated_at?: string
-    readonly created_by?: UserBasicApi
+export interface RoleLookupResponseApi {
+    /** Matching reference, or null if none exists. */
+    reference: RoleExternalReferenceApi | null
 }
 
 /**
@@ -143,10 +182,13 @@ export interface PatchedOrganizationIntegrationApi {
  * `jira` - Jira
  * `pinterest-ads` - Pinterest Ads
  * `stripe` - Stripe
+ * `customerio-app` - Customerio App
+ * `customerio-webhook` - Customerio Webhook
+ * `customerio-track` - Customerio Track
  */
-export type KindBa9EnumApi = (typeof KindBa9EnumApi)[keyof typeof KindBa9EnumApi]
+export type IntegrationKindEnumApi = (typeof IntegrationKindEnumApi)[keyof typeof IntegrationKindEnumApi]
 
-export const KindBa9EnumApi = {
+export const IntegrationKindEnumApi = {
     Slack: 'slack',
     SlackPosthogCode: 'slack-posthog-code',
     Salesforce: 'salesforce',
@@ -176,14 +218,17 @@ export const KindBa9EnumApi = {
     Jira: 'jira',
     PinterestAds: 'pinterest-ads',
     Stripe: 'stripe',
+    CustomerioApp: 'customerio-app',
+    CustomerioWebhook: 'customerio-webhook',
+    CustomerioTrack: 'customerio-track',
 } as const
 
 /**
  * Standard Integration serializer.
  */
-export interface IntegrationApi {
+export interface IntegrationConfigApi {
     readonly id: number
-    kind: KindBa9EnumApi
+    kind: IntegrationKindEnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -191,21 +236,21 @@ export interface IntegrationApi {
     readonly display_name: string
 }
 
-export interface PaginatedIntegrationListApi {
+export interface PaginatedIntegrationConfigListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: IntegrationApi[]
+    results: IntegrationConfigApi[]
 }
 
 /**
  * Standard Integration serializer.
  */
-export interface PatchedIntegrationApi {
+export interface PatchedIntegrationConfigApi {
     readonly id?: number
-    kind?: KindBa9EnumApi
+    kind?: IntegrationKindEnumApi
     config?: unknown
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -221,6 +266,8 @@ export interface GitHubBranchesResponseApi {
      * @nullable
      */
     default_branch?: string | null
+    /** Whether more branches exist beyond the returned page */
+    has_more: boolean
 }
 
 export interface GitHubRepoApi {
@@ -231,6 +278,47 @@ export interface GitHubRepoApi {
 
 export interface GitHubReposResponseApi {
     repositories: GitHubRepoApi[]
+    /** Whether more repositories are available beyond this page. */
+    has_more: boolean
+}
+
+export interface GitHubReposRefreshResponseApi {
+    /** The refreshed repository cache. */
+    repositories: GitHubRepoApi[]
+}
+
+export type RoleExternalReferencesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type RoleExternalReferencesLookupRetrieveParams = {
+    /**
+     * Integration kind (e.g., github, linear, jira, slack).
+     * @minLength 1
+     */
+    provider: string
+    /**
+     * Provider organization/workspace/site identifier.
+     * @minLength 1
+     */
+    provider_organization_id: string
+    /**
+     * Stable provider role identifier.
+     * @minLength 1
+     */
+    provider_role_id?: string
+    /**
+     * Human-friendly provider role identifier.
+     * @minLength 1
+     */
+    provider_role_slug?: string
 }
 
 export type IntegrationsListParams = {
@@ -244,21 +332,43 @@ export type IntegrationsListParams = {
     offset?: number
 }
 
-export type IntegrationsList2Params = {
+export type IntegrationsGithubBranchesRetrieveParams = {
     /**
-     * Number of results to return per page.
+     * Maximum number of branches to return
+     * @minimum 1
+     * @maximum 1000
      */
     limit?: number
     /**
-     * The initial index from which to return the results.
+     * Number of branches to skip
+     * @minimum 0
      */
     offset?: number
-}
-
-export type IntegrationsGithubBranchesRetrieveParams = {
     /**
      * Repository in owner/repo format
      * @minLength 1
      */
     repo: string
+    /**
+     * Optional case-insensitive branch name search query.
+     */
+    search?: string
+}
+
+export type IntegrationsGithubReposRetrieveParams = {
+    /**
+     * Maximum number of repositories to return per request (max 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Number of repositories to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Optional case-insensitive repository name search query.
+     */
+    search?: string
 }

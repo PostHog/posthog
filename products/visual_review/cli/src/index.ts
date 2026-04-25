@@ -8,14 +8,18 @@
  */
 import { program } from 'commander'
 import { execSync } from 'node:child_process'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
-import { VisualReviewClient, type Run } from './client.js'
+import { VisualReviewApiError, VisualReviewClient, type Run } from './client.js'
 import { hashImageWithDimensions } from './hasher.js'
 import { scanDirectory } from './scanner.js'
 import { readBaselineHashes, readSnapshotsFile } from './snapshots.js'
+
+const RETRY_STATUS_CODES = new Set([500, 502, 503, 504])
+const SUBMIT_API_RETRIES = 3
+const SUBMIT_API_RETRY_BASE_DELAY_MS = 1_000
 
 program.name('vr').description('Visual Review CLI for snapshot testing').version('0.0.1')
 
@@ -37,6 +41,9 @@ program
     .option('--cookie <value>', 'Session cookie for authentication')
     .option('--auto-approve', 'Auto-approve all changes and write signed baseline')
     .action(async (options: SubmitOptions) => {
+        if (!baselineExists(options.baseline)) {
+            process.exit(0)
+        }
         try {
             const exitCode = await runSubmit(options)
             process.exit(exitCode)
@@ -81,6 +88,9 @@ run.command('create')
     .option('--cookie <value>', 'Session cookie')
     .option('--purpose <purpose>', 'Run purpose: review or observe', 'review')
     .action(async (options: RunCreateOptions) => {
+        if (!baselineExists(options.baseline)) {
+            process.exit(0)
+        }
         try {
             const runId = await runCreate(options)
             // Output just the run ID so CI can capture it
@@ -101,6 +111,9 @@ run.command('upload')
     .option('--token <value>', 'Personal API token')
     .option('--cookie <value>', 'Session cookie')
     .action(async (options: RunUploadOptions) => {
+        if (!baselineExists(options.baseline)) {
+            process.exit(0)
+        }
         try {
             await runUpload(options)
         } catch (error) {
@@ -119,6 +132,9 @@ run.command('complete')
     .option('--cookie <value>', 'Session cookie')
     .option('--auto-approve', 'Auto-approve all changes and write signed baseline')
     .action(async (options: RunCompleteOptions) => {
+        if (!baselineExists(options.baseline)) {
+            process.exit(0)
+        }
         try {
             const exitCode = await runComplete(options)
             process.exit(exitCode)
@@ -191,6 +207,15 @@ interface RunCompleteOptions {
 // Log to stderr so stdout stays clean for machine-readable output (e.g. run IDs)
 function log(message: string): void {
     process.stderr.write(message + '\n')
+}
+
+function baselineExists(baselinePath: string): boolean {
+    const p = resolve(baselinePath)
+    if (!existsSync(p)) {
+        log(`Baseline file not found: ${p} — skipping (branch may not have snapshots.yml yet)`)
+        return false
+    }
+    return true
 }
 
 function extractContentHash(signedHash: string): string {
@@ -360,13 +385,11 @@ async function runUpload(options: RunUploadOptions): Promise<void> {
 }
 
 async function runComplete(options: RunCompleteOptions): Promise<number> {
-    const { client } = makeClient(options)
+    const { client, api, team } = makeClient(options)
     const baselinePath = resolve(options.baseline)
 
     log(`Completing run ${options.runId}`)
 
-    // No body — shards already sent everything. Removal detection is a follow-up
-    // (requires backend to track covered identifiers per shard).
     let run = await client.completeRun(options.runId)
 
     log(`Run status after complete: ${run.status}`)
@@ -394,7 +417,8 @@ async function runComplete(options: RunCompleteOptions): Promise<number> {
     // Exit code: 1 if changes detected, 0 if clean
     const hasChanges = s.changed > 0 || s.new > 0 || s.removed > 0
     if (hasChanges) {
-        log('Visual changes detected — review required')
+        const reviewUrl = `${api}/project/${team}/visual_review/runs/${options.runId}`
+        log(`Visual changes detected — review and approve at: ${reviewUrl}`)
         return 1
     }
 
@@ -474,12 +498,36 @@ function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-async function waitForCompletion(client: VisualReviewClient, runId: string): Promise<Run> {
+async function retrySubmitApiCall<T>(label: string, operation: () => Promise<T>): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+        try {
+            return await operation()
+        } catch (error) {
+            if (
+                !(error instanceof VisualReviewApiError) ||
+                !RETRY_STATUS_CODES.has(error.status) ||
+                attempt >= SUBMIT_API_RETRIES
+            ) {
+                throw error
+            }
+
+            const delayMs = SUBMIT_API_RETRY_BASE_DELAY_MS * 2 ** attempt
+            log(
+                `${label} returned ${error.status}, retrying in ${delayMs}ms (attempt ${attempt + 1}/${SUBMIT_API_RETRIES})`
+            )
+            await sleep(delayMs)
+        }
+    }
+}
+
+async function waitForCompletion(client: VisualReviewClient, runId: string, retryServerErrors = false): Promise<Run> {
     const maxAttempts = 120
     const intervalMs = 5000
 
     for (let i = 0; i < maxAttempts; i++) {
-        const run = await client.getRun(runId)
+        const run = retryServerErrors
+            ? await retrySubmitApiCall('Get run status', () => client.getRun(runId))
+            : await client.getRun(runId)
         if (run.status === 'completed' || run.status === 'failed') {
             return run
         }
@@ -538,19 +586,22 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
     const commit = options.commit ?? getCurrentCommit()
     log(`Creating run: ${snapshots.length} snapshots, branch=${branch}, commit=${commit.slice(0, 10)}`)
 
-    const result = await client.createRun({
-        repoId: repo,
-        runType: options.type,
-        commitSha: commit,
-        branch,
-        prNumber: options.pr ? parseInt(options.pr, 10) : undefined,
-        snapshots: snapshots.map((s) => ({
-            identifier: s.identifier,
-            content_hash: s.hash,
-            width: s.width,
-            height: s.height,
-        })),
-    })
+    const result = await retrySubmitApiCall('Create run', () =>
+        client.createRun({
+            repoId: repo,
+            runType: options.type,
+            commitSha: commit,
+            branch,
+            prNumber: options.pr ? parseInt(options.pr, 10) : undefined,
+            purpose: options.autoApprove ? 'review' : 'observe',
+            snapshots: snapshots.map((s) => ({
+                identifier: s.identifier,
+                content_hash: s.hash,
+                width: s.width,
+                height: s.height,
+            })),
+        })
+    )
 
     log(`Run created: ${result.run_id}`)
     log(
@@ -590,13 +641,13 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
     }
 
     // 6. Complete run
-    let run = await client.completeRun(result.run_id)
+    let run = await retrySubmitApiCall('Complete run', () => client.completeRun(result.run_id))
     log(`Run status after complete: ${run.status}`)
 
     // 7. Wait for diff processing if still running
     if (run.status !== 'completed' && run.status !== 'failed') {
         log('Waiting for diff processing...')
-        run = await waitForCompletion(client, result.run_id)
+        run = await waitForCompletion(client, result.run_id, true)
     }
 
     // 8. Print summary
@@ -608,7 +659,7 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
     // 9. Auto-approve if requested
     if (options.autoApprove) {
         log('Auto-approving all changes...')
-        const approveResult = await client.autoApproveRun(result.run_id)
+        const approveResult = await retrySubmitApiCall('Auto-approve run', () => client.autoApproveRun(result.run_id))
         const baselinePath = resolve(options.baseline)
         writeFileSync(baselinePath, approveResult.baseline_content, 'utf-8')
         log(`Baseline written to ${baselinePath} (${approveResult.baseline_content.length} bytes)`)
@@ -618,7 +669,8 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
     // Without --auto-approve, unapproved changes exit 1 (gating)
     const hasChanges = s.changed > 0 || s.new > 0 || s.removed > 0
     if (hasChanges) {
-        log('Visual changes detected — review required')
+        const reviewUrl = `${api}/project/${team}/visual_review/runs/${result.run_id}`
+        log(`Visual changes detected — review and approve at: ${reviewUrl}`)
         return 1
     }
 

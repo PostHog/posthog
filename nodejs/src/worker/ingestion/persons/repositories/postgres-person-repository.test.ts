@@ -2348,7 +2348,7 @@ describe('PostgresPersonRepository', () => {
                         uuid,
                         { distinctId: 'test-metrics' }
                     )
-                } catch (error) {}
+                } catch {}
 
                 expect(mockInc).toHaveBeenCalledWith({
                     violation_type: 'create_person_size_violation',
@@ -2385,7 +2385,7 @@ describe('PostgresPersonRepository', () => {
                 try {
                     await oversizedRepository.updatePerson(person, createPersonUpdateFields(person, oversizedUpdate))
                     expect(mockInc).toHaveBeenCalledWith({ result: 'success' })
-                } catch (error) {}
+                } catch {}
 
                 mockPersonPropertiesSize.mockRestore()
                 metrics.oversizedPersonPropertiesTrimmedCounter.inc = originalInc

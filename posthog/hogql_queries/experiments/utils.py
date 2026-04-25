@@ -293,7 +293,7 @@ def aggregate_variants_across_breakdowns(
     aggregated_variants = []
 
     for key, variant_list in variants_by_key.items():
-        aggregated_stats = {
+        aggregated_stats: dict[str, Any] = {
             "key": key,
             "number_of_samples": sum(v.number_of_samples for v in variant_list),
             "sum": sum(v.sum for v in variant_list),

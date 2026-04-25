@@ -111,8 +111,12 @@ def _is_pr_opened_notified(task_run, pr_url: str) -> bool:
 
 
 def _mark_pr_opened_notified(task_run, pr_url: str) -> None:
-    state = task_run.state or {}
-    state["slack_pr_opened_notified"] = True
-    state["slack_notified_pr_url"] = pr_url
-    task_run.state = state
-    task_run.save(update_fields=["state", "updated_at"])
+    from products.tasks.backend.models import TaskRun
+
+    TaskRun.update_state_atomic(
+        task_run.id,
+        updates={
+            "slack_pr_opened_notified": True,
+            "slack_notified_pr_url": pr_url,
+        },
+    )

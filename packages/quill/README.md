@@ -1,6 +1,6 @@
 # Quill — PostHog's unified design system
 
-A React component library powering PostHog's unified UI surfaces (web, MCP, electron), built on Base UI and shadcn primitives. Ships as a single package with a pre-compiled stylesheet — **no Tailwind setup required on the consumer side**.
+A React component library powering PostHog's unified UI surfaces (web, MCP, electron), built on Base UI and shadcn primitives. **Quill requires Tailwind v4 on the consumer side** — the library ships component source and theme metadata, and your app's Tailwind compiles the utilities into your own CSS bundle.
 
 ## Packages
 
@@ -8,10 +8,10 @@ Quill publishes two independent packages to npm. Everything else in `packages/qu
 
 | Package                 | Description                                                                                                                                                         |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@posthog/quill`        | The library — React components, bundled types, and the pre-compiled stylesheet. Install this.                                                                       |
+| `@posthog/quill`        | The library — React components, bundled types, and three small CSS files that wire quill into your Tailwind build. Install this.                                    |
 | `@posthog/quill-tokens` | Typed JavaScript exports of the design tokens (semantic colors, spacing, shadows, etc.) for consumers who want programmatic access outside of components. Optional. |
 
-`@posthog/quill` is self-contained at runtime — it does not depend on `@posthog/quill-tokens` on the consumer side. The tokens package is consumed at library build time to produce the compiled stylesheet, and its values are baked into `dist/quill.css`, so a consumer who only wants components never has to install it.
+`@posthog/quill` is self-contained for styling purposes — tokens are bundled into `dist/tokens.css`, so consumers don't also need `@posthog/quill-tokens` unless they want the typed JS exports.
 
 ## Getting started
 
@@ -21,41 +21,64 @@ Quill publishes two independent packages to npm. Everything else in `packages/qu
 pnpm add @posthog/quill
 ```
 
-That's the only install. The library ships with its own Tailwind already compiled into `dist/quill.css`, so you don't need `tailwindcss`, `shadcn`, `tw-animate-css`, or any PostCSS plugins unless you're using Tailwind for your own app code.
+Tailwind v4 is a **peer dependency**. If you don't already have it:
 
-### 2. Import the stylesheet once
-
-Somewhere in your app entry (anywhere that runs before you render components):
-
-```ts
-import '@posthog/quill/styles.css'
+```bash
+pnpm add -D tailwindcss @tailwindcss/vite
 ```
 
-This pulls in the full pre-compiled stylesheet: colour system variables (light + dark), every utility class the primitives use, `tw-animate-css` keyframes, shadcn's `@custom-variant` selectors (already expanded), and a universal `border-color` / `body` reset. Works with Vite, Next.js, Webpack, Rspack, Parcel, or a plain CSS import — anything that can `@import` a stylesheet.
+(Use the PostCSS or CLI integration instead of `@tailwindcss/vite` if your bundler isn't Vite.)
 
-If you don't use a bundler that handles CSS imports from JS, you can `@import` it from your app's own CSS instead:
+### 2. Wire up the CSS
 
-```css
-@import '@posthog/quill/styles.css';
-```
-
-### 3. Authoring against Quill tokens (optional)
-
-The pre-compiled `styles.css` is enough to render every Quill component out of the box. But if **you** are also using Tailwind v4 in your own app code and want to author utility classes against Quill's design tokens — `bg-fill-active`, `text-muted-foreground`, `data-active:bg-secondary`, etc. — you also need to import `@posthog/quill/theme.css`:
+Quill ships three small stylesheets. Import them from your app's Tailwind entry — usually `globals.css`, `app.css`, or wherever you already have `@import "tailwindcss"`.
 
 ```css
 @import 'tailwindcss';
-@import '@posthog/quill/styles.css'; /* prebuilt: Quill component styles, zero config */
-@import '@posthog/quill/theme.css'; /* opt-in: register Quill tokens with your Tailwind */
+
+@import '@posthog/quill/tokens.css'; /* design tokens (CSS vars + @theme) */
+@import '@posthog/quill/base.css'; /* one border-color reset rule */
+@import '@posthog/quill/tailwind.css'; /* @source directive pointing at quill's dist */
 ```
 
-`theme.css` is **not** precompiled. It's a raw `@theme inline { … }` block that your Tailwind v4 instance reads at compile time, registering every Quill semantic colour (`--color-fill-active`, `--color-muted-foreground`, …), font size, line height, radius, and shadow as theme values. From that point on, your own `bg-fill-active` and friends compile correctly.
+**What each file does:**
 
-> ⚠️ **Always import `theme.css` alongside `styles.css`, never instead of it.** The raw CSS variable values (`--background`, `--primary`, `--fill-active`, …) live at `:root` and `.dark` inside the pre-compiled `styles.css`. `theme.css` only registers their **names** with your Tailwind compiler. If you import `theme.css` on its own, your Tailwind will produce rules like `.bg-fill-active { background-color: var(--color-fill-active); }` — pointing at a `--color-fill-active` alias that in turn points at a `--fill-active` variable that is never defined anywhere, so every utility silently resolves to an unset value.
+- `tokens.css` — registers every quill design token (`--color-*`, `--text-*`, `--leading-*`, `--radius-*`, `--shadow-*`, `--spacing`, …) with your Tailwind compiler so that utilities like `bg-fill-hover`, `text-muted-foreground`, and `rounded-md` resolve correctly. Also contains the light/dark CSS custom property values at `:root` and `.dark`.
+- `base.css` — one `@layer base { * { border-border outline-ring/50 } }` reset. Load-bearing: primitives write plain `border` (no colour modifier) expecting the default border colour to be `--color-border`. Without this, Tailwind v4 falls back to `currentColor` and every bordered primitive looks broken.
+- `tailwind.css` — a single `@source "./**/*.js"` directive. When your Tailwind v4 processes the import, it resolves that glob **relative to the file's on-disk location inside `node_modules/@posthog/quill/dist`**, so it scans quill's compiled library JS for class-name strings and generates the matching utilities in your own `utilities` layer. No pre-compiled stylesheet, no cascade-layer fight with your own Tailwind output.
 
-Skip this import if you don't use Tailwind in your own app — the components still work via `styles.css` alone, but classes you write yourself against Quill tokens will be silently dropped because your toolchain has no idea those tokens exist.
+### 3. Cascade layer order (usually optional)
 
-### 4. Set up dark mode
+If you import CSS from other libraries into named layers (e.g. `@import "@radix-ui/themes/styles.css" layer(radix)`), make sure your layer order puts those library layers _after_ `base` (so library defaults beat Tailwind's preflight) and _before_ `utilities` (so your own `className` overrides still win):
+
+```css
+@layer theme, base, radix, components, utilities;
+
+@import '@radix-ui/themes/styles.css' layer(radix);
+@import 'tailwindcss';
+
+@import '@posthog/quill/tokens.css';
+@import '@posthog/quill/base.css';
+@import '@posthog/quill/tailwind.css';
+```
+
+Quill itself is **not** layered — its utilities land in the top-level `utilities` layer alongside yours, which is what makes consumer overrides via `className` Just Work.
+
+### 4. Using the `@config` legacy bridge? Two extra lines
+
+If your project still runs Tailwind v4 in `@config "tailwind.config.js"` legacy-compat mode (common when migrating from v3), the legacy mode has two quirks quill works around but cannot hide:
+
+1. **It ignores `@source` directives nested inside `@import`ed CSS files.** Add an explicit `@source` pointing at quill's dist next to the imports:
+
+   ```css
+   @source "../../../../node_modules/@posthog/quill/dist/**/*.js";
+   ```
+
+   Adjust the relative path so it resolves from your CSS entry to `node_modules/@posthog/quill/dist`. Yes, it's fragile — if you can, migrate off `@config` and delete this line.
+
+2. **It strips Tailwind v4's default `@theme` values.** Quill's `tokens.css` ships the defaults it depends on (`--leading-*`, `--tracking-*`, `--font-weight-*`) inline so primitives like `text-xs/relaxed`, `tracking-tight`, and `font-medium` still resolve. Nothing to do on your side — this just explains why `tokens.css` is larger than you'd expect.
+
+### 5. Set up dark mode
 
 Quill uses class-based dark mode: add a `.dark` class to any ancestor element (usually `<html>`) and every token flips automatically.
 
@@ -81,7 +104,42 @@ function App() {
 
 `ThemeProvider` exposes a `useTheme()` hook for reading and setting the theme programmatically.
 
-### 5. Use components
+### 6. Theme the palette (optional)
+
+Quill's surface and brand colours are driven by four CSS custom properties. Override them at `:root` to reskin the whole app, or on any element to reskin just that subtree — no rebuild, no JS.
+
+| Variable           | Default | What it controls                                                                               |
+| ------------------ | ------- | ---------------------------------------------------------------------------------------------- |
+| `--theme-hue`      | `90`    | OKLCH hue for **light-mode surfaces**: background, card, popover, muted, accent, border, input |
+| `--theme-dark-hue` | `264`   | OKLCH hue for **dark-mode surfaces**                                                           |
+| `--theme-tint`     | `0.006` | OKLCH chroma intensity for neutral surface tinting (`0` = pure grey)                           |
+| `--primary-hue`    | `37.89` | OKLCH hue for the brand / primary colour                                                       |
+
+Global override — reskin the entire app:
+
+```css
+:root {
+  --theme-hue: 200; /* cool blue neutrals */
+  --primary-hue: 145; /* green brand */
+}
+```
+
+Subtree override — theme one section differently. Any valid CSS selector works, and Tailwind v4 arbitrary properties let you do it inline:
+
+```tsx
+<aside className="[--theme-hue:300] bg-muted">
+  {/* every quill surface inside this aside shifts to a magenta tint */}
+</aside>
+```
+
+**What is and isn't themeable:**
+
+- ✅ **Surfaces** (background, card, popover, muted, accent, border, input) and their foregrounds — derived from `--theme-hue` + `--theme-tint`
+- ✅ **Primary / brand** — derived from `--primary-hue`
+- ❌ **Status colours** (destructive, success, warning, info) — fixed by semantic meaning; a red error should stay red regardless of brand hue
+- ❌ **Secondary** — neutral dark by design
+
+### 7. Use components
 
 ```tsx
 import { Button, Card, CardHeader, CardTitle, CardContent } from '@posthog/quill'
@@ -103,6 +161,34 @@ function MyPage() {
 
 See the [Storybook](#development) for the full component catalogue, props, and live variants — it's the source of truth and always matches what's shipped.
 
+## Overriding quill styles
+
+Quill is designed so that consumer `className` wins over primitive defaults, without `!important` or specificity tricks. Every primitive routes its classes through `cn()` (`clsx` + `tailwind-merge`), so the consumer's string is deduplicated against quill's defaults at authoring time:
+
+```tsx
+// h-7 px-2 text-xs/relaxed is quill's default. The overrides below replace
+// each conflicting utility individually while keeping everything else.
+<Button className="h-10 px-6 text-sm">bigger button</Button>
+```
+
+For variant-level customisation, import quill's `cva` variants and compose your own wrapper locally:
+
+```tsx
+import { buttonVariants } from '@posthog/quill'
+import { cn } from '@/lib/utils'
+
+export function GhostButton({ className, ...props }) {
+  return (
+    <button
+      className={cn(buttonVariants({ variant: 'link-muted', size: 'sm' }), 'hover:underline', className)}
+      {...props}
+    />
+  )
+}
+```
+
+For structural swaps, quill primitives built on Base UI inherit its `render` prop, which lets you replace the underlying element while keeping the primitive's behaviour and classes.
+
 ## Using the design tokens directly
 
 If you want programmatic access to quill's semantic colour definitions — for example to theme a non-quill component or generate previews — install the tokens package separately:
@@ -112,55 +198,59 @@ pnpm add @posthog/quill-tokens
 ```
 
 ```ts
-import { semanticColors, spacing, shadow } from '@posthog/quill-tokens'
+import { semanticColors, spacing, spacingPx, shadow } from '@posthog/quill-tokens'
+
+// spacing is a function that computes at any step, not a lookup table:
+spacing(4) // '1rem'  — for CSS-in-JS
+spacingPx(4) // 16    — for React Native / Figma plugins
 ```
 
-Most apps won't need this — the CSS custom properties (`var(--primary)`, `var(--background)`, `var(--border)`, etc.) from the main stylesheet are usually enough.
+Most apps won't need this — the CSS custom properties (`var(--primary)`, `var(--background)`, `var(--border)`, …) from `tokens.css` are usually enough.
 
 ## CSS architecture
 
-The styling contract is built on CSS custom properties:
+Quill follows the **shadcn-style build model**: the library ships component source and theme metadata, and the consumer's Tailwind does all the utility compilation. There is no pre-compiled utility stylesheet inside `@posthog/quill`.
 
 ```text
-@posthog/quill-tokens    →  Defines raw values (--background: oklch(…))
-@posthog/quill styles.css →  Resolves every primitive utility against those tokens at build time
-Your app                 →  Imports the compiled stylesheet and renders components
+@posthog/quill-tokens          →  Raw design token values (TS, CSS)
+@posthog/quill dist/index.js   →  Compiled library code — class strings preserved as literals
+@posthog/quill dist/tokens.css →  :root / .dark vars + Tailwind v4 @theme inline block
+@posthog/quill dist/tailwind.css → @source "./**/*.js" — points Tailwind's scanner at the dist
+Your app                       →  Imports the three CSS files, runs Tailwind v4,
+                                  emits a single CSS bundle containing your utilities
+                                  and quill's utilities in one `utilities` layer
 ```
 
-At library build time, `@tailwindcss/cli` scans the primitives / components / blocks source trees, expands every `@custom-variant`, `shadcn/tailwind.css`, and `tw-animate-css` macro, and writes a single minified `dist/quill.css` (~120 kB). Consumers import that static file and their own bundler never runs Tailwind over quill's source.
+**Why this model?** The previous pre-compiled-stylesheet approach had a structural problem: any app that also used Tailwind shipped _two_ `utilities` layers, and the layer order fight made consumer overrides unpredictable. Layer-wrapping quill in a named layer was a band-aid that broke any time cascade order changed.
 
-The key property this gives you: **quill's primitive sizing cannot be overridden by the consumer's Tailwind theme**. Every `.p-4`, `.rounded-md`, `.text-sm`, `.shadow-sm` quill writes is already resolved against quill's own scales in the shipped CSS. You can still recolour the library by overriding the CSS variables (`--primary`, `--background`, etc.) at `:root` or under a custom class.
+The shadcn model has no such fight because there is only one Tailwind build: the consumer's. Quill's classes and the consumer's classes live in the same layer, deduplicated through `tailwind-merge`, and ordered by Tailwind's canonical sort. Consumer overrides work by construction, not by specificity hack.
 
-### Two CSS entry points, two purposes
-
-The aggregate ships **two** stylesheets, exposed as separate package exports, because they answer two different questions:
-
-| Export                      | Built how                                                                                           | What it gives you                                                                                                                                                                                                                                                                                                                          |
-| --------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `@posthog/quill/styles.css` | Pre-compiled by `@tailwindcss/cli` at lib build time. Closed set.                                   | Every utility class quill's own primitives, components, and blocks reference. The colour-system `:root` / `.dark` blocks. Resets. Animations. Variant macros expanded. **Renders quill components out of the box with no consumer Tailwind required.**                                                                                     |
-| `@posthog/quill/theme.css`  | Raw `@theme inline` block, copied verbatim from `@posthog/quill-tokens/tailwind-lib.css`. Open set. | Registers every quill design token (`--color-*`, `--text-*`, `--leading-*`, `--radius-*`, `--shadow-*`, `--spacing-*`) with the **consumer's** Tailwind v4 instance, so consumer code authoring `bg-fill-active`, `text-muted-foreground`, etc. compiles correctly. **Opt-in. Only meaningful if the consumer is also using Tailwind v4.** |
-
-The reason these have to be two files: a pre-compiled stylesheet is opaque to a downstream Tailwind compiler — it sees CSS, not theme metadata, so consumer-authored utilities can't resolve quill tokens. Shipping the raw `@theme` block as a separate export lets consumers opt back into the open-set ergonomics without giving up the closed-set guarantee on quill's own primitive sizing.
+**Tree shaking**: better, not worse. Consumer Tailwind only emits classes actually reached from their code plus the quill components they import. Unused quill utilities never land in the final CSS.
 
 ## Development
 
 Quill lives inside the PostHog monorepo. Clone, install dependencies at the repo root, and run:
 
 ```bash
-# Build the whole quill workspace (tokens → primitives → components → blocks → @posthog/quill aggregate)
+# Build quill + tokens
 pnpm quill:build
 
-# Dev loop: token watcher + Tailwind CSS watcher + Storybook, all in parallel
+# Dev loop: storybook with HMR for everything
 pnpm quill:storybook
 ```
 
-The storybook command runs three processes together:
+The storybook command runs:
 
-1. `@posthog/quill-tokens build:watch` — regenerates token CSS when you edit a token source file.
-2. `@posthog/quill build:css:watch` — reruns `tailwindcss` against the aggregate's input whenever a `.tsx` file under `primitives/`, `components/`, or `blocks/` changes. This writes a fresh `dist/quill.css`.
-3. `@posthog/quill-storybook storybook` — the dev server. It imports `@posthog/quill/styles.css` exactly the way a real consumer would, so any change you see in Storybook is a change a downstream app will see.
+1. `@posthog/quill-tokens build` — generates the initial token CSS so storybook has something to import at start-up.
+2. `@posthog/quill-storybook storybook` — the dev server.
 
-HMR propagates automatically through the chain: edit a primitive, save, the Tailwind watcher rebuilds the dist CSS in ~50 ms, and Vite HMR injects the new CSS into the browser without a reload.
+Inside storybook's Vite config:
+
+- **`@source` globs scan primitive/component/block `src/*.{ts,tsx}` directly.** Any `.tsx` edit under `packages/{primitives,components,blocks}/src` hot-reloads within a couple hundred ms — Tailwind's vite plugin catches the file change, rescans, and emits new utilities. No intermediate quill-dist rebuild.
+- **`quillTokensWatcher` plugin** watches `packages/tokens/src/*.ts`. Editing a token source file (colors, spacing, typography) reruns `tsx src/build.ts`, regenerates `@posthog/quill-tokens/dist/*.css`, and triggers a full page reload so the new custom property values are live.
+- **React HMR** handles story and component code changes the usual way.
+
+In short: edit anything under `packages/*/src/**`, see the result in the browser without rebuilding quill's dist. The dist artifacts (`dist/index.js`, `dist/tokens.css`, `dist/tailwind.css`) are **only** for external consumers pulling from npm.
 
 ### Repo layout
 
@@ -184,8 +274,8 @@ Quill is published to npm via a manually triggered GitHub Actions workflow: [`.g
 
 1. **Trigger** — `workflow_dispatch` only. A maintainer runs "Publish Quill npm packages" from the Actions tab and picks an npm dist-tag (`alpha` or `latest`).
 2. **Auth** — runs under the `Release` GitHub environment with `id-token: write`, publishing with npm provenance (`NPM_CONFIG_PROVENANCE: true`) via OIDC trusted publishing. No long-lived npm tokens.
-3. **Build** — installs the quill workspace with pnpm and runs `pnpm quill:build`. The `@posthog/quill` aggregate's build step runs the Tailwind CLI to produce `dist/quill.css`, then Vite bundles the JS by inlining the source of the internal `-primitives`, `-components`, and `-blocks` workspace packages into a single `dist/index.js` and a single rolled-up `dist/index.d.ts`.
-4. **Publish** — loops over the two public packages: `@posthog/quill-tokens`, then `@posthog/quill`. The two are independent at install time, so publish order does not matter for consumer resolution; `@posthog/quill-tokens` is built first because the aggregate's Tailwind pipeline imports its CSS files at build time.
+3. **Build** — installs the quill workspace with pnpm and runs `pnpm quill:build`. The `@posthog/quill` aggregate's build step emits `dist/tokens.css`, `dist/base.css`, `dist/tailwind.css`, then Vite bundles the JS by inlining the source of the internal `-primitives`, `-components`, and `-blocks` workspace packages into a single `dist/index.js` and a single rolled-up `dist/index.d.ts`. **Class-name strings are left as literals in the bundled JS** — this is what makes consumer-side Tailwind scanning work.
+4. **Publish** — loops over the two public packages: `@posthog/quill-tokens`, then `@posthog/quill`.
 5. **Notify** — posts success/failure and the published versions to the client-libraries Slack channel.
 
 ### Versioning
@@ -195,8 +285,6 @@ There's no changesets or semantic-release setup — versions are bumped manually
 1. Bump `version` in `packages/quill/packages/tokens/package.json` and/or `packages/quill/packages/quill/package.json`.
 2. Merge to `master`.
 3. Go to Actions → "Publish Quill npm packages" → Run workflow → pick `alpha` or `latest`.
-
-The two packages can move independently because `@posthog/quill` does not list `@posthog/quill-tokens` as a runtime dependency — each package ships its own typed JS bundle and is versioned on its own cadence. In practice it's still simplest to bump them together when a release is cutting a new design-token value, because the compiled CSS in `@posthog/quill` will have drifted from the raw values in the live `@posthog/quill-tokens`.
 
 ## Component checklist
 

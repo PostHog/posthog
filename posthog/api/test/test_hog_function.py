@@ -1712,6 +1712,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Verify filters were saved
         function = HogFunction.objects.get(id=function_id)
+        assert function.filters is not None
         assert function.filters.get("events") is not None
         assert function.filters.get("filter_test_accounts") is True
         assert function.filters.get("bytecode") is not None
@@ -1725,6 +1726,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Verify filters were updated to an empty object with valid bytecode
         function.refresh_from_db()
+        assert function.filters is not None
         assert function.filters.get("events", None) is None
         assert function.filters.get("filter_test_accounts", None) is None
         assert function.filters.get("bytecode") is not None
@@ -1738,6 +1740,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Verify filters remain an empty object with valid bytecode
         function.refresh_from_db()
+        assert function.filters is not None
         assert function.filters.get("events", None) is None
         assert function.filters.get("filter_test_accounts", None) is None
         assert function.filters.get("bytecode") is not None

@@ -36,6 +36,7 @@ export function loadPostHogJS(): void {
             opt_in_site_apps: true,
             disable_surveys: window.IMPERSONATED_SESSION,
             disable_product_tours: window.IMPERSONATED_SESSION,
+            opt_out_capturing_by_default: window.IMPERSONATED_SESSION,
             __preview_deferred_init_extensions: shouldDefer(),
             error_tracking: {
                 __capturePostHogExceptions: true,

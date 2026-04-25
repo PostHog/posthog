@@ -4,8 +4,8 @@
     "private": true,
     "type": "module",
     "scripts": {
-        "storybook": "storybook dev -p 6006",
-        "build-storybook": "pnpm --filter @posthog/quill build && storybook build",
+        "storybook": "pnpm --filter @posthog/quill-tokens build && storybook dev -p 6006",
+        "build-storybook": "pnpm --filter @posthog/quill-tokens build && storybook build",
         "test:visual:ci:update": "pnpm exec test-storybook -u --junit --no-index-json --maxWorkers=1",
         "test:visual:ci:verify": "pnpm exec test-storybook --ci --junit --no-index-json --maxWorkers=1",
         "test:visual:debug": "PWDEBUG=1 pnpm exec test-storybook --browsers chromium --no-index-json"
@@ -21,6 +21,7 @@
     },
     "devDependencies": {
         "@storybook/addon-docs": "^7.6.4",
+        "@storybook/addon-toolbars": "^7.6.4",
         "@storybook/react": "catalog:",
         "@storybook/react-vite": "^7.6.4",
         "@storybook/test-runner": "^0.16.0",
@@ -32,7 +33,7 @@
         "jest-image-snapshot": "^6.4.0",
         "storybook": "^7.6.4",
         "storybook-addon-pseudo-states": "2.1.2",
-        "typescript": "~5.9.3",
+        "typescript": "catalog:",
         "vite": "^5.4.21"
     }
 }

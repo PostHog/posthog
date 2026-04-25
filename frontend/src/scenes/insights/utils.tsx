@@ -33,6 +33,7 @@ import {
     ResultCustomizationBy,
     ResultCustomizationByPosition,
     ResultCustomizationByValue,
+    TileFilters,
 } from '~/queries/schema/schema-general'
 import {
     containsHogQLQuery,
@@ -825,4 +826,23 @@ export const getOverrideWarningPropsForButton = (
               tooltip: `This insight is being viewed with dashboard ${overrideType}. These will be discarded on edit.`,
           }
         : {}
+}
+
+/** Checks for breakdown features that are unsupported by trend insights with a
+ * data warehouse series. */
+export const hasUnsupportedBreakdownForDataWarehouseTrends = (
+    filtersOverride: DashboardFilter | TileFilters | null | undefined
+): boolean => {
+    const breakdownFilter = filtersOverride?.breakdown_filter
+
+    if (!breakdownFilter) {
+        return false
+    }
+
+    return !!(
+        breakdownFilter.breakdowns?.length ||
+        breakdownFilter.breakdown_type !== 'data_warehouse' ||
+        !breakdownFilter.breakdown ||
+        Array.isArray(breakdownFilter.breakdown)
+    )
 }

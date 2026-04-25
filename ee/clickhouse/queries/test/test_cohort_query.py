@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from typing import Any
 
 import pytest
 import unittest
@@ -1064,7 +1065,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             # Filter for:
             # Regularly completed [$pageview] [at least] [1] times per
             # [3][day] period for at least [3] of the last [3] periods
-            data = {
+            data: dict[str, Any] = {
                 "properties": {
                     "type": "AND",
                     "values": [

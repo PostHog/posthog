@@ -2,12 +2,16 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconTestTube } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
-import { LogsAlertConfigurationApi } from 'products/logs/frontend/generated/api.schemas'
+import {
+    LogsAlertConfigurationApi,
+    LogsAlertConfigurationStateEnumApi,
+} from 'products/logs/frontend/generated/api.schemas'
 
+import { LogsAlertEventHistoryModal } from './LogsAlertEventHistory'
 import { LogsAlertForm } from './LogsAlertForm'
 import { logsAlertFormLogic } from './logsAlertFormLogic'
 import { logsAlertingLogic } from './logsAlertingLogic'
@@ -24,13 +28,25 @@ export function LogsAlertingSection(): JSX.Element {
 }
 
 function LogsAlertingSectionInner(): JSX.Element {
-    const { isCreating, editingAlert } = useValues(logsAlertingLogic)
-    const { setIsCreating, setEditingAlert } = useActions(logsAlertingLogic)
+    const { isCreating, editingAlert, viewingHistoryAlert } = useValues(logsAlertingLogic)
+    const { setIsCreating, setEditingAlert, setViewingHistoryAlert } = useActions(logsAlertingLogic)
 
     const isModalOpen = isCreating || editingAlert !== null
 
     return (
         <>
+            <LemonBanner
+                type="info"
+                dismissKey="logs-alerts-beta-banner"
+                className="mb-3"
+                action={{ children: 'Send feedback', id: 'logs-alerts-feedback-button' }}
+            >
+                Logs alerting is in beta. Alerts are checked every 5 minutes. Read the{' '}
+                <Link to="https://posthog.com/docs/logs/alerts" target="_blank">
+                    docs
+                </Link>{' '}
+                or share feedback with what you'd like to see.
+            </LemonBanner>
             <LogsAlertList />
             <LemonModal
                 isOpen={isModalOpen}
@@ -44,6 +60,7 @@ function LogsAlertingSectionInner(): JSX.Element {
             >
                 {isModalOpen && <LogsAlertModalContent editingAlert={editingAlert} />}
             </LemonModal>
+            <LogsAlertEventHistoryModal alert={viewingHistoryAlert} onClose={() => setViewingHistoryAlert(null)} />
         </>
     )
 }
@@ -55,8 +72,12 @@ function LogsAlertModalContent({ editingAlert }: { editingAlert: LogsAlertConfig
         logsAlertFormLogic(formLogicProps)
     )
     const { openSimulationPanel, closeSimulationPanel } = useActions(logsAlertFormLogic(formLogicProps))
+    const { resetAlert } = useActions(logsAlertingLogic)
+    const { resettingAlertIds } = useValues(logsAlertingLogic)
     const { pendingNotifications } = useValues(logsAlertNotificationLogic(notifLogicProps))
     const hasPendingNotifications = pendingNotifications.length > 0
+    const isBroken = editingAlert?.state === LogsAlertConfigurationStateEnumApi.Broken
+    const isResetting = editingAlert ? resettingAlertIds.has(editingAlert.id) : false
 
     return (
         <BindLogic logic={logsAlertFormLogic} props={formLogicProps}>
@@ -70,9 +91,30 @@ function LogsAlertModalContent({ editingAlert }: { editingAlert: LogsAlertConfig
                 >
                     <LemonModal.Header>
                         <h3>{editingAlert ? 'Edit alert' : 'New alert'}</h3>
-                        <p className="text-muted text-sm m-0">Alerts are checked every minute.</p>
+                        <p className="text-muted text-sm m-0">Alerts are checked every 5 minutes.</p>
                     </LemonModal.Header>
                     <LemonModal.Content>
+                        {isBroken && editingAlert && (
+                            <LemonBanner
+                                type="error"
+                                className="mb-3"
+                                action={{
+                                    children: isResetting ? 'Resetting…' : 'Reset alert',
+                                    onClick: () => resetAlert(editingAlert.id),
+                                    loading: isResetting,
+                                    disabledReason: isResetting ? 'Reset in progress' : undefined,
+                                }}
+                            >
+                                <div className="font-semibold">
+                                    This alert was auto-disabled after repeated check failures.
+                                </div>
+                                {editingAlert.last_error_message && (
+                                    <div className="text-xs text-muted-alt mt-1">
+                                        Last error: {editingAlert.last_error_message}
+                                    </div>
+                                )}
+                            </LemonBanner>
+                        )}
                         <LogsAlertForm />
                     </LemonModal.Content>
                     <LemonModal.Footer>

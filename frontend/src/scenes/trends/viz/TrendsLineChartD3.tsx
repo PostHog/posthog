@@ -3,16 +3,19 @@ import { useCallback, useMemo } from 'react'
 
 import { createXAxisTickCallback } from 'lib/charts/utils/dates'
 import { buildTheme } from 'lib/charts/utils/theme'
-import { LineChart } from 'lib/hog-charts'
+import { DEFAULT_Y_AXIS_ID, LineChart } from 'lib/hog-charts'
 import type { LineChartConfig, PointClickData, Series } from 'lib/hog-charts'
 import type { TooltipContext } from 'lib/hog-charts/core/types'
+import { ReferenceLines } from 'lib/hog-charts/overlays/ReferenceLine'
+import { movingAverage, trendLine } from 'lib/statistics'
+import { hexToRGBA } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { groupsModel } from '~/models/groupsModel'
-import { GoalLine as SchemaGoalLine, InsightVizNode } from '~/queries/schema/schema-general'
+import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
@@ -20,6 +23,7 @@ import { InsightEmptyState } from '../../insights/EmptyStates'
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
 import type { IndexedTrendResult } from '../types'
+import { goalLinesToReferenceLines } from './goalLinesAdapter'
 import { handleTrendsLineChartClick } from './handleTrendsLineChartClick'
 import type { TrendsSeriesMeta } from './trendsSeriesMeta'
 import { TrendsTooltip } from './TrendsTooltip'
@@ -40,8 +44,10 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
         showPercentStackView,
         supportsPercentStackView,
         yAxisScaleType,
+        showMultipleYAxes,
         goalLines,
         getTrendsColor,
+        getTrendsHidden,
         currentPeriodResult,
         breakdownFilter,
         insightData,
@@ -51,6 +57,10 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
         labelGroupType,
         hasPersonsModal,
         querySource,
+        incompletenessOffsetFromEnd,
+        showMovingAverage,
+        movingAverageIntervals,
+        showTrendLines,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
@@ -71,27 +81,91 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
         indexedResults[0]?.data &&
         indexedResults.filter((result: IndexedTrendResult) => result.count !== 0).length > 0
 
+    // Dash the in-progress tail (mirrors LineGraph.tsx). Stickiness indices aren't dates.
+    const isInProgress = !isStickiness && incompletenessOffsetFromEnd < 0
+
     const hogSeries: Series<TrendsSeriesMeta>[] = useMemo(
         () =>
-            (indexedResults ?? [])
-                .filter((r: IndexedTrendResult) => r.count !== 0)
-                .map((r: IndexedTrendResult) => ({
+            (indexedResults ?? []).flatMap((r: IndexedTrendResult, index: number) => {
+                const isActiveSeries = !r.compare || r.compare_label !== 'previous'
+                const dashedFromIndex =
+                    isInProgress && isActiveSeries ? r.data.length + incompletenessOffsetFromEnd : undefined
+                const yAxisId = showMultipleYAxes && index > 0 ? `y${index}` : DEFAULT_Y_AXIS_ID
+                const meta: TrendsSeriesMeta = {
+                    action: r.action,
+                    breakdown_value: r.breakdown_value,
+                    compare_label: r.compare_label,
+                    days: r.days,
+                    order: r.action?.order ?? r.id,
+                    filter: r.filter,
+                }
+                const baseColor = getTrendsColor(r)
+                const displayColor = r.compare_label === 'previous' ? hexToRGBA(baseColor, 0.5) : baseColor
+                const hidden = getTrendsHidden(r)
+                const mainSeries: Series<TrendsSeriesMeta> = {
                     key: `${r.id}`,
                     label: r.label ?? '',
                     data: r.data,
-                    color: getTrendsColor(r),
+                    color: displayColor,
                     fillArea: display === ChartDisplayType.ActionsAreaGraph,
-                    meta: {
-                        action: r.action,
-                        breakdown_value: r.breakdown_value,
-                        compare_label: r.compare_label,
-                        days: r.days,
-                        // Fall back to the pre-filter index (r.id) so ordering is stable when earlier series are dropped.
-                        order: r.action?.order ?? r.id,
-                        filter: r.filter,
-                    },
-                })),
-        [indexedResults, display, getTrendsColor]
+                    dashedFromIndex,
+                    hidden,
+                    yAxisId,
+                    meta,
+                }
+                const series: Series<TrendsSeriesMeta>[] = [mainSeries]
+
+                // Confidence intervals are intentionally not rendered here. hog-charts
+                // stacks every visible series whenever any series has fillArea:true
+                // (LineChart.tsx), so a filled CI band would also reposition the main
+                // line. Adding CI requires a library primitive for fill-between-series.
+
+                if (showMovingAverage && r.data.length >= movingAverageIntervals) {
+                    series.push({
+                        key: `${r.id}-ma`,
+                        label: `${r.label ?? ''} (Moving avg)`,
+                        data: movingAverage(r.data, movingAverageIntervals),
+                        color: displayColor,
+                        fillArea: false,
+                        dashPattern: [10, 3],
+                        pointRadius: 0,
+                        hideFromTooltip: true,
+                        yAxisId,
+                        meta,
+                    })
+                }
+
+                // Fit excludes the in-progress tail (dashedFromIndex..end) so the flat
+                // partial bucket doesn't drag the slope down. Dimmed so the dashed
+                // overlay reads as subordinate to the series line — at full intensity
+                // the two colors visually compete, especially on a dark background.
+                if (showTrendLines && !hidden) {
+                    series.push({
+                        key: `${r.id}__trendline`,
+                        label: r.label ?? '',
+                        data: trendLine(r.data, dashedFromIndex),
+                        color: hexToRGBA(baseColor, 0.5),
+                        yAxisId,
+                        dashPattern: [6, 4],
+                        pointRadius: 0,
+                        hideFromTooltip: true,
+                    })
+                }
+
+                return series
+            }),
+        [
+            indexedResults,
+            display,
+            getTrendsColor,
+            getTrendsHidden,
+            isInProgress,
+            incompletenessOffsetFromEnd,
+            showMultipleYAxes,
+            showMovingAverage,
+            movingAverageIntervals,
+            showTrendLines,
+        ]
     )
 
     const chartConfig: LineChartConfig = useMemo(() => {
@@ -107,13 +181,10 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
             yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
             percentStackView: isPercentStackView,
             xTickFormatter,
-            goalLines: goalLines?.map((g: SchemaGoalLine) => ({
-                value: g.value,
-                label: g.label ?? undefined,
-                borderColor: g.borderColor ?? undefined,
-            })),
         }
-    }, [interval, currentPeriodResult?.days, timezone, yAxisScaleType, isPercentStackView, goalLines])
+    }, [interval, currentPeriodResult?.days, timezone, yAxisScaleType, isPercentStackView])
+
+    const referenceLines = useMemo(() => goalLinesToReferenceLines(goalLines, hogSeries), [goalLines, hogSeries])
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
 
@@ -204,6 +275,9 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
             theme={theme}
             tooltip={renderTooltip}
             onPointClick={canHandleClick ? onPointClick : undefined}
-        />
+            className="LineGraph"
+        >
+            <ReferenceLines lines={referenceLines} />
+        </LineChart>
     )
 }

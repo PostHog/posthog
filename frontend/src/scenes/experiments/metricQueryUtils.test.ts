@@ -627,6 +627,8 @@ describe('Data Warehouse Support', () => {
                         timestamp_field: 'created_at',
                         events_join_key: 'user_id',
                         data_warehouse_join_key: 'user_id',
+                        id_field: 'user_id',
+                        aggregation_target_field: 'user_id',
                         math: ExperimentMetricMathType.TotalCount,
                         properties: [
                             {
@@ -856,6 +858,8 @@ describe('Data Warehouse Support', () => {
                 timestamp_field: 'event_time',
                 events_join_key: 'user_uuid',
                 data_warehouse_join_key: 'user_external_id',
+                id_field: 'user_external_id',
+                aggregation_target_field: 'user_uuid',
                 custom_name: 'Custom Analytics Event',
                 properties: [
                     {

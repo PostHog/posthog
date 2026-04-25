@@ -19,6 +19,7 @@ from unittest.mock import ANY, MagicMock, call, patch
 
 from django.utils.timezone import now
 
+from asgiref.sync import async_to_sync
 from clickhouse_driver.errors import ServerException
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
@@ -2075,25 +2076,15 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         cached_value = cache.get(cache_key)
         assert cached_value is None
 
-    @parameterized.expand(
-        [
-            ("video_based", True),
-            ("event_based", False),
-        ]
-    )
-    @patch("posthog.session_recordings.session_recording_api.stream_recording_summary")
-    @patch("posthog.session_recordings.session_recording_api.execute_summarize_session")
+    @patch("posthog.session_recordings.session_recording_api.execute_summarize_session_video_stream")
     @patch("posthog.session_recordings.session_recording_api.is_cloud", return_value=True)
     @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
-    @patch("posthoganalytics.feature_enabled")
-    def test_summarize_uses_correct_path_based_on_feature_flag(
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_summarize_uses_video_based_path(
         self,
-        _name: str,
-        video_based_enabled: bool,
         mock_feature_enabled: MagicMock,
         mock_is_cloud: MagicMock,
         mock_execute_summarize: MagicMock,
-        mock_stream_summary: MagicMock,
     ):
         session_id = str(uuid7())
         self.produce_replay_summary(
@@ -2102,36 +2093,31 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             timestamp=now() - timedelta(hours=1),
         )
 
-        def feature_flag_side_effect(flag_name, *args, **kwargs):
-            if flag_name == "max-session-summarization-video-as-base":
-                return video_based_enabled
-            return True
+        async def mock_video_stream(*args, **kwargs):
+            yield "data: test\n\n"
 
-        mock_feature_enabled.side_effect = feature_flag_side_effect
-
-        async def mock_async_summarize(*args, **kwargs):
-            return {"summary": "test"}
-
-        mock_execute_summarize.side_effect = mock_async_summarize
-        mock_stream_summary.return_value = iter(["data: test\n\n"])
+        mock_execute_summarize.side_effect = mock_video_stream
 
         response = self.client.post(f"/api/projects/{self.team.id}/session_recordings/{session_id}/summarize")
 
         assert response.status_code == status.HTTP_200_OK
         # Consume streaming response to trigger the generator
-        list(response.streaming_content)  # type: ignore[attr-defined]
+        streaming_content = response.streaming_content  # type: ignore[attr-defined]
+        if hasattr(streaming_content, "__aiter__"):
 
-        if video_based_enabled:
-            mock_execute_summarize.assert_called_once()
-            call_kwargs = mock_execute_summarize.call_args.kwargs
-            assert call_kwargs["session_id"] == session_id
-            assert call_kwargs["user"] == self.user
-            assert call_kwargs["team"] == self.team
-            assert call_kwargs["video_validation_enabled"] == "full"
-            mock_stream_summary.assert_not_called()
+            async def _drain() -> None:
+                async for _ in streaming_content:
+                    pass
+
+            async_to_sync(_drain)()
         else:
-            mock_stream_summary.assert_called_once_with(session_id=session_id, user=self.user, team=self.team)
-            mock_execute_summarize.assert_not_called()
+            list(streaming_content)
+
+        mock_execute_summarize.assert_called_once()
+        call_kwargs = mock_execute_summarize.call_args.kwargs
+        assert call_kwargs["session_id"] == session_id
+        assert call_kwargs["user"] == self.user
+        assert call_kwargs["team"] == self.team
 
     @patch(
         "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",

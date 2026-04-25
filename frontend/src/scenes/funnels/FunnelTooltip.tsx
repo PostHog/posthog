@@ -102,7 +102,12 @@ export function FunnelTooltip({
                     )}
                 </tbody>
             </table>
-            {showPersonsModal && <ClickToInspectActors groupTypeLabel={groupTypeLabel} />}
+            {showPersonsModal && (
+                <>
+                    <LemonDivider className="my-2" />
+                    <ClickToInspectActors groupTypeLabel={groupTypeLabel} />
+                </>
+            )}
         </div>
     )
 }

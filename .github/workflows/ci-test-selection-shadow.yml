@@ -30,13 +30,17 @@ jobs:
             - name: Compute affected tests (shadow mode)
               id: selection
               env:
-                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: |
-                  git fetch --no-tags origin "$BASE_SHA"
+                  # Fetch the *current* tip of the base branch, not pull_request.base.sha
+                  # base.sha is captured at webhook time and goes stale if the branch later
+                  # merges a newer master, which makes `base.sha...HEAD` balloon to include
+                  # every merged-in master change.
+                  git fetch --no-tags origin "$BASE_REF"
                   echo "### Changed files" >&2
-                  git diff --name-only "$BASE_SHA"...HEAD >&2
+                  git diff --name-only "origin/$BASE_REF"...HEAD >&2
 
-                  RESULT=$(git diff --name-only "$BASE_SHA"...HEAD | uv run bin/find_affected_tests.py --stdin 2>/dev/stderr | tail -1)
+                  RESULT=$(uv run bin/find_affected_tests.py --base-ref "origin/$BASE_REF" 2>/dev/stderr | tail -1)
                   echo "result=$RESULT" >> "$GITHUB_OUTPUT"
 
             - name: Write job summary
