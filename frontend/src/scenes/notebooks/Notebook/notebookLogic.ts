@@ -57,6 +57,7 @@ import {
     collectPythonNodes,
 } from '../Nodes/notebookNodeContent'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
+import { notebookPanelLogic } from '../NotebookPanel/notebookPanelLogic'
 // NOTE: Annoyingly, if we import this then kea logic type-gen generates
 // two imports and fails so, we reimport it from the types file
 import {
@@ -340,6 +341,16 @@ export const notebookLogic = kea<notebookLogicType>([
                                 // Indicates nothing has changed
                                 return values.notebook
                             } else if (e.status === 404) {
+                                // The side panel persists its selectedNotebook in localStorage,
+                                // so a deleted/moved/unshared notebook can otherwise pin
+                                // 'Notebook not found' across unrelated scenes until the user
+                                // manually picks another notebook.
+                                const panelLogic = notebookPanelLogic.findMounted()
+                                if (panelLogic && panelLogic.values.selectedNotebook === props.shortId) {
+                                    panelLogic.actions.selectNotebook(SCRATCHPAD_NOTEBOOK.short_id, {
+                                        silent: true,
+                                    })
+                                }
                                 return null
                             }
                             throw e
