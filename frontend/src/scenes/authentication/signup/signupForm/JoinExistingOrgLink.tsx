@@ -16,8 +16,8 @@ function openJoinExistingOrgDialog(): void {
                 </div>
                 <h2 className="text-xl font-bold mb-2">You'll need your invite link to join</h2>
                 <p className="text-secondary mb-3">
-                    Joining an existing PostHog organization happens through a personal invite link emailed to you —
-                    not from this signup page. Here's how to get in:
+                    Joining an existing PostHog organization happens through a personal invite link emailed to you — not
+                    from this signup page. Here's how to get in:
                 </p>
                 <ol className="text-secondary text-sm text-left mb-3 pl-5 list-decimal deprecated-space-y-1">
                     <li>Search your inbox (and spam folder) for an email from PostHog with your invite link.</li>
