@@ -7,7 +7,7 @@ import { DEFAULT_Y_AXIS_ID, LineChart } from 'lib/hog-charts'
 import type { LineChartConfig, PointClickData, Series } from 'lib/hog-charts'
 import type { TooltipContext } from 'lib/hog-charts/core/types'
 import { ReferenceLines } from 'lib/hog-charts/overlays/ReferenceLine'
-import { movingAverage } from 'lib/statistics'
+import { movingAverage, trendLine } from 'lib/statistics'
 import { hexToRGBA } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -60,6 +60,7 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
         incompletenessOffsetFromEnd,
         showMovingAverage,
         movingAverageIntervals,
+        showTrendLines,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
@@ -98,14 +99,17 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
                     order: r.action?.order ?? r.id,
                     filter: r.filter,
                 }
+                const baseColor = getTrendsColor(r)
+                const displayColor = r.compare_label === 'previous' ? hexToRGBA(baseColor, 0.5) : baseColor
+                const hidden = getTrendsHidden(r)
                 const mainSeries: Series<TrendsSeriesMeta> = {
                     key: `${r.id}`,
                     label: r.label ?? '',
                     data: r.data,
-                    color: r.compare_label === 'previous' ? hexToRGBA(getTrendsColor(r), 0.5) : getTrendsColor(r),
+                    color: displayColor,
                     fillArea: display === ChartDisplayType.ActionsAreaGraph,
                     dashedFromIndex,
-                    hidden: getTrendsHidden(r),
+                    hidden,
                     yAxisId,
                     meta,
                 }
@@ -121,13 +125,30 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
                         key: `${r.id}-ma`,
                         label: `${r.label ?? ''} (Moving avg)`,
                         data: movingAverage(r.data, movingAverageIntervals),
-                        color: r.compare_label === 'previous' ? hexToRGBA(getTrendsColor(r), 0.5) : getTrendsColor(r),
+                        color: displayColor,
                         fillArea: false,
                         dashPattern: [10, 3],
                         pointRadius: 0,
                         hideFromTooltip: true,
                         yAxisId,
                         meta,
+                    })
+                }
+
+                // Fit excludes the in-progress tail (dashedFromIndex..end) so the flat
+                // partial bucket doesn't drag the slope down. Dimmed so the dashed
+                // overlay reads as subordinate to the series line — at full intensity
+                // the two colors visually compete, especially on a dark background.
+                if (showTrendLines && !hidden) {
+                    series.push({
+                        key: `${r.id}__trendline`,
+                        label: r.label ?? '',
+                        data: trendLine(r.data, dashedFromIndex),
+                        color: hexToRGBA(baseColor, 0.5),
+                        yAxisId,
+                        dashPattern: [6, 4],
+                        pointRadius: 0,
+                        hideFromTooltip: true,
                     })
                 }
 
@@ -143,6 +164,7 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
             showMultipleYAxes,
             showMovingAverage,
             movingAverageIntervals,
+            showTrendLines,
         ]
     )
 

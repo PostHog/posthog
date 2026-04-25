@@ -10,6 +10,7 @@ from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 
+import stripe
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import ValidationError
@@ -58,6 +59,29 @@ from posthog.permissions import (
 )
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+
+
+def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, install_signature: str) -> bool:
+    """Verify Stripe Apps marketplace install signature.
+
+    Stripe signs the redirect with HMAC over the JSON object {state, user_id, account_id}
+    in that exact key order using the app's signing secret. Without this check, a forged
+    callback URL could link an attacker's Stripe account onto a victim's PostHog team.
+
+    See: https://docs.stripe.com/stripe-apps/install-links-oauth
+    """
+    if not install_signature or not settings.STRIPE_SIGNING_SECRET:
+        return False
+    payload = json.dumps(
+        {"state": state, "user_id": user_id, "account_id": account_id},
+        separators=(",", ":"),
+    )
+    try:
+        # 300s tolerance matches the agentic-provisioning HMAC check at ee/api/agentic_provisioning/signature.py.
+        stripe.WebhookSignature.verify_header(payload, install_signature, settings.STRIPE_SIGNING_SECRET, tolerance=300)
+        return True
+    except stripe.SignatureVerificationError:
+        return False
 
 
 def _ensure_oauth_token_valid(instance: Integration) -> None:
@@ -341,6 +365,49 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             return instance
 
         elif validated_data["kind"] in OauthIntegration.supported_kinds:
+            # Stripe marketplace installs redirect to /integrations/stripe/callback without
+            # a PostHog-minted CSRF state token — Stripe drives the OAuth flow itself. Stripe
+            # signs the redirect with `install_signature` over {state, user_id, account_id};
+            # verify it before exchanging the code so a forged URL can't link an attacker's
+            # account onto a victim's team. Conflict check is defense-in-depth on top.
+            if validated_data["kind"] == "stripe":
+                config = validated_data["config"]
+                stripe_user_id = config.get("stripe_user_id")
+                state = config.get("state")
+                if stripe_user_id and not state:
+                    install_signature = config.get("install_signature") or ""
+                    user_id = config.get("user_id") or ""
+                    account_id = config.get("account_id") or ""
+                    if not _verify_stripe_install_signature(
+                        state="",
+                        user_id=user_id,
+                        account_id=account_id,
+                        install_signature=install_signature,
+                    ):
+                        capture_exception(
+                            Exception("Stripe marketplace callback rejected: invalid install_signature"),
+                            {"team_id": team_id, "stripe_user_id": stripe_user_id},
+                        )
+                        raise ValidationError(
+                            "Stripe install signature could not be verified.",
+                            code="stripe_install_signature_invalid",
+                        )
+
+                    conflicting = (
+                        Integration.objects.filter(team_id=team_id, kind="stripe")
+                        .exclude(integration_id=stripe_user_id)
+                        .exists()
+                    )
+                    if conflicting:
+                        capture_exception(
+                            Exception("Stripe marketplace callback rejected: conflicting integration"),
+                            {"team_id": team_id, "stripe_user_id": stripe_user_id},
+                        )
+                        raise ValidationError(
+                            "A different Stripe account is already connected to this team. Disconnect it first.",
+                            code="stripe_integration_conflict",
+                        )
+
             try:
                 instance = OauthIntegration.integration_from_oauth_response(
                     validated_data["kind"], team_id, request.user, validated_data["config"]
