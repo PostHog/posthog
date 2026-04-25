@@ -1467,15 +1467,16 @@ class TestMergeBaseBaselineHealing:
         assert merged == baseline
         assert healed == 0
 
-    def test_default_branch_uses_commit_sha_when_provided(self, repo, mocker):
-        """On the default branch, baseline is fetched at the commit SHA, not the branch tip.
-
-        This prevents a race where a newer commit updates the baseline file
-        before an older commit's VR run completes.
-        """
-        # Branch tip has the newer baseline (2 entries)
+    @pytest.mark.parametrize(
+        "commit_sha, expected_baseline",
+        [
+            ("deadbeef", {"A": "h1"}),  # pinned to commit SHA
+            (None, {"A": "h1", "B": "h2"}),  # falls back to branch tip
+        ],
+    )
+    def test_default_branch_baseline_ref(self, repo, mocker, commit_sha, expected_baseline):
+        """Baseline is pinned to commit SHA when provided, otherwise falls back to branch tip."""
         branch_tip_baseline = {"A": "h1", "B": "h2"}
-        # The commit being tested has the older baseline (1 entry)
         commit_baseline = {"A": "h1"}
         self._mock_github(
             mocker,
@@ -1485,21 +1486,10 @@ class TestMergeBaseBaselineHealing:
         )
 
         merged, healed = logic._resolve_baselines_with_merge_base(
-            repo, "storybook", "master", commit_sha="deadbeef"
+            repo, "storybook", "master", commit_sha=commit_sha
         )
 
-        # Should use the commit's baseline, not the branch tip
-        assert merged == commit_baseline
-        assert healed == 0
-
-    def test_default_branch_falls_back_to_branch_without_commit_sha(self, repo, mocker):
-        """Without commit_sha, default branch still fetches from branch tip (backwards compat)."""
-        baseline = {"A": "h1", "B": "h2"}
-        self._mock_github(mocker, branch_baseline=baseline, default_branch="master")
-
-        merged, healed = logic._resolve_baselines_with_merge_base(repo, "storybook", "master")
-
-        assert merged == baseline
+        assert merged == expected_baseline
         assert healed == 0
 
     def test_non_default_branch_ignores_commit_sha(self, repo, mocker):
