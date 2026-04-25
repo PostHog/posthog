@@ -26,7 +26,6 @@ INACTIVE_FLAGS = [
     "insight-horizontal-controls",
     "flagged-feature-indicator",
     "ai-only-mode",
-    "ai-first",
 ]
 
 
