@@ -2,5 +2,6 @@
 # name: TestAPIDocsSchema.test_api_docs_generation_warnings_snapshot
   list([
     '',
+    '/home/runner/work/posthog/posthog/products/experiments/backend/presentation/serializers.py: Warning [EnterpriseExperimentsViewSet > ExperimentSerializer]: unable to resolve type hint for function "get_feature_flag". Consider using a type hint or @extend_schema_field. Defaulting to string.',
   ])
 # ---

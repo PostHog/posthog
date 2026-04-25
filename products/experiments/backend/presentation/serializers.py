@@ -8,6 +8,7 @@ ViewSet remains in experiments.py.
 
 from typing import Any
 
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from pydantic import RootModel as PydanticRootModel
 from rest_framework import serializers
@@ -241,6 +242,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             fields["holdout_id"].queryset = ExperimentHoldout.objects.none()  # type: ignore[attr-defined]
         return fields
 
+    @extend_schema_field(OpenApiTypes.OBJECT)
     def get_feature_flag(self, obj):
         from posthog.api.feature_flag import MinimalFeatureFlagSerializer
 
