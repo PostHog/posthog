@@ -1800,8 +1800,20 @@ def deep_links(request: Request) -> Response:
     if auth_error:
         return auth_error
 
-    if error := _verify_hmac_if_present(request):
+    # HMAC partners must include a valid signature on this endpoint - bearer alone
+    # is not sufficient to mint a full web session via the deep-link primitive.
+    if access_token.application.provisioning_auth_method == "hmac":
+        if not request.META.get("HTTP_STRIPE_SIGNATURE"):
+            return _error_response(
+                "hmac_signature_required",
+                "HMAC signature required for this partner",
+                status=401,
+            )
+        if error := verify_provisioning_signature(request):
+            return error
+    elif error := _verify_hmac_if_present(request):
         return error
+
     if error := verify_api_version(request):
         return error
 
