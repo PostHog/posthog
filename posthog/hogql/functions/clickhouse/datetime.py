@@ -323,6 +323,30 @@ INTERVAL_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ((IntegerType(),), IntervalType()),
         ],
     ),
+    "toIntervalMillisecond": HogQLFunctionMeta(
+        "toIntervalMillisecond",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntervalType()),
+        ],
+    ),
+    "toIntervalMicrosecond": HogQLFunctionMeta(
+        "toIntervalMicrosecond",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntervalType()),
+        ],
+    ),
+    "toIntervalNanosecond": HogQLFunctionMeta(
+        "toIntervalNanosecond",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntervalType()),
+        ],
+    ),
 }
 
 # Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx

@@ -1111,7 +1111,13 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         else:
             raise NotImplementedError(f"Unsupported interval count: {count}")
 
-        if unit == "second" or unit == "seconds":
+        if unit == "nanosecond" or unit == "nanoseconds":
+            name = "toIntervalNanosecond"
+        elif unit == "microsecond" or unit == "microseconds":
+            name = "toIntervalMicrosecond"
+        elif unit == "millisecond" or unit == "milliseconds":
+            name = "toIntervalMillisecond"
+        elif unit == "second" or unit == "seconds":
             name = "toIntervalSecond"
         elif unit == "minute" or unit == "minutes":
             name = "toIntervalMinute"

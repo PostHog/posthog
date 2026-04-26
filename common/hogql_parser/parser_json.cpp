@@ -1799,7 +1799,13 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     int countInt = std::stoi(count_str);
 
     std::string name;
-    if (unit_str == "second" || unit_str == "seconds") {
+    if (unit_str == "nanosecond" || unit_str == "nanoseconds") {
+      name = "toIntervalNanosecond";
+    } else if (unit_str == "microsecond" || unit_str == "microseconds") {
+      name = "toIntervalMicrosecond";
+    } else if (unit_str == "millisecond" || unit_str == "milliseconds") {
+      name = "toIntervalMillisecond";
+    } else if (unit_str == "second" || unit_str == "seconds") {
       name = "toIntervalSecond";
     } else if (unit_str == "minute" || unit_str == "minutes") {
       name = "toIntervalMinute";

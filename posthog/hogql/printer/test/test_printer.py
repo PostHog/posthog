@@ -1697,6 +1697,11 @@ class TestPrinter(BaseTest):
         result = self._select("select sum(event) filter (where event = 'a') from events")
         self.assertIn("FILTER (WHERE", result)
 
+    def test_sub_second_interval_functions_print(self):
+        self.assertEqual(self._expr("toIntervalMillisecond(250)"), "toIntervalMillisecond(250)")
+        self.assertEqual(self._expr("toIntervalMicrosecond(500)"), "toIntervalMicrosecond(500)")
+        self.assertEqual(self._expr("toIntervalNanosecond(100)"), "toIntervalNanosecond(100)")
+
     def test_with_clause_before_parens_select_set_prints(self):
         self.assertEqual(
             self._select("WITH cte AS (SELECT 1 AS a) (SELECT a FROM cte UNION ALL SELECT a FROM cte)"),
@@ -5521,6 +5526,21 @@ class TestPostgresPrinter(BaseTest):
             ("today", "today()", "CURRENT_DATE"),
             ("yesterday", "yesterday()", "(CURRENT_DATE - INTERVAL '1 day')"),
             # Intervals
+            (
+                "toIntervalNanosecond",
+                "toIntervalNanosecond(100)",
+                "(100 * INTERVAL '0.001 microsecond')",
+            ),
+            (
+                "toIntervalMicrosecond",
+                "toIntervalMicrosecond(500)",
+                "(500 * INTERVAL '1 microsecond')",
+            ),
+            (
+                "toIntervalMillisecond",
+                "toIntervalMillisecond(250)",
+                "(250 * INTERVAL '1 millisecond')",
+            ),
             ("toIntervalSecond", "toIntervalSecond(60)", "(60 * INTERVAL '1 second')"),
             ("toIntervalMinute", "toIntervalMinute(30)", "(30 * INTERVAL '1 minute')"),
             ("toIntervalHour", "toIntervalHour(3)", "(3 * INTERVAL '1 hour')"),

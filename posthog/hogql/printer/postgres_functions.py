@@ -230,6 +230,9 @@ POSTGRES_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "today": _handle_today,
     "yesterday": _handle_yesterday,
     # Intervals
+    "toIntervalNanosecond": _make_interval_handler("0.001 microsecond"),
+    "toIntervalMicrosecond": _make_interval_handler("1 microsecond"),
+    "toIntervalMillisecond": _make_interval_handler("1 millisecond"),
     "toIntervalSecond": _make_interval_handler("1 second"),
     "toIntervalMinute": _make_interval_handler("1 minute"),
     "toIntervalHour": _make_interval_handler("1 hour"),

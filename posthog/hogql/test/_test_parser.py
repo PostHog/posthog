@@ -1046,6 +1046,18 @@ def parser_test_factory(backend: HogQLParserBackend):
                 self._expr("interval event year"),
                 ast.Call(name="toIntervalYear", args=[ast.Field(chain=["event"])]),
             )
+            self.assertEqual(
+                self._expr("interval '5 milliseconds'"),
+                ast.Call(name="toIntervalMillisecond", args=[ast.Constant(value=5)]),
+            )
+            self.assertEqual(
+                self._expr("interval '250 microseconds'"),
+                ast.Call(name="toIntervalMicrosecond", args=[ast.Constant(value=250)]),
+            )
+            self.assertEqual(
+                self._expr("interval '100 nanoseconds'"),
+                ast.Call(name="toIntervalNanosecond", args=[ast.Constant(value=100)]),
+            )
 
         def test_select_columns(self):
             self.assertEqual(
