@@ -6,6 +6,7 @@ import {
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
@@ -27,6 +28,19 @@ export interface BeginPasskeyLoginParams {
     next?: string
     email?: string
     reauth?: 'true' | 'false'
+}
+
+function extractWebAuthnErrorName(e: unknown): string | undefined {
+    if (e && typeof e === 'object' && 'name' in e && typeof (e as WebAuthnError).name === 'string') {
+        return (e as WebAuthnError).name
+    }
+    if (e && typeof e === 'object' && 'error' in e) {
+        const nested = (e as { error?: WebAuthnError }).error
+        if (nested?.name) {
+            return nested.name
+        }
+    }
+    return undefined
 }
 
 export const passkeyLogic = kea<passkeyLogicType>([
@@ -85,6 +99,8 @@ export const passkeyLogic = kea<passkeyLogicType>([
             null as null,
             {
                 startPasskeyAuthentication: async () => {
+                    posthog.capture('passkey login started', { reauth: values.isReauth })
+
                     try {
                         // Step 1: Get authentication options from server
                         const beginResponse = await api.create<PasskeyLoginBeginResponse>('api/webauthn/login/begin/')
@@ -108,24 +124,23 @@ export const passkeyLogic = kea<passkeyLogicType>([
                         // Step 3: Send assertion to server to complete login
                         await api.create('api/webauthn/login/complete/', assertion)
 
+                        posthog.capture('passkey login succeeded', { reauth: values.isReauth })
+
                         return null
                     } catch (e: unknown) {
+                        const errorName = extractWebAuthnErrorName(e)
+                        const userCancelled = errorName === 'NotAllowedError' || errorName === 'AbortError'
+                        posthog.capture('passkey login failed', {
+                            error_name: errorName,
+                            error_code: (e as { code?: string })?.code,
+                            error_status: (e as { status?: number })?.status,
+                            error_message: getPasskeyErrorMessage(e),
+                            user_cancelled: userCancelled,
+                            reauth: values.isReauth,
+                        })
+
                         // Only set error if it's not a user cancellation (those are expected)
-                        if (e && typeof e === 'object' && 'name' in e) {
-                            const errorName = (e as WebAuthnError).name
-                            if (errorName !== 'NotAllowedError' && errorName !== 'AbortError') {
-                                actions.setGeneralError('passkey_error', getPasskeyErrorMessage(e))
-                            }
-                        } else if (e && typeof e === 'object' && 'error' in e) {
-                            const nestedError = (e as { error?: WebAuthnError }).error
-                            if (
-                                nestedError?.name &&
-                                nestedError.name !== 'NotAllowedError' &&
-                                nestedError.name !== 'AbortError'
-                            ) {
-                                actions.setGeneralError('passkey_error', getPasskeyErrorMessage(e))
-                            }
-                        } else {
+                        if (!userCancelled) {
                             actions.setGeneralError('passkey_error', getPasskeyErrorMessage(e))
                         }
                         throw e

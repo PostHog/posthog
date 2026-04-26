@@ -519,6 +519,8 @@ export const signupLogic = kea<signupLogicType>([
             actions.setPasskeyRegistering(true)
             actions.setPasskeyError(null)
 
+            posthog.capture('passkey signup registration started')
+
             try {
                 // Step 1: Begin registration - get options from server
                 const beginResponse = await api.create<RegistrationBeginResponse>(
@@ -529,6 +531,7 @@ export const signupLogic = kea<signupLogicType>([
                 if (beginResponse.already_registered) {
                     actions.setPasskeyRegistered(true)
                     actions.setSignupPanelAuthValue('password', '')
+                    posthog.capture('passkey signup registration succeeded', { already_registered: true })
                     return
                 }
 
@@ -549,9 +552,17 @@ export const signupLogic = kea<signupLogicType>([
                 // Step 3: Complete registration - send attestation to server
                 await api.create('api/webauthn/signup-register/complete/', attestation)
 
+                posthog.capture('passkey signup registration succeeded', { already_registered: false })
+
                 actions.setPasskeyRegistered(true)
                 actions.setSignupPanelAuthValue('password', '') // Clear password since we're using passkey
             } catch (e: any) {
+                posthog.capture('passkey signup registration failed', {
+                    error_name: e?.name,
+                    error_code: e?.code,
+                    error_status: e?.status,
+                    error_message: getPasskeyErrorMessage(e, 'Failed to register passkey. Please try again.'),
+                })
                 actions.setPasskeyError(getPasskeyErrorMessage(e, 'Failed to register passkey. Please try again.'))
             } finally {
                 actions.setPasskeyRegistering(false)

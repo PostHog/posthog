@@ -1,6 +1,7 @@
 import { type PublicKeyCredentialDescriptorJSON, startAuthentication, startRegistration } from '@simplewebauthn/browser'
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -134,6 +135,8 @@ export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
                     return values.passkeys.map((p: PasskeyCredential) => (p.id === id ? updated : p))
                 },
                 verifyPasskey: async ({ id }) => {
+                    posthog.capture('passkey settings verification started')
+
                     try {
                         // Step 1: Begin verification
                         const verifyResponse = await api.create<VerificationBeginResponse>(
@@ -157,9 +160,17 @@ export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
                             assertion
                         )
 
+                        posthog.capture('passkey settings verification succeeded')
+
                         lemonToast.success('Passkey verified successfully!')
                         return values.passkeys.map((p: PasskeyCredential) => (p.id === id ? updated : p))
                     } catch (e: any) {
+                        posthog.capture('passkey settings verification failed', {
+                            error_name: e?.name,
+                            error_code: e?.code,
+                            error_status: e?.status,
+                            error_message: getPasskeyErrorMessage(e, 'Failed to verify passkey. Please try again.'),
+                        })
                         actions.setError(getPasskeyErrorMessage(e, 'Failed to verify passkey. Please try again.'))
                         throw e
                     }
@@ -170,6 +181,8 @@ export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
             null as null,
             {
                 beginRegistration: async ({ label }) => {
+                    posthog.capture('passkey settings registration started')
+
                     try {
                         // Step 1: Get registration options
                         const beginResponse = await api.create<RegistrationBeginResponse>('api/webauthn/register/begin')
@@ -228,8 +241,16 @@ export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
                         actions.loadUser()
                         actions.loadStatus()
 
+                        posthog.capture('passkey settings registration succeeded')
+
                         return null
                     } catch (e: any) {
+                        posthog.capture('passkey settings registration failed', {
+                            error_name: e?.name,
+                            error_code: e?.code,
+                            error_status: e?.status,
+                            error_message: getPasskeyErrorMessage(e, 'Failed to register passkey. Please try again.'),
+                        })
                         actions.setRegistrationStep('idle')
                         actions.setError(getPasskeyErrorMessage(e, 'Failed to register passkey. Please try again.'))
                         // Load passkeys in case the passkey was created but verification failed

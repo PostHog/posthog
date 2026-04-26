@@ -4,6 +4,7 @@ from typing import Any, cast
 
 from django.contrib.auth import authenticate, login
 from django.contrib.auth.signals import user_login_failed
+from django.db import DatabaseError, IntegrityError
 from django.http.response import JsonResponse
 
 import structlog
@@ -15,6 +16,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from webauthn.helpers import base64url_to_bytes, bytes_to_base64url, options_to_json
 from webauthn.helpers.decode_credential_public_key import decode_credential_public_key
+from webauthn.helpers.exceptions import InvalidRegistrationResponse
 from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredentialDescriptor
 
 from posthog.api.authentication import axes_locked_out, is_email_verified_for_login
@@ -140,21 +142,72 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
 
         try:
             expected_challenge = base64url_to_bytes(challenge_b64)
+        except Exception as e:
+            logger.exception("webauthn_registration_error", user_id=user.pk, error=str(e), code="invalid_challenge")
+            return Response(
+                {"error": "Registration failed: invalid challenge.", "code": "invalid_challenge"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-            # Parse the credential from request
-            credential_data = request.data
+        # Parse the credential from request
+        credential_data = request.data
 
+        try:
             verification = verify_passkey_registration_response(
                 credential=credential_data,
                 expected_challenge=expected_challenge,
             )
+        except InvalidRegistrationResponse as e:
+            logger.warning(
+                "webauthn_registration_error",
+                user_id=user.pk,
+                error=str(e),
+                code="verification_failed",
+            )
+            return Response(
+                {
+                    "error": "Registration failed: passkey verification failed.",
+                    "code": "verification_failed",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as e:
+            logger.exception(
+                "webauthn_registration_error",
+                user_id=user.pk,
+                error=str(e),
+                code="verification_unexpected_error",
+            )
+            return Response(
+                {
+                    "error": "Registration failed: passkey verification could not be completed.",
+                    "code": "verification_unexpected_error",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-            # Parse transports from the response
-            transports = credential_data.get("response", {}).get("transports", [])
+        # Parse transports from the response
+        transports = credential_data.get("response", {}).get("transports", [])
 
+        try:
             # Decode the public key to get the algorithm
             decoded_public_key = decode_credential_public_key(verification.credential_public_key)
+        except Exception as e:
+            logger.exception(
+                "webauthn_registration_error",
+                user_id=user.pk,
+                error=str(e),
+                code="public_key_decode_failed",
+            )
+            return Response(
+                {
+                    "error": "Registration failed: could not decode passkey public key.",
+                    "code": "public_key_decode_failed",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
+        try:
             # Create the credential (unverified)
             credential = WebauthnCredential.objects.create(
                 user=user,
@@ -166,27 +219,48 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
                 transports=transports,
                 verified=False,
             )
-
-            # Store credential ID for verification step
-            request.session[WEBAUTHN_REGISTRATION_CREDENTIAL_ID_KEY] = str(credential.pk)
-            request.session.save()
-
-            logger.info("webauthn_registration_complete", user_id=user.pk, credential_id=credential.pk)
-
+        except IntegrityError as e:
+            logger.warning(
+                "webauthn_registration_error",
+                user_id=user.pk,
+                error=str(e),
+                code="credential_already_exists",
+            )
             return Response(
                 {
-                    "success": True,
-                    "credential_id": str(credential.pk),
-                    "message": "Credential stored. Please verify your passkey to complete registration.",
-                }
-            )
-
-        except Exception as e:
-            logger.exception("webauthn_registration_error", user_id=user.pk, error=str(e))
-            return Response(
-                {"error": f"Registration failed: could not complete registration"},
+                    "error": "Registration failed: this passkey is already registered.",
+                    "code": "credential_already_exists",
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        except DatabaseError as e:
+            logger.exception(
+                "webauthn_registration_error",
+                user_id=user.pk,
+                error=str(e),
+                code="database_error",
+            )
+            return Response(
+                {
+                    "error": "Registration failed: could not save passkey.",
+                    "code": "database_error",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Store credential ID for verification step
+        request.session[WEBAUTHN_REGISTRATION_CREDENTIAL_ID_KEY] = str(credential.pk)
+        request.session.save()
+
+        logger.info("webauthn_registration_complete", user_id=user.pk, credential_id=credential.pk)
+
+        return Response(
+            {
+                "success": True,
+                "credential_id": str(credential.pk),
+                "message": "Credential stored. Please verify your passkey to complete registration.",
+            }
+        )
 
     def _raise_if_sso_enforced(self, user: User) -> None:
         organization = user.current_organization
