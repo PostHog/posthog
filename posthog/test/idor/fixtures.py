@@ -588,3 +588,72 @@ def _organization_invite_factory(team: Team) -> models.Model:
 
 
 register_label_fixture("posthog.OrganizationInvite", _organization_invite_factory)
+
+
+# CoreEvent — `clean()` requires a non-empty filter dict with a recognized kind.
+def _core_event_factory(team: Team) -> models.Model:
+    from posthog.models.core_event import CoreEvent
+
+    return CoreEvent.objects.create(
+        team=team,
+        name=f"idor-event-{_rand()}",
+        category=CoreEvent.Category.ACQUISITION,
+        filter={"kind": "EventsNode", "event": f"idor_{_rand()}"},
+    )
+
+
+register_label_fixture("posthog.CoreEvent", _core_event_factory)
+
+
+# ObjectMediaPreview — `clean()` requires exactly one of uploaded_media /
+# exported_asset, plus an event_definition. Build all three on the team.
+def _object_media_preview_factory(team: Team) -> models.Model:
+    from posthog.models.exported_asset import ExportedAsset
+    from posthog.models.object_media_preview import ObjectMediaPreview
+
+    from products.event_definitions.backend.models import EventDefinition
+
+    event_definition = EventDefinition.objects.create(team=team, name=f"idor-event-{_rand()}")
+    exported_asset = ExportedAsset.objects.create(team=team, export_format="image/png")
+    return ObjectMediaPreview.objects.create(
+        team=team,
+        exported_asset=exported_asset,
+        event_definition=event_definition,
+    )
+
+
+register_label_fixture("posthog.ObjectMediaPreview", _object_media_preview_factory)
+
+
+# DataWarehouseModelPath — `path` is a postgres ltree (LabelTreeField) that
+# the auto-factory can't fill. The model accepts a list-of-segments form.
+def _data_warehouse_model_path_factory(team: Team) -> models.Model:
+    from products.data_warehouse.backend.models import DataWarehouseModelPath
+
+    return DataWarehouseModelPath.objects.create(team=team, path=[f"idor_{_rand()}"])
+
+
+register_label_fixture("data_warehouse.DataWarehouseModelPath", _data_warehouse_model_path_factory)
+
+
+# MaterializedColumnSlot — needs a real PropertyDefinition + property_type slot.
+def _materialized_column_slot_factory(team: Team) -> models.Model:
+    from posthog.models.materialized_column_slots import MaterializedColumnSlot
+
+    from products.event_definitions.backend.models import PropertyDefinition
+
+    property_definition = PropertyDefinition.objects.create(
+        team=team,
+        name=f"idor_prop_{_rand()}",
+        property_type="String",
+        type=PropertyDefinition.Type.EVENT,
+    )
+    return MaterializedColumnSlot.objects.create(
+        team=team,
+        property_definition=property_definition,
+        property_type="String",
+        slot_index=0,
+    )
+
+
+register_label_fixture("posthog.MaterializedColumnSlot", _materialized_column_slot_factory)
