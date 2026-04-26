@@ -147,6 +147,27 @@ class TestFKDiscoveryCanary(unittest.TestCase):
         body = build_minimal_post_body(_OptionalCharSerializer, team=_Team)  # type: ignore[arg-type]
         assert body == {}, f"canary failed: optional field synthesized into POST body: {body!r}"
 
+    def test_name_pattern_detection_fires_on_non_model_serializer(self) -> None:
+        """Canary for Phase 5c: a `<thing>_id` field on a plain Serializer
+        (not ModelSerializer) must surface via the name-pattern path.
+
+        If discovery silently stops emitting these, IDORs like the
+        tom/dashboard-template CopyDashboardTemplateSerializer.source_template_id
+        slip through `test_cross_tenant_id_in_action`.
+        """
+
+        class _CopyTemplateBody(serializers.Serializer):
+            source_template_id = serializers.UUIDField(required=True)
+
+        result = discover_writable_tenant_fks(_CopyTemplateBody)
+        assert result, "canary failed: name-pattern fallback didn't fire on plain Serializer"
+        for fk in result:
+            assert fk.is_name_pattern is True, "canary failed: result not marked is_name_pattern"
+            assert fk.is_implicit is True
+        assert any("Template" in fk.target_model.__name__ for fk in result), (
+            "canary failed: name-pattern didn't resolve `template` to a *Template model"
+        )
+
     def test_post_body_factory_raises_on_unfillable(self) -> None:
         """If body synthesis silently returns garbage instead of raising, the FK POST test
         would receive a 4xx for the wrong reason and look like it 'passed'."""
