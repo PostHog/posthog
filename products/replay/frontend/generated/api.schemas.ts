@@ -102,7 +102,7 @@ export interface SessionRecordingPlaylistApi {
     readonly created_by: UserBasicApi
     /** Set to true to soft-delete the playlist. */
     deleted?: boolean
-    /** JSON object with recording filter criteria. Only used when type is 'filters'. Defines which recordings match this saved filter view. When updating a filters-type playlist, you must include the existing filters alongside any other changes — omitting filters will be treated as removing them. */
+    /** JSON object with recording filter criteria. Only used when type is 'filters'. Defines which recordings match this saved filter view. When updating a filters-type playlist, omitting the field leaves the existing filters unchanged; sending an empty object is rejected as removing all filters. */
     filters?: unknown
     readonly last_modified_at: string
     readonly last_modified_by: UserBasicApi
@@ -152,7 +152,7 @@ export interface PatchedSessionRecordingPlaylistApi {
     readonly created_by?: UserBasicApi
     /** Set to true to soft-delete the playlist. */
     deleted?: boolean
-    /** JSON object with recording filter criteria. Only used when type is 'filters'. Defines which recordings match this saved filter view. When updating a filters-type playlist, you must include the existing filters alongside any other changes — omitting filters will be treated as removing them. */
+    /** JSON object with recording filter criteria. Only used when type is 'filters'. Defines which recordings match this saved filter view. When updating a filters-type playlist, omitting the field leaves the existing filters unchanged; sending an empty object is rejected as removing all filters. */
     filters?: unknown
     readonly last_modified_at?: string
     readonly last_modified_by?: UserBasicApi
