@@ -80,8 +80,20 @@ _NAMED_GROUP_RE = re.compile(r"\(\?P<([^>]+)>")
 
 
 def _has_detail_endpoint(cls: type) -> bool:
-    """Return True if this viewset has at least one URL with a non-format, non-parent-lookup named group at the end."""
+    """Return True if this viewset has at least one detail URL whose final
+    kwarg matches the viewset's lookup_field/lookup_url_kwarg.
+
+    A URL like `/sharing/passwords/<password_id>/` looks like a detail
+    URL syntactically but its kwarg points at a sub-resource, not the
+    parent viewset's lookup. Such URLs are custom action routes that
+    need hand-written tests; they shouldn't count toward "needs IDOR
+    coverage" for the parent viewset.
+    """
     from posthog.api import router
+
+    lookup_field = getattr(cls, "lookup_field", "pk")
+    lookup_url_kwarg = getattr(cls, "lookup_url_kwarg", None)
+    expected = lookup_url_kwarg or lookup_field
 
     for url_pattern in router.urls:
         callback = getattr(url_pattern, "callback", None)
@@ -96,7 +108,11 @@ def _has_detail_endpoint(cls: type) -> bool:
             continue
         if last.startswith("parent_lookup_"):
             continue
-        return True
+        # Treat `pk` and `id` as interchangeable since DRF auto-routes both.
+        if {expected, last} <= {"pk", "id"}:
+            return True
+        if expected == last:
+            return True
     return False
 
 

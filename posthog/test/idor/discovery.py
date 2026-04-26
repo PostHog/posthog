@@ -65,13 +65,7 @@ def discover_idor_test_cases() -> list[IDORTestCase]:
             continue
         if cls.__name__ in IDOR_TEST_SKIP_LIST:
             continue
-        # Viewsets that use a non-pk/id lookup field (e.g. `short_id`, `kind`,
-        # `user__uuid`) can't be auto-URL-constructed because we'd need to know
-        # which instance attribute to read. Skip silently; these must be added
-        # to skip_list if they should be IDOR-audited separately.
-        lookup_field = getattr(cls, "lookup_field", "pk")
-        lookup_url_kwarg = getattr(cls, "lookup_url_kwarg", None)
-        if lookup_field not in {"pk", "id"} and lookup_url_kwarg not in {"pk", "id"}:
+        if not _supports_auto_lookup(cls):
             continue
 
         model_cls = _infer_model(cls)
@@ -81,6 +75,18 @@ def discover_idor_test_cases() -> list[IDORTestCase]:
         structure = parse_url_pattern(str(url_pattern.pattern))
         if structure is None:
             continue
+        # The URL's pk kwarg must align with the viewset's `lookup_field` /
+        # `lookup_url_kwarg`. Mismatches mean the URL belongs to a custom
+        # action that takes a sub-resource id (e.g. `sharing/passwords/<password_id>`)
+        # rather than the standard retrieve route — those need hand-written tests.
+        if not _url_kwarg_matches_lookup(cls, structure.pk_kwarg):
+            continue
+        # If the URL kwarg isn't `pk`/`id`, the model must expose an attribute
+        # with that name so we can read the lookup value off an auto-built
+        # instance. `short_id`, `name`, `kind` etc. all work; `user__uuid`
+        # (a joined attribute) doesn't.
+        if not _model_has_lookup_attr(model_cls, structure.pk_kwarg):
+            continue
 
         case = IDORTestCase(viewset_cls=cls, model_cls=model_cls, url=structure)
         existing = best_by_viewset.get(cls)
@@ -88,6 +94,55 @@ def discover_idor_test_cases() -> list[IDORTestCase]:
             best_by_viewset[cls] = case
 
     return sorted(best_by_viewset.values(), key=lambda c: c.name)
+
+
+def _supports_auto_lookup(cls: type) -> bool:
+    """Return True if the viewset's lookup_field can be resolved off a model instance.
+
+    `pk` / `id` always work. Custom names like `short_id`, `kind`, `name`,
+    `group_type_index` work as long as the model has a matching attribute.
+    Joined attributes like `user__uuid` are rejected — Django ORM exposes
+    them only through `__` traversal, not as a single attribute.
+    """
+    lookup_field = getattr(cls, "lookup_field", "pk")
+    lookup_url_kwarg = getattr(cls, "lookup_url_kwarg", None)
+    candidate = lookup_url_kwarg or lookup_field
+    if "__" in candidate:
+        return False
+    return True
+
+
+def _url_kwarg_matches_lookup(cls: type, url_kwarg: str) -> bool:
+    """Confirm the URL's pk kwarg is the viewset's standard lookup kwarg.
+
+    DRF resolves the detail object via `lookup_url_kwarg` (falling back to
+    `lookup_field`) read from `kwargs`. If the URL's pk kwarg doesn't match
+    either, we're looking at a custom action URL with a sub-resource id —
+    not the standard retrieve route — and we can't auto-test it.
+    """
+    lookup_field = getattr(cls, "lookup_field", "pk")
+    lookup_url_kwarg = getattr(cls, "lookup_url_kwarg", None)
+    expected = lookup_url_kwarg or lookup_field
+    # Treat `pk` and `id` as interchangeable since DRF auto-routes both.
+    if {expected, url_kwarg} <= {"pk", "id"}:
+        return True
+    return expected == url_kwarg
+
+
+def _model_has_lookup_attr(model_cls: type[models.Model], attr_name: str) -> bool:
+    """True when `instance.<attr_name>` is readable.
+
+    For URL kwargs like `pk` we trust Django; for everything else we require
+    the model to declare a field with that name. Properties / methods that
+    require complex setup are excluded (they show up as missing fields).
+    """
+    if attr_name in {"pk", "id"}:
+        return True
+    try:
+        model_cls._meta.get_field(attr_name)
+        return True
+    except Exception:
+        return False
 
 
 def _infer_model(cls: type) -> Optional[type[models.Model]]:

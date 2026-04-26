@@ -91,6 +91,7 @@
         "MCPServerInstallationViewSet.install_custom",
         "MCPServerInstallationViewSet.install_template",
         "MCPServerInstallationViewSet.update_tool_approval",
+        "NotebookViewSet.collab_save",
         "ProductTourViewSet.draft",
         "ProductTourViewSet.generate",
         "ProductTourViewSet.publish_draft",

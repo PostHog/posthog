@@ -127,8 +127,6 @@ IDOR_TEST_SKIP_LIST: dict[str, tuple[str, str]] = {
         "CUSTOM_LOOKUP_FIELD",
         "lookup_field='group_type_index' — URL param is an integer 0-4, not a pk.",
     ),
-    "LogsViewViewSet": ("CUSTOM_LOOKUP_FIELD", "lookup_field='short_id' — 12-char shortid, not a pk."),
-    "NotebookViewSet": ("CUSTOM_LOOKUP_FIELD", "lookup_field='short_id' — 8-char shortid, not a pk."),
     "OrganizationFeatureFlagView": (
         "CUSTOM_LOOKUP_FIELD",
         "lookup_field='feature_flag_key' — URL is FF key string, not a pk.",
@@ -137,10 +135,6 @@ IDOR_TEST_SKIP_LIST: dict[str, tuple[str, str]] = {
         "CUSTOM_LOOKUP_FIELD",
         "lookup_field='user__uuid' — joined attribute; add a hand-written cross-org test.",
     ),
-    "SavedHeatmapViewSet": ("CUSTOM_LOOKUP_FIELD", "lookup_field='short_id'."),
-    "SessionRecordingPlaylistViewSet": ("CUSTOM_LOOKUP_FIELD", "lookup_field='short_id'."),
-    "TicketViewViewSet": ("CUSTOM_LOOKUP_FIELD", "lookup_field='short_id'."),
-    "WebAnalyticsFilterPresetViewSet": ("CUSTOM_LOOKUP_FIELD", "lookup_field='short_id'."),
     # -------------------------------------------------------------------
     # Org/project/team top-level resources. These aren't typical
     # tenant-scoped viewsets — they ARE the tenant. Access controls are
@@ -182,11 +176,9 @@ IDOR_TEST_SKIP_LIST: dict[str, tuple[str, str]] = {
     "FixHogQLViewSet": ("NO_MODEL", "No model; HogQL query fixer action."),
     "HistoricalExportsAppMetricsViewSet": ("NO_MODEL", "No model; metrics aggregation endpoint."),
     "LegalDocumentViewSet": ("NO_MODEL", "No queryset.model; legal documents are org-scoped org-admin only."),
-    "MCPToolsViewSet": ("NO_MODEL", "No model; lists MCP tool definitions."),
     "QueryViewSet": ("NO_MODEL", "No model; HogQL query execution endpoint (team_id scoping is in the query)."),
     "RepoViewSet": ("NO_MODEL", "No model; external repo integration."),
     "RunViewSet": ("NO_MODEL", "No model; temporal run lookup."),
-    "SpansViewSet": ("NO_MODEL", "No model; wraps ClickHouse spans table."),
     "SessionGroupSummaryViewSet": ("NO_MODEL", "No model; wraps LLM-summarization actions."),
 }
 
