@@ -460,6 +460,31 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
+    def test_partial_update_of_saved_filter_without_filters_field_is_allowed(self) -> None:
+        """
+        Regression test: partial PATCHes on a `type=filters` playlist that don't
+        include the `filters` field at all (e.g. the silent background
+        `updatePlaylist({ derived_name }, true)` call from the playlist scene
+        logic) should succeed instead of being rejected as "remove all filters".
+        """
+        create_response = self._create_playlist(
+            {
+                "type": "filters",
+                "filters": {"events": [{"id": "test"}]},
+            }
+        )
+        assert "short_id" in create_response.json(), create_response.json()
+        short_id = create_response.json()["short_id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{short_id}",
+            {"derived_name": "auto-generated name"},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["derived_name"] == "auto-generated name"
+        # Existing filters must remain untouched.
+        assert response.json()["filters"] == {"events": [{"id": "test"}]}
+
     def test_does_not_count_empty_object_as_filters(self) -> None:
         """
         can delete a collection despite there is an empty object for filters
