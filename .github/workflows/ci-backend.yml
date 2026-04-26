@@ -1232,29 +1232,14 @@ jobs:
               shell: bash
               run: echo "PYTEST_ARGS=--snapshot-update --snapshot-warn-unused" >> $GITHUB_ENV
 
-            # Testmon: per-shard coverage database that lets PRs skip tests whose
-            # source dependencies haven't changed since the last master run.
-            # Skipped for compat runs (different CH version, need all tests).
-            - name: Restore testmon coverage database
-              if: ${{ !matrix.compat }}
-              uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
-              with:
-                  path: .testmondata
-                  key: testmon-django-${{ matrix.segment }}-poe${{ matrix.person-on-events && '1' || '0' }}-g${{ matrix.group }}-${{ github.sha }}
-                  restore-keys: |
-                      testmon-django-${{ matrix.segment }}-poe${{ matrix.person-on-events && '1' || '0' }}-g${{ matrix.group }}-
-
-            - name: Set testmon flags
-              if: ${{ !matrix.compat }}
+            # Testmon: collect per-test coverage data on master for analysis.
+            # --testmon-noselect runs all tests normally but records which source
+            # files each test depends on. The resulting .testmondata is uploaded
+            # as an artifact so we can inspect it before wiring up PR filtering.
+            - name: Enable testmon coverage collection (master only)
+              if: ${{ github.ref == 'refs/heads/master' && !matrix.compat }}
               shell: bash
-              run: |
-                  if [ "${{ github.ref }}" = "refs/heads/master" ]; then
-                    # Collect coverage without filtering — builds the baseline for PR runs
-                    echo "TESTMON_ARGS=--testmon-noselect" >> $GITHUB_ENV
-                  else
-                    # Filter: only run tests whose covered files changed vs the master baseline
-                    echo "TESTMON_ARGS=--testmon" >> $GITHUB_ENV
-                  fi
+              run: echo "TESTMON_ARGS=--testmon-noselect" >> $GITHUB_ENV
 
             # Tests
             - name: Log test environment diagnostics
@@ -1390,14 +1375,15 @@ jobs:
                   include-hidden-files: true
                   retention-days: 2
 
-            - name: Save testmon coverage database
-              # Persist the coverage database on master so PRs can restore it for test selection.
-              # Not saved on PRs to avoid polluting the master baseline.
+            - name: Upload testmon coverage database
               if: ${{ github.ref == 'refs/heads/master' && !matrix.compat }}
-              uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
+                  name: testmon-${{ matrix.segment }}-poe${{ matrix.person-on-events && '1' || '0' }}-g${{ matrix.group }}
                   path: .testmondata
-                  key: testmon-django-${{ matrix.segment }}-poe${{ matrix.person-on-events && '1' || '0' }}-g${{ matrix.group }}-${{ github.sha }}
+                  include-hidden-files: true
+                  if-no-files-found: ignore
+                  retention-days: 7
 
             - name: Verify new snapshots for flakiness
               # Only in UPDATE mode - CHECK mode doesn't update snapshots
