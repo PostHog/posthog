@@ -172,6 +172,16 @@ class TestPrinter(BaseTest):
             repsponse, f"SELECT\n    plus(1, 2),\n    3\nFROM\n    events\nLIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
+    def test_to_printed_hogql_does_not_refetch_team(self):
+        # Regression: dropping the Team object in HogQLContext forced Database.create_for
+        # to refetch it, racing against team deletion / read-replica lag and throwing
+        # Team.DoesNotExist on insight refreshes.
+        from posthog.models.team import Team
+
+        expr = parse_select("select 1 from events")
+        with patch.object(Team.objects, "get", side_effect=AssertionError("Team.objects.get must not be called")):
+            to_printed_hogql(expr, self.team)
+
     def test_column_aliases_select_star_subquery_uses_real_column_names(self):
         printed = self._select("select s.* from (select 1 as x, 2 as y, 3 as z) as s (a, b, c)")
         # ClickHouse doesn't support (a, b, c) syntax, so the printer should
