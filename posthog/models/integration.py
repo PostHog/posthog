@@ -649,13 +649,14 @@ class OauthIntegration:
                 headers={"Content-Type": "application/json"},
             )
         else:
+            redirect_uri = OauthIntegration.redirect_uri(kind)
             res = requests.post(
                 oauth_config.token_url,
                 data={
                     "client_id": oauth_config.client_id,
                     "client_secret": oauth_config.client_secret,
                     "code": params["code"],
-                    "redirect_uri": OauthIntegration.redirect_uri(kind),
+                    "redirect_uri": redirect_uri,
                     "grant_type": "authorization_code",
                 },
             )
@@ -690,7 +691,17 @@ class OauthIntegration:
                     logger.error(f"Oauth error for {kind}", response=res.text)
                     raise Exception(f"Oauth error for {kind}. Status code = {res.status_code}")
             else:
-                logger.error(f"Oauth error for {kind}", response=res.text)
+                # Include request context so on-call can compare what we sent against what
+                # the merchant authorized with in Stripe. Code prefix only, full grant is
+                # short-lived but still a credential during its TTL. Never log client_secret.
+                logger.error(
+                    f"Oauth error for {kind}",
+                    response=res.text,
+                    status_code=res.status_code,
+                    client_id=oauth_config.client_id,
+                    redirect_uri=OauthIntegration.redirect_uri(kind),
+                    code_prefix=str(params.get("code", ""))[:12],
+                )
                 raise Exception(f"Oauth error. Status code = {res.status_code}")
 
         if oauth_config.token_info_url:
