@@ -79,6 +79,7 @@ tools:
             - active
             - tags
             - evaluation_contexts
+            - is_remote_configuration
     update-feature-flag:
         operation: feature_flags_partial_update
         enabled: true
@@ -99,6 +100,7 @@ tools:
             - active
             - tags
             - evaluation_contexts
+            - is_remote_configuration
     delete-feature-flag:
         operation: feature_flags_destroy
         enabled: true
