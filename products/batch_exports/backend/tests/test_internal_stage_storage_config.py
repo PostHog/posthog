@@ -30,7 +30,7 @@ def _get_test_s3_staging_folder_url() -> str:
     [
         (None, False, False),
         (None, True, False),
-        ("E2E", False, True),
+        (None, False, True),
     ],
 )
 def test_internal_stage_uses_object_storage_endpoint_for_self_hosted_local_and_test(
@@ -52,7 +52,7 @@ def test_internal_stage_uses_object_storage_endpoint_for_self_hosted_local_and_t
         assert _get_s3_credentials() == (OBJECT_STORAGE_ACCESS_KEY_ID, OBJECT_STORAGE_SECRET_ACCESS_KEY)
 
 
-@pytest.mark.parametrize("cloud_deployment", ["DEV", "US", "EU"])
+@pytest.mark.parametrize("cloud_deployment", ["DEV", "US", "EU", "E2E"])
 def test_internal_stage_uses_aws_s3_for_cloud(cloud_deployment: str) -> None:
     with override_settings(
         CLOUD_DEPLOYMENT=cloud_deployment,
