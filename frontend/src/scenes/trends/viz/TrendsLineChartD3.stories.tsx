@@ -9,7 +9,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import type { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
-import { InsightLogicProps } from '~/types'
+import { InsightLogicProps, InsightShortId } from '~/types'
 
 import { TrendsLineChartD3 } from './TrendsLineChartD3'
 
@@ -85,7 +85,7 @@ function Stage({ children }: { children: React.ReactNode }): JSX.Element {
 }
 
 function renderTrendsLineChartD3(insightFixture: any): JSX.Element {
-    const [dashboardItemId] = useState(() => `TrendsLineChartD3Story.${uniqueNode++}`)
+    const [dashboardItemId] = useState(() => `TrendsLineChartD3Story.${uniqueNode++}` as InsightShortId)
     const cachedInsight = { ...insightFixture, short_id: dashboardItemId }
 
     const insightProps: InsightLogicProps = { dashboardItemId, doNotLoad: true, cachedInsight }
