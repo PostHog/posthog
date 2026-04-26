@@ -52,7 +52,7 @@ export const SessionRecordingPlaylistsCreateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            "JSON object with recording filter criteria. Only used when type is 'filters'. Defines which recordings match this saved filter view. When updating a filters-type playlist, you must include the existing filters alongside any other changes — omitting filters will be treated as removing them."
+            "JSON object with recording filter criteria. Only used when type is 'filters'. Defines which recordings match this saved filter view. When updating a filters-type playlist, sending an empty object or null is rejected; omitting the field leaves the existing filters untouched."
         ),
     type: zod
         .union([
@@ -101,7 +101,7 @@ export const SessionRecordingPlaylistsPartialUpdateBody = /* @__PURE__ */ zod.ob
         .unknown()
         .optional()
         .describe(
-            "JSON object with recording filter criteria. Only used when type is 'filters'. Defines which recordings match this saved filter view. When updating a filters-type playlist, you must include the existing filters alongside any other changes — omitting filters will be treated as removing them."
+            "JSON object with recording filter criteria. Only used when type is 'filters'. Defines which recordings match this saved filter view. When updating a filters-type playlist, sending an empty object or null is rejected; omitting the field leaves the existing filters untouched."
         ),
 })
 

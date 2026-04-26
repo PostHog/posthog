@@ -475,6 +475,31 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
 
+    @parameterized.expand(
+        [
+            ["derived_name_only", {"derived_name": "Updated derived name"}],
+            ["pinned_only", {"pinned": True}],
+            ["description_only", {"description": "A new description"}],
+        ]
+    )
+    def test_can_patch_filters_playlist_without_resending_filters(self, _name: str, patch_payload: dict) -> None:
+        # regression test: PATCH that omits filters must not be treated as removing them
+        create_response = self._create_playlist(
+            {
+                "type": "filters",
+                "filters": {"events": [{"id": "test"}]},
+            }
+        )
+        short_id = create_response.json()["short_id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{short_id}",
+            patch_payload,
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["filters"] == {"events": [{"id": "test"}]}
+
     def test_cannot_update_collection_to_have_filters(self) -> None:
         create_response = self._create_playlist({"type": "collection"})
         assert "short_id" in create_response.json(), create_response.json()

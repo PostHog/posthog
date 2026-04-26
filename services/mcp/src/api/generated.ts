@@ -23900,7 +23900,7 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       /** Set to true to soft-delete the playlist. */
       deleted?: boolean;
-      /** JSON object with recording filter criteria. Only used when type is 'filters'. Defines which recordings match this saved filter view. When updating a filters-type playlist, you must include the existing filters alongside any other changes — omitting filters will be treated as removing them. */
+      /** JSON object with recording filter criteria. Only used when type is 'filters'. Defines which recordings match this saved filter view. When updating a filters-type playlist, sending an empty object or null is rejected; omitting the field leaves the existing filters untouched. */
       filters?: unknown;
       readonly last_modified_at: string;
       readonly last_modified_by: UserBasic;
@@ -29152,7 +29152,7 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
       /** Set to true to soft-delete the playlist. */
       deleted?: boolean;
-      /** JSON object with recording filter criteria. Only used when type is 'filters'. Defines which recordings match this saved filter view. When updating a filters-type playlist, you must include the existing filters alongside any other changes — omitting filters will be treated as removing them. */
+      /** JSON object with recording filter criteria. Only used when type is 'filters'. Defines which recordings match this saved filter view. When updating a filters-type playlist, sending an empty object or null is rejected; omitting the field leaves the existing filters untouched. */
       filters?: unknown;
       readonly last_modified_at?: string;
       readonly last_modified_by?: UserBasic;

@@ -398,7 +398,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
     )
     filters = serializers.JSONField(
         required=False,
-        help_text="JSON object with recording filter criteria. Only used when type is 'filters'. Defines which recordings match this saved filter view. When updating a filters-type playlist, you must include the existing filters alongside any other changes — omitting filters will be treated as removing them.",
+        help_text="JSON object with recording filter criteria. Only used when type is 'filters'. Defines which recordings match this saved filter view. When updating a filters-type playlist, sending an empty object or null is rejected; omitting the field leaves the existing filters untouched.",
     )
     type = serializers.ChoiceField(
         choices=SessionRecordingPlaylist.PlaylistType.choices,
@@ -535,11 +535,15 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
             instance.last_modified_at = now()
             instance.last_modified_by = self.context["request"].user
 
-        if instance.type == "collection" and len(validated_data.get("filters", {})) > 0:
-            # Allow empty filters object, only reject if it has actual filter keys
-            raise ValidationError("You cannot update a collection to add filters")
-        if instance.type == "filters" and len(validated_data.get("filters", {})) == 0:
-            raise ValidationError("You cannot remove all filters when updating a saved filter")
+        if "filters" in validated_data:
+            # Only enforce these checks when filters is being explicitly set.
+            # On a PATCH that omits filters, treat the field as untouched rather than
+            # falling back to {} (which incorrectly trips the "removed all filters" branch).
+            if instance.type == "collection" and len(validated_data["filters"] or {}) > 0:
+                # Allow empty filters object, only reject if it has actual filter keys
+                raise ValidationError("You cannot update a collection to add filters")
+            if instance.type == "filters" and len(validated_data["filters"] or {}) == 0:
+                raise ValidationError("You cannot remove all filters when updating a saved filter")
 
         updated_playlist = super().update(instance, validated_data)
         changes = changes_between("SessionRecordingPlaylist", previous=before_update, current=updated_playlist)

@@ -111,9 +111,9 @@ tools:
         description: >
             Update an existing session recording playlist by short_id. Can update name,
             description, pinned status, and filters. Set deleted to true to soft-delete.
-            The type field cannot be changed after creation. When updating a filters-type
-            playlist, you must include the existing filters alongside other field changes,
-            otherwise the update will fail.
+            The type field cannot be changed after creation. For filters-type playlists,
+            omitting the filters field leaves it untouched; sending an empty object or
+            null is rejected.
         exclude_params:
             - created_at
             - created_by

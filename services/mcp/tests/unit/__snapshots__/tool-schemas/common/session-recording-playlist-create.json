@@ -21,7 +21,7 @@
             "type": "string"
         },
         "filters": {
-            "description": "JSON object with recording filter criteria. Only used when type is 'filters'. Defines which recordings match this saved filter view. When updating a filters-type playlist, you must include the existing filters alongside any other changes — omitting filters will be treated as removing them."
+            "description": "JSON object with recording filter criteria. Only used when type is 'filters'. Defines which recordings match this saved filter view. When updating a filters-type playlist, sending an empty object or null is rejected; omitting the field leaves the existing filters untouched."
         },
         "name": {
             "anyOf": [

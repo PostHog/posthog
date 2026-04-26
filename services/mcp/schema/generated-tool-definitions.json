@@ -3368,7 +3368,7 @@
         }
     },
     "session-recording-playlist-update": {
-        "description": "Update an existing session recording playlist by short_id. Can update name, description, pinned status, and filters. Set deleted to true to soft-delete. The type field cannot be changed after creation. When updating a filters-type playlist, you must include the existing filters alongside other field changes, otherwise the update will fail.",
+        "description": "Update an existing session recording playlist by short_id. Can update name, description, pinned status, and filters. Set deleted to true to soft-delete. The type field cannot be changed after creation. For filters-type playlists, omitting the filters field leaves it untouched; sending an empty object or null is rejected.",
         "category": "Session replays",
         "feature": "replay",
         "summary": "Update session recording playlist",
