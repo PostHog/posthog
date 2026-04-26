@@ -7,8 +7,10 @@ import { DEFAULT_Y_AXIS_ID, LineChart } from 'lib/hog-charts'
 import type { LineChartConfig, PointClickData, Series } from 'lib/hog-charts'
 import type { TooltipContext } from 'lib/hog-charts/core/types'
 import { ReferenceLines } from 'lib/hog-charts/overlays/ReferenceLine'
-import { movingAverage, trendLine } from 'lib/statistics'
+import { ValueLabels } from 'lib/hog-charts/overlays/ValueLabels'
+import { ciRanges, movingAverage, trendLine } from 'lib/statistics'
 import { hexToRGBA } from 'lib/utils'
+import { formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -61,6 +63,9 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
         showMovingAverage,
         movingAverageIntervals,
         showTrendLines,
+        showValuesOnSeries,
+        showConfidenceIntervals,
+        confidenceLevel,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
@@ -115,24 +120,55 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
                 }
                 const series: Series<TrendsSeriesMeta>[] = [mainSeries]
 
-                // Confidence intervals are intentionally not rendered here. hog-charts
-                // stacks every visible series whenever any series has fillArea:true
-                // (LineChart.tsx), so a filled CI band would also reposition the main
-                // line. Adding CI requires a library primitive for fill-between-series.
+                if (showConfidenceIntervals) {
+                    const [lower, upper] = ciRanges(r.data, confidenceLevel / 100)
+                    series.push({
+                        key: `${r.id}__ci`,
+                        label: `${r.label ?? ''} (CI)`,
+                        data: upper,
+                        fillBetweenData: lower,
+                        color: displayColor,
+                        fillArea: true,
+                        fillOpacity: 0.2,
+                        pointRadius: 0,
+                        hidden: hidden,
+                        hideFromTooltip: true,
+                        hideValueLabels: true,
+                        yAxisId,
+                        meta,
+                    })
+                }
 
                 if (showMovingAverage && r.data.length >= movingAverageIntervals) {
+                    const maData = movingAverage(r.data, movingAverageIntervals)
                     series.push({
                         key: `${r.id}-ma`,
                         label: `${r.label ?? ''} (Moving avg)`,
-                        data: movingAverage(r.data, movingAverageIntervals),
+                        data: maData,
                         color: displayColor,
                         fillArea: false,
                         dashPattern: [10, 3],
                         pointRadius: 0,
                         hideFromTooltip: true,
+                        excludeFromStack: true,
                         yAxisId,
                         meta,
                     })
+
+                    if (showTrendLines && !hidden) {
+                        series.push({
+                            key: `${r.id}-ma__trendline`,
+                            label: `${r.label ?? ''} (Moving avg)`,
+                            data: trendLine(maData),
+                            color: hexToRGBA(baseColor, 0.5),
+                            yAxisId,
+                            dashPattern: [1, 3],
+                            pointRadius: 0,
+                            hideFromTooltip: true,
+                            excludeFromStack: true,
+                            hideValueLabels: true,
+                        })
+                    }
                 }
 
                 // Fit excludes the in-progress tail (dashedFromIndex..end) so the flat
@@ -146,9 +182,11 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
                         data: trendLine(r.data, dashedFromIndex),
                         color: hexToRGBA(baseColor, 0.5),
                         yAxisId,
-                        dashPattern: [6, 4],
+                        dashPattern: [1, 3],
                         pointRadius: 0,
                         hideFromTooltip: true,
+                        excludeFromStack: true,
+                        hideValueLabels: true,
                     })
                 }
 
@@ -165,6 +203,8 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
             showMovingAverage,
             movingAverageIntervals,
             showTrendLines,
+            showConfidenceIntervals,
+            confidenceLevel,
         ]
     )
 
@@ -185,6 +225,11 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
     }, [interval, currentPeriodResult?.days, timezone, yAxisScaleType, isPercentStackView])
 
     const referenceLines = useMemo(() => goalLinesToReferenceLines(goalLines, hogSeries), [goalLines, hogSeries])
+
+    const valueLabelFormatter = useCallback(
+        (value: number) => formatPercentStackAxisValue(trendsFilter, value, isPercentStackView, baseCurrency),
+        [trendsFilter, isPercentStackView, baseCurrency]
+    )
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
 
@@ -278,6 +323,7 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
             className="LineGraph"
         >
             <ReferenceLines lines={referenceLines} />
+            {showValuesOnSeries && <ValueLabels valueFormatter={valueLabelFormatter} />}
         </LineChart>
     )
 }
