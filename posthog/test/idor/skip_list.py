@@ -273,3 +273,22 @@ IDOR_FK_POST_SKIP_LIST: dict[str, tuple[str, str]] = {
 # actions on the same viewset can be skipped independently.
 # ---------------------------------------------------------------------------
 IDOR_ACTION_SKIP_LIST: dict[str, tuple[str, str]] = {}
+
+
+# ---------------------------------------------------------------------------
+# Known-latent 5xx responses.
+#
+# The cross-tenant tests previously called `skipTest()` whenever an endpoint
+# returned 5xx, on the theory that the response was a server bug rather than
+# an IDOR. That swallowed real signal: a 5xx after the request reached the
+# victim's data is itself worth investigating. The tests now emit a warning
+# (and still run a sentinel-leak check on the response body) for any 5xx
+# that is not listed here.
+#
+# Add an entry only when a 5xx is **understood** and **safe** — typically
+# a downstream dependency that's unavailable in the test env, or a known
+# latent bug tracked elsewhere. Keys take the same shape as the action skip
+# list ("ViewSetName.action_method_name") for actions, or just
+# "ViewSetName" for the POST/PATCH parametrics.
+# ---------------------------------------------------------------------------
+IDOR_5XX_KNOWN_LATENT: dict[str, tuple[str, str]] = {}

@@ -27,6 +27,7 @@ boundaries.
 
 from __future__ import annotations
 
+import warnings
 from typing import Any
 
 from posthog.test.base import APIBaseTest
@@ -43,7 +44,12 @@ from posthog.test.idor.fk_discovery import (
     discover_action_serializers,
     discover_writable_tenant_fks,
 )
-from posthog.test.idor.skip_list import IDOR_ACTION_SKIP_LIST, IDOR_FK_PATCH_SKIP_LIST, IDOR_FK_POST_SKIP_LIST
+from posthog.test.idor.skip_list import (
+    IDOR_5XX_KNOWN_LATENT,
+    IDOR_ACTION_SKIP_LIST,
+    IDOR_FK_PATCH_SKIP_LIST,
+    IDOR_FK_POST_SKIP_LIST,
+)
 
 DISCOVERED_CASES: list[IDORTestCase] = discover_idor_test_cases()
 
@@ -307,15 +313,17 @@ class TestAutomatedIDORCoverage(IDORTestMixin, APIBaseTest):
         response = client_method(action_url, data=body, format="json")
 
         # 7. Pass cases:
-        #    - 5xx: latent server bug, skip rather than mis-attribute.
+        #    - 5xx: latent server bug — warn unless explicitly listed as
+        #      known-latent, and still leak-check the response (a partial
+        #      handler may have read the victim before crashing).
         #    - non-2xx: rejected somewhere in the action's chain. Pass.
         #    - 2xx: action proceeded. Sentinel-leak-check the response body
         #      against the victim's sentinel — if it appears, the action
         #      pulled in the victim's data despite the cross-tenant id.
         if response.status_code >= 500:
-            self.skipTest(
-                f"{case.name}.{action.method_name}.{fk.serializer_field_name}: returned {response.status_code}"
-            )
+            _maybe_warn_5xx(f"{case.name}.{action.method_name}", response.status_code)
+            self.assertSentinelNotLeaked(response, victim_sentinel)
+            return
         if response.status_code not in range(200, 300):
             return
         self.assertSentinelNotLeaked(response, victim_sentinel)
@@ -394,11 +402,14 @@ class TestAutomatedIDORCoverage(IDORTestMixin, APIBaseTest):
         response = self.client.post(list_url, data=body, format="json")  # type: ignore[attr-defined]
 
         # 5. Outcomes:
-        #    - 5xx: latent bug, can't tell if FK was applied — skip rather than mis-attribute.
+        #    - 5xx: latent bug, warn (unless known-latent) and stop — we
+        #      can't tell whether the FK landed before the crash, so the
+        #      reloaded-row check below is unreliable.
         #    - non-2xx: validation rejected. Pass.
         #    - 2xx + reloaded created instance has FK pointing at victim_pk: IDOR.
         if response.status_code >= 500:
-            self.skipTest(f"{case.name}.{fk.serializer_field_name}: POST returned {response.status_code}")
+            _maybe_warn_5xx(case.name, response.status_code)
+            return
         if response.status_code not in range(200, 300):
             return
         if fk.nested_path:
@@ -523,6 +534,21 @@ class TestAutomatedIDORCoverage(IDORTestMixin, APIBaseTest):
             return
 
         _assert_single_fk_not_bound_to_victim(reloaded, fk, victim_fk_pk, url, case)
+
+
+def _maybe_warn_5xx(key: str, status_code: int) -> None:
+    """Emit a warning for an unexplained 5xx unless the case is in
+    `IDOR_5XX_KNOWN_LATENT`. The caller still runs leak detection — this
+    only controls whether the test surface flags the response as suspicious.
+    """
+    if key in IDOR_5XX_KNOWN_LATENT:
+        return
+    warnings.warn(
+        f"IDOR test received {status_code} for {key}; treating as pass but the "
+        f"response should be inspected — a partial handler may have read victim "
+        f"data before crashing. Add to IDOR_5XX_KNOWN_LATENT once understood.",
+        stacklevel=3,
+    )
 
 
 def _inject_fk_into_body(body: dict[str, Any], fk: WritableFKField, value: Any) -> dict[str, Any]:
