@@ -1235,48 +1235,61 @@ class TestStripeIntegration:
         assert response.status_code == status.HTTP_201_CREATED
         mock_instance.write_posthog_secrets.assert_called_once_with(self.team.pk, self.user)
 
-    @pytest.mark.parametrize(
-        "scenario,build_signature",
-        [
-            ("missing", lambda self: None),
-            (
-                "forged",
-                lambda self: self._make_install_signature(
-                    state="", user_id="usr_abc", account_id="acct_123", secret="wrong_secret"
-                ),
-            ),
-        ],
-    )
     @patch("posthog.api.integration.StripeIntegration")
     @patch("posthog.api.integration.OauthIntegration.integration_from_oauth_response")
-    def test_marketplace_callback_rejects_invalid_install_signature(
-        self,
-        mock_oauth_response,
-        MockStripeIntegration,
-        scenario,
-        build_signature,
-        stripe_settings,
-        client: HttpClient,
+    def test_marketplace_callback_without_install_signature_is_accepted(
+        self, mock_oauth_response, MockStripeIntegration, stripe_settings, client: HttpClient
     ):
-        config = {
-            "code": "oauth_code_123",
-            "stripe_user_id": "acct_123",
-            "account_id": "acct_123",
-            "user_id": "usr_abc",
-        }
-        sig = build_signature(self)
-        if sig is not None:
-            config["install_signature"] = sig
+        # Stripe's Connect-OAuth flow (used by stripe_api_access_type: oauth) doesn't sign
+        # the callback redirect — only the install-link OAuth mechanism emits install_signature.
+        # The conflict guard is the defense-in-depth here, not signature verification.
+        created_integration = self._create_stripe_integration()
+        mock_oauth_response.return_value = created_integration
+        mock_instance = MagicMock()
+        MockStripeIntegration.return_value = mock_instance
 
         client.force_login(self.user)
         response = client.post(
             f"/api/environments/{self.team.pk}/integrations",
-            {"kind": "stripe", "config": config},
+            {
+                "kind": "stripe",
+                "config": {
+                    "code": "oauth_code_123",
+                    "stripe_user_id": "acct_123",
+                    "account_id": "acct_123",
+                    "user_id": "usr_abc",
+                },
+            },
             content_type="application/json",
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, scenario
-        assert "stripe_install_signature_invalid" in response.content.decode(), scenario
+        assert response.status_code == status.HTTP_201_CREATED
+        mock_instance.write_posthog_secrets.assert_called_once_with(self.team.pk, self.user)
+
+    @patch("posthog.api.integration.StripeIntegration")
+    @patch("posthog.api.integration.OauthIntegration.integration_from_oauth_response")
+    def test_marketplace_callback_rejects_forged_install_signature_when_present(
+        self, mock_oauth_response, MockStripeIntegration, stripe_settings, client: HttpClient
+    ):
+        forged = self._make_install_signature(state="", user_id="usr_abc", account_id="acct_123", secret="wrong_secret")
+        client.force_login(self.user)
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "stripe",
+                "config": {
+                    "code": "oauth_code_123",
+                    "stripe_user_id": "acct_123",
+                    "account_id": "acct_123",
+                    "user_id": "usr_abc",
+                    "install_signature": forged,
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "stripe_install_signature_invalid" in response.content.decode()
         mock_oauth_response.assert_not_called()
         MockStripeIntegration.assert_not_called()
 
