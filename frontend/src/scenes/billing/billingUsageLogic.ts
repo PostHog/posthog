@@ -1,5 +1,5 @@
 import equal from 'fast-deep-equal'
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import difference from 'lodash.difference'
@@ -445,14 +445,31 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
         }
     }),
 
-    listeners(({ actions, values }) => ({
-        loadBillingUsage: async (_, breakpoint) => {
+    listeners(({ actions, values, cache }) => ({
+        loadBillingUsage: () => {
             // Flip the chart into the stalled fallback state if the request is still in flight
-            // after BILLING_USAGE_STALLED_TIMEOUT_MS — kea cancels this breakpoint when a newer
-            // loadBillingUsage is dispatched, so we don't stall a request that has been superseded.
-            await breakpoint(BILLING_USAGE_STALLED_TIMEOUT_MS)
-            if (values.billingUsageResponseLoading) {
-                actions.setBillingUsageResponseStalled(true)
+            // after BILLING_USAGE_STALLED_TIMEOUT_MS. Tracked via cache (not a kea breakpoint) so
+            // tests using `toFinishAllListeners` aren't blocked waiting on a long timer.
+            if (cache.stalledTimerId) {
+                clearTimeout(cache.stalledTimerId)
+            }
+            cache.stalledTimerId = setTimeout(() => {
+                cache.stalledTimerId = null
+                if (values.billingUsageResponseLoading) {
+                    actions.setBillingUsageResponseStalled(true)
+                }
+            }, BILLING_USAGE_STALLED_TIMEOUT_MS)
+        },
+        loadBillingUsageSuccess: () => {
+            if (cache.stalledTimerId) {
+                clearTimeout(cache.stalledTimerId)
+                cache.stalledTimerId = null
+            }
+        },
+        loadBillingUsageFailure: () => {
+            if (cache.stalledTimerId) {
+                clearTimeout(cache.stalledTimerId)
+                cache.stalledTimerId = null
             }
         },
         setFilters: async ({ shouldDebounce }, breakpoint) => {
@@ -498,5 +515,11 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
     })),
     afterMount(({ actions }: billingUsageLogicType) => {
         actions.loadBillingUsage()
+    }),
+    beforeUnmount(({ cache }: billingUsageLogicType) => {
+        if (cache.stalledTimerId) {
+            clearTimeout(cache.stalledTimerId)
+            cache.stalledTimerId = null
+        }
     }),
 ])
