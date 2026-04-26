@@ -114,7 +114,11 @@ def _default_for_serializer_field(field_name: str, drf_field: serializers.Field,
     if isinstance(drf_field, serializers.ModelSerializer):
         # Recurse one level — same depth boundary as fk_discovery.
         return _walk_serializer_for_body(drf_field, team)
-    raise BodyUnfillable(f"{field_name}: no default for {type(drf_field).__name__}; register a body fixture or skip")
+    raise BodyUnfillable(
+        f"{field_name}: no default for {type(drf_field).__name__}; "
+        f"register a body fixture in posthog/test/idor/post_body_fixtures.py "
+        f"or add the viewset to IDOR_FK_POST_SKIP_LIST / IDOR_ACTION_SKIP_LIST"
+    )
 
 
 def _build_fk_default(field_name: str, drf_field: serializers.PrimaryKeyRelatedField, team: Team) -> Any:

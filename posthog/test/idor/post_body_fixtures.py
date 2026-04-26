@@ -1,18 +1,26 @@
 """
-Per-viewset POST body fixtures for the auto-IDOR `test_cross_tenant_fk_in_post`.
+Per-serializer body fixtures for the auto-IDOR parametrics.
 
-Mirrors `fixtures.py` (model instance factories) but for POST bodies.
+Used by:
+  - `test_cross_tenant_fk_in_post` (Phase 5b — POST list URL)
+  - `test_cross_tenant_id_in_action` (Phase 5c — @action body)
+
 When the generic `body_factory.build_minimal_post_body` introspection
 can't satisfy a serializer's `validate()` or shape constraints, register
-a per-serializer factory here.
-
-Factories are keyed by the serializer class itself (not its model)
-because two viewsets can share a model but need different body shapes,
-and serializer Meta classes are unambiguous.
+a per-serializer factory here. Action request serializers — pulled from
+`@extend_schema(request=...)` via drf-spectacular introspection — are
+keyed the same way as ModelSerializer POST bodies; the registry doesn't
+distinguish, since the lookup is by serializer class identity.
 
 Each factory takes the attacker's `team` and returns a `dict` ready to
-pass as the POST body. Reuse the existing `current_sentinel()` from
+pass as the request body. Reuse the existing `current_sentinel()` from
 `factory.py` for string fields so info-leak detection still works.
+
+Workflow for converting a skip → run:
+  1. Run the parametric, find a `BodyUnfillable` skip with a serializer name.
+  2. Locate the serializer's `validate()`/shape constraints in the source.
+  3. Register a factory below that returns a body satisfying those constraints.
+  4. Re-run; verify the test now executes (pass or fail) instead of skipping.
 """
 
 from __future__ import annotations
