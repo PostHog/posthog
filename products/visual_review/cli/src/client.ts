@@ -33,6 +33,16 @@ export interface ClientConfig {
     sessionCookie?: string
 }
 
+export class VisualReviewApiError extends Error {
+    constructor(
+        public status: number,
+        responseText: string
+    ) {
+        super(`API error ${status}: ${responseText}`)
+        this.name = 'VisualReviewApiError'
+    }
+}
+
 export class VisualReviewClient {
     private apiUrl: string
     private teamId: string
@@ -66,7 +76,7 @@ export class VisualReviewClient {
 
         if (!response.ok) {
             const text = await response.text()
-            throw new Error(`API error ${response.status}: ${text}`)
+            throw new VisualReviewApiError(response.status, text)
         }
 
         return response.json() as Promise<T>

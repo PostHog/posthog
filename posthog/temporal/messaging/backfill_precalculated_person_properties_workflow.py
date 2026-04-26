@@ -14,7 +14,8 @@ import temporalio.exceptions
 from structlog.contextvars import bind_contextvars
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.kafka_client.client import KafkaProducer, _KafkaProducer
+from posthog.kafka_client.client import _KafkaProducer
+from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
@@ -420,7 +421,7 @@ async def backfill_precalculated_person_properties_activity(
         details=(f"Processing persons from {inputs.start_person_id} to {inputs.end_person_id}",)
     ) as heartbeater:
         start_time = time.time()
-        kafka_producer = KafkaProducer()
+        kafka_producer = get_producer(topic=KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES)
 
         total_processed = 0
         total_events_produced = 0

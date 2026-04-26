@@ -82,7 +82,7 @@ export function copyIndexHtml(
     const cssFile =
         relativeFiles.length > 0 ? relativeFiles.find((e) => e.endsWith('.css')) : `${entry}.css?t=${buildId}`
 
-    const jsFileFallback = `${entry}.js`
+    const jsFileFallback = `${entry}.js?t=${buildId}`
     const scriptCode = `
         window.ESBUILD_LOAD_SCRIPT = async function (file) {
             try {
@@ -119,12 +119,28 @@ export function copyIndexHtml(
         window.ESBUILD_LOAD_CHUNKS('index');
     `
 
-    // Modified CSS loader to handle both files
+    // Fallback to non-hashed CSS (with cache-busting build ID) when the hashed
+    // version fails to load (e.g. CDN returns 403). Mirrors the JS fallback above.
+    const cssFileFallback = `${entry}.css?t=${buildId}`
+    const needsCssFallback = cssFile !== cssFileFallback
     const cssLoader = `
         const link = document.createElement("link");
         link.rel = "stylesheet";
         link.crossOrigin = "anonymous";
         link.href = (window.JS_URL || '') + "/static/" + ${JSON.stringify(cssFile)};
+        ${
+            needsCssFallback
+                ? `link.onerror = function() {
+            link.onerror = null;
+            console.warn('Failed to load stylesheet "' + ${JSON.stringify(cssFile)} + '", trying fallback');
+            var fallbackLink = document.createElement("link");
+            fallbackLink.rel = "stylesheet";
+            fallbackLink.crossOrigin = "anonymous";
+            fallbackLink.href = (window.JS_URL || '') + "/static/" + ${JSON.stringify(cssFileFallback)};
+            document.head.appendChild(fallbackLink);
+        };`
+                : ''
+        }
         document.head.appendChild(link)
     `
 

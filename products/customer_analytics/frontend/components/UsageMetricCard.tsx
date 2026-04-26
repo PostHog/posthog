@@ -2,6 +2,7 @@ import { IconTrending } from '@posthog/icons'
 import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
+import { Sparkline } from 'lib/components/Sparkline'
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { formatPercentage, humanFriendlyCurrency, humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils'
 
@@ -45,23 +46,72 @@ export const getMetricTooltip = (metric: UsageMetric, trend: TrendInfo | undefin
     return `${metric.name}: ${humanFriendlyNumber(metric.value)}`
 }
 
-export const UsageMetricCard = ({ metric }: { metric: UsageMetric }): JSX.Element => {
-    const formatValue = (): string => {
-        if (metric.format === 'currency') {
-            return humanFriendlyCurrency(metric.value)
-        }
-        return humanFriendlyLargeNumber(metric.value)
+const formatValue = (metric: UsageMetric): string => {
+    if (metric.format === 'currency') {
+        return humanFriendlyCurrency(metric.value)
     }
+    return humanFriendlyLargeNumber(metric.value)
+}
+
+const TrendIndicator = ({ metric }: { metric: UsageMetric }): JSX.Element | null => {
+    const changePct = metric.change_from_previous_pct
+    if (changePct === null) {
+        return null
+    }
+    const trend = getTrendFromPercentageChange(changePct)
+    if (!trend) {
+        return null
+    }
+    return (
+        <span className="inline-flex items-center gap-0.5" style={{ color: trend.color }}>
+            <trend.icon color={trend.color} />
+            {formatPercentage(changePct)}
+        </span>
+    )
+}
+
+export const UsageMetricCard = ({ metric }: { metric: UsageMetric }): JSX.Element => {
     const trend = getTrendFromPercentageChange(metric.change_from_previous_pct)
     const tooltip = getMetricTooltip(metric, trend)
+
+    if (metric.display === 'sparkline' && metric.timeseries) {
+        return (
+            <Tooltip title={tooltip}>
+                <div>
+                    <LemonCard hoverEffect={false} className="p-4 flex flex-col flex-1 justify-between max-w-80 h-36">
+                        <div className="flex items-baseline gap-2 mb-1">
+                            <div className="text-sm font-semibold text-muted-alt truncate min-w-0">{metric.name}</div>
+                            <span className="text-xs text-muted ml-auto whitespace-nowrap shrink-0">
+                                Last {metric.interval} days
+                            </span>
+                        </div>
+                        <div className="flex-1 min-h-0">
+                            <Sparkline
+                                data={metric.timeseries}
+                                labels={metric.timeseries_labels}
+                                type="bar"
+                                maximumIndicator={false}
+                                className="w-full h-full"
+                                withXScale={(x) => ({ ...x, display: false })}
+                            />
+                        </div>
+                        <div className="flex items-center gap-2 text-sm">
+                            <span className="font-semibold">{formatValue(metric)}</span>
+                            <TrendIndicator metric={metric} />
+                        </div>
+                    </LemonCard>
+                </div>
+            </Tooltip>
+        )
+    }
 
     return (
         <Tooltip title={tooltip}>
             <div>
-                <LemonCard hoverEffect={false} className="p-4 flex flex-col flex-1 justify-between max-w-80 min-h-36 ">
+                <LemonCard hoverEffect={false} className="p-4 flex flex-col flex-1 justify-between max-w-80 h-36">
                     <div>
                         <div className="text-sm font-semibold text-muted-alt mb-1">{metric.name}</div>
-                        <div className="text-3xl font-bold text-primary my-2 truncate">{formatValue()}</div>
+                        <div className="text-3xl font-bold text-primary my-2 truncate">{formatValue(metric)}</div>
                     </div>
                     {trend && metric?.change_from_previous_pct !== null && (
                         <div style={{ color: trend.color }}>
@@ -80,7 +130,7 @@ export const UsageMetricCardSkeleton = (): JSX.Element => (
     <div className="@container">
         <div className="grid grid-cols-1 @md:grid-cols-2 @xl:grid-cols-4 gap-4 p-4">
             {[1, 2, 3].map((i) => (
-                <LemonCard key={i} className="p-4 min-h-36">
+                <LemonCard key={i} className="p-4 h-36">
                     <LemonSkeleton className="h-4 bg-border rounded w-24 mb-2" />
                     <LemonSkeleton className="h-8 bg-border rounded w-32 my-2" />
                     <LemonSkeleton className="h-3 bg-border rounded w-20" />

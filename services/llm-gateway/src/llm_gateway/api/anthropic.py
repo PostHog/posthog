@@ -297,12 +297,22 @@ async def _bedrock_count_tokens_impl(
         raise
     except Exception as e:
         status_code = "502"
+        error_type_name = type(e).__name__
         logger.exception(
-            "Error proxying bedrock count_tokens request", model=bedrock_model, max_tokens=data.get("max_tokens", 4096)
+            "Error proxying bedrock count_tokens request",
+            model=bedrock_model,
+            max_tokens=data.get("max_tokens", 4096),
+            error_type=error_type_name,
+            error_message=str(e),
         )
         raise HTTPException(
             status_code=502,
-            detail={"error": {"message": "Failed to count tokens via Bedrock", "type": "proxy_error"}},
+            detail={
+                "error": {
+                    "message": f"Failed to count tokens via Bedrock ({error_type_name})",
+                    "type": "proxy_error",
+                }
+            },
         ) from e
     finally:
         REQUEST_COUNT.labels(

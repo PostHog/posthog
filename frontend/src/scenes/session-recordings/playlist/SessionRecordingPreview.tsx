@@ -298,11 +298,11 @@ const RecordingSummaryIcon = memo(function RecordingSummaryIcon({
             type="tertiary"
             size="xxsmall"
             noPadding
-            icon={<IconPlusSmall className="text-[var(--warning)] text-lg" />}
+            icon={<IconPlusSmall className="text-ai text-lg" />}
             tooltip="Summarize this recording"
             aria-label="Summarize this recording"
             data-attr="summarize-recording-from-list"
-            className="shrink-0 border border-dashed border-[var(--warning)] text-[var(--warning)] hover:bg-[var(--warning)]/10 mb-1"
+            className="shrink-0 border border-dashed border-ai text-ai hover:bg-ai/10 mb-1"
             onClick={(e) => {
                 e.preventDefault()
                 e.stopPropagation()
@@ -323,8 +323,7 @@ export const SessionRecordingPreview = memo(
         const { filters } = useValues(sessionRecordingsPlaylistLogic)
         const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
         const { featureFlags } = useValues(featureFlagLogic)
-        const summaryEnabled =
-            !!featureFlags[FEATURE_FLAGS.AI_SESSION_SUMMARY] || !!featureFlags[FEATURE_FLAGS.MAX_SESSION_SUMMARIZATION]
+        const summaryEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VIDEO_BASED_SUMMARIZATION]
 
         const recordingProperties = recordingPropertiesById[recording.id]
         const loading = !recordingProperties && recordingPropertiesLoading

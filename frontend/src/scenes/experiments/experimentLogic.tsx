@@ -5,10 +5,9 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { hasFormErrors, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
@@ -96,7 +95,14 @@ import {
     legacyMinimumSampleSizePerVariant,
     legacyRecommendedExposureForCountData,
 } from './legacy/calculations/legacyExperimentCalculations'
-import { addExposureToMetric, compose, getInsight, getQuery } from './metricQueryUtils'
+import {
+    addExposureToMetric,
+    compose,
+    getExperimentExecutionMode,
+    getExperimentRefreshMode,
+    getInsight,
+    getQuery,
+} from './metricQueryUtils'
 import { getDefaultMetricTitle } from './MetricsView/shared/utils'
 import { modalsLogic } from './modalsLogic'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
@@ -195,7 +201,7 @@ interface MetricLoadingConfig {
     isRetry: boolean
     metricIndexOffset: number
     orderedUuids?: string[] | null
-    metricEventsPrecomputation?: boolean
+    featureFlags: FeatureFlagsSet
     onSetLegacyResults: (
         results: (
             | CachedLegacyExperimentQueryResponse
@@ -239,20 +245,61 @@ function parseMetricErrorDetail(error: any): { detail: any; hasDiagnostics: bool
     }
 }
 
+// Coerces the parsed error detail into a flat string suitable for telemetry:
+// prefers DRF's `{"detail": "..."}` shape over a raw JSON blob so values group
+// readably in property breakdowns.
+export function extractErrorDetailString(errorDetail: unknown): string | null {
+    if (errorDetail == null) {
+        return null
+    }
+    if (typeof errorDetail === 'string') {
+        return errorDetail
+    }
+    if (typeof errorDetail === 'object' && typeof (errorDetail as { detail?: unknown }).detail === 'string') {
+        return (errorDetail as { detail: string }).detail
+    }
+    try {
+        return JSON.stringify(errorDetail)
+    } catch {
+        return null
+    }
+}
+
 function isTimeoutError(errorDetail: unknown, errorMessage: string | null, statusCode: number | null): boolean {
-    if (statusCode === 504) {
+    if (statusCode === 504 || statusCode === 408) {
         return true
     }
 
     return errorDetail === QUERY_TIMEOUT_ERROR_MESSAGE || errorMessage === QUERY_TIMEOUT_ERROR_MESSAGE
 }
 
-function classifyError(
+const NETWORK_ERROR_MESSAGE_PATTERN = /(NetworkError|Failed to fetch|Load failed|Failed to execute 'fetch')/i
+
+function isNetworkError(errorCode: string | null, errorMessage: string | null, statusCode: number | null): boolean {
+    if (errorCode === 'network_error' || statusCode === 0) {
+        return true
+    }
+    // Only treat as network error when no HTTP response was received
+    return statusCode === null && !!errorMessage && NETWORK_ERROR_MESSAGE_PATTERN.test(errorMessage)
+}
+
+export type ExperimentMetricErrorType =
+    | 'timeout'
+    | 'out_of_memory'
+    | 'server_error'
+    | 'network_error'
+    | 'not_found'
+    | 'authentication'
+    | 'authorization'
+    | 'validation_error'
+    | 'unknown'
+
+export function classifyError(
     errorDetail: unknown,
     errorMessage: string | null,
     errorCode: string | null,
     statusCode: number | null
-): 'timeout' | 'out_of_memory' | 'server_error' | 'network_error' | 'unknown' {
+): ExperimentMetricErrorType {
     if (isTimeoutError(errorDetail, errorMessage, statusCode)) {
         return 'timeout'
     }
@@ -262,8 +309,20 @@ function classifyError(
     if (statusCode !== null && statusCode >= 500) {
         return 'server_error'
     }
-    if (statusCode === 0 || errorCode === 'network_error' || errorMessage?.includes('NetworkError')) {
+    if (isNetworkError(errorCode, errorMessage, statusCode)) {
         return 'network_error'
+    }
+    if (statusCode === 404) {
+        return 'not_found'
+    }
+    if (statusCode === 401 || errorCode === 'not_authenticated') {
+        return 'authentication'
+    }
+    if (statusCode === 403 || errorCode === 'permission_denied') {
+        return 'authorization'
+    }
+    if (statusCode === 400) {
+        return 'validation_error'
     }
     return 'unknown'
 }
@@ -325,7 +384,7 @@ const loadMetrics = async ({
     isRetry,
     metricIndexOffset,
     orderedUuids,
-    metricEventsPrecomputation,
+    featureFlags,
     onSetLegacyResults,
     onSetResults,
     onSetErrors,
@@ -363,7 +422,6 @@ const loadMetrics = async ({
                         kind: NodeKind.ExperimentQuery,
                         metric: metric,
                         experiment_id: experimentId,
-                        ...(metricEventsPrecomputation ? { metric_events_precomputation: true } : {}),
                     }
                 } else {
                     queryWithExperimentId = {
@@ -374,7 +432,7 @@ const loadMetrics = async ({
                 response = await performQuery(
                     setLatestVersionsOnQuery(queryWithExperimentId),
                     undefined,
-                    refresh ? 'force_async' : 'async'
+                    getExperimentRefreshMode(featureFlags, !!refresh)
                 )
 
                 const durationMs = Math.round(performance.now() - startTime)
@@ -426,6 +484,7 @@ const loadMetrics = async ({
                         is_retry: isRetry,
                         refresh_id: refreshId,
                         metric_kind: metricKind,
+                        execution_mode: getExperimentExecutionMode(featureFlags),
                     }
                 )
             } catch (error: any) {
@@ -454,21 +513,6 @@ const loadMetrics = async ({
 
                 erroredCount++
 
-                // Keep backwards-compatible events firing
-                if (errorType === 'timeout') {
-                    eventUsageLogic.actions.reportExperimentMetricTimeout(experimentId, metric, teamId, queryId)
-                } else if (errorType === 'out_of_memory') {
-                    eventUsageLogic.actions.reportExperimentMetricOutOfMemory(
-                        experimentId,
-                        metric,
-                        teamId,
-                        queryId,
-                        errorCode,
-                        errorMessage
-                    )
-                }
-
-                // Unified error event for all error types
                 eventUsageLogic.actions.reportExperimentMetricError(experimentId, metric, teamId, queryId, {
                     duration_ms: durationMs,
                     metric_index: metricIndex,
@@ -479,6 +523,7 @@ const loadMetrics = async ({
                     error_type: errorType,
                     error_code: errorCode,
                     error_message: errorMessage,
+                    error_detail: extractErrorDetailString(errorDetail),
                     status_code: statusCode,
                 })
 
@@ -605,7 +650,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentHoldoutAssigned',
                 'reportExperimentSharedMetricAssigned',
                 'reportExperimentDashboardCreated',
-                'reportExperimentMetricTimeout',
                 'reportExperimentTimeseriesViewed',
                 'reportExperimentTimeseriesRecalculated',
                 'reportExperimentAiSummaryRequested',
@@ -1625,6 +1669,7 @@ export const experimentLogic = kea<experimentLogicType>([
                             : null,
                         experiment_status: values.experiment?.status ?? null,
                         total_metrics_count: primaryCount + secondaryCount,
+                        execution_mode: getExperimentExecutionMode(values.featureFlags),
                     }
                 )
 
@@ -2025,8 +2070,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 isRetry: false,
                 metricIndexOffset: 0,
                 orderedUuids: values.experiment?.primary_metrics_ordered_uuids,
-                metricEventsPrecomputation:
-                    !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRIC_EVENTS_PRECOMPUTATION],
+                featureFlags: values.featureFlags,
                 onSetLegacyResults: actions.setLegacyPrimaryMetricsResults,
                 onSetResults: actions.setPrimaryMetricsResults,
                 onSetErrors: actions.setPrimaryMetricsResultsErrors,
@@ -2066,8 +2110,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 isRetry: false,
                 metricIndexOffset: 0,
                 orderedUuids: values.experiment?.secondary_metrics_ordered_uuids,
-                metricEventsPrecomputation:
-                    !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRIC_EVENTS_PRECOMPUTATION],
+                featureFlags: values.featureFlags,
                 onSetLegacyResults: actions.setLegacySecondaryMetricsResults,
                 onSetResults: actions.setSecondaryMetricsResults,
                 onSetErrors: actions.setSecondaryMetricsResultsErrors,
@@ -2115,8 +2158,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 isPrimary: true,
                 isRetry: true,
                 metricIndexOffset: index,
-                metricEventsPrecomputation:
-                    !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRIC_EVENTS_PRECOMPUTATION],
+                featureFlags: values.featureFlags,
                 onSetLegacyResults: (results) => {
                     currentLegacyResults[index] = results[0]
                     actions.setLegacyPrimaryMetricsResults(currentLegacyResults)
@@ -2165,8 +2207,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 isPrimary: false,
                 isRetry: true,
                 metricIndexOffset: index,
-                metricEventsPrecomputation:
-                    !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRIC_EVENTS_PRECOMPUTATION],
+                featureFlags: values.featureFlags,
                 onSetLegacyResults: (results) => {
                     currentLegacyResults[index] = results[0]
                     actions.setLegacySecondaryMetricsResults(currentLegacyResults)
@@ -2289,8 +2330,8 @@ export const experimentLogic = kea<experimentLogicType>([
     })),
     loaders(({ actions, values }) => ({
         experiment: {
-            loadExperiment: async ({ triggeredBy }: { triggeredBy?: ExperimentTriggeredBy } = {}) => {
-                void triggeredBy
+            loadExperiment: async (payload?: { triggeredBy?: ExperimentTriggeredBy }) => {
+                void payload?.triggeredBy
                 if (values.experimentId && values.experimentId !== 'new') {
                     try {
                         let response: Experiment = await api.get(
@@ -2378,7 +2419,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         end_date: experiment.end_date,
                         holdout: experiment.holdout,
                     })
-                    return await performQuery(query, undefined, refresh ? 'force_async' : 'async')
+                    return await performQuery(query, undefined, getExperimentRefreshMode(values.featureFlags, refresh))
                 },
             },
         ],

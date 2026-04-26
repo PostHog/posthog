@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -360,8 +361,20 @@ class TestRestoreAPI(BaseTest):
 
         self.client = APIClient()
 
-    def _get_headers(self):
-        return {"HTTP_X_CONVERSATIONS_TOKEN": self.widget_token}
+    def _get_headers(self, origin: str | None = "https://example.com"):
+        headers = {"HTTP_X_CONVERSATIONS_TOKEN": self.widget_token}
+        if origin is not None:
+            headers["HTTP_ORIGIN"] = origin
+        return headers
+
+    def _enable_allowlist(self, domains=("https://example.com",)):
+        # widget_domains entries need a scheme so on_permitted_recording_domain's
+        # urlparse(...).hostname can extract the host correctly.
+        self.team.conversations_settings = {
+            "widget_public_token": self.widget_token,
+            "widget_domains": list(domains),
+        }
+        self.team.save()
 
     def test_restore_request_authentication_required(self):
         response = self.client.post(
@@ -375,6 +388,7 @@ class TestRestoreAPI(BaseTest):
 
     @patch("products.conversations.backend.api.restore.send_conversation_restore_email")
     def test_restore_request_success_with_tickets(self, mock_send_email):
+        self._enable_allowlist()
         Ticket.objects.create_with_number(
             team=self.team,
             widget_session_id=self.widget_session_id,
@@ -394,13 +408,13 @@ class TestRestoreAPI(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"ok": True})
         mock_send_email.delay.assert_called_once()
-        # Verify the restore URL uses the request_url as base
         call_kwargs = mock_send_email.delay.call_args[1]
         self.assertIn("ph_conv_restore=", call_kwargs["restore_url"])
         self.assertTrue(call_kwargs["restore_url"].startswith("https://example.com/support"))
 
     @patch("products.conversations.backend.api.restore.send_conversation_restore_email")
     def test_restore_request_no_tickets_still_returns_ok(self, mock_send_email):
+        self._enable_allowlist()
         response = self.client.post(
             "/api/conversations/v1/widget/restore/request",
             {
@@ -415,6 +429,7 @@ class TestRestoreAPI(BaseTest):
         mock_send_email.delay.assert_not_called()
 
     def test_restore_request_invalid_email(self):
+        self._enable_allowlist()
         response = self.client.post(
             "/api/conversations/v1/widget/restore/request",
             {
@@ -435,6 +450,57 @@ class TestRestoreAPI(BaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @parameterized.expand(
+        [
+            # Restore-URL takeover regression: empty widget_domains used to default-allow,
+            # letting an attacker exfiltrate the emailed restore token via request_url.
+            ("unconfigured_widget_domains", [], "https://attacker.example/collect", "https://attacker.example"),
+            # Origin-binding: even with an allowlist that contains the attacker's domain,
+            # request_url cannot smuggle a different allowlisted host.
+            (
+                "origin_mismatch",
+                ["https://example.com", "https://attacker.example"],
+                "https://example.com/support",
+                "https://attacker.example",
+            ),
+            # Without Origin/Referer the request_url cannot be bound to a caller — reject.
+            ("missing_origin_header", ["https://example.com"], "https://example.com/support", None),
+        ]
+    )
+    @patch("products.conversations.backend.api.restore.RestoreRequestThrottle.allow_request", return_value=True)
+    @patch("products.conversations.backend.api.restore.validate_origin", return_value=True)
+    @patch("products.conversations.backend.api.restore.send_conversation_restore_email")
+    def test_restore_request_security_rejections(
+        self,
+        _name,
+        widget_domains,
+        request_url,
+        origin,
+        mock_send_email,
+        mock_validate_origin,
+        mock_throttle,
+    ):
+        self.team.conversations_settings = {
+            "widget_public_token": self.widget_token,
+            **({"widget_domains": widget_domains} if widget_domains else {}),
+        }
+        self.team.save()
+        Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id="user-1",
+            anonymous_traits={"email": self.customer_email},
+        )
+
+        response = self.client.post(
+            "/api/conversations/v1/widget/restore/request",
+            {"email": self.customer_email, "request_url": request_url},
+            **self._get_headers(origin=origin),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_send_email.delay.assert_not_called()
+
     @patch("products.conversations.backend.api.restore.RestoreRequestThrottle.allow_request", return_value=True)
     @patch("products.conversations.backend.api.restore.validate_origin", return_value=True)
     def test_restore_request_url_domain_not_in_allowlist(self, mock_validate_origin, mock_throttle):
@@ -451,7 +517,7 @@ class TestRestoreAPI(BaseTest):
                 "email": self.customer_email,
                 "request_url": "https://evil.com/phishing",
             },
-            **self._get_headers(),
+            **self._get_headers(origin="https://evil.com"),
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -480,7 +546,7 @@ class TestRestoreAPI(BaseTest):
                 "email": self.customer_email,
                 "request_url": "https://allowed.com/support",
             },
-            **self._get_headers(),
+            **self._get_headers(origin="https://allowed.com"),
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)

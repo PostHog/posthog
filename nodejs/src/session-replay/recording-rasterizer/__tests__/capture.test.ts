@@ -19,7 +19,6 @@ jest.mock(
         }
         return {
             __mockRecorder: recorder,
-            PuppeteerCaptureFormat: { MP4: jest.fn().mockReturnValue('mp4-format') },
             capture: jest.fn().mockResolvedValue(recorder),
         }
     },

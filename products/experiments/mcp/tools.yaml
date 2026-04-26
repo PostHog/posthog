@@ -19,248 +19,7 @@ ui_apps:
         type: detail
         view_prop: data
 tools:
-    experiment-get-all:
-        operation: experiments_list
-        enabled: true
-        scopes:
-            - experiment:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        enrich_url: '{id}'
-        title: Get all experiments
-        description: >
-            Get all experiments in the project.
-        ui_app: experiment-list
-        response:
-            include:
-                - id
-                - name
-                - description
-                - feature_flag_key
-                - start_date
-                - end_date
-                - archived
-                - type
-                - status
-                - created_at
-                - updated_at
-
-    experiment-get:
-        operation: experiments_retrieve
-        enabled: true
-        scopes:
-            - experiment:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        enrich_url: '{id}'
-        title: Get experiment details
-        description: >
-            Get details of a specific experiment by ID.
-        ui_app: experiment
-
-    experiment-create:
-        operation: experiments_create
-        enabled: true
-        scopes:
-            - experiment:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        enrich_url: '{id}'
-        title: Create experiment
-        description: >
-            Create a comprehensive A/B test experiment. PROCESS: 1) Understand experiment goal and hypothesis
-            2) Search existing feature flags with 'feature-flags-get-all' tool first and suggest reuse or new key
-            3) Help user define success metrics by asking what they want to optimize
-            4) MOST IMPORTANT: Use 'event-definitions-list' tool to find available events in their project
-            5) For funnel metrics, provide the series array with EventsNode entries for each step
-            6) Configure variants (default 50/50 control/test unless they specify otherwise)
-            7) Set targeting criteria if needed.
-        include_params:
-            - name
-            - description
-            - feature_flag_key
-            - type
-            - parameters
-            - metrics
-            - metrics_secondary
-            - holdout_id
-            - exposure_criteria
-            - allow_unknown_events
-        ui_app: experiment
-
-    experiment-update:
-        operation: experiments_partial_update
-        enabled: true
-        scopes:
-            - experiment:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        enrich_url: '{id}'
-        title: Update experiment
-        description: >
-            Update an existing experiment by ID. Can update name, description, variants, metrics,
-            and other properties. Use lifecycle tools for state transitions: experiment-launch to start,
-            experiment-end to stop, experiment-reset to return to draft, experiment-pause/experiment-resume
-            to temporarily halt. NOTE: feature_flag_key cannot be changed after creation.
-        include_params:
-            - name
-            - description
-            - parameters
-            - metrics
-            - metrics_secondary
-            - exposure_criteria
-            - conclusion
-            - conclusion_comment
-            - archived
-        ui_app: experiment
-
-    experiment-delete:
-        operation: experiments_destroy
-        enabled: true
-        scopes:
-            - experiment:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Delete experiment
-        description: >
-            Delete an experiment by ID.
-        soft_delete: true
-        response:
-            include:
-                - id
-                - name
-                - deleted
-
-    # ── Lifecycle tools ────────────────────────────────────────────
-    experiment-launch:
-        operation: experiments_launch_create
-        enabled: true
-        scopes:
-            - experiment:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        enrich_url: '{id}'
-        title: Launch experiment
-        description: >
-            Launch a draft experiment. Activates the linked feature flag,
-            sets start_date to now, and transitions the experiment to running.
-            Returns 400 if the experiment has already been launched.
-        ui_app: experiment
-
-    experiment-end:
-        operation: experiments_end_create
-        enabled: true
-        scopes:
-            - experiment:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        enrich_url: '{id}'
-        title: End experiment
-        description: >
-            End a running experiment. Sets end_date to now but does NOT modify
-            the feature flag. Optionally provide a conclusion and comment.
-            Returns 400 if the experiment is not running.
-        ui_app: experiment
-
-    experiment-archive:
-        operation: experiments_archive_create
-        enabled: true
-        scopes:
-            - experiment:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        enrich_url: '{id}'
-        title: Archive experiment
-        description: >
-            Archive an ended experiment to hide it from the default list view.
-            Returns 400 if the experiment is already archived or has not ended.
-        ui_app: experiment
-
-    experiment-ship-variant:
-        operation: experiments_ship_variant_create
-        enabled: true
-        scopes:
-            - experiment:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        enrich_url: '{id}'
-        title: Ship experiment variant
-        description: >
-            Ship a variant to 100% of users and optionally end the experiment.
-            Requires variant_key. Can include conclusion and conclusion_comment.
-            Returns 400 if the experiment is in draft state.
-        ui_app: experiment
-
-    experiment-pause:
-        operation: experiments_pause_create
-        enabled: true
-        scopes:
-            - experiment:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        enrich_url: '{id}'
-        title: Pause experiment
-        description: >
-            Pause a running experiment by deactivating its feature flag. Users
-            fall back to the default experience and no new exposures are recorded.
-            Returns 400 if the experiment is not running or is already paused.
-        ui_app: experiment
-
-    experiment-resume:
-        operation: experiments_resume_create
-        enabled: true
-        scopes:
-            - experiment:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        enrich_url: '{id}'
-        title: Resume experiment
-        description: >
-            Resume a paused experiment by reactivating its feature flag.
-            Returns 400 if the experiment is not paused.
-        ui_app: experiment
-
-    experiment-reset:
-        operation: experiments_reset_create
-        enabled: true
-        scopes:
-            - experiment:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        enrich_url: '{id}'
-        title: Reset experiment
-        description: >
-            Reset an experiment back to draft state. Clears start/end dates,
-            conclusion, and archived flag. The feature flag is left unchanged.
-            Returns 400 if the experiment is already in draft state.
-        ui_app: experiment
-
-    # ── Disabled tools (scaffolded, not agent-accessible) ──────────
+    # ── Holdouts ──────────────────────────────────────────────────────────
     experiment-holdouts-list:
         operation: experiment_holdouts_list
         enabled: false
@@ -279,30 +38,557 @@ tools:
     experiment-holdouts-destroy:
         operation: experiment_holdouts_destroy
         enabled: false
+
+    # ── Experiments CRUD ──────────────────────────────────────────────────
+    experiment-list:
+        operation: experiments_list
+        enabled: true
+        scopes:
+            - experiment:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        enrich_url: '{id}'
+        title: Get all experiments
+        description: >
+            List experiments in the current project. This is the primary
+            tool for resolving experiment references — load the
+            finding-experiments skill for guidance on searching by
+            name, status, recency, or description.
+
+
+            Supports filtering by status ("draft", "running", "stopped",
+            "complete" which maps to stopped, or "all"), archived state
+            (defaults to non-archived), feature_flag_id, created_by_id,
+            and free-text search on name. Supports ordering by an
+            allowlisted set of fields (model fields plus computed
+            "duration" and "status"). Returns paginated results with
+            each experiment's status, dates, feature flag key, and
+            metrics summary. Use the returned ID for get/update/lifecycle
+            tools.
+        ui_app: experiment-list
+        param_overrides:
+            status:
+                description: >
+                    Filter by experiment status. Values: "draft" (not yet
+                    launched), "running" (launched, no end date), "stopped"
+                    or "complete" (both mean ended), "all" (no filter).
+                    Defaults to all non-archived experiments.
+        response:
+            include:
+                - id
+                - name
+                - description
+                - feature_flag_key
+                - start_date
+                - end_date
+                - archived
+                - type
+                - status
+                - created_at
+                - updated_at
+    experiment-get:
+        operation: experiments_retrieve
+        enabled: true
+        scopes:
+            - experiment:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get experiment details
+        description: >
+            Get a single experiment by ID. If you don't have the ID,
+            load the finding-experiments skill to resolve the
+            user's reference first.
+
+
+            Returns the full experiment object including: status
+            (draft/running/stopped), start_date and end_date, linked
+            feature_flag (with variants, filters, active state),
+            metrics and metrics_secondary arrays, conclusion and
+            conclusion_comment if ended, parameters (including
+            feature_flag_variants and recommended_running_time),
+            stats_config, and type
+            (web/product).
+        ui_app: experiment
+    experiment-create:
+        operation: experiments_create
+        enabled: true
+        scopes:
+            - experiment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Create experiment
+        description: >
+            RULES (follow before calling):
+
+            1. Load the creating-experiments skill for the full
+               creation workflow.
+
+            2. If the user mentions a rollout percentage (e.g. "25%"),
+               load the configuring-experiment-rollout skill and
+               ask the user to clarify BEFORE calling this tool.
+               A percentage is always ambiguous — it can mean a
+               variant split change OR an overall rollout change.
+
+            3. Do NOT pass metrics on creation. Create the draft
+               first, then add metrics via experiment-update. Use
+               the configuring-experiment-analytics skill for
+               metric guidance.
+
+
+            Creates a new experiment in draft status (ignore the "type"
+            param, since no-code/toolbar experiments must be created
+            in the PostHog UI). Requires name and feature_flag_key.
+            Feature flag is auto-created — do not create one
+            separately. Defaults: 50/50 control/test, 100% rollout,
+            Bayesian stats. Launch the experiment with the launch
+            tool when ready.
+        include_params:
+            - name
+            - description
+            - feature_flag_key
+            - parameters
+            - stats_config
+            - holdout_id
+            - allow_unknown_events
+            - exposure_criteria
+        param_overrides:
+            parameters:
+                description: >
+                    Variant split and rollout scope. If the user
+                    mentions a specific percentage, load the
+                    configuring-experiment-rollout skill and clarify
+                    before setting these values. Set
+                    rollout_percentage (0-100) to control the
+                    overall fraction of users entering the
+                    experiment. Set feature_flag_variants with
+                    split_percent on each variant to customize the
+                    variant split. Default: 50/50 control/test,
+                    100% rollout.
+        ui_app: experiment
+    experiment-update:
+        operation: experiments_partial_update
+        enabled: true
+        scopes:
+            - experiment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Update experiment
+        description: >
+            RULES (follow before calling):
+
+            1. If changing rollout or variants on a RUNNING
+               experiment, you MUST warn the user about user
+               experience AND statistical implications BEFORE
+               making the change and get explicit confirmation.
+               Load the configuring-experiment-rollout skill for
+               the full warning. Do NOT silently apply the change
+               — even if the user asked directly.
+
+            2. If the user mentions a percentage, clarify whether
+               they mean variant split or overall rollout BEFORE
+               calling.
+
+            3. If adding or changing metrics, load the
+               configuring-experiment-analytics skill first. Call
+               read-data-schema to discover available events BEFORE
+               suggesting or using any event name. Never suggest
+               event names you haven't confirmed exist.
+
+            4. For running experiments, set
+               update_feature_flag_params=true when changing
+               parameters — without it, changes save but do NOT
+               sync to the feature flag.
+
+
+            Update an experiment by ID. If you don't have the ID,
+            load the finding-experiments skill to resolve the
+            user's reference first. Metrics can be changed at
+            any time including while running. Cannot add/remove
+            variants on non-draft experiments (changing percentages
+            between existing variants is allowed). Cannot change
+            holdout on non-draft experiments.
+
+
+            Do NOT use this to change lifecycle state — use the
+            dedicated launch, end, pause, resume, archive, or
+            ship_variant tools instead.
+        include_params:
+            - name
+            - description
+            - parameters
+            - metrics
+            - metrics_secondary
+            - stats_config
+            - holdout_id
+            - conclusion
+            - conclusion_comment
+            - archived
+            - allow_unknown_events
+            - update_feature_flag_params
+        ui_app: experiment
+    experiment-delete:
+        operation: experiments_destroy
+        enabled: true
+        scopes:
+            - experiment:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete experiment
+        description: >
+            Delete an experiment by ID. If you don't have the ID,
+            load the finding-experiments skill to resolve the
+            user's reference first. Always confirm by name before
+            deleting.
+        soft_delete: true
+        response:
+            include:
+                - id
+                - name
+                - deleted
     experiments-update:
         operation: experiments_update
         enabled: false
-    experiments-create-exposure-cohort-for-experiment-create:
+
+    # ── Lifecycle actions ─────────────────────────────────────────────────
+    experiment-launch:
+        operation: experiments_launch_create
+        enabled: true
+        scopes:
+            - experiment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Launch experiment
+        description: >
+            Requires an experiment ID. If you don't have the ID,
+            load the finding-experiments skill to resolve the
+            user's reference first.
+
+
+            Launch a draft experiment. Validates the feature flag has at
+            least 2 multivariate variants with "control" as the first
+            variant. Activates the feature flag (sets active=true), sets
+            start_date to the current server time, recomputes metric
+            fingerprints, and transitions status from draft to running.
+
+
+            Returns 400 if the experiment has already been launched
+            ("Experiment has already been launched.") or if the flag
+            configuration is invalid.
+
+
+            No request body needed.
+        ui_app: experiment
+    experiment-end:
+        operation: experiments_end_create
+        enabled: true
+        scopes:
+            - experiment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: End experiment
+        description: >
+            Requires an experiment ID. If you don't have the ID,
+            load the finding-experiments skill to resolve the
+            user's reference first.
+
+
+            End a running experiment without shipping a variant. Sets
+            end_date to now and transitions status to stopped. The feature
+            flag is NOT modified — users continue seeing their assigned
+            variants and exposure events ($feature_flag_called) continue
+            to fire, but only data up to end_date is included in results.
+
+
+            Optionally provide conclusion ("won", "lost", "inconclusive",
+            "stopped_early", "invalid") and conclusion_comment.
+
+
+            Returns 400 if the experiment is in draft ("Experiment has not
+            been launched yet.") or already stopped ("Experiment has
+            already ended.").
+
+
+            Other options: use ship_variant to end AND roll out a winner.
+            Use pause to temporarily deactivate the flag without ending.
+        ui_app: experiment
+    experiment-archive:
+        operation: experiments_archive_create
+        enabled: true
+        scopes:
+            - experiment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Archive experiment
+        description: >
+            Requires an experiment ID. If you don't have the ID,
+            load the finding-experiments skill to resolve the
+            user's reference first.
+
+
+            Archive a stopped experiment to hide it from the default list
+            view. The experiment must be stopped (end_date set) — cannot
+            archive draft or running experiments.
+
+
+            Returns 400 if already archived ("Experiment is already
+            archived.") or not yet stopped ("Experiment must be ended
+            before it can be archived.").
+
+
+            No request body needed. Can be restored later by setting
+            archived=false via update.
+        ui_app: experiment
+    experiment-ship-variant:
+        operation: experiments_ship_variant_create
+        enabled: true
+        scopes:
+            - experiment:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        enrich_url: '{id}'
+        title: Ship experiment variant
+        description: >
+            Requires an experiment ID. If you don't have the ID,
+            load the finding-experiments skill to resolve the
+            user's reference first.
+
+
+            Ship a variant to 100% of users by rewriting the feature
+            flag. Requires variant_key — the key of the variant to ship
+            (e.g. "test" or "control"). The flag is rewritten so the
+            selected variant gets 100% rollout via a new catch-all release
+            group prepended to existing groups (preserved for rollback).
+
+
+            Can be called on both running and stopped experiments. If the
+            experiment is still running, it is also ended (end_date set,
+            status becomes stopped). If already stopped, only the flag is
+            rewritten — supports the "end first, ship later" workflow.
+
+
+            Optionally provide conclusion ("won", "lost", "inconclusive",
+            "stopped_early", "invalid") and conclusion_comment.
+
+
+            Returns 400 if: experiment is in draft ("Experiment has not
+            been launched yet."), variant_key not found on the flag, or
+            no linked feature flag. Returns 409 if an approval policy
+            requires review before the flag change takes effect — includes
+            a change_request_id in the response.
+        ui_app: experiment
+    experiment-pause:
+        operation: experiments_pause_create
+        enabled: true
+        scopes:
+            - experiment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Pause experiment
+        description: >
+            Requires an experiment ID. If you don't have the ID,
+            load the finding-experiments skill to resolve the
+            user's reference first.
+
+
+            Pause a running experiment by deactivating its feature flag
+            (sets flag active=false). The flag is no longer returned by
+            the /decide endpoint, so users fall back to the application
+            default (typically control). No new exposure events
+            ($feature_flag_called) are recorded while paused. The
+            experiment stays in running status — it is not ended.
+
+
+            Returns 400 if: experiment is in draft ("Experiment has not
+            been launched yet."), already stopped ("Experiment has already
+            ended."), no linked flag ("Experiment does not have a feature
+            flag linked."), or already paused ("Experiment is already
+            paused.").
+
+
+            No request body needed. Use resume to reactivate.
+        ui_app: experiment
+    experiment-resume:
+        operation: experiments_resume_create
+        enabled: true
+        scopes:
+            - experiment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Resume experiment
+        description: >
+            Requires an experiment ID. If you don't have the ID,
+            load the finding-experiments skill to resolve the
+            user's reference first.
+
+
+            Resume a paused experiment by reactivating its feature flag
+            (sets flag active=true). Users are re-bucketed
+            deterministically into the same variants they had before the
+            pause, and exposure tracking ($feature_flag_called) resumes.
+
+
+            Returns 400 if: experiment is in draft ("Experiment has not
+            been launched yet."), already stopped ("Experiment has already
+            ended."), no linked flag ("Experiment does not have a feature
+            flag linked."), or not currently paused ("Experiment is not
+            paused.").
+
+
+            No request body needed.
+        ui_app: experiment
+    experiment-reset:
+        operation: experiments_reset_create
+        enabled: true
+        scopes:
+            - experiment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Reset experiment
+        description: >
+            Requires an experiment ID. If you don't have the ID,
+            load the finding-experiments skill to resolve the
+            user's reference first.
+
+
+            Reset an experiment back to draft state. Clears start_date,
+            end_date, conclusion, conclusion_comment, and archived flag
+            (all set to null/false). The feature flag is left unchanged —
+            users continue to see their currently assigned variants.
+
+
+            Previously collected events still exist in the database but
+            won't be included in results unless start_date is manually
+            adjusted after re-launch.
+
+
+            Returns 400 if the experiment is already in draft
+            ("Experiment is already in draft state.").
+
+
+            No request body needed.
+        ui_app: experiment
+
+    # ── Disabled tools ────────────────────────────────────────────────────
+    experiments-create-exposure-cohort:
         operation: experiments_create_exposure_cohort_for_experiment_create
         enabled: false
-    experiments-duplicate-create:
-        operation: experiments_duplicate_create
-        enabled: false
-    experiments-recalculate-timeseries-create:
+    experiments-recalculate-timeseries:
         operation: experiments_recalculate_timeseries_create
         enabled: false
-    experiments-timeseries-results-retrieve:
-        operation: experiments_timeseries_results_retrieve
-        enabled: false
-    experiments-eligible-feature-flags-retrieve:
+    experiments-eligible-feature-flags:
         operation: experiments_eligible_feature_flags_retrieve
         enabled: false
-    experiments-requires-flag-implementation-retrieve:
+    experiments-requires-flag-implementation:
         operation: experiments_requires_flag_implementation_retrieve
         enabled: false
-    experiments-stats-retrieve:
+
+    # ── Results & stats ───────────────────────────────────────────────────
+    experiment-timeseries-results:
+        operation: experiments_timeseries_results_retrieve
+        enabled: true
+        scopes:
+            - experiment:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get experiment timeseries results
+        description: >
+            Get day-by-day experiment results for a specific metric.
+            Requires metric_uuid and fingerprint as query parameters
+            (both available from the experiment's metrics array — each
+            metric has a uuid and the fingerprint is computed from its
+            configuration).
+
+
+            Returns a timeseries object keyed by date (YYYY-MM-DD) with
+            per-variant statistical results for each day, overall status
+            ("pending", "completed", "partial", "failed"), computed_at
+            timestamp, and recalculation_status if a recalculation is
+            in progress.
+        ui_app: experiment-results
+    experiment-stats:
         operation: experiments_stats_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - experiment:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get experiment velocity stats
+        description: >
+            Get aggregate experiment velocity statistics for the current
+            project. Returns: launched_last_30d (experiments launched in
+            the last 30 days), launched_previous_30d (the 30 days before
+            that), percent_change between the two periods,
+            active_experiments (currently running count), and
+            completed_last_30d (experiments ended in the last 30 days).
+            No parameters needed.
+
+    # ── Utility actions ───────────────────────────────────────────────────
+    experiment-duplicate:
+        operation: experiments_duplicate_create
+        enabled: true
+        scopes:
+            - experiment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Duplicate experiment
+        description: >
+            Create a copy of an experiment as a new draft. The duplicate
+            includes the original's metrics, parameters, and
+            configuration but starts fresh with no dates or results.
+            Rejects experiments that use legacy metrics
+            (ExperimentTrendsQuery/ExperimentFunnelsQuery).
+
+
+            IMPORTANT: always provide a unique feature_flag_key that
+            differs from the original experiment's flag key. If omitted
+            or if the same key is provided, the duplicate will reuse the
+            original experiment's feature flag — meaning changes to one
+            experiment's flag (e.g. shipping a variant, pausing) will
+            affect both experiments. Always confirm the new flag key with
+            the user before duplicating. Optionally provide a custom name
+            (defaults to "Original Name (Copy)").
+
+    # ── Saved metrics ─────────────────────────────────────────────────────
     experiment-saved-metrics-list:
         operation: experiment_saved_metrics_list
         enabled: false

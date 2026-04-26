@@ -66,7 +66,7 @@ export class BatchExportHogFunctionService {
         let team: Team | null
         try {
             team = await this.teamManager.getTeam(parseInt(params.team_id))
-        } catch (e) {
+        } catch {
             throw new ParseError('Invalid team_id: ' + params.team_id)
         }
         if (!team) {

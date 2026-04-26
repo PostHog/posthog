@@ -31,6 +31,7 @@ export function ConversationDisplay({ eventProperties, eventId }: ConversationDi
             model: eventProperties.$ai_model,
             provider: eventProperties.$ai_provider,
             input,
+            output,
         })
     }
 

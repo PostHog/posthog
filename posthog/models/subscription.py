@@ -180,7 +180,7 @@ class Subscription(models.Model):
                 self.insight.url,
             )
         elif self.dashboard:
-            return SubscriptionResourceInfo("Dashboard", self.dashboard.name, self.dashboard.url)
+            return SubscriptionResourceInfo("Dashboard", self.dashboard.name or "Dashboard", self.dashboard.url)
 
         return None
 
@@ -281,6 +281,10 @@ class SubscriptionDelivery(UUIDModel):
     # Content snapshot
     exported_asset_ids: ArrayField = ArrayField(models.IntegerField(), default=list)
     content_snapshot = models.JSONField(default=dict)
+
+    # AI-generated summary sent in the delivery, when summary_enabled is on for the subscription.
+    # None when no summary is attached.
+    change_summary = models.TextField(null=True, blank=True)
 
     # Per-recipient delivery results
     recipient_results = models.JSONField(default=list)

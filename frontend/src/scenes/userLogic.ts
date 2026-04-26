@@ -228,8 +228,12 @@ export const userLogic = kea<userLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         logout: ({ preserveLocation }) => {
+            if (cache.loggingOut) {
+                return
+            }
+            cache.loggingOut = true
             posthog.reset()
             if (preserveLocation) {
                 // Forward the current path so that after re-login the user lands back where they were

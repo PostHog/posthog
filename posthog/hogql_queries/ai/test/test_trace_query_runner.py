@@ -475,6 +475,38 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(response.results), 1)
         self.assertEqual(len(response.results[0].events), 2)
 
+    def test_overlap_semantics_trace_started_before_window(self):
+        _create_person(distinct_ids=["person1"], team=self.team)
+
+        # First event within capture range but before date_from
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace1",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 10, 55),
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace1",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 11, 30),
+        )
+
+        # Window: 11:00 to 12:00
+        response = TraceQueryRunner(
+            team=self.team,
+            query=TraceQuery(
+                traceId="trace1",
+                dateRange=DateRange(
+                    date_from="2024-12-01T11:00:00Z",
+                    date_to="2024-12-01T12:00:00Z",
+                ),
+            ),
+        ).calculate()
+
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].id, "trace1")
+
     @snapshot_clickhouse_queries
     def test_event_property_filters(self):
         """Test filtering by event properties."""

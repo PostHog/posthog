@@ -17,6 +17,10 @@ export interface Series<Meta = unknown> {
     fillArea?: boolean
     /** Opacity of the area fill. Range 0–1, defaults to 0.5. Ignored when `fillArea` is false. */
     fillOpacity?: number
+    /** Bottom-edge data for fill-between rendering (e.g. confidence interval lower bound).
+     *  When set alongside `fillArea`, the area is drawn between `data` (top) and this (bottom)
+     *  instead of filling down to the x-axis baseline. */
+    fillBetweenData?: number[]
     /** Canvas line dash pattern, e.g. [10, 10] for evenly dashed. Omit or [] for solid. */
     dashPattern?: number[]
     /** Index from which the line becomes dashed (inclusive). Clamped to data bounds. */
@@ -30,6 +34,11 @@ export interface Series<Meta = unknown> {
     /** When true, the series still renders and participates in scales and hit-testing,
      *  but is omitted from the tooltip's seriesData so it doesn't appear as a row. */
     hideFromTooltip?: boolean
+    /** When true, the ValueLabels overlay skips this series. */
+    hideValueLabels?: boolean
+    /** When true, the series is excluded from d3 stack computation. Use for auxiliary
+     *  overlays (trend lines, moving averages) that should not affect cumulative area heights. */
+    excludeFromStack?: boolean
     /** Radius in px for data point dots. Set to 0 or omit to hide dots. */
     pointRadius?: number
     /** Arbitrary consumer data attached to this series. Flows through to TooltipContext

@@ -8,6 +8,13 @@
             },
             "type": "array"
         },
+        "clients": {
+            "default": [],
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
         "detail_filters": {
             "type": "string"
         },

@@ -435,7 +435,7 @@ class CohortSerializer(serializers.ModelSerializer):
     filters = CohortFiltersField(required=False, allow_null=True)
 
     # If this cohort is an exposure cohort for an experiment
-    experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)  # ty: ignore[invalid-assignment]
     last_error_message = serializers.SerializerMethodField()
 
     class Meta:
@@ -1371,6 +1371,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         )
         return Response({"success": True}, status=200)
 
+    @extend_schema(operation_id="cohorts_all_activity_retrieve")
     @action(
         methods=["GET"],
         url_path="activity",

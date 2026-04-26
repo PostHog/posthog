@@ -301,6 +301,7 @@ async def _maybe_autostart_task_for_report(
         repository=repository,
         signal_report_id=report_id,
         posthog_mcp_scopes="read_only",
+        interaction_origin="signal_report",  # Makes the agent auto-push and open a draft PR
     )
     task_run = await task.runs.order_by("-created_at").afirst()
     if task_run is None:
@@ -436,7 +437,6 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 context,
                 previous_report_id=input.report_id if previous_research else None,
                 previous_report_research=previous_research,
-                branch="master",
                 signal_report_id=input.report_id,
             )
             # 4. Persist artefacts, avoid partial data from failed runs

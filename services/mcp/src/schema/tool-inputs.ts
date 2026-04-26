@@ -1,6 +1,30 @@
 import { z } from 'zod'
 
-import { InsightQuerySchema, PropertyFilter } from './query'
+import { DataVisualizationNodeSchema, HogQLQuerySchema, InsightVizNodeSchema, PropertyFilter } from './query'
+
+export const ExternalDataJobsAfterSchema = z
+    .string()
+    .describe('ISO timestamp — only return jobs created after this date (e.g. "2025-01-01T00:00:00Z").')
+
+export const ExternalDataJobsBeforeSchema = z
+    .string()
+    .describe('ISO timestamp — only return jobs created before this date (e.g. "2025-12-31T23:59:59Z").')
+
+export const ExternalDataJobsSchemasSchema = z
+    .array(z.string())
+    .describe('Filter jobs by table schema names (e.g. ["users", "orders"]). Only returns jobs for these tables.')
+
+export const ExternalDataSourcePayloadSchema = z
+    .record(z.string(), z.unknown())
+    .describe(
+        'Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. Use external-data-sources-wizard to see required fields per source type.'
+    )
+
+export const ExternalDataSourceTypeSchema = z
+    .string()
+    .describe(
+        'The source type name (e.g. "Postgres", "MySQL", "Stripe"). Use external-data-sources-wizard to see available types and their required fields.'
+    )
 
 export const PromptListInputSchema = z.object({
     search: z.string().optional().describe('Optional substring filter applied to prompt names and prompt content.'),
@@ -194,7 +218,20 @@ export const ExperimentCreateSchema = z.object({
             z.object({
                 key: z.string().describe("Variant key (e.g., 'control', 'variant_a', 'new_design')"),
                 name: z.string().optional().describe('Human-readable variant name'),
-                rollout_percentage: z.number().min(0).max(100).describe('Percentage of users to show this variant'),
+                split_percent: z
+                    .number()
+                    .min(0)
+                    .max(100)
+                    .optional()
+                    .describe(
+                        'Percentage of traffic allocated to this variant (0-100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage (deprecated) must be provided per variant.'
+                    ),
+                rollout_percentage: z
+                    .number()
+                    .min(0)
+                    .max(100)
+                    .optional()
+                    .describe('Deprecated: use split_percent instead. Accepted for backward compatibility.'),
             })
         )
         .optional()
@@ -260,10 +297,6 @@ export const LLMAnalyticsGetCostsSchema = z.object({
     days: z.number().optional(),
 })
 
-export const OrganizationGetDetailsSchema = z.object({})
-
-export const OrganizationGetAllSchema = z.object({})
-
 export const OrganizationSetActiveSchema = z.object({
     orgId: z.string(),
 })
@@ -313,8 +346,14 @@ export const ProjectSetActiveSchema = z.object({
 
 export const SurveyResponseCountsSchema = z.object({})
 
+const QueryRunQuerySchema = z.discriminatedUnion('kind', [
+    InsightVizNodeSchema,
+    DataVisualizationNodeSchema,
+    HogQLQuerySchema,
+])
+
 export const QueryRunInputSchema = z.object({
-    query: InsightQuerySchema,
+    query: QueryRunQuerySchema,
 })
 
 // Entity Search

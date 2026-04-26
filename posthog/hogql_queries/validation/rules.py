@@ -9,12 +9,23 @@ from posthog.hogql_queries.validation.validation import QueryValidationContext
 
 
 class RequireAtLeastOneSeries:
+    """Insights need at least one series entity."""
+
+    code = "insight_requires_at_least_one_series"
+
     def validate(self, context: QueryValidationContext[TrendsQuery | StickinessQuery | LifecycleQuery]) -> None:
         if not context.query.series:
-            raise ValidationError(f"{get_query_insight_name(context.query)} require at least one series.")
+            raise ValidationError(
+                f"{get_query_insight_name(context.query)} require at least one series.",
+                code=self.code,
+            )
 
 
 class DisallowUnsupportedDataWarehouseSettings:
+    """Global property filters, test account filters and sampling can't be used together with data warehouse series."""
+
+    code = "data_warehouse_series_unsupported_settings"
+
     def validate(
         self, context: QueryValidationContext[TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery]
     ) -> None:
@@ -33,5 +44,6 @@ class DisallowUnsupportedDataWarehouseSettings:
             settings = " and ".join(unsupported_settings)
             verb = "is" if unsupported_settings == ["sampling"] else "are"
             raise ValidationError(
-                f"{settings.capitalize()} {verb} not supported for {get_query_insight_name(context.query).lower()} with a data warehouse series."
+                f"{settings.capitalize()} {verb} not supported for {get_query_insight_name(context.query).lower()} with a data warehouse series.",
+                code=self.code,
             )
