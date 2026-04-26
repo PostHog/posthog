@@ -1,4 +1,5 @@
 import {
+    KAFKA_APP_METRICS_2,
     KAFKA_LOGS_CLICKHOUSE,
     KAFKA_LOGS_INGESTION,
     KAFKA_LOGS_INGESTION_DLQ,
@@ -8,7 +9,27 @@ import {
     KAFKA_TRACES_INGESTION_DLQ,
     KAFKA_TRACES_INGESTION_OVERFLOW,
 } from '../config/kafka-topics'
+// Note: defaults below select MSK_PRODUCER for app_metrics — flip to
+// WARPSTREAM_INGESTION_PRODUCER via `LOGS_INGESTION_OUTPUT_APP_METRICS_PRODUCER`
+// to migrate the route off MSK.
 import { isProdEnv } from '../utils/env-utils'
+import { LogsProducerName, MSK_PRODUCER, WARPSTREAM_LOGS_PRODUCER } from './outputs/producers'
+
+export type LogsIngestionOutputsConfig = {
+    LOGS_INGESTION_OUTPUT_APP_METRICS_TOPIC: string
+    LOGS_INGESTION_OUTPUT_APP_METRICS_PRODUCER: LogsProducerName
+    LOGS_INGESTION_OUTPUT_LOGS_PRODUCER: LogsProducerName
+    LOGS_INGESTION_OUTPUT_DLQ_PRODUCER: LogsProducerName
+}
+
+export function getDefaultLogsIngestionOutputsConfig(): LogsIngestionOutputsConfig {
+    return {
+        LOGS_INGESTION_OUTPUT_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
+        LOGS_INGESTION_OUTPUT_APP_METRICS_PRODUCER: MSK_PRODUCER,
+        LOGS_INGESTION_OUTPUT_LOGS_PRODUCER: WARPSTREAM_LOGS_PRODUCER,
+        LOGS_INGESTION_OUTPUT_DLQ_PRODUCER: WARPSTREAM_LOGS_PRODUCER,
+    }
+}
 
 export type LogsIngestionConsumerConfig = {
     LOGS_INGESTION_CONSUMER_GROUP_ID: string

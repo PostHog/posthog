@@ -2392,6 +2392,13 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "String",
             "virtual": True,
         },
+        "$virt_bot_operator": {
+            "label": "Bot operator",
+            "description": "Company or organization operating the bot.",
+            "examples": ["Google", "OpenAI", "Anthropic", "Microsoft"],
+            "type": "String",
+            "virtual": True,
+        },
     },
     "numerical_event_properties": {},
     "person_properties": {

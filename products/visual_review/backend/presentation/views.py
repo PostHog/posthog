@@ -13,6 +13,7 @@ No business logic here - that belongs in logic.py via the facade.
 from typing import cast
 from uuid import UUID
 
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -96,7 +97,10 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         return Response(RepoSerializer(instance=repo).data, status=status.HTTP_201_CREATED)
 
-    @extend_schema(responses={200: RepoSerializer})
+    @extend_schema(
+        parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],
+        responses={200: RepoSerializer},
+    )
     def retrieve(self, request: Request, pk: str, **kwargs) -> Response:
         """Get a repo by ID."""
         try:
@@ -105,6 +109,7 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(RepoSerializer(instance=repo).data)
 
+    @extend_schema(parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)])
     @validated_request(
         request_serializer=UpdateRepoInputSerializer,
         responses={200: OpenApiResponse(response=RepoSerializer)},
@@ -192,6 +197,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "visual_review"
     scope_object_write_actions = ["create", "complete", "approve", "auto_approve", "add_snapshots"]
     scope_object_read_actions = ["list", "retrieve", "snapshots", "counts"]
+    serializer_class = RunSerializer
 
     @extend_schema(
         parameters=[OpenApiParameter("review_state", str, required=False, description="Filter by review state")],
@@ -222,7 +228,10 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         result = api.create_run(request.validated_data, team_id=self.team_id)
         return Response(CreateRunResultSerializer(instance=result).data, status=status.HTTP_201_CREATED)
 
-    @extend_schema(responses={200: RunSerializer})
+    @extend_schema(
+        parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],
+        responses={200: RunSerializer},
+    )
     def retrieve(self, request: Request, pk: str, **kwargs) -> Response:
         """Get run status and summary."""
         try:

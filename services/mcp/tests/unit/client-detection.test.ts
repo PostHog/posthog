@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import {
     CODING_AGENT_CLIENT_NAME_FRAGMENTS,
+    DEFAULT_CLIENT_CAPABILITIES,
+    MCPClientProfile,
     POSTHOG_CODE_CONSUMER,
     isCodingAgentClient,
     isPostHogCodeConsumer,
@@ -105,5 +107,89 @@ describe('isPostHogCodeConsumer', () => {
 
     it('returns false for undefined', () => {
         expect(isPostHogCodeConsumer(undefined)).toBe(false)
+    })
+})
+
+describe('MCPClientProfile', () => {
+    describe('isCodingAgent()', () => {
+        it.each([['claude-code'], ['Codex CLI'], ['cline'], ['zed-editor'], ['GitHub Copilot Chat']])(
+            'returns true for %s',
+            (clientName) => {
+                expect(new MCPClientProfile({ clientName }).isCodingAgent()).toBe(true)
+            }
+        )
+
+        it.each([['Claude Desktop'], ['cursor'], ['mcp-inspector'], [''], ['   ']])(
+            'returns false for %s',
+            (clientName) => {
+                expect(new MCPClientProfile({ clientName }).isCodingAgent()).toBe(false)
+            }
+        )
+
+        it('returns false when clientName is undefined', () => {
+            expect(new MCPClientProfile({}).isCodingAgent()).toBe(false)
+        })
+    })
+
+    describe('isPostHogCodeConsumer()', () => {
+        it('returns true for the exact consumer value', () => {
+            expect(new MCPClientProfile({ consumer: POSTHOG_CODE_CONSUMER }).isPostHogCodeConsumer()).toBe(true)
+        })
+
+        it.each([['slack'], ['posthog'], ['PostHog-Code'], ['']])('returns false for %s', (consumer) => {
+            expect(new MCPClientProfile({ consumer }).isPostHogCodeConsumer()).toBe(false)
+        })
+
+        it('returns false when consumer is undefined', () => {
+            expect(new MCPClientProfile({}).isPostHogCodeConsumer()).toBe(false)
+        })
+    })
+
+    describe('capabilities.supportsInstructions', () => {
+        it.each([['codex'], ['Codex'], ['CODEX'], ['codex-cli'], ['Codex CLI'], ['codex/1.2.3'], ['openai-codex']])(
+            'is false for Codex variant %s',
+            (clientName) => {
+                expect(new MCPClientProfile({ clientName }).capabilities.supportsInstructions).toBe(false)
+            }
+        )
+
+        it.each([
+            ['claude-code'],
+            ['Claude Code'],
+            ['Claude Desktop'],
+            ['cursor'],
+            ['cline'],
+            ['mcp-inspector'],
+            ['windsurf'],
+            ['zed'],
+        ])('is true for non-Codex client %s', (clientName) => {
+            expect(new MCPClientProfile({ clientName }).capabilities.supportsInstructions).toBe(true)
+        })
+
+        it.each([[undefined], [''], ['   ']])('defaults to true for %s', (clientName) => {
+            expect(new MCPClientProfile({ clientName }).capabilities.supportsInstructions).toBe(true)
+        })
+    })
+
+    it('caches capabilities across reads', () => {
+        const profile = new MCPClientProfile({ clientName: 'codex' })
+        expect(profile.capabilities).toBe(profile.capabilities)
+    })
+
+    it('exposes constructor inputs as readonly fields', () => {
+        const profile = new MCPClientProfile({
+            clientName: 'claude-code',
+            clientVersion: '1.2.3',
+            consumer: POSTHOG_CODE_CONSUMER,
+        })
+        expect(profile.clientName).toBe('claude-code')
+        expect(profile.clientVersion).toBe('1.2.3')
+        expect(profile.consumer).toBe(POSTHOG_CODE_CONSUMER)
+    })
+})
+
+describe('DEFAULT_CLIENT_CAPABILITIES', () => {
+    it('has supportsInstructions=true by default', () => {
+        expect(DEFAULT_CLIENT_CAPABILITIES.supportsInstructions).toBe(true)
     })
 })

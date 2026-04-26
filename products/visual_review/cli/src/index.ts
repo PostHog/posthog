@@ -12,10 +12,14 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
-import { VisualReviewClient, type Run } from './client.js'
+import { VisualReviewApiError, VisualReviewClient, type Run } from './client.js'
 import { hashImageWithDimensions } from './hasher.js'
 import { scanDirectory } from './scanner.js'
 import { readBaselineHashes, readSnapshotsFile } from './snapshots.js'
+
+const RETRY_STATUS_CODES = new Set([500, 502, 503, 504])
+const SUBMIT_API_RETRIES = 3
+const SUBMIT_API_RETRY_BASE_DELAY_MS = 1_000
 
 program.name('vr').description('Visual Review CLI for snapshot testing').version('0.0.1')
 
@@ -494,12 +498,36 @@ function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-async function waitForCompletion(client: VisualReviewClient, runId: string): Promise<Run> {
+async function retrySubmitApiCall<T>(label: string, operation: () => Promise<T>): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+        try {
+            return await operation()
+        } catch (error) {
+            if (
+                !(error instanceof VisualReviewApiError) ||
+                !RETRY_STATUS_CODES.has(error.status) ||
+                attempt >= SUBMIT_API_RETRIES
+            ) {
+                throw error
+            }
+
+            const delayMs = SUBMIT_API_RETRY_BASE_DELAY_MS * 2 ** attempt
+            log(
+                `${label} returned ${error.status}, retrying in ${delayMs}ms (attempt ${attempt + 1}/${SUBMIT_API_RETRIES})`
+            )
+            await sleep(delayMs)
+        }
+    }
+}
+
+async function waitForCompletion(client: VisualReviewClient, runId: string, retryServerErrors = false): Promise<Run> {
     const maxAttempts = 120
     const intervalMs = 5000
 
     for (let i = 0; i < maxAttempts; i++) {
-        const run = await client.getRun(runId)
+        const run = retryServerErrors
+            ? await retrySubmitApiCall('Get run status', () => client.getRun(runId))
+            : await client.getRun(runId)
         if (run.status === 'completed' || run.status === 'failed') {
             return run
         }
@@ -558,20 +586,22 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
     const commit = options.commit ?? getCurrentCommit()
     log(`Creating run: ${snapshots.length} snapshots, branch=${branch}, commit=${commit.slice(0, 10)}`)
 
-    const result = await client.createRun({
-        repoId: repo,
-        runType: options.type,
-        commitSha: commit,
-        branch,
-        prNumber: options.pr ? parseInt(options.pr, 10) : undefined,
-        purpose: options.autoApprove ? 'review' : 'observe',
-        snapshots: snapshots.map((s) => ({
-            identifier: s.identifier,
-            content_hash: s.hash,
-            width: s.width,
-            height: s.height,
-        })),
-    })
+    const result = await retrySubmitApiCall('Create run', () =>
+        client.createRun({
+            repoId: repo,
+            runType: options.type,
+            commitSha: commit,
+            branch,
+            prNumber: options.pr ? parseInt(options.pr, 10) : undefined,
+            purpose: options.autoApprove ? 'review' : 'observe',
+            snapshots: snapshots.map((s) => ({
+                identifier: s.identifier,
+                content_hash: s.hash,
+                width: s.width,
+                height: s.height,
+            })),
+        })
+    )
 
     log(`Run created: ${result.run_id}`)
     log(
@@ -611,13 +641,13 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
     }
 
     // 6. Complete run
-    let run = await client.completeRun(result.run_id)
+    let run = await retrySubmitApiCall('Complete run', () => client.completeRun(result.run_id))
     log(`Run status after complete: ${run.status}`)
 
     // 7. Wait for diff processing if still running
     if (run.status !== 'completed' && run.status !== 'failed') {
         log('Waiting for diff processing...')
-        run = await waitForCompletion(client, result.run_id)
+        run = await waitForCompletion(client, result.run_id, true)
     }
 
     // 8. Print summary
@@ -629,7 +659,7 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
     // 9. Auto-approve if requested
     if (options.autoApprove) {
         log('Auto-approving all changes...')
-        const approveResult = await client.autoApproveRun(result.run_id)
+        const approveResult = await retrySubmitApiCall('Auto-approve run', () => client.autoApproveRun(result.run_id))
         const baselinePath = resolve(options.baseline)
         writeFileSync(baselinePath, approveResult.baseline_content, 'utf-8')
         log(`Baseline written to ${baselinePath} (${approveResult.baseline_content.length} bytes)`)

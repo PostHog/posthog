@@ -40,7 +40,7 @@ _RSA_KEY = _generate_rsa_key()
     OIDC_RSA_PRIVATE_KEY=_RSA_KEY,
     OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _RSA_KEY},
 )
-class StripeProvisioningTestBase(APIBaseTest):
+class ProvisioningTestBase(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.client = APIClient()
@@ -58,6 +58,7 @@ class StripeProvisioningTestBase(APIBaseTest):
                 "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
                 "redirect_uris": "https://localhost",
                 "algorithm": "RS256",
+                "provisioning_can_issue_deep_links": True,
             },
         )
 
