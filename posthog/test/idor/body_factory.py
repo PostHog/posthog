@@ -123,6 +123,15 @@ def _build_fk_default(field_name: str, drf_field: serializers.PrimaryKeyRelatedF
     target = getattr(qs, "model", None) if qs is not None else None
     if target is None or not isinstance(target, type) or not issubclass(target, models.Model):
         raise BodyUnfillable(f"{field_name}: PK field has no resolvable queryset.model")
+    # Tenant-root models (Team, Project, Organization) aren't in the
+    # tenant-scoped allowlist because they ARE the tenant. The right
+    # synthesis is the test team itself — it's already attacker-owned.
+    if target.__name__ == "Team":
+        return team.pk
+    if target.__name__ == "Project":
+        return team.project_id
+    if target.__name__ == "Organization":
+        return team.organization_id
     # If target isn't tenant-scoped (e.g. User globally), there's no fixture
     # plumbing for it. Either build_minimal_instance handles it or we skip.
     if classify_model_scope(target.__name__) is None:

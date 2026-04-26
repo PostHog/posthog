@@ -480,6 +480,37 @@ def _event_schema_factory(team: Team) -> models.Model:
 register_label_fixture("event_definitions.EventSchema", _event_schema_factory)
 
 
+# Role (RBAC, ee app) ------------------------------------------------------
+
+
+def _role_factory(team: Team) -> models.Model:
+    from ee.models.rbac.role import Role
+
+    return Role.objects.create(organization=team.organization, name=f"idor-role-{_rand()}")
+
+
+register_label_fixture("ee.Role", _role_factory)
+
+
+def _role_external_reference_factory(team: Team) -> models.Model:
+    from posthog.models.role_external_reference import RoleExternalReference
+
+    from ee.models.rbac.role import Role
+
+    role = Role.objects.create(organization=team.organization, name=f"idor-role-{_rand()}")
+    return RoleExternalReference.objects.create(
+        organization=team.organization,
+        role=role,
+        provider="github",
+        provider_organization_id=f"idor-{_rand()}",
+        provider_role_id=f"idor-{_rand()}",
+        provider_role_name="idor",
+    )
+
+
+register_label_fixture("posthog.RoleExternalReference", _role_external_reference_factory)
+
+
 # Organization membership (cross-org user FK) -----------------------------
 
 
