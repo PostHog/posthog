@@ -70,6 +70,28 @@ class URLStructure:
         """
         return self._build_prefix(root_id=root_id, intermediate_ids=intermediate_ids)
 
+    def build_action_url(
+        self,
+        *,
+        root_id: int | str,
+        action_url_path: str,
+        pk: Optional[int | str] = None,
+        intermediate_ids: Optional[dict[str, int | str]] = None,
+    ) -> str:
+        """Construct a concrete @action URL from this structure.
+
+        For non-detail actions, leave `pk` as None — the URL is the list
+        URL plus the action segment. For detail-route actions, pass the
+        attacker's resource pk so the URL hits an owned resource.
+
+        Phase 5c uses this to invoke custom action endpoints that don't
+        live at the standard list/detail URLs.
+        """
+        prefix = self._build_prefix(root_id=root_id, intermediate_ids=intermediate_ids)
+        if pk is not None:
+            prefix = prefix + str(pk) + "/"
+        return prefix + action_url_path.strip("/") + "/"
+
     def _build_prefix(self, *, root_id: int | str, intermediate_ids: Optional[dict[str, int | str]]) -> str:
         parts: list[str] = ["api", self.root, str(root_id)]
         for prefix, kwarg in self.intermediate_parents:

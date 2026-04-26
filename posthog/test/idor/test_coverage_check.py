@@ -9,7 +9,12 @@ from __future__ import annotations
 
 import unittest
 
-from posthog.test.idor.skip_list import IDOR_FK_PATCH_SKIP_LIST, IDOR_FK_POST_SKIP_LIST, IDOR_TEST_SKIP_LIST
+from posthog.test.idor.skip_list import (
+    IDOR_ACTION_SKIP_LIST,
+    IDOR_FK_PATCH_SKIP_LIST,
+    IDOR_FK_POST_SKIP_LIST,
+    IDOR_TEST_SKIP_LIST,
+)
 
 
 class TestSkipListWellFormed(unittest.TestCase):
@@ -66,6 +71,35 @@ class TestFKSkipListWellFormed(unittest.TestCase):
             f"FK skip list uses undocumented categories: {sorted(unknown)}. "
             f"Either add them to the documented set in test_coverage_check.py or fix the skip_list entry."
         )
+
+
+class TestActionSkipListWellFormed(unittest.TestCase):
+    def test_every_entry_has_category_and_reason(self) -> None:
+        for name, entry in IDOR_ACTION_SKIP_LIST.items():
+            assert isinstance(entry, tuple), f"Action skip entry for {name!r} must be a (category, reason) tuple"
+            assert len(entry) == 2, f"Action skip entry for {name!r} must be (category, reason)"
+            category, reason = entry
+            assert isinstance(category, str) and category, f"{name!r}: category must be a non-empty string"
+            assert isinstance(reason, str) and reason, f"{name!r}: reason must be a non-empty string"
+
+    def test_action_categories_are_documented(self) -> None:
+        documented_action_categories = {
+            "ACTION_NOT_TESTABLE",
+            "INTENTIONAL_CROSS_TENANT",
+            "BODY_SYNTHESIS_INFEASIBLE",
+            "REQUIRES_FILESYSTEM_OR_TEMPORAL",
+        }
+        used = {cat for (cat, _) in IDOR_ACTION_SKIP_LIST.values()}
+        unknown = used - documented_action_categories
+        assert not unknown, (
+            f"Action skip list uses undocumented categories: {sorted(unknown)}. "
+            f"Either add them to the documented set in test_coverage_check.py or fix the skip_list entry."
+        )
+
+    def test_keys_are_dotted_format(self) -> None:
+        # Format is "ViewSetName.action_method_name" so we can filter by viewset+action.
+        for name in IDOR_ACTION_SKIP_LIST:
+            assert "." in name, f"Action skip key {name!r} must be 'ViewSetName.action_method_name' format"
 
 
 class TestFKPostSkipListWellFormed(unittest.TestCase):

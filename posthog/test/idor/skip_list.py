@@ -247,3 +247,29 @@ IDOR_FK_POST_SKIP_LIST: dict[str, tuple[str, str]] = {
         "workflow, not via direct POST. Excluded from FK-in-POST sweep.",
     ),
 }
+
+
+# ---------------------------------------------------------------------------
+# Phase 5c — viewsets to skip for the @action FK / name-pattern test.
+#
+# Action endpoints have varying semantics — some kick off Temporal workflows,
+# some emit side effects to external services, some are detail-route (need
+# attacker-owned resource), some take complex multi-FK bodies. When the
+# parametric can't reasonably exercise an action without false noise,
+# entries here suppress it loudly with a documented category.
+#
+# Categories:
+#   - ACTION_NOT_TESTABLE — action shape we can't auto-build a body for
+#     (e.g., needs uploaded files, multipart, or wraps a side-effect).
+#   - INTENTIONAL_CROSS_TENANT — action is meant to span tenants
+#     (very rare; document the threat model).
+#   - BODY_SYNTHESIS_INFEASIBLE — request body can't be filled by
+#     introspection and no fixture is registered yet.
+#   - REQUIRES_FILESYSTEM_OR_TEMPORAL — action triggers heavy side
+#     effects (Temporal workflow, file write, external API) that we
+#     don't want exercising in the test path.
+#
+# Keys here are formatted "ViewSetName.action_method_name" so multiple
+# actions on the same viewset can be skipped independently.
+# ---------------------------------------------------------------------------
+IDOR_ACTION_SKIP_LIST: dict[str, tuple[str, str]] = {}

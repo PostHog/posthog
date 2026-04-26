@@ -131,6 +131,43 @@ class TestBuildURL(unittest.TestCase):
             s.build_url(root_id=1, pk="abc")
 
 
+class TestBuildActionURL(unittest.TestCase):
+    def test_non_detail_action(self) -> None:
+        s = URLStructure(
+            root="projects",
+            root_kwarg="parent_lookup_project_id",
+            resource_prefix="dashboard_templates",
+            pk_kwarg="pk",
+        )
+        assert (
+            s.build_action_url(root_id=42, action_url_path="copy_between_projects")
+            == "/api/projects/42/dashboard_templates/copy_between_projects/"
+        )
+
+    def test_detail_action(self) -> None:
+        s = URLStructure(
+            root="projects",
+            root_kwarg="parent_lookup_project_id",
+            resource_prefix="dashboards",
+            pk_kwarg="pk",
+        )
+        assert (
+            s.build_action_url(root_id=42, pk="abc", action_url_path="duplicate")
+            == "/api/projects/42/dashboards/abc/duplicate/"
+        )
+
+    def test_url_path_with_slashes_is_normalized(self) -> None:
+        s = URLStructure(
+            root="environments",
+            root_kwarg="parent_lookup_team_id",
+            resource_prefix="things",
+            pk_kwarg="pk",
+        )
+        assert (
+            s.build_action_url(root_id=1, action_url_path="/some_action/") == "/api/environments/1/things/some_action/"
+        )
+
+
 class TestBuildListURL(unittest.TestCase):
     def test_simple(self) -> None:
         s = URLStructure(
