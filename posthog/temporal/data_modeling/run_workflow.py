@@ -1645,6 +1645,9 @@ class RunWorkflow(PostHogWorkflow):
             create_job_model_activity,
             CreateJobModelInputs(team_id=inputs.team_id, select=inputs.select),
             start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=temporalio.common.RetryPolicy(
+                maximum_attempts=1,
+            ),
         )
 
         build_dag_inputs = BuildDagActivityInputs(team_id=inputs.team_id, select=inputs.select)
@@ -1653,6 +1656,9 @@ class RunWorkflow(PostHogWorkflow):
             build_dag_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
             heartbeat_timeout=dt.timedelta(minutes=1),
+            retry_policy=temporalio.common.RetryPolicy(
+                maximum_attempts=1,
+            ),
         )
 
         run_at = dt.datetime.now(dt.UTC).isoformat()
@@ -1662,6 +1668,9 @@ class RunWorkflow(PostHogWorkflow):
             start_run_activity,
             start_run_activity_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=temporalio.common.RetryPolicy(
+                maximum_attempts=1,
+            ),
         )
 
         # Run the DAG
@@ -1756,6 +1765,9 @@ class RunWorkflow(PostHogWorkflow):
             finish_run_activity,
             finish_run_activity_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=temporalio.common.RetryPolicy(
+                maximum_attempts=1,
+            ),
         )
 
         for copy_inputs in self.ducklake_copy_inputs:
