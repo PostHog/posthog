@@ -32,6 +32,7 @@ from products.logs.backend.logs_url_params import build_logs_url_params
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.temporal.metrics import (
     increment_check_errors,
+    increment_checkpoint_unavailable,
     increment_checks_total,
     increment_notification_failures,
     increment_state_transition,
@@ -90,9 +91,12 @@ def _check_alerts_sync() -> CheckAlertsOutput:
             logger.exception("Failed to fetch logs ingestion checkpoint; falling back to wall-clock")
 
     try:
-        record_checkpoint_lag(now, checkpoint)
+        if checkpoint is None:
+            increment_checkpoint_unavailable()
+        else:
+            record_checkpoint_lag(now, checkpoint)
     except Exception:
-        logger.exception("Failed to record checkpoint lag gauge")
+        logger.exception("Failed to record checkpoint metric")
 
     stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
 
