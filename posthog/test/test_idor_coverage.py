@@ -37,8 +37,13 @@ from posthog.models.team import Team
 from posthog.test.idor import IDORTestCase, IDORTestMixin, build_minimal_instance, discover_idor_test_cases
 from posthog.test.idor.body_factory import BodyUnfillable, build_minimal_post_body
 from posthog.test.idor.factory import reset_sentinel
-from posthog.test.idor.fk_discovery import WritableFKField, discover_writable_tenant_fks
-from posthog.test.idor.skip_list import IDOR_FK_PATCH_SKIP_LIST, IDOR_FK_POST_SKIP_LIST
+from posthog.test.idor.fk_discovery import (
+    ActionSerializerCase,
+    WritableFKField,
+    discover_action_serializers,
+    discover_writable_tenant_fks,
+)
+from posthog.test.idor.skip_list import IDOR_ACTION_SKIP_LIST, IDOR_FK_PATCH_SKIP_LIST, IDOR_FK_POST_SKIP_LIST
 
 DISCOVERED_CASES: list[IDORTestCase] = discover_idor_test_cases()
 
@@ -102,6 +107,33 @@ def _viewset_supports_post(viewset_cls: type) -> bool:
 
 
 FK_POST_CASES = _iter_fk_post_cases()
+
+
+def _iter_action_cases() -> list[tuple[str, IDORTestCase, ActionSerializerCase, WritableFKField]]:
+    """Cross-product of (viewset case × @action × writable name-pattern field).
+
+    Phase 5c — covers IDORs on custom @action endpoints with their own
+    request body serializer (the `tom/dashboard-template` shape).
+    """
+    out: list[tuple[str, IDORTestCase, ActionSerializerCase, WritableFKField]] = []
+    for case in DISCOVERED_CASES:
+        for action in discover_action_serializers(case.viewset_cls):
+            skip_key = f"{case.name}.{action.method_name}"
+            if skip_key in IDOR_ACTION_SKIP_LIST:
+                continue
+            # Only writable HTTP methods are relevant — GET-only actions
+            # don't accept a body that could carry an FK.
+            if not any(m in {"POST", "PATCH", "PUT"} for m in action.http_methods):
+                continue
+            for fk in discover_writable_tenant_fks(action.serializer_cls):
+                if fk.nested_path:
+                    continue  # nested action bodies are out-of-scope; rare and noisy
+                label = f"{case.name}__{action.method_name}__{fk.serializer_field_name}__{fk.target_model.__name__}"
+                out.append((label, case, action, fk))
+    return out
+
+
+ACTION_CASES = _iter_action_cases()
 
 
 class TestAutomatedIDORCoverage(IDORTestMixin, APIBaseTest):
@@ -190,6 +222,115 @@ class TestAutomatedIDORCoverage(IDORTestMixin, APIBaseTest):
         # Hard-delete check: resource must still exist in the victim team.
         assert case.model_cls.objects.filter(pk=instance.pk).exists(), (  # type: ignore[attr-defined]
             f"IDOR: DELETE {url} actually removed the victim's {case.model_cls.__name__}"
+        )
+
+    @parameterized.expand(ACTION_CASES)
+    def test_cross_tenant_id_in_action(
+        self,
+        _name: str,
+        case: IDORTestCase,
+        action: ActionSerializerCase,
+        fk: WritableFKField,
+    ) -> None:
+        """Attacker cannot smuggle a victim's tenant id into a custom @action body.
+
+        Phase 5c — covers @action endpoints with their own request
+        serializer (the tom/dashboard-template shape). The runtime checks
+        are softer than for vanilla POST/PATCH because action semantics
+        vary; we treat 4xx as pass, 5xx as skip-loud, and rely on
+        sentinel-leak detection on 2xx response bodies.
+        """
+        # Pick a method that we can actually exercise.
+        method = next((m for m in action.http_methods if m in {"POST", "PATCH", "PUT"}), None)
+        if method is None:
+            self.skipTest(f"{case.name}.{action.method_name}: no writable HTTP method")
+
+        # 1. Build victim resource FIRST with a distinct sentinel so the
+        #    later attacker-side resources don't share it (which would
+        #    cause the leak check to fire on the attacker's own data).
+        victim_sentinel = reset_sentinel()
+        try:
+            victim_resource = build_minimal_instance(fk.target_model, team=self.victim_team)
+        except Exception as exc:
+            self.skipTest(
+                f"{case.name}.{action.method_name}.{fk.serializer_field_name}: could not build victim "
+                f"{fk.target_model.__name__} ({type(exc).__name__}: {exc})"
+            )
+
+        # 2. Reset sentinel so attacker resources + body get a different one.
+        reset_sentinel()
+
+        # 3. Synthesize the action's body for the attacker's team.
+        try:
+            body = build_minimal_post_body(action.serializer_cls, team=self.team)
+        except BodyUnfillable as exc:
+            self.skipTest(f"{case.name}.{action.method_name}.{fk.serializer_field_name}: body unfillable ({exc})")
+        except Exception as exc:
+            self.skipTest(
+                f"{case.name}.{action.method_name}.{fk.serializer_field_name}: body error ({type(exc).__name__}: {exc})"
+            )
+
+        # 4. Inject the victim id into the body. Action serializers are
+        #    flat (we filter out nested_path entries above), so direct set.
+        body[fk.serializer_field_name] = str(victim_resource.pk)
+
+        # 5. Build the action URL on the attacker's tenant root. For
+        #    detail-route actions, build an attacker-owned instance to anchor the URL.
+        try:
+            action_url = self._build_action_url_for_attacker(case, action)
+        except Exception as exc:
+            self.skipTest(f"{case.name}.{action.method_name}.{fk.serializer_field_name}: URL build failed ({exc})")
+
+        # 6. Invoke.
+        client_method = getattr(self.client, method.lower())  # type: ignore[attr-defined]
+        response = client_method(action_url, data=body, format="json")
+
+        # 7. Pass cases:
+        #    - 5xx: latent server bug, skip rather than mis-attribute.
+        #    - non-2xx: rejected somewhere in the action's chain. Pass.
+        #    - 2xx: action proceeded. Sentinel-leak-check the response body
+        #      against the victim's sentinel — if it appears, the action
+        #      pulled in the victim's data despite the cross-tenant id.
+        if response.status_code >= 500:
+            self.skipTest(
+                f"{case.name}.{action.method_name}.{fk.serializer_field_name}: returned {response.status_code}"
+            )
+        if response.status_code not in range(200, 300):
+            return
+        self.assertSentinelNotLeaked(response, victim_sentinel)
+
+    def _build_action_url_for_attacker(self, case: IDORTestCase, action: ActionSerializerCase) -> str:
+        """Build a URL for `action` on `case`'s viewset, on the attacker's tenant root."""
+        if case.url.root == "projects":
+            root_id: int | str = self.project.pk  # type: ignore[attr-defined]
+        elif case.url.root == "environments":
+            root_id = self.team.pk  # type: ignore[attr-defined]
+        elif case.url.root == "organizations":
+            root_id = str(self.organization.id)  # type: ignore[attr-defined]
+        else:
+            raise ValueError(f"Unknown URL root: {case.url.root}")
+
+        intermediate_ids: dict[str, int | str] = {}
+        for _, kwarg in case.url.intermediate_parents:
+            field_name = kwarg.removeprefix("parent_lookup_")
+            parent_model = _resolve_intermediate_parent_model(case.model_cls, field_name)
+            if parent_model is None:
+                raise ValueError(f"intermediate parent {field_name!r} can't be resolved")
+            parent_instance = build_minimal_instance(parent_model, team=self.team)
+            intermediate_ids[kwarg] = parent_instance.pk
+
+        if action.detail:
+            attacker_instance = build_minimal_instance(case.model_cls, team=self.team)
+            return case.url.build_action_url(  # type: ignore[attr-defined]
+                root_id=root_id,
+                pk=attacker_instance.pk,
+                action_url_path=action.url_path,
+                intermediate_ids=intermediate_ids or None,
+            )
+        return case.url.build_action_url(  # type: ignore[attr-defined]
+            root_id=root_id,
+            action_url_path=action.url_path,
+            intermediate_ids=intermediate_ids or None,
         )
 
     @parameterized.expand(FK_POST_CASES)
