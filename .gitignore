@@ -7,6 +7,7 @@
 __emails__
 __pycache__/
 .coverage
+.testmondata
 .dlt
 .dmypy.json
 .DS_Store

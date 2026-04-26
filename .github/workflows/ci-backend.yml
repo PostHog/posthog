@@ -1232,6 +1232,30 @@ jobs:
               shell: bash
               run: echo "PYTEST_ARGS=--snapshot-update --snapshot-warn-unused" >> $GITHUB_ENV
 
+            # Testmon: per-shard coverage database that lets PRs skip tests whose
+            # source dependencies haven't changed since the last master run.
+            # Skipped for compat runs (different CH version, need all tests).
+            - name: Restore testmon coverage database
+              if: ${{ !matrix.compat }}
+              uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+              with:
+                  path: .testmondata
+                  key: testmon-django-${{ matrix.segment }}-poe${{ matrix.person-on-events && '1' || '0' }}-g${{ matrix.group }}-${{ github.sha }}
+                  restore-keys: |
+                      testmon-django-${{ matrix.segment }}-poe${{ matrix.person-on-events && '1' || '0' }}-g${{ matrix.group }}-
+
+            - name: Set testmon flags
+              if: ${{ !matrix.compat }}
+              shell: bash
+              run: |
+                  if [ "${{ github.ref }}" = "refs/heads/master" ]; then
+                    # Collect coverage without filtering — builds the baseline for PR runs
+                    echo "TESTMON_ARGS=--testmon-noselect" >> $GITHUB_ENV
+                  else
+                    # Filter: only run tests whose covered files changed vs the master baseline
+                    echo "TESTMON_ARGS=--testmon" >> $GITHUB_ENV
+                  fi
+
             # Tests
             - name: Log test environment diagnostics
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
@@ -1284,7 +1308,8 @@ jobs:
                       --reruns 2 --reruns-delay 1 \
                       -r fEsxX \
                       --junitxml=junit-core.xml \
-                      $PYTEST_ARGS
+                      $PYTEST_ARGS \
+                      $TESTMON_ARGS
                   exit_code=$?
                   set -e
                   if [ $exit_code -eq 5 ]; then
@@ -1338,7 +1363,8 @@ jobs:
                       --reruns 2 --reruns-delay 1 \
                       -r fEsxX \
                       --junitxml=junit-temporal.xml \
-                      $PYTEST_ARGS
+                      $PYTEST_ARGS \
+                      $TESTMON_ARGS
                   exit_code=$?
                   set -e
                   if [ $exit_code -eq 5 ]; then
@@ -1363,6 +1389,15 @@ jobs:
                   path: .test_durations
                   include-hidden-files: true
                   retention-days: 2
+
+            - name: Save testmon coverage database
+              # Persist the coverage database on master so PRs can restore it for test selection.
+              # Not saved on PRs to avoid polluting the master baseline.
+              if: ${{ github.ref == 'refs/heads/master' && !matrix.compat }}
+              uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+              with:
+                  path: .testmondata
+                  key: testmon-django-${{ matrix.segment }}-poe${{ matrix.person-on-events && '1' || '0' }}-g${{ matrix.group }}-${{ github.sha }}
 
             - name: Verify new snapshots for flakiness
               # Only in UPDATE mode - CHECK mode doesn't update snapshots
