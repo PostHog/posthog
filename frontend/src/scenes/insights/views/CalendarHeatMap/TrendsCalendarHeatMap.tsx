@@ -39,9 +39,7 @@ export function TrendsCalendarHeatMap(_props: ChartParams): JSX.Element {
                 <InsightValidationError
                     query={query}
                     detail={validationError}
-                    onRetry={() =>
-                        loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
-                    }
+                    onRetry={() => loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')}
                 />
             )
         }
@@ -50,9 +48,7 @@ export function TrendsCalendarHeatMap(_props: ChartParams): JSX.Element {
                 <InsightErrorState
                     query={query}
                     queryId={erroredQueryId}
-                    onRetry={() =>
-                        loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
-                    }
+                    onRetry={() => loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')}
                 />
             )
         }
