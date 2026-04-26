@@ -65,6 +65,18 @@ class TestProperty(BaseTest):
     def _parse_expr(self, expr: str, placeholders: Optional[dict[str, Any]] = None):
         return clear_locations(parse_expr(expr, placeholders=placeholders))
 
+    def test_property_to_expr_unknown_type_non_strict_returns_neutral(self):
+        # A stray string in team.test_account_filters used to crash the events page —
+        # in non-strict mode an unrecognized type should resolve to a no-op constant.
+        self.assertEqual(self._property_to_expr("not a filter", strict=False), self._parse_expr("1"))  # type: ignore[arg-type]
+        self.assertEqual(self._property_to_expr(42, strict=False), self._parse_expr("1"))  # type: ignore[arg-type]
+
+    def test_property_to_expr_unknown_type_strict_raises(self):
+        from posthog.hogql.errors import QueryError
+
+        with self.assertRaises(QueryError):
+            self._property_to_expr("not a filter", strict=True)  # type: ignore[arg-type]
+
     def test_has_aggregation(self):
         self.assertEqual(has_aggregation(self._parse_expr("properties.a = 'b'")), False)
         self.assertEqual(has_aggregation(self._parse_expr("if(1,2,3)")), False)

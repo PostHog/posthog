@@ -27,7 +27,7 @@ from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, get_query_runner
-from posthog.models import Action, Person
+from posthog.models import Action, Person, Property
 from posthog.models.action.action import ActionStepJSON
 from posthog.models.element import chain_to_elements
 from posthog.models.person.person import get_distinct_ids_for_subquery
@@ -249,6 +249,16 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 if self.query.filterTestAccounts:
                     with self.timings.measure("test_account_filters"):
                         for prop in self.team.test_account_filters or []:
+                            # team.test_account_filters is a JSONField that can drift to malformed entries
+                            # (e.g. a stray string from a stale import). Skip anything that isn't a property
+                            # mapping so a single bad entry can't take out the entire events page.
+                            if not isinstance(prop, (dict, Property)):
+                                logger.warning(
+                                    "events_query_runner.skipping_invalid_test_account_filter",
+                                    team_id=self.team.pk,
+                                    prop_type=type(prop).__name__,
+                                )
+                                continue
                             where_exprs.append(property_to_expr(prop, self.team))
 
             with self.timings.measure("timestamps"):

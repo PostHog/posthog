@@ -732,7 +732,11 @@ def property_to_expr(
             # The property was saved as an incomplete object. Instead of crashing the entire query, pretend it's not there.
             return ast.Constant(value=1)
     else:
-        raise QueryError(f"property_to_expr with property of type {type(property).__name__} not implemented")
+        if strict:
+            raise QueryError(f"property_to_expr with property of type {type(property).__name__} not implemented")
+        # The property was saved in an unexpected shape (e.g. a stray string in team.test_account_filters).
+        # Instead of crashing the entire query, pretend it's not there so a single bad entry can't break the page.
+        return ast.Constant(value=1)
 
     if property.type == "hogql":
         return parse_expr(property.key)

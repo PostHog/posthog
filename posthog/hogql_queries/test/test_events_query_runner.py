@@ -169,6 +169,35 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(right_expr.value, "%posthog.com%")
         self.assertEqual(where_expr.op, CompareOperationOp.NotILike)
 
+    def test_test_account_filters_with_malformed_string_entry(self):
+        # team.test_account_filters is a JSONField that can drift to malformed values
+        # (e.g. a stale import or partially-saved UI state leaving a stray string).
+        # The runner must skip the bad entry rather than crashing the events page.
+        self.team.test_account_filters = [
+            "this is not a valid filter",
+            {
+                "key": "email",
+                "type": "person",
+                "value": "posthog.com",
+                "operator": "not_icontains",
+            },
+        ]
+        self.team.save()
+        query = EventsQuery(kind="EventsQuery", select=["*"], filterTestAccounts=True, orderBy=[])
+        query_ast = EventsQueryRunner(query=query, team=self.team).to_query()
+        # The bad entry is skipped and the good one still applies.
+        where_expr = cast(ast.CompareOperation, cast(ast.And, query_ast.where).exprs[0])
+        right_expr = cast(ast.Constant, where_expr.right)
+        self.assertEqual(right_expr.value, "%posthog.com%")
+        self.assertEqual(where_expr.op, CompareOperationOp.NotILike)
+
+    def test_test_account_filters_only_malformed_entries(self):
+        self.team.test_account_filters = ["bad", 42, None]
+        self.team.save()
+        query = EventsQuery(kind="EventsQuery", select=["*"], filterTestAccounts=True, orderBy=[])
+        # Should not raise — malformed entries are skipped so the events page keeps rendering.
+        EventsQueryRunner(query=query, team=self.team).to_query()
+
     def test_big_int(self):
         BIG_INT = 2**159 - 24
         self._create_events(
