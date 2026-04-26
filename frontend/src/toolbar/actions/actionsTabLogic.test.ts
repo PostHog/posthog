@@ -5,6 +5,7 @@ import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import * as toolbarPosthogJSModule from '~/toolbar/toolbarPosthogJS'
 
 const mockAction = {
     id: 42,
@@ -17,9 +18,13 @@ const mockAction = {
 
 describe('actionsTabLogic form submission', () => {
     let logic: ReturnType<typeof actionsTabLogic.build>
+    let captureExceptionSpy: jest.SpyInstance
 
     beforeEach(() => {
         initKeaTests()
+        captureExceptionSpy = jest
+            .spyOn(toolbarPosthogJSModule, 'captureToolbarException')
+            .mockImplementation(() => undefined)
         toolbarConfigLogic
             .build({
                 apiURL: 'http://localhost',
@@ -32,6 +37,10 @@ describe('actionsTabLogic form submission', () => {
         actionsLogic().mount()
         logic = actionsTabLogic()
         logic.mount()
+    })
+
+    afterEach(() => {
+        captureExceptionSpy.mockRestore()
     })
 
     it('creates a new action via POST', async () => {
@@ -80,12 +89,18 @@ describe('actionsTabLogic form submission', () => {
         )
     })
 
-    it('handles error response with detail message', async () => {
+    it('handles 400 validation error without reporting an exception', async () => {
         global.fetch = jest.fn(() =>
             Promise.resolve({
                 ok: false,
                 status: 400,
-                json: () => Promise.resolve({ detail: 'Validation error' }),
+                json: () =>
+                    Promise.resolve({
+                        type: 'validation_error',
+                        code: 'unique',
+                        detail: 'This project already has an action with this name, ID 1',
+                        attr: 'name',
+                    }),
             } as any as Response)
         )
 
@@ -97,6 +112,29 @@ describe('actionsTabLogic form submission', () => {
         })
             .delay(0)
             .toDispatchActions(['submitActionForm', 'submitActionFormFailure'])
+
+        expect(captureExceptionSpy).not.toHaveBeenCalled()
+    })
+
+    it('reports a 5xx server error to error tracking', async () => {
+        global.fetch = jest.fn(() =>
+            Promise.resolve({
+                ok: false,
+                status: 500,
+                json: () => Promise.resolve({ detail: 'Internal server error' }),
+            } as any as Response)
+        )
+
+        logic.actions.newAction()
+        logic.actions.setActionFormValue('name', 'Server Error Action')
+
+        await expectLogic(logic, () => {
+            logic.actions.submitActionForm()
+        })
+            .delay(0)
+            .toDispatchActions(['submitActionForm', 'submitActionFormFailure'])
+
+        expect(captureExceptionSpy).toHaveBeenCalledWith(expect.any(Error), 'action_save')
     })
 
     it('handles error response when json parsing fails', async () => {
@@ -116,6 +154,35 @@ describe('actionsTabLogic form submission', () => {
         })
             .delay(0)
             .toDispatchActions(['submitActionForm', 'submitActionFormFailure'])
+
+        expect(captureExceptionSpy).toHaveBeenCalledWith(expect.any(Error), 'action_save')
+    })
+
+    it('does not report a non-400 response that contains a DRF validation_error payload', async () => {
+        global.fetch = jest.fn(() =>
+            Promise.resolve({
+                ok: false,
+                status: 422,
+                json: () =>
+                    Promise.resolve({
+                        type: 'validation_error',
+                        code: 'invalid',
+                        detail: 'Invalid step config',
+                        attr: 'steps',
+                    }),
+            } as any as Response)
+        )
+
+        logic.actions.newAction()
+        logic.actions.setActionFormValue('name', 'Whatever')
+
+        await expectLogic(logic, () => {
+            logic.actions.submitActionForm()
+        })
+            .delay(0)
+            .toDispatchActions(['submitActionForm', 'submitActionFormFailure'])
+
+        expect(captureExceptionSpy).not.toHaveBeenCalled()
     })
 
     it('sets creation_context when automatic action creation is enabled', async () => {

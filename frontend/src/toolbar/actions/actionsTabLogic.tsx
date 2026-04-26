@@ -22,6 +22,26 @@ import { AccessControlLevel, ActionType, ElementType } from '~/types'
 import type { actionsTabLogicType } from './actionsTabLogicType'
 import { ActionStepPropertyKey } from './ActionStep'
 
+// Treat any 400 or DRF-shaped validation error payload as expected user-input feedback,
+// not a toolbar bug. The backend (drf-exceptions-hog) returns either a flat
+// { type: 'validation_error', code, detail, attr } object or DRF's default per-field
+// shape like { name: ['...'] } / { non_field_errors: [...] }.
+function isExpectedValidationFailure(status: number, errorData: unknown): boolean {
+    if (status === 400) {
+        return true
+    }
+    if (errorData && typeof errorData === 'object') {
+        const data = errorData as Record<string, unknown>
+        if (data.type === 'validation_error') {
+            return true
+        }
+        if (Object.values(data).some((v) => Array.isArray(v))) {
+            return true
+        }
+    }
+    return false
+}
+
 function newAction(
     element: HTMLElement | null,
     dataAttributes: string[] = [],
@@ -237,7 +257,18 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                     }
                     if (!res.ok) {
                         const errorData = await res.json().catch(() => ({}))
-                        throw new Error(errorData.detail || `Request failed: ${res.status}`)
+                        const message = errorData?.detail || `Request failed: ${res.status}`
+                        const error = new Error(message)
+                        toolbarLogger.error('actions', 'Failed to save action', { actionId: selectedActionId })
+                        // Only report unexpected failures to error tracking. Backend validation
+                        // errors (e.g. duplicate action name) are surfaced to the user via the
+                        // toast below — they aren't toolbar bugs and shouldn't pollute the feed.
+                        if (!isExpectedValidationFailure(res.status, errorData)) {
+                            captureToolbarException(error, 'action_save')
+                        }
+                        lemonToast.error(`Action save failed: ${message}`)
+                        actions.submitActionFormFailure(error, {})
+                        return
                     }
                     const response: ActionType = await res.json()
                     breakpoint() // guard against stale async after unmount
