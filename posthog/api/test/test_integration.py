@@ -1205,8 +1205,8 @@ class TestStripeIntegration:
         assert response.status_code == status.HTTP_201_CREATED
         mock_oauth_response.assert_called_once()
 
-    # Stripe's Connect-OAuth flow (used by stripe_api_access_type: oauth) doesn't sign
-    # the callback redirect — only the install-link OAuth mechanism emits install_signature.
+    # The Stripe Apps OAuth flow (used by stripe_api_access_type: oauth) doesn't sign the
+    # callback redirect — only the install-link OAuth mechanism emits install_signature.
     # The conflict guard is the defense-in-depth here, not signature verification.
     @pytest.mark.parametrize("include_install_signature", [True, False])
     @patch("posthog.api.integration.StripeIntegration")
