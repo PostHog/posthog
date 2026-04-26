@@ -95,15 +95,22 @@ _IMPLICIT_FK_FIELD_TYPES = (
 )
 
 
+# Maximum depth of nested ModelSerializer fields walked. Most production
+# serializers nest at most one level (e.g. BatchExport.destination), but
+# rare cases (BatchExport.destination.config) reach 3. Cycle detection via
+# visited-set on serializer types covers self-referential graphs.
+MAX_NESTING = 3
+
+
 def discover_writable_tenant_fks(serializer_cls: type[serializers.Serializer]) -> list[WritableFKField]:
-    """Return every writable tenant-FK field on the serializer (top-level + 1 nested)."""
+    """Return every writable tenant-FK field on the serializer (up to MAX_NESTING deep)."""
     try:
         instance = _instantiate(serializer_cls)
     except Exception:
         return []
 
     found: list[WritableFKField] = []
-    _walk_fields(instance, nested_path=(), out=found)
+    _walk_fields(instance, nested_path=(), out=found, visited={type(instance)})
     # Stable order — matches `Meta.fields` iteration so test names are deterministic.
     return found
 
@@ -117,6 +124,7 @@ def _walk_fields(
     instance: serializers.Serializer,
     nested_path: tuple[str, ...],
     out: list[WritableFKField],
+    visited: set[type],
 ) -> None:
     serializer_model = _serializer_meta_model(instance)
     fields_dict = _safe_get_fields(instance)
@@ -131,9 +139,22 @@ def _walk_fields(
                 records = [_with_create_only(r) for r in records]
             out.extend(records)
             continue
-        # If this is a nested ModelSerializer (depth-1 only), recurse once.
-        if not nested_path and isinstance(drf_field, serializers.ModelSerializer):
-            _walk_fields(drf_field, nested_path=(field_name,), out=out)
+        # Recurse into nested ModelSerializer fields up to MAX_NESTING deep.
+        # Cycle detection via the visited-set prevents infinite recursion
+        # on self-referential serializer graphs.
+        if not isinstance(drf_field, serializers.ModelSerializer):
+            continue
+        if len(nested_path) + 1 >= MAX_NESTING:
+            continue
+        nested_cls = type(drf_field)
+        if nested_cls in visited:
+            continue
+        _walk_fields(
+            drf_field,
+            nested_path=(*nested_path, field_name),
+            out=out,
+            visited=visited | {nested_cls},
+        )
 
 
 def _read_only_meta_fields(instance: serializers.Serializer) -> frozenset[str]:

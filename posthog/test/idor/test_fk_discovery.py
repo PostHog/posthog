@@ -179,6 +179,43 @@ class _ParentWithNestedManyRelatedSerializer(serializers.ModelSerializer):
         fields = ["id", "destination"]
 
 
+class _DeepInnerSerializer(serializers.ModelSerializer):
+    dashboard = serializers.PrimaryKeyRelatedField(queryset=Dashboard.objects.all())
+
+    class Meta:
+        model = Integration
+        fields = ["id", "dashboard"]
+
+
+class _DeepMiddleSerializer(serializers.ModelSerializer):
+    config = _DeepInnerSerializer()
+
+    class Meta:
+        model = Integration
+        fields = ["id", "config"]
+
+
+class _DeepOuterSerializer(serializers.ModelSerializer):
+    """Three-level nesting: outer.middle.inner.dashboard — verifies MAX_NESTING=3 reach."""
+
+    destination = _DeepMiddleSerializer()
+
+    class Meta:
+        model = Insight
+        fields = ["id", "destination"]
+
+
+class _SelfReferentialSerializer(serializers.ModelSerializer):
+    """Self-recursive nesting — visited-set must terminate the walk without recursion."""
+
+    class Meta:
+        model = Insight
+        fields = ["id", "child"]
+
+
+_SelfReferentialSerializer._declared_fields["child"] = _SelfReferentialSerializer()
+
+
 class TestDiscoverWritableTenantFks:
     def test_plain_pk_field_classified_team_scoped_unscoped(self) -> None:
         result = discover_writable_tenant_fks(_PlainSerializer)
@@ -206,6 +243,18 @@ class TestDiscoverWritableTenantFks:
         assert fk.serializer_field_name == "dashboard"
         assert fk.target_model is Dashboard
         assert fk.is_create_only is True
+
+    def test_deep_nested_serializer_reaches_two_levels(self) -> None:
+        result = discover_writable_tenant_fks(_DeepOuterSerializer)
+        deep = [fk for fk in result if fk.serializer_field_name == "dashboard"]
+        assert len(deep) == 1
+        assert deep[0].nested_path == ("destination", "config")
+        assert deep[0].target_model is Dashboard
+
+    def test_self_referential_serializer_terminates(self) -> None:
+        # Should not infinite-recurse; visited-set blocks repeat entry.
+        result = discover_writable_tenant_fks(_SelfReferentialSerializer)
+        assert isinstance(result, list)
 
     def test_non_tenant_target_skipped(self) -> None:
         assert discover_writable_tenant_fks(_NonTenantFKSerializer) == []
