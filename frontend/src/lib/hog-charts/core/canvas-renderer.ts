@@ -202,7 +202,10 @@ export function drawArea(drawCtx: DrawContext, series: Series, yValues?: number[
         } else {
             const splitIdx = top.findIndex((p) => p.dataIndex >= dashedFrom)
 
-            if (splitIdx > 0) {
+            if (splitIdx === -1) {
+                ctx.fillStyle = series.color
+                fillAreaPath(ctx, top, bottom)
+            } else if (splitIdx > 0) {
                 ctx.fillStyle = series.color
                 fillAreaPath(ctx, top.slice(0, splitIdx + 1), bottom.slice(0, splitIdx + 1))
             }
