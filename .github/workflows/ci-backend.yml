@@ -531,6 +531,14 @@ jobs:
             - name: Check IDOR test coverage
               run: python .github/scripts/check-idor-test-coverage.py
 
+            # Run the IDOR framework's no-DB unit tests on every backend change.
+            # The DB-backed parametric (`posthog/test/test_idor_coverage.py`) lives
+            # in the django job, which is gated on the legacy filter; this step
+            # runs the discovery logic + fixtures + URL parsing tests that don't
+            # need Postgres so they don't slip past product-isolated PRs.
+            - name: Run IDOR framework unit tests
+              run: python -m pytest posthog/test/idor/ --no-header -q
+
             - name: Check operator parity
               run: python .github/scripts/check-operator-parity.py
 
