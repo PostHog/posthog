@@ -404,11 +404,13 @@ jobs:
               env:
                   # --reuse-db: keep the test database between sequential product runs to avoid
                   # ClickHouse drop/create race conditions with ReplicatedMergeTree ZK metadata.
-                  # On master, also collect timing data for pytest-split sharding.
+                  # On master, also collect timing data for pytest-split sharding and testmon
+                  # coverage data (--testmon-noselect runs all tests but records per-test deps).
                   PYTEST_ADDOPTS: >-
                       --reuse-db
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
                       ${{ github.ref == 'refs/heads/master' && '--store-durations --durations-path ../../.test_durations' || '' }}
+                      ${{ github.ref == 'refs/heads/master' && '--testmon-noselect' || '' }}
               run: pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=full --force --log-order=stream ${{ matrix.pytest_args }}
 
             - name: Upload timing data
@@ -419,6 +421,16 @@ jobs:
                   path: .test_durations
                   include-hidden-files: true
                   retention-days: 2
+
+            - name: Upload testmon coverage databases
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: ${{ github.ref == 'refs/heads/master' }}
+              with:
+                  name: testmon-Products-${{ strategy.job-index }}
+                  path: products/**/.testmondata
+                  include-hidden-files: true
+                  if-no-files-found: ignore
+                  retention-days: 7
 
             - name: Verify new snapshots for flakiness
               if: ${{ always() && needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
