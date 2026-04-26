@@ -32,6 +32,7 @@ from posthog.utils import (
     get_default_event_info,
     get_default_event_name,
     get_ip_address,
+    get_js_url,
     get_short_user_agent,
     load_data_from_request,
     refresh_requested_by_client,
@@ -162,6 +163,38 @@ class TestFormatUrls(TestCase):
             }
             request: Request = Request(build_req)  # ty: ignore[invalid-assignment]
             self.assertEqual("https://www.testserver", format_query_params_absolute_url(request))
+
+
+class TestGetJsUrl(TestCase):
+    factory = RequestFactory()
+
+    def test_rewrites_localhost_to_request_host_on_http(self) -> None:
+        with self.settings(DEBUG=True, JS_URL="http://localhost:8234"):
+            request = self.factory.get("/", HTTP_HOST="dev-container:8000")
+            self.assertEqual("http://dev-container:8234", get_js_url(request))
+
+    def test_keeps_localhost_on_https_request(self) -> None:
+        with self.settings(
+            DEBUG=True,
+            JS_URL="http://localhost:8234",
+            SECURE_PROXY_SSL_HEADER=("HTTP_X_FORWARDED_PROTO", "https"),
+        ):
+            request = self.factory.get(
+                "/",
+                HTTP_HOST="my-tunnel.ngrok-free.dev",
+                HTTP_X_FORWARDED_PROTO="https",
+            )
+            self.assertEqual("http://localhost:8234", get_js_url(request))
+
+    def test_returns_js_url_unchanged_when_not_localhost(self) -> None:
+        with self.settings(DEBUG=True, JS_URL="https://cdn.example.com/static"):
+            request = self.factory.get("/", HTTP_HOST="dev-container:8000")
+            self.assertEqual("https://cdn.example.com/static", get_js_url(request))
+
+    def test_returns_js_url_unchanged_outside_debug(self) -> None:
+        with self.settings(DEBUG=False, JS_URL="http://localhost:8234"):
+            request = self.factory.get("/", HTTP_HOST="dev-container:8000")
+            self.assertEqual("http://localhost:8234", get_js_url(request))
 
 
 class TestGeneralUtils(TestCase):
