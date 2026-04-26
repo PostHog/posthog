@@ -541,9 +541,8 @@ const ReplayFiltersTab = ({
     )
     const { setActiveFilterTab } = useActions(playlistFiltersLogic)
 
-    const { billing } = useValues(billingLogic)
-    const productAnalyticsProduct = billing?.products?.find((p) => p.type === ProductKey.PRODUCT_ANALYTICS)
-    const isPastProductAnalyticsLimit = (productAnalyticsProduct?.percentage_usage ?? 0) > 1
+    const { isProductOverUsageLimit } = useValues(billingLogic)
+    const isPastProductAnalyticsLimit = isProductOverUsageLimit(ProductKey.PRODUCT_ANALYTICS)
 
     useEffect(() => {
         if (!pendingFilterApplication) {
