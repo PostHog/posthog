@@ -147,12 +147,8 @@ def _iter_action_cases() -> list[tuple[str, IDORTestCase, ActionSerializerCase, 
                 continue
             for method in methods:
                 for fk in discover_writable_tenant_fks(action.serializer_cls):
-                    if fk.nested_path:
-                        continue  # nested action bodies are out-of-scope; rare and noisy
-                    label = (
-                        f"{case.name}__{action.method_name}__{method}"
-                        f"__{fk.serializer_field_name}__{fk.target_model.__name__}"
-                    )
+                    nested_label = "__".join((*fk.nested_path, fk.serializer_field_name))
+                    label = f"{case.name}__{action.method_name}__{method}__{nested_label}__{fk.target_model.__name__}"
                     out.append((label, case, action, method, fk))
     return out
 
@@ -294,9 +290,10 @@ class TestAutomatedIDORCoverage(IDORTestMixin, APIBaseTest):
                 f"{case.name}.{action.method_name}.{fk.serializer_field_name}: body error ({type(exc).__name__}: {exc})"
             )
 
-        # 4. Inject the victim id into the body. Action serializers are
-        #    flat (we filter out nested_path entries above), so direct set.
-        body[fk.serializer_field_name] = str(victim_resource.pk)
+        # 4. Inject the victim id into the body. Nested action serializer
+        #    fields (e.g. `body.request.dashboard_id`) are wrapped via
+        #    `_inject_fk_into_body`, which mirrors the PATCH variant.
+        body = _inject_fk_into_body(body, fk, str(victim_resource.pk))
 
         # 5. Build the action URL on the attacker's tenant root. For
         #    detail-route actions, build an attacker-owned instance to anchor the URL.
