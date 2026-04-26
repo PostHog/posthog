@@ -224,7 +224,7 @@ class TestAutomatedIDORCoverage(IDORTestMixin, APIBaseTest):
                     f"{case.name}: could not derive intermediate id {field_name!r} from {case.model_cls.__name__} instance"
                 )
 
-        pk_value = getattr(instance, case.url.pk_kwarg, instance.pk)
+        pk_value = _read_lookup_value(instance, case.url.pk_kwarg)
         url = case.url.build_url(  # type: ignore[attr-defined]
             root_id=root_id,
             pk=pk_value,
@@ -554,6 +554,24 @@ class TestAutomatedIDORCoverage(IDORTestMixin, APIBaseTest):
             return
 
         _assert_single_fk_not_bound_to_victim(reloaded, fk, victim_fk_pk, url, case)
+
+
+def _read_lookup_value(instance: object, kwarg: str) -> Any:
+    """Read the URL lookup value from an instance, supporting joined attrs.
+
+    For `user__uuid` we walk `instance.user.uuid`; for plain `pk` / `short_id`
+    we read the attribute directly. Falls back to `instance.pk` if the chain
+    has a None along the way (an attribute we can't resolve) so the URL build
+    still produces a string DRF can parse.
+    """
+    current: Any = instance
+    for segment in kwarg.split("__"):
+        if current is None:
+            return getattr(instance, "pk", None)
+        current = getattr(current, segment, None)
+    if current is None:
+        return getattr(instance, "pk", None)
+    return current
 
 
 def _maybe_warn_5xx(key: str, status_code: int) -> None:

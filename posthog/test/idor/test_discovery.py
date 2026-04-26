@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from posthog.test.idor.discovery import IDORTestCase, _should_replace
+from posthog.test.idor.discovery import IDORTestCase, _model_has_lookup_attr, _should_replace
 from posthog.test.idor.url_structure import URLStructure
 
 
@@ -51,6 +51,37 @@ class TestShouldReplace(unittest.TestCase):
         existing = _case("environments", intermediate_count=0)
         candidate = _case("environments", intermediate_count=1)
         assert _should_replace(existing, candidate) is False
+
+
+class TestModelHasLookupAttr(unittest.TestCase):
+    """Joined-attribute resolution (e.g. `user__uuid` on OrganizationMembership)."""
+
+    def test_pk_and_id_always_pass(self) -> None:
+        from posthog.models.organization import OrganizationMembership
+
+        assert _model_has_lookup_attr(OrganizationMembership, "pk") is True
+        assert _model_has_lookup_attr(OrganizationMembership, "id") is True
+
+    def test_top_level_field(self) -> None:
+        from posthog.models.organization import OrganizationMembership
+
+        assert _model_has_lookup_attr(OrganizationMembership, "user") is True
+
+    def test_joined_fk_attribute_resolves(self) -> None:
+        from posthog.models.organization import OrganizationMembership
+
+        # `user` is an FK to User; User has a `uuid` field. Should resolve.
+        assert _model_has_lookup_attr(OrganizationMembership, "user__uuid") is True
+
+    def test_joined_unknown_terminal_segment_rejects(self) -> None:
+        from posthog.models.organization import OrganizationMembership
+
+        assert _model_has_lookup_attr(OrganizationMembership, "user__nonexistent") is False
+
+    def test_joined_unknown_first_segment_rejects(self) -> None:
+        from posthog.models.organization import OrganizationMembership
+
+        assert _model_has_lookup_attr(OrganizationMembership, "nonexistent__uuid") is False
 
 
 if __name__ == "__main__":

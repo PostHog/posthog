@@ -65,8 +65,6 @@ def discover_idor_test_cases() -> list[IDORTestCase]:
             continue
         if cls.__name__ in IDOR_TEST_SKIP_LIST:
             continue
-        if not _supports_auto_lookup(cls):
-            continue
 
         model_cls = _infer_model(cls)
         if model_cls is None:
@@ -96,22 +94,6 @@ def discover_idor_test_cases() -> list[IDORTestCase]:
     return sorted(best_by_viewset.values(), key=lambda c: c.name)
 
 
-def _supports_auto_lookup(cls: type) -> bool:
-    """Return True if the viewset's lookup_field can be resolved off a model instance.
-
-    `pk` / `id` always work. Custom names like `short_id`, `kind`, `name`,
-    `group_type_index` work as long as the model has a matching attribute.
-    Joined attributes like `user__uuid` are rejected — Django ORM exposes
-    them only through `__` traversal, not as a single attribute.
-    """
-    lookup_field = getattr(cls, "lookup_field", "pk")
-    lookup_url_kwarg = getattr(cls, "lookup_url_kwarg", None)
-    candidate = lookup_url_kwarg or lookup_field
-    if "__" in candidate:
-        return False
-    return True
-
-
 def _url_kwarg_matches_lookup(cls: type, url_kwarg: str) -> bool:
     """Confirm the URL's pk kwarg is the viewset's standard lookup kwarg.
 
@@ -130,19 +112,30 @@ def _url_kwarg_matches_lookup(cls: type, url_kwarg: str) -> bool:
 
 
 def _model_has_lookup_attr(model_cls: type[models.Model], attr_name: str) -> bool:
-    """True when `instance.<attr_name>` is readable.
+    """True when `attr_name` resolves to a readable attribute on `model_cls`.
 
-    For URL kwargs like `pk` we trust Django; for everything else we require
-    the model to declare a field with that name. Properties / methods that
+    Supports Django-style joined attributes like `user__uuid` by walking each
+    `__` segment as an FK and validating the terminal segment is a field on
+    the leaf model. `pk` / `id` always work. Properties / methods that
     require complex setup are excluded (they show up as missing fields).
     """
     if attr_name in {"pk", "id"}:
         return True
-    try:
-        model_cls._meta.get_field(attr_name)
-        return True
-    except Exception:
-        return False
+    segments = attr_name.split("__")
+    current: type[models.Model] = model_cls
+    for index, segment in enumerate(segments):
+        try:
+            field = current._meta.get_field(segment)
+        except Exception:
+            return False
+        is_last = index == len(segments) - 1
+        if is_last:
+            return True
+        related = getattr(field, "related_model", None)
+        if not (isinstance(related, type) and issubclass(related, models.Model)):
+            return False
+        current = related
+    return True
 
 
 def _infer_model(cls: type) -> Optional[type[models.Model]]:

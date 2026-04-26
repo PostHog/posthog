@@ -69,10 +69,6 @@ IDOR_TEST_SKIP_LIST: dict[str, tuple[str, str]] = {
         "CUSTOM_LOOKUP_FIELD",
         "lookup_field='feature_flag_key' — URL is FF key string, not a pk.",
     ),
-    "OrganizationMemberViewSet": (
-        "CUSTOM_LOOKUP_FIELD",
-        "lookup_field='user__uuid' — joined attribute; add a hand-written cross-org test.",
-    ),
     # -------------------------------------------------------------------
     # Org/project/team top-level resources. These aren't typical
     # tenant-scoped viewsets — they ARE the tenant. Access controls are
