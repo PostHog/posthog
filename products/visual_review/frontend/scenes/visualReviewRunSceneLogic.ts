@@ -221,6 +221,8 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 ),
         ],
         repoFullName: [(s) => [s.repo], (repo): string | null => repo?.repo_full_name || null],
+        isRunInProgress: [(s) => [s.run], (run): boolean => run?.status === 'pending' || run?.status === 'processing'],
+        isRunProcessing: [(s) => [s.run], (run): boolean => run?.status === 'processing'],
         breadcrumbs: [
             (s) => [s.run],
             (run): Breadcrumb[] => [

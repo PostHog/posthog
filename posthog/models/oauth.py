@@ -152,6 +152,10 @@ class OAuthApplication(AbstractApplication):
         default=False,
         help_text="Skip user consent when linking existing accounts. Only enable for fully trusted partners.",
     )
+    provisioning_can_issue_deep_links: models.BooleanField = models.BooleanField(
+        default=False,
+        help_text="Allow this app to issue deep links that mint full web sessions. Only enable for fully trusted partners.",
+    )
 
     @property
     def is_provisioning_partner(self) -> bool:

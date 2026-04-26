@@ -1115,9 +1115,24 @@ def break_part(
                     f"{sorted(new_mutation_ids)}. Aborting before ATTACH to avoid data inconsistency."
                 )
 
+            # ATTACH PART can silently succeed without activating the
+            # part when the block range doesn't fit existing state.
+            # Verify each ATTACH actually landed in system.parts before proceeding.
             context.log.info(f"Attaching {len(detached_parts)} new parts to {source_table}...")
             for dp in detached_parts:
                 client.execute(f"ALTER TABLE {database}.{source_table} ATTACH PART '{dp}'")
+                check = client.execute(
+                    "SELECT count() FROM system.parts "
+                    "WHERE database = %(db)s AND table = %(table)s "
+                    "AND name = %(name)s",
+                    {"db": database, "table": source_table, "name": dp},
+                )
+                if not check or check[0][0] == 0:
+                    raise dagster.Failure(
+                        description=f"ATTACH PART '{dp}' returned Ok but part did not land in "
+                        f"system.parts. CH may have silently skipped it (block range outside "
+                        f"existing state). See source detached dir ({source_detached}) for the stranded part."
+                    )
 
             # -- Step 11: Verify our parts exist by hash_of_all_files.
             current_parts = client.execute(

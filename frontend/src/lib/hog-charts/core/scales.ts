@@ -127,7 +127,7 @@ function buildStackData(
     labels: string[],
     offset?: typeof d3.stackOffsetNone
 ): Map<string, StackedBand> {
-    const visibleSeries = series.filter((s) => !s.hidden)
+    const visibleSeries = series.filter((s) => !s.hidden && !s.fillBetweenData && !s.excludeFromStack)
     if (visibleSeries.length === 0) {
         return new Map()
     }
