@@ -18,6 +18,8 @@ import { cn } from 'lib/utils/css-classes'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Scene } from 'scenes/sceneTypes'
 
+import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
+
 export const LastRefreshText = (): JSX.Element => {
     const { effectiveLastRefresh } = useValues(dashboardLogic)
     return (
@@ -42,6 +44,21 @@ const INTERVAL_OPTIONS = Array.from(REFRESH_INTERVAL_SECONDS, (value) => ({
 }))
 
 export function DashboardReloadAction(): JSX.Element {
+    // Refresh hits authenticated POST endpoints that the exporter/sharing-token context cannot reach,
+    // so we render only the static last-refresh label (no button, no keybind) when in that context.
+    if (getCurrentExporterData()) {
+        return (
+            <div className="relative flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 sm:flex-nowrap">
+                <span className="text-muted text-sm whitespace-nowrap">
+                    <LastRefreshText />
+                </span>
+            </div>
+        )
+    }
+    return <DashboardReloadActionInner />
+}
+
+function DashboardReloadActionInner(): JSX.Element {
     const {
         itemsLoading,
         autoRefresh,

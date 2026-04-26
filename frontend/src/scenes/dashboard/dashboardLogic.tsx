@@ -40,6 +40,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
@@ -1899,6 +1900,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         /** Triggered from dashboard refresh button, when user refreshes entire dashboard */
         triggerDashboardRefresh: async ({ withAnalysis }, breakpoint) => {
+            // Sharing/exporter contexts only have a sharing access token, which DRF rejects for
+            // anything other than GET — bail out before issuing snapshot/refresh POSTs that 401.
+            if (getCurrentExporterData()) {
+                return
+            }
+
             actions.resetInterval()
 
             if (withAnalysis) {
@@ -1943,6 +1950,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const insight = tile.insight
 
             if (!insight) {
+                return
+            }
+
+            // Same reason as triggerDashboardRefresh: sharing access tokens cannot authenticate
+            // the force_blocking insight refresh request.
+            if (getCurrentExporterData()) {
                 return
             }
 
