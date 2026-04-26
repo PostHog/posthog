@@ -50,6 +50,7 @@ class TikTokAdsSource(SimpleSource[TikTokAdsSourceConfig], OAuthMixin):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="Your TikTok Ads advertiser ID",
+                        secret=False,
                     ),
                     SourceFieldOauthConfig(
                         name="tiktok_integration_id",

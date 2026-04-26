@@ -99,6 +99,7 @@ class ChargebeeSource(SimpleSource[ChargebeeSourceConfig]):
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="site_name",
@@ -106,6 +107,7 @@ class ChargebeeSource(SimpleSource[ChargebeeSourceConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="",
+                        secret=False,
                     ),
                 ],
             ),

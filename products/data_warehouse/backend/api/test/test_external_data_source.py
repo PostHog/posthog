@@ -4502,7 +4502,12 @@ class TestSensitiveFieldClassification(APIBaseTest):
     def test_classifies_password_fields_as_sensitive(self):
         fields: list[FieldType] = [
             SourceFieldInputConfig(
-                name="host", label="Host", placeholder="", required=True, type=SourceFieldInputConfigType.TEXT
+                name="host",
+                label="Host",
+                placeholder="",
+                required=True,
+                type=SourceFieldInputConfigType.TEXT,
+                secret=False,
             ),
             SourceFieldInputConfig(
                 name="password",
@@ -4510,6 +4515,7 @@ class TestSensitiveFieldClassification(APIBaseTest):
                 placeholder="",
                 required=True,
                 type=SourceFieldInputConfigType.PASSWORD,
+                secret=True,
             ),
         ]
         nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(fields)
@@ -4549,6 +4555,7 @@ class TestSensitiveFieldClassification(APIBaseTest):
                                 placeholder="",
                                 required=True,
                                 type=SourceFieldInputConfigType.TEXT,
+                                secret=False,
                             ),
                             SourceFieldInputConfig(
                                 name="password",
@@ -4556,6 +4563,7 @@ class TestSensitiveFieldClassification(APIBaseTest):
                                 placeholder="",
                                 required=True,
                                 type=SourceFieldInputConfigType.PASSWORD,
+                                secret=True,
                             ),
                         ],
                     ),
@@ -4596,6 +4604,7 @@ class TestSensitiveFieldClassification(APIBaseTest):
                 placeholder="",
                 required=True,
                 type=SourceFieldInputConfigType.TEXT,
+                secret=False,
             ),
         ]
         nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(fields)
@@ -4652,6 +4661,7 @@ class TestSensitiveFieldClassification(APIBaseTest):
                             placeholder="",
                             required=True,
                             type=SourceFieldInputConfigType.TEXT,
+                            secret=False,
                         ),
                     ],
                 ),
@@ -4671,6 +4681,7 @@ class TestSensitiveFieldClassification(APIBaseTest):
                 placeholder="",
                 required=True,
                 type=SourceFieldInputConfigType.TEXT,
+                secret=False,
             ),
             SourceFieldSwitchGroupConfig(
                 name="temporary-dataset",
@@ -4685,6 +4696,7 @@ class TestSensitiveFieldClassification(APIBaseTest):
                             placeholder="",
                             required=True,
                             type=SourceFieldInputConfigType.TEXT,
+                            secret=False,
                         ),
                     ],
                 ),
@@ -4713,6 +4725,37 @@ class TestSensitiveFieldClassification(APIBaseTest):
             # No field should appear in both sets
             overlap = nonsensitive & sensitive
             assert not overlap, f"{config.name}: fields in both sets: {overlap}"
+
+    def test_password_typed_fields_must_be_marked_secret(self):
+        """A field rendered as type=PASSWORD that is not also `secret=True` is a misconfiguration:
+        it would obscure on screen but still be returned in plain text from the API.
+        """
+
+        def collect_password_fields_without_secret(fields: list[FieldType]) -> list[str]:
+            offenders: list[str] = []
+            for field in fields:
+                if isinstance(field, SourceFieldInputConfig):
+                    if field.type == SourceFieldInputConfigType.PASSWORD and not field.secret:
+                        offenders.append(field.name)
+                elif isinstance(field, SourceFieldSwitchGroupConfig):
+                    offenders.extend(collect_password_fields_without_secret(field.fields))
+                elif isinstance(field, SourceFieldSelectConfig):
+                    for option in field.options:
+                        if option.fields:
+                            offenders.extend(collect_password_fields_without_secret(option.fields))
+            return offenders
+
+        all_offenders: dict[str, list[str]] = {}
+        for source in SourceRegistry.get_all_sources().values():
+            config = source.get_source_config
+            offenders = collect_password_fields_without_secret(config.fields)
+            if offenders:
+                all_offenders[config.name] = offenders
+
+        assert not all_offenders, (
+            f"PASSWORD-typed fields must also set secret=True to be redacted from API responses. "
+            f"Offending fields: {all_offenders}"
+        )
 
     def test_dynamic_classification_covers_old_hardcoded_allowlist(self):
         """Regression: all fields from the old hardcoded allowlist should be in the dynamic nonsensitive set."""

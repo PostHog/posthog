@@ -49,6 +49,7 @@ The secret key starts with `sk_live_`.
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="sk_live_...",
+                        secret=True,
                     ),
                 ],
             ),

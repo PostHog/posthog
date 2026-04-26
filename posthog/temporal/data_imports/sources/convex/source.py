@@ -50,6 +50,7 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="https://your-deployment-123.convex.cloud",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="deploy_key",
@@ -57,6 +58,7 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="prod:...",
+                        secret=True,
                     ),
                 ],
             ),

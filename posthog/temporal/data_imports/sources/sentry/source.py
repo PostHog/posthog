@@ -60,6 +60,7 @@ Create a token in Sentry and make sure it includes the scopes below if you want 
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="324587...",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="organization_slug",
@@ -67,6 +68,7 @@ Create a token in Sentry and make sure it includes the scopes below if you want 
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="my-org",
+                        secret=False,
                     ),
                     SourceFieldSelectConfig(
                         name="api_base_url",

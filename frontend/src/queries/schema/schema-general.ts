@@ -5398,9 +5398,10 @@ export interface SourceFieldInputConfig {
     /**
      * Marks this field as containing sensitive data. The value is stripped from
      * API responses regardless of the rendering `type` (so a multi-line PEM
-     * blob can use `textarea` and still be redacted).
+     * blob can use `textarea` and still be redacted). Required: source authors
+     * must explicitly classify every field.
      */
-    secret?: boolean
+    secret: boolean
 }
 
 export type SourceFieldSelectConfigConverter = 'str_to_int' | 'str_to_bool' | 'str_to_optional_int'
