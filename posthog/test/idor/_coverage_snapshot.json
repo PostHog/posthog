@@ -49,6 +49,8 @@
         "PipelineImportAppsConfigsViewSet.plugin.Plugin",
         "PipelineTransformationsConfigsViewSet.plugin.Plugin",
         "PluginConfigViewSet.plugin.Plugin",
+        "ProjectEnvironmentsViewSet.primary_dashboard.Dashboard",
+        "ProjectViewSet.primary_dashboard.Dashboard",
         "ReviewQueueItemViewSet.queue_id.ReviewQueue",
         "RoleExternalReferenceViewSet.role.Role",
         "ScheduledChangeViewSet.record_id.ProxyRecord",

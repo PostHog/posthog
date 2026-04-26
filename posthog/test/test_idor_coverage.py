@@ -35,7 +35,15 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 
 from posthog.models.team import Team
-from posthog.test.idor import IDORTestCase, IDORTestMixin, build_minimal_instance, discover_idor_test_cases
+from posthog.test.idor import (
+    IDORTestCase,
+    IDORTestMixin,
+    TenantRootCase,
+    VictimContext,
+    all_tenant_root_cases,
+    build_minimal_instance,
+    discover_idor_test_cases,
+)
 from posthog.test.idor.body_factory import BodyUnfillable, build_minimal_post_body
 from posthog.test.idor.factory import reset_sentinel
 from posthog.test.idor.fk_discovery import (
@@ -173,6 +181,14 @@ def _iter_action_cases() -> list[tuple[str, IDORTestCase, ActionSerializerCase, 
 ACTION_CASES = _iter_action_cases()
 
 
+def _tenant_root_params() -> list[tuple[str, TenantRootCase]]:
+    """Parametric input for the cross-tenant-root test."""
+    return [(case.name, case) for case in all_tenant_root_cases()]
+
+
+TENANT_ROOT_CASES = _tenant_root_params()
+
+
 class TestAutomatedIDORCoverage(IDORTestMixin, APIBaseTest):
     """Auto-generated: one cross-team IDOR test per tenant-scoped viewset with a detail endpoint."""
 
@@ -260,6 +276,40 @@ class TestAutomatedIDORCoverage(IDORTestMixin, APIBaseTest):
         assert case.model_cls.objects.filter(pk=instance.pk).exists(), (  # type: ignore[attr-defined]
             f"IDOR: DELETE {url} actually removed the victim's {case.model_cls.__name__}"
         )
+
+    @parameterized.expand(TENANT_ROOT_CASES)
+    def test_cross_org_root_access(self, _name: str, case: TenantRootCase) -> None:
+        """Attacker cannot reach a victim's org/project/team root URL.
+
+        For tenant-root viewsets the URL itself identifies the victim
+        (e.g. `/api/organizations/<victim_org_uuid>/`). Permission classes
+        — OrganizationMemberPermissions, project membership, etc. — must
+        reject every method (GET / PATCH / DELETE). Any 2xx response is
+        an IDOR; the sentinel-leak check guards info-leaks in error
+        bodies.
+        """
+        victim = VictimContext(
+            org_uuid=str(self.victim_org.id),  # type: ignore[attr-defined]
+            project_pk=self.victim_project.pk,  # type: ignore[attr-defined]
+            team_pk=self.victim_team.pk,  # type: ignore[attr-defined]
+        )
+        url = case.build_url(victim)
+
+        # GET — most common attack shape.
+        response = self.assertCrossOrgDenied(url, method="get")
+        # The victim's org/project/team has no string sentinel embedded
+        # by `build_minimal_instance`; we still leak-check the response
+        # for the victim's UUID/name as a defence-in-depth signal.
+        self.assertSentinelNotLeaked(response, victim.org_uuid)
+
+        # PATCH — block mutations across tenant boundaries.
+        patch_response = self.assertCrossOrgDenied(url, method="patch", data={"name": "pwned", "title": "pwned"})
+        self.assertSentinelNotLeaked(patch_response, victim.org_uuid)
+
+        # DELETE — block tenant-root deletion across boundaries. Some
+        # viewsets disallow DELETE entirely (405); that's still a denial.
+        delete_response = self.assertCrossOrgDenied(url, method="delete")
+        self.assertSentinelNotLeaked(delete_response, victim.org_uuid)
 
     @parameterized.expand(ACTION_CASES)
     def test_cross_tenant_id_in_action(

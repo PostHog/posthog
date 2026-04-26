@@ -29,12 +29,20 @@ prevents cross-team access to detail endpoints.
 from posthog.test.idor.discovery import IDORTestCase, discover_idor_test_cases
 from posthog.test.idor.factory import build_minimal_instance
 from posthog.test.idor.mixin import IDORTestMixin
+from posthog.test.idor.tenant_root import (
+    TenantRootCase,
+    VictimContext,
+    all_cases as all_tenant_root_cases,
+)
 from posthog.test.idor.url_structure import URLStructure, parse_url_pattern
 
 __all__ = [
     "IDORTestCase",
     "IDORTestMixin",
+    "TenantRootCase",
     "URLStructure",
+    "VictimContext",
+    "all_tenant_root_cases",
     "build_minimal_instance",
     "discover_idor_test_cases",
     "parse_url_pattern",

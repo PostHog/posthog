@@ -127,6 +127,7 @@ def main(argv: list[str] | None = None) -> int:
     from posthog.test.idor.discovery import discover_idor_test_cases
     from posthog.test.idor.fk_discovery import discover_writable_tenant_fks
     from posthog.test.idor.skip_list import IDOR_FK_PATCH_SKIP_LIST, IDOR_TEST_SKIP_LIST
+    from posthog.test.idor.tenant_root import all_cases as all_tenant_root_cases
 
     # 1. Enumerate every unique tenant-scoped viewset that has a detail endpoint
     #    (i.e. a URL matching something other than `format` / `parent_lookup_*` as its final kwarg).
@@ -146,14 +147,16 @@ def main(argv: list[str] | None = None) -> int:
 
     # 2. What's covered?
     auto_tested = {case.name for case in discover_idor_test_cases()}
+    tenant_root_tested = {case.name for case in all_tenant_root_cases()}
     skipped = set(IDOR_TEST_SKIP_LIST.keys())
-    covered = auto_tested | skipped
+    covered = auto_tested | tenant_root_tested | skipped
 
     # 3. What's not covered?
     uncovered = sorted(n for n in all_tenant_scoped if n not in covered)
 
     print(f"[idor-test-coverage] total tenant-scoped detail viewsets: {len(all_tenant_scoped)}")
     print(f"[idor-test-coverage] auto-tested:                        {len(auto_tested)}")
+    print(f"[idor-test-coverage] tenant-root tested:                 {len(tenant_root_tested)}")
     print(f"[idor-test-coverage] explicitly skipped:                 {len(skipped)}")
     print(f"[idor-test-coverage] uncovered:                          {len(uncovered)}")
 

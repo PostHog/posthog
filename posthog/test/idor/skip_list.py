@@ -70,29 +70,6 @@ IDOR_TEST_SKIP_LIST: dict[str, tuple[str, str]] = {
         "lookup_field='feature_flag_key' — URL is FF key string, not a pk.",
     ),
     # -------------------------------------------------------------------
-    # Org/project/team top-level resources. These aren't typical
-    # tenant-scoped viewsets — they ARE the tenant. Access controls are
-    # provided by org/team membership, not queryset scoping in the IDOR
-    # sense. They need dedicated cross-org/cross-project tests rather
-    # than URL-substitution IDOR tests.
-    # -------------------------------------------------------------------
-    "OrganizationViewSet": (
-        "TENANT_ROOT_RESOURCE",
-        "The org itself — attacker cannot GET a victim's org via their own org URL; "
-        "this is enforced by OrganizationMemberPermissions, not by queryset scoping. "
-        "Needs a hand-written cross-org test, not URL substitution.",
-    ),
-    "RootProjectViewSet": ("TENANT_ROOT_RESOURCE", "Project is a tenant root; see OrganizationViewSet comment."),
-    "ProjectViewSet": ("TENANT_ROOT_RESOURCE", "Project is a tenant root; see OrganizationViewSet comment."),
-    "ProjectEnvironmentsViewSet": (
-        "TENANT_ROOT_RESOURCE",
-        "Team (environment) is a tenant root; see OrganizationViewSet comment.",
-    ),
-    "RootTeamViewSet": (
-        "TENANT_ROOT_RESOURCE",
-        "Team (environment) is a tenant root; see OrganizationViewSet comment.",
-    ),
-    # -------------------------------------------------------------------
     # Viewsets that don't have an inferrable model (queryset=None and no
     # serializer_class.Meta.model). These are typically query/endpoint
     # wrappers (HogQL, MCP tools, debugger) that proxy ClickHouse queries

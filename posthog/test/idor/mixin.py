@@ -99,3 +99,19 @@ class IDORTestMixin:
         body = response.content.decode("utf-8", errors="replace")
         if sentinel.lower() in body.lower():
             raise AssertionError(f"IDOR info leak: sentinel {sentinel!r} appeared in response body: {body[:400]!r}")
+
+    def assertCrossOrgDenied(
+        self,
+        url: str,
+        method: str = "get",
+        data: Optional[dict] = None,
+        message: str = "",
+    ) -> Any:
+        """Attacker (self.user) hits a URL that targets the victim's tenant root.
+
+        Same shape as `assertCrossTeamDenied`: any 2xx is treated as a hit,
+        anything else is denied. Used by the cross-org root parametric to
+        confirm Organization / Project / Team viewsets reject requests that
+        target a tenant the attacker isn't a member of.
+        """
+        return self.assertCrossTeamDenied(url, method=method, data=data, message=message)
