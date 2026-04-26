@@ -20,6 +20,7 @@ import {
     experimentLogic,
     extractErrorDetailString,
     getDisplayOrderedIndices,
+    withClientTimeout,
 } from './experimentLogic'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
@@ -304,6 +305,265 @@ describe('experimentLogic', () => {
                 logic.values.secondaryMetricsResults.filter(Boolean).length
 
             expect(successfulCount).toBeGreaterThan(0)
+        })
+
+        it('drops back-to-back refresh clicks while a refresh is in flight', async () => {
+            logic.actions.setExperiment(experiment)
+
+            let queryCallCount = 0
+            useMocks({
+                post: {
+                    '/api/environments/:team/query/:kind': async () => {
+                        queryCallCount++
+                        await new Promise((resolve) => setTimeout(resolve, 30))
+                        return [
+                            200,
+                            {
+                                cache_key: 'cache_key',
+                                query_status: experimentMetricResultsSuccessJson.query_status,
+                            },
+                        ]
+                    },
+                },
+                get: {
+                    '/api/environments/:team/query/:id': async () => {
+                        await new Promise((resolve) => setTimeout(resolve, 30))
+                        return [200, experimentMetricResultsSuccessJson]
+                    },
+                },
+            })
+
+            const first = logic.asyncActions.refreshExperimentResults(true, 'manual')
+            // Second click while the first refresh is still in flight — should be dropped.
+            const second = logic.asyncActions.refreshExperimentResults(true, 'manual')
+
+            await Promise.all([first, second])
+
+            // Only the first refresh should have dispatched queries (4 metrics in the
+            // fixture: 2 primary + 2 secondary). The second click was dropped by the guard.
+            const callsAfterDroppedClick = queryCallCount
+            expect(callsAfterDroppedClick).toBe(4)
+
+            // Once the first one has settled, a fresh refresh should fire new queries.
+            await logic.asyncActions.refreshExperimentResults(true, 'manual')
+            expect(queryCallCount).toBeGreaterThan(callsAfterDroppedClick)
+        })
+    })
+
+    describe('loadMetrics edge cases', () => {
+        const experimentMetricFixture = {
+            ...experiment,
+            metrics: [
+                {
+                    kind: 'ExperimentMetric',
+                    metric_type: ExperimentMetricType.MEAN,
+                    source: { kind: 'EventsNode', math: 'total', event: '$pageview' },
+                    uuid: 'metric-1',
+                },
+            ],
+            metrics_secondary: [],
+            saved_metrics: [],
+            saved_metrics_ids: [],
+        } as unknown as Experiment
+
+        const experimentWithSecondaryMetricFixture = {
+            ...experiment,
+            metrics: [
+                {
+                    kind: 'ExperimentMetric',
+                    metric_type: ExperimentMetricType.MEAN,
+                    source: { kind: 'EventsNode', math: 'total', event: '$pageview' },
+                    uuid: 'metric-primary',
+                },
+            ],
+            metrics_secondary: [
+                {
+                    kind: 'ExperimentMetric',
+                    metric_type: ExperimentMetricType.MEAN,
+                    source: { kind: 'EventsNode', math: 'total', event: '$pageclick' },
+                    uuid: 'metric-secondary',
+                },
+            ],
+            saved_metrics: [],
+            saved_metrics_ids: [],
+        } as unknown as Experiment
+
+        it('records an error when the response shape matches neither legacy nor new experiment response', async () => {
+            logic.actions.setExperiment(experimentMetricFixture)
+
+            useMocks({
+                post: {
+                    '/api/environments/:team/query/:kind': () => [
+                        200,
+                        {
+                            cache_key: 'cache_key',
+                            query_status: {
+                                id: 'query-unparseable',
+                                complete: false,
+                            },
+                        },
+                    ],
+                },
+                get: {
+                    '/api/environments/:team/query/:id': () => [
+                        200,
+                        {
+                            query_status: {
+                                id: 'query-unparseable',
+                                complete: true,
+                                error: false,
+                                // results is missing both `variants` and `baseline` —
+                                // convertToTypedExperimentResponse returns null.
+                                results: {
+                                    cache_key: 'cache_key',
+                                    is_cached: false,
+                                },
+                            },
+                        },
+                    ],
+                },
+            })
+
+            await logic.asyncActions.loadPrimaryMetricsResults(true)
+
+            expect(logic.values.primaryMetricsResultsLoading).toBe(false)
+            expect(logic.values.primaryMetricsResults.filter(Boolean)).toEqual([])
+            expect(logic.values.legacyPrimaryMetricsResults.filter(Boolean)).toEqual([])
+            expect(logic.values.primaryMetricsResultsErrors[0]).toMatchObject({
+                code: 'unparseable_response',
+            })
+        })
+
+        it('classifies a parse_error 400 with "JSON parse error" detail as a recorded error', async () => {
+            logic.actions.setExperiment(experimentMetricFixture)
+
+            useMocks({
+                post: {
+                    '/api/environments/:team/query/:kind': () => [
+                        400,
+                        {
+                            type: 'validation_error',
+                            code: 'parse_error',
+                            detail: 'JSON parse error - Expecting value: line 1 column 1 (char 0)',
+                            attr: null,
+                        },
+                    ],
+                },
+            })
+
+            await logic.asyncActions.loadPrimaryMetricsResults(true)
+
+            expect(logic.values.primaryMetricsResultsLoading).toBe(false)
+            const recordedError = logic.values.primaryMetricsResultsErrors[0]
+            expect(recordedError).toBeTruthy()
+            expect(recordedError?.statusCode).toBe(400)
+            expect(recordedError?.code).toBe('parse_error')
+        })
+
+        it('records a timeout error when a metric query returns a 504', async () => {
+            // Mirrors what happens when our client-side timeout helper synthesizes a
+            // 504-class error for a hung query: the catch branch in loadMetrics
+            // should land it in the errors collection so the row stops spinning.
+            logic.actions.setExperiment(experimentMetricFixture)
+
+            useMocks({
+                post: {
+                    '/api/environments/:team/query/:kind': () => [
+                        504,
+                        { detail: 'Query timed out', code: null, attr: null, type: 'server_error' },
+                    ],
+                },
+            })
+
+            await logic.asyncActions.loadPrimaryMetricsResults(true)
+
+            expect(logic.values.primaryMetricsResultsLoading).toBe(false)
+            const recordedError = logic.values.primaryMetricsResultsErrors[0]
+            expect(recordedError).toBeTruthy()
+            expect(recordedError?.statusCode).toBe(504)
+        })
+
+        it('settles secondaryMetricsResultsLoading even when a secondary metric times out while primaries succeed', async () => {
+            logic.actions.setExperiment(experimentWithSecondaryMetricFixture)
+
+            let postCallCount = 0
+            useMocks({
+                post: {
+                    '/api/environments/:team/query/:kind': () => {
+                        postCallCount++
+                        if (postCallCount === 1) {
+                            // Primary succeeds.
+                            return [
+                                200,
+                                {
+                                    cache_key: 'cache_key',
+                                    query_status: {
+                                        id: 'query-primary',
+                                        complete: true,
+                                        error: false,
+                                        results: {
+                                            cache_key: 'cache_key',
+                                            is_cached: false,
+                                            baseline: { key: 'control', sum: 100, number_of_samples: 10 },
+                                            variant_results: [],
+                                        },
+                                    },
+                                },
+                            ]
+                        }
+                        // Secondary times out.
+                        return [504, { detail: 'Query timed out', code: null, attr: null, type: 'server_error' }]
+                    },
+                },
+                get: {
+                    '/api/environments/:team/query/:id': () => [
+                        200,
+                        {
+                            query_status: {
+                                id: 'query-primary',
+                                complete: true,
+                                error: false,
+                                results: {
+                                    cache_key: 'cache_key',
+                                    is_cached: false,
+                                    baseline: { key: 'control', sum: 100, number_of_samples: 10 },
+                                    variant_results: [],
+                                },
+                            },
+                        },
+                    ],
+                },
+            })
+
+            await logic.asyncActions.refreshExperimentResults(true, 'manual')
+
+            expect(logic.values.primaryMetricsResultsLoading).toBe(false)
+            expect(logic.values.secondaryMetricsResultsLoading).toBe(false)
+            expect(logic.values.secondaryMetricsResultsErrors[0]).toMatchObject({
+                statusCode: 504,
+            })
+        })
+    })
+
+    describe('withClientTimeout', () => {
+        it('resolves with the inner value when the inner promise wins the race', async () => {
+            await expect(withClientTimeout(Promise.resolve('ok'), 1_000)).resolves.toBe('ok')
+        })
+
+        it('rejects with a 504-class timeout error when the inner promise hangs past the timeout', async () => {
+            jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] })
+            try {
+                const hung = new Promise(() => {})
+                const wrapped = withClientTimeout(hung, 60_000)
+                jest.advanceTimersByTime(61_000)
+                await expect(wrapped).rejects.toMatchObject({
+                    status: 504,
+                    statusCode: 504,
+                    code: 'client_timeout',
+                })
+            } finally {
+                jest.useRealTimers()
+            }
         })
     })
 

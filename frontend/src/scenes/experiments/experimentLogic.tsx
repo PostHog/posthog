@@ -374,6 +374,36 @@ export function getDisplayOrderedIndices(
 // prevents mass rejections and retry churn when experiments have many metrics.
 const METRIC_QUERY_CONCURRENCY_LIMIT = 10
 
+// Hard cap on a single metric query's wall-clock from the frontend's perspective.
+// Backend async queries occasionally hang without surfacing a finished/error event;
+// this gives the UI a deterministic terminal state instead of a perpetual spinner.
+const METRIC_QUERY_CLIENT_TIMEOUT_MS = 60_000
+
+class MetricQueryTimeoutError extends Error {
+    // Mirrors the shape of API errors so the existing catch branch in loadMetrics
+    // (which reads error.status / error.code / error.detail) can classify it.
+    status = 504
+    statusCode = 504
+    code = 'client_timeout'
+    detail = QUERY_TIMEOUT_ERROR_MESSAGE
+    constructor() {
+        super(QUERY_TIMEOUT_ERROR_MESSAGE)
+        this.name = 'MetricQueryTimeoutError'
+    }
+}
+
+export function withClientTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new MetricQueryTimeoutError()), timeoutMs)
+    })
+    return Promise.race([promise, timeout]).finally(() => {
+        if (timer) {
+            clearTimeout(timer)
+        }
+    })
+}
+
 const loadMetrics = async ({
     metrics,
     experimentId,
@@ -429,10 +459,13 @@ const loadMetrics = async ({
                         experiment_id: experimentId,
                     }
                 }
-                response = await performQuery(
-                    setLatestVersionsOnQuery(queryWithExperimentId),
-                    undefined,
-                    getExperimentRefreshMode(featureFlags, !!refresh)
+                response = await withClientTimeout(
+                    performQuery(
+                        setLatestVersionsOnQuery(queryWithExperimentId),
+                        undefined,
+                        getExperimentRefreshMode(featureFlags, !!refresh)
+                    ),
+                    METRIC_QUERY_CLIENT_TIMEOUT_MS
                 )
 
                 const durationMs = Math.round(performance.now() - startTime)
@@ -444,15 +477,46 @@ const loadMetrics = async ({
                     queryWithExperimentId.kind === NodeKind.ExperimentQuery
                 ) {
                     const typedResponse = convertToTypedExperimentResponse(response as CachedExperimentQueryResponse)
-                    if (typedResponse) {
-                        if (isLegacyExperimentResponse(typedResponse)) {
-                            legacyResults[originalIndex] = {
-                                ...typedResponse,
-                                fakeInsightId: Math.random().toString(36).substring(2, 15),
-                            } as CachedLegacyExperimentQueryResponse & { fakeInsightId: string }
-                        } else if (isNewExperimentResponse(typedResponse)) {
-                            results[originalIndex] = typedResponse
+                    if (!typedResponse) {
+                        // Response shape doesn't match either legacy or new: surface as an
+                        // error so the row drops into the retry empty state instead of
+                        // staying on the loading spinner indefinitely.
+                        const queryId = response?.query_status?.id || null
+                        currentErrors[originalIndex] = {
+                            detail: 'Received an unexpected response shape for this metric.',
+                            statusCode: null,
+                            hasDiagnostics: false,
+                            code: 'unparseable_response',
+                            queryId,
+                            timestamp: Date.now(),
                         }
+                        onSetErrors(currentErrors)
+                        legacyResults[originalIndex] = null
+                        onSetLegacyResults([...legacyResults])
+                        onSetResults([...results])
+                        erroredCount++
+                        eventUsageLogic.actions.reportExperimentMetricError(experimentId, metric, teamId, queryId, {
+                            duration_ms: durationMs,
+                            metric_index: metricIndex,
+                            is_primary: isPrimary,
+                            is_retry: isRetry,
+                            refresh_id: refreshId,
+                            metric_kind: metricKind,
+                            error_type: 'validation_error',
+                            error_code: 'unparseable_response',
+                            error_message: 'Unparseable experiment response',
+                            error_detail: null,
+                            status_code: null,
+                        })
+                        return
+                    }
+                    if (isLegacyExperimentResponse(typedResponse)) {
+                        legacyResults[originalIndex] = {
+                            ...typedResponse,
+                            fakeInsightId: Math.random().toString(36).substring(2, 15),
+                        } as CachedLegacyExperimentQueryResponse & { fakeInsightId: string }
+                    } else if (isNewExperimentResponse(typedResponse)) {
+                        results[originalIndex] = typedResponse
                     }
                 } else {
                     // For trends/funnels queries, keep original response
@@ -1610,6 +1674,16 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         refreshExperimentResults: async ({ forceRefresh, triggeredBy }) => {
+            // Drop the click if a refresh is already in flight. Without this guard,
+            // every click re-enters loadPrimary/SecondaryMetricsResults which clears
+            // existing results to [] and flips loading=true — so a hung metric from
+            // the first click would keep the loading flag stuck even when the user
+            // tries to recover by refreshing again.
+            if (cache.refreshInFlight) {
+                return
+            }
+            cache.refreshInFlight = true
+
             const refreshId = generateRefreshId()
             const refreshStart = performance.now()
             const summaries: MetricLoadingSummary[] = []
@@ -1629,6 +1703,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     asyncActions.loadExposures(forceRefresh),
                 ])
             } finally {
+                cache.refreshInFlight = false
                 const totalDurationMs = Math.round(performance.now() - refreshStart)
                 const refreshSummaries: MetricLoadingSummary[] = cache.refreshSummariesById?.[refreshId] ?? []
                 if (cache.refreshSummariesById) {
