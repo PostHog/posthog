@@ -54,7 +54,13 @@ def _case_params(case: IDORTestCase) -> tuple:
 
 
 def _iter_fk_cases() -> list[tuple[str, IDORTestCase, WritableFKField]]:
-    """Cross-product of (case, writable tenant-FK field on its serializer)."""
+    """Cross-product of (case, writable tenant-FK field on its serializer).
+
+    Create-only fields (in Meta.read_only_fields with an editable model FK)
+    are excluded — DRF silently drops them from update bodies, so the runtime
+    test cannot exercise them. The flag remains informational on the discovery
+    record so the CI report can surface the count.
+    """
     out: list[tuple[str, IDORTestCase, WritableFKField]] = []
     for case in DISCOVERED_CASES:
         if case.name in IDOR_FK_PATCH_SKIP_LIST:
@@ -63,6 +69,8 @@ def _iter_fk_cases() -> list[tuple[str, IDORTestCase, WritableFKField]]:
         if serializer_cls is None:
             continue
         for fk in discover_writable_tenant_fks(serializer_cls):
+            if fk.is_create_only:
+                continue
             label = f"{case.name}__{'__'.join((*fk.nested_path, fk.serializer_field_name))}"
             out.append((label, case, fk))
     return out
@@ -72,7 +80,13 @@ FK_PATCH_CASES = _iter_fk_cases()
 
 
 def _iter_fk_post_cases() -> list[tuple[str, IDORTestCase, WritableFKField]]:
-    """Same product as PATCH, minus viewsets explicitly skipped for POST."""
+    """Same product as PATCH, minus viewsets explicitly skipped for POST.
+
+    Create-only fields are excluded for the same reason as in PATCH — DRF
+    drops the value from validated_data, so injection through the HTTP body
+    can't reach the model layer. Bypassing DRF would require model.save()
+    in tests, which is out of scope for the auto-IDOR framework.
+    """
     out: list[tuple[str, IDORTestCase, WritableFKField]] = []
     for case in DISCOVERED_CASES:
         if case.name in IDOR_FK_PATCH_SKIP_LIST or case.name in IDOR_FK_POST_SKIP_LIST:
@@ -83,6 +97,8 @@ def _iter_fk_post_cases() -> list[tuple[str, IDORTestCase, WritableFKField]]:
         if not _viewset_supports_post(case.viewset_cls):
             continue
         for fk in discover_writable_tenant_fks(serializer_cls):
+            if fk.is_create_only:
+                continue
             label = f"{case.name}__{'__'.join((*fk.nested_path, fk.serializer_field_name))}"
             out.append((label, case, fk))
     return out

@@ -199,8 +199,13 @@ class TestDiscoverWritableTenantFks:
     def test_read_only_field_skipped(self) -> None:
         assert discover_writable_tenant_fks(_ReadOnlyFKSerializer) == []
 
-    def test_read_only_fields_meta_skipped(self) -> None:
-        assert discover_writable_tenant_fks(_ReadOnlyFieldsMetaSerializer) == []
+    def test_read_only_fields_meta_marked_create_only(self) -> None:
+        result = discover_writable_tenant_fks(_ReadOnlyFieldsMetaSerializer)
+        assert len(result) == 1
+        fk = result[0]
+        assert fk.serializer_field_name == "dashboard"
+        assert fk.target_model is Dashboard
+        assert fk.is_create_only is True
 
     def test_non_tenant_target_skipped(self) -> None:
         assert discover_writable_tenant_fks(_NonTenantFKSerializer) == []

@@ -140,6 +140,7 @@ def main() -> int:
     fk_unscoped = 0
     fk_implicit = 0
     fk_many = 0
+    fk_create_only = 0
     fk_pairs_by_viewset: dict[str, list[str]] = {}
     for case in discover_idor_test_cases():
         if case.name in IDOR_FK_PATCH_SKIP_LIST:
@@ -157,6 +158,8 @@ def main() -> int:
                 fk_implicit += 1
             if fk.is_many:
                 fk_many += 1
+            if fk.is_create_only:
+                fk_create_only += 1
             label = ".".join((*fk.nested_path, fk.serializer_field_name))
             fk_pairs_by_viewset.setdefault(case.name, []).append(label)
 
@@ -175,6 +178,7 @@ def main() -> int:
     print(f"[idor-fk-coverage]     - already-scoped (defense in depth): {fk_already_scoped}")
     print(f"[idor-fk-coverage]     - implicit `<thing>_id` pattern:    {fk_implicit}")
     print(f"[idor-fk-coverage]     - many=True (M2M):                  {fk_many}")
+    print(f"[idor-fk-coverage]     - create-only (read_only_fields):   {fk_create_only}")
     print(f"[idor-fk-coverage]     - unscoped (primary IDOR risk):     {fk_unscoped}")
     print(f"[idor-fk-coverage]   viewsets explicitly skipped:        {len(fk_skips)}")
     print(f"[idor-fk-coverage]   viewsets with at least one FK pair: {len(fk_pairs_by_viewset)}")

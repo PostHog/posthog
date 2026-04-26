@@ -80,6 +80,12 @@ class WritableFKField:
     """True if discovered via name-pattern matching against the semgrep allowlist
     (works on any Serializer, not just ModelSerializer with a matching ForeignKey)."""
 
+    is_create_only: bool = False
+    """True when the serializer marks the field read-only (via Meta.read_only_fields)
+    but the underlying Django ForeignKey is still editable on the model. Such fields
+    can be set on create via direct model construction even though DRF rejects them
+    on update. POST tests should still inject; PATCH tests should skip."""
+
 
 # DRF field types that can carry a raw FK pk in the string-id naming pattern.
 _IMPLICIT_FK_FIELD_TYPES = (
@@ -114,16 +120,70 @@ def _walk_fields(
 ) -> None:
     serializer_model = _serializer_meta_model(instance)
     fields_dict = _safe_get_fields(instance)
+    read_only_meta_fields = _read_only_meta_fields(instance)
     for field_name, drf_field in fields_dict.items():
-        if drf_field.read_only:
+        is_create_only = _is_create_only_fk(field_name, drf_field, read_only_meta_fields, serializer_model)
+        if drf_field.read_only and not is_create_only:
             continue
         records = _classify_field(field_name, drf_field, nested_path, serializer_model)
         if records:
+            if is_create_only:
+                records = [_with_create_only(r) for r in records]
             out.extend(records)
             continue
         # If this is a nested ModelSerializer (depth-1 only), recurse once.
         if not nested_path and isinstance(drf_field, serializers.ModelSerializer):
             _walk_fields(drf_field, nested_path=(field_name,), out=out)
+
+
+def _read_only_meta_fields(instance: serializers.Serializer) -> frozenset[str]:
+    meta = getattr(type(instance), "Meta", None)
+    if meta is None:
+        return frozenset()
+    declared = getattr(meta, "read_only_fields", ()) or ()
+    return frozenset(declared)
+
+
+def _is_create_only_fk(
+    field_name: str,
+    drf_field: serializers.Field,
+    read_only_meta_fields: frozenset[str],
+    serializer_model: Optional[type[models.Model]],
+) -> bool:
+    """A field is create-only when DRF marks it read-only via Meta.read_only_fields
+    but the underlying Django ForeignKey on the model is still editable. The
+    DB-level write path is open even though the API marks the field read-only —
+    a POST that bypasses the field would still need to verify cross-tenant.
+    """
+    if field_name not in read_only_meta_fields:
+        return False
+    if serializer_model is None:
+        return False
+    # Strip a trailing _id if present so we can resolve the model FK by name.
+    candidate = field_name.removesuffix("_id")
+    for name in (candidate, field_name):
+        try:
+            model_field = serializer_model._meta.get_field(name)
+        except Exception:
+            continue
+        if isinstance(model_field, models.ForeignKey) and getattr(model_field, "editable", True):
+            return True
+    return False
+
+
+def _with_create_only(record: WritableFKField) -> WritableFKField:
+    return WritableFKField(
+        serializer_field_name=record.serializer_field_name,
+        source_attr=record.source_attr,
+        target_model=record.target_model,
+        scope=record.scope,
+        is_already_scoped=record.is_already_scoped,
+        nested_path=record.nested_path,
+        is_implicit=record.is_implicit,
+        is_many=record.is_many,
+        is_name_pattern=record.is_name_pattern,
+        is_create_only=True,
+    )
 
 
 def _safe_get_fields(instance: serializers.Serializer) -> dict[str, serializers.Field]:
@@ -152,7 +212,7 @@ def _classify_field(
         record = _classify_many_related(field_name, drf_field, nested_path)
         return [record] if record else []
     if isinstance(drf_field, serializers.PrimaryKeyRelatedField):
-        record = _classify_explicit_fk(field_name, drf_field, nested_path)
+        record = _classify_explicit_fk(field_name, drf_field, nested_path, serializer_model)
         return [record] if record else []
     record = _classify_implicit_id(field_name, drf_field, nested_path, serializer_model)
     if record is not None:
@@ -180,7 +240,7 @@ def _classify_many_related(
     child = drf_field.child_relation
     if not isinstance(child, serializers.PrimaryKeyRelatedField):
         return None
-    record = _classify_explicit_fk(field_name, child, nested_path)
+    record = _classify_explicit_fk(field_name, child, nested_path, None)
     if record is None:
         return None
     # `replace` avoids re-implementing all the field copy-construction.
@@ -200,8 +260,13 @@ def _classify_explicit_fk(
     field_name: str,
     drf_field: serializers.PrimaryKeyRelatedField,
     nested_path: tuple[str, ...],
+    serializer_model: Optional[type[models.Model]] = None,
 ) -> Optional[WritableFKField]:
     target = _resolve_target_model(drf_field)
+    if target is None and serializer_model is not None:
+        # Read-only PrimaryKeyRelatedField (auto-generated from Meta.read_only_fields)
+        # has queryset=None; resolve the target via the model FK instead.
+        target = _resolve_implicit_target_model(serializer_model, drf_field, field_name.removesuffix("_id"))
     if target is None:
         return None
     scope = classify_model_scope(target.__name__)
