@@ -599,6 +599,8 @@ class TestOauthIntegrationModel(BaseTest):
         assert call.kwargs["auth"].username == "sk_test_secret"
         assert call.kwargs["auth"].password == ""
 
+        mock_reload.assert_called_once_with(self.team.id, [integration.id])
+
 
 class TestGoogleCloudIntegrationModel(BaseTest):
     mock_keyfile = {
