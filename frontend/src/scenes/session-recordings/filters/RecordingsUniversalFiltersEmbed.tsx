@@ -27,6 +27,7 @@ import {
     LemonTab,
     LemonTabs,
     LemonTag,
+    Link,
     Popover,
 } from '@posthog/lemon-ui'
 
@@ -47,6 +48,7 @@ import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
 import { TimestampFormatToLabel } from 'scenes/session-recordings/utils'
+import { urls } from 'scenes/urls'
 
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -582,10 +584,25 @@ const ReplayFiltersTab = ({
     return (
         <div className={clsx('relative bg-surface-primary w-full h-full', className)}>
             {isPastProductAnalyticsLimit && (
-                <LemonBanner type="warning" className="mx-2 mt-2">
+                <LemonBanner
+                    type="warning"
+                    className="mx-2 mt-2"
+                    action={{
+                        children: 'Increase billing limit',
+                        to: urls.organizationBilling([ProductKey.PRODUCT_ANALYTICS]),
+                        'data-attr': 'replay-filters-pa-over-limit-banner-cta',
+                    }}
+                >
                     You're past your usage limit for product analytics. Some session recording filtering relies on the
                     processing of events; recently recorded sessions might not be visible when you filter even though
-                    they've been recorded.
+                    they've been recorded.{' '}
+                    <Link
+                        to="https://posthog.com/docs/session-replay/troubleshooting#unable-to-filter-by-user-or-page-properties"
+                        target="_blank"
+                    >
+                        Learn more
+                    </Link>
+                    .
                 </LemonBanner>
             )}
             {appliedSavedFilter && (
