@@ -59,6 +59,17 @@ def _case_params(case: IDORTestCase) -> tuple:
     return (case.name, case)
 
 
+def _scope_label(fk: WritableFKField) -> str:
+    """Short tag distinguishing cross-org from cross-team in parametric test names.
+
+    Both scopes run through the same fixture/test logic — the victim resource's
+    tenancy is set by `build_minimal_instance` based on the FK's scope — but
+    the label makes it obvious at a glance whether a failing test is a
+    cross-team or cross-org IDOR.
+    """
+    return "org" if fk.scope in ("organization", "user_in_org") else "team"
+
+
 def _iter_fk_cases() -> list[tuple[str, IDORTestCase, WritableFKField]]:
     """Cross-product of (case, writable tenant-FK field on its serializer).
 
@@ -77,7 +88,7 @@ def _iter_fk_cases() -> list[tuple[str, IDORTestCase, WritableFKField]]:
         for fk in discover_writable_tenant_fks(serializer_cls):
             if fk.is_create_only:
                 continue
-            label = f"{case.name}__{'__'.join((*fk.nested_path, fk.serializer_field_name))}"
+            label = f"{_scope_label(fk)}__{case.name}__{'__'.join((*fk.nested_path, fk.serializer_field_name))}"
             out.append((label, case, fk))
     return out
 
@@ -105,7 +116,7 @@ def _iter_fk_post_cases() -> list[tuple[str, IDORTestCase, WritableFKField]]:
         for fk in discover_writable_tenant_fks(serializer_cls):
             if fk.is_create_only:
                 continue
-            label = f"{case.name}__{'__'.join((*fk.nested_path, fk.serializer_field_name))}"
+            label = f"{_scope_label(fk)}__{case.name}__{'__'.join((*fk.nested_path, fk.serializer_field_name))}"
             out.append((label, case, fk))
     return out
 
