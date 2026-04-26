@@ -489,11 +489,16 @@ export function InsightValidationError({
     detail,
     query,
     onRetry,
+    technicalDetail,
 }: {
     detail: string
     query?: Record<string, any> | null
     onRetry?: () => void
+    /** Raw backend error message, gated behind a disclosure so users aren't shown SQL/ClickHouse output by default. */
+    technicalDetail?: string | null
 }): JSX.Element {
+    const [showTechnicalDetail, setShowTechnicalDetail] = useState(false)
+
     return (
         <div
             data-attr="insight-empty-state"
@@ -516,6 +521,27 @@ export function InsightValidationError({
             <p className="text-sm text-muted max-w-120 mb-2">{detail}</p>
 
             {onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />}
+
+            {technicalDetail && (
+                <div className="flex flex-col items-center gap-1 max-w-120 w-full">
+                    <LemonButton
+                        data-attr="insight-validation-error-toggle-technical-detail"
+                        size="xsmall"
+                        type="tertiary"
+                        onClick={() => setShowTechnicalDetail((shown) => !shown)}
+                    >
+                        {showTechnicalDetail ? 'Hide technical details' : 'Show technical details'}
+                    </LemonButton>
+                    {showTechnicalDetail && (
+                        <pre
+                            data-attr="insight-validation-error-technical-detail"
+                            className="text-xs text-left text-muted bg-surface-secondary rounded px-2 py-1 mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words w-full"
+                        >
+                            {technicalDetail}
+                        </pre>
+                    )}
+                </div>
+            )}
 
             {detail.includes('Exclusion') && (
                 <div className="mt-4">

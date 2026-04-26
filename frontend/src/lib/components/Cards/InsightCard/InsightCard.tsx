@@ -225,7 +225,8 @@ function InsightCardInternal(
         if (apiErrored) {
             const validationError = extractValidationError(apiError)
             if (validationError) {
-                return <InsightValidationError detail={validationError} />
+                const technicalDetail = (apiError as any)?.data?.technical_detail
+                return <InsightValidationError detail={validationError} technicalDetail={technicalDetail} />
             } else if (apiError instanceof ApiError) {
                 return <InsightErrorState title={apiError?.detail} />
             }
