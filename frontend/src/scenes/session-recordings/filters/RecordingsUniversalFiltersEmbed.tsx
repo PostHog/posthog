@@ -38,9 +38,11 @@ import { isCommentTextFilter, isUniversalGroupFilterLike } from 'lib/components/
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
@@ -50,7 +52,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import {
     PropertyOperator,
     RecordingUniversalFilters,
@@ -539,6 +541,10 @@ const ReplayFiltersTab = ({
     )
     const { setActiveFilterTab } = useActions(playlistFiltersLogic)
 
+    const { billing } = useValues(billingLogic)
+    const productAnalyticsProduct = billing?.products?.find((p) => p.type === ProductKey.PRODUCT_ANALYTICS)
+    const isPastProductAnalyticsLimit = (productAnalyticsProduct?.percentage_usage ?? 0) > 1
+
     useEffect(() => {
         if (!pendingFilterApplication) {
             return
@@ -576,6 +582,13 @@ const ReplayFiltersTab = ({
 
     return (
         <div className={clsx('relative bg-surface-primary w-full h-full', className)}>
+            {isPastProductAnalyticsLimit && (
+                <LemonBanner type="error" className="mx-2 mt-2">
+                    You're past your usage limit for product analytics. Some session recording filtering relies on the
+                    processing of events; recently recorded sessions might not be visible when you filter even though
+                    they've been recorded.
+                </LemonBanner>
+            )}
             {appliedSavedFilter && (
                 <div className="border-b px-2 py-3 flex flex-wrap items-center gap-2">
                     <div className="flex items-center gap-2 min-w-0 flex-1 basis-3/5">
