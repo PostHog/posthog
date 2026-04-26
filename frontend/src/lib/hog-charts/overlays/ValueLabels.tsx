@@ -192,8 +192,8 @@ export function ValueLabels({
                 const style: React.CSSProperties = {
                     ...LABEL_STYLE_BASE,
                     backgroundColor: c.color,
-                    left: c.x,
-                    top: c.above ? c.y : c.y + LABEL_VERTICAL_OFFSET,
+                    left: Math.round(c.x),
+                    top: Math.round(c.above ? c.y : c.y + LABEL_VERTICAL_OFFSET),
                     transform: c.above
                         ? `translate(-50%, calc(-100% - ${LABEL_VERTICAL_OFFSET}px))`
                         : 'translateX(-50%)',
