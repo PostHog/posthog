@@ -583,7 +583,7 @@ const ReplayFiltersTab = ({
     return (
         <div className={clsx('relative bg-surface-primary w-full h-full', className)}>
             {isPastProductAnalyticsLimit && (
-                <LemonBanner type="error" className="mx-2 mt-2">
+                <LemonBanner type="warning" className="mx-2 mt-2">
                     You're past your usage limit for product analytics. Some session recording filtering relies on the
                     processing of events; recently recorded sessions might not be visible when you filter even though
                     they've been recorded.
