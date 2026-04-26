@@ -2,8 +2,6 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import React, { ReactNode, useEffect, useRef, useState } from 'react'
-import { Transition } from 'react-transition-group'
-import { ENTERED, ENTERING } from 'react-transition-group/Transition'
 import useResizeObserver from 'use-resize-observer'
 
 import {
@@ -25,6 +23,7 @@ import {
 import { LemonBanner, LemonDivider, LemonTag, LemonTextArea, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { SESSION_SUMMARY_FEEDBACK_SURVEY_ID } from 'lib/constants'
+import { useExitTransition } from 'lib/hooks/useExitTransition'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
@@ -346,6 +345,7 @@ function SessionSegmentCollapse({
 }: SessionSegmentCollapseProps): JSX.Element {
     const [isExpanded, setIsExpanded] = useState(false)
     const { height: contentHeight, ref: contentRef } = useResizeObserver({ box: 'border-box' })
+    const { mounted, visible } = useExitTransition(isExpanded, 200)
 
     return (
         <div className={clsx('LemonCollapse', className)}>
@@ -364,26 +364,18 @@ function SessionSegmentCollapse({
                 >
                     {header}
                 </LemonButton>
-                <Transition in={isExpanded} timeout={200} mountOnEnter unmountOnExit>
-                    {(status) => (
-                        <div
-                            className="LemonCollapsePanel__body"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={
-                                status === ENTERING || status === ENTERED
-                                    ? {
-                                          height: contentHeight,
-                                      }
-                                    : undefined
-                            }
-                            aria-busy={status.endsWith('ing')}
-                        >
-                            <div className="LemonCollapsePanel__content" ref={contentRef}>
-                                {content}
-                            </div>
+                {mounted && (
+                    <div
+                        className="LemonCollapsePanel__body"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ height: visible ? contentHeight : 0 }}
+                        aria-busy={visible !== isExpanded}
+                    >
+                        <div className="LemonCollapsePanel__content" ref={contentRef}>
+                            {content}
                         </div>
-                    )}
-                </Transition>
+                    </div>
+                )}
             </div>
         </div>
     )

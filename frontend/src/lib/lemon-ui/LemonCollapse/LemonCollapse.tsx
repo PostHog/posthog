@@ -2,11 +2,11 @@ import './LemonCollapse.scss'
 
 import clsx from 'clsx'
 import React, { ReactNode, useEffect, useMemo, useState } from 'react'
-import { Transition } from 'react-transition-group'
-import { ENTERED, ENTERING } from 'react-transition-group/Transition'
 import useResizeObserver from 'use-resize-observer'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
+
+import { useExitTransition } from 'lib/hooks/useExitTransition'
 
 import { LemonButton, LemonButtonProps } from '../LemonButton'
 
@@ -131,6 +131,7 @@ function LemonCollapsePanel({
     onHeaderClick,
 }: LemonCollapsePanelProps): JSX.Element {
     const { height: contentHeight, ref: contentRef } = useResizeObserver({ box: 'border-box' })
+    const { mounted, visible } = useExitTransition(isExpanded, 200)
 
     const { headerChildren, headerProps } = useMemo((): HeaderDefinition => {
         if (header && typeof header === 'object' && 'children' in header) {
@@ -171,26 +172,18 @@ function LemonCollapsePanel({
                 </LemonButton>
             )}
 
-            <Transition in={isExpanded} timeout={200} mountOnEnter unmountOnExit>
-                {(status) => (
-                    <div
-                        className="LemonCollapsePanel__body"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={
-                            status === ENTERING || status === ENTERED
-                                ? {
-                                      height: contentHeight,
-                                  }
-                                : undefined
-                        }
-                        aria-busy={status.endsWith('ing')}
-                    >
-                        <div className={clsx('LemonCollapsePanel__content', className)} ref={contentRef}>
-                            {content}
-                        </div>
+            {mounted && (
+                <div
+                    className="LemonCollapsePanel__body"
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{ height: visible ? contentHeight : 0 }}
+                    aria-busy={visible !== isExpanded}
+                >
+                    <div className={clsx('LemonCollapsePanel__content', className)} ref={contentRef}>
+                        {content}
                     </div>
-                )}
-            </Transition>
+                </div>
+            )}
         </div>
     )
 }
