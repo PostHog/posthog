@@ -168,33 +168,54 @@ class TestFormatUrls(TestCase):
 class TestGetJsUrl(TestCase):
     factory = RequestFactory()
 
-    def test_rewrites_localhost_to_request_host_on_http(self) -> None:
-        with self.settings(DEBUG=True, JS_URL="http://localhost:8234"):
-            request = self.factory.get("/", HTTP_HOST="dev-container:8000")
-            self.assertEqual("http://dev-container:8234", get_js_url(request))
-
-    def test_keeps_localhost_on_https_request(self) -> None:
-        with self.settings(
-            DEBUG=True,
-            JS_URL="http://localhost:8234",
-            SECURE_PROXY_SSL_HEADER=("HTTP_X_FORWARDED_PROTO", "https"),
-        ):
-            request = self.factory.get(
-                "/",
-                HTTP_HOST="my-tunnel.ngrok-free.dev",
-                HTTP_X_FORWARDED_PROTO="https",
-            )
-            self.assertEqual("http://localhost:8234", get_js_url(request))
-
-    def test_returns_js_url_unchanged_when_not_localhost(self) -> None:
-        with self.settings(DEBUG=True, JS_URL="https://cdn.example.com/static"):
-            request = self.factory.get("/", HTTP_HOST="dev-container:8000")
-            self.assertEqual("https://cdn.example.com/static", get_js_url(request))
-
-    def test_returns_js_url_unchanged_outside_debug(self) -> None:
-        with self.settings(DEBUG=False, JS_URL="http://localhost:8234"):
-            request = self.factory.get("/", HTTP_HOST="dev-container:8000")
-            self.assertEqual("http://localhost:8234", get_js_url(request))
+    @parameterized.expand(
+        [
+            (
+                "http_rewrites_host",
+                True,
+                "http://localhost:8234",
+                "dev-container:8000",
+                False,
+                "http://dev-container:8234",
+            ),
+            (
+                "https_keeps_localhost",
+                True,
+                "http://localhost:8234",
+                "my-tunnel.ngrok-free.dev",
+                True,
+                "http://localhost:8234",
+            ),
+            (
+                "non_localhost_unchanged",
+                True,
+                "https://cdn.example.com/static",
+                "dev-container:8000",
+                False,
+                "https://cdn.example.com/static",
+            ),
+            (
+                "non_debug_unchanged",
+                False,
+                "http://localhost:8234",
+                "dev-container:8000",
+                False,
+                "http://localhost:8234",
+            ),
+        ]
+    )
+    def test_get_js_url(
+        self, _name: str, debug: bool, js_url: str, http_host: str, is_https: bool, expected: str
+    ) -> None:
+        settings_kwargs: dict = {"DEBUG": debug, "JS_URL": js_url}
+        if is_https:
+            settings_kwargs["SECURE_PROXY_SSL_HEADER"] = ("HTTP_X_FORWARDED_PROTO", "https")
+        with self.settings(**settings_kwargs):
+            request_kwargs = {"HTTP_HOST": http_host}
+            if is_https:
+                request_kwargs["HTTP_X_FORWARDED_PROTO"] = "https"
+            request = self.factory.get("/", **request_kwargs)
+            self.assertEqual(expected, get_js_url(request))
 
 
 class TestGeneralUtils(TestCase):
