@@ -49,6 +49,7 @@ export function SignupPanelEmail(): JSX.Element | null {
                         placeholder="email@yourcompany.com"
                         type="email"
                         inputRef={emailInputRef}
+                        disabled={isSignupPanelEmailSubmitting}
                     />
                 </LemonField>
                 {error && <LemonBanner type="error">{error}</LemonBanner>}
@@ -60,6 +61,7 @@ export function SignupPanelEmail(): JSX.Element | null {
                     htmlType="submit"
                     data-attr="signup-start"
                     loading={isSignupPanelEmailSubmitting}
+                    disabled={isSignupPanelEmailSubmitting}
                     size="large"
                 >
                     Continue
