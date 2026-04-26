@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { buildToolResultPayload } from '@/lib/build-tool-result'
 import queryIssue from '@/tools/errorTracking/queryIssue'
 import { POSTHOG_META_KEY, type Context } from '@/tools/types'
 
@@ -109,7 +110,6 @@ describe('query-error-tracking-issue', () => {
             status: 'active',
             source: 'fallback.js',
             function: 'fallbackFunction',
-            aggregations: { occurrences: 3, users: 2, sessions: 1 },
             top_in_app_frame: {
                 function: 'loadIssue',
                 source: 'app.js',
@@ -129,6 +129,20 @@ describe('query-error-tracking-issue', () => {
             _posthogUrl: `http://localhost:8010/project/1/error_tracking/${issueId}`,
         })
         expect(tool._meta?.[POSTHOG_META_KEY]?.outputFormat).toBe('json')
+        expect(tool._meta?.ui?.resourceUri).toBe('ui://posthog/error-issue.html')
+
+        const payload = buildToolResultPayload({
+            handlerResult: result,
+            toolMeta: tool._meta,
+            toolName: tool.name,
+            params: { issueId },
+            clientName: 'Claude Desktop',
+            distinctId: 'distinct-id',
+        })
+        expect(payload.structuredContent).toMatchObject({
+            id: issueId,
+            _analytics: { distinctId: 'distinct-id', toolName: 'query-error-tracking-issue' },
+        })
     })
 
     it('includes a compact sparkline only when requested', async () => {

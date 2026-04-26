@@ -26,7 +26,10 @@ def innermost_frame_attribute(materialized_col: str) -> ast.Call:
     )
 
 
-def select_sparkline_array(date_from: datetime.datetime, date_to: datetime.datetime, resolution: int) -> ast.Call:
+def select_sparkline_array(date_from: datetime.datetime, date_to: datetime.datetime, resolution: int) -> ast.Expr:
+    if resolution <= 0:
+        return ast.Constant(value=[])
+
     start_time = ast.Call(name="toDateTime", args=[ast.Constant(value=date_from)])
     end_time = ast.Call(name="toDateTime", args=[ast.Constant(value=date_to)])
     total_size = ast.Call(name="dateDiff", args=[ast.Constant(value="seconds"), start_time, end_time])

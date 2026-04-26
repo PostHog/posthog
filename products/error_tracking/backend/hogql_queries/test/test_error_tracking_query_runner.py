@@ -287,6 +287,16 @@ class ErrorTrackingQueryRunnerTestsMixin:
         self.assertEqual(results[0]["aggregations"]["occurrences"], 2)
 
     @freeze_time("2022-01-10T12:11:00")
+    def test_zero_volume_resolution_returns_counts_without_volume_buckets(self):
+        results = self._calculate(issueId=self.issue_id_one, volumeResolution=0, withAggregations=True)["results"]
+
+        self.assertEqual(len(results), 1)
+        aggregations = results[0]["aggregations"]
+        self.assertEqual(aggregations["occurrences"], 2)
+        self.assertEqual(aggregations["volumeRange"], [])
+        self.assertEqual(aggregations["volume_buckets"], [])
+
+    @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
     def test_search_query(self):
         self.create_events_and_issue(

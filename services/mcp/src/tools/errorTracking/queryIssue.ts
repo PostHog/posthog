@@ -44,7 +44,6 @@ const ISSUE_FIELDS = [
     'source',
     'function',
     'assignee',
-    'aggregations',
 ]
 
 const CONTEXT_EVENT_SELECTS = ['properties.$exception_list', 'properties.$exception_releases']
@@ -294,6 +293,7 @@ const tool = (): ToolBase<typeof schema> => ({
     schema,
     handler: queryIssueHandler,
     _meta: {
+        ui: { resourceUri: 'ui://posthog/error-issue.html' },
         [POSTHOG_META_KEY]: { outputFormat: 'json' },
     },
 })
