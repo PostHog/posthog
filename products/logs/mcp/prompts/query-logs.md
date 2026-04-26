@@ -8,7 +8,8 @@ Use `logs-attributes-list` and `logs-attribute-values-list` to discover availabl
 2. **Explore resource attributes.** Call `logs-attributes-list` with `attribute_type: "resource"` to discover resource-level attributes (e.g. `k8s.pod.name`, `k8s.namespace.name`). Then call `logs-attribute-values-list` with `attribute_type: "resource"` for relevant attributes to validate what data exists.
 3. **Explore log attributes if needed.** Call `logs-attributes-list` (defaults to log attributes) and `logs-attribute-values-list` to discover log-level attributes.
 4. **Check volume with a sparkline.** Call `logs-sparkline-query` with the discovered `serviceNames` and filters to see log volume over time. This confirms there is data and shows patterns before you pull individual entries.
-5. **Only then query logs.** Once you have confirmed the service name, volume looks right, and relevant filters are set, call `query-logs` with `serviceNames` and any additional filters.
+5. **Size with a count when the sparkline volume looks high or ambiguous.** Call `logs-count` with the same filters to get an exact scalar. If it exceeds `query-logs`'s max `limit` of 1000, narrow the filters or shorten the `dateRange` before pulling rows. Skip this step if the sparkline already shows a small, well-bounded result.
+6. **Only then query logs.** Once you have confirmed the service name, volume looks right, and the count (if checked) is in range, call `query-logs` with `serviceNames` and any additional filters.
 
 10 attribute/value queries and 1 sparkline query are cheaper than 1 log query. Prefer thorough exploration over speculative log searches.
 

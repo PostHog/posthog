@@ -1,4 +1,5 @@
 import json
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 
@@ -30,6 +31,23 @@ logger = structlog.get_logger(__name__)
 
 PAUSE_SLEEP_SECONDS = 30
 PAUSE_MAX_RUN_DURATION = timedelta(minutes=30)
+BATCH_COLLECT_MAX_SIGNALS = 20
+BATCH_COLLECT_TIMEOUT = timedelta(seconds=30)
+RETRY_BACKOFF = timedelta(seconds=10)
+
+# Patch ID for the multi-batch collection change. Once all in-flight workflows
+# that recorded history under the old single-batch code have drained (they
+# continue_as_new every iteration, so this is fast), replace this
+# workflow.patched() call with workflow.deprecate_patch() and eventually remove.
+_PATCH_COLLECT_BATCH = "collect-batch-signals-v1"
+
+
+@dataclass
+class CollectedBatch:
+    """Result of collecting signals from one or more S3 batches."""
+
+    signals: list[EmitSignalInputs] = field(default_factory=list)
+    object_keys: list[str] = field(default_factory=list)
 
 
 @activity.defn
@@ -102,6 +120,128 @@ class TeamSignalGroupingV2Workflow:
             )
         )
 
+    async def _collect_next_batch(self) -> CollectedBatch:
+        collected = CollectedBatch()
+        deadline = workflow.now() + BATCH_COLLECT_TIMEOUT
+
+        while len(collected.signals) < BATCH_COLLECT_MAX_SIGNALS:
+            if workflow.now() >= deadline:
+                break
+
+            if not self._batch_key_buffer:
+                try:
+                    await workflow.wait_condition(
+                        lambda: len(self._batch_key_buffer) > 0 or self._is_paused(),
+                        timeout=deadline - workflow.now(),
+                    )
+                except TimeoutError:
+                    break
+                if self._is_paused() or not self._batch_key_buffer:
+                    break
+
+            object_key = self._batch_key_buffer.pop(0)
+            if self._batch_buffer_size_gauge is not None:
+                self._batch_buffer_size_gauge.set(len(self._batch_key_buffer))
+            collected.object_keys.append(object_key)
+
+            read_result: ReadSignalsFromS3Output = await workflow.execute_activity(
+                read_signals_from_s3_activity,
+                ReadSignalsFromS3Input(object_key=object_key),
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+
+            collected.signals.extend(read_result.signals)
+
+        return collected
+
+    async def _run_old_single_batch_path(self, input: TeamSignalGroupingV2Input) -> None:
+        """Legacy single-batch-per-iteration path for in-flight workflow replay."""
+        # Pop the next key
+        object_key = self._batch_key_buffer.pop(0)
+        if self._batch_buffer_size_gauge is not None:
+            self._batch_buffer_size_gauge.set(len(self._batch_key_buffer))
+
+        # Download the batch from S3
+        read_result: ReadSignalsFromS3Output = await workflow.execute_activity(
+            read_signals_from_s3_activity,
+            ReadSignalsFromS3Input(object_key=object_key),
+            start_to_close_timeout=timedelta(minutes=2),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+        signals: list[EmitSignalInputs] = read_result.signals
+
+        # Invalidate type examples cache if stale
+        now = workflow.now()
+        cached = self._cached_type_examples
+        if (
+            self._type_examples_fetched_at is not None
+            and (now - self._type_examples_fetched_at) > TYPE_EXAMPLES_CACHE_TTL
+        ):
+            cached = None
+
+        try:
+            dropped, type_examples = await _process_signal_batch(signals, cached_type_examples=cached)
+            self._cached_type_examples = type_examples
+            self._type_examples_fetched_at = self._type_examples_fetched_at if cached is not None else now
+            if self._signals_processed_counter is not None:
+                self._signals_processed_counter.add(len(signals))
+            if self._signals_dropped_counter is not None and dropped > 0:
+                self._signals_dropped_counter.add(dropped)
+        except Exception:
+            logger.exception(
+                "Failed to process signal batch",
+                team_id=input.team_id,
+                batch_size=len(signals),
+                object_key=object_key,
+            )
+
+        # continue_as_new after each batch to keep history bounded.
+        # Carry over any pending keys that arrived while we were processing.
+        self._continue_as_new(input)
+
+    async def _run_new_collect_batch_path(self, input: TeamSignalGroupingV2Input) -> None:
+        """New multi-batch collection path."""
+        # Collect signals from multiple batches until we hit the signal
+        # count threshold or the collection timeout expires.
+        collected = await self._collect_next_batch()
+
+        if not collected.signals:
+            # Could happen if we woke up due to pause; loop back around
+            return
+
+        if self._is_paused():
+            # Paused while collecting; stash collected keys back and loop
+            self._batch_key_buffer = collected.object_keys + self._batch_key_buffer
+            if self._batch_buffer_size_gauge is not None:
+                self._batch_buffer_size_gauge.set(len(self._batch_key_buffer))
+            return
+
+        try:
+            dropped, _type_examples = await _process_signal_batch(collected.signals)
+            if self._signals_processed_counter is not None:
+                self._signals_processed_counter.add(len(collected.signals))
+            if self._signals_dropped_counter is not None and dropped > 0:
+                self._signals_dropped_counter.add(dropped)
+        except Exception:
+            logger.exception(
+                "Failed to process signal batch",
+                team_id=input.team_id,
+                batch_size=len(collected.signals),
+                batch_keys=collected.object_keys,
+            )
+            # Stash keys back so they're retried after continue_as_new.
+            # Sleep first to avoid hot-looping on deterministic failures.
+            self._batch_key_buffer = collected.object_keys + self._batch_key_buffer
+            if self._batch_buffer_size_gauge is not None:
+                self._batch_buffer_size_gauge.set(len(self._batch_key_buffer))
+            await workflow.sleep(RETRY_BACKOFF)
+
+        # continue_as_new after each processing round to keep history bounded.
+        # Carry over any pending keys that arrived while we were processing.
+        self._continue_as_new(input)
+
     @temporalio.workflow.run
     async def run(self, input: TeamSignalGroupingV2Input) -> None:
         # Restore state carried over from continue_as_new
@@ -140,50 +280,13 @@ class TeamSignalGroupingV2Workflow:
 
             if self._is_paused():
                 self._continue_as_new(input)
-                continue
 
-            # Pop the next key
-            object_key = self._batch_key_buffer.pop(0)
-            self._batch_buffer_size_gauge.set(len(self._batch_key_buffer))
-
-            # Download the batch from S3
-            read_result: ReadSignalsFromS3Output = await workflow.execute_activity(
-                read_signals_from_s3_activity,
-                ReadSignalsFromS3Input(object_key=object_key),
-                start_to_close_timeout=timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-
-            signals: list[EmitSignalInputs] = read_result.signals
-
-            # Invalidate type examples cache if stale
-            now = workflow.now()
-            cached = self._cached_type_examples
-            if (
-                self._type_examples_fetched_at is not None
-                and (now - self._type_examples_fetched_at) > TYPE_EXAMPLES_CACHE_TTL
-            ):
-                cached = None
-
-            try:
-                dropped, type_examples = await _process_signal_batch(signals, cached_type_examples=cached)
-                self._cached_type_examples = type_examples
-                self._type_examples_fetched_at = self._type_examples_fetched_at if cached is not None else now
-                if self._signals_processed_counter is not None:
-                    self._signals_processed_counter.add(len(signals))
-                if self._signals_dropped_counter is not None and dropped > 0:
-                    self._signals_dropped_counter.add(dropped)
-            except Exception:
-                logger.exception(
-                    "Failed to process signal batch",
-                    team_id=input.team_id,
-                    batch_size=len(signals),
-                    object_key=object_key,
-                )
-
-            # continue_as_new after each batch to keep history bounded.
-            # Carry over any pending keys that arrived while we were processing.
-            self._continue_as_new(input)
+            if workflow.patched(_PATCH_COLLECT_BATCH):
+                # New path: collect signals from multiple S3 batches before processing
+                await self._run_new_collect_batch_path(input)
+            else:
+                # Old path: single batch per iteration (replay-safe for in-flight workflows)
+                await self._run_old_single_batch_path(input)
 
     # -- External interaction classmethods (called from Django) --
 
