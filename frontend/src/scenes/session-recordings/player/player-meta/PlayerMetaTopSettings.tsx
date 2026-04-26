@@ -19,7 +19,7 @@ import { urls } from 'scenes/urls'
 
 function SetPlaybackSpeed(): JSX.Element {
     const { speed, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
-    const { setSpeed } = useActions(sessionRecordingPlayerLogic)
+    const { setSpeed, setIsSettingsMenuOpen } = useActions(sessionRecordingPlayerLogic)
     return (
         <SettingsMenu
             icon={
@@ -42,6 +42,7 @@ function SetPlaybackSpeed(): JSX.Element {
                 status: speed === speedToggle ? 'danger' : 'default',
             }))}
             label={`Speed ${speed}x`}
+            onVisibilityChange={setIsSettingsMenuOpen}
         />
     )
 }

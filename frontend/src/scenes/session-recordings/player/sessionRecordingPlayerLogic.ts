@@ -583,6 +583,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setWasMarkedViewed: (wasMarkedViewed: boolean) => ({ wasMarkedViewed }),
         setShowingClipParams: (showingClipParams: boolean) => ({ showingClipParams }),
         setIsHovering: (isHovering: boolean) => ({ isHovering }),
+        setIsSettingsMenuOpen: (isSettingsMenuOpen: boolean) => ({ isSettingsMenuOpen }),
         allowPlayerChromeToHide: true,
         setMuted: (muted: boolean) => ({ muted }),
         setSkipToFirstMatchingEvent: (skipToFirstMatchingEvent: boolean) => ({ skipToFirstMatchingEvent }),
@@ -809,6 +810,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             false,
             {
                 setIsHovering: (_, { isHovering }) => isHovering,
+            },
+        ],
+        // Tracks whether a popover-style settings menu (e.g. playback speed)
+        // anchored in the player chrome is open. Used to pin the chrome visible
+        // so clicks on items rendered outside the player don't get swallowed
+        // when the player loses hover.
+        isSettingsMenuOpen: [
+            false,
+            {
+                setIsSettingsMenuOpen: (_, { isSettingsMenuOpen }) => isSettingsMenuOpen,
             },
         ],
         forceShowPlayerChrome: [
@@ -1133,8 +1144,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
         showPlayerChrome: [
-            (s) => [s.isKioskMode, s.hoverModeIsEnabled, s.isHovering, s.forceShowPlayerChrome],
-            (isKioskMode, hoverModeIsEnabled, isHovering, forceShowPlayerChrome): boolean => {
+            (s) => [s.isKioskMode, s.hoverModeIsEnabled, s.isHovering, s.forceShowPlayerChrome, s.isSettingsMenuOpen],
+            (isKioskMode, hoverModeIsEnabled, isHovering, forceShowPlayerChrome, isSettingsMenuOpen): boolean => {
                 // Kiosk mode never shows player controls
                 if (isKioskMode) {
                     return false
@@ -1148,6 +1159,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // we default to showing the UI until a timer hides it
                 // or the user has hovered over the player
                 if (forceShowPlayerChrome) {
+                    return true
+                }
+                // Keep chrome visible while a chrome-anchored settings menu is open,
+                // otherwise moving the cursor onto the popover loses hover and the
+                // click is swallowed by the fading container.
+                if (isSettingsMenuOpen) {
                     return true
                 }
                 return isHovering
