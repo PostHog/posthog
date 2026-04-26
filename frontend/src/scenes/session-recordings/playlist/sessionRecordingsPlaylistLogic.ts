@@ -242,60 +242,69 @@ const handleLoadCollectionRecordings = (shortId: string): void => {
 }
 
 /**
- * Checks if the filters are valid.
- * @param filters - The filters to check.
- * @returns True if the filters are valid, false otherwise.
+ * Returns the list of fields that fail validation. Empty array means the filters are valid.
+ * Used by both `isValidRecordingFilters` and the `setFilters` reducer so we can report the
+ * specific failing fields instead of an opaque exception.
  */
-export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilters> | undefined): boolean {
+export function getInvalidRecordingFilterFields(filters: Partial<RecordingUniversalFilters> | undefined): string[] {
     if (!filters || typeof filters !== 'object') {
-        return false
+        return ['filters']
     }
 
+    const invalidFields: string[] = []
+
     if ('date_from' in filters && filters.date_from !== null && typeof filters.date_from !== 'string') {
-        return false
+        invalidFields.push('date_from')
     }
     if ('date_to' in filters && filters.date_to !== null && typeof filters.date_to !== 'string') {
-        return false
+        invalidFields.push('date_to')
     }
 
     if ('filter_test_accounts' in filters && typeof filters.filter_test_accounts !== 'boolean') {
-        return false
+        invalidFields.push('filter_test_accounts')
     }
 
     if ('duration' in filters) {
         if (!Array.isArray(filters.duration)) {
-            return false
-        }
-        if (
+            invalidFields.push('duration')
+        } else if (
             filters.duration.length > 0 &&
             (!filters.duration[0]?.type || !filters.duration[0]?.key || !filters.duration[0]?.operator)
         ) {
-            return false
+            invalidFields.push('duration')
         }
     }
 
     if ('filter_group' in filters) {
         const group = filters.filter_group
         if (!group || typeof group !== 'object') {
-            return false
-        }
-        if (!('type' in group) || !('values' in group) || !Array.isArray(group.values)) {
-            return false
+            invalidFields.push('filter_group')
+        } else if (!('type' in group) || !('values' in group) || !Array.isArray(group.values)) {
+            invalidFields.push('filter_group')
         }
     }
 
     if ('order' in filters && typeof filters.order !== 'string') {
-        return false
+        invalidFields.push('order')
     }
 
     if (
         'order_direction' in filters &&
         (typeof filters.order_direction !== 'string' || !['ASC', 'DESC'].includes(filters.order_direction ?? 'DESC'))
     ) {
-        return false
+        invalidFields.push('order_direction')
     }
 
-    return true
+    return invalidFields
+}
+
+/**
+ * Checks if the filters are valid.
+ * @param filters - The filters to check.
+ * @returns True if the filters are valid, false otherwise.
+ */
+export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilters> | undefined): boolean {
+    return getInvalidRecordingFilterFields(filters).length === 0
 }
 
 /**
@@ -769,9 +778,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             {
                 setFilters: (state, { filters }) => {
                     try {
-                        if (!isValidRecordingFilters(filters)) {
-                            posthog.captureException(new Error('Invalid filters provided'), {
-                                filters,
+                        const invalidFields = getInvalidRecordingFilterFields(filters)
+                        if (invalidFields.length > 0) {
+                            posthog.capture('replay_invalid_saved_filters', {
+                                failing_fields: invalidFields,
                             })
                             return getDefaultFilters(props.personUUID, props.pinnedFilters)
                         }

@@ -1,12 +1,19 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { ActionFilter, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    ActionFilter,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+    RecordingDurationFilter,
+} from '~/types'
 
 import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
@@ -875,6 +882,38 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     date_from: '-7d',
                 })
             }).toMatchValues({ filters: expect.objectContaining({ date_from: '-7d', date_to: null }) })
+        })
+
+        it('falls back to default filters and emits a structured event (no exception) when filters are invalid', async () => {
+            const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(jest.fn())
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+
+            // Mirrors a saved playlist (e.g. "5+ console log errors") whose persisted filter
+            // shape no longer matches `RecordingUniversalFilters` after recent migrations.
+            const invalidSavedFilters = {
+                date_from: 7 as unknown as string,
+                duration: 'not-an-array' as unknown as RecordingDurationFilter[],
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.setFilters(invalidSavedFilters)
+            }).toMatchValues({
+                filters: expect.objectContaining({
+                    date_from: DEFAULT_RECORDING_FILTERS.date_from,
+                    duration: DEFAULT_RECORDING_FILTERS.duration,
+                }),
+            })
+
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
+            expect(captureSpy).toHaveBeenCalledWith(
+                'replay_invalid_saved_filters',
+                expect.objectContaining({
+                    failing_fields: expect.arrayContaining(['date_from', 'duration']),
+                })
+            )
+
+            captureExceptionSpy.mockRestore()
+            captureSpy.mockRestore()
         })
     })
 
