@@ -2796,6 +2796,12 @@ class TestOAuthAPI(APIBaseTest):
         self.assertNotIn("posthog_base_url", data)
 
 
+@override_settings(
+    OAUTH2_PROVIDER={
+        **settings.OAUTH2_PROVIDER,
+        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+    }
+)
 class TestLocalhostLoopbackRedirectUri(APIBaseTest):
     """
     Tests for RFC 8252 Section 7.3 — loopback redirect URIs must allow any port.

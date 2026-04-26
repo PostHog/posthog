@@ -1,0 +1,45 @@
+### Using the `posthog` tool
+
+Pass CLI-style commands in the `command` parameter for all PostHog interactions.
+
+**MANDATORY — HARD REQUIREMENTS**
+
+1. Discover tools first with `search` or `tools`.
+2. Run `info <tool_name>` BEFORE every `call <tool_name> <json>`.
+
+BLOCKING, like reading a file before editing it. Tool names and schemas are NOT predictable — never assume.
+
+**Commands (in order):**
+
+```text
+# 1. Discover (preferred: focused regex over name/title/description)
+posthog:exec({ "command": "search <regex>" })
+posthog:exec({ "command": "tools" })            # fallback: list all
+
+# 2. Check description + top-level schema (REQUIRED before call)
+posthog:exec({ "command": "info <tool_name>" })
+
+# 3. Drill into complex fields — REQUIRED for any field with a `hint`
+posthog:exec({ "command": "schema <tool_name> <field_path>" })
+
+# 4. Call the tool
+posthog:exec({ "command": "call <tool_name> <json_input>" })
+```
+
+**Schema drill-down:**
+
+- `info` returns the full schema if it fits the token budget; otherwise it auto-summarizes (names, types, required, enums, defaults) and attaches `hint` entries pointing to `schema <tool> <path>` for complex fields.
+- `schema <tool>` (no path) returns the summarized top-level schema.
+- `schema <tool> <path>` resolves a dot path, descending through:
+  - object `properties` (e.g. `query.source`)
+  - array `items` — numeric segments step into items (`events.0.properties`), or jump to a property on the item type (`events.id`)
+  - `anyOf`/`oneOf` — numeric segment picks a variant by index, or a property name matches any object variant defining it
+- Oversized sub-schemas are also summarized with a `note` to drill further.
+- Unknown paths return an error listing available child paths.
+
+**Not supported:**
+
+- `search` matches tool metadata only, not input schemas.
+- No pattern-based field projection — drill one path at a time.
+
+Detailed reference (examples, query tools, URL patterns, guidelines) is in the `command` parameter description.

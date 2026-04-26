@@ -223,9 +223,6 @@ tools:
     error-tracking-releases-hash-retrieve:
         operation: error_tracking_releases_hash_retrieve
         enabled: false
-    error-tracking-spike-detection-config-retrieve:
-        operation: error_tracking_spike_detection_config_retrieve
-        enabled: false
     error-tracking-spike-detection-config-update-config-partial-update:
         operation: error_tracking_spike_detection_config_update_config_partial_update
         enabled: false
@@ -265,8 +262,8 @@ tools:
             idempotent: false
         title: Create error tracking suppression rule
         description: >
-            Create an error tracking suppression rule for the current project. Provide optional `filters` and
-            optional `sampling_rate`; omit `filters` to create a match-all suppression rule.
+            Create an error tracking suppression rule for the current project. Provide optional `filters` and optional
+            `sampling_rate`; omit `filters` to create a match-all suppression rule.
     error-tracking-suppression-rules-reorder-partial-update:
         operation: error_tracking_suppression_rules_reorder_partial_update
         enabled: false
@@ -363,6 +360,15 @@ tools:
     error-tracking-recommendations-restore-create:
         operation: error_tracking_recommendations_restore_create
         enabled: false
+    error-tracking-issues-all-activity-retrieve:
+        operation: error_tracking_issues_all_activity_retrieve
+        enabled: false
+    error-tracking-spike-detection-config-list:
+        operation: error_tracking_spike_detection_config_list
+        enabled: false
+    error-tracking-symbol-sets-download-retrieve:
+        operation: error_tracking_symbol_sets_download_retrieve
+        enabled: false
 wrappers:
     query-error-tracking-issues:
         schema_ref: AssistantErrorTrackingQuery
@@ -375,6 +381,7 @@ wrappers:
             idempotent: true
         title: Query error tracking issues
         description_file: ./prompts/query-error-tracking-issues.md
+        system_prompt_hint: Error filtering and aggregation (error-tracking category)
         ui_resource_uri: ui://posthog/error-issue-list.html
         property_defaults:
             limit: 50

@@ -177,12 +177,26 @@ pub async fn process_events<'a>(
 
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "filtered by token_dropper");
 
-    // Apply event restrictions if service is configured
+    // Apply event restrictions if service is configured.
+    //
+    // The service is scoped to the analytics pipeline (loaded for
+    // `CaptureMode::Events` → pipeline name `"analytics"`), so restrictions
+    // only apply to events routed to the analytics pipeline. Non-analytics
+    // data types (exceptions, heatmaps, client ingestion warnings) flow to
+    // separate topics and separate consumers that own their own restriction
+    // scope — applying analytics restrictions here would cross pipelines
+    // (e.g. a DropEvent restriction would silently drop exception events
+    // before they reach the error tracking topic).
     if let Some(ref service) = restriction_service {
         let mut filtered_events = Vec::with_capacity(events.len());
         let now_ts = context.now.timestamp();
 
         for e in events {
+            if !e.metadata.data_type.is_analytics_pipeline() {
+                filtered_events.push(e);
+                continue;
+            }
+
             let uuid_str = e.event.uuid.to_string();
             let event_ctx = RestrictionEventContext {
                 distinct_id: Some(&e.event.distinct_id),
@@ -456,6 +470,7 @@ mod tests {
         RestrictionScope, RestrictionType,
     };
     use crate::sinks::test_sink::MockSink;
+    use rstest::rstest;
     use std::time::Duration;
 
     #[tokio::test]
@@ -834,6 +849,184 @@ mod tests {
             captured[0].metadata.redirect_to_topic,
             Some("custom_events_topic".to_string())
         );
+    }
+
+    // ============ non-analytics data types bypass restrictions ============
+    // The `EventRestrictionService` in analytics handlers is scoped to the
+    // analytics pipeline. Events whose `data_type` belongs to a different
+    // pipeline (exceptions → error tracking, heatmaps, client ingestion
+    // warnings) must pass through the restriction stage untouched so that an
+    // analytics-scoped DropEvent/RedirectToDlq/etc. does not cross pipelines.
+
+    async fn process_single_with_drop_restriction(event_name: &str) -> Vec<ProcessedEvent> {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+        let events = vec![create_test_event_with_name(
+            event_name,
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        )];
+
+        let sink = Arc::new(MockSink::new());
+        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+
+        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
+        let mut manager = RestrictionManager::new();
+        manager.restrictions.insert(
+            "test_token".to_string(),
+            vec![Restriction {
+                restriction_type: RestrictionType::DropEvent,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        );
+        service.update(manager).await;
+
+        process_events(
+            sink.clone(),
+            dropper,
+            Some(service),
+            historical_cfg,
+            None,
+            None,
+            &events,
+            &context,
+        )
+        .await
+        .unwrap();
+
+        sink.get_events()
+    }
+
+    #[rstest]
+    #[case("$exception", DataType::ExceptionErrorTracking)]
+    #[case("$$heatmap", DataType::HeatmapMain)]
+    #[case("$$client_ingestion_warning", DataType::ClientIngestionWarning)]
+    #[tokio::test]
+    async fn test_non_analytics_events_bypass_drop_restriction(
+        #[case] event_name: &str,
+        #[case] expected_data_type: DataType,
+    ) {
+        let captured = process_single_with_drop_restriction(event_name).await;
+        assert_eq!(captured.len(), 1);
+        assert_eq!(captured[0].metadata.data_type, expected_data_type);
+    }
+
+    #[tokio::test]
+    async fn test_process_events_exception_bypasses_force_overflow_restriction() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+        let events = vec![create_test_event_with_name(
+            "$exception",
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        )];
+
+        let sink = Arc::new(MockSink::new());
+        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+
+        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
+        let mut manager = RestrictionManager::new();
+        manager.restrictions.insert(
+            "test_token".to_string(),
+            vec![
+                Restriction {
+                    restriction_type: RestrictionType::ForceOverflow,
+                    scope: RestrictionScope::AllEvents,
+                    args: None,
+                },
+                Restriction {
+                    restriction_type: RestrictionType::SkipPersonProcessing,
+                    scope: RestrictionScope::AllEvents,
+                    args: None,
+                },
+                Restriction {
+                    restriction_type: RestrictionType::RedirectToDlq,
+                    scope: RestrictionScope::AllEvents,
+                    args: None,
+                },
+            ],
+        );
+        service.update(manager).await;
+
+        process_events(
+            sink.clone(),
+            dropper,
+            Some(service),
+            historical_cfg,
+            None,
+            None,
+            &events,
+            &context,
+        )
+        .await
+        .unwrap();
+
+        let captured = sink.get_events();
+        assert_eq!(captured.len(), 1);
+        assert_eq!(
+            captured[0].metadata.data_type,
+            DataType::ExceptionErrorTracking
+        );
+        assert!(!captured[0].metadata.force_overflow);
+        assert!(!captured[0].metadata.skip_person_processing);
+        assert!(!captured[0].metadata.redirect_to_dlq);
+        assert!(captured[0].metadata.redirect_to_topic.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_process_events_analytics_historical_still_gets_restrictions() {
+        // AnalyticsHistorical is part of the analytics pipeline, so restrictions
+        // must still apply to it.
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut context = create_test_context(now, None);
+        context.historical_migration = true;
+        let events = vec![create_test_event(
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        )];
+
+        let sink = Arc::new(MockSink::new());
+        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+
+        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
+        let mut manager = RestrictionManager::new();
+        manager.restrictions.insert(
+            "test_token".to_string(),
+            vec![Restriction {
+                restriction_type: RestrictionType::DropEvent,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        );
+        service.update(manager).await;
+
+        process_events(
+            sink.clone(),
+            dropper,
+            Some(service),
+            historical_cfg,
+            None,
+            None,
+            &events,
+            &context,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(sink.get_events().len(), 0);
     }
 
     // ============ overflow_reason stamping tests ============

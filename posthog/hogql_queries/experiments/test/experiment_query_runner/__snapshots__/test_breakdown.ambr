@@ -999,8 +999,8 @@
               exposures.variant,
               exposures.breakdown_value_1),
        percentiles AS
-    (SELECT quantile(0.05)(entity_metrics.value) AS lower_bound,
-            quantile(0.95)(entity_metrics.value) AS upper_bound,
+    (SELECT quantileExact(0.05)(entity_metrics.value) AS lower_bound,
+            quantileExact(0.95)(entity_metrics.value) AS upper_bound,
             entity_metrics.breakdown_value_1 AS breakdown_value_1
      FROM entity_metrics
      GROUP BY entity_metrics.breakdown_value_1),

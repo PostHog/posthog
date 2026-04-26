@@ -40,7 +40,7 @@ describe('Experiments', { concurrent: false }, () => {
 
     const createTool = GENERATED_TOOLS['experiment-create']!()
     const getTool = GENERATED_TOOLS['experiment-get']!()
-    const getAllTool = GENERATED_TOOLS['experiment-get-all']!()
+    const listTool = GENERATED_TOOLS['experiment-list']!()
     const updateTool = GENERATED_TOOLS['experiment-update']!()
     const deleteTool = GENERATED_TOOLS['experiment-delete']!()
     const launchTool = GENERATED_TOOLS['experiment-launch']!()
@@ -148,9 +148,17 @@ describe('Experiments', { concurrent: false }, () => {
         it('should create an experiment with mean metric', async () => {
             const flagKey = generateUniqueKey('exp-flag-mean')
 
-            const params = {
+            // experiment-create no longer accepts metrics — add them via update afterwards.
+            const createResult = await createTool.handler(context, {
                 name: 'Mean Metric Experiment',
                 feature_flag_key: flagKey,
+                allow_unknown_events: true,
+            } as any)
+            const created = parseToolResponse(createResult)
+            trackExperiment(created)
+
+            const updateResult = await updateTool.handler(context, {
+                id: created.id,
                 metrics: [
                     {
                         kind: 'ExperimentMetric',
@@ -164,11 +172,8 @@ describe('Experiments', { concurrent: false }, () => {
                     },
                 ],
                 allow_unknown_events: true,
-            }
-
-            const result = await createTool.handler(context, params as any)
-            const experiment = parseToolResponse(result)
-            trackExperiment(experiment)
+            } as any)
+            const experiment = parseToolResponse(updateResult)
 
             expect(experiment.id).toBeTruthy()
             expect(experiment.metrics).toHaveLength(1)
@@ -177,9 +182,16 @@ describe('Experiments', { concurrent: false }, () => {
         it('should create an experiment with funnel metric', async () => {
             const flagKey = generateUniqueKey('exp-flag-funnel')
 
-            const params = {
+            const createResult = await createTool.handler(context, {
                 name: 'Funnel Metric Experiment',
                 feature_flag_key: flagKey,
+                allow_unknown_events: true,
+            } as any)
+            const created = parseToolResponse(createResult)
+            trackExperiment(created)
+
+            const updateResult = await updateTool.handler(context, {
+                id: created.id,
                 metrics: [
                     {
                         kind: 'ExperimentMetric',
@@ -194,11 +206,8 @@ describe('Experiments', { concurrent: false }, () => {
                     },
                 ],
                 allow_unknown_events: true,
-            }
-
-            const result = await createTool.handler(context, params as any)
-            const experiment = parseToolResponse(result)
-            trackExperiment(experiment)
+            } as any)
+            const experiment = parseToolResponse(updateResult)
 
             expect(experiment.id).toBeTruthy()
             expect(experiment.metrics).toHaveLength(1)
@@ -207,9 +216,16 @@ describe('Experiments', { concurrent: false }, () => {
         it('should create an experiment with ratio metric', async () => {
             const flagKey = generateUniqueKey('exp-flag-ratio')
 
-            const params = {
+            const createResult = await createTool.handler(context, {
                 name: 'Ratio Metric Experiment',
                 feature_flag_key: flagKey,
+                allow_unknown_events: true,
+            } as any)
+            const created = parseToolResponse(createResult)
+            trackExperiment(created)
+
+            const updateResult = await updateTool.handler(context, {
+                id: created.id,
                 metrics: [
                     {
                         kind: 'ExperimentMetric',
@@ -220,11 +236,8 @@ describe('Experiments', { concurrent: false }, () => {
                     },
                 ],
                 allow_unknown_events: true,
-            }
-
-            const result = await createTool.handler(context, params as any)
-            const experiment = parseToolResponse(result)
-            trackExperiment(experiment)
+            } as any)
+            const experiment = parseToolResponse(updateResult)
 
             expect(experiment.id).toBeTruthy()
             expect(experiment.metrics).toHaveLength(1)
@@ -233,9 +246,16 @@ describe('Experiments', { concurrent: false }, () => {
         it('should create an experiment with multiple metrics', async () => {
             const flagKey = generateUniqueKey('exp-flag-multi')
 
-            const params = {
+            const createResult = await createTool.handler(context, {
                 name: 'Multi Metric Experiment',
                 feature_flag_key: flagKey,
+                allow_unknown_events: true,
+            } as any)
+            const created = parseToolResponse(createResult)
+            trackExperiment(created)
+
+            const updateResult = await updateTool.handler(context, {
+                id: created.id,
                 metrics: [
                     {
                         kind: 'ExperimentMetric',
@@ -270,11 +290,8 @@ describe('Experiments', { concurrent: false }, () => {
                     },
                 ],
                 allow_unknown_events: true,
-            }
-
-            const result = await createTool.handler(context, params as any)
-            const experiment = parseToolResponse(result)
-            trackExperiment(experiment)
+            } as any)
+            const experiment = parseToolResponse(updateResult)
 
             expect(experiment.id).toBeTruthy()
             expect(experiment.metrics).toHaveLength(2)
@@ -284,20 +301,29 @@ describe('Experiments', { concurrent: false }, () => {
         it('should reject unknown event names when allow_unknown_events is not set', async () => {
             const flagKey = generateUniqueKey('exp-flag-unknown-event')
 
-            const params = {
+            // Create with allow_unknown_events so the draft itself is accepted, then attempt
+            // to add a bogus metric without the bypass — backend should reject during update.
+            const createResult = await createTool.handler(context, {
                 name: 'Unknown Event Experiment',
                 feature_flag_key: flagKey,
-                metrics: [
-                    {
-                        kind: 'ExperimentMetric',
-                        name: 'Nonexistent Event Metric',
-                        metric_type: 'mean',
-                        source: { kind: 'EventsNode', event: 'totally_nonexistent_event' },
-                    },
-                ],
-            }
+                allow_unknown_events: true,
+            } as any)
+            const created = parseToolResponse(createResult)
+            trackExperiment(created)
 
-            await expect(createTool.handler(context, params as any)).rejects.toThrow(/not found/)
+            await expect(
+                updateTool.handler(context, {
+                    id: created.id,
+                    metrics: [
+                        {
+                            kind: 'ExperimentMetric',
+                            name: 'Nonexistent Event Metric',
+                            metric_type: 'mean',
+                            source: { kind: 'EventsNode', event: 'totally_nonexistent_event' },
+                        },
+                    ],
+                } as any)
+            ).rejects.toThrow(/not found/)
         })
 
         it('should create an experiment with minimum detectable effect', async () => {
@@ -373,7 +399,7 @@ describe('Experiments', { concurrent: false }, () => {
             }
 
             // Get all experiments
-            const result = await getAllTool.handler(context, {})
+            const result = await listTool.handler(context, {})
             const allExperiments = parseToolResponse(result)
             expect(allExperiments.results.length).toBeGreaterThanOrEqual(3)
 
@@ -385,7 +411,7 @@ describe('Experiments', { concurrent: false }, () => {
         })
 
         it('should return experiments with proper structure', async () => {
-            const result = await getAllTool.handler(context, {})
+            const result = await listTool.handler(context, {})
             const experiments = parseToolResponse(result)
 
             if (experiments.results.length > 0) {
@@ -397,17 +423,17 @@ describe('Experiments', { concurrent: false }, () => {
         })
 
         it('should respect limit parameter', async () => {
-            const result = await getAllTool.handler(context, { limit: 2 })
+            const result = await listTool.handler(context, { limit: 2 })
             const experiments = parseToolResponse(result)
             expect(experiments.results.length).toBeLessThanOrEqual(2)
         })
 
         it('should respect offset parameter', async () => {
-            const allResult = await getAllTool.handler(context, { limit: 10 })
+            const allResult = await listTool.handler(context, { limit: 10 })
             const allExperiments = parseToolResponse(allResult)
 
             if (allExperiments.results.length > 1) {
-                const offsetResult = await getAllTool.handler(context, { limit: 10, offset: 1 })
+                const offsetResult = await listTool.handler(context, { limit: 10, offset: 1 })
                 const offsetExperiments = parseToolResponse(offsetResult)
                 // Verify offset is working by checking first result is different from original first result
                 expect(offsetExperiments.results[0].id).not.toBe(allExperiments.results[0].id)
@@ -415,7 +441,7 @@ describe('Experiments', { concurrent: false }, () => {
         })
 
         it('should use default limit when not specified', async () => {
-            const result = await getAllTool.handler(context, {})
+            const result = await listTool.handler(context, {})
             const experiments = parseToolResponse(result)
             expect(experiments.results.length).toBeLessThanOrEqual(50)
         })
@@ -531,7 +557,7 @@ describe('Experiments', { concurrent: false }, () => {
             // Create feature flag
             const flagKey = generateUniqueKey('exp-workflow-flag')
 
-            // Create comprehensive experiment
+            // Create comprehensive experiment (metrics added via update — see experiment-create skill)
             const createParams = {
                 name: 'Complete Workflow Experiment',
                 description: 'Testing complete experiment workflow with all features',
@@ -544,6 +570,12 @@ describe('Experiments', { concurrent: false }, () => {
                     ],
                     minimum_detectable_effect: 20,
                 },
+                exposure_criteria: {
+                    filterTestAccounts: true,
+                },
+                allow_unknown_events: true,
+            }
+            const metricsUpdate = {
                 metrics: [
                     {
                         kind: 'ExperimentMetric',
@@ -571,15 +603,18 @@ describe('Experiments', { concurrent: false }, () => {
                         denominator: { kind: 'EventsNode', event: '$pageview' },
                     },
                 ],
-                exposure_criteria: {
-                    filterTestAccounts: true,
-                },
                 allow_unknown_events: true,
             }
 
             const createResult = await createTool.handler(context, createParams as any)
-            const createdExperiment = parseToolResponse(createResult)
-            trackExperiment(createdExperiment)
+            const draft = parseToolResponse(createResult)
+            trackExperiment(draft)
+
+            const updateResult = await updateTool.handler(context, {
+                id: draft.id,
+                ...metricsUpdate,
+            } as any)
+            const createdExperiment = parseToolResponse(updateResult)
 
             // Verify creation
             expect(createdExperiment.id).toBeTruthy()
@@ -596,7 +631,7 @@ describe('Experiments', { concurrent: false }, () => {
             expect(retrievedExperiment.id).toBe(createdExperiment.id)
 
             // Verify it appears in list
-            const listResult = await getAllTool.handler(context, {})
+            const listResult = await listTool.handler(context, {})
             const allExperiments = parseToolResponse(listResult)
             const found = allExperiments.results.find((e: any) => e.id === createdExperiment.id)
             expect(found).toBeTruthy()
@@ -605,9 +640,16 @@ describe('Experiments', { concurrent: false }, () => {
         it('should create experiment with complex funnel metrics', async () => {
             const flagKey = generateUniqueKey('exp-complex-funnel-flag')
 
-            const params = {
+            const createResult = await createTool.handler(context, {
                 name: 'Complex Funnel Experiment',
                 feature_flag_key: flagKey,
+                allow_unknown_events: true,
+            } as any)
+            const created = parseToolResponse(createResult)
+            trackExperiment(created)
+
+            const updateResult = await updateTool.handler(context, {
+                id: created.id,
                 metrics: [
                     {
                         kind: 'ExperimentMetric',
@@ -637,11 +679,8 @@ describe('Experiments', { concurrent: false }, () => {
                     },
                 ],
                 allow_unknown_events: true,
-            }
-
-            const result = await createTool.handler(context, params as any)
-            const experiment = parseToolResponse(result)
-            trackExperiment(experiment)
+            } as any)
+            const experiment = parseToolResponse(updateResult)
 
             expect(experiment.id).toBeTruthy()
             expect(experiment.metrics).toHaveLength(1)
@@ -730,9 +769,16 @@ describe('Experiments', { concurrent: false }, () => {
         it('should handle metric with explicit event in source', async () => {
             const flagKey = generateUniqueKey('exp-explicit-event-flag')
 
-            const params = {
+            const createResult = await createTool.handler(context, {
                 name: 'Explicit Event Name Experiment',
                 feature_flag_key: flagKey,
+                allow_unknown_events: true,
+            } as any)
+            const created = parseToolResponse(createResult)
+            trackExperiment(created)
+
+            const updateResult = await updateTool.handler(context, {
+                id: created.id,
                 metrics: [
                     {
                         kind: 'ExperimentMetric',
@@ -742,11 +788,8 @@ describe('Experiments', { concurrent: false }, () => {
                     },
                 ],
                 allow_unknown_events: true,
-            }
-
-            const result = await createTool.handler(context, params as any)
-            const experiment = parseToolResponse(result)
-            trackExperiment(experiment)
+            } as any)
+            const experiment = parseToolResponse(updateResult)
 
             expect(experiment.id).toBeTruthy()
             expect(experiment.metrics).toHaveLength(1)
