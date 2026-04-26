@@ -326,26 +326,35 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
                     )
                 )
 
-        fields += [
-            ast.Alias(
-                alias="groupings",
-                expr=ast.Constant(value=self.query.pathsFilter.pathGroupings or None),
-            ),
-            ast.Alias(
-                alias="group_index",
-                expr=ast.Call(
-                    name="multiMatchAnyIndex",
-                    args=[ast.Field(chain=[final_path_item_column]), ast.Constant(value=self.regex_groupings or None)],
+        # Skip the groupings/group_index aliases when there are no path groupings — emitting
+        # ``NULL AS groupings`` makes ``groupings[group_index]`` resolve to ``Nullable(Nothing)``,
+        # which propagates through ``arrayZip``/``arraySplit`` and errors out with
+        # "Argument 2 of function arraySplit must be Array. Found Nullable(Nothing) instead".
+        if self.regex_groupings:
+            fields += [
+                ast.Alias(
+                    alias="groupings",
+                    expr=ast.Constant(value=self.query.pathsFilter.pathGroupings),
                 ),
-            ),
-            ast.Alias(
-                alias="path_item",
-                expr=parse_expr(
-                    "if(group_index > 0, groupings[group_index], {final_path_item_column}) AS path_item",
-                    {"final_path_item_column": ast.Field(chain=[final_path_item_column])},
+                ast.Alias(
+                    alias="group_index",
+                    expr=ast.Call(
+                        name="multiMatchAnyIndex",
+                        args=[ast.Field(chain=[final_path_item_column]), ast.Constant(value=self.regex_groupings)],
+                    ),
                 ),
-            ),
-        ]
+                ast.Alias(
+                    alias="path_item",
+                    expr=parse_expr(
+                        "if(group_index > 0, groupings[group_index], {final_path_item_column}) AS path_item",
+                        {"final_path_item_column": ast.Field(chain=[final_path_item_column])},
+                    ),
+                ),
+            ]
+        else:
+            fields.append(
+                ast.Alias(alias="path_item", expr=ast.Field(chain=[final_path_item_column])),
+            )
 
         if self.query.properties is not None and self.query.properties != []:
             event_filters.append(property_to_expr(self.query.properties, self.team))

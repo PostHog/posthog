@@ -15,6 +15,7 @@ from dateutil.relativedelta import relativedelta
 
 from posthog.schema import CachedPathsQueryResponse
 
+from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql_queries.insights.paths.paths_query_runner import PathsQueryRunner
 from posthog.models import Team
 
@@ -1062,3 +1063,64 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         sources_and_targets = [r.source + r.target for r in result.results]
         combined = " ".join(sources_and_targets)
         assert "123" in combined or "456" in combined
+
+    @freeze_time("2012-01-15T03:21:34.000Z")
+    def test_no_path_groupings_does_not_emit_null_typed_array(self):
+        # Regression test: when ``pathGroupings`` is empty, the rendered SQL must not contain
+        # ``NULL AS groupings`` or ``multiMatchAnyIndex(..., NULL)``. A NULL there resolves to
+        # ``Nullable(Nothing)`` and propagates through ``groupings[group_index]`` into
+        # ``path_list``/``arrayZip``/``arraySplit``, which then errors with
+        # "Argument 2 of function arraySplit must be Array. Found Nullable(Nothing) instead".
+        _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
+        _create_event(
+            properties={"$current_url": "/"},
+            distinct_id="person_1",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-14 03:21:34",
+        )
+        _create_event(
+            properties={"$current_url": "/about"},
+            distinct_id="person_1",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-14 03:22:34",
+        )
+
+        runner = PathsQueryRunner(
+            query={"kind": "PathsQuery", "pathsFilter": {}},
+            team=self.team,
+        )
+        printed = to_printed_hogql(runner.to_query(), self.team)
+        assert "NULL AS groupings" not in printed
+        assert "multiMatchAnyIndex(path_item_ungrouped, NULL)" not in printed
+
+        # The query must still execute end-to-end without ClickHouse type errors.
+        result = runner.run()
+        assert isinstance(result, CachedPathsQueryResponse)
+
+    @freeze_time("2012-01-15T03:21:34.000Z")
+    def test_path_groupings_still_emit_groupings_alias(self):
+        # When ``pathGroupings`` is provided we must still wire up the ``groupings`` /
+        # ``group_index`` aliases so ``multiMatchAnyIndex`` collapses matching paths.
+        _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
+        _create_event(
+            properties={"$current_url": "/bar/123/foo"},
+            distinct_id="person_1",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-14 03:21:34",
+        )
+
+        runner = PathsQueryRunner(
+            query={
+                "kind": "PathsQuery",
+                "pathsFilter": {"pathGroupings": ["/bar/*/foo"]},
+            },
+            team=self.team,
+        )
+        printed = to_printed_hogql(runner.to_query(), self.team)
+        assert "groupings" in printed
+        assert "multiMatchAnyIndex" in printed
+        assert "NULL AS groupings" not in printed
+        assert "multiMatchAnyIndex(path_item_ungrouped, NULL)" not in printed

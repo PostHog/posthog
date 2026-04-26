@@ -48,9 +48,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -134,9 +132,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -220,9 +216,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), nullIf(nullIf(events.`mat_$screen_name`, ''), 'null'), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(events.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -306,9 +300,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), nullIf(nullIf(events.`mat_$screen_name`, ''), 'null'), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(events.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -562,9 +554,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -647,9 +637,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), events.event), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -732,9 +720,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(events.event, '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -817,9 +803,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -902,9 +886,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(events.event, '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -987,9 +969,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -1080,9 +1060,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         events.person_id AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT JOIN
                    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
@@ -1166,9 +1144,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         events.person_id AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT JOIN
                    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
@@ -1286,9 +1262,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -1406,9 +1380,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -1525,9 +1497,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -1644,9 +1614,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -1764,9 +1732,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -1883,9 +1849,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -2002,9 +1966,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -2122,9 +2084,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -2241,9 +2201,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -2335,9 +2293,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -2456,9 +2412,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -2494,7 +2448,7 @@
                                                                 FROM
                                                                   (SELECT person_id AS person_id, groupArray(timestamp) AS timing_list, groupArray(path_item) AS path_list, groupArray(uuid) AS uuid_list, groupArray(timestamp) AS timestamp_list, groupArray(session_id) AS session_id_list, groupArray(window_id) AS window_id_list
                                                                    FROM
-                                                                     (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped, events.uuid AS uuid, toTimeZone(events.timestamp, 'UTC') AS timestamp, ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id, ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id, NULL AS groupings, multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index, (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                                                                     (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped, events.uuid AS uuid, toTimeZone(events.timestamp, 'UTC') AS timestamp, ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id, ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id, path_item_ungrouped AS path_item
                                                                       FROM events
                                                                       LEFT OUTER JOIN
                                                                         (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2634,9 +2588,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -2673,7 +2625,7 @@
                                                                 FROM
                                                                   (SELECT person_id AS person_id, groupArray(timestamp) AS timing_list, groupArray(path_item) AS path_list, groupArray(uuid) AS uuid_list, groupArray(timestamp) AS timestamp_list, groupArray(session_id) AS session_id_list, groupArray(window_id) AS window_id_list
                                                                    FROM
-                                                                     (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped, events.uuid AS uuid, toTimeZone(events.timestamp, 'UTC') AS timestamp, ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id, ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id, NULL AS groupings, multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index, (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                                                                     (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped, events.uuid AS uuid, toTimeZone(events.timestamp, 'UTC') AS timestamp, ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id, ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id, path_item_ungrouped AS path_item
                                                                       FROM events
                                                                       LEFT OUTER JOIN
                                                                         (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2792,9 +2744,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -2831,7 +2781,7 @@
                                                                 FROM
                                                                   (SELECT person_id AS person_id, groupArray(timestamp) AS timing_list, groupArray(path_item) AS path_list, groupArray(uuid) AS uuid_list, groupArray(timestamp) AS timestamp_list, groupArray(session_id) AS session_id_list, groupArray(window_id) AS window_id_list
                                                                    FROM
-                                                                     (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped, events.uuid AS uuid, toTimeZone(events.timestamp, 'UTC') AS timestamp, ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id, ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id, NULL AS groupings, multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index, (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                                                                     (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped, events.uuid AS uuid, toTimeZone(events.timestamp, 'UTC') AS timestamp, ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id, ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id, path_item_ungrouped AS path_item
                                                                       FROM events
                                                                       LEFT OUTER JOIN
                                                                         (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2972,9 +2922,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -3010,7 +2958,7 @@
                                                                 FROM
                                                                   (SELECT person_id AS person_id, groupArray(timestamp) AS timing_list, groupArray(path_item) AS path_list, groupArray(uuid) AS uuid_list, groupArray(timestamp) AS timestamp_list, groupArray(session_id) AS session_id_list, groupArray(window_id) AS window_id_list
                                                                    FROM
-                                                                     (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped, events.uuid AS uuid, toTimeZone(events.timestamp, 'UTC') AS timestamp, ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id, ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id, NULL AS groupings, multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index, (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                                                                     (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped, events.uuid AS uuid, toTimeZone(events.timestamp, 'UTC') AS timestamp, ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id, ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id, path_item_ungrouped AS path_item
                                                                       FROM events
                                                                       LEFT OUTER JOIN
                                                                         (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3158,9 +3106,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -3197,7 +3143,7 @@
                                                                 FROM
                                                                   (SELECT person_id AS person_id, groupArray(timestamp) AS timing_list, groupArray(path_item) AS path_list, groupArray(uuid) AS uuid_list, groupArray(timestamp) AS timestamp_list, groupArray(session_id) AS session_id_list, groupArray(window_id) AS window_id_list
                                                                    FROM
-                                                                     (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped, events.uuid AS uuid, toTimeZone(events.timestamp, 'UTC') AS timestamp, ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id, ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id, NULL AS groupings, multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index, (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                                                                     (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped, events.uuid AS uuid, toTimeZone(events.timestamp, 'UTC') AS timestamp, ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id, ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id, path_item_ungrouped AS path_item
                                                                       FROM events
                                                                       LEFT OUTER JOIN
                                                                         (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3302,9 +3248,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -3391,9 +3335,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -3519,9 +3461,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -3609,9 +3549,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -3737,9 +3675,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -3827,9 +3763,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(events.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -3955,9 +3889,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -4045,9 +3977,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(events.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -4173,9 +4103,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -4259,9 +4187,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -4345,9 +4271,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -4430,9 +4354,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -4549,9 +4471,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -4668,9 +4588,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -4753,9 +4671,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -4872,9 +4788,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -4957,9 +4871,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -5076,9 +4988,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -5195,9 +5105,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -5314,9 +5222,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -5574,9 +5480,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -5660,9 +5564,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -5746,9 +5648,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), nullIf(nullIf(events.`mat_$screen_name`, ''), 'null'), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(events.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -5832,9 +5732,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), nullIf(nullIf(events.`mat_$screen_name`, ''), 'null'), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(events.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -6088,9 +5986,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -6173,9 +6069,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), events.event), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -6258,9 +6152,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(events.event, '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -6343,9 +6235,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -6428,9 +6318,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(events.event, '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -6513,9 +6401,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -6606,9 +6492,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         events.person_id AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT JOIN
                    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
@@ -6693,9 +6577,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         events.person_id AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT JOIN
                    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
@@ -6814,9 +6696,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -6934,9 +6814,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -7053,9 +6931,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -7172,9 +7048,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -7292,9 +7166,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -7411,9 +7283,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -7530,9 +7400,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -7650,9 +7518,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -7769,9 +7635,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -7863,9 +7727,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -7984,9 +7846,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -8022,7 +7882,7 @@
                                                                 FROM
                                                                   (SELECT person_id AS person_id, groupArray(timestamp) AS timing_list, groupArray(path_item) AS path_list, groupArray(uuid) AS uuid_list, groupArray(timestamp) AS timestamp_list, groupArray(session_id) AS session_id_list, groupArray(window_id) AS window_id_list
                                                                    FROM
-                                                                     (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped, events.uuid AS uuid, toTimeZone(events.timestamp, 'UTC') AS timestamp, ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id, ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id, NULL AS groupings, multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index, (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                                                                     (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped, events.uuid AS uuid, toTimeZone(events.timestamp, 'UTC') AS timestamp, ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id, ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id, path_item_ungrouped AS path_item
                                                                       FROM events
                                                                       LEFT OUTER JOIN
                                                                         (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
@@ -8162,9 +8022,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -8201,7 +8059,7 @@
                                                                 FROM
                                                                   (SELECT person_id AS person_id, groupArray(timestamp) AS timing_list, groupArray(path_item) AS path_list, groupArray(uuid) AS uuid_list, groupArray(timestamp) AS timestamp_list, groupArray(session_id) AS session_id_list, groupArray(window_id) AS window_id_list
                                                                    FROM
-                                                                     (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped, events.uuid AS uuid, toTimeZone(events.timestamp, 'UTC') AS timestamp, ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id, ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id, NULL AS groupings, multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index, (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                                                                     (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped, events.uuid AS uuid, toTimeZone(events.timestamp, 'UTC') AS timestamp, ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id, ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id, path_item_ungrouped AS path_item
                                                                       FROM events
                                                                       LEFT OUTER JOIN
                                                                         (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
@@ -8320,9 +8178,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -8359,7 +8215,7 @@
                                                                 FROM
                                                                   (SELECT person_id AS person_id, groupArray(timestamp) AS timing_list, groupArray(path_item) AS path_list, groupArray(uuid) AS uuid_list, groupArray(timestamp) AS timestamp_list, groupArray(session_id) AS session_id_list, groupArray(window_id) AS window_id_list
                                                                    FROM
-                                                                     (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped, events.uuid AS uuid, toTimeZone(events.timestamp, 'UTC') AS timestamp, ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id, ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id, NULL AS groupings, multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index, (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                                                                     (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped, events.uuid AS uuid, toTimeZone(events.timestamp, 'UTC') AS timestamp, ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id, ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id, path_item_ungrouped AS path_item
                                                                       FROM events
                                                                       LEFT OUTER JOIN
                                                                         (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
@@ -8500,9 +8356,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -8538,7 +8392,7 @@
                                                                 FROM
                                                                   (SELECT person_id AS person_id, groupArray(timestamp) AS timing_list, groupArray(path_item) AS path_list, groupArray(uuid) AS uuid_list, groupArray(timestamp) AS timestamp_list, groupArray(session_id) AS session_id_list, groupArray(window_id) AS window_id_list
                                                                    FROM
-                                                                     (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped, events.uuid AS uuid, toTimeZone(events.timestamp, 'UTC') AS timestamp, ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id, ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id, NULL AS groupings, multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index, (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                                                                     (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped, events.uuid AS uuid, toTimeZone(events.timestamp, 'UTC') AS timestamp, ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id, ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id, path_item_ungrouped AS path_item
                                                                       FROM events
                                                                       LEFT OUTER JOIN
                                                                         (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
@@ -8817,10 +8671,7 @@
                                                                                                                                                                                                                                                                                   ''), 'null'), '') AS session_id,
                                                                                                                                                                                                                                                                                                   ifNull(nullIf(nullIf(events.`$window_id`,
                                                                                                                                                                                                                                                                                                                        ''), 'null'), '') AS window_id,
-                                                                                                                                                                                                                                                                                                                                       NULL AS groupings,
-                                                                                                                                                                                                                                                                                                                                       multiMatchAnyIndex(path_item_ungrouped,
-                                                                                                                                                                                                                                                                                                                                                          NULL) AS group_index, (if(ifNull(greater(group_index,
-                                                                                                                                                                                                                                                                                                                                                                                                   0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                                                                                                                                                                                                                                                                                                                                       path_item_ungrouped AS path_item
   FROM events
   LEFT OUTER JOIN (
   SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -9077,10 +8928,7 @@
                                                                                                                                                                                                                                                                                     ''), 'null'), '') AS session_id,
                                                                                                                                                                                                                                                                                                     ifNull(nullIf(nullIf(events.`$window_id`,
                                                                                                                                                                                                                                                                                                                          ''), 'null'), '') AS window_id,
-                                                                                                                                                                                                                                                                                                                                         NULL AS groupings,
-                                                                                                                                                                                                                                                                                                                                         multiMatchAnyIndex(path_item_ungrouped,
-                                                                                                                                                                                                                                                                                                                                                            NULL) AS group_index, (if(ifNull(greater(group_index,
-                                                                                                                                                                                                                                                                                                                                                                                                     0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                                                                                                                                                                                                                                                                                                                                         path_item_ungrouped AS path_item
     FROM events
     LEFT OUTER JOIN (
     SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -9202,9 +9050,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -9291,9 +9137,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -9419,9 +9263,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -9509,9 +9351,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -9637,9 +9477,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -9727,9 +9565,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(events.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -9855,9 +9691,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -9945,9 +9779,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(events.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -10073,9 +9905,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -10159,9 +9989,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -10245,9 +10073,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -10330,9 +10156,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -10449,9 +10273,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -10568,9 +10390,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -10653,9 +10473,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -10772,9 +10590,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -10857,9 +10673,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -10976,9 +10790,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -11095,9 +10907,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -11214,9 +11024,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -11474,9 +11282,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -11560,9 +11366,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -11646,9 +11450,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), nullIf(nullIf(events.`mat_$screen_name`, ''), 'null'), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(events.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -11732,9 +11534,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), nullIf(nullIf(events.`mat_$screen_name`, ''), 'null'), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(events.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -11988,9 +11788,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -12073,9 +11871,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), events.event), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -12158,9 +11954,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(events.event, '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -12243,9 +12037,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -12328,9 +12120,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(events.event, '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -12413,9 +12203,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -12506,9 +12294,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         events.person_id AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT JOIN
                    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
@@ -12592,9 +12378,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         events.person_id AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT JOIN
                    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
@@ -12712,9 +12496,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -12832,9 +12614,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -12951,9 +12731,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -13070,9 +12848,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -13190,9 +12966,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -13309,9 +13083,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -13428,9 +13200,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -13548,9 +13318,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -13667,9 +13435,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -13761,9 +13527,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -13882,9 +13646,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -13920,7 +13682,7 @@
                                                                 FROM
                                                                   (SELECT person_id AS person_id, groupArray(timestamp) AS timing_list, groupArray(path_item) AS path_list, groupArray(uuid) AS uuid_list, groupArray(timestamp) AS timestamp_list, groupArray(session_id) AS session_id_list, groupArray(window_id) AS window_id_list
                                                                    FROM
-                                                                     (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped, events.uuid AS uuid, toTimeZone(events.timestamp, 'UTC') AS timestamp, ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id, ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id, NULL AS groupings, multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index, (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                                                                     (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped, events.uuid AS uuid, toTimeZone(events.timestamp, 'UTC') AS timestamp, ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id, ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id, path_item_ungrouped AS path_item
                                                                       FROM events
                                                                       LEFT OUTER JOIN
                                                                         (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
@@ -14060,9 +13822,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -14099,7 +13859,7 @@
                                                                 FROM
                                                                   (SELECT person_id AS person_id, groupArray(timestamp) AS timing_list, groupArray(path_item) AS path_list, groupArray(uuid) AS uuid_list, groupArray(timestamp) AS timestamp_list, groupArray(session_id) AS session_id_list, groupArray(window_id) AS window_id_list
                                                                    FROM
-                                                                     (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped, events.uuid AS uuid, toTimeZone(events.timestamp, 'UTC') AS timestamp, ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id, ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id, NULL AS groupings, multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index, (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                                                                     (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped, events.uuid AS uuid, toTimeZone(events.timestamp, 'UTC') AS timestamp, ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id, ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id, path_item_ungrouped AS path_item
                                                                       FROM events
                                                                       LEFT OUTER JOIN
                                                                         (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
@@ -14218,9 +13978,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -14257,7 +14015,7 @@
                                                                 FROM
                                                                   (SELECT person_id AS person_id, groupArray(timestamp) AS timing_list, groupArray(path_item) AS path_list, groupArray(uuid) AS uuid_list, groupArray(timestamp) AS timestamp_list, groupArray(session_id) AS session_id_list, groupArray(window_id) AS window_id_list
                                                                    FROM
-                                                                     (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped, events.uuid AS uuid, toTimeZone(events.timestamp, 'UTC') AS timestamp, ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id, ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id, NULL AS groupings, multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index, (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                                                                     (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped, events.uuid AS uuid, toTimeZone(events.timestamp, 'UTC') AS timestamp, ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id, ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id, path_item_ungrouped AS path_item
                                                                       FROM events
                                                                       LEFT OUTER JOIN
                                                                         (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
@@ -14398,9 +14156,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -14436,7 +14192,7 @@
                                                                 FROM
                                                                   (SELECT person_id AS person_id, groupArray(timestamp) AS timing_list, groupArray(path_item) AS path_list, groupArray(uuid) AS uuid_list, groupArray(timestamp) AS timestamp_list, groupArray(session_id) AS session_id_list, groupArray(window_id) AS window_id_list
                                                                    FROM
-                                                                     (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped, events.uuid AS uuid, toTimeZone(events.timestamp, 'UTC') AS timestamp, ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id, ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id, NULL AS groupings, multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index, (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                                                                     (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped, events.uuid AS uuid, toTimeZone(events.timestamp, 'UTC') AS timestamp, ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id, ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id, path_item_ungrouped AS path_item
                                                                       FROM events
                                                                       LEFT OUTER JOIN
                                                                         (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
@@ -14584,9 +14340,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -14623,7 +14377,7 @@
                                                                 FROM
                                                                   (SELECT person_id AS person_id, groupArray(timestamp) AS timing_list, groupArray(path_item) AS path_list, groupArray(uuid) AS uuid_list, groupArray(timestamp) AS timestamp_list, groupArray(session_id) AS session_id_list, groupArray(window_id) AS window_id_list
                                                                    FROM
-                                                                     (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped, events.uuid AS uuid, toTimeZone(events.timestamp, 'UTC') AS timestamp, ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id, ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id, NULL AS groupings, multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index, (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                                                                     (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped, events.uuid AS uuid, toTimeZone(events.timestamp, 'UTC') AS timestamp, ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id, ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id, path_item_ungrouped AS path_item
                                                                       FROM events
                                                                       LEFT OUTER JOIN
                                                                         (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
@@ -14728,9 +14482,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -14817,9 +14569,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -14945,9 +14695,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -15035,9 +14783,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -15163,9 +14909,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -15253,9 +14997,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(events.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -15381,9 +15123,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -15471,9 +15211,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(events.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -15599,9 +15337,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -15685,9 +15421,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -15771,9 +15505,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -15856,9 +15588,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -15975,9 +15705,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -16094,9 +15822,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -16179,9 +15905,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -16298,9 +16022,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -16383,9 +16105,7 @@
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
                         ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                        path_item_ungrouped AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -16502,9 +16222,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -16621,9 +16339,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -16740,9 +16456,7 @@
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
                            ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
-                           NULL AS groupings,
-                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                           path_item_ungrouped AS path_item
                     FROM events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
