@@ -8211,6 +8211,14 @@ class SourceFieldInputConfig(BaseModel):
     name: str
     placeholder: str
     required: bool
+    secret: bool | None = Field(
+        default=None,
+        description=(
+            "Marks this field as containing sensitive data. The value is stripped from"
+            " API responses regardless of the rendering `type` (so a multi-line PEM"
+            " blob can use `textarea` and still be redacted)."
+        ),
+    )
     type: SourceFieldInputConfigType
 
 

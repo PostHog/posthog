@@ -96,7 +96,9 @@ def get_sensitive_field_names(fields: list[FieldType]) -> set[str]:
     """Extract field names that contain sensitive data from a source config's fields."""
     sensitive: set[str] = set()
     for field in fields:
-        if isinstance(field, SourceFieldInputConfig) and field.type == SourceFieldInputConfigType.PASSWORD:
+        if isinstance(field, SourceFieldInputConfig) and (
+            field.type == SourceFieldInputConfigType.PASSWORD or field.secret
+        ):
             sensitive.add(field.name)
         elif isinstance(field, SourceFieldFileUploadConfig):
             sensitive.add(field.name)
@@ -132,7 +134,7 @@ def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> tuple
 
     for field in fields:
         if isinstance(field, SourceFieldInputConfig):
-            if field.type == SourceFieldInputConfigType.PASSWORD:
+            if field.type == SourceFieldInputConfigType.PASSWORD or field.secret:
                 _add_name_variants(sensitive, field.name)
             else:
                 _add_name_variants(nonsensitive, field.name)

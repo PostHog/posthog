@@ -122,6 +122,7 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                                             type=SourceFieldInputConfigType.TEXTAREA,
                                             required=False,
                                             placeholder="",
+                                            secret=True,
                                         ),
                                         SourceFieldInputConfig(
                                             name="passphrase",

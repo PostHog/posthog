@@ -103,6 +103,7 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,
                         placeholder="",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="client_certificate",
@@ -110,6 +111,7 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,
                         placeholder="",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="client_private_key",
@@ -117,6 +119,7 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,
                         placeholder="",
+                        secret=True,
                     ),
                 ],
             ),

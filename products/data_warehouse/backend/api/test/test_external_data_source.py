@@ -4580,6 +4580,30 @@ class TestSensitiveFieldClassification(APIBaseTest):
         assert "passphrase" in sensitive
         assert "private_key" in sensitive
 
+    def test_classifies_secret_flag_as_sensitive_regardless_of_type(self):
+        fields: list[FieldType] = [
+            SourceFieldInputConfig(
+                name="client_private_key",
+                label="Client private key",
+                placeholder="",
+                required=True,
+                type=SourceFieldInputConfigType.TEXTAREA,
+                secret=True,
+            ),
+            SourceFieldInputConfig(
+                name="namespace",
+                label="Namespace",
+                placeholder="",
+                required=True,
+                type=SourceFieldInputConfigType.TEXT,
+            ),
+        ]
+        nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(fields)
+        assert "client_private_key" in sensitive
+        assert "client_private_key" not in nonsensitive
+        assert "namespace" in nonsensitive
+        assert "namespace" not in sensitive
+
     def test_strip_sensitive_from_dict_basic(self):
         data = {"host": "localhost", "password": "secret", "unknown_key": "val"}
         result = strip_sensitive_from_dict(data, nonsensitive={"host"}, sensitive={"password"})
