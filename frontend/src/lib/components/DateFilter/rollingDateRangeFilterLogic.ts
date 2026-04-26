@@ -146,7 +146,10 @@ export const rollingDateRangeFilterLogic = kea<rollingDateRangeFilterLogicType>(
     })),
     listeners(({ props, values, actions }) => ({
         select: async (_val, breakpoint) => {
-            await breakpoint(500) // give some extra debounce time, because the menu is fiddly
+            // Debounce so that walking the counter with +/- or typing in the input
+            // coalesces into a single onChange — otherwise downstream consumers like
+            // dashboardLogic's setDates listener fire a full refresh per click.
+            await breakpoint(800)
             props.onChange?.(values.value)
         },
         setDateOption: () => {
