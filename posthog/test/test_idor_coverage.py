@@ -125,27 +125,35 @@ def _viewset_supports_post(viewset_cls: type) -> bool:
 FK_POST_CASES = _iter_fk_post_cases()
 
 
-def _iter_action_cases() -> list[tuple[str, IDORTestCase, ActionSerializerCase, WritableFKField]]:
-    """Cross-product of (viewset case × @action × writable name-pattern field).
+def _iter_action_cases() -> list[tuple[str, IDORTestCase, ActionSerializerCase, str, WritableFKField]]:
+    """Cross-product of (viewset case × @action × HTTP method × writable name-pattern field).
 
     Phase 5c — covers IDORs on custom @action endpoints with their own
     request body serializer (the `tom/dashboard-template` shape).
+
+    Fans out per writable HTTP method so PUT/PATCH/POST variants of the
+    same action each get a parametric case. GET is skipped because the
+    body-injection shape doesn't apply to query-only requests.
     """
-    out: list[tuple[str, IDORTestCase, ActionSerializerCase, WritableFKField]] = []
+    out: list[tuple[str, IDORTestCase, ActionSerializerCase, str, WritableFKField]] = []
+    writable_methods = {"POST", "PATCH", "PUT"}
     for case in DISCOVERED_CASES:
         for action in discover_action_serializers(case.viewset_cls):
             skip_key = f"{case.name}.{action.method_name}"
             if skip_key in IDOR_ACTION_SKIP_LIST:
                 continue
-            # Only writable HTTP methods are relevant — GET-only actions
-            # don't accept a body that could carry an FK.
-            if not any(m in {"POST", "PATCH", "PUT"} for m in action.http_methods):
+            methods = tuple(m for m in action.http_methods if m in writable_methods)
+            if not methods:
                 continue
-            for fk in discover_writable_tenant_fks(action.serializer_cls):
-                if fk.nested_path:
-                    continue  # nested action bodies are out-of-scope; rare and noisy
-                label = f"{case.name}__{action.method_name}__{fk.serializer_field_name}__{fk.target_model.__name__}"
-                out.append((label, case, action, fk))
+            for method in methods:
+                for fk in discover_writable_tenant_fks(action.serializer_cls):
+                    if fk.nested_path:
+                        continue  # nested action bodies are out-of-scope; rare and noisy
+                    label = (
+                        f"{case.name}__{action.method_name}__{method}"
+                        f"__{fk.serializer_field_name}__{fk.target_model.__name__}"
+                    )
+                    out.append((label, case, action, method, fk))
     return out
 
 
@@ -246,6 +254,7 @@ class TestAutomatedIDORCoverage(IDORTestMixin, APIBaseTest):
         _name: str,
         case: IDORTestCase,
         action: ActionSerializerCase,
+        method: str,
         fk: WritableFKField,
     ) -> None:
         """Attacker cannot smuggle a victim's tenant id into a custom @action body.
@@ -255,11 +264,10 @@ class TestAutomatedIDORCoverage(IDORTestMixin, APIBaseTest):
         are softer than for vanilla POST/PATCH because action semantics
         vary; we treat 4xx as pass, 5xx as skip-loud, and rely on
         sentinel-leak detection on 2xx response bodies.
+
+        One parametric case per (viewset, action, method, fk) — different
+        HTTP methods may take subtly different validation paths.
         """
-        # Pick a method that we can actually exercise.
-        method = next((m for m in action.http_methods if m in {"POST", "PATCH", "PUT"}), None)
-        if method is None:
-            self.skipTest(f"{case.name}.{action.method_name}: no writable HTTP method")
 
         # 1. Build victim resource FIRST with a distinct sentinel so the
         #    later attacker-side resources don't share it (which would
