@@ -1978,7 +1978,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         tabs: [
                             {
                                 id: ActiveHoursTab.UNIQUE,
-                                title: 'Active Hours',
+                                title: 'Active hours - Unique users',
                                 linkText: 'Unique users',
                                 canOpenModal: true,
                                 canOpenInsight: !!featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT],
@@ -2042,7 +2042,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                             {
                                 id: ActiveHoursTab.TOTAL_EVENTS,
-                                title: 'Active Hours',
+                                title: 'Active hours - Total pageviews',
                                 linkText: 'Total pageviews',
                                 canOpenModal: true,
                                 canOpenInsight: !!featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT],
