@@ -569,11 +569,7 @@ export function SceneName({
                 )}
             </>
         ) : (
-            <h1
-                className={cn(
-                    buttonPrimitiveVariants({ size: 'base', inert: true, className: `${textClasses} min-w-0 truncate` })
-                )}
-            >
+            <h1 className={cn(textClasses, 'inline-flex items-center min-w-0 truncate')}>
                 <span className="truncate">{name || <span className="text-tertiary">Unnamed</span>}</span>
             </h1>
         )
@@ -741,22 +737,12 @@ function SceneDescription({
                 {markdown && description !== null && description !== undefined ? (
                     <LemonMarkdown
                         lowKeyHeadings
-                        className={buttonPrimitiveVariants({
-                            inert: true,
-                            className: `${textClasses} block px-[var(--button-padding-x-sm)]`,
-                            autoHeight: true,
-                        })}
+                        className={cn(textClasses, 'block px-[var(--button-padding-x-sm)]')}
                     >
                         {description}
                     </LemonMarkdown>
                 ) : (
-                    <p
-                        className={buttonPrimitiveVariants({
-                            inert: true,
-                            className: `${textClasses} px-[var(--button-padding-x-sm)]`,
-                            autoHeight: true,
-                        })}
-                    >
+                    <p className={cn(textClasses, 'px-[var(--button-padding-x-sm)]')}>
                         {description !== null ? description : <span className="text-tertiary">{emptyText}</span>}
                     </p>
                 )}
