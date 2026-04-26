@@ -93,4 +93,44 @@ describe('useExitTransition', () => {
         unmount()
         expect(jest.getTimerCount()).toBe(0)
     })
+
+    it('does not schedule a timer when initially out', () => {
+        renderHook(() => useExitTransition(false, 200))
+        expect(jest.getTimerCount()).toBe(0)
+    })
+
+    it('cancels mid-enter exit before the RAF fires', () => {
+        const { result, rerender } = renderHook(({ isIn }) => useExitTransition(isIn, 200), {
+            initialProps: { isIn: false },
+        })
+        rerender({ isIn: true })
+        rerender({ isIn: false })
+        expect(result.current).toEqual({ mounted: true, visible: false })
+
+        act(() => jest.advanceTimersByTime(200))
+        expect(result.current).toEqual({ mounted: false, visible: false })
+    })
+
+    it.each([
+        ['enter-exit-enter-exit hammering', [true, false, true, false]],
+        ['exit-then-enter-then-exit before timers fire', [false, true, false]],
+    ])('settles correctly under %s', (_label, sequence) => {
+        const { result, rerender } = renderHook(({ isIn }) => useExitTransition(isIn, 200), {
+            initialProps: { isIn: sequence[0] },
+        })
+        for (const isIn of sequence.slice(1)) {
+            rerender({ isIn })
+        }
+
+        const final = sequence[sequence.length - 1]
+        if (final) {
+            expect(result.current.mounted).toBe(true)
+            act(() => flushRaf())
+            expect(result.current).toEqual({ mounted: true, visible: true })
+        } else {
+            expect(result.current.visible).toBe(false)
+            act(() => jest.advanceTimersByTime(200))
+            expect(result.current).toEqual({ mounted: false, visible: false })
+        }
+    })
 })

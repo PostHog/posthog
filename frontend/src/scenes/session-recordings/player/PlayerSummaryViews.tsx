@@ -369,7 +369,7 @@ function SessionSegmentCollapse({
                         className="LemonCollapsePanel__body"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ height: visible ? contentHeight : 0 }}
-                        aria-busy={visible !== isExpanded}
+                        aria-busy={mounted !== visible}
                     >
                         <div className="LemonCollapsePanel__content" ref={contentRef}>
                             {content}
