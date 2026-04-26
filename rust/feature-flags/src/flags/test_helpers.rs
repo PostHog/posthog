@@ -152,7 +152,11 @@ pub async fn update_flags_in_hypercache(
         None => client.set(etag_key, etag).await,
     };
     etag_write.map_err(|e| {
-        tracing::error!("Failed to write hypercache etag for team {}: {}", team_id, e);
+        tracing::error!(
+            "Failed to write hypercache etag for team {}: {}",
+            team_id,
+            e
+        );
         FlagError::Internal(format!("Failed to write etag: {e}"))
     })?;
 

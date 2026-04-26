@@ -7,9 +7,7 @@ use common_types::TeamId;
 use moka::future::Cache;
 
 use crate::api::errors::FlagError;
-use crate::flags::flag_models::{
-    FeatureFlagList, HypercacheFlagsWrapper, PreparedFlagDefinitions,
-};
+use crate::flags::flag_models::{FeatureFlagList, HypercacheFlagsWrapper, PreparedFlagDefinitions};
 use crate::metrics::consts::{
     FLAG_DEFINITIONS_INMEM_CACHE_ENTRIES_GAUGE, FLAG_DEFINITIONS_INMEM_CACHE_HIT_COUNTER,
     FLAG_DEFINITIONS_INMEM_CACHE_MISS_COUNTER, FLAG_DEFINITIONS_INMEM_CACHE_NO_VERSION_COUNTER,
@@ -45,9 +43,9 @@ impl FlagDefinitionsCache {
     const DEFAULT_TTL_SECONDS: u64 = 90;
 
     pub fn new(capacity_bytes: Option<u64>, ttl_seconds: Option<u64>) -> Self {
-        let weigher = |_key: &(TeamId, String),
-                       value: &Arc<PreparedFlagDefinitions>|
-         -> u32 { u32::try_from(value.estimated_size_bytes()).unwrap_or(u32::MAX) };
+        let weigher = |_key: &(TeamId, String), value: &Arc<PreparedFlagDefinitions>| -> u32 {
+            u32::try_from(value.estimated_size_bytes()).unwrap_or(u32::MAX)
+        };
 
         let cache = Cache::builder()
             .time_to_live(Duration::from_secs(
@@ -214,9 +212,7 @@ fn unwrap_cache_err(arc: Arc<FlagError>) -> FlagError {
         FlagError::DataParsingErrorWithContext(s) => {
             FlagError::DataParsingErrorWithContext(s.clone())
         }
-        other => FlagError::Internal(format!(
-            "flag definitions cache load failure: {other}"
-        )),
+        other => FlagError::Internal(format!("flag definitions cache load failure: {other}")),
     }
 }
 
@@ -303,7 +299,10 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(Arc::ptr_eq(&first, &second), "same etag must reuse the cached Arc");
+        assert!(
+            Arc::ptr_eq(&first, &second),
+            "same etag must reuse the cached Arc"
+        );
         assert!(first.flags[0].filters.groups[0]
             .properties
             .as_ref()
@@ -332,7 +331,11 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(counter.load(Ordering::SeqCst), 1, "first call must populate");
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            1,
+            "first call must populate"
+        );
 
         // Hit — closure must not be invoked.
         cache
@@ -369,7 +372,10 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(!Arc::ptr_eq(&a, &b), "different etag must produce a fresh Arc");
+        assert!(
+            !Arc::ptr_eq(&a, &b),
+            "different etag must produce a fresh Arc"
+        );
     }
 
     /// `etag = None` (sentinel write, TTL drift, or pre-etag entry) must
@@ -479,7 +485,9 @@ mod tests {
             .compiled_regex;
         assert!(matches!(
             regex_1,
-            Some(crate::properties::property_models::CompiledRegex::Compiled(_))
+            Some(crate::properties::property_models::CompiledRegex::Compiled(
+                _
+            ))
         ));
 
         let regex_2 = &result.flags[1].filters.groups[0]
@@ -570,12 +578,7 @@ mod tests {
             let counter = Arc::clone(&counter);
             handles.push(tokio::spawn(async move {
                 cache
-                    .get_or_load(
-                        42,
-                        etag,
-                        &CacheSource::Redis,
-                        counting_loader(w, counter),
-                    )
+                    .get_or_load(42, etag, &CacheSource::Redis, counting_loader(w, counter))
                     .await
                     .unwrap()
             }));
