@@ -391,3 +391,89 @@ def iter_unique_fields(records: Iterable[WritableFKField]) -> list[WritableFKFie
         seen.add(key)
         out.append(r)
     return out
+
+
+@dataclass(frozen=True)
+class ActionSerializerCase:
+    """A custom @action endpoint with its request serializer."""
+
+    method_name: str
+    """The bound method name on the viewset (e.g. `copy_between_projects`)."""
+
+    url_path: str
+    """URL segment after the resource list, defaults to the method name."""
+
+    http_methods: tuple[str, ...]
+    """HTTP methods the action accepts (uppercased)."""
+
+    detail: bool
+    """True if the action is a detail-route (operates on a single instance)."""
+
+    serializer_cls: type[serializers.Serializer]
+    """Request body serializer (extracted from `@extend_schema(request=...)`)."""
+
+
+def discover_action_serializers(viewset_cls: type) -> list[ActionSerializerCase]:
+    """Walk a viewset's @action methods and pull their request serializers.
+
+    `@extend_schema(request=Serializer)` (drf-spectacular) wraps the action's
+    schema class. The `request` value is captured in a closure inside
+    `get_request_serializer`; we read it via `__closure__` introspection
+    rather than calling the method (which requires runtime view context).
+    """
+    if not hasattr(viewset_cls, "get_extra_actions"):
+        return []
+    out: list[ActionSerializerCase] = []
+    for action_method in viewset_cls.get_extra_actions():
+        schema_cls = (action_method.kwargs or {}).get("schema")
+        if schema_cls is None:
+            continue
+        request_serializer = _extract_extend_schema_request(schema_cls)
+        if request_serializer is None:
+            continue
+        if not isinstance(request_serializer, type):
+            continue
+        if not issubclass(request_serializer, serializers.Serializer):
+            continue
+        # @action's mapping={method.lower(): method_name} is the source of
+        # truth for which HTTP methods this action accepts.
+        mapping = getattr(action_method, "mapping", None) or {}
+        methods = tuple(m.upper() for m in mapping.keys()) or ("GET",)
+        url_path = getattr(action_method, "url_path", None) or action_method.__name__
+        detail = bool(getattr(action_method, "detail", False))
+        out.append(
+            ActionSerializerCase(
+                method_name=action_method.__name__,
+                url_path=url_path,
+                http_methods=methods,
+                detail=detail,
+                serializer_cls=request_serializer,
+            )
+        )
+    return out
+
+
+def _extract_extend_schema_request(schema_cls: type) -> Optional[type]:
+    """Pull the captured `request=` value from drf-spectacular's @extend_schema closure.
+
+    drf-spectacular wraps each @extend_schema invocation as an `ExtendedSchema`
+    subclass in the MRO. The kwargs (including `request`) live in the
+    `get_request_serializer` method's closure freevars. Walk the MRO and
+    return the first non-empty `request` capture.
+    """
+    from rest_framework.fields import empty
+
+    for klass in schema_cls.__mro__:
+        if klass.__name__ != "ExtendedSchema":
+            continue
+        method = klass.__dict__.get("get_request_serializer")
+        if method is None or method.__closure__ is None:
+            continue
+        for freevar_name, cell in zip(method.__code__.co_freevars, method.__closure__):
+            if freevar_name != "request":
+                continue
+            value = cell.cell_contents
+            if value is empty or value is None:
+                continue
+            return value
+    return None

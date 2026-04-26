@@ -11,7 +11,9 @@ the DB, so these tests don't need `@pytest.mark.django_db`.
 
 from __future__ import annotations
 
-from rest_framework import serializers
+from drf_spectacular.utils import extend_schema
+from rest_framework import serializers, viewsets
+from rest_framework.decorators import action
 
 from posthog.api.scoped_related_fields import OrgScopedPrimaryKeyRelatedField, TeamScopedPrimaryKeyRelatedField
 from posthog.models.cohort import Cohort
@@ -19,7 +21,7 @@ from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.insight import Insight
 from posthog.models.integration import Integration
 from posthog.models.user import User
-from posthog.test.idor.fk_discovery import discover_writable_tenant_fks
+from posthog.test.idor.fk_discovery import discover_action_serializers, discover_writable_tenant_fks
 
 from products.dashboards.backend.models.dashboard import Dashboard
 
@@ -340,3 +342,53 @@ class TestDiscoverWritableTenantFks:
         assert fk.nested_path == ("destination",)
         assert fk.is_many is True
         assert fk.target_model is Dashboard
+
+
+class _CopyTemplateBodySerializer(serializers.Serializer):
+    source_template_id = serializers.UUIDField(required=True)
+
+
+class _NoSchemaActionSerializer(serializers.Serializer):
+    foo = serializers.CharField(required=True)
+
+
+class _FakeViewSetWithAction(viewsets.ViewSet):
+    @extend_schema(request=_CopyTemplateBodySerializer)
+    @action(detail=False, methods=["post"], url_path="copy_between_projects")
+    def copy_between_projects(self, request, **kwargs):
+        return None  # body irrelevant for discovery
+
+    @action(detail=True, methods=["get", "post"])
+    def lookup_thing(self, request, pk=None):
+        return None
+
+
+class _FakeViewSetNoActions(viewsets.ViewSet):
+    pass
+
+
+class TestDiscoverActionSerializers:
+    def test_finds_action_with_extend_schema_request(self) -> None:
+        result = discover_action_serializers(_FakeViewSetWithAction)
+        names = {c.method_name for c in result}
+        assert "copy_between_projects" in names
+        case = next(c for c in result if c.method_name == "copy_between_projects")
+        assert case.serializer_cls is _CopyTemplateBodySerializer
+        assert case.url_path == "copy_between_projects"
+        assert case.http_methods == ("POST",)
+        assert case.detail is False
+
+    def test_skips_actions_without_extend_schema_request(self) -> None:
+        result = discover_action_serializers(_FakeViewSetWithAction)
+        # `lookup_thing` has no @extend_schema(request=...), so it isn't returned.
+        names = {c.method_name for c in result}
+        assert "lookup_thing" not in names
+
+    def test_no_actions_returns_empty(self) -> None:
+        assert discover_action_serializers(_FakeViewSetNoActions) == []
+
+    def test_non_viewset_returns_empty(self) -> None:
+        class _NotAViewSet:
+            pass
+
+        assert discover_action_serializers(_NotAViewSet) == []
