@@ -3264,6 +3264,9 @@ importers:
       '@posthog/icons':
         specifier: '*'
         version: 0.36.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@posthog/react':
+        specifier: '*'
+        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.372.1)(react@18.3.1)
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
