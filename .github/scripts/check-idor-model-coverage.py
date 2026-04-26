@@ -91,7 +91,6 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
         "PersonOverride",
         "PersonOverrideMapping",
         # --- Schema/definition models (read-only, synced from events) ---
-        "EventDefinition",
         "EventProperty",
         "PropertyDefinition",
         # --- Plugin system deprecated internals ---
@@ -182,7 +181,6 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
         "ProductIntent",
         "SCIMDirectory",
         "SCIMProvisionedUser",
-        "SchemaPropertyGroup",
         "SessionRecordingComment",
         "SessionSummary",
         "SharePassword",

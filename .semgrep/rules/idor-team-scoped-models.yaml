@@ -98,6 +98,7 @@ rules:
                               |Endpoint
                               |EnterpriseEventDefinition
                               |EnterprisePropertyDefinition
+                              |EventDefinition
                               |EventFilterConfig
                               |ErrorTrackingAssignmentRule
                               |ErrorTrackingGroupingRule
@@ -170,6 +171,7 @@ rules:
                               |SandboxEnvironment
                               |ScoreDefinition
                               |SavedHeatmap
+                              |SchemaPropertyGroup
                               |ScheduledChange
                               |SessionGroupSummary
                               |SessionRecording
@@ -303,6 +305,7 @@ rules:
                         |Endpoint
                         |EnterpriseEventDefinition
                         |EnterprisePropertyDefinition
+                        |EventDefinition
                         |EventFilterConfig
                         |ErrorTrackingAssignmentRule
                         |ErrorTrackingGroupingRule
@@ -371,6 +374,7 @@ rules:
                         |SandboxEnvironment
                         |ScoreDefinition
                         |SavedHeatmap
+                        |SchemaPropertyGroup
                         |ScheduledChange
                         |SessionGroupSummary
                         |SessionRecording
