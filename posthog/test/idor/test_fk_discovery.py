@@ -349,6 +349,44 @@ class TestDiscoverWritableTenantFks:
 
         assert discover_writable_tenant_fks(_JustIdSerializer) == []
 
+    def test_name_pattern_short_id_suffix(self) -> None:
+        """`<thing>_short_id` should be detected with `lookup_attr=short_id`."""
+
+        class _ShortIdBody(serializers.Serializer):
+            dashboard_short_id = serializers.CharField(required=True)
+
+        result = discover_writable_tenant_fks(_ShortIdBody)
+        assert len(result) == 1
+        fk = result[0]
+        assert fk.serializer_field_name == "dashboard_short_id"
+        assert fk.lookup_attr == "short_id"
+        assert fk.is_name_pattern is True
+
+    def test_name_pattern_key_suffix(self) -> None:
+        """`<thing>_key` should be detected with `lookup_attr=key`."""
+        from posthog.models.feature_flag.feature_flag import FeatureFlag
+
+        class _KeyBody(serializers.Serializer):
+            feature_flag_key = serializers.CharField(required=True)
+
+        result = discover_writable_tenant_fks(_KeyBody)
+        assert len(result) == 1
+        fk = result[0]
+        assert fk.serializer_field_name == "feature_flag_key"
+        assert fk.lookup_attr == "key"
+        assert fk.target_model is FeatureFlag
+
+    def test_name_pattern_id_default_lookup_attr(self) -> None:
+        from products.dashboards.backend.models.dashboard import Dashboard as _Dashboard
+
+        class _IdBody(serializers.Serializer):
+            dashboard_id = serializers.IntegerField(required=True)
+
+        result = discover_writable_tenant_fks(_IdBody)
+        assert len(result) == 1
+        assert result[0].lookup_attr == "pk"
+        assert result[0].target_model is _Dashboard
+
     def test_name_pattern_on_modelserializer_falls_back_when_no_fk(self) -> None:
         """Insight has no `template` FK, but `template_id` should still match
         the tenant-scoped *Template models by name pattern."""

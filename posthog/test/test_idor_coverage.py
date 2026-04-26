@@ -307,10 +307,19 @@ class TestAutomatedIDORCoverage(IDORTestMixin, APIBaseTest):
                 f"{case.name}.{action.method_name}.{fk.serializer_field_name}: body error ({type(exc).__name__}: {exc})"
             )
 
-        # 4. Inject the victim id into the body. Nested action serializer
-        #    fields (e.g. `body.request.dashboard_id`) are wrapped via
-        #    `_inject_fk_into_body`, which mirrors the PATCH variant.
-        body = _inject_fk_into_body(body, fk, str(victim_resource.pk))
+        # 4. Inject the victim lookup value into the body. Nested action
+        #    serializer fields (e.g. `body.request.dashboard_id`) are
+        #    wrapped via `_inject_fk_into_body`, which mirrors the PATCH
+        #    variant. `fk.lookup_attr` is `pk` for standard FK shapes;
+        #    string-by-name patterns use `key`/`short_id` instead.
+        try:
+            victim_value = getattr(victim_resource, fk.lookup_attr)
+        except AttributeError:
+            self.skipTest(
+                f"{case.name}.{action.method_name}.{fk.serializer_field_name}: "
+                f"victim {fk.target_model.__name__} has no attribute {fk.lookup_attr!r}"
+            )
+        body = _inject_fk_into_body(body, fk, str(victim_value))
 
         # 5. Build the action URL on the attacker's tenant root. For
         #    detail-route actions, build an attacker-owned instance to anchor the URL.

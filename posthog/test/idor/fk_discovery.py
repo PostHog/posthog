@@ -86,6 +86,11 @@ class WritableFKField:
     can be set on create via direct model construction even though DRF rejects them
     on update. POST tests should still inject; PATCH tests should skip."""
 
+    lookup_attr: str = "pk"
+    """Model attribute to read from the victim resource for injection. Defaults to
+    `pk` for standard FK shapes; alternative values like `key`, `short_id` cover
+    string-by-name lookup patterns (`feature_flag_key`, `dashboard_short_id`)."""
+
 
 # DRF field types that can carry a raw FK pk in the string-id naming pattern.
 _IMPLICIT_FK_FIELD_TYPES = (
@@ -204,6 +209,7 @@ def _with_create_only(record: WritableFKField) -> WritableFKField:
         is_many=record.is_many,
         is_name_pattern=record.is_name_pattern,
         is_create_only=True,
+        lookup_attr=record.lookup_attr,
     )
 
 
@@ -350,27 +356,44 @@ def _classify_implicit_id(
 _ROLE_PREFIXES = ("source_", "target_", "from_", "to_", "new_", "old_", "parent_", "child_")
 
 
+# Suffixes that may carry a lookup value pointing at a tenant-scoped model.
+# Each maps the suffix to the victim-side attribute used for injection.
+# Order matters: longer suffixes first so `_short_id` wins over `_id`.
+_LOOKUP_SUFFIXES: tuple[tuple[str, str], ...] = (
+    ("_short_id", "short_id"),
+    ("_key", "key"),
+    ("_id", "pk"),
+)
+
+
 def _classify_name_pattern_id(
     field_name: str,
     drf_field: serializers.Field,
     nested_path: tuple[str, ...],
 ) -> list[WritableFKField]:
-    """Catch `<thing>_id` fields where the serializer has no Meta.model to consult.
+    """Catch lookup-value fields where the serializer has no Meta.model to consult.
 
-    The tom/dashboard-template shape: a `serializers.Serializer` subclass
-    (used as an @action's request body) declares `source_template_id =
-    UUIDField(...)`. Without `Meta.model._meta.get_field('template')` to
-    consult, we fall back to mapping the snake_cased `<thing>` to tenant-
-    scoped model names in the semgrep allowlist.
+    Two shapes are handled:
+
+      - `<thing>_id` IntegerField/UUIDField/CharField — the canonical FK
+        scalar. Victim attribute is `pk`.
+      - `<thing>_key` / `<thing>_short_id` CharField — string lookups that
+        bypass the integer/UUID PK pattern. The injected value is read
+        from the victim's `key` / `short_id` attribute.
 
     `<thing>` may match multiple models (e.g. `template` matches three);
     we emit one record per match. The runtime test fans out across them.
     """
     if not isinstance(drf_field, _IMPLICIT_FK_FIELD_TYPES):
         return []
-    if not field_name.endswith("_id") or field_name == "_id":
+    suffix_match = next(
+        ((suffix, attr) for suffix, attr in _LOOKUP_SUFFIXES if field_name.endswith(suffix) and field_name != suffix),
+        None,
+    )
+    if suffix_match is None:
         return []
-    thing = field_name[:-3]
+    suffix, lookup_attr = suffix_match
+    thing = field_name[: -len(suffix)]
     for prefix in _ROLE_PREFIXES:
         if thing.startswith(prefix):
             thing = thing[len(prefix) :]
@@ -399,6 +422,7 @@ def _classify_name_pattern_id(
                 nested_path=nested_path,
                 is_implicit=True,
                 is_name_pattern=True,
+                lookup_attr=lookup_attr,
             )
         )
     return out
