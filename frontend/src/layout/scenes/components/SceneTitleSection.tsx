@@ -735,10 +735,7 @@ function SceneDescription({
         ) : (
             <>
                 {markdown && description !== null && description !== undefined ? (
-                    <LemonMarkdown
-                        lowKeyHeadings
-                        className={cn(textClasses, 'block px-[var(--button-padding-x-sm)]')}
-                    >
+                    <LemonMarkdown lowKeyHeadings className={cn(textClasses, 'block px-[var(--button-padding-x-sm)]')}>
                         {description}
                     </LemonMarkdown>
                 ) : (
