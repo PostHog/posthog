@@ -211,10 +211,10 @@ class TestGetJsUrl(TestCase):
         if is_https:
             settings_kwargs["SECURE_PROXY_SSL_HEADER"] = ("HTTP_X_FORWARDED_PROTO", "https")
         with self.settings(**settings_kwargs):
-            request_kwargs = {"HTTP_HOST": http_host}
             if is_https:
-                request_kwargs["HTTP_X_FORWARDED_PROTO"] = "https"
-            request = self.factory.get("/", **request_kwargs)
+                request = self.factory.get("/", HTTP_HOST=http_host, HTTP_X_FORWARDED_PROTO="https")
+            else:
+                request = self.factory.get("/", HTTP_HOST=http_host)
             self.assertEqual(expected, get_js_url(request))
 
 
