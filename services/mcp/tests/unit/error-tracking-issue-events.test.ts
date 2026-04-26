@@ -120,6 +120,48 @@ describe('query-error-tracking-issue-events', () => {
         await expect(tool.handler(context, { issueId, limit: 21 })).rejects.toThrow()
     })
 
+    it('truncates long exception text outside raw mode', async () => {
+        const longText = 'x'.repeat(1200)
+        const runQuery = vi.fn().mockResolvedValue({
+            columns: [
+                'uuid',
+                'properties.$exception_message',
+                'properties.$exception_value',
+                'properties.$exception_list',
+            ],
+            results: [
+                [
+                    'event-uuid',
+                    longText,
+                    longText,
+                    JSON.stringify([
+                        {
+                            type: 'Error',
+                            value: longText,
+                            stacktrace: { frames: [] },
+                        },
+                    ]),
+                ],
+            ],
+        })
+        const context = createMockContext(runQuery)
+        const tool = queryIssueEvents()
+
+        const summaryResult = (await tool.handler(context, { issueId })) as any
+        const stackResult = (await tool.handler(context, { issueId, verbosity: 'stack' })) as any
+        const rawResult = (await tool.handler(context, { issueId, verbosity: 'raw' })) as any
+
+        const truncatedMessage = summaryResult.results[0].properties.$exception_message
+        expect(truncatedMessage).toContain('[truncated from 1200 chars]')
+        expect(truncatedMessage.length).toBeLessThanOrEqual(1000)
+        expect(summaryResult.results[0].properties.$exception_value).toContain('[truncated from 1200 chars]')
+        expect(summaryResult.results[0].properties.$exception_list[0].value).toContain('[truncated from 1200 chars]')
+        expect(stackResult.results[0].properties.$exception_list[0].value).toContain('[truncated from 1200 chars]')
+        expect(rawResult.results[0].properties.$exception_message).toBe(longText)
+        expect(rawResult.results[0].properties.$exception_value).toBe(longText)
+        expect(rawResult.results[0].properties.$exception_list[0].value).toBe(longText)
+    })
+
     it('returns parsed stack frames only when requested and filters vendor frames by default', async () => {
         const runQuery = vi.fn().mockResolvedValue({
             columns: ['uuid', 'properties.$exception_list'],

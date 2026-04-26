@@ -1,3 +1,6 @@
+const MAX_NORMALIZED_TEXT_CHARS = 1000
+const TRUNCATABLE_PROPERTY_NAMES = new Set(['$exception_message', '$exception_value'])
+
 function asRecord(value: unknown): Record<string, unknown> | undefined {
     return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined
 }
@@ -17,6 +20,15 @@ function compactObject(record: Record<string, unknown>): Record<string, unknown>
             return true
         })
     )
+}
+
+function truncateText(value: unknown, options: NormalizeOptions): unknown {
+    if (options.verbosity === 'raw' || typeof value !== 'string' || value.length <= MAX_NORMALIZED_TEXT_CHARS) {
+        return value
+    }
+
+    const suffix = `… [truncated from ${value.length} chars]`
+    return `${value.slice(0, MAX_NORMALIZED_TEXT_CHARS - suffix.length)}${suffix}`
 }
 
 function parseJsonish(value: unknown): unknown {
@@ -100,7 +112,10 @@ function normalizeException(exception: unknown, options: NormalizeOptions): Reco
 
     const summary = compactObject({
         type: exceptionRecord.type ?? exceptionRecord.exception_type,
-        value: exceptionRecord.value ?? exceptionRecord.message ?? exceptionRecord.exception_message,
+        value: truncateText(
+            exceptionRecord.value ?? exceptionRecord.message ?? exceptionRecord.exception_message,
+            options
+        ),
         module: exceptionRecord.module,
         mechanism: exceptionRecord.mechanism,
     })
@@ -147,6 +162,9 @@ export function normalizeErrorTrackingProperty(name: string, value: unknown, opt
     }
     if (name === '$exception_releases') {
         return parseJsonish(value)
+    }
+    if (TRUNCATABLE_PROPERTY_NAMES.has(name)) {
+        return truncateText(value, options)
     }
     return value
 }
