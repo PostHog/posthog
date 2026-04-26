@@ -387,6 +387,36 @@ class TestDiscoverWritableTenantFks:
         assert result[0].lookup_attr == "pk"
         assert result[0].target_model is _Dashboard
 
+    def test_bulk_ids_listfield_detected(self) -> None:
+        """`cohort_ids = ListField(child=IntegerField())` should match Cohort with is_many=True."""
+        from posthog.models.cohort.cohort import Cohort
+
+        class _BulkBody(serializers.Serializer):
+            cohort_ids = serializers.ListField(child=serializers.IntegerField())
+
+        result = discover_writable_tenant_fks(_BulkBody)
+        assert len(result) >= 1
+        cohort_records = [fk for fk in result if fk.target_model is Cohort]
+        assert len(cohort_records) == 1
+        fk = cohort_records[0]
+        assert fk.is_many is True
+        assert fk.is_implicit is True
+        assert fk.is_name_pattern is True
+
+    def test_bulk_ids_unknown_thing_skipped(self) -> None:
+        class _UnknownBulk(serializers.Serializer):
+            widget_ids = serializers.ListField(child=serializers.IntegerField())
+
+        assert discover_writable_tenant_fks(_UnknownBulk) == []
+
+    def test_plain_ids_field_skipped(self) -> None:
+        """`ids = ListField(...)` (no `<thing>` prefix) should not match — too ambiguous."""
+
+        class _PlainBulk(serializers.Serializer):
+            ids = serializers.ListField(child=serializers.IntegerField())
+
+        assert discover_writable_tenant_fks(_PlainBulk) == []
+
     def test_name_pattern_on_modelserializer_falls_back_when_no_fk(self) -> None:
         """Insight has no `template` FK, but `template_id` should still match
         the tenant-scoped *Template models by name pattern."""

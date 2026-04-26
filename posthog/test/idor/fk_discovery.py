@@ -241,6 +241,10 @@ def _classify_field(
     if isinstance(drf_field, serializers.PrimaryKeyRelatedField):
         record = _classify_explicit_fk(field_name, drf_field, nested_path, serializer_model)
         return [record] if record else []
+    if isinstance(drf_field, serializers.ListField):
+        records = _classify_bulk_id_list(field_name, drf_field, nested_path)
+        if records:
+            return records
     record = _classify_implicit_id(field_name, drf_field, nested_path, serializer_model)
     if record is not None:
         return [record]
@@ -364,6 +368,58 @@ _LOOKUP_SUFFIXES: tuple[tuple[str, str], ...] = (
     ("_key", "key"),
     ("_id", "pk"),
 )
+
+
+def _classify_bulk_id_list(
+    field_name: str,
+    drf_field: serializers.ListField,
+    nested_path: tuple[str, ...],
+) -> list[WritableFKField]:
+    """Detect bulk-id ListField shapes like `cohort_ids = ListField(child=IntegerField())`.
+
+    Bulk endpoints commonly take a list of FK ids on a single key. If the
+    field name resolves to a tenant-scoped model (e.g. `cohort_ids` →
+    Cohort), the discovery emits a many=True record so the runtime test
+    injects `[victim_pk]` into the list and verifies the action rejects.
+    """
+    child = getattr(drf_field, "child", None)
+    if not isinstance(child, _IMPLICIT_FK_FIELD_TYPES):
+        return []
+    if not field_name.endswith("_ids") or field_name == "_ids":
+        return []
+    thing = field_name[: -len("_ids")]
+    for prefix in _ROLE_PREFIXES:
+        if thing.startswith(prefix):
+            thing = thing[len(prefix) :]
+            break
+    candidate_names = lookup_tenant_models_by_partial_name(thing)
+    if not candidate_names:
+        return []
+    out: list[WritableFKField] = []
+    source_attr = getattr(drf_field, "source", None)
+    if source_attr == field_name:
+        source_attr = None
+    for class_name in candidate_names:
+        target = _resolve_django_model_by_name(class_name)
+        if target is None:
+            continue
+        scope = classify_model_scope(target.__name__)
+        if scope is None:
+            continue
+        out.append(
+            WritableFKField(
+                serializer_field_name=field_name,
+                source_attr=source_attr,
+                target_model=target,
+                scope=scope,
+                is_already_scoped=False,
+                nested_path=nested_path,
+                is_implicit=True,
+                is_many=True,
+                is_name_pattern=True,
+            )
+        )
+    return out
 
 
 def _classify_name_pattern_id(
