@@ -11,14 +11,18 @@ What we detect:
   - **Explicit PK fields**: `serializers.PrimaryKeyRelatedField(...)` —
     the canonical shape, including `TeamScopedPrimaryKeyRelatedField`
     subclasses (defense in depth).
-  - **Implicit string-id fields**: `dashboard_id = IntegerField()` /
-    `UUIDField()` / `CharField()` — common in older serializers that
-    accept the FK as a raw scalar plus a hand-rolled `validate()`.
+  - **Implicit string-id fields on a ModelSerializer**:
+    `dashboard_id = IntegerField()` / `UUIDField()` / `CharField()`.
     We resolve the target by stripping the `_id` suffix and looking
     up the corresponding Django ForeignKey on `Meta.model`.
+  - **Name-pattern fields on any Serializer (including non-Model)**:
+    `<thing>_id` IntegerField/UUIDField/CharField where `<thing>`
+    matches a tenant-scoped model name in the semgrep allowlist via
+    case-insensitive partial match (`template` → `DashboardTemplate`,
+    `source_template` → `DashboardTemplate`). Catches IDORs on custom
+    `serializers.Serializer` action body shapes.
   - **One level of nested serializer fields**. The common BatchExport-
-    style "destination.id" case is depth 1; deeper nesting is rare
-    (Phase 5c follow-up).
+    style "destination.id" case is depth 1; deeper nesting is rare.
 
 Boundaries:
 
@@ -39,7 +43,7 @@ from django.db import models
 
 from rest_framework import serializers
 
-from posthog.test.idor.fk_target_models import classify_model_scope
+from posthog.test.idor.fk_target_models import classify_model_scope, lookup_tenant_models_by_partial_name
 
 Scope = Literal["team", "organization", "user_in_org", "user_and_team"]
 
@@ -71,6 +75,10 @@ class WritableFKField:
 
     is_many: bool = False
     """True if the field is a ManyRelatedField (PrimaryKeyRelatedField with many=True)."""
+
+    is_name_pattern: bool = False
+    """True if discovered via name-pattern matching against the semgrep allowlist
+    (works on any Serializer, not just ModelSerializer with a matching ForeignKey)."""
 
 
 # DRF field types that can carry a raw FK pk in the string-id naming pattern.
@@ -109,9 +117,9 @@ def _walk_fields(
     for field_name, drf_field in fields_dict.items():
         if drf_field.read_only:
             continue
-        record = _classify_field(field_name, drf_field, nested_path, serializer_model)
-        if record is not None:
-            out.append(record)
+        records = _classify_field(field_name, drf_field, nested_path, serializer_model)
+        if records:
+            out.extend(records)
             continue
         # If this is a nested ModelSerializer (depth-1 only), recurse once.
         if not nested_path and isinstance(drf_field, serializers.ModelSerializer):
@@ -139,12 +147,22 @@ def _classify_field(
     drf_field: serializers.Field,
     nested_path: tuple[str, ...],
     serializer_model: Optional[type[models.Model]],
-) -> Optional[WritableFKField]:
+) -> list[WritableFKField]:
     if isinstance(drf_field, serializers.ManyRelatedField):
-        return _classify_many_related(field_name, drf_field, nested_path)
+        record = _classify_many_related(field_name, drf_field, nested_path)
+        return [record] if record else []
     if isinstance(drf_field, serializers.PrimaryKeyRelatedField):
-        return _classify_explicit_fk(field_name, drf_field, nested_path)
-    return _classify_implicit_id(field_name, drf_field, nested_path, serializer_model)
+        record = _classify_explicit_fk(field_name, drf_field, nested_path)
+        return [record] if record else []
+    record = _classify_implicit_id(field_name, drf_field, nested_path, serializer_model)
+    if record is not None:
+        return [record]
+    # Fallback: name-pattern match against the tenant-scoped allowlist.
+    # Works on any Serializer (including non-Model), so it catches custom
+    # action body serializers like CopyDashboardTemplateSerializer. The
+    # match may be ambiguous (e.g. `template` → DashboardTemplate /
+    # MessageTemplate / HogFlowTemplate); we emit one record per match.
+    return _classify_name_pattern_id(field_name, drf_field, nested_path)
 
 
 def _classify_many_related(
@@ -238,6 +256,82 @@ def _classify_implicit_id(
         nested_path=nested_path,
         is_implicit=True,
     )
+
+
+# Prefixes commonly used to qualify the role of an FK reference (e.g.
+# `source_template_id` is still a `template`). Strip them before
+# attempting to resolve the model name.
+_ROLE_PREFIXES = ("source_", "target_", "from_", "to_", "new_", "old_", "parent_", "child_")
+
+
+def _classify_name_pattern_id(
+    field_name: str,
+    drf_field: serializers.Field,
+    nested_path: tuple[str, ...],
+) -> list[WritableFKField]:
+    """Catch `<thing>_id` fields where the serializer has no Meta.model to consult.
+
+    The tom/dashboard-template shape: a `serializers.Serializer` subclass
+    (used as an @action's request body) declares `source_template_id =
+    UUIDField(...)`. Without `Meta.model._meta.get_field('template')` to
+    consult, we fall back to mapping the snake_cased `<thing>` to tenant-
+    scoped model names in the semgrep allowlist.
+
+    `<thing>` may match multiple models (e.g. `template` matches three);
+    we emit one record per match. The runtime test fans out across them.
+    """
+    if not isinstance(drf_field, _IMPLICIT_FK_FIELD_TYPES):
+        return []
+    if not field_name.endswith("_id") or field_name == "_id":
+        return []
+    thing = field_name[:-3]
+    for prefix in _ROLE_PREFIXES:
+        if thing.startswith(prefix):
+            thing = thing[len(prefix) :]
+            break
+    candidate_names = lookup_tenant_models_by_partial_name(thing)
+    if not candidate_names:
+        return []
+    out: list[WritableFKField] = []
+    source_attr = getattr(drf_field, "source", None)
+    if source_attr == field_name:
+        source_attr = None
+    for class_name in candidate_names:
+        target = _resolve_django_model_by_name(class_name)
+        if target is None:
+            continue
+        scope = classify_model_scope(target.__name__)
+        if scope is None:
+            continue
+        out.append(
+            WritableFKField(
+                serializer_field_name=field_name,
+                source_attr=source_attr,
+                target_model=target,
+                scope=scope,
+                is_already_scoped=False,
+                nested_path=nested_path,
+                is_implicit=True,
+                is_name_pattern=True,
+            )
+        )
+    return out
+
+
+def _resolve_django_model_by_name(class_name: str) -> Optional[type[models.Model]]:
+    """Look up a Django model class by its `__name__` across all installed apps.
+
+    The semgrep allowlist gives us a model name string; to drive
+    `build_minimal_instance` and friends we need the actual class. Walk
+    `django.apps.apps.get_models()` and return the first match. Multiple
+    apps with same model name return None (ambiguous).
+    """
+    from django.apps import apps
+
+    matches = [m for m in apps.get_models() if m.__name__ == class_name]
+    if len(matches) == 1:
+        return matches[0]
+    return None
 
 
 def _resolve_implicit_target_model(

@@ -247,6 +247,71 @@ class TestDiscoverWritableTenantFks:
         # Insight.created_by → User globally; not a tenant-scoped target.
         assert discover_writable_tenant_fks(_ImplicitIdToNonTenantSerializer) == []
 
+    def test_name_pattern_matches_on_non_model_serializer(self) -> None:
+        """The tom/dashboard-template shape — `serializers.Serializer` subclass.
+
+        `template` matches three tenant-scoped models (DashboardTemplate,
+        HogFlowTemplate, MessageTemplate) by suffix; the discovery emits
+        one record per candidate and the runtime test fans out.
+        """
+        from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
+
+        class _CopyTemplateSerializer(serializers.Serializer):
+            source_template_id = serializers.UUIDField(required=True)
+
+        result = discover_writable_tenant_fks(_CopyTemplateSerializer)
+        assert len(result) >= 1, f"expected at least 1 name-pattern match, got {result}"
+        for fk in result:
+            assert fk.serializer_field_name == "source_template_id"
+            assert fk.is_name_pattern is True
+            assert fk.is_implicit is True
+            assert fk.is_already_scoped is False
+            assert fk.scope == "team"
+        # DashboardTemplate is one of the candidates.
+        target_models = {fk.target_model for fk in result}
+        assert DashboardTemplate in target_models
+
+    def test_name_pattern_matches_exact_pascal(self) -> None:
+        from posthog.models.feature_flag.feature_flag import FeatureFlag
+
+        class _PlainBodySerializer(serializers.Serializer):
+            feature_flag_id = serializers.IntegerField(required=True)
+
+        result = discover_writable_tenant_fks(_PlainBodySerializer)
+        assert len(result) == 1
+        assert result[0].target_model is FeatureFlag
+
+    def test_name_pattern_unknown_thing_is_skipped(self) -> None:
+        class _UnknownThingSerializer(serializers.Serializer):
+            widget_id = serializers.IntegerField(required=True)
+
+        assert discover_writable_tenant_fks(_UnknownThingSerializer) == []
+
+    def test_name_pattern_ignores_just_id_field(self) -> None:
+        class _JustIdSerializer(serializers.Serializer):
+            id = serializers.IntegerField(required=True)
+
+        assert discover_writable_tenant_fks(_JustIdSerializer) == []
+
+    def test_name_pattern_on_modelserializer_falls_back_when_no_fk(self) -> None:
+        """Insight has no `template` FK, but `template_id` should still match
+        the tenant-scoped *Template models by name pattern."""
+        from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
+
+        class _MixedSerializer(serializers.ModelSerializer):
+            template_id = serializers.UUIDField(required=True)
+
+            class Meta:
+                model = Insight
+                fields = ["id", "template_id"]
+
+        result = discover_writable_tenant_fks(_MixedSerializer)
+        template_records = [fk for fk in result if fk.serializer_field_name == "template_id"]
+        assert template_records, f"expected name-pattern fallback to flag template_id, got {result}"
+        target_models = {fk.target_model for fk in template_records}
+        assert DashboardTemplate in target_models
+        assert all(fk.is_name_pattern for fk in template_records)
+
     def test_many_related_unscoped_is_flagged(self) -> None:
         result = discover_writable_tenant_fks(_ManyRelatedUnscopedSerializer)
         assert len(result) == 1

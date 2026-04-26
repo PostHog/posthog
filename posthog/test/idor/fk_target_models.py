@@ -124,3 +124,32 @@ def classify_model_scope(model_name: str) -> Optional[Scope]:
     if model_name in USER_SCOPED_MODELS:
         return "user_in_org"
     return None
+
+
+_ALL_TENANT_SCOPED: frozenset[str] = (
+    TEAM_SCOPED_MODELS | ORG_SCOPED_MODELS | USER_SCOPED_MODELS | USER_AND_TEAM_SCOPED_MODELS
+)
+
+
+def lookup_tenant_models_by_partial_name(thing: str) -> list[str]:
+    """Match a snake_cased `<thing>` (e.g. 'template') to tenant-scoped model names.
+
+    Used by name-pattern detection on serializers that don't have a
+    `Meta.model` to resolve against. Returns all plausible matches:
+
+    1. **Exact PascalCase** — `feature_flag` → `[FeatureFlag]`. Cheapest,
+       least ambiguous.
+    2. **Case-insensitive suffix** — `template` →
+       `[DashboardTemplate, MessageTemplate, HogFlowTemplate]`. Common when
+       an action exposes a sub-resource under a parent's namespace.
+
+    The caller emits one record per match so the runtime test fans out;
+    if any one is unscoped, we surface the IDOR.
+    """
+    if not thing:
+        return []
+    pascal = "".join(seg.title() for seg in thing.split("_"))
+    if pascal in _ALL_TENANT_SCOPED:
+        return [pascal]
+    pascal_lower = pascal.lower()
+    return sorted(m for m in _ALL_TENANT_SCOPED if m.lower().endswith(pascal_lower))
