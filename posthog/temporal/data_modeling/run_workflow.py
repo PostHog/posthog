@@ -641,13 +641,15 @@ async def materialize_model(
             await database_sync_to_async(saved_query.save)()
             await mark_job_as_failed(job, error_message, logger)
             raise Exception(f"Query exceeded memory limit for model {model_label}: {error_message}") from e
-        elif "Timeout exceeded" in error_message:
+        elif "Timeout exceeded" in error_message or "exceeded timeout" in error_message.lower():
             error_message = f"Query exceeded timeout - we limit queries to a 10-minute timeout."
             saved_query.latest_error = error_message
             await logger.ainfo("Query exceeded timeout limit for model %s", model_label)
             await mark_job_as_failed(job, error_message, logger)
 
-            should_pause = await database_sync_to_async(should_pause_schedule_for_timeout)(saved_query.id, job.id)
+            should_pause, count = await database_sync_to_async(should_pause_schedule_for_timeout)(
+                saved_query.id, job.id
+            )
             if should_pause:
                 saved_query.sync_frequency_interval = None
                 await database_sync_to_async(saved_query.save)()
@@ -660,8 +662,9 @@ async def materialize_model(
             else:
                 await database_sync_to_async(saved_query.save)()
                 await logger.ainfo(
-                    "Timeout for query saved_query_id=%s - not pausing schedule (fewer than %d consecutive timeouts)",
+                    "Timeout for query saved_query_id=%s - not pausing schedule (%d/%d consecutive timeouts)",
                     saved_query.id,
+                    count,
                     CONSECUTIVE_TIMEOUTS_TO_PAUSE,
                 )
             raise NonRetryableException(f"Query exceeded timeout limit for model {model_label}: {error_message}") from e

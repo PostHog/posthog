@@ -321,8 +321,11 @@ class TestShouldPauseScheduleForTimeout:
             workflow_id="current-workflow",
         )
 
-        result = await database_sync_to_async(should_pause_schedule_for_timeout)(asaved_query.id, current_job.id)
-        assert result is False
+        should_pause, count = await database_sync_to_async(should_pause_schedule_for_timeout)(
+            asaved_query.id, current_job.id
+        )
+        assert should_pause is False
+        assert count == 3
 
         await database_sync_to_async(current_job.delete)()
         for job in previous_jobs:
@@ -349,8 +352,11 @@ class TestShouldPauseScheduleForTimeout:
             workflow_id="current-workflow",
         )
 
-        result = await database_sync_to_async(should_pause_schedule_for_timeout)(asaved_query.id, current_job.id)
-        assert result is True
+        should_pause, count = await database_sync_to_async(should_pause_schedule_for_timeout)(
+            asaved_query.id, current_job.id
+        )
+        assert should_pause is True
+        assert count == 5
 
         await database_sync_to_async(current_job.delete)()
         for job in previous_jobs:
