@@ -1654,7 +1654,7 @@ class RunWorkflow(PostHogWorkflow):
         dag = await temporalio.workflow.execute_activity(
             build_dag_activity,
             build_dag_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=5),
+            start_to_close_timeout=dt.timedelta(minutes=20),
             heartbeat_timeout=dt.timedelta(minutes=1),
             retry_policy=temporalio.common.RetryPolicy(
                 maximum_attempts=1,
@@ -1679,7 +1679,7 @@ class RunWorkflow(PostHogWorkflow):
             results = await temporalio.workflow.execute_activity(
                 run_dag_activity,
                 run_model_activity_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=15),
+                start_to_close_timeout=dt.timedelta(minutes=30),
                 heartbeat_timeout=dt.timedelta(minutes=2),
                 retry_policy=temporalio.common.RetryPolicy(
                     maximum_attempts=2, non_retryable_error_types=["NonRetryableException", "CancelledError"]
