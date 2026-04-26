@@ -1,8 +1,8 @@
 import { act, renderHook } from '@testing-library/react'
 
-import { useExitTransition } from './useExitTransition'
+import { useAnimatedPresence } from './useAnimatedPresence'
 
-describe('useExitTransition', () => {
+describe('useAnimatedPresence', () => {
     let rafCallbacks: FrameRequestCallback[] = []
     let originalRaf: typeof window.requestAnimationFrame
     let originalCancelRaf: typeof window.cancelAnimationFrame
@@ -38,41 +38,41 @@ describe('useExitTransition', () => {
         ['initially in', true],
         ['initially out', false],
     ])('matches the initial value when %s', (_label, initial) => {
-        const { result } = renderHook(({ isIn }) => useExitTransition(isIn, 200), { initialProps: { isIn: initial } })
-        expect(result.current).toEqual({ mounted: initial, visible: initial })
+        const { result } = renderHook(({ isIn }) => useAnimatedPresence(isIn, 200), { initialProps: { isIn: initial } })
+        expect(result.current).toEqual({ rendered: initial, shown: initial })
     })
 
-    it('mounts immediately on enter and flips visible on the next frame', () => {
-        const { result, rerender } = renderHook(({ isIn }) => useExitTransition(isIn, 200), {
+    it('renders immediately on enter and flips shown on the next frame', () => {
+        const { result, rerender } = renderHook(({ isIn }) => useAnimatedPresence(isIn, 200), {
             initialProps: { isIn: false },
         })
-        expect(result.current).toEqual({ mounted: false, visible: false })
+        expect(result.current).toEqual({ rendered: false, shown: false })
 
         rerender({ isIn: true })
-        expect(result.current).toEqual({ mounted: true, visible: false })
+        expect(result.current).toEqual({ rendered: true, shown: false })
 
         act(() => flushRaf())
-        expect(result.current).toEqual({ mounted: true, visible: true })
+        expect(result.current).toEqual({ rendered: true, shown: true })
     })
 
-    it('flips visible immediately on exit and unmounts after the duration', () => {
-        const { result, rerender } = renderHook(({ isIn }) => useExitTransition(isIn, 200), {
+    it('flips shown immediately on exit and unrenders after the duration', () => {
+        const { result, rerender } = renderHook(({ isIn }) => useAnimatedPresence(isIn, 200), {
             initialProps: { isIn: true },
         })
-        expect(result.current).toEqual({ mounted: true, visible: true })
+        expect(result.current).toEqual({ rendered: true, shown: true })
 
         rerender({ isIn: false })
-        expect(result.current).toEqual({ mounted: true, visible: false })
+        expect(result.current).toEqual({ rendered: true, shown: false })
 
         act(() => jest.advanceTimersByTime(199))
-        expect(result.current.mounted).toBe(true)
+        expect(result.current.rendered).toBe(true)
 
         act(() => jest.advanceTimersByTime(1))
-        expect(result.current).toEqual({ mounted: false, visible: false })
+        expect(result.current).toEqual({ rendered: false, shown: false })
     })
 
-    it('cancels a pending unmount when re-entering mid-exit', () => {
-        const { result, rerender } = renderHook(({ isIn }) => useExitTransition(isIn, 200), {
+    it('cancels a pending unrender when re-entering mid-exit', () => {
+        const { result, rerender } = renderHook(({ isIn }) => useAnimatedPresence(isIn, 200), {
             initialProps: { isIn: true },
         })
         act(() => flushRaf())
@@ -80,13 +80,13 @@ describe('useExitTransition', () => {
         act(() => jest.advanceTimersByTime(100))
         rerender({ isIn: true })
         act(() => jest.advanceTimersByTime(200))
-        expect(result.current.mounted).toBe(true)
+        expect(result.current.rendered).toBe(true)
         act(() => flushRaf())
-        expect(result.current).toEqual({ mounted: true, visible: true })
+        expect(result.current).toEqual({ rendered: true, shown: true })
     })
 
     it('cleans up timers on unmount', () => {
-        const { rerender, unmount } = renderHook(({ isIn }) => useExitTransition(isIn, 200), {
+        const { rerender, unmount } = renderHook(({ isIn }) => useAnimatedPresence(isIn, 200), {
             initialProps: { isIn: true },
         })
         rerender({ isIn: false })
@@ -95,27 +95,27 @@ describe('useExitTransition', () => {
     })
 
     it('does not schedule a timer when initially out', () => {
-        renderHook(() => useExitTransition(false, 200))
+        renderHook(() => useAnimatedPresence(false, 200))
         expect(jest.getTimerCount()).toBe(0)
     })
 
     it('cancels mid-enter exit before the RAF fires', () => {
-        const { result, rerender } = renderHook(({ isIn }) => useExitTransition(isIn, 200), {
+        const { result, rerender } = renderHook(({ isIn }) => useAnimatedPresence(isIn, 200), {
             initialProps: { isIn: false },
         })
         rerender({ isIn: true })
         rerender({ isIn: false })
-        expect(result.current).toEqual({ mounted: true, visible: false })
+        expect(result.current).toEqual({ rendered: true, shown: false })
 
         act(() => jest.advanceTimersByTime(200))
-        expect(result.current).toEqual({ mounted: false, visible: false })
+        expect(result.current).toEqual({ rendered: false, shown: false })
     })
 
     it.each([
         ['enter-exit-enter-exit hammering', [true, false, true, false]],
         ['exit-then-enter-then-exit before timers fire', [false, true, false]],
     ])('settles correctly under %s', (_label, sequence) => {
-        const { result, rerender } = renderHook(({ isIn }) => useExitTransition(isIn, 200), {
+        const { result, rerender } = renderHook(({ isIn }) => useAnimatedPresence(isIn, 200), {
             initialProps: { isIn: sequence[0] },
         })
         for (const isIn of sequence.slice(1)) {
@@ -124,13 +124,13 @@ describe('useExitTransition', () => {
 
         const final = sequence[sequence.length - 1]
         if (final) {
-            expect(result.current.mounted).toBe(true)
+            expect(result.current.rendered).toBe(true)
             act(() => flushRaf())
-            expect(result.current).toEqual({ mounted: true, visible: true })
+            expect(result.current).toEqual({ rendered: true, shown: true })
         } else {
-            expect(result.current.visible).toBe(false)
+            expect(result.current.shown).toBe(false)
             act(() => jest.advanceTimersByTime(200))
-            expect(result.current).toEqual({ mounted: false, visible: false })
+            expect(result.current).toEqual({ rendered: false, shown: false })
         }
     })
 })

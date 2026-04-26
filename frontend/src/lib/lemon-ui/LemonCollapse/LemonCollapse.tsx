@@ -6,7 +6,7 @@ import useResizeObserver from 'use-resize-observer'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
 
-import { useExitTransition } from 'lib/hooks/useExitTransition'
+import { useAnimatedPresence } from 'lib/hooks/useAnimatedPresence'
 
 import { LemonButton, LemonButtonProps } from '../LemonButton'
 
@@ -131,7 +131,7 @@ function LemonCollapsePanel({
     onHeaderClick,
 }: LemonCollapsePanelProps): JSX.Element {
     const { height: contentHeight, ref: contentRef } = useResizeObserver({ box: 'border-box' })
-    const { mounted, visible } = useExitTransition(isExpanded, 200)
+    const { rendered, shown } = useAnimatedPresence(isExpanded, 200)
 
     const { headerChildren, headerProps } = useMemo((): HeaderDefinition => {
         if (header && typeof header === 'object' && 'children' in header) {
@@ -172,12 +172,12 @@ function LemonCollapsePanel({
                 </LemonButton>
             )}
 
-            {mounted && (
+            {rendered && (
                 <div
                     className="LemonCollapsePanel__body"
                     // eslint-disable-next-line react/forbid-dom-props
-                    style={{ height: visible ? contentHeight : 0 }}
-                    aria-busy={mounted !== visible}
+                    style={{ height: shown ? contentHeight : 0 }}
+                    aria-busy={rendered !== shown}
                 >
                     <div className={clsx('LemonCollapsePanel__content', className)} ref={contentRef}>
                         {content}

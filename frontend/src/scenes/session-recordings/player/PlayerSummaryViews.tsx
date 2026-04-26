@@ -23,7 +23,7 @@ import {
 import { LemonBanner, LemonDivider, LemonTag, LemonTextArea, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { SESSION_SUMMARY_FEEDBACK_SURVEY_ID } from 'lib/constants'
-import { useExitTransition } from 'lib/hooks/useExitTransition'
+import { useAnimatedPresence } from 'lib/hooks/useAnimatedPresence'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
@@ -345,7 +345,7 @@ function SessionSegmentCollapse({
 }: SessionSegmentCollapseProps): JSX.Element {
     const [isExpanded, setIsExpanded] = useState(false)
     const { height: contentHeight, ref: contentRef } = useResizeObserver({ box: 'border-box' })
-    const { mounted, visible } = useExitTransition(isExpanded, 200)
+    const { rendered, shown } = useAnimatedPresence(isExpanded, 200)
 
     return (
         <div className={clsx('LemonCollapse', className)}>
@@ -364,12 +364,12 @@ function SessionSegmentCollapse({
                 >
                     {header}
                 </LemonButton>
-                {mounted && (
+                {rendered && (
                     <div
                         className="LemonCollapsePanel__body"
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ height: visible ? contentHeight : 0 }}
-                        aria-busy={mounted !== visible}
+                        style={{ height: shown ? contentHeight : 0 }}
+                        aria-busy={rendered !== shown}
                     >
                         <div className="LemonCollapsePanel__content" ref={contentRef}>
                             {content}

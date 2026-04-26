@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { useExitTransition } from 'lib/hooks/useExitTransition'
+import { useAnimatedPresence } from 'lib/hooks/useAnimatedPresence'
 import { cn } from 'lib/utils/css-classes'
 
 import { SuggestionGroup, maxLogic } from '../maxLogic'
@@ -91,7 +91,7 @@ function SuggestionsList(): JSX.Element | null {
     const { activeSuggestionGroup } = useValues(maxLogic)
     const { askMax } = useActions(maxThreadLogic)
 
-    const { mounted, visible } = useExitTransition(!!activeSuggestionGroup, 150)
+    const { rendered, shown } = useAnimatedPresence(!!activeSuggestionGroup, 150)
 
     useEffect(() => {
         if (focusElementRef.current && activeSuggestionGroup) {
@@ -102,7 +102,7 @@ function SuggestionsList(): JSX.Element | null {
 
     const suggestionGroup = activeSuggestionGroup || previousSuggestionGroup.current
 
-    if (!mounted) {
+    if (!rendered) {
         return null
     }
 
@@ -112,7 +112,7 @@ function SuggestionsList(): JSX.Element | null {
             type="single"
             className={clsx(
                 'QuestionInput__SuggestionsList absolute inset-x-2 top-full grid auto-rows-auto p-1 border-x border-b rounded-b-lg bg-surface-primary z-10',
-                visible && 'QuestionInput__SuggestionsList--visible'
+                shown && 'QuestionInput__SuggestionsList--visible'
             )}
             onValueChange={(index) => {
                 const suggestion = activeSuggestionGroup?.suggestions[Number(index)]

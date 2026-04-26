@@ -2,20 +2,20 @@ import './AnimatedBackButton.scss'
 
 import clsx from 'clsx'
 
-import { useExitTransition } from 'lib/hooks/useExitTransition'
+import { useAnimatedPresence } from 'lib/hooks/useAnimatedPresence'
 
 export function AnimatedBackButton({
     children,
     in: inProp,
 }: React.PropsWithChildren<{ in: boolean }>): JSX.Element | null {
-    const { mounted, visible } = useExitTransition(inProp, 100)
+    const { rendered, shown } = useAnimatedPresence(inProp, 100)
 
-    if (!mounted) {
+    if (!rendered) {
         return null
     }
 
     return (
-        <div className={clsx('shrink-0 overflow-hidden MaxBackButton', visible && 'MaxBackButton--visible')}>
+        <div className={clsx('shrink-0 overflow-hidden MaxBackButton', shown && 'MaxBackButton--visible')}>
             {children}
         </div>
     )

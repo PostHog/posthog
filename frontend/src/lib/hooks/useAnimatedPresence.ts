@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 
-export interface ExitTransitionState {
-    mounted: boolean
-    visible: boolean
+export interface AnimatedPresenceState {
+    rendered: boolean
+    shown: boolean
 }
 
 /**
@@ -11,36 +11,36 @@ export interface ExitTransitionState {
  * hidden. Prefer this over adding new transition libraries (we removed
  * react-transition-group in favour of it).
  *
- * Returns `{ mounted, visible }`:
- * - gate rendering on `mounted`
- * - apply your "visible" CSS class / inline style based on `visible`
+ * Returns `{ rendered, shown }`:
+ * - gate rendering on `rendered`
+ * - apply your "shown" CSS class / inline style based on `shown`
  *
- * `mounted !== visible` while a transition is mid-flight, so call sites that
+ * `rendered !== shown` while a transition is mid-flight, so call sites that
  * need an `aria-busy`-style signal can derive it from those two booleans.
  */
-export function useExitTransition(isIn: boolean, durationMs: number): ExitTransitionState {
-    const [mounted, setMounted] = useState(isIn)
-    const [visible, setVisible] = useState(isIn)
-    const mountedRef = useRef(mounted)
-    mountedRef.current = mounted
+export function useAnimatedPresence(isIn: boolean, durationMs: number): AnimatedPresenceState {
+    const [rendered, setRendered] = useState(isIn)
+    const [shown, setShown] = useState(isIn)
+    const renderedRef = useRef(rendered)
+    renderedRef.current = rendered
 
     useEffect(() => {
         if (isIn) {
-            setMounted(true)
+            setRendered(true)
             // Defer the visibility flip a frame so the browser paints the
             // pre-transition (hidden) styles first; without this RAF the
             // browser coalesces both states into one paint and the CSS
             // transition never runs.
-            const raf = window.requestAnimationFrame(() => setVisible(true))
+            const raf = window.requestAnimationFrame(() => setShown(true))
             return () => window.cancelAnimationFrame(raf)
         }
-        if (!mountedRef.current) {
+        if (!renderedRef.current) {
             return
         }
-        setVisible(false)
-        const timer = window.setTimeout(() => setMounted(false), durationMs)
+        setShown(false)
+        const timer = window.setTimeout(() => setRendered(false), durationMs)
         return () => window.clearTimeout(timer)
     }, [isIn, durationMs])
 
-    return { mounted, visible }
+    return { rendered, shown }
 }
