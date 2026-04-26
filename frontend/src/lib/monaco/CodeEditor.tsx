@@ -4,7 +4,7 @@ import MonacoEditor, { type EditorProps, Monaco, DiffEditor as MonacoDiffEditor,
 import { BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
 import * as monacoModule from 'monaco-editor'
 import { IDisposable, editor, editor as importedEditor } from 'monaco-editor'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import 'lib/monaco/monacoEnvironment'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -53,6 +53,22 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     enableVimMode?: boolean
 }
 let codeEditorIndex = 0
+
+let sharedMonacoOverflowRootEl: HTMLDivElement | null = null
+
+function sharedMonacoOverflowRoot(): HTMLDivElement {
+    if (typeof document === 'undefined') {
+        return null as unknown as HTMLDivElement
+    }
+    if (sharedMonacoOverflowRootEl && document.body.contains(sharedMonacoOverflowRootEl)) {
+        return sharedMonacoOverflowRootEl
+    }
+    sharedMonacoOverflowRootEl = document.createElement('div')
+    sharedMonacoOverflowRootEl.classList.add('monaco-editor')
+    sharedMonacoOverflowRootEl.style.zIndex = 'var(--z-tooltip)'
+    document.body.appendChild(sharedMonacoOverflowRootEl)
+    return sharedMonacoOverflowRootEl
+}
 
 export function initModel(model: editor.ITextModel, builtCodeEditorLogic: BuiltLogic<codeEditorLogicType>): void {
     ;(model as any).codeEditorLogic = builtCodeEditorLogic
@@ -186,16 +202,18 @@ export function CodeEditor({
 
     const { isVisible } = usePageVisibility()
 
-    // Create DIV with .monaco-editor inside <body> for monaco's popups.
-    // Without this monaco's tooltips will be mispositioned if inside another modal or popup.
-    const monacoRoot = useMemo(() => {
-        const body = (typeof document !== 'undefined' && document.getElementsByTagName('body')[0]) || null
-        const monacoRoot = document.createElement('div')
-        monacoRoot.classList.add('monaco-editor')
-        monacoRoot.style.zIndex = 'var(--z-tooltip)'
-        body?.appendChild(monacoRoot)
-        return monacoRoot
-    }, [])
+    // Shared monaco-editor portal div for popups (tooltips, suggestion list,
+    // etc). Monaco's global services (HoverService, ContextView) register
+    // DomListeners against whatever node we hand them as overflowWidgetsDomNode
+    // and never release those listeners across editor disposals because the
+    // services themselves are module-level singletons (lazy-init via
+    // GlobalIdleValue). If we create a fresh div per editor and remove it on
+    // unmount, the singletons retain the detached div forever.
+    //
+    // Solution (skill Pattern 3): one shared, never-removed div for every
+    // editor instance. The DomListeners stay bound to a div that's always
+    // attached, so nothing leaks.
+    const monacoRoot = sharedMonacoOverflowRoot()
 
     // Using useRef, not useState, as we don't want to reload the component when this changes.
     const monacoDisposables = useRef([] as IDisposable[])
@@ -220,12 +238,25 @@ export function CodeEditor({
                 ;(model as any).codeEditorLogic = undefined
             }
 
-            // 4. Clear state to release React's reference to the editor
+            // 4. Dispose the editor itself BEFORE @monaco-editor/react's own cleanup runs.
+            // @monaco-editor/react does call dispose() on unmount but Monaco's services
+            // (HoverService, ContextView, DomListener) keep refs to the editor's container
+            // DOM that survive that disposal in our setup. Calling dispose() here, while we
+            // still have a strong reference to the editor, lets Monaco tear down its
+            // services in an order that releases those DOM refs.
+            try {
+                editorRef.current?.dispose()
+            } catch {
+                // already disposed
+            }
+            editorRef.current = null
+
+            // 5. Clear state to release React's reference to the editor
             setMonacoAndEditor(null)
 
-            // 5. Now safe to remove monacoRoot - editor disposal happens via @monaco-editor/react
-            // but our cleanup ran first, breaking the reference chains
-            monacoRoot?.remove()
+            // 6. Do NOT remove monacoRoot — it's a shared singleton that
+            // Monaco's global services have permanent DomListeners on. Leave
+            // it attached forever; it's a single empty <div> on body.
         }
     })
 
