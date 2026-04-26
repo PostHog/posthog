@@ -221,7 +221,7 @@ class LLMSkillViewSet(
 
         queryset = get_latest_skills_queryset(self.team)
 
-        search = params.get("search", "").strip() if params.get("search") else ""
+        search = params.get("search", "").strip()
         if search:
             queryset = queryset.filter(Q(name__icontains=search) | Q(description__icontains=search))
 
