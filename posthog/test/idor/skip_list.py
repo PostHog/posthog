@@ -127,23 +127,15 @@ IDOR_TEST_SKIP_LIST: dict[str, tuple[str, str]] = {
         "CUSTOM_LOOKUP_FIELD",
         "lookup_field='group_type_index' — URL param is an integer 0-4, not a pk.",
     ),
-    "LinkViewSet": ("CUSTOM_LOOKUP_FIELD", "lookup_field='id' but links use uuid; add a hand-written test."),
-    "LogsAlertViewSet": ("CUSTOM_LOOKUP_FIELD", "lookup_field='id' with custom UUID format."),
     "LogsViewViewSet": ("CUSTOM_LOOKUP_FIELD", "lookup_field='short_id' — 12-char shortid, not a pk."),
-    "MCPServerInstallationViewSet": ("CUSTOM_LOOKUP_FIELD", "lookup_field='id' with custom format."),
     "NotebookViewSet": ("CUSTOM_LOOKUP_FIELD", "lookup_field='short_id' — 8-char shortid, not a pk."),
     "OrganizationFeatureFlagView": (
         "CUSTOM_LOOKUP_FIELD",
         "lookup_field='feature_flag_key' — URL is FF key string, not a pk.",
     ),
-    "OrganizationInviteViewSet": ("CUSTOM_LOOKUP_FIELD", "lookup_field='id' but org-scoped cross-org tests required."),
     "OrganizationMemberViewSet": (
         "CUSTOM_LOOKUP_FIELD",
         "lookup_field='user__uuid' — joined attribute; add a hand-written cross-org test.",
-    ),
-    "ProjectSecretAPIKeyViewSet": (
-        "CUSTOM_LOOKUP_FIELD",
-        "lookup_field='id'; token-related, hand-written test advised.",
     ),
     "SavedHeatmapViewSet": ("CUSTOM_LOOKUP_FIELD", "lookup_field='short_id'."),
     "SessionRecordingPlaylistViewSet": ("CUSTOM_LOOKUP_FIELD", "lookup_field='short_id'."),

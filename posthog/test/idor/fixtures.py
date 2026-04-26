@@ -561,3 +561,30 @@ def _session_recording_external_ref_factory(team: Team) -> models.Model:
 
 
 register_label_fixture("posthog.SessionRecordingExternalReference", _session_recording_external_ref_factory)
+
+
+# MCP server installation (team + user FKs) -------------------------------
+
+
+def _mcp_server_installation_factory(team: Team) -> models.Model:
+    from products.mcp_store.backend.models import MCPServerInstallation
+
+    return MCPServerInstallation.objects.create(team=team, user=_victim_user())
+
+
+register_label_fixture("posthog.MCPServerInstallation", _mcp_server_installation_factory)
+
+
+# Organization invite (org-scoped) ----------------------------------------
+
+
+def _organization_invite_factory(team: Team) -> models.Model:
+    from posthog.models.organization_invite import OrganizationInvite
+
+    return OrganizationInvite.objects.create(
+        organization=team.organization,
+        target_email=f"idor-{_rand()}@example.com",
+    )
+
+
+register_label_fixture("posthog.OrganizationInvite", _organization_invite_factory)
