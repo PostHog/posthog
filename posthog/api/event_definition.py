@@ -5,6 +5,7 @@ from typing import Any, Literal, Optional, cast
 
 from django.core.cache import cache
 from django.db.models import Manager
+from django.http import Http404
 
 import orjson
 import posthoganalytics
@@ -379,7 +380,10 @@ class EventDefinitionViewSet(
             if enterprise_event:
                 return enterprise_event
 
-            non_enterprise_event = EventDefinition.objects.get(**filters)
+            try:
+                non_enterprise_event = EventDefinition.objects.get(**filters)
+            except EventDefinition.DoesNotExist:
+                raise Http404(f"EventDefinition with {filters} not found")
             new_enterprise_event = EnterpriseEventDefinition(
                 eventdefinition_ptr_id=non_enterprise_event.id, description=""
             )

@@ -2,6 +2,7 @@ from typing import Any
 
 from django.db import IntegrityError
 from django.db.models import Q, QuerySet
+from django.shortcuts import get_object_or_404
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
@@ -62,7 +63,7 @@ class ColumnConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return queryset.order_by("visibility", "-created_at")
 
     def safely_get_object(self, queryset: QuerySet) -> Any:
-        object = queryset.get(pk=self.kwargs["pk"])
+        object = get_object_or_404(queryset, pk=self.kwargs["pk"])
 
         if self.request.method not in SAFE_METHODS and object.created_by != self.request.user:
             raise PermissionDenied("You do not have permission to change this view")

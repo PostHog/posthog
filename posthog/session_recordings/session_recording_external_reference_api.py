@@ -221,3 +221,6 @@ class SessionRecordingExternalReferenceViewSet(TeamAndOrgViewSetMixin, ForbidDes
     scope_object = "INTERNAL"
     queryset = SessionRecordingExternalReference.objects.all()
     serializer_class = SessionRecordingExternalReferenceSerializer
+    # Model has no team_id column — team is reached via session_recording.team.
+    # Without this, the default parent-lookup filter crashes the queryset.
+    filter_rewrite_rules = {"team_id": "session_recording__team_id"}
