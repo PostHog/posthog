@@ -410,7 +410,7 @@ jobs:
                       --reuse-db
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
                       ${{ github.ref == 'refs/heads/master' && '--store-durations --durations-path ../../.test_durations' || '' }}
-                      ${{ github.ref == 'refs/heads/master' && '--testmon-noselect' || '' }}
+                      ${{ (github.ref == 'refs/heads/master' || contains(github.head_ref, 'testmon') || contains(github.ref_name, 'testmon')) && '--testmon-noselect' || '' }}
               run: pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=full --force --log-order=stream ${{ matrix.pytest_args }}
 
             - name: Upload timing data
@@ -424,7 +424,7 @@ jobs:
 
             - name: Upload testmon coverage databases
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: ${{ github.ref == 'refs/heads/master' }}
+              if: ${{ github.ref == 'refs/heads/master' || contains(github.head_ref, 'testmon') || contains(github.ref_name, 'testmon') }}
               with:
                   name: testmon-Products-${{ strategy.job-index }}
                   path: products/**/.testmondata
@@ -1248,8 +1248,8 @@ jobs:
             # --testmon-noselect runs all tests normally but records which source
             # files each test depends on. The resulting .testmondata is uploaded
             # as an artifact so we can inspect it before wiring up PR filtering.
-            - name: Enable testmon coverage collection (master only)
-              if: ${{ github.ref == 'refs/heads/master' && !matrix.compat }}
+            - name: Enable testmon coverage collection
+              if: ${{ (github.ref == 'refs/heads/master' || contains(github.head_ref, 'testmon') || contains(github.ref_name, 'testmon')) && !matrix.compat }}
               shell: bash
               run: echo "TESTMON_ARGS=--testmon-noselect" >> $GITHUB_ENV
 
@@ -1388,7 +1388,7 @@ jobs:
                   retention-days: 2
 
             - name: Upload testmon coverage database
-              if: ${{ github.ref == 'refs/heads/master' && !matrix.compat }}
+              if: ${{ (github.ref == 'refs/heads/master' || contains(github.head_ref, 'testmon') || contains(github.ref_name, 'testmon')) && !matrix.compat }}
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: testmon-${{ matrix.segment }}-poe${{ matrix.person-on-events && '1' || '0' }}-g${{ matrix.group }}
