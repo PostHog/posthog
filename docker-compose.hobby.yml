@@ -381,6 +381,25 @@ services:
             - seaweedfs
             - temporal
 
+    temporal-django-batch-worker:
+        command: ./bin/temporal-django-worker --task-queue=batch-exports-task-queue
+        extends:
+            file: docker-compose.base.yml
+            service: temporal-django-worker
+        logging: *default-logging
+        image: $REGISTRY_URL:$POSTHOG_APP_TAG
+        environment:
+            SITE_URL: https://$DOMAIN
+            SECRET_KEY: $POSTHOG_SECRET
+        depends_on:
+            - db
+            - redis7
+            - clickhouse
+            - kafka
+            - objectstorage
+            - seaweedfs
+            - temporal
+
     cyclotron-janitor:
         extends:
             file: docker-compose.base.yml
