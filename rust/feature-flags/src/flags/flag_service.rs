@@ -182,24 +182,72 @@ impl FlagService {
     /// on cache miss or infra errors. Parse errors (`Json`/`Pickle`) hard-fail with
     /// a tombstone rather than serving degraded single-stage PG data.
     ///
-    /// Cache hits from Redis/S3 are additionally cached in-memory as fully
-    /// deserialized + regex-compiled `PreparedFlagDefinitions`, avoiding
-    /// per-request deserialization and regex compilation overhead.
+    /// On the hot path the in-memory `FlagDefinitionsCache` is keyed on the etag
+    /// Django writes alongside the payload (`enable_etag=True`), so an in-memory
+    /// hit short-circuits the payload fetch / pickle / JSON / validation work
+    /// entirely. The closure passed to `get_or_load` only runs on a true miss,
+    /// PG fallback, or when no etag is available.
     pub async fn get_flags_from_cache_or_pg(
         &self,
         team_id: TeamId,
     ) -> Result<FlagResult, FlagError> {
         let key = KeyType::int(team_id);
 
-        let (data, source) = match self
+        // Cheap version probe: a single Redis GET on a 16-byte string. Failures
+        // here are non-fatal — we just lose the version-key fast path for this
+        // request and fall through to the payload fetch + compile path.
+        let etag = match self.flags_hypercache_reader.get_etag(&key).await {
+            Ok(opt) => opt,
+            Err(e) => {
+                tracing::debug!(
+                    team_id,
+                    error = %e,
+                    "etag fetch failed; bypassing in-memory cache for this request"
+                );
+                inc(
+                    crate::metrics::consts::FLAG_DEFINITIONS_INMEM_CACHE_NO_VERSION_COUNTER,
+                    &[("reason".to_string(), "etag_redis_error".to_string())],
+                    1,
+                );
+                None
+            }
+        };
+
+        // The closure body is the existing hypercache-fetch + PG-fallback path
+        // with one shape change: the parse-error tombstone is now produced
+        // inside the closure instead of upstream, so it only fires on misses.
+        let (prepared, cache_source) = self
+            .flag_definitions_cache
+            .get_or_load(team_id, etag, &CacheSource::Redis, || async {
+                self.fetch_wrapper_or_pg(team_id).await
+            })
+            .await?;
+
+        Ok(FlagResult {
+            prepared,
+            cache_source,
+        })
+    }
+
+    /// Hypercache-then-PG payload fetch, extracted so the in-memory cache can
+    /// invoke it lazily inside `get_or_load`. Returns `None` for the
+    /// `__missing__` sentinel (team has no flags), `Some(wrapper)` otherwise.
+    /// `Json`/`Pickle` parse errors hard-fail with a tombstone — we never want
+    /// to silently degrade to PG (which lacks dependency metadata) on data
+    /// corruption.
+    async fn fetch_wrapper_or_pg(
+        &self,
+        team_id: TeamId,
+    ) -> Result<(Option<HypercacheFlagsWrapper>, CacheSource), FlagError> {
+        let key = KeyType::int(team_id);
+
+        match self
             .flags_hypercache_reader
             .get_typed_with_source::<HypercacheFlagsWrapper>(&key)
             .await
         {
-            Ok(ok) => ok,
+            Ok((data, source)) => Ok((data, source)),
             Err(e @ (HyperCacheError::Json(_) | HyperCacheError::Pickle(_))) => {
-                // Parse errors mean data corruption, not a transient issue. Hard-fail
-                // rather than fall back to PG, which lacks dependency metadata.
                 counter!(
                     TOMBSTONE_COUNTER,
                     "namespace" => "feature_flags",
@@ -207,9 +255,9 @@ impl FlagService {
                     "component" => "flag_service",
                 )
                 .increment(1);
-                return Err(FlagError::DataParsingErrorWithContext(format!(
+                Err(FlagError::DataParsingErrorWithContext(format!(
                     "Failed to parse feature flags for team {team_id}: {e}"
-                )));
+                )))
             }
             Err(e) => {
                 // Mirror the hit_fallback counters that `get_typed_with_source_or_fallback`
@@ -239,22 +287,9 @@ impl FlagService {
                     cohorts: None,
                     evaluation_metadata,
                 };
-                (Some(wrapper), CacheSource::Fallback)
+                Ok((Some(wrapper), CacheSource::Fallback))
             }
-        };
-
-        // Use in-memory cache for compiled flag definitions.
-        // On cache hit: returns Arc clone (no deserialization or regex compilation).
-        // On cache miss: validates wrapper + pre-compiles regexes, then caches.
-        let prepared = self
-            .flag_definitions_cache
-            .get_or_prepare(team_id, data, &source)
-            .await?;
-
-        Ok(FlagResult {
-            prepared,
-            cache_source: source,
-        })
+        }
     }
 }
 
@@ -1180,10 +1215,10 @@ mod tests {
 
     // =========================================================================
     // FlagDefinitionsCache integration: exercises the real (non-disabled) cache
-    // through FlagService so the Arc-share path and fingerprint invalidation
+    // through FlagService so the Arc-share path and etag-based invalidation
     // survive the full hypercache round-trip (serde_json → pickle → Redis →
-    // pickle → serde_json → fingerprint). Unit tests in flag_definitions_cache
-    // cover the cache in isolation; these pin the service boundary.
+    // get_etag → moka). Unit tests in flag_definitions_cache cover the cache
+    // in isolation; these pin the service boundary.
     // =========================================================================
 
     /// Builds a single-flag wrapper with a Regex operator so the cache hit path
@@ -1221,7 +1256,7 @@ mod tests {
     /// End-to-end Arc sharing: two `get_flags_from_cache_or_pg` calls for the
     /// same team, against identical hypercache content, must return the same
     /// `Arc<PreparedFlagDefinitions>`. Regressions here (e.g. a stray clone in
-    /// FlagService or a fingerprint that shifts between calls) would restore
+    /// FlagService or an etag fetch that shifts between calls) would restore
     /// per-request regex compilation without failing any existing test.
     #[tokio::test]
     async fn test_flag_service_cache_hit_reuses_arc() {
@@ -1277,10 +1312,11 @@ mod tests {
         );
     }
 
-    /// A hypercache rewrite with different content must produce a fresh Arc
-    /// (fingerprint invalidation works across the pickle+JSON round-trip).
-    /// Guards against a fingerprint computed over something more abstract than
-    /// the actual flag content — e.g. only over flag IDs.
+    /// A hypercache rewrite with different content must produce a fresh Arc:
+    /// Django writes a new etag whenever the payload bytes change, so the
+    /// `(team_id, etag)` cache key shifts and the next fetch misses + recompiles.
+    /// Guards against an etag computed over something more abstract than the
+    /// actual flag content — e.g. only over flag IDs.
     #[tokio::test]
     async fn test_flag_service_content_change_invalidates_cache() {
         let redis_client = setup_redis_client(None).await;
@@ -1330,7 +1366,7 @@ mod tests {
 
         assert!(
             !Arc::ptr_eq(&v1.prepared, &v2.prepared),
-            "content change must produce a new Arc (fingerprint must shift)"
+            "content change must produce a new Arc (etag must shift)"
         );
         let re_v2 = &v2.prepared.flags[0].filters.groups[0]
             .properties
@@ -1349,14 +1385,16 @@ mod tests {
         }
     }
 
-    /// Fingerprint stability across the Django-path round-trip: write, fetch,
-    /// rewrite byte-identical content, fetch again — must return the same Arc.
-    /// This is the real guarantee we lean on when recommending caching (no
-    /// spurious cache misses from serializer quirks); without it the
-    /// fingerprint could shift on every Django cache refresh and the cache
-    /// would effectively always miss.
+    /// Etag stability across the Django-path round-trip: write, fetch, rewrite
+    /// byte-identical content, fetch again — must return the same Arc. The
+    /// guarantee we lean on for the version-key fast path is that identical
+    /// payloads produce identical etags (sha256 over `json.dumps(data,
+    /// sort_keys=True)` is deterministic on Django's side; the test helper
+    /// uses `compute_etag` over the same serialized bytes). Without this, the
+    /// etag would shift on every cache refresh and the in-memory cache would
+    /// effectively always miss.
     #[tokio::test]
-    async fn test_fingerprint_round_trips_through_hypercache_encoding() {
+    async fn test_identical_content_round_trip_keeps_etag_stable() {
         let redis_client = setup_redis_client(None).await;
         let pg_client = setup_pg_reader_client(None);
         let team = insert_new_team_in_redis(redis_client.clone())
@@ -1385,9 +1423,8 @@ mod tests {
             .await
             .expect("first fetch");
 
-        // Rewrite identical content. This exercises a fresh pickle+JSON path
-        // producing bytes that — when deserialized — must fingerprint equal
-        // to the previous wrapper.
+        // Rewrite identical content. This exercises a fresh pickle+etag path
+        // producing the same etag bytes — the in-memory cache must still hit.
         update_flags_in_hypercache(redis_client.clone(), team.id, &flags, None)
             .await
             .expect("write #2");
@@ -1399,7 +1436,7 @@ mod tests {
 
         assert!(
             Arc::ptr_eq(&first.prepared, &second.prepared),
-            "identical content re-written through pickle+JSON must fingerprint equal"
+            "identical content re-written must produce the same etag and reuse the cached Arc"
         );
     }
 }

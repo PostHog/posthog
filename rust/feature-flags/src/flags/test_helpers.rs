@@ -125,6 +125,8 @@ pub async fn update_flags_in_hypercache(
     })?;
 
     let cache_key = hypercache_test_key(team_id);
+    let etag_key = format!("{cache_key}:etag");
+    let etag = common_hypercache::writer::compute_etag(&json_string);
 
     tracing::info!(
         "Writing flags to hypercache at key '{}' (pickle format): {} flags",
@@ -139,6 +141,20 @@ pub async fn update_flags_in_hypercache(
             tracing::error!("Failed to update hypercache for project {}: {}", team_id, e);
             FlagError::Internal(format!("Failed to update cache: {e}"))
         })?;
+
+    // Mirror Django's `HyperCache._set_cache_value_redis` (enable_etag=True),
+    // which writes the etag in the same `set_many` pipeline as the payload.
+    // FlagService now keys the in-memory cache on this etag, so test setups
+    // that bypass the real HyperCache writer must still publish it for the
+    // version-key fast path to be exercised end-to-end.
+    let etag_write = match ttl_seconds {
+        Some(ttl) => client.setex(etag_key, etag, ttl).await,
+        None => client.set(etag_key, etag).await,
+    };
+    etag_write.map_err(|e| {
+        tracing::error!("Failed to write hypercache etag for team {}: {}", team_id, e);
+        FlagError::Internal(format!("Failed to write etag: {e}"))
+    })?;
 
     Ok(())
 }

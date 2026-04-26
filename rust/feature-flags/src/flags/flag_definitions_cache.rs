@@ -1,41 +1,43 @@
-use std::hash::Hasher;
-use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
 use common_hypercache::CacheSource;
-use common_metrics::{gauge, histogram, inc};
+use common_metrics::{gauge, inc};
 use common_types::TeamId;
 use moka::future::Cache;
-use twox_hash::XxHash3_64;
 
 use crate::api::errors::FlagError;
-use crate::cohorts::cohort_models::Cohort;
 use crate::flags::flag_models::{
-    EvaluationMetadata, FeatureFlag, FeatureFlagList, HypercacheFlagsWrapper,
-    PreparedFlagDefinitions,
+    FeatureFlagList, HypercacheFlagsWrapper, PreparedFlagDefinitions,
 };
 use crate::metrics::consts::{
-    FLAG_DEFINITIONS_HASH_DURATION_US, FLAG_DEFINITIONS_INMEM_CACHE_ENTRIES_GAUGE,
-    FLAG_DEFINITIONS_INMEM_CACHE_HIT_COUNTER, FLAG_DEFINITIONS_INMEM_CACHE_MISS_COUNTER,
+    FLAG_DEFINITIONS_INMEM_CACHE_ENTRIES_GAUGE, FLAG_DEFINITIONS_INMEM_CACHE_HIT_COUNTER,
+    FLAG_DEFINITIONS_INMEM_CACHE_MISS_COUNTER, FLAG_DEFINITIONS_INMEM_CACHE_NO_VERSION_COUNTER,
     FLAG_DEFINITIONS_INMEM_CACHE_SIZE_BYTES_GAUGE,
 };
 
-/// In-memory cache for regex-compiled flag definitions.
+/// In-memory cache for regex-compiled flag definitions, keyed on
+/// `(team_id, etag)` where `etag` is the version tag Django writes alongside
+/// the hypercache payload (`HyperCache(enable_etag=True)`).
 ///
-/// Sits between the HyperCache typed reader (which returns `Option<HypercacheFlagsWrapper>`)
-/// and the evaluation pipeline. Caches regex-compiled flag definitions so identical
-/// content for the same team returns a cheap `Arc` clone instead of re-compiling
-/// regexes on every request.
+/// On a hit the caller never touches Redis for the payload, never un-pickles or
+/// JSON-decodes anything, and never walks the deserialized tree to fingerprint
+/// it — the hot path is `Arc::clone` of an already-compiled value. The closure
+/// passed to `get_or_load` only runs on a miss, on PG fallback, or when no etag
+/// is available, so the caller pays for the payload fetch and validation only
+/// when the in-memory copy is genuinely stale.
 ///
-/// Cache key: `(team_id, xxhash3_64(parsed_wrapper))`. Validation runs on every
-/// request before the cache lookup so errors retain their original `FlagError`
-/// variant (not flattened to `Internal`) and corrupt payloads stay visible in
-/// logs/metrics. Regex compilation, which is the expensive step we're amortizing,
-/// is infallible (invalid patterns store `CompiledRegex::InvalidPattern`), so the
-/// cache uses moka's `get_with` rather than `try_get_with`.
+/// Concurrent misses on the same `(team_id, etag)` coalesce via moka's
+/// `entry().or_try_insert_with(...)`, so the closure runs exactly once per
+/// coalesced group. `Entry::is_fresh()` distinguishes the winner (counted as a
+/// miss) from coalesced followers (counted as hits).
+///
+/// PG fallback (`CacheSource::Fallback`) and the etag-absent path bypass moka
+/// entirely — the former because PG-fallback data is transient, the latter
+/// because we have no version to key on. Both bumps the no-version counter so
+/// we can tell from metrics how often the version-key fast path is unavailable.
 pub struct FlagDefinitionsCache {
-    cache: Cache<(TeamId, u64), Arc<PreparedFlagDefinitions>>,
+    cache: Cache<(TeamId, String), Arc<PreparedFlagDefinitions>>,
 }
 
 impl FlagDefinitionsCache {
@@ -43,9 +45,9 @@ impl FlagDefinitionsCache {
     const DEFAULT_TTL_SECONDS: u64 = 90;
 
     pub fn new(capacity_bytes: Option<u64>, ttl_seconds: Option<u64>) -> Self {
-        let weigher = |_key: &(TeamId, u64), value: &Arc<PreparedFlagDefinitions>| -> u32 {
-            u32::try_from(value.estimated_size_bytes()).unwrap_or(u32::MAX)
-        };
+        let weigher = |_key: &(TeamId, String),
+                       value: &Arc<PreparedFlagDefinitions>|
+         -> u32 { u32::try_from(value.estimated_size_bytes()).unwrap_or(u32::MAX) };
 
         let cache = Cache::builder()
             .time_to_live(Duration::from_secs(
@@ -64,86 +66,82 @@ impl FlagDefinitionsCache {
         Self { cache }
     }
 
-    /// Returns cached `PreparedFlagDefinitions` or validates + compiles from the
-    /// already-deserialized `HypercacheFlagsWrapper` on cache miss.
+    /// Returns a regex-compiled flag definitions bundle for the team, sharing
+    /// the underlying `Arc` across requests when the etag matches a cached
+    /// entry.
     ///
-    /// - `None` wrapper (sentinel `__missing__`) returns empty definitions, uncached.
-    /// - PG fallback data (`CacheSource::Fallback`) bypasses the cache (transient data).
-    /// - Validation errors (e.g. malformed `evaluation_metadata`) bubble up with
-    ///   their original `FlagError` variant; the cache never sees them.
-    /// - Concurrent misses coalesce via moka's `get_with`; only one task compiles.
-    pub async fn get_or_prepare(
+    /// `load_payload` is invoked only when we genuinely need the payload — i.e.
+    /// on PG fallback, when no etag is available, or on a true cache miss.
+    /// On a hit it is dropped without being polled, which is the entire point
+    /// of this redesign: the caller doesn't pay for the Redis payload fetch,
+    /// pickle decode, JSON decode, or wrapper validation on the hot path.
+    ///
+    /// The returned `CacheSource` reflects where the response came from:
+    /// `Redis` for in-memory hits (we read the etag from Redis), and whatever
+    /// the closure reports for misses / PG fallback.
+    pub async fn get_or_load<F, Fut>(
         &self,
         team_id: TeamId,
-        wrapper: Option<HypercacheFlagsWrapper>,
+        etag: Option<String>,
         cache_source: &CacheSource,
-    ) -> Result<Arc<PreparedFlagDefinitions>, FlagError> {
-        // Validate eagerly on every request. Errors retain their original variant
-        // (`DataParsingErrorWithContext` stays `DataParsingErrorWithContext`).
-        let (flags, evaluation_metadata, cohorts) =
-            FeatureFlagList::from_wrapper(wrapper, team_id)?;
-
-        // PG fallback is transient — compile directly, skip the cache entirely.
+        load_payload: F,
+    ) -> Result<(Arc<PreparedFlagDefinitions>, CacheSource), FlagError>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<
+            Output = Result<(Option<HypercacheFlagsWrapper>, CacheSource), FlagError>,
+        >,
+    {
+        // PG fallback is transient — never cache it. Mirrors the original PR's
+        // behavior to avoid serving degraded single-stage data past its window.
         if matches!(cache_source, CacheSource::Fallback) {
-            return Ok(Self::compile_only(flags, evaluation_metadata, cohorts));
+            let (wrapper, src) = load_payload().await?;
+            let prepared = compile_from_wrapper(team_id, wrapper)?;
+            return Ok((prepared, src));
         }
 
-        // Empty sentinel (`__missing__` or empty PG result) — return uncached.
-        // The caller doesn't need a stable Arc for the zero-flags case.
-        if flags.is_empty() {
-            return Ok(Self::compile_only(flags, evaluation_metadata, cohorts));
-        }
+        let Some(etag) = etag else {
+            // No version to key on — could be the `__missing__` sentinel (no
+            // flags), TTL drift, or a hypercache entry written before
+            // `enable_etag` was on. Fall through to a fresh load and skip the
+            // cache; bump the no-version counter so the rate is observable.
+            inc(
+                FLAG_DEFINITIONS_INMEM_CACHE_NO_VERSION_COUNTER,
+                &[("reason".to_string(), "etag_missing".to_string())],
+                1,
+            );
+            let (wrapper, src) = load_payload().await?;
+            let prepared = compile_from_wrapper(team_id, wrapper)?;
+            return Ok((prepared, src));
+        };
 
-        // Cheap content fingerprint via xxhash3 fed directly from serde_json,
-        // avoiding any intermediate byte buffer allocation.
-        let hash_start = std::time::Instant::now();
-        let hash = fingerprint(&flags, &evaluation_metadata, cohorts.as_ref());
-        histogram(
-            FLAG_DEFINITIONS_HASH_DURATION_US,
-            &[],
-            hash_start.elapsed().as_micros() as f64,
-        );
+        let cache_key = (team_id, etag);
 
-        let cache_key = (team_id, hash);
-
-        // Single moka round-trip: `entry().or_insert_with` coalesces concurrent
-        // misses (closure runs once for the winner) and returns an `Entry` whose
-        // `is_fresh()` tells us which branch this caller took. Counting outside
-        // the closure ensures every call increments exactly one of hit/miss —
-        // coalesced followers count as hits since they did no work.
-        let entry = self
+        // `or_try_insert_with` coalesces concurrent misses (closure runs once
+        // for the winner, the rest await the same Arc) AND propagates a
+        // fallible compute. `is_fresh()` tells us which branch we took so the
+        // hit/miss counters stay accurate even under coalescing.
+        let entry_result = self
             .cache
             .entry(cache_key)
-            .or_insert_with(async move { Self::compile_only(flags, evaluation_metadata, cohorts) })
+            .or_try_insert_with(async move {
+                let (wrapper, _src) = load_payload().await?;
+                compile_from_wrapper(team_id, wrapper)
+            })
             .await;
 
-        if entry.is_fresh() {
-            inc(FLAG_DEFINITIONS_INMEM_CACHE_MISS_COUNTER, &[], 1);
-            self.report_cache_metrics();
-        } else {
-            inc(FLAG_DEFINITIONS_INMEM_CACHE_HIT_COUNTER, &[], 1);
+        match entry_result {
+            Ok(entry) => {
+                if entry.is_fresh() {
+                    inc(FLAG_DEFINITIONS_INMEM_CACHE_MISS_COUNTER, &[], 1);
+                    self.report_cache_metrics();
+                } else {
+                    inc(FLAG_DEFINITIONS_INMEM_CACHE_HIT_COUNTER, &[], 1);
+                }
+                Ok((entry.into_value(), CacheSource::Redis))
+            }
+            Err(arc_err) => Err(unwrap_cache_err(arc_err)),
         }
-
-        Ok(entry.into_value())
-    }
-
-    /// Infallible regex compilation over already-validated flag definitions.
-    /// Invalid patterns are stored as `CompiledRegex::InvalidPattern` by
-    /// `prepare_regexes_in_place`, so this never fails. Prep runs on the
-    /// `Vec<FeatureFlag>` before the one-time wrap into `Arc<[FeatureFlag]>`,
-    /// avoiding any `Arc::get_mut` juggling.
-    fn compile_only(
-        mut flags: Vec<FeatureFlag>,
-        evaluation_metadata: EvaluationMetadata,
-        cohorts: Option<Vec<Cohort>>,
-    ) -> Arc<PreparedFlagDefinitions> {
-        FeatureFlagList::prepare_regexes_in_place(&mut flags);
-
-        Arc::new(PreparedFlagDefinitions {
-            flags: Arc::from(flags),
-            evaluation_metadata,
-            cohorts,
-        })
     }
 
     /// Starts periodic monitoring of cache metrics.
@@ -175,55 +173,51 @@ impl FlagDefinitionsCache {
     }
 }
 
-/// `io::Write` adapter that forwards bytes to a `Hasher`, so we can drive
-/// `serde_json::to_writer` straight into an incremental hash without allocating
-/// a byte buffer. `write` and `flush` never fail.
-struct HashWriter<H: Hasher>(H);
+/// Validates and compiles a `HypercacheFlagsWrapper` into the cached, sharable
+/// shape. Pulled out so both the Fallback / no-version paths and the
+/// `or_try_insert_with` closure share one implementation.
+///
+/// Validation runs here (not inside a `from_wrapper` step before the cache
+/// call) so cache hits never re-validate. On miss the validation cost is
+/// unchanged from the pre-redesign behavior — we still fail fast on malformed
+/// wrappers with `DataParsingErrorWithContext`.
+fn compile_from_wrapper(
+    team_id: TeamId,
+    wrapper: Option<HypercacheFlagsWrapper>,
+) -> Result<Arc<PreparedFlagDefinitions>, FlagError> {
+    let (mut flags, evaluation_metadata, cohorts) =
+        FeatureFlagList::from_wrapper(wrapper, team_id)?;
 
-impl<H: Hasher> io::Write for HashWriter<H> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.0.write(buf);
-        Ok(buf.len())
-    }
+    // `prepare_regexes_in_place` is infallible — invalid patterns are stored
+    // as `CompiledRegex::InvalidPattern`. We pre-compile here once before the
+    // single `Arc::from(flags)` wrap to avoid `Arc::get_mut` juggling later.
+    FeatureFlagList::prepare_regexes_in_place(&mut flags);
 
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
+    Ok(Arc::new(PreparedFlagDefinitions {
+        flags: Arc::from(flags),
+        evaluation_metadata,
+        cohorts,
+    }))
 }
 
-/// Computes a 64-bit content fingerprint over the parsed flag definitions.
+/// Maps moka's `Arc<FlagError>` (shared across all coalesced waiters) back
+/// onto an owned `FlagError`.
 ///
-/// Correctness: `serde_json` is configured without `preserve_order` in this
-/// workspace, so `Value` objects serialize through a `BTreeMap` (sorted keys).
-/// `EvaluationMetadata.transitive_deps` (a `HashMap<i32, HashSet<i32>>`) uses
-/// its custom `serialize_string_keyed_i32_map` helper which sorts keys and
-/// inner values. No other collection in the serialized types has
-/// non-deterministic ordering.
-///
-/// Numeric stability: `PropertyFilter.value` is `serde_json::Value`. serde_json
-/// preserves the originating numeric type (integer vs float) through
-/// deserialize, so `{"value": 5}` and `{"value": 5.0}` fingerprint differently.
-/// This is load-bearing only if the cache writer (Django today) ever flips
-/// representation for the same semantic value; Django's `json.dumps` is stable
-/// on this. `test_fingerprint_round_trips_through_hypercache_encoding` pins the
-/// Django-path round-trip (pickle → JSON → serde_json::Value → re-serialize).
-///
-/// xxhash3-64 is non-cryptographic but collision-resistant enough for this use
-/// case (birthday bound ~2^32 distinct entries); we only need equality on
-/// identical content, not adversarial resistance.
-fn fingerprint(
-    flags: &[FeatureFlag],
-    metadata: &EvaluationMetadata,
-    cohorts: Option<&Vec<Cohort>>,
-) -> u64 {
-    let mut hw = HashWriter(XxHash3_64::new());
-    // Tuple serialization is deterministic; each component serializes exactly
-    // once into the hasher stream. `HashWriter::write` is infallible, so the
-    // only way `to_writer` could err is a serde-side failure, which doesn't
-    // occur for our own types (no `serialize_map` with mismatched len, etc.).
-    serde_json::to_writer(&mut hw, &(flags, metadata, cohorts))
-        .expect("HashWriter is infallible and these types serialize without error");
-    hw.0.finish()
+/// The only error variant the closure path produces in production today is
+/// `DataParsingErrorWithContext` (from `from_wrapper`'s contract checks);
+/// anything else from the payload-fetch side is mapped through to `Internal`
+/// to keep the cache boundary from silently widening that error. This
+/// mirrors the original PR's "validation errors retain their original
+/// `FlagError` variant" guarantee under the new closure-driven design.
+fn unwrap_cache_err(arc: Arc<FlagError>) -> FlagError {
+    match &*arc {
+        FlagError::DataParsingErrorWithContext(s) => {
+            FlagError::DataParsingErrorWithContext(s.clone())
+        }
+        other => FlagError::Internal(format!(
+            "flag definitions cache load failure: {other}"
+        )),
+    }
 }
 
 #[cfg(test)]
@@ -234,6 +228,7 @@ mod tests {
     use crate::properties::property_models::{OperatorType, PropertyFilter};
     use crate::utils::mock::MockInto;
     use serde_json::json;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     fn make_test_wrapper(flags: Vec<FeatureFlag>) -> HypercacheFlagsWrapper {
         let metadata = EvaluationMetadata::single_stage(&flags);
@@ -258,24 +253,57 @@ mod tests {
         )
     }
 
+    /// Boxed-future return shape expected by `get_or_load`'s `load_payload`
+    /// argument. Aliased so the test helpers below can return a single named
+    /// type instead of an unwieldy inline `impl Future` (which clippy flags as
+    /// `type_complexity`).
+    type LoaderFuture = std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<(Option<HypercacheFlagsWrapper>, CacheSource), FlagError>,
+                > + Send,
+        >,
+    >;
+
+    /// Wraps a wrapper in a closure suitable for `get_or_load`'s `load_payload`
+    /// argument, returning a Redis-source tuple. Tests that need to assert how
+    /// many times the closure ran should use `counting_loader` instead.
+    fn loader_for(wrapper: HypercacheFlagsWrapper) -> impl FnOnce() -> LoaderFuture {
+        || Box::pin(async move { Ok::<_, FlagError>((Some(wrapper), CacheSource::Redis)) })
+    }
+
+    /// Same as `loader_for`, but bumps `counter` every time it runs. Use with
+    /// `Arc::clone(&counter)` and `assert_eq!(counter.load(...), expected)` to
+    /// pin the exact number of times the closure was polled.
+    fn counting_loader(
+        wrapper: HypercacheFlagsWrapper,
+        counter: Arc<AtomicUsize>,
+    ) -> impl FnOnce() -> LoaderFuture {
+        move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async move { Ok::<_, FlagError>((Some(wrapper), CacheSource::Redis)) })
+        }
+    }
+
+    /// Two `get_or_load` calls with the same `(team_id, etag)` against fresh
+    /// wrapper instances must return the same `Arc<PreparedFlagDefinitions>`.
+    /// This is the version-key fast path: identical etag = cached compile.
     #[tokio::test]
-    async fn test_cache_hit_returns_same_arc() {
+    async fn test_etag_hit_returns_same_arc() {
         let cache = FlagDefinitionsCache::new(None, None);
-        let wrapper = make_test_wrapper(vec![make_flag_with_regex(1, r"^test@.*\.com$")]);
+        let w = make_test_wrapper(vec![make_flag_with_regex(1, r"^test@.*\.com$")]);
+        let etag = Some("v1-etag".to_string());
 
-        let first = cache
-            .get_or_prepare(1, Some(wrapper.clone()), &CacheSource::Redis)
+        let (first, _) = cache
+            .get_or_load(1, etag.clone(), &CacheSource::Redis, loader_for(w.clone()))
             .await
             .unwrap();
-        let second = cache
-            .get_or_prepare(1, Some(wrapper), &CacheSource::Redis)
+        let (second, _) = cache
+            .get_or_load(1, etag, &CacheSource::Redis, loader_for(w))
             .await
             .unwrap();
 
-        // Same Arc pointer — no re-compilation
-        assert!(Arc::ptr_eq(&first, &second));
-        assert_eq!(first.flags.len(), 1);
-        // Regexes should be compiled
+        assert!(Arc::ptr_eq(&first, &second), "same etag must reuse the cached Arc");
         assert!(first.flags[0].filters.groups[0]
             .properties
             .as_ref()
@@ -284,85 +312,166 @@ mod tests {
             .is_some());
     }
 
+    /// On a hit, `load_payload` must NOT be polled — that's the whole point of
+    /// the redesign. If it is, we'd be paying the payload fetch + decode cost
+    /// on every request and the version-key path would deliver no hot-path win.
     #[tokio::test]
-    async fn test_different_data_produces_different_entries() {
+    async fn test_etag_hit_skips_payload_load() {
         let cache = FlagDefinitionsCache::new(None, None);
+        let w = make_test_wrapper(vec![make_flag_with_regex(1, r"^t@.*$")]);
+        let etag = Some("hot-etag".to_string());
 
-        let w1 = make_test_wrapper(vec![make_flag_with_regex(1, r"^v1@.*\.com$")]);
-        let w2 = make_test_wrapper(vec![make_flag_with_regex(1, r"^v2@.*\.com$")]);
-
-        let v1 = cache
-            .get_or_prepare(1, Some(w1), &CacheSource::Redis)
+        // Prime the cache.
+        let counter = Arc::new(AtomicUsize::new(0));
+        cache
+            .get_or_load(
+                1,
+                etag.clone(),
+                &CacheSource::Redis,
+                counting_loader(w.clone(), Arc::clone(&counter)),
+            )
             .await
             .unwrap();
-        let v2 = cache
-            .get_or_prepare(1, Some(w2), &CacheSource::Redis)
+        assert_eq!(counter.load(Ordering::SeqCst), 1, "first call must populate");
+
+        // Hit — closure must not be invoked.
+        cache
+            .get_or_load(
+                1,
+                etag,
+                &CacheSource::Redis,
+                counting_loader(w, Arc::clone(&counter)),
+            )
             .await
             .unwrap();
-
-        assert!(!Arc::ptr_eq(&v1, &v2));
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            1,
+            "cache hit must NOT poll load_payload"
+        );
     }
 
+    /// Two etags = two cache entries with two distinct compiles. Guards against
+    /// a regression where the etag is dropped from the key and identical etags
+    /// would resolve to the same entry across content changes.
+    #[tokio::test]
+    async fn test_etag_change_invalidates_cache() {
+        let cache = FlagDefinitionsCache::new(None, None);
+        let w1 = make_test_wrapper(vec![make_flag_with_regex(1, r"^v1@.*$")]);
+        let w2 = make_test_wrapper(vec![make_flag_with_regex(1, r"^v2@.*$")]);
+
+        let (a, _) = cache
+            .get_or_load(1, Some("v1".into()), &CacheSource::Redis, loader_for(w1))
+            .await
+            .unwrap();
+        let (b, _) = cache
+            .get_or_load(1, Some("v2".into()), &CacheSource::Redis, loader_for(w2))
+            .await
+            .unwrap();
+
+        assert!(!Arc::ptr_eq(&a, &b), "different etag must produce a fresh Arc");
+    }
+
+    /// `etag = None` (sentinel write, TTL drift, or pre-etag entry) must
+    /// invoke the loader and skip the cache. A second call with `None` must
+    /// invoke the loader again, proving nothing was inserted under a sentinel
+    /// key.
+    #[tokio::test]
+    async fn test_etag_none_bypasses_cache() {
+        let cache = FlagDefinitionsCache::new(None, None);
+        let w = make_test_wrapper(vec![make_flag_with_regex(1, r"^t@.*$")]);
+        let counter = Arc::new(AtomicUsize::new(0));
+
+        cache
+            .get_or_load(
+                1,
+                None,
+                &CacheSource::Redis,
+                counting_loader(w.clone(), Arc::clone(&counter)),
+            )
+            .await
+            .unwrap();
+        cache
+            .get_or_load(
+                1,
+                None,
+                &CacheSource::Redis,
+                counting_loader(w, Arc::clone(&counter)),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            2,
+            "etag=None must invoke loader on every call"
+        );
+    }
+
+    /// PG fallback data is transient — it lacks dependency metadata Django
+    /// computes. Caching it would mean serving degraded data well past the
+    /// transient window. Two fallback calls must produce two fresh Arcs.
     #[tokio::test]
     async fn test_pg_fallback_bypasses_cache() {
         let cache = FlagDefinitionsCache::new(None, None);
-        let wrapper = make_test_wrapper(vec![make_flag_with_regex(1, r"^test@.*\.com$")]);
+        let w = make_test_wrapper(vec![make_flag_with_regex(1, r"^t@.*$")]);
+        let etag = Some("present".to_string());
 
-        let first = cache
-            .get_or_prepare(1, Some(wrapper.clone()), &CacheSource::Fallback)
+        let (first, src) = cache
+            .get_or_load(
+                1,
+                etag.clone(),
+                &CacheSource::Fallback,
+                loader_for(w.clone()),
+            )
             .await
             .unwrap();
-        let second = cache
-            .get_or_prepare(1, Some(wrapper), &CacheSource::Fallback)
+        let (second, _) = cache
+            .get_or_load(1, etag, &CacheSource::Fallback, loader_for(w))
             .await
             .unwrap();
 
-        // Different Arc pointers — not cached
+        assert!(matches!(src, CacheSource::Redis));
         assert!(!Arc::ptr_eq(&first, &second));
     }
 
-    #[tokio::test]
-    async fn test_none_returns_empty() {
-        let cache = FlagDefinitionsCache::new(None, None);
-        let result = cache
-            .get_or_prepare(1, None, &CacheSource::Redis)
-            .await
-            .unwrap();
-        assert!(result.flags.is_empty());
-    }
-
+    /// `disabled()` cache must always miss — no Arc reuse across calls. Used
+    /// in tests that don't exercise caching to keep their setups identical to
+    /// production code paths.
     #[tokio::test]
     async fn test_disabled_cache_always_misses() {
         let cache = FlagDefinitionsCache::disabled();
-        let wrapper = make_test_wrapper(vec![make_flag_with_regex(1, r"^test@.*\.com$")]);
+        let w = make_test_wrapper(vec![make_flag_with_regex(1, r"^t@.*$")]);
+        let etag = Some("doesnt-matter".to_string());
 
-        let first = cache
-            .get_or_prepare(1, Some(wrapper.clone()), &CacheSource::Redis)
+        let (a, _) = cache
+            .get_or_load(1, etag.clone(), &CacheSource::Redis, loader_for(w.clone()))
             .await
             .unwrap();
-        let second = cache
-            .get_or_prepare(1, Some(wrapper), &CacheSource::Redis)
+        let (b, _) = cache
+            .get_or_load(1, etag, &CacheSource::Redis, loader_for(w))
             .await
             .unwrap();
 
-        // Disabled cache should not return the same Arc
-        assert!(!Arc::ptr_eq(&first, &second));
+        assert!(!Arc::ptr_eq(&a, &b));
     }
 
+    /// Both valid and invalid regex patterns must reach the cached value with
+    /// the right `CompiledRegex` variant. Compilation runs inside
+    /// `compile_from_wrapper`, so this is the regression test for that path.
     #[tokio::test]
     async fn test_regexes_are_precompiled_in_cached_value() {
         let cache = FlagDefinitionsCache::new(None, None);
-        let wrapper = make_test_wrapper(vec![
+        let w = make_test_wrapper(vec![
             make_flag_with_regex(1, r"^user@.*\.com$"),
             make_flag_with_regex(2, r"[invalid"),
         ]);
 
-        let result = cache
-            .get_or_prepare(1, Some(wrapper), &CacheSource::Redis)
+        let (result, _) = cache
+            .get_or_load(1, Some("rgx".into()), &CacheSource::Redis, loader_for(w))
             .await
             .unwrap();
 
-        // Valid regex should be compiled
         let regex_1 = &result.flags[0].filters.groups[0]
             .properties
             .as_ref()
@@ -370,12 +479,9 @@ mod tests {
             .compiled_regex;
         assert!(matches!(
             regex_1,
-            Some(crate::properties::property_models::CompiledRegex::Compiled(
-                _
-            ))
+            Some(crate::properties::property_models::CompiledRegex::Compiled(_))
         ));
 
-        // Invalid regex should be marked as InvalidPattern
         let regex_2 = &result.flags[1].filters.groups[0]
             .properties
             .as_ref()
@@ -387,34 +493,20 @@ mod tests {
         ));
     }
 
-    #[tokio::test]
-    async fn test_s3_source_is_cached() {
-        let cache = FlagDefinitionsCache::new(None, None);
-        let wrapper = make_test_wrapper(vec![make_flag_with_regex(1, r"^test@.*\.com$")]);
-
-        let first = cache
-            .get_or_prepare(1, Some(wrapper.clone()), &CacheSource::S3)
-            .await
-            .unwrap();
-        let second = cache
-            .get_or_prepare(1, Some(wrapper), &CacheSource::S3)
-            .await
-            .unwrap();
-
-        assert!(Arc::ptr_eq(&first, &second));
-    }
-
     /// Regression for the error-flattening observability bug: a malformed
     /// wrapper (flags present but `dependency_stages` empty) must surface as
     /// `FlagError::DataParsingErrorWithContext`, not be collapsed to
     /// `FlagError::Internal` by the cache boundary.
+    ///
+    /// Under the closure-driven design the variant flows through moka's
+    /// `Arc<FlagError>` and back via `unwrap_cache_err`, which is why this
+    /// test explicitly pins the variant.
     #[tokio::test]
     async fn test_validation_errors_preserve_variant() {
         let cache = FlagDefinitionsCache::new(None, None);
-        let wrapper = HypercacheFlagsWrapper {
+        let bad_wrapper = HypercacheFlagsWrapper {
             flags: vec![make_flag_with_regex(1, r"^test@.*\.com$")],
             evaluation_metadata: EvaluationMetadata {
-                // Empty stages + non-empty flags trips `from_wrapper`'s contract check.
                 dependency_stages: vec![],
                 flags_with_missing_deps: vec![],
                 transitive_deps: Default::default(),
@@ -423,7 +515,12 @@ mod tests {
         };
 
         let err = cache
-            .get_or_prepare(1, Some(wrapper), &CacheSource::Redis)
+            .get_or_load(
+                1,
+                Some("bad".into()),
+                &CacheSource::Redis,
+                loader_for(bad_wrapper),
+            )
             .await
             .expect_err("malformed wrapper must error");
         assert!(
@@ -432,129 +529,53 @@ mod tests {
         );
     }
 
-    /// Regression for the fingerprint path: fingerprint MUST be stable across
-    /// two independent deserializations of the same JSON. If a `HashMap` or
-    /// `HashSet` inside the serialized graph ever leaks non-deterministic
-    /// ordering, this test catches it.
-    #[test]
-    fn test_fingerprint_is_stable_across_deserializations() {
-        let json = json!({
-            "flags": [
-                {
-                    "id": 1, "team_id": 1, "key": "dep_on_2", "name": "",
-                    "active": true, "deleted": false,
-                    "filters": {"groups": [{
-                        "properties": [
-                            {"key": "2", "type": "flag", "value": true, "operator": "flag_evaluates_to"}
-                        ],
-                        "rollout_percentage": 100
-                    }]}
-                },
-                {
-                    "id": 2, "team_id": 1, "key": "leaf", "name": "",
-                    "active": true, "deleted": false,
-                    "filters": {"groups": []}
-                }
-            ],
-            "evaluation_metadata": {
-                "dependency_stages": [[2], [1]],
-                "flags_with_missing_deps": [],
-                "transitive_deps": {"1": [2], "2": []}
-            }
-        });
-        let a: HypercacheFlagsWrapper = serde_json::from_value(json.clone()).unwrap();
-        let b: HypercacheFlagsWrapper = serde_json::from_value(json).unwrap();
-
-        let ha = fingerprint(&a.flags, &a.evaluation_metadata, a.cohorts.as_ref());
-        let hb = fingerprint(&b.flags, &b.evaluation_metadata, b.cohorts.as_ref());
-        assert_eq!(ha, hb, "fingerprint must be stable across deserializations");
-    }
-
-    /// `EvaluationMetadata.transitive_deps` is a `HashMap<i32, HashSet<i32>>`.
-    /// Its custom `serialize_string_keyed_i32_map` sorts both keys and inner
-    /// values; guard against anyone dropping that invariant and making the
-    /// fingerprint order-dependent.
-    #[test]
-    fn test_fingerprint_is_stable_across_hashmap_insertion_order() {
-        use std::collections::{HashMap, HashSet};
-        let build = |inserts: &[(i32, Vec<i32>)]| {
-            let mut m: HashMap<i32, HashSet<i32>> = HashMap::new();
-            for (k, vs) in inserts {
-                m.insert(*k, vs.iter().copied().collect());
-            }
-            EvaluationMetadata {
-                dependency_stages: vec![vec![1], vec![2]],
-                flags_with_missing_deps: vec![],
-                transitive_deps: m,
-            }
-        };
-
-        let forward = build(&[(1, vec![2, 3]), (2, vec![3]), (3, vec![])]);
-        let reverse = build(&[(3, vec![]), (2, vec![3]), (1, vec![3, 2])]);
-
-        let h1 = fingerprint(&[], &forward, None);
-        let h2 = fingerprint(&[], &reverse, None);
-        assert_eq!(
-            h1, h2,
-            "fingerprint must not depend on HashMap insertion order"
-        );
-    }
-
-    /// Any change to flag filter content should shift the fingerprint (i.e.,
-    /// the cache should produce a new entry). Cheap correctness guard.
-    #[test]
-    fn test_fingerprint_changes_when_content_changes() {
-        let flag = make_flag_with_regex(1, r"^v1@.*$");
-        let m = EvaluationMetadata::single_stage(std::slice::from_ref(&flag));
-
-        let h_before = fingerprint(std::slice::from_ref(&flag), &m, None);
-
-        let mut flag_after = flag.clone();
-        flag_after.filters.groups[0].rollout_percentage = Some(50.0);
-        let h_after = fingerprint(std::slice::from_ref(&flag_after), &m, None);
-
-        assert_ne!(h_before, h_after, "content change must shift fingerprint");
-    }
-
     /// Handler hot path: `Arc::clone(&prepared.flags)` must be a refcount bump,
     /// not a deep copy. This test confirms ptr equality of the slice held by
     /// `PreparedFlagDefinitions` versus a derived `FeatureFlagList`.
     #[tokio::test]
     async fn test_handler_clone_is_arc_refcount_bump() {
         let cache = FlagDefinitionsCache::new(None, None);
-        let wrapper = make_test_wrapper(vec![make_flag_with_regex(1, r"^user@.*\.com$")]);
-        let prepared = cache
-            .get_or_prepare(1, Some(wrapper), &CacheSource::Redis)
+        let w = make_test_wrapper(vec![make_flag_with_regex(1, r"^user@.*\.com$")]);
+        let (prepared, _) = cache
+            .get_or_load(1, Some("e".into()), &CacheSource::Redis, loader_for(w))
             .await
             .unwrap();
 
         let shared = Arc::clone(&prepared.flags);
-        // Same backing allocation — no deep copy of the flag vec.
         assert!(
             Arc::ptr_eq(&shared, &prepared.flags),
             "handler-path clone must share the Arc, not duplicate the data"
         );
     }
 
-    /// Concurrent callers on the same cache key must coalesce onto a single
-    /// compile: all tasks see the exact same `Arc<PreparedFlagDefinitions>`
-    /// pointer. This exercises the `entry().or_insert_with().is_fresh()` path,
-    /// which is the basis for correct hit/miss accounting — one caller lands
-    /// on `is_fresh() == true` (miss, did the work) and the rest on
-    /// `is_fresh() == false` (hit, followed the coalesced result).
+    /// Concurrent callers on the same `(team_id, etag)` must coalesce onto a
+    /// single compile: all tasks see the same `Arc<PreparedFlagDefinitions>`
+    /// pointer, and the loader closure runs **exactly once**. This is the
+    /// invariant moka's `or_try_insert_with` provides; we pin it here so a
+    /// future migration to a different cache crate can't silently regress to
+    /// per-caller compute.
     #[tokio::test]
-    async fn test_concurrent_callers_coalesce_to_single_arc() {
+    async fn test_concurrent_callers_coalesce_to_single_compile() {
         let cache = Arc::new(FlagDefinitionsCache::new(None, None));
-        let wrapper = make_test_wrapper(vec![make_flag_with_regex(1, r"^test@.*\.com$")]);
+        let w = make_test_wrapper(vec![make_flag_with_regex(1, r"^t@.*$")]);
+        let etag = Some("coalesce-etag".to_string());
+        let counter = Arc::new(AtomicUsize::new(0));
 
         let n: usize = 16;
         let mut handles = Vec::with_capacity(n);
         for _ in 0..n {
             let cache = Arc::clone(&cache);
-            let wrapper = wrapper.clone();
+            let w = w.clone();
+            let etag = etag.clone();
+            let counter = Arc::clone(&counter);
             handles.push(tokio::spawn(async move {
                 cache
-                    .get_or_prepare(42, Some(wrapper), &CacheSource::Redis)
+                    .get_or_load(
+                        42,
+                        etag,
+                        &CacheSource::Redis,
+                        counting_loader(w, counter),
+                    )
                     .await
                     .unwrap()
             }));
@@ -565,13 +586,18 @@ mod tests {
             results.push(h.await.unwrap());
         }
 
-        let first = &results[0];
-        for (i, r) in results.iter().enumerate().skip(1) {
+        let (first, _) = &results[0];
+        for (i, (r, _)) in results.iter().enumerate().skip(1) {
             assert!(
                 Arc::ptr_eq(first, r),
                 "concurrent caller {i} did not coalesce onto the shared Arc"
             );
         }
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            1,
+            "loader must run exactly once under concurrent misses"
+        );
     }
 
     /// `super_groups` are walked by `prepare_regexes_in_place`, so the weigher
@@ -650,7 +676,6 @@ mod tests {
             evaluation_metadata: EvaluationMetadata::default(),
             cohorts: None,
         });
-        // ~10 KB string payload
         let big_str = "x".repeat(10_000);
         let big = Arc::new(PreparedFlagDefinitions {
             flags: Arc::from([make_flag(json!(big_str))]),

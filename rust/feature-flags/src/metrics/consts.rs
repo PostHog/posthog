@@ -20,7 +20,10 @@ pub const COHORT_CACHE_HIT_COUNTER: &str = "flags_cohort_cache_hit_total";
 pub const COHORT_CACHE_MISS_COUNTER: &str = "flags_cohort_cache_miss_total";
 pub const COHORT_CACHE_SIZE_BYTES_GAUGE: &str = "flags_cohort_cache_size_bytes";
 pub const COHORT_CACHE_ENTRIES_GAUGE: &str = "flags_cohort_cache_entries";
-// In-memory flag definitions cache (deserialized + regex-compiled)
+// In-memory flag definitions cache (deserialized + regex-compiled).
+// Keyed on `(team_id, etag)` where `etag` is the version tag Django writes
+// alongside the hypercache payload (`enable_etag=True`). Cache hits avoid the
+// payload fetch + deserialization entirely.
 pub const FLAG_DEFINITIONS_INMEM_CACHE_HIT_COUNTER: &str =
     "flags_definitions_inmem_cache_hit_total";
 pub const FLAG_DEFINITIONS_INMEM_CACHE_MISS_COUNTER: &str =
@@ -29,7 +32,14 @@ pub const FLAG_DEFINITIONS_INMEM_CACHE_SIZE_BYTES_GAUGE: &str =
     "flags_definitions_inmem_cache_size_bytes";
 pub const FLAG_DEFINITIONS_INMEM_CACHE_ENTRIES_GAUGE: &str =
     "flags_definitions_inmem_cache_entries";
-pub const FLAG_DEFINITIONS_HASH_DURATION_US: &str = "flags_definitions_hash_duration_us";
+// Counter for requests that bypassed the version-keyed fast path. Labels:
+// reason="sentinel" (the team has no flags / __missing__ payload),
+// reason="etag_missing" (etag key is absent — TTL drift or pre-etag entry),
+// reason="etag_redis_error" (Redis failed; we fell through to the payload
+// path without populating the in-memory cache). Sustained spikes on
+// `etag_missing` point at a Django write-path or TTL-alignment regression.
+pub const FLAG_DEFINITIONS_INMEM_CACHE_NO_VERSION_COUNTER: &str =
+    "flags_definitions_inmem_cache_no_version_total";
 // Cohort source for flag evaluation
 // Labels: source="preloaded" (from flags hypercache) | source="cache_manager" (CohortCacheManager fallback)
 pub const FLAG_COHORT_SOURCE_COUNTER: &str = "flags_cohort_source_total";

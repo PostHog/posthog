@@ -38,12 +38,16 @@ impl FeatureFlagList {
         }
     }
 
-    /// Pre-compiles regexes on this list. Panics if the backing `Arc<[FeatureFlag]>`
-    /// is shared — call this on a freshly-constructed list before any cloning.
-    pub fn prepare_regexes(&mut self) {
-        let slice = Arc::get_mut(&mut self.flags)
-            .expect("prepare_regexes requires a uniquely-owned Arc<[FeatureFlag]>");
-        Self::prepare_regexes_in_place(slice);
+    /// Pre-compiles regexes on `flags` and seals them into the shared
+    /// `Arc<[FeatureFlag]>` shape used by `FeatureFlagList`. Owning the `Vec`
+    /// at the call site makes the unique-ownership precondition enforceable
+    /// by construction — there is no `Arc::get_mut` race possible because no
+    /// `Arc` exists until the moment we wrap. Mirrors the construction
+    /// pattern used by `flag_definitions_cache::compile_from_wrapper`, so the
+    /// codebase has one consistent way to build prepared flag lists.
+    pub fn prepare_and_seal(mut flags: Vec<FeatureFlag>) -> Arc<[FeatureFlag]> {
+        Self::prepare_regexes_in_place(&mut flags);
+        Arc::from(flags)
     }
 
     fn prepare_group_regexes(groups: &mut [FlagPropertyGroup]) {
@@ -1177,8 +1181,8 @@ mod tests {
     }
 
     #[test]
-    fn test_prepare_regexes_compiles_regex_filters_only() {
-        let mut flag_list = FeatureFlagList::new(vec![FeatureFlag {
+    fn test_prepare_and_seal_compiles_regex_filters_only() {
+        let flags = vec![FeatureFlag {
             id: 1,
             team_id: 1,
             name: None,
@@ -1222,14 +1226,11 @@ mod tests {
             evaluation_runtime: None,
             evaluation_tags: None,
             bucketing_identifier: None,
-        }]);
+        }];
 
-        flag_list.prepare_regexes();
+        let sealed = FeatureFlagList::prepare_and_seal(flags);
 
-        let props = flag_list.flags[0].filters.groups[0]
-            .properties
-            .as_ref()
-            .unwrap();
+        let props = sealed[0].filters.groups[0].properties.as_ref().unwrap();
         assert!(
             matches!(
                 props[0].compiled_regex,

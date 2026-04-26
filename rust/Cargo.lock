@@ -3393,7 +3393,6 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
- "twox-hash",
  "url",
  "uuid",
 ]
