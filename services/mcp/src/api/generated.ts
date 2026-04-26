@@ -39746,6 +39746,10 @@ export namespace Schemas {
 
     export type LlmSkillsListParams = {
     /**
+     * Filter skills by the ID of the user who created them.
+     */
+    created_by_id?: number;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
