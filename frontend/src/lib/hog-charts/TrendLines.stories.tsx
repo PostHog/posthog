@@ -26,7 +26,7 @@ function trendLineOverlay(parent: Series, fitUpTo?: number): Series {
         color: parent.color,
         yAxisId: parent.yAxisId,
         data: trendLine(parent.data, fitUpTo),
-        dashPattern: [6, 4],
+        dashPattern: [1, 3],
         pointRadius: 0,
         hideFromTooltip: true,
     }
