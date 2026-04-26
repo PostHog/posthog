@@ -22,7 +22,10 @@ from __future__ import annotations
 import os
 import re
 import sys
+import json
 from pathlib import Path
+
+SNAPSHOT_PATH = Path(__file__).resolve().parent.parent.parent / "posthog" / "test" / "idor" / "_coverage_snapshot.json"
 
 
 def setup_django() -> None:
@@ -32,6 +35,45 @@ def setup_django() -> None:
     import django
 
     django.setup()
+
+
+def _enumerate_pairs() -> tuple[set[str], set[str]]:
+    """Enumerate all (viewset, FK field) and (viewset, action) pairs.
+
+    Returns two sets of dotted-string keys. The caller compares them to
+    the snapshot to detect new pairs that haven't been audited yet.
+    """
+    from posthog.test.idor.discovery import discover_idor_test_cases
+    from posthog.test.idor.fk_discovery import discover_action_serializers, discover_writable_tenant_fks
+
+    fk_pairs: set[str] = set()
+    action_pairs: set[str] = set()
+    for case in discover_idor_test_cases():
+        serializer_cls = getattr(case.viewset_cls, "serializer_class", None)
+        if serializer_cls is not None:
+            for fk in discover_writable_tenant_fks(serializer_cls):
+                key = f"{case.name}.{'.'.join((*fk.nested_path, fk.serializer_field_name))}.{fk.target_model.__name__}"
+                fk_pairs.add(key)
+        for action in discover_action_serializers(case.viewset_cls):
+            action_pairs.add(f"{case.name}.{action.method_name}")
+    return fk_pairs, action_pairs
+
+
+def _load_snapshot() -> dict[str, list[str]]:
+    if not SNAPSHOT_PATH.exists():
+        return {"fk_pairs": [], "action_pairs": []}
+    with SNAPSHOT_PATH.open("r", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def _write_snapshot(fk_pairs: set[str], action_pairs: set[str]) -> None:
+    payload = {
+        "fk_pairs": sorted(fk_pairs),
+        "action_pairs": sorted(action_pairs),
+    }
+    with SNAPSHOT_PATH.open("w", encoding="utf-8") as fh:
+        json.dump(payload, fh, indent=2)
+        fh.write("\n")
 
 
 _NAMED_GROUP_RE = re.compile(r"\(\?P<([^>]+)>")
@@ -58,7 +100,10 @@ def _has_detail_endpoint(cls: type) -> bool:
     return False
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    args = argv if argv is not None else sys.argv[1:]
+    update_snapshot = "--update-snapshot" in args
+
     setup_django()
 
     from posthog.api import router
@@ -182,6 +227,46 @@ def main() -> int:
     print(f"[idor-fk-coverage]     - unscoped (primary IDOR risk):     {fk_unscoped}")
     print(f"[idor-fk-coverage]   viewsets explicitly skipped:        {len(fk_skips)}")
     print(f"[idor-fk-coverage]   viewsets with at least one FK pair: {len(fk_pairs_by_viewset)}")
+
+    # 5. Snapshot enforcement — every (viewset, FK) and (viewset, action)
+    #    pair must be in `_coverage_snapshot.json`. New pairs fail the gate
+    #    so a freshly-added action or FK can't slip past the parametric
+    #    sweep without an explicit acknowledgement. Run with
+    #    `--update-snapshot` to refresh the file after auditing.
+    fk_pairs, action_pairs = _enumerate_pairs()
+    if update_snapshot:
+        _write_snapshot(fk_pairs, action_pairs)
+        print()
+        print(f"[idor-snapshot]      wrote {len(fk_pairs)} FK + {len(action_pairs)} action pairs to {SNAPSHOT_PATH}")
+    else:
+        snapshot = _load_snapshot()
+        snapshot_fk = set(snapshot.get("fk_pairs", []))
+        snapshot_action = set(snapshot.get("action_pairs", []))
+        new_fk = sorted(fk_pairs - snapshot_fk)
+        new_action = sorted(action_pairs - snapshot_action)
+        if new_fk or new_action:
+            print()
+            print("ERROR: new (viewset, FK) or (viewset, action) pairs not in coverage snapshot:")
+            for entry in new_fk:
+                print(f"  + FK    {entry}")
+            for entry in new_action:
+                print(f"  + ACT   {entry}")
+            print()
+            print("Each entry must either be exercised by the parametric sweep or added")
+            print("to IDOR_FK_PATCH_SKIP_LIST / IDOR_FK_POST_SKIP_LIST / IDOR_ACTION_SKIP_LIST")
+            print("with a documented reason. Once audited, refresh the snapshot:")
+            print()
+            print("  python .github/scripts/check-idor-test-coverage.py --update-snapshot")
+            return 1
+        stale_fk = sorted(snapshot_fk - fk_pairs)
+        stale_action = sorted(snapshot_action - action_pairs)
+        if stale_fk or stale_action:
+            print()
+            print("WARNING: snapshot lists pairs that no longer exist (refresh with --update-snapshot):")
+            for entry in stale_fk[:10]:
+                print(f"  - FK    {entry}")
+            for entry in stale_action[:10]:
+                print(f"  - ACT   {entry}")
 
     print()
     print("OK — all tenant-scoped detail viewsets are IDOR-covered.")
