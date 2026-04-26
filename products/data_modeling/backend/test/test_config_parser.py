@@ -4,6 +4,9 @@ from textwrap import dedent
 import pytest
 
 from products.data_modeling.backend.services.gitsync.config_parser import (
+    TomlFormat,
+    YamlFormat,
+    format_for_path,
     parse_dag_config,
     parse_project_config,
     serialize_dag_config,
@@ -86,7 +89,7 @@ class TestParseProjectConfig:
 
 class TestParseProjectConfigValidation:
     def test_invalid_toml_raises(self):
-        with pytest.raises(ValueError, match="Invalid posthog.toml"):
+        with pytest.raises(ValueError, match="Invalid posthog config"):
             parse_project_config("not [valid toml")
 
     def test_missing_project_section_raises(self):
@@ -237,7 +240,7 @@ class TestParseDagConfig:
 
 class TestParseDagConfigValidation:
     def test_invalid_toml_raises(self):
-        with pytest.raises(ValueError, match="Invalid dag.toml"):
+        with pytest.raises(ValueError, match="Invalid dag config"):
             parse_dag_config("not valid toml [")
 
     def test_unknown_key_raises(self):
@@ -297,3 +300,173 @@ class TestSerializeDagConfig:
         parsed = parse_dag_config(result)
         assert parsed.sync_frequency == "1h"
         assert parsed.description == "Core metrics"
+
+
+class TestFormatForPath:
+    @pytest.mark.parametrize(
+        "path, expected_label",
+        [
+            ("posthog.toml", "toml"),
+            ("dag.toml", "toml"),
+            ("posthog.yaml", "yaml"),
+            ("posthog.yml", "yaml"),
+            ("models/finance/dag.YAML", "yaml"),
+            ("models/finance/dag.YML", "yaml"),
+        ],
+    )
+    def test_detects_format_from_extension(self, path: str, expected_label: str):
+        assert format_for_path(path).label == expected_label
+
+    def test_unknown_extension_raises(self):
+        with pytest.raises(ValueError, match="Unsupported config file extension"):
+            format_for_path("posthog.json")
+
+
+class TestParseProjectConfigYaml:
+    def test_minimal_yaml_config(self):
+        content = dedent("""\
+            project:
+              name: Acme
+              version: 1
+        """)
+        result = parse_project_config(content, format=YamlFormat())
+        assert result.name == "Acme"
+        assert result.version == 1
+        assert result.environments[0].name == "production"
+
+    def test_multi_environment_yaml(self):
+        content = dedent("""\
+            project:
+              name: Acme
+              version: 1
+            environments:
+              production:
+                name: production
+              staging:
+                name: staging
+        """)
+        result = parse_project_config(content, format=YamlFormat())
+        assert result.is_multi_environment is True
+        assert {e.name for e in result.environments} == {"production", "staging"}
+
+    def test_invalid_yaml_raises(self):
+        with pytest.raises(ValueError, match="Invalid posthog config"):
+            parse_project_config("project: [unclosed", format=YamlFormat())
+
+    def test_non_mapping_top_level_raises(self):
+        with pytest.raises(ValueError, match="Invalid posthog config.*mapping"):
+            parse_project_config("- just\n- a\n- list\n", format=YamlFormat())
+
+    def test_unknown_section_yaml_raises(self):
+        content = dedent("""\
+            project:
+              name: Acme
+              version: 1
+            database:
+              host: localhost
+        """)
+        with pytest.raises(ValueError, match="Unknown sections.*database"):
+            parse_project_config(content, format=YamlFormat())
+
+    def test_yaml_validation_shares_logic_with_toml(self):
+        content = dedent("""\
+            project:
+              name: Acme
+              version: "1"
+        """)
+        with pytest.raises(ValueError, match="version must be an integer"):
+            parse_project_config(content, format=YamlFormat())
+
+
+class TestParseDagConfigYaml:
+    def test_full_yaml_config(self):
+        content = dedent("""\
+            name: Finance Pipeline
+            sync_frequency: 6h
+            description: Core business metrics
+        """)
+        result = parse_dag_config(content, format=YamlFormat())
+        assert result.name == "Finance Pipeline"
+        assert result.sync_frequency == "6h"
+        assert result.description == "Core business metrics"
+
+    def test_empty_yaml_uses_defaults(self):
+        result = parse_dag_config("", format=YamlFormat())
+        assert result.sync_frequency == "1d"
+
+    def test_unknown_key_yaml_raises(self):
+        with pytest.raises(ValueError, match="Unknown keys.*schedule"):
+            parse_dag_config('schedule: "* * * * *"', format=YamlFormat())
+
+
+class TestSerializeYaml:
+    def test_serialize_project_yaml_round_trip(self):
+        result = serialize_project_config(
+            name="Acme",
+            environments=["production", "staging"],
+            format=YamlFormat(),
+        )
+        parsed = parse_project_config(result, format=YamlFormat())
+        assert parsed.name == "Acme"
+        assert parsed.is_multi_environment is True
+        assert {e.name for e in parsed.environments} == {"production", "staging"}
+
+    def test_serialize_dag_yaml_round_trip(self):
+        result = serialize_dag_config(
+            name="Finance",
+            sync_frequency="1h",
+            description="Core metrics",
+            format=YamlFormat(),
+        )
+        parsed = parse_dag_config(result, format=YamlFormat())
+        assert parsed.name == "Finance"
+        assert parsed.sync_frequency == "1h"
+        assert parsed.description == "Core metrics"
+
+
+class TestStrategySymmetry:
+    """Same data parses identically through any format."""
+
+    @pytest.mark.parametrize(
+        "toml_content, yaml_content",
+        [
+            pytest.param(
+                '[project]\nname = "Acme"\nversion = 1\n',
+                "project:\n  name: Acme\n  version: 1\n",
+                id="minimal",
+            ),
+            pytest.param(
+                dedent("""\
+                    [project]
+                    name = "Acme"
+                    version = 1
+
+                    [environments.prod]
+                    name = "production"
+
+                    [environments.stg]
+                    name = "staging"
+
+                    [settings]
+                    models_directory = "sql"
+                """),
+                dedent("""\
+                    project:
+                      name: Acme
+                      version: 1
+                    environments:
+                      prod:
+                        name: production
+                      stg:
+                        name: staging
+                    settings:
+                      models_directory: sql
+                """),
+                id="full",
+            ),
+        ],
+    )
+    def test_project_config_equivalent(self, toml_content: str, yaml_content: str):
+        toml_parsed = parse_project_config(toml_content, format=TomlFormat())
+        yaml_parsed = parse_project_config(yaml_content, format=YamlFormat())
+        assert toml_parsed == yaml_parsed
