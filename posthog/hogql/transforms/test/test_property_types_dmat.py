@@ -49,9 +49,55 @@ class TestDmatIntegration(BaseTest):
             "clickhouse",
         )
 
-        # Should use dmat column
+        # Should use dmat column, wrapped in toFloat (accurateCastOrNull) so that
+        # comparisons with String literals like `!= ''` don't crash ClickHouse.
         assert "dmat_numeric_3" in query, f"Expected dmat_numeric_3 in query but got: {query}"
         assert "JSONExtractRaw" not in query
+        assert "accurateCastOrNull" in query, (
+            f"Expected toFloat (accurateCastOrNull) wrap around the dmat column but got: {query}"
+        )
+
+    def test_numeric_dmat_filter_with_empty_string_does_not_crash(self):
+        """Regression: a user filter like `prop != ''` against a Numeric event
+        property with a dmat column used to emit `dmat_numeric_X != ''`, making
+        ClickHouse parse '' as Float64 and crash with `Cannot read floating point
+        value`. The toFloat wrap must be emitted even when a dmat column is
+        available so the comparison does not coerce '' to Float64 directly.
+        """
+        prop_def = PropertyDefinition.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            name="coopId",
+            property_type=PropertyType.Numeric,
+            type=PropertyDefinition.Type.EVENT,
+        )
+        MaterializedColumnSlot.objects.create(
+            team=self.team,
+            property_definition=prop_def,
+            property_type=PropertyType.Numeric,
+            slot_index=4,
+            state=MaterializedColumnSlotState.READY,
+        )
+
+        expr = parse_select("SELECT 1 FROM events WHERE properties.coopId != ''")
+        query, _ = prepare_and_print_ast(
+            expr,
+            HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True),
+            "clickhouse",
+        )
+
+        # The dmat column should still be used, but wrapped so that a String('')
+        # constant does not get coerced to Float64 directly against the bare column.
+        assert "dmat_numeric_4" in query, f"Expected dmat_numeric_4 in query but got: {query}"
+        # The bare `dmat_numeric_4, ''` pattern (i.e. `notEquals(dmat_numeric_4, '')`)
+        # is what triggered the crash.
+        assert "dmat_numeric_4, ''" not in query, (
+            f"Bare dmat_numeric column compared directly with String literal; this crashes ClickHouse: {query}"
+        )
+        # The toFloat wrap should be emitted around the dmat column reference.
+        assert "accurateCastOrNull" in query, (
+            f"Expected toFloat (accurateCastOrNull) wrap around the dmat column but got: {query}"
+        )
 
     def test_falls_back_to_json_when_no_slot(self):
         """Test that property access falls back to JSON extraction when no slot exists."""

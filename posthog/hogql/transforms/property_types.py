@@ -562,11 +562,19 @@ class PropertySwapper(CloningVisitor):
         # Add notice about the property type and materialization status
         self._add_property_notice(node, property_type, field_type, prop_info.get("dmat"))
 
-        if "dmat" in prop_info:
-            # Don't rewrite the AST - let the printer substitute the dmat column
-            # The printer will check context.property_swapper and use the dmat column
+        if "dmat" in prop_info and field_type != "Float":
+            # The printer substitutes the dmat column directly. For Boolean / DateTime
+            # the existing wrappers do not compose with already-typed dmat columns
+            # (e.g. transform(toString(UInt8), ['true','false'], …) would always be
+            # NULL), so we leave them alone.
             return node
-
+        # For Numeric (Float) we still want the toFloat wrap. Without it, the bare
+        # Nullable(Float64) dmat column gets compared directly to String literals
+        # (e.g. `coopId != ''` from user filters or trends groups-math), which makes
+        # ClickHouse try to parse '' as Float64 and crash with
+        # "Cannot read floating point value: while converting '' to Float64".
+        # The accurateCastOrNull wrap mirrors what we emit for non-dmat numeric
+        # properties and avoids the type mismatch.
         return self._field_type_to_property_call(node, field_type)
 
     def _field_type_to_property_call(self, node: ast.Field, field_type: str):
