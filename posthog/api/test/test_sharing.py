@@ -796,6 +796,47 @@ class TestSharing(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/{type}/{target.pk}/sharing")
         assert response.json()["settings"] == settings_data
 
+    @parameterized.expand(["insights", "dashboards"])
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
+    @mock_exporter_template
+    def test_public_share_does_not_leak_creator_email(self, type: str, _patched_exporter_task: Mock):
+        """Public shared insights and dashboards must not embed the creator's email in the rendered payload."""
+        target = self.insight if type == "insights" else self.dashboard
+
+        share_response = self.client.patch(
+            f"/api/projects/{self.team.id}/{type}/{target.pk}/sharing",
+            {"enabled": True},
+        )
+        assert share_response.status_code == status.HTTP_200_OK
+        access_token = share_response.json()["access_token"]
+
+        # Anonymous-style fetch: no auth assumed beyond the share token
+        self.client.logout()
+
+        # The .json variant returns the raw exported_data the HTML template would inline
+        json_response = self.client.get(f"/shared/{access_token}.json")
+        assert json_response.status_code == 200
+        payload = json_response.json()
+
+        creator_email = self.user.email
+        assert creator_email
+        assert creator_email not in json.dumps(payload), (
+            f"creator email {creator_email!r} leaked into shared {type} payload"
+        )
+
+        resource = payload.get("insight") if type == "insights" else payload.get("dashboard")
+        assert resource is not None
+        # PII fields stripped wholesale (matches existing InsightSerializer behaviour for hide_extra_details)
+        assert "created_by" not in resource
+        assert "last_modified_by" not in resource
+        assert "created_at" not in resource
+        assert "last_modified_at" not in resource
+
+        # The HTML template render path inlines the same payload as JSON in <script id="posthog-exported-data">
+        html_response = self.client.get(f"/shared/{access_token}")
+        assert html_response.status_code == 200
+        assert creator_email not in html_response.content.decode()
+
     def test_sharing_configuration_model_settings_default(self):
         """Test that the model's settings field defaults to empty dict"""
         from posthog.models.sharing_configuration import SharingConfiguration

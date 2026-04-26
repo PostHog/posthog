@@ -717,21 +717,21 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         add_og_tags = resource.insight or resource.dashboard
         asset_description = ""
 
-        # Check both query params (legacy) and settings for configuration options
-        state = getattr(resource, "settings", {}) or {}
+        # Public shared renders go to unauthenticated viewers, so always strip PII (e.g. creator email)
+        # regardless of the user-facing `hideExtraDetails` toggle. `hide_extra_details` triggers field
+        # drops in InsightSerializer.to_representation and DashboardMetadataSerializer.to_representation.
+        shared_render_context = {**context, "hide_extra_details": True}
 
         if resource.insight and not resource.insight.deleted:
             # Both insight AND dashboard can be set. If both it is assumed we should render that
-            context["dashboard"] = resource.dashboard
+            shared_render_context["dashboard"] = resource.dashboard
             asset_title = resource.insight.name or resource.insight.derived_name
             asset_description = resource.insight.description or ""
             InsightViewed.objects.update_or_create(
                 insight=resource.insight, team=None, user=None, defaults={"last_viewed_at": now()}
             )
 
-            # Add hideExtraDetails to context so that PII related information is not returned to the client
-            insight_context = {**context, "hide_extra_details": state.get("hideExtraDetails", False)}
-            insight_data = InsightSerializer(resource.insight, many=False, context=insight_context).data
+            insight_data = InsightSerializer(resource.insight, many=False, context=shared_render_context).data
             exported_data.update({"insight": insight_data})
             exported_data.update({"themes": get_themes_for_team(resource.team)})
         elif resource.dashboard and not resource.dashboard.deleted:
@@ -741,7 +741,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             resource.dashboard.save(update_fields=["last_accessed_at"])
 
             with task_chain_context():
-                dashboard_data = DashboardSerializer(resource.dashboard, context=context).data
+                dashboard_data = DashboardSerializer(resource.dashboard, context=shared_render_context).data
                 # We don't want the dashboard to be accidentally loaded via the shared endpoint
                 exported_data.update({"dashboard": dashboard_data})
             exported_data.update({"themes": get_themes_for_team(resource.team)})

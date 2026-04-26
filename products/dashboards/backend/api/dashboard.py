@@ -263,6 +263,16 @@ class DashboardTileSerializer(serializers.ModelSerializer):
         representation["last_refresh"] = insight_representation.get("last_refresh", None)
         representation["is_cached"] = insight_representation.get("is_cached", False)
 
+        # Strip PII (e.g. creator email) from text and button tile sub-objects when rendering
+        # for an unauthenticated public share. InsightSerializer already handles this for the
+        # insight branch via its own to_representation.
+        if self.context.get("hide_extra_details", False):
+            for sub_field in ("text", "button_tile"):
+                sub_representation = representation.get(sub_field)
+                if isinstance(sub_representation, dict):
+                    for pii_field in ("created_by", "last_modified_by", "created_at", "last_modified_at"):
+                        sub_representation.pop(pii_field, None)
+
         return representation
 
 
@@ -409,6 +419,13 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
         ret = super().to_representation(instance)
         if ret.get("quick_filter_ids") is None:
             ret["quick_filter_ids"] = []
+
+        # Hide PII fields (e.g. creator email) when serializing for an unauthenticated
+        # public render (set by the sharing endpoint) or when the sharing toggle requests it.
+        if self.context.get("hide_extra_details", False):
+            for field in ("created_by", "last_modified_by", "created_at", "last_modified_at"):
+                ret.pop(field, None)
+
         return ret
 
     def _filter_out_non_existing_quick_filter_ids(self, quick_filter_ids: list[str], team_id: int) -> list[str]:
