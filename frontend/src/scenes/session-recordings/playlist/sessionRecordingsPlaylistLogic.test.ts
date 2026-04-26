@@ -894,13 +894,14 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 date_from: 7 as unknown as string,
                 duration: 'not-an-array' as unknown as RecordingDurationFilter[],
             }
+            const expectedDefaults = getDefaultFilters('cool_user_99')
 
             await expectLogic(logic, () => {
                 logic.actions.setFilters(invalidSavedFilters)
             }).toMatchValues({
                 filters: expect.objectContaining({
-                    date_from: DEFAULT_RECORDING_FILTERS.date_from,
-                    duration: DEFAULT_RECORDING_FILTERS.duration,
+                    date_from: expectedDefaults.date_from,
+                    duration: expectedDefaults.duration,
                 }),
             })
 
