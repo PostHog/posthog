@@ -424,6 +424,18 @@ snapshots:
         hash: v1.k794b7964.2590c767710f5896460119705f0703bc9cd21a20c8c126f4db366b61a5bcba28.u1i4S-zmIzVZld-cgvuMd17GRZxPmS3ViBkJIPAdeDg
     components-hedgehogmode--static-hedgehog--light:
         hash: v1.k794b7964.43d71f5c3ad02bd9e1fa87433d34df79e0de653c4b55004188bed5de78a2c3f5.i2ATBYyqY7uq7UxwlL2Rdte6AuMyySa8Jnbeb1VouoQ
+    components-hogcharts-confidenceintervals--area-chart-with-hatching--dark:
+        hash: v1.k794b7964.9367992be81e2b1e550150e768396d54fafc56dfbf9e78c35b37d30b0d534ee9.H7Ci7Bras6vx2r1EykrONgyVx1P8AxH3q83SWjCx6i4
+    components-hogcharts-confidenceintervals--area-chart-with-hatching--light:
+        hash: v1.k794b7964.7157245b2621c9f4192740658b4a193f6ee23b1435f1004cd0a3c69c443a10fa.asDrCXaNbG4uUGqkwCPcNuBUJswJZTkVMBswM0dpOB8
+    components-hogcharts-confidenceintervals--multi-series-with-ci--dark:
+        hash: v1.k794b7964.7ed6372407cb90533231db34d4b5e84ff8671243f8751755266f18f496f41aaa.BAfg5oY5IdR_67i-WQ8MXJM_2o4cULh9NO97-txAutg
+    components-hogcharts-confidenceintervals--multi-series-with-ci--light:
+        hash: v1.k794b7964.bbaac9d54e87d0ac68442e4e09c0dde19d9ebe2580e1f520d55059072e4ae6de.Phia7sfVw9Rf_J4m6vQ8ZyN2gPeonkt22Ftfl5sbSuE
+    components-hogcharts-confidenceintervals--with-confidence-interval--dark:
+        hash: v1.k794b7964.2e36c5af53a5e6301fb3dbdf043eac50d93eb9085b06949b59ba85f3825c020c.jdCPkkeVr1036Fy1JhWLYhvCkHOIZ1aioT_Hfya1ru4
+    components-hogcharts-confidenceintervals--with-confidence-interval--light:
+        hash: v1.k794b7964.53f9106d6da9ea21ab25d645245eec3edabc4dfd3809f8c1ba4168bedfa12a55.w8neWNb6zOIhRUh3bS3fKf4Zqec3dKWwXVVC3d12V_c
     components-hogcharts-referenceline--fill-sides--dark:
         hash: v1.k794b7964.1cdea28042be80a089f2c5ec7cce5c36f36ccef93aec34fd4dac31ad0e2c1e8b.ihDUZG_Gy5iXdcfx8K0WEaT2YDMqiKnP79J9_wYzSko
     components-hogcharts-referenceline--fill-sides--light:
@@ -456,26 +468,34 @@ snapshots:
         hash: v1.k794b7964.da7509fa2d50594b97da227743df5d6c8dc2fba68319cdb63e0c0a783a9e8a56.VyeZQIl63pbC3dTu5fIiBCqjLA97n2KDMSesUBp-3yc
     components-hogcharts-trendlines--with-trend-line--light:
         hash: v1.k794b7964.276799f30320d0d543bbad2ab88ae343d86e5bc2b6deb8e64db0c27b96beab8a.54U0eAaXpU1eM76JrzJxGfYdtTlQ3nPCHmTuv_lgwjc
+    components-hogcharts-valuelabels--cross-series-overlap-removal--dark:
+        hash: v1.k794b7964.799f31e4dc256ac96259ef607fe7fc18956bb718f241c0a8ad5500fad58f2cc3.VG2XlenGJw2qM7AwqLpQuaMzzOYsWE3mCJPVj850wTQ
+    components-hogcharts-valuelabels--cross-series-overlap-removal--light:
+        hash: v1.k794b7964.7c06a59994d41f58719408240137e5f2fbbe940769fa65582b5b690ecceb33d2.4FmQ3AWIzWDCzJNrY3MFk-c5hrrNKTL-CV3owENmCR0
     components-hogcharts-valuelabels--dual-y-axes--dark:
-        hash: v1.k794b7964.90610149a5326e633baa49e9873a88386caf9d74956025d507a5acb091f4e9f6.aovJ-42i8bFRGXdJhTjYGV2tAekmSMSl2SUTDIurqN4
+        hash: v1.k794b7964.820b754c7e27a3bd835daa8b217a46170f0dad0bbbdb8b4b0bd9194131096ace.NGYMLvWcfskYKlWgd6xlqgN7v7B59DFNHDoF2NlckfE
     components-hogcharts-valuelabels--dual-y-axes--light:
-        hash: v1.k794b7964.1ad1dd16b56e33305a193342c8e83e42133f35e2bad95c94b33503686d609fd2.cD87d7A2jSsXJfPMPEolDpM-KL7IiNZoKtIvBolW25E
+        hash: v1.k794b7964.433862c9f6cc50f900cda19439ff884174130a1609fdda2b5b1ed8e5c6ebea16.1UdoW6_nHJNobxMCD45AQFFFa9R_NF2GTAIRCpHxUww
+    components-hogcharts-valuelabels--hidden-on-auxiliary-series--dark:
+        hash: v1.k794b7964.890e491c0f372189b0d2c4d42c0af8a5f33a0d049b7ada43f6f176a8de2fc47e.0AbXt5oM5Xw1J0YotpVjzJVE8QcBJvdG8YDjkRcPG4g
+    components-hogcharts-valuelabels--hidden-on-auxiliary-series--light:
+        hash: v1.k794b7964.e9e62d5efcc036a043c83e06935eb5af0f2855c564c11d6661cbc9005ec5929f.6H1j8onyrLfm_trH8ffwTB7H2U4BwbkIUfpSHAxCHWw
     components-hogcharts-valuelabels--multi-series-collision--dark:
-        hash: v1.k794b7964.6cc5174597b8b9fafa46a3d1210b63ce5b096f3a31d5318af96814c4c5d59ef4.ZDsxA5TVCfhqD7GSPiuW3paHTi_PZ_52dynDZDo1-8g
+        hash: v1.k794b7964.6db9a0acc564d5199edaadb8a13146071a592ec6dabba3f4737d53a24017eac6.yM7CPQS1PNFfU12NMHVpRgqKDZqdmam-mAZteEV05PY
     components-hogcharts-valuelabels--multi-series-collision--light:
-        hash: v1.k794b7964.33cdbefb95de393e7792156913a8787a0cd2b5e78897a7e1121b2aa306f954c0.a_gNzYquyXSZ5wQ7BnKDqwCWUDRC_Ec6YhMj4SOXaL0
+        hash: v1.k794b7964.ca19c9456e9bcfa51f46d0e22e5d11043a5b920388d772316d028e45fa31b106.7NtlqmH3x4_MXlMRTsARKQjcNZzQAK5FkpcARDo1CTY
     components-hogcharts-valuelabels--negative-values--dark:
-        hash: v1.k794b7964.60659b4fba2b062b51ce6b94599690de3774dd16641c32d20c62a89c6dcdb887.HVF6efwGmjcuhzEuGjDi_wLYD6iWg6P3b9keUaR_d70
+        hash: v1.k794b7964.a335df8c818b43a382ae53e316b4123f0e428705477f03f232066a203de5fa31.5dstERo_g_Hq78fsXXfsf42i8scCoFARVl8ixeVCcjo
     components-hogcharts-valuelabels--negative-values--light:
-        hash: v1.k794b7964.e357a69b67f2bfd910c0fd9f9ca60d32eb3ad159ce1b3a3ec4229afc4077667e.Zd8v4lt5-i5swmTi08VZg63q5Ezz_Do8IWgK_xXk_oo
+        hash: v1.k794b7964.654ebd6a453569e41162add82d95b21762b61dcd647260ad05a976f10c04cfb0.edfzJ9gwdfkrBa4RFefPcFrnJhEZb5lcSfm0di6IBRE
     components-hogcharts-valuelabels--single-series--dark:
-        hash: v1.k794b7964.5cbf36b2c37b31380850391327c4522d74701e6b2ac245fb9fb272c7cd8eb394.TW0Es7KaNp5uEkZt0vnxDMI4bmKfIDN4yVFeKQn75GU
+        hash: v1.k794b7964.b27d07dfe155c4d7e4e80a35e6baf603ca3141432326191975c04d8423491bfb.fI4a-OrVBhNmXoTljuOE1tTsYk7XHbLetAkwIWeRiXQ
     components-hogcharts-valuelabels--single-series--light:
-        hash: v1.k794b7964.e4078bda63992378c17fdd639e828d59e9cffdfddd70d513dce6830521cc040e.mD4h7F90QxV_CrtBNLc6WWqY_nCSBoRo0zVBPQkkX5A
+        hash: v1.k794b7964.aec3219140fdd35e81dd41f650cb366a119380fb83692aec2aa224671a2f3391.xu8B3M9GDZmzAaQNrsKkvviIOOkLO2NLfQhIXPTAFIQ
     components-hogcharts-valuelabels--with-custom-formatter--dark:
-        hash: v1.k794b7964.5042babbc89b32dd9003b457430cc11a9e27f0025fc5b653c727a027982b2470.BSkgBVXvo0POaBEA_etsTni6ZL918zRbXjf0RHCN-T0
+        hash: v1.k794b7964.dbd82a191a12ab8eade23946c2f58f1f9567133d48b7595217fbdc188e4f3537.OTuVVTwDMYbZdd8MBAar78JPqqO27xwX6FOqiBsq1LY
     components-hogcharts-valuelabels--with-custom-formatter--light:
-        hash: v1.k794b7964.85262bd0d8a41187821a3d7a2237c7a746c007fb1c35499ab5275b385ee9d42b.JREYCV_96FcfC4QvJfTiWkM_0tn-JV7rQ7v7VamfEcY
+        hash: v1.k794b7964.28134b45d1dc2d7cf3a20227f134d1b7c6ccd546a9f778f4ac0186158510dbdc.Q0x7saWTVtFZhUoqN9wwvowjAXMDhKeiG08lpSK59t4
     components-hogfetti--hogfetti--dark:
         hash: v1.k794b7964.dc6868e284e60433ae001da81ba90cf3f05eef1dae1765a849c6e9c63f1ae2ea.T9sV0zE441WqbpRr2zp64VZZfC1xlzxST-bxbW2egvI
     components-hogfetti--hogfetti--light:
