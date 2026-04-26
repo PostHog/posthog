@@ -5,8 +5,10 @@ from django.core.exceptions import ValidationError
 
 from asgiref.sync import async_to_sync
 
+from posthog.models import OrganizationMembership, User
+
 from products.tasks.backend.models import SandboxEnvironment, Task
-from products.tasks.backend.temporal.exceptions import TaskNotFoundError
+from products.tasks.backend.temporal.exceptions import TaskInvalidStateError, TaskNotFoundError
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
     TaskProcessingContext,
@@ -105,6 +107,30 @@ class TestGetTaskProcessingContextActivity:
         assert result.sandbox_environment_id == str(sandbox_environment.id)
         assert result.sandbox_environment_name == "Restricted env"
         assert result.allowed_domains == ["example.com"]
+
+    @pytest.mark.django_db
+    def test_rejects_private_environment_owned_by_another_user(self, activity_environment, test_task):
+        other_user = User.objects.create(email="victim@example.com", password="password")
+        OrganizationMembership.objects.create(
+            user=other_user,
+            organization_id=test_task.team.organization_id,
+        )
+        try:
+            sandbox_environment = SandboxEnvironment.objects.create(
+                team=test_task.team,
+                created_by=other_user,
+                name="Victim's Private",
+                private=True,
+                environment_variables={"SECRET_KEY": "secret_value"},
+            )
+            task_run = test_task.create_run(extra_state={"sandbox_environment_id": str(sandbox_environment.id)})
+
+            input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+
+            with pytest.raises(TaskInvalidStateError):
+                async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+        finally:
+            other_user.delete()
 
     @pytest.mark.django_db
     @pytest.mark.parametrize(

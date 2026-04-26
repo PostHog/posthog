@@ -4985,3 +4985,114 @@ class TestSandboxEnvironmentAPI(BaseTaskAPITest):
 
         task_run = TaskRun.objects.filter(task=task).latest("created_at")
         self.assertNotIn("sandbox_environment_id", task_run.state)
+
+
+class TestSandboxEnvironmentPrivacy(BaseTaskAPITest):
+    """Authorization regression tests for sandbox environment selection.
+
+    A previous refactor allowed any team member to inject another user's
+    private SandboxEnvironment (and its encrypted env vars/secrets) into a
+    task run by passing the victim's environment id. These tests assert
+    that private environments are usable only by their creator at every
+    entry point that puts a sandbox_environment_id into TaskRun.state.
+    """
+
+    def _make_victim_private_env(self):
+        victim = User.objects.create_user(email="victim@example.com", first_name="Victim", password="password")
+        self.organization.members.add(victim)
+        return victim, SandboxEnvironment.objects.create(
+            team=self.team,
+            name="Victim's Private",
+            private=True,
+            created_by=victim,
+            environment_variables={"SECRET_KEY": "secret_value"},
+        )
+
+    @parameterized.expand(
+        [
+            ("run_endpoint", "run"),
+            ("create_endpoint", "runs"),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_rejects_other_users_private_environment(
+        self, _name, endpoint_segment, mock_create_workflow, mock_run_workflow
+    ):
+        _victim, private_env = self._make_victim_private_env()
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/{endpoint_segment}/",
+            {"sandbox_environment_id": str(private_env.id)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Invalid sandbox_environment_id")
+        self.assertFalse(TaskRun.objects.filter(task=task, state__sandbox_environment_id=str(private_env.id)).exists())
+        mock_run_workflow.assert_not_called()
+        mock_create_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_accepts_other_users_public_environment(self, _mock_workflow):
+        other_user = User.objects.create_user(email="other@example.com", first_name="Other", password="password")
+        self.organization.members.add(other_user)
+        public_env = SandboxEnvironment.objects.create(
+            team=self.team,
+            name="Shared",
+            private=False,
+            created_by=other_user,
+        )
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"sandbox_environment_id": str(public_env.id)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
+        self.assertEqual(task_run.state["sandbox_environment_id"], str(public_env.id))
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_accepts_creators_own_private_environment(self, _mock_workflow):
+        own_env = SandboxEnvironment.objects.create(
+            team=self.team,
+            name="Mine",
+            private=True,
+            created_by=self.user,
+        )
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"sandbox_environment_id": str(own_env.id)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
+        self.assertEqual(task_run.state["sandbox_environment_id"], str(own_env.id))
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_drops_carryover_of_other_users_private_environment(self, _mock_workflow):
+        _victim, private_env = self._make_victim_private_env()
+        task = self.create_task()
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"sandbox_environment_id": str(private_env.id)},
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"resume_from_run_id": str(previous_run.id)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        new_run = TaskRun.objects.exclude(id=previous_run.id).filter(task=task).latest("created_at")
+        self.assertNotIn("sandbox_environment_id", new_run.state)

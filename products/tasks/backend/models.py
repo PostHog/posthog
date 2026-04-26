@@ -20,6 +20,7 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, models, transaction
+from django.db.models import Q
 from django.utils import timezone as django_timezone
 
 import structlog
@@ -283,7 +284,11 @@ class Task(DeletedMetaFields, models.Model):
 
         sandbox_env = None
         if sandbox_environment_id is not None:
-            sandbox_env = SandboxEnvironment.objects.filter(id=sandbox_environment_id, team=team).first()
+            sandbox_env = (
+                SandboxEnvironment.objects.filter(id=sandbox_environment_id, team=team)
+                .filter(Q(private=False) | Q(created_by_id=user_id))
+                .first()
+            )
             if not sandbox_env:
                 raise ValueError(f"Invalid sandbox_environment_id: {sandbox_environment_id}")
 
