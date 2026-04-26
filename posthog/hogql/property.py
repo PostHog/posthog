@@ -732,10 +732,12 @@ def property_to_expr(
             # The property was saved as an incomplete object. Instead of crashing the entire query, pretend it's not there.
             return ast.Constant(value=1)
     else:
-        if strict:
+        # mypy thinks this branch is unreachable because the type union is exhausted, but team.test_account_filters
+        # is a JSONField that can drift to malformed values (e.g. a stray string from a stale import) at runtime.
+        if strict:  # type: ignore[unreachable]
             raise QueryError(f"property_to_expr with property of type {type(property).__name__} not implemented")
-        # The property was saved in an unexpected shape (e.g. a stray string in team.test_account_filters).
-        # Instead of crashing the entire query, pretend it's not there so a single bad entry can't break the page.
+        # The property was saved in an unexpected shape. Instead of crashing the entire query, pretend it's not there
+        # so a single bad entry can't break the page.
         return ast.Constant(value=1)
 
     if property.type == "hogql":
