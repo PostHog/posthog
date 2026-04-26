@@ -40,7 +40,7 @@ function CollapsibleRoot({ variant = 'menu', children, ...rest }: CollapsiblePro
 /* --------------------------------- Trigger -------------------------------- */
 
 const triggerVariants = cva({
-    base: 'flex items-center w-full cursor-pointer',
+    base: 'flex items-center w-full cursor-pointer disabled:cursor-not-allowed',
     variants: {
         variant: {
             menu: 'py-1 group pl-2',
