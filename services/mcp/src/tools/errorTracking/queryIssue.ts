@@ -17,7 +17,12 @@ const schema = z.object({
         .string()
         .regex(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/)
         .describe('Error tracking issue ID.'),
-    dateRange: dateRangeSchema.default({ date_from: '-7d' }).optional(),
+    dateRange: dateRangeSchema
+        .default({ date_from: '-7d' })
+        .optional()
+        .describe(
+            'Scopes the impact counts, latest event context, latest release, and optional sparkline for this issue. Defaults to the last 7 days; widen it when you need counts beyond that window.'
+        ),
     filterTestAccounts: z.coerce
         .boolean()
         .default(true)

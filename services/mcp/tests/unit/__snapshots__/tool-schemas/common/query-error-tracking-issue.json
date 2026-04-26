@@ -5,6 +5,7 @@
             "default": {
                 "date_from": "-7d"
             },
+            "description": "Scopes the impact counts, latest event context, latest release, and optional sparkline for this issue. Defaults to the last 7 days; widen it when you need counts beyond that window.",
             "properties": {
                 "date_from": {
                     "type": "string"

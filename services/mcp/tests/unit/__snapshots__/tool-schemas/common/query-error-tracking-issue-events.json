@@ -5,6 +5,7 @@
             "default": {
                 "date_from": "-7d"
             },
+            "description": "Scopes which sample exception events are returned for this issue. Defaults to the last 7 days; widen it when you need older occurrences.",
             "properties": {
                 "date_from": {
                     "type": "string"

@@ -30,6 +30,7 @@ describe('query-error-tracking-issue', () => {
                         status: 'active',
                         source: 'fallback.js',
                         function: 'fallbackFunction',
+                        assignee: { id: 42, type: 'user' },
                         aggregations: { occurrences: 3, users: 2, sessions: 1 },
                         first_event: { properties: { huge: true } },
                     },
@@ -110,6 +111,7 @@ describe('query-error-tracking-issue', () => {
             status: 'active',
             source: 'fallback.js',
             function: 'fallbackFunction',
+            assignee: { id: 42, type: 'user' },
             top_in_app_frame: {
                 function: 'loadIssue',
                 source: 'app.js',
