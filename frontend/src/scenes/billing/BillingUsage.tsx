@@ -45,6 +45,7 @@ export function BillingUsage(): JSX.Element {
         headingTooltip,
         showSeries,
         showEmptyState,
+        showStalledState,
         teamOptions,
         billingPeriodMarkers,
     } = useValues(logic)
@@ -57,6 +58,7 @@ export function BillingUsage(): JSX.Element {
         setExcludeEmptySeries,
         toggleTeamBreakdown,
         resetFilters,
+        loadBillingUsage,
     } = useActions(logic)
 
     if (restrictionReason) {
@@ -205,6 +207,22 @@ export function BillingUsage(): JSX.Element {
                         showLegend={false}
                         interval={filters.interval}
                         billingPeriodMarkers={billingPeriodMarkers}
+                    />
+                )}
+                {showStalledState && (
+                    <BillingEmptyState
+                        heading="Usage data for the new billing period isn't available yet."
+                        detail="Aggregated usage can take a little while to appear after a billing period rolls over. Try again shortly — if it keeps failing, contact support."
+                        actions={
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={() => loadBillingUsage()}
+                                loading={billingUsageResponseLoading}
+                            >
+                                Retry
+                            </LemonButton>
+                        }
                     />
                 )}
                 {showEmptyState && (

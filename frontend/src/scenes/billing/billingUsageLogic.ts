@@ -30,6 +30,15 @@ import type { BillingFilters } from './types'
 // These date filters return correct data but there's an issue with filter label after selecting it, showing 'No date range override' instead
 const TEMPORARILY_EXCLUDED_DATE_FILTER_OPTIONS = ['This month', 'Year to date', 'All time']
 
+// Flip the chart into a 'taking longer than usual' fallback if the upstream billing
+// service hasn't responded by this point — happens around new billing periods when
+// aggregated data isn't ready yet.
+const BILLING_USAGE_STALLED_TIMEOUT_MS = 15000
+
+// Hard cap on the upstream billing usage request so an indefinite hang surfaces
+// the stalled fallback (with a retry) instead of a spinner that never resolves.
+const BILLING_USAGE_REQUEST_TIMEOUT_MS = 60000
+
 export enum BillingUsageResponseBreakdownType {
     TYPE = 'type',
     TEAM = 'team',
@@ -98,6 +107,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
         setExcludeEmptySeries: (exclude: boolean, shouldDebounce: boolean = true) => ({ exclude, shouldDebounce }),
         toggleTeamBreakdown: true,
         resetFilters: true,
+        setBillingUsageResponseStalled: (stalled: boolean) => ({ stalled }),
     }),
     loaders(({ values }) => ({
         billingUsageResponse: [
@@ -116,11 +126,20 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                         end_date: values.dateTo,
                         ...(interval ? { interval } : {}),
                     }
+                    const abortController = new AbortController()
+                    const hardTimeoutId = setTimeout(() => abortController.abort(), BILLING_USAGE_REQUEST_TIMEOUT_MS)
                     try {
-                        return await api.get(`api/billing/usage/?${toParams(params)}`)
+                        return await api.get(`api/billing/usage/?${toParams(params)}`, {
+                            signal: abortController.signal,
+                        })
                     } catch (error) {
-                        lemonToast.error('Failed to load billing usage. Please try again or contact support.')
+                        if (!abortController.signal.aborted) {
+                            // Only toast for genuine failures — the stalled UI fallback covers the timeout case.
+                            lemonToast.error('Failed to load billing usage. Please try again or contact support.')
+                        }
                         throw error
+                    } finally {
+                        clearTimeout(hardTimeoutId)
                     }
                 },
             },
@@ -169,6 +188,15 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             {
                 setExcludeEmptySeries: (_, { exclude }: { exclude: boolean }) => exclude,
                 resetFilters: () => false,
+            },
+        ],
+        billingUsageResponseStalled: [
+            false,
+            {
+                loadBillingUsage: () => false,
+                loadBillingUsageSuccess: () => false,
+                loadBillingUsageFailure: () => true,
+                setBillingUsageResponseStalled: (_, { stalled }: { stalled: boolean }) => stalled,
             },
         ],
     })),
@@ -232,14 +260,24 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                 excludeEmptySeries ? Array.from(new Set([...userHiddenSeries, ...emptySeriesIDs])) : userHiddenSeries,
         ],
         showSeries: [
-            (s) => [s.billingUsageResponseLoading, s.series],
-            (billingUsageResponseLoading: boolean, series: billingUsageLogicType['values']['series']) =>
-                billingUsageResponseLoading || series.length > 0,
+            (s) => [s.billingUsageResponseLoading, s.series, s.billingUsageResponseStalled],
+            (
+                billingUsageResponseLoading: boolean,
+                series: billingUsageLogicType['values']['series'],
+                billingUsageResponseStalled: boolean
+            ) => !billingUsageResponseStalled && (billingUsageResponseLoading || series.length > 0),
+        ],
+        showStalledState: [
+            (s) => [s.billingUsageResponseStalled],
+            (billingUsageResponseStalled: boolean) => billingUsageResponseStalled,
         ],
         showEmptyState: [
-            (s) => [s.showSeries, s.billingUsageResponse],
-            (showSeries: boolean, billingUsageResponse: BillingUsageResponse | null) =>
-                !showSeries && !!billingUsageResponse,
+            (s) => [s.showSeries, s.billingUsageResponse, s.billingUsageResponseStalled],
+            (
+                showSeries: boolean,
+                billingUsageResponse: BillingUsageResponse | null,
+                billingUsageResponseStalled: boolean
+            ) => !showSeries && !billingUsageResponseStalled && !!billingUsageResponse,
         ],
         heading: [
             (s) => [s.filters],
@@ -408,6 +446,15 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        loadBillingUsage: async (_, breakpoint) => {
+            // Flip the chart into the stalled fallback state if the request is still in flight
+            // after BILLING_USAGE_STALLED_TIMEOUT_MS — kea cancels this breakpoint when a newer
+            // loadBillingUsage is dispatched, so we don't stall a request that has been superseded.
+            await breakpoint(BILLING_USAGE_STALLED_TIMEOUT_MS)
+            if (values.billingUsageResponseLoading) {
+                actions.setBillingUsageResponseStalled(true)
+            }
+        },
         setFilters: async ({ shouldDebounce }, breakpoint) => {
             if (shouldDebounce) {
                 await breakpoint(200)

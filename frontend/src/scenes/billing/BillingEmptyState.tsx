@@ -5,11 +5,13 @@ import { WarningHog } from 'lib/components/hedgehogs'
 export interface BillingEmptyStateProps {
     heading?: string
     detail?: string | React.ReactNode
+    actions?: React.ReactNode
 }
 
 export function BillingEmptyState({
     heading = 'No data available',
     detail = 'Please try adjusting your query or filters.',
+    actions,
 }: BillingEmptyStateProps): JSX.Element {
     return (
         <div
@@ -23,6 +25,7 @@ export function BillingEmptyState({
             ) : (
                 <div className="text-sm text-balance text-tertiary">{detail}</div>
             )}
+            {actions ? <div className="mt-4 flex gap-2 justify-center">{actions}</div> : null}
         </div>
     )
 }
