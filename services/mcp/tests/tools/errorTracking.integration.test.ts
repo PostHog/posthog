@@ -12,6 +12,7 @@ import {
     validateEnvironmentVariables,
 } from '@/shared/test-utils'
 import queryIssue from '@/tools/errorTracking/queryIssue'
+import queryIssueEvents from '@/tools/errorTracking/queryIssueEvents'
 import queryIssuesList from '@/tools/errorTracking/queryIssuesList'
 import { GENERATED_TOOLS } from '@/tools/generated/error_tracking'
 import type { Context } from '@/tools/types'
@@ -29,6 +30,7 @@ describe('Error Tracking', { concurrent: false }, () => {
     let currentUserId: number
     const queryTool = queryIssuesList()
     const queryIssueTool = queryIssue()
+    const queryIssueEventsTool = queryIssueEvents()
     const createdAssignmentRuleIds: string[] = []
     const createdGroupingRuleIds: string[] = []
     const createdSuppressionRuleIds: string[] = []
@@ -136,6 +138,41 @@ describe('Error Tracking', { concurrent: false }, () => {
             expect(Array.isArray(errorData.results)).toBe(true)
         })
 
+        it('should return compact paginated list metadata', async () => {
+            const result = await queryTool.handler(context, { status: 'all', limit: 1, volumeResolution: 0 })
+            const errorData = parseToolResponse(result)
+
+            expect(Array.isArray(errorData.results)).toBe(true)
+            expect(errorData.limit).toBe(1)
+            expect(errorData.offset).toBe(0)
+            expect(typeof errorData.hasMore).toBe('boolean')
+            expect(errorData._posthogUrl).toContain('/error_tracking')
+
+            if (errorData.results.length > 0) {
+                expect(errorData.results[0]).not.toHaveProperty('first_event')
+                expect(errorData.results[0]).not.toHaveProperty('last_event')
+            }
+        })
+
+        it('should accept typed shortcut filters', async () => {
+            const result = await queryTool.handler(context, {
+                status: 'all',
+                library: '__mcp_missing_library__',
+                release: '__mcp_missing_release__',
+                environment: '__mcp_missing_environment__',
+                fingerprint: '__mcp_missing_fingerprint__',
+                user: 'missing-user@example.com',
+                personId: '00000000-0000-0000-0000-000000000000',
+                url: '/__mcp_missing_url__',
+                filePath: '__mcp_missing_file.ts',
+                limit: 5,
+            })
+            const errorData = parseToolResponse(result)
+
+            expect(Array.isArray(errorData.results)).toBe(true)
+            expect(errorData.limit).toBe(5)
+        })
+
         it('should list errors with custom date range', async () => {
             const dateFrom = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString()
             const dateTo = new Date().toISOString()
@@ -170,32 +207,102 @@ describe('Error Tracking', { concurrent: false }, () => {
 
             expect(Array.isArray(errorData.results)).toBe(true)
         })
+    })
 
-        it('should get error details by issue ID', async () => {
+    describe('query-error-tracking-issue tool', () => {
+        it('should return null for a missing issue', async () => {
             const testIssueId = '00000000-0000-0000-0000-000000000000'
 
             const result = await queryIssueTool.handler(context, {
                 issueId: testIssueId,
-                volumeResolution: 0,
             })
             const errorDetails = parseToolResponse(result)
 
-            expect(errorDetails).toBeTruthy()
+            expect(errorDetails).toEqual({
+                result: null,
+                _posthogUrl: expect.stringContaining(`/error_tracking/${testIssueId}`),
+            })
         })
 
-        it('should get error details with custom date range', async () => {
+        it('should return null for a missing issue with custom date range', async () => {
             const testIssueId = '00000000-0000-0000-0000-000000000000'
             const dateFrom = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
             const dateTo = new Date().toISOString()
 
             const result = await queryIssueTool.handler(context, {
                 issueId: testIssueId,
-                volumeResolution: 0,
                 dateRange: { date_from: dateFrom, date_to: dateTo },
             })
             const errorDetails = parseToolResponse(result)
 
-            expect(errorDetails).toBeTruthy()
+            expect(errorDetails).toEqual({
+                result: null,
+                _posthogUrl: expect.stringContaining(`/error_tracking/${testIssueId}`),
+            })
+        })
+
+        it('should return compact details for an existing issue when available', async () => {
+            const issueId = await getFirstIssueId()
+            if (!issueId) {
+                return
+            }
+
+            const result = await queryIssueTool.handler(context, {
+                issueId,
+                dateRange: { date_from: '-3650d' },
+            })
+            const errorDetails = parseToolResponse(result)
+
+            expect(errorDetails.id).toBe(issueId)
+            expect(errorDetails).toHaveProperty('impact')
+            expect(errorDetails).toHaveProperty('_posthogUrl')
+            expect(errorDetails._posthogUrl).toContain(`/error_tracking/${issueId}`)
+            expect(errorDetails).not.toHaveProperty('aggregations')
+        })
+    })
+
+    describe('query-error-tracking-issue-events tool', () => {
+        it('should return an empty event page for a missing issue', async () => {
+            const testIssueId = '00000000-0000-0000-0000-000000000000'
+
+            const result = await queryIssueEventsTool.handler(context, {
+                issueId: testIssueId,
+                limit: 1,
+            })
+            const events = parseToolResponse(result)
+
+            expect(events).toEqual({
+                results: [],
+                hasMore: false,
+                limit: 1,
+                offset: 0,
+                _posthogUrl: expect.stringContaining(`/error_tracking/${testIssueId}`),
+            })
+        })
+
+        it('should query sample events for an existing issue when available', async () => {
+            const issueId = await getFirstIssueId()
+            if (!issueId) {
+                return
+            }
+
+            const result = await queryIssueEventsTool.handler(context, {
+                issueId,
+                dateRange: { date_from: '-3650d' },
+                limit: 1,
+                verbosity: 'summary',
+            })
+            const events = parseToolResponse(result)
+
+            expect(Array.isArray(events.results)).toBe(true)
+            expect(events.limit).toBe(1)
+            expect(events.offset).toBe(0)
+            expect(typeof events.hasMore).toBe('boolean')
+            expect(events._posthogUrl).toContain(`/error_tracking/${issueId}`)
+
+            if (events.results.length > 0) {
+                expect(events.results[0]).toHaveProperty('properties')
+            }
         })
     })
 
