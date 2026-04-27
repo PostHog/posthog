@@ -14,8 +14,9 @@ export function findNearestIndex(
 
     const positions: { x: number; index: number }[] = []
     for (let i = 0; i < labels.length; i++) {
-        const x = xScale(labels[i]) ?? 0
-        if (isFinite(x)) {
+        const x = xScale(labels[i])
+
+        if (x != null && isFinite(x)) {
             positions.push({ x, index: i })
         }
     }

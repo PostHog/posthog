@@ -314,7 +314,7 @@ build:
         description: Generate all schema definitions (frontend JSON, Python, latest versions)
     build:openapi-schema:
         cmd: 'mkdir -p frontend/tmp && DEBUG=1 OPENAPI_INCLUDE_INTERNAL=1 OPENAPI_MOCK_INTERNAL_API_SECRET=1
-            python manage.py spectacular --file frontend/tmp/openapi.json --format openapi-json
+            python manage.py spectacular --file frontend/tmp/openapi.json --format openapi-json --fail-on-warn
             && echo "OpenAPI schema written to frontend/tmp/openapi.json"
 
             '
@@ -410,7 +410,7 @@ docker:
         hidden: true
     docker:server:
         bin_script: docker-server
-        description: Run dual-mode server (Granian/Unit) with Prometheus metrics support
+        description: Run NGINX Unit application server
         hidden: true
     docker:server-unit:
         bin_script: docker-server-unit
@@ -583,6 +583,10 @@ quality:
         description: Format MCP files
 tools:
     doctor: null # Click-defined, placed here for categorization
+    tool:temporal-codec-server:
+        bin_script: temporal-codec-server
+        description: Run a local Temporal codec server to decode Fernet payloads for debugging
+        hidden: true
     tool:temporal-django-worker:
         bin_script: temporal-django-worker
         description: Start Temporal worker with graceful shutdown handling
@@ -637,10 +641,6 @@ tools:
     create:notebook:node:
         bin_script: create-notebook-node.sh
         description: Create a new NotebookNode file and update types and editor references
-        hidden: true
-    tool:granian-metrics:
-        bin_script: granian_metrics.py
-        description: HTTP server that aggregates Prometheus metrics from Granian workers
         hidden: true
     sync:storage:
         bin_script: sync-storage

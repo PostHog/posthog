@@ -88,7 +88,7 @@ class TestGetResource:
         assert isinstance(resource["write_disposition"], dict)
         write_disposition = resource["write_disposition"]
         assert write_disposition["disposition"] == "merge"
-        assert write_disposition["strategy"] == "upsert"  # ty: ignore[invalid-key]
+        assert write_disposition["strategy"] == "upsert"
         assert isinstance(resource["endpoint"], dict)
         endpoint_params = resource["endpoint"]["params"]
         assert endpoint_params is not None
@@ -101,7 +101,7 @@ class TestGetResource:
         assert isinstance(resource["write_disposition"], dict)
         write_disposition = resource["write_disposition"]
         assert write_disposition["disposition"] == "merge"
-        assert write_disposition["strategy"] == "upsert"  # ty: ignore[invalid-key]
+        assert write_disposition["strategy"] == "upsert"
         assert isinstance(resource["endpoint"], dict)
         assert resource["endpoint"]["method"] == "POST"
         endpoint_json = resource["endpoint"]["json"]

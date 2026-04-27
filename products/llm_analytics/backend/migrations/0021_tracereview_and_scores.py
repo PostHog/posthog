@@ -133,7 +133,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="tracereviewscore",
             constraint=models.CheckConstraint(
-                check=(
+                condition=(
                     models.Q(
                         models.Q(
                             ("categorical_values__isnull", False),

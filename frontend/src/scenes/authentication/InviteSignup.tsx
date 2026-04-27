@@ -331,7 +331,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                                     data-attr="password"
                                     placeholder="••••••••••"
                                     autoComplete="new-password"
-                                    autoFocus={window.screen.width >= 768} // do not autofocus on small-width screens
+                                    autoFocus={!passkeySignupEnabled}
                                     disabled={isSignupSubmitting || passkeyRegistered}
                                 />
                             </LemonField>

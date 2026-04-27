@@ -90,6 +90,7 @@ export enum TileId {
     BOT_SOURCES = 'BOT_SOURCES',
     BOT_AI_REFERRALS = 'BOT_AI_REFERRALS',
     BOT_AI_ENGAGEMENT = 'BOT_AI_ENGAGEMENT',
+    BOT_CRAWLERS = 'BOT_CRAWLERS',
 }
 
 export enum ProductTab {
@@ -100,7 +101,7 @@ export enum ProductTab {
     MARKETING = 'marketing',
     HEALTH = 'health',
     LIVE = 'live',
-    BOT_ANALYTICS = 'bot-analytics',
+    BOT_ANALYTICS = 'bots',
 }
 
 export type DeviceType = 'Desktop' | 'Mobile'
@@ -174,6 +175,7 @@ export const loadPriorityMap: Record<TileId, number> = {
     [TileId.BOT_SOURCES]: 4,
     [TileId.BOT_AI_REFERRALS]: 5,
     [TileId.BOT_AI_ENGAGEMENT]: 6,
+    [TileId.BOT_CRAWLERS]: 7,
 }
 
 // To enable a tile here, you must update the QueryRunner to support it
@@ -245,6 +247,7 @@ export const TILE_LABELS: Record<TileId, string> = {
     [TileId.BOT_SOURCES]: 'Bot referrer domains',
     [TileId.BOT_AI_REFERRALS]: 'AI referral traffic',
     [TileId.BOT_AI_ENGAGEMENT]: 'AI referral engagement',
+    [TileId.BOT_CRAWLERS]: 'Crawlers',
 }
 
 export interface BaseTile {

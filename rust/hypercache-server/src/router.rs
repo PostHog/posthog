@@ -7,7 +7,7 @@ use axum::{
 };
 use common_cache::NegativeCache;
 use common_hypercache::HyperCacheReader;
-use common_metrics::{setup_metrics_recorder, track_metrics};
+use common_metrics::setup_metrics_routes;
 use health::readiness_handler;
 use tower::limit::ConcurrencyLimitLayer;
 use tower_http::{
@@ -80,12 +80,10 @@ pub fn router(
         .merge(app_router)
         .layer(TraceLayer::new_for_http())
         .layer(cors)
-        .layer(axum::middleware::from_fn(track_metrics))
         .with_state(state);
 
     if *config.enable_metrics {
-        let recorder_handle = setup_metrics_recorder();
-        router.route("/metrics", get(move || ready(recorder_handle.render())))
+        setup_metrics_routes(router)
     } else {
         router
     }

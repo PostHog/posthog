@@ -1,5 +1,5 @@
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import type { TooltipContext } from 'lib/hog-charts/core/types'
+import type { TooltipContext } from 'lib/hog-charts'
 import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { getDatumTitle, SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'

@@ -4,10 +4,15 @@ import { SingleIngestionOutput } from './single-ingestion-output'
 import { DualWriteMode, IngestionOutputMessage } from './types'
 
 /**
- * Dual-write output — routes messages between primary and secondary based on mode and percentage.
+ * Dual-write output — routes messages between primary and secondary based on mode.
  *
- * - `copy` mode: all messages go to primary; a percentage (by key hash) is also sent to secondary.
- * - `move` mode: a percentage (by key hash) goes to secondary only; the rest go to primary only.
+ * Percentage-based modes:
+ * - `copy` — all messages go to primary; a percentage (by key hash) is also sent to secondary.
+ * - `move` — a percentage (by key hash) goes to secondary only; the rest go to primary only.
+ *
+ * Team-denylist modes (use `teamIdDenylist`):
+ * - `copy_team_denylist` — teams in denylist go to primary only; all others go to primary + secondary.
+ * - `move_team_denylist` — teams in denylist go to primary only; all others go to secondary only.
  *
  * The builder never creates this class with `mode: 'off'` — it falls back to a plain SingleIngestionOutput.
  */
@@ -16,20 +21,21 @@ export class DualWriteIngestionOutput implements IngestionOutput {
         private readonly primary: SingleIngestionOutput,
         private readonly secondary: SingleIngestionOutput,
         private readonly mode: Exclude<DualWriteMode, 'off'>,
-        private readonly percentage: number
+        private readonly percentage: number,
+        private readonly teamIdDenylist: ReadonlySet<number> = new Set()
     ) {}
 
     async produce(message: IngestionOutputMessage & { key: MessageKey }): Promise<void> {
-        const toSecondary = shouldRouteToSecondary(message.key, this.percentage)
+        const toSecondary = this.shouldRouteMessageToSecondary(message)
 
-        if (this.mode === 'copy') {
+        if (this.isCopyMode()) {
             if (toSecondary) {
                 await Promise.all([this.primary.produce(message), this.secondary.produce(message)])
             } else {
                 await this.primary.produce(message)
             }
         } else {
-            // move
+            // move / move_team_denylist
             if (toSecondary) {
                 await this.secondary.produce(message)
             } else {
@@ -39,8 +45,8 @@ export class DualWriteIngestionOutput implements IngestionOutput {
     }
 
     async queueMessages(messages: IngestionOutputMessage[]): Promise<void> {
-        if (this.mode === 'copy') {
-            const secondaryMessages = messages.filter((m) => shouldRouteToSecondary(m.key ?? null, this.percentage))
+        if (this.isCopyMode()) {
+            const secondaryMessages = messages.filter((m) => this.shouldRouteMessageToSecondary(m))
             if (secondaryMessages.length > 0) {
                 await Promise.all([
                     this.primary.queueMessages(messages),
@@ -50,11 +56,11 @@ export class DualWriteIngestionOutput implements IngestionOutput {
                 await this.primary.queueMessages(messages)
             }
         } else {
-            // move — split messages between primary and secondary
+            // move / move_team_denylist — split messages between primary and secondary
             const primaryMessages: IngestionOutputMessage[] = []
             const secondaryMessages: IngestionOutputMessage[] = []
             for (const m of messages) {
-                if (shouldRouteToSecondary(m.key ?? null, this.percentage)) {
+                if (this.shouldRouteMessageToSecondary(m)) {
                     secondaryMessages.push(m)
                 } else {
                     primaryMessages.push(m)
@@ -80,6 +86,30 @@ export class DualWriteIngestionOutput implements IngestionOutput {
     async checkTopicExists(timeoutMs: number): Promise<void> {
         await Promise.all([this.primary.checkTopicExists(timeoutMs), this.secondary.checkTopicExists(timeoutMs)])
     }
+
+    private isCopyMode(): boolean {
+        return this.mode === 'copy' || this.mode === 'copy_team_denylist'
+    }
+
+    private shouldRouteMessageToSecondary(message: IngestionOutputMessage): boolean {
+        if (this.mode === 'copy_team_denylist' || this.mode === 'move_team_denylist') {
+            return shouldRouteToSecondaryByTeam(message.teamId, this.teamIdDenylist)
+        }
+        return shouldRouteToSecondary(message.key ?? null, this.percentage)
+    }
+}
+
+/**
+ * Team-denylist routing decision.
+ *
+ * Returns `true` (route to secondary) when the team is NOT in the denylist and a teamId is present.
+ * Returns `false` (stay on primary) when teamId is missing or the team is in the denylist.
+ */
+export function shouldRouteToSecondaryByTeam(teamId: number | undefined, denylist: ReadonlySet<number>): boolean {
+    if (teamId === undefined) {
+        return false
+    }
+    return !denylist.has(teamId)
 }
 
 /**

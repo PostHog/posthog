@@ -247,6 +247,30 @@ def _create_error_tracking_issue_fingerprint(team: Team, label: str):
     return ErrorTrackingIssueFingerprintV2.objects.create(team=team, issue=issue, fingerprint=f"fp_{label}")
 
 
+def _create_error_tracking_assignment_rule(team: Team, label: str):
+    from products.error_tracking.backend.models import ErrorTrackingAssignmentRule
+
+    return ErrorTrackingAssignmentRule.objects.create(
+        team=team, filters={"type": "AND", "values": []}, bytecode=[], order_key=0
+    )
+
+
+def _create_error_tracking_suppression_rule(team: Team, label: str):
+    from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
+
+    return ErrorTrackingSuppressionRule.objects.create(
+        team=team, filters={"type": "AND", "values": []}, bytecode=[], order_key=0, sampling_rate=1.0
+    )
+
+
+def _create_error_tracking_release(team: Team, label: str):
+    from products.error_tracking.backend.models import ErrorTrackingRelease
+
+    return ErrorTrackingRelease.objects.create(
+        team=team, hash_id=f"hash_{label}", version=f"v_{label}", project=f"proj_{label}"
+    )
+
+
 def _create_hog_flow(team: Team, label: str) -> HogFlow:
     return HogFlow.objects.create(team=team, name=f"flow_{label}")
 
@@ -340,6 +364,38 @@ def _create_survey(team: Team, label: str) -> Survey:
     return Survey.objects.create(team=team, name=f"survey_{label}", type="popover")
 
 
+def _create_task(team: Team, label: str):
+    from products.tasks.backend.models import Task
+
+    return Task.objects.create(
+        team=team,
+        title=f"task_{label}",
+        description="x",
+        origin_product=Task.OriginProduct.USER_CREATED,
+    )
+
+
+def _create_task_run(team: Team, label: str):
+    from products.tasks.backend.models import Task, TaskRun
+
+    task = Task.objects.create(
+        team=team,
+        title=f"task_for_run_{label}",
+        description="x",
+        origin_product=Task.OriginProduct.USER_CREATED,
+    )
+    return TaskRun.objects.create(task=task, team=team, status=TaskRun.Status.QUEUED)
+
+
+def _create_sandbox_environment(team: Team, label: str):
+    from products.tasks.backend.models import SandboxEnvironment
+
+    # private=False so the row is queryable via HogQL — the privacy predicate
+    # excludes private environments. Privacy filtering itself is covered by
+    # TestSystemTablesSandboxEnvironmentPrivacy.
+    return SandboxEnvironment.objects.create(team=team, name=f"env_{label}", private=False)
+
+
 def _create_team(team: Team, label: str) -> Team:
     return team
 
@@ -361,10 +417,13 @@ SYSTEM_TABLE_FACTORIES = [
     ("early_access_features", _create_early_access_feature),
     ("data_modeling_endpoint_versions", _create_endpoint_version),
     ("data_modeling_endpoints", _create_endpoint),
+    ("error_tracking_assignment_rules", _create_error_tracking_assignment_rule),
     ("error_tracking_issue_assignments", _create_error_tracking_issue_assignment),
     ("error_tracking_issue_fingerprints", _create_error_tracking_issue_fingerprint),
     ("source_sync_jobs", _create_source_sync_job),
     ("error_tracking_issues", _create_error_tracking_issue),
+    ("error_tracking_releases", _create_error_tracking_release),
+    ("error_tracking_suppression_rules", _create_error_tracking_suppression_rule),
     ("experiments", _create_experiment),
     ("exports", _create_export),
     ("feature_flags", _create_feature_flag),
@@ -378,11 +437,14 @@ SYSTEM_TABLE_FACTORIES = [
     ("logs_alerts", _create_logs_alert),
     ("logs_views", _create_logs_view),
     ("notebooks", _create_notebook),
+    ("sandbox_environments", _create_sandbox_environment),
     ("session_recording_playlists", _create_session_recording_playlist),
     ("session_recordings", _create_session_recording),
     ("source_schemas", _create_source_schema),
     ("support_tickets", _create_support_ticket),
     ("surveys", _create_survey),
+    ("task_runs", _create_task_run),
+    ("tasks", _create_task),
     ("teams", _create_team),
 ]
 
@@ -409,3 +471,95 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
 
         assert str(obj_team1.pk) in ids
         assert str(obj_team2.pk) not in ids
+
+
+class TestSystemTablesSandboxEnvironmentPrivacy(BaseTest):
+    """Verify the sandbox_environments system table excludes private and internal environments,
+    mirroring the REST API's per-creator visibility filter and internal-use exclusion."""
+
+    def test_generated_sql_includes_private_predicate(self):
+        db = Database.create_for(team=self.team)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
+        query, _ = prepare_and_print_ast(
+            parse_select("SELECT id FROM system.sandbox_environments"), context, dialect="clickhouse"
+        )
+        assert "system__sandbox_environments.private" in query
+        assert "system__sandbox_environments.internal" in query
+        assert f"equals(system__sandbox_environments.team_id, {self.team.pk})" in query
+
+
+class TestSystemTablesSandboxEnvironmentPrivacyIsolation(NonAtomicBaseTest):
+    """End-to-end check that private and internal sandbox environments are never returned via HogQL,
+    even within the creator's own team."""
+
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_private_environments_excluded(self):
+        from products.tasks.backend.models import SandboxEnvironment
+
+        public_env = SandboxEnvironment.objects.create(team=self.team, name="public_env", private=False)
+        private_env = SandboxEnvironment.objects.create(team=self.team, name="private_env", private=True)
+
+        response = execute_hogql_query("SELECT id FROM system.sandbox_environments", team=self.team)
+        ids = {str(row[0]) for row in response.results}
+
+        assert str(public_env.pk) in ids
+        assert str(private_env.pk) not in ids
+
+    def test_internal_environments_excluded(self):
+        from products.tasks.backend.models import SandboxEnvironment
+
+        regular_env = SandboxEnvironment.objects.create(
+            team=self.team, name="regular_env", private=False, internal=False
+        )
+        internal_env = SandboxEnvironment.objects.create(
+            team=self.team, name="internal_env", private=False, internal=True
+        )
+
+        response = execute_hogql_query("SELECT id FROM system.sandbox_environments", team=self.team)
+        ids = {str(row[0]) for row in response.results}
+
+        assert str(regular_env.pk) in ids
+        assert str(internal_env.pk) not in ids
+
+
+class TestSystemTablesTaskInternalExclusion(BaseTest):
+    """Verify the tasks system table excludes internal tasks (signals pipeline, etc.)
+    mirroring the REST API's default filter."""
+
+    def test_generated_sql_includes_internal_predicate(self):
+        db = Database.create_for(team=self.team)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
+        query, _ = prepare_and_print_ast(parse_select("SELECT id FROM system.tasks"), context, dialect="clickhouse")
+        assert "system__tasks.internal" in query
+        assert f"equals(system__tasks.team_id, {self.team.pk})" in query
+
+
+class TestSystemTablesTaskInternalExclusionIsolation(NonAtomicBaseTest):
+    """End-to-end check that internal tasks are never returned via HogQL."""
+
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_internal_tasks_excluded(self):
+        from products.tasks.backend.models import Task
+
+        regular_task = Task.objects.create(
+            team=self.team,
+            title="regular",
+            description="x",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            internal=False,
+        )
+        internal_task = Task.objects.create(
+            team=self.team,
+            title="internal",
+            description="x",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            internal=True,
+        )
+
+        response = execute_hogql_query("SELECT id FROM system.tasks", team=self.team)
+        ids = {str(row[0]) for row in response.results}
+
+        assert str(regular_task.pk) in ids
+        assert str(internal_task.pk) not in ids

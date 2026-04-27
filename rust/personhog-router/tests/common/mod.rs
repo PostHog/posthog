@@ -41,6 +41,7 @@ use personhog_router::router::PersonHogRouter;
 use personhog_router::service::PersonHogRouterService;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
+use tonic::codec::CompressionEncoding;
 use tonic::transport::{Channel, Server};
 use tonic::{Request, Response, Status};
 
@@ -361,7 +362,11 @@ pub async fn start_test_replica(service: TestReplicaService) -> SocketAddr {
 
     tokio::spawn(async move {
         Server::builder()
-            .add_service(PersonHogReplicaServer::new(service))
+            .add_service(
+                PersonHogReplicaServer::new(service)
+                    .accept_compressed(CompressionEncoding::Zstd)
+                    .send_compressed(CompressionEncoding::Zstd),
+            )
             .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
             .await
             .unwrap();
@@ -527,7 +532,11 @@ pub async fn start_test_leader(service: TestLeaderService) -> SocketAddr {
 
     tokio::spawn(async move {
         Server::builder()
-            .add_service(PersonHogLeaderServer::new(service))
+            .add_service(
+                PersonHogLeaderServer::new(service)
+                    .accept_compressed(CompressionEncoding::Zstd)
+                    .send_compressed(CompressionEncoding::Zstd),
+            )
             .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
             .await
             .unwrap();

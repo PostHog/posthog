@@ -18,6 +18,8 @@ const mockProviderKeys: LLMProviderKey[] = [
         created_at: '2024-01-01T00:00:00Z',
         created_by: null,
         last_used_at: null,
+        azure_endpoint_display: null,
+        api_version_display: null,
     },
     {
         id: 'key-invalid',
@@ -29,6 +31,8 @@ const mockProviderKeys: LLMProviderKey[] = [
         created_at: '2024-01-02T00:00:00Z',
         created_by: null,
         last_used_at: null,
+        azure_endpoint_display: null,
+        api_version_display: null,
     },
     {
         id: 'key-error',
@@ -40,6 +44,8 @@ const mockProviderKeys: LLMProviderKey[] = [
         created_at: '2024-01-03T00:00:00Z',
         created_by: null,
         last_used_at: null,
+        azure_endpoint_display: null,
+        api_version_display: null,
     },
 ]
 

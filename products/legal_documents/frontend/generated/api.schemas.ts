@@ -21,7 +21,6 @@ export interface LegalDocumentDTOApi {
     company_name: string
     representative_email: string
     status: string
-    signed_document_url: string
     created_by: LegalDocumentCreatorApi | null
     created_at: string
 }

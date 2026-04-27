@@ -107,6 +107,7 @@
         "@posthog/products-visual-review": "workspace:*",
         "@posthog/products-web-analytics": "workspace:*",
         "@posthog/products-workflows": "workspace:*",
+        "@posthog/quill": "workspace:*",
         "@posthog/react": "catalog:",
         "@posthog/replay-shared": "workspace:*",
         "@posthog/rrweb": "0.0.59",
@@ -250,6 +251,7 @@
         "ts-pattern": "catalog:",
         "use-debounce": "catalog:",
         "use-resize-observer": "^8.0.0",
+        "zod": "^4.3.6",
         "zxcvbn": "^4.4.2"
     },
     "devDependencies": {

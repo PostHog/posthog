@@ -6,9 +6,11 @@ from unittest.mock import Mock, patch
 
 from parameterized import parameterized
 
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import SentrySourceConfig
 from posthog.temporal.data_imports.sources.sentry.sentry import (
     SentryPaginator,
+    SentryResumeConfig,
     _normalize_api_base_url,
     _parse_next_link,
     _retry_wait_seconds,
@@ -33,6 +35,15 @@ def _response(payload, status_code: int = 200, link_header: str = "") -> Mock:
 
     response.raise_for_status = _raise_for_status
     return response
+
+
+def _make_fake_manager(
+    can_resume: bool = False, state: SentryResumeConfig | None = None
+) -> ResumableSourceManager[SentryResumeConfig]:
+    manager = Mock(spec=ResumableSourceManager)
+    manager.can_resume.return_value = can_resume
+    manager.load_state.return_value = state
+    return cast(ResumableSourceManager[SentryResumeConfig], manager)
 
 
 class _FakeDltResource:
@@ -106,6 +117,40 @@ class TestSentryTransport:
         paginator.update_request(request)
 
         assert request.url == "https://sentry.io/api/0/organizations/acme/issues/?cursor=0:100:0"
+        assert request.params == {}
+
+    def test_paginator_get_resume_state_returns_next_url_when_has_next(self) -> None:
+        paginator = SentryPaginator()
+        response = Mock()
+        response.headers = {
+            "Link": '<https://sentry.io/api/0/organizations/acme/issues/?cursor=0:100:0>; rel="next"; results="true"'
+        }
+        paginator.update_state(response)
+
+        assert paginator.get_resume_state() == {
+            "next_url": "https://sentry.io/api/0/organizations/acme/issues/?cursor=0:100:0"
+        }
+
+    def test_paginator_get_resume_state_returns_none_when_exhausted(self) -> None:
+        paginator = SentryPaginator()
+        response = Mock()
+        response.headers = {"Link": ""}
+        paginator.update_state(response)
+
+        assert paginator.get_resume_state() is None
+
+    def test_paginator_set_resume_state_seeds_initial_request(self) -> None:
+        paginator = SentryPaginator()
+        paginator.set_resume_state({"next_url": "https://sentry.io/api/0/organizations/acme/issues/?cursor=0:100:2"})
+
+        assert paginator.has_next_page is True
+
+        request = Mock()
+        request.url = "https://sentry.io/api/0/organizations/acme/issues/"
+        request.params = {"limit": 100}
+        paginator.init_request(request)
+
+        assert request.url == "https://sentry.io/api/0/organizations/acme/issues/?cursor=0:100:2"
         assert request.params == {}
 
     def test_get_resource_incremental_issues(self) -> None:
@@ -396,6 +441,298 @@ class TestSentrySourceValidation:
         assert rows == [
             {"value": "Chrome", "lastSeen": "2026-03-05T12:00:00Z", "issue_id": "100", "tag_key": "browser"}
         ]
+
+
+class TestSentrySourceResumable:
+    """Resume behaviour for flat endpoints (rest_api_resource path)."""
+
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.rest_api_resource")
+    def test_fresh_run_passes_resume_hook_and_no_initial_state(self, mock_rest_api_resource) -> None:
+        mock_rest_api_resource.return_value = Mock()
+        manager = _make_fake_manager(can_resume=False)
+
+        sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="projects",
+            team_id=123,
+            job_id="job-id",
+            resumable_source_manager=manager,
+        )
+
+        _, kwargs = mock_rest_api_resource.call_args
+        assert kwargs["initial_paginator_state"] is None
+        assert callable(kwargs["resume_hook"])
+
+        # save_checkpoint should forward the next page into manager.save_state
+        kwargs["resume_hook"]({"next_url": "https://sentry.io/api/0/organizations/acme/projects/?cursor=0:100:0"})
+        cast(Mock, manager.save_state).assert_called_once_with(
+            SentryResumeConfig(next_url="https://sentry.io/api/0/organizations/acme/projects/?cursor=0:100:0")
+        )
+
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.rest_api_resource")
+    def test_resume_run_seeds_initial_paginator_state_from_loaded_config(self, mock_rest_api_resource) -> None:
+        mock_rest_api_resource.return_value = Mock()
+        resume_url = "https://sentry.io/api/0/organizations/acme/projects/?cursor=0:100:2"
+        manager = _make_fake_manager(can_resume=True, state=SentryResumeConfig(next_url=resume_url))
+
+        sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="projects",
+            team_id=123,
+            job_id="job-id",
+            resumable_source_manager=manager,
+        )
+
+        _, kwargs = mock_rest_api_resource.call_args
+        assert kwargs["initial_paginator_state"] == {"next_url": resume_url}
+
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.rest_api_resource")
+    def test_resume_hook_noop_when_no_next_page(self, mock_rest_api_resource) -> None:
+        mock_rest_api_resource.return_value = Mock()
+        manager = _make_fake_manager(can_resume=False)
+
+        sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="projects",
+            team_id=123,
+            job_id="job-id",
+            resumable_source_manager=manager,
+        )
+
+        _, kwargs = mock_rest_api_resource.call_args
+        kwargs["resume_hook"](None)
+        kwargs["resume_hook"]({})
+        cast(Mock, manager.save_state).assert_not_called()
+
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.rest_api_resource")
+    def test_no_manager_disables_resume(self, mock_rest_api_resource) -> None:
+        mock_rest_api_resource.return_value = Mock()
+
+        sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="projects",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        _, kwargs = mock_rest_api_resource.call_args
+        assert kwargs["initial_paginator_state"] is None
+        assert kwargs["resume_hook"] is None
+
+
+class TestIssueTagValuesResumable:
+    """Resume behaviour for the two-level issue_tag_values fan-out loop."""
+
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.requests.get")
+    def test_fresh_run_saves_state_pointing_to_next_values_page(self, mock_get) -> None:
+        next_values_link = (
+            "<https://sentry.io/api/0/organizations/acme/issues/100/tags/browser/values/?cursor=0:100:2>; "
+            'rel="next"; results="true"'
+        )
+
+        def side_effect(url, headers=None, params=None, timeout=None):
+            if url.endswith("/organizations/acme/issues/"):
+                return _response([{"id": "100"}])
+            if url.endswith("/organizations/acme/issues/100/tags/"):
+                return _response([{"key": "browser"}])
+            if url.endswith("/organizations/acme/issues/100/tags/browser/values/"):
+                return _response([{"value": "Chrome"}], link_header=next_values_link)
+            # Second values page returns empty + no link header to end the loop
+            return _response([])
+
+        mock_get.side_effect = side_effect
+        manager = _make_fake_manager(can_resume=False)
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="issue_tag_values",
+            team_id=123,
+            job_id="job-id",
+            resumable_source_manager=manager,
+        )
+
+        rows = list(cast(Any, resp.items()))
+        assert len(rows) == 1
+        assert rows[0]["issue_id"] == "100"
+        assert rows[0]["tag_key"] == "browser"
+
+        saved_calls = cast(Mock, manager.save_state).call_args_list
+        assert len(saved_calls) == 1
+        saved_state = saved_calls[0].args[0]
+        assert saved_state == SentryResumeConfig(
+            issue_id="100",
+            tag_key="browser",
+            values_next_url="https://sentry.io/api/0/organizations/acme/issues/100/tags/browser/values/?cursor=0:100:2",
+        )
+
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.requests.get")
+    def test_resume_fetches_saved_values_url_and_skips_earlier_pairs(self, mock_get) -> None:
+        seen_urls: list[str] = []
+        resume_url = "https://sentry.io/api/0/organizations/acme/issues/100/tags/browser/values/?cursor=0:100:2"
+
+        def side_effect(url, headers=None, params=None, timeout=None):
+            seen_urls.append(url)
+            if url.endswith("/organizations/acme/issues/"):
+                return _response([{"id": "99"}, {"id": "100"}, {"id": "101"}])
+            if url.endswith("/organizations/acme/issues/100/tags/"):
+                return _response([{"key": "os"}, {"key": "browser"}])
+            if url == resume_url:
+                return _response([{"value": "Firefox"}])
+            # Any other URL shouldn't be hit on resume; fall back to empty
+            return _response([])
+
+        mock_get.side_effect = side_effect
+        manager = _make_fake_manager(
+            can_resume=True,
+            state=SentryResumeConfig(issue_id="100", tag_key="browser", values_next_url=resume_url),
+        )
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="issue_tag_values",
+            team_id=123,
+            job_id="job-id",
+            resumable_source_manager=manager,
+        )
+
+        rows = list(cast(Any, resp.items()))
+        assert rows == [{"value": "Firefox", "issue_id": "100", "tag_key": "browser"}]
+
+        # We should have fetched the resume values URL directly, and NOT
+        # issued the initial page for that (issue, tag) pair.
+        assert resume_url in seen_urls
+        initial_values_url = "https://sentry.io/api/0/organizations/acme/issues/100/tags/browser/values/"
+        assert initial_values_url not in seen_urls
+
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry._RESUME_ISSUE_SKIP_LIMIT", 2)
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.requests.get")
+    def test_stale_checkpoint_falls_through_after_skip_limit(self, mock_get) -> None:
+        """If the checkpoint issue was deleted between runs, bounded skipping
+        falls through so subsequent issues still get processed."""
+
+        def side_effect(url, headers=None, params=None, timeout=None):
+            if url.endswith("/organizations/acme/issues/"):
+                # None of these match the checkpoint issue_id=999.
+                return _response([{"id": "100"}, {"id": "101"}, {"id": "102"}])
+            if url.endswith("/organizations/acme/issues/102/tags/"):
+                return _response([{"key": "browser"}])
+            if url.endswith("/organizations/acme/issues/102/tags/browser/values/"):
+                return _response([{"value": "Chrome"}])
+            return _response([])
+
+        mock_get.side_effect = side_effect
+        manager = _make_fake_manager(
+            can_resume=True,
+            state=SentryResumeConfig(
+                issue_id="999",
+                tag_key="browser",
+                values_next_url="https://sentry.io/api/0/organizations/acme/issues/999/tags/browser/values/?cursor=0:100:2",
+            ),
+        )
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="issue_tag_values",
+            team_id=123,
+            job_id="job-id",
+            resumable_source_manager=manager,
+        )
+
+        rows = list(cast(Any, resp.items()))
+        # With skip limit 2, issues 100 and 101 are skipped; on 102 we exceed
+        # the limit, clear the markers, and process it fresh.
+        assert rows == [{"value": "Chrome", "issue_id": "102", "tag_key": "browser"}]
+
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.requests.get")
+    def test_partial_resume_state_falls_through_to_fresh_run(self, mock_get) -> None:
+        """Only activate resume when the full (issue_id, tag_key, values_next_url)
+        triple is present; partial state must fall through to a fresh run."""
+
+        def side_effect(url, headers=None, params=None, timeout=None):
+            if url.endswith("/organizations/acme/issues/"):
+                return _response([{"id": "100"}])
+            if url.endswith("/organizations/acme/issues/100/tags/"):
+                return _response([{"key": "browser"}])
+            if url.endswith("/organizations/acme/issues/100/tags/browser/values/"):
+                return _response([{"value": "Chrome"}])
+            return _response([])
+
+        mock_get.side_effect = side_effect
+        # issue_id set, but tag_key + values_next_url are missing → partial state.
+        manager = _make_fake_manager(
+            can_resume=True,
+            state=SentryResumeConfig(issue_id="100"),
+        )
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="issue_tag_values",
+            team_id=123,
+            job_id="job-id",
+            resumable_source_manager=manager,
+        )
+
+        rows = list(cast(Any, resp.items()))
+        assert rows == [{"value": "Chrome", "issue_id": "100", "tag_key": "browser"}]
+
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.requests.get")
+    def test_resume_with_empty_state_falls_through_to_fresh_run(self, mock_get) -> None:
+        def side_effect(url, headers=None, params=None, timeout=None):
+            if url.endswith("/organizations/acme/issues/"):
+                return _response([{"id": "100"}])
+            if url.endswith("/organizations/acme/issues/100/tags/"):
+                return _response([{"key": "browser"}])
+            if url.endswith("/organizations/acme/issues/100/tags/browser/values/"):
+                return _response([{"value": "Chrome"}])
+            return _response([])
+
+        mock_get.side_effect = side_effect
+        # can_resume=True but state.issue_id is None — should fall through.
+        manager = _make_fake_manager(can_resume=True, state=SentryResumeConfig())
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="issue_tag_values",
+            team_id=123,
+            job_id="job-id",
+            resumable_source_manager=manager,
+        )
+
+        rows = list(cast(Any, resp.items()))
+        assert rows == [{"value": "Chrome", "issue_id": "100", "tag_key": "browser"}]
+
+
+class TestSentrySourceIntegration:
+    """End-to-end wiring of the ResumableSource class."""
+
+    def test_source_returns_resumable_manager(self) -> None:
+        source = SentrySource()
+        inputs = Mock()
+        inputs.team_id = 7
+        inputs.job_id = "job-x"
+        inputs.logger = Mock()
+
+        manager = source.get_resumable_source_manager(inputs)
+
+        assert isinstance(manager, ResumableSourceManager)
 
 
 class TestHelpers:
