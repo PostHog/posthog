@@ -29,8 +29,32 @@ test.describe('Early Access Management', () => {
         await delay(1000)
         await expect(page.locator('[data-attr="save-feature"]')).toContainText('Save as draft')
 
-        // save
+        // save — capture API response for debugging flaky failures
+        const saveResponsePromise = page.waitForResponse(
+            (resp) =>
+                resp.url().includes('/api/projects/') &&
+                resp.url().includes('early_access_feature') &&
+                resp.request().method() === 'POST'
+        )
+
         await page.locator('[data-attr="save-feature"]').click()
+
+        const saveResponse = await saveResponsePromise
+        console.info(`Save API response status: ${saveResponse.status()}`)
+        try {
+            const body = await saveResponse.text()
+            console.info(`Save API response body: ${body.substring(0, 500)}`)
+        } catch (e) {
+            console.info(`Could not read save response body: ${e}`)
+        }
+
+        // Check for error toast as well, to surface failures in CI logs
+        const errorToast = page.locator('[data-attr="error-toast"]')
+        if (await errorToast.isVisible({ timeout: 2000 }).catch(() => false)) {
+            const errorText = await errorToast.textContent()
+            console.info(`Error toast found: ${errorText}`)
+        }
+
         await expect(page.locator('[data-attr="success-toast"]')).toContainText('Early access feature saved')
 
         // back to features
