@@ -577,6 +577,21 @@ export type TaskRunCreateRequestSchemaApi =
     | CodexTaskRunCreateSchemaApi
     | TaskRunResumeRequestSchemaApi
 
+export interface TaskRunErrorResponseApi {
+    /** Human-readable validation error */
+    detail?: string
+    /** Human-readable error message */
+    error?: string
+    /** Machine-readable error type */
+    type?: string
+    /** Machine-readable error code */
+    code?: string
+    /** Request field associated with the error */
+    attr?: string
+    /** Artifact ids that could not be resolved for the run */
+    missing_artifact_ids?: string[]
+}
+
 /**
  * * `plan` - plan
  * `context` - context
@@ -1310,6 +1325,11 @@ export interface TaskRunStartRequestApi {
     pending_user_artifact_ids?: string[]
 }
 
+export interface TaskRepositoriesResponseApi {
+    /** Distinct repositories in use by non-deleted, non-internal tasks for the current team. */
+    repositories: string[]
+}
+
 /**
  * * `needs_setup` - needs_setup
  * `detected` - detected
@@ -1449,11 +1469,38 @@ export type TasksListParams = {
      */
     repository?: string
     /**
+     * Case-insensitive substring search over task title and description. A numeric value also matches the task number. An empty value disables the filter.
+     */
+    search?: string
+    /**
      * Filter by task run stage
      * @minLength 1
      */
     stage?: string
+    /**
+ * Filter tasks by the status of their most recent run.
+
+* `not_started` - not_started
+* `queued` - queued
+* `in_progress` - in_progress
+* `completed` - completed
+* `failed` - failed
+* `cancelled` - cancelled
+ * @minLength 1
+ */
+    status?: TasksListStatus
 }
+
+export type TasksListStatus = (typeof TasksListStatus)[keyof typeof TasksListStatus]
+
+export const TasksListStatus = {
+    NotStarted: 'not_started',
+    Queued: 'queued',
+    InProgress: 'in_progress',
+    Completed: 'completed',
+    Failed: 'failed',
+    Cancelled: 'cancelled',
+} as const
 
 export type TasksRunsListParams = {
     /**

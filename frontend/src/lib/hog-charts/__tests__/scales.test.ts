@@ -72,6 +72,13 @@ describe('hog-charts scales', () => {
             expect(domainMin).toBeLessThan(0)
         })
 
+        it('extends max to 0 when all values are negative (mirror of positive-data zero baseline)', () => {
+            const series = [makeSeries({ key: 's1', data: [-30, -20, -10] })]
+            const scale = createYScale(series, dimensions)
+            const [, domainMax] = scale.domain()
+            expect(domainMax).toBe(0)
+        })
+
         it('returns a fallback [0,1] domain for empty series', () => {
             const scale = createYScale([], dimensions)
             expect(scale.domain()).toEqual([0, 1])
@@ -119,6 +126,16 @@ describe('hog-charts scales', () => {
             const series = [makeSeries({ key: 's1', data: [1, 100] })]
             const scale = createYScale(series, dimensions, { scaleType: 'log' })
             expect(scale(100)).toBeLessThan(scale(1))
+        })
+
+        it('falls back to a linear scale when all data is non-positive (log undefined)', () => {
+            const series = [makeSeries({ key: 's1', data: [-100, -50, -10] })]
+            const scale = createYScale(series, dimensions, { scaleType: 'log' })
+            // Linear domain spans the data; not collapsed to a 1e-10 single point.
+            const [domainMin, domainMax] = scale.domain()
+            expect(domainMin).toBeLessThan(domainMax)
+            // The fallback is linear, so different inputs produce different outputs (not collapsed).
+            expect(scale(-100)).not.toBeCloseTo(scale(-10), 0)
         })
     })
 
@@ -335,6 +352,33 @@ describe('hog-charts scales', () => {
             expect(result.get('s1')!.top).toEqual([0, 20])
             expect(result.get('s2')!.bottom).toEqual([0, 20])
             expect(result.get('s2')!.top).toEqual([30, 30])
+        })
+
+        it('stacks per yAxisId so series on different axes do not contaminate each others totals', () => {
+            const left = makeSeries({ key: 'l', data: [10, 20], yAxisId: DEFAULT_Y_AXIS_ID })
+            const right = makeSeries({ key: 'r', data: [1000, 2000], yAxisId: 'y1' })
+            const result = computeStackData([left, right], ['a', 'b'])
+            // Each axis stack starts from 0 — the right-axis values must not pile on top
+            // of the left-axis values (and vice versa).
+            expect(result.get('l')!.bottom).toEqual([0, 0])
+            expect(result.get('l')!.top).toEqual([10, 20])
+            expect(result.get('r')!.bottom).toEqual([0, 0])
+            expect(result.get('r')!.top).toEqual([1000, 2000])
+        })
+
+        it('percent stack groups by yAxisId so each axis sums to 1 independently', () => {
+            const l1 = makeSeries({ key: 'l1', data: [30, 70], yAxisId: DEFAULT_Y_AXIS_ID })
+            const l2 = makeSeries({ key: 'l2', data: [70, 30], yAxisId: DEFAULT_Y_AXIS_ID })
+            const r1 = makeSeries({ key: 'r1', data: [500, 500], yAxisId: 'y1' })
+            const result = computePercentStackData([l1, l2, r1], ['a', 'b'])
+            // Left axis: l2 sits on top of l1, sum = 1.
+            for (const v of result.get('l2')!.top) {
+                expect(v).toBeCloseTo(1, 5)
+            }
+            // Right axis: only one series, so its top is at 1.
+            for (const v of result.get('r1')!.top) {
+                expect(v).toBeCloseTo(1, 5)
+            }
         })
     })
 

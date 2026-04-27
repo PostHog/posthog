@@ -178,7 +178,7 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                         <LemonButton
                             type="primary"
                             className="mt-2"
-                            tooltip="This source is feeding data into our Revenue analytics product - currently in beta."
+                            tooltip="This source is feeding data into our Revenue analytics product - currently in alpha."
                             onClick={() => {
                                 addProductIntentForCrossSell({
                                     from: ProductKey.DATA_WAREHOUSE,
@@ -189,8 +189,8 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                             }}
                         >
                             See data in Revenue analytics
-                            <LemonTag className="ml-2" type="warning" size="small">
-                                BETA
+                            <LemonTag className="ml-2" type="danger" size="small">
+                                ALPHA
                             </LemonTag>
                         </LemonButton>
                     </div>

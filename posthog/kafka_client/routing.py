@@ -178,7 +178,9 @@ def _build_sync_producer(profile: KafkaClusterProfile) -> _KafkaProducer:
     )
 
 
-def _build_async_producer(profile: KafkaClusterProfile) -> _AsyncKafkaProducer:
+def _build_async_producer(
+    profile: KafkaClusterProfile,
+) -> _AsyncKafkaProducer:
     p = settings.KAFKA_PROFILES[profile.value]
     producer_settings = p.producer_settings
     return _AsyncKafkaProducer(
@@ -253,7 +255,7 @@ async def async_producer_scope(
         await producer.close()
 
 
-def new_async_producer(
+async def new_async_producer(
     *,
     profile: Optional[KafkaClusterProfile] = None,
     topic: Optional[str] = None,
@@ -263,6 +265,9 @@ def new_async_producer(
     For long-lived consumers (e.g. the Temporal logger daemon) where the
     producer outlives any single scope. The caller is responsible for closing
     it. For per-call work prefer `async_producer_scope`.
+
+    This function is async as the underlying producer requires a running
+    event loop.
     """
     resolved = resolve_profile_name(topic=topic, profile=profile)
     return _build_async_producer(resolved)

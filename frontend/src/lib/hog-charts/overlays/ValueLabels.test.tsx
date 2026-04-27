@@ -67,8 +67,14 @@ describe('ValueLabels', () => {
         expect(divs.map((d) => d.textContent)).toEqual(expected)
     })
 
-    it('skips data points equal to zero', () => {
+    it('renders zero values as legitimate data points', () => {
         const series: Series[] = [{ key: 's', label: 'S', color: '#f00', data: [10, 0, 30, 0, 50] }]
+        const { container } = renderInChart(makeContext(series), <ValueLabels />)
+        expect(labelDivs(container).map((d) => d.textContent)).toEqual(['10', '0', '30', '0', '50'])
+    })
+
+    it('skips non-finite values (NaN, Infinity)', () => {
+        const series: Series[] = [{ key: 's', label: 'S', color: '#f00', data: [10, NaN, 30, Infinity, 50] }]
         const { container } = renderInChart(makeContext(series), <ValueLabels />)
         expect(labelDivs(container).map((d) => d.textContent)).toEqual(['10', '30', '50'])
     })
@@ -195,7 +201,7 @@ describe('ValueLabels', () => {
     })
 
     it('renders null when nothing survives filtering', () => {
-        const series: Series[] = [{ key: 's', label: 'S', color: '#f00', data: [0, 0, 0] }]
+        const series: Series[] = [{ key: 's', label: 'S', color: '#f00', data: [NaN, NaN, NaN] }]
         const ctx = makeContext(series, { labels: ['Mon', 'Tue', 'Wed'] })
         const { container } = renderInChart(ctx, <ValueLabels />)
         expect(labelDivs(container)).toHaveLength(0)

@@ -104,6 +104,54 @@ export interface OrganizationIntegrationApi {
     readonly created_by: UserBasicApi
 }
 
+export interface RoleExternalReferenceApi {
+    readonly id: string
+    /**
+     * Integration kind (e.g., github, linear, jira, slack).
+     * @maxLength 32
+     */
+    provider: string
+    /**
+     * Provider organization/workspace/site identifier.
+     * @maxLength 255
+     */
+    provider_organization_id: string
+    /**
+     * Stable provider role identifier.
+     * @maxLength 255
+     */
+    provider_role_id: string
+    /**
+     * Human-friendly provider role identifier.
+     * @maxLength 255
+     * @nullable
+     */
+    provider_role_slug?: string | null
+    /**
+     * Display name of the provider role.
+     * @maxLength 255
+     */
+    provider_role_name: string
+    /** PostHog role UUID this external role maps to. */
+    role: string
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+}
+
+export interface PaginatedRoleExternalReferenceListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: RoleExternalReferenceApi[]
+}
+
+export interface RoleLookupResponseApi {
+    /** Matching reference, or null if none exists. */
+    reference: RoleExternalReferenceApi | null
+}
+
 /**
  * * `slack` - Slack
  * `slack-posthog-code` - Slack Posthog Code
@@ -237,6 +285,40 @@ export interface GitHubReposResponseApi {
 export interface GitHubReposRefreshResponseApi {
     /** The refreshed repository cache. */
     repositories: GitHubRepoApi[]
+}
+
+export type RoleExternalReferencesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type RoleExternalReferencesLookupRetrieveParams = {
+    /**
+     * Integration kind (e.g., github, linear, jira, slack).
+     * @minLength 1
+     */
+    provider: string
+    /**
+     * Provider organization/workspace/site identifier.
+     * @minLength 1
+     */
+    provider_organization_id: string
+    /**
+     * Stable provider role identifier.
+     * @minLength 1
+     */
+    provider_role_id?: string
+    /**
+     * Human-friendly provider role identifier.
+     * @minLength 1
+     */
+    provider_role_slug?: string
 }
 
 export type IntegrationsListParams = {

@@ -1,0 +1,94 @@
+/* stylelint-disable selector-class-pattern -- escaped Tailwind group classes (.group\/scrollbar) fall outside strict BEM */
+@layer components {
+    .quill-scroll-area {
+        position: relative;
+    }
+
+    .quill-scroll-area__viewport {
+        width: 100%;
+        height: 100%;
+        border-radius: inherit;
+        outline: none;
+        transition:
+            color 0.15s ease,
+            box-shadow 0.15s ease;
+    }
+
+    .quill-scroll-area__viewport:focus-visible {
+        outline: 1px solid var(--ring);
+        box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 50%, transparent);
+    }
+
+    /* Scrollbar track */
+    .quill-scroll-area__scrollbar {
+        z-index: 1;
+        padding: 1px;
+        touch-action: none;
+        user-select: none;
+        background-color: color-mix(in oklab, var(--input) 50%, transparent);
+        border-radius: var(--radius-sm);
+        transition: opacity 0.15s ease;
+    }
+
+    .quill-scroll-area__scrollbar[data-orientation='horizontal'] {
+        flex-direction: row;
+        width: 100%;
+        height: 0.625rem;
+    }
+
+    .quill-scroll-area__scrollbar[data-orientation='horizontal'][data-has-overflow-y] {
+        width: calc(100% - 0.625rem);
+    }
+
+    .quill-scroll-area__scrollbar[data-orientation='vertical'] {
+        flex-direction: column;
+        width: 0.625rem;
+        height: 100%;
+    }
+
+    .quill-scroll-area__scrollbar[data-orientation='vertical'][data-has-overflow-x] {
+        height: calc(100% - 0.625rem);
+    }
+
+    /* Scrollbar visibility: hidden by default, shown on hover / scroll */
+    .quill-scroll-area__scrollbar--auto {
+        pointer-events: none;
+        opacity: 0;
+    }
+
+    .quill-scroll-area__scrollbar--auto[data-hovering],
+    .quill-scroll-area__scrollbar--auto[data-scrolling] {
+        pointer-events: auto;
+        opacity: 1;
+    }
+
+    .quill-scroll-area__scrollbar--auto[data-scrolling] {
+        transition-duration: 0s;
+    }
+
+    .quill-scroll-area__scrollbar--always {
+        pointer-events: auto;
+        opacity: 1;
+    }
+
+    /* Thumb */
+    .quill-scroll-area__thumb {
+        position: relative;
+        background-color: var(--input);
+        border-radius: var(--radius-sm);
+    }
+
+    .group\/scrollbar[data-orientation='vertical'] .quill-scroll-area__thumb {
+        width: 100%;
+    }
+
+    .group\/scrollbar[data-orientation='horizontal'] .quill-scroll-area__thumb {
+        height: 100%;
+    }
+
+    .quill-scroll-area__corner {
+        z-index: 1;
+        background-color: transparent;
+        border-end-end-radius: var(--radius-sm);
+    }
+}

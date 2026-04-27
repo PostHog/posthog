@@ -57,7 +57,7 @@ Available domains (the list is incomplete):
 Typical action names: list/retrieve/get/create/update/delete/query.
 Example regex for search: execute-sql or experiment.
 
-Defined group types: {defined_groups}
+{defined_groups}
 
 {metadata}
 

@@ -4440,10 +4440,16 @@ export namespace Schemas {
 
     export interface ExperimentStatsBaseValidated {
       /** @nullable */
+      covariate_sum?: number | null;
+      /** @nullable */
+      covariate_sum_squares?: number | null;
+      /** @nullable */
       denominator_sum?: number | null;
       /** @nullable */
       denominator_sum_squares?: number | null;
       key: string;
+      /** @nullable */
+      main_covariate_sum_product?: number | null;
       number_of_samples: number;
       /** @nullable */
       numerator_denominator_sum_product?: number | null;
@@ -4472,10 +4478,16 @@ export namespace Schemas {
        */
       confidence_interval?: number[] | null;
       /** @nullable */
+      covariate_sum?: number | null;
+      /** @nullable */
+      covariate_sum_squares?: number | null;
+      /** @nullable */
       denominator_sum?: number | null;
       /** @nullable */
       denominator_sum_squares?: number | null;
       key: string;
+      /** @nullable */
+      main_covariate_sum_product?: number | null;
       method?: ExperimentVariantResultFrequentistMethod;
       number_of_samples: number;
       /** @nullable */
@@ -4504,6 +4516,10 @@ export namespace Schemas {
     export interface ExperimentVariantResultBayesian {
       /** @nullable */
       chance_to_win?: number | null;
+      /** @nullable */
+      covariate_sum?: number | null;
+      /** @nullable */
+      covariate_sum_squares?: number | null;
       /**
        * @minItems 2
        * @maxItems 2
@@ -4515,6 +4531,8 @@ export namespace Schemas {
       /** @nullable */
       denominator_sum_squares?: number | null;
       key: string;
+      /** @nullable */
+      main_covariate_sum_product?: number | null;
       method?: ExperimentVariantResultBayesianMethod;
       number_of_samples: number;
       /** @nullable */
@@ -5859,6 +5877,7 @@ export namespace Schemas {
       new: number;
       removed: number;
       unchanged: number;
+      unresolved?: number;
       tolerated_matched?: number;
     }
 
@@ -15653,6 +15672,7 @@ export namespace Schemas {
     * `gemini` - Gemini
     * `openrouter` - Openrouter
     * `fireworks` - Fireworks
+    * `azure_openai` - Azure OpenAI
      */
     export type LLMProviderEnum = typeof LLMProviderEnum[keyof typeof LLMProviderEnum];
 
@@ -15663,6 +15683,7 @@ export namespace Schemas {
       Gemini: 'gemini',
       Openrouter: 'openrouter',
       Fireworks: 'fireworks',
+      AzureOpenai: 'azure_openai',
     } as const;
 
     /**
@@ -16113,6 +16134,41 @@ export namespace Schemas {
       AiEmbedding: '$ai_embedding',
       AiTrace: '$ai_trace',
     } as const;
+
+    export interface ExecuteTestClusterRequest {
+      /**
+       * ClickHouse SQL to run against the test cluster.
+       * @maxLength 65536
+       */
+      sql: string;
+    }
+
+    export interface ExecuteTestClusterResponse {
+      /** Rows returned, each as a positional list of canonicalized values. */
+      result: unknown[][];
+      /**
+       * ClickHouse query_id for this execution.
+       * @nullable
+       */
+      query_id: string | null;
+      /**
+       * Server-side elapsed time in milliseconds.
+       * @nullable
+       */
+      elapsed_ms: number | null;
+      /**
+       * Rows read from storage (scan-side).
+       * @nullable
+       */
+      rows_read: number | null;
+      /**
+       * Bytes read from storage (scan-side).
+       * @nullable
+       */
+      bytes_read: number | null;
+      /** Rows in the `result` payload. */
+      rows_returned: number;
+    }
 
     /**
      * * `exit_on_conversion` - Conversion
@@ -17827,6 +17883,20 @@ export namespace Schemas {
        */
       math_property?: string | null;
     }
+
+    /**
+     * * `success` - success
+    * `warning` - warning
+    * `danger` - danger
+     */
+    export type HealthEnum = typeof HealthEnum[keyof typeof HealthEnum];
+
+
+    export const HealthEnum = {
+      Success: 'success',
+      Warning: 'warning',
+      Danger: 'danger',
+    } as const;
 
     /**
      * * `critical` - Critical
@@ -20515,6 +20585,23 @@ export namespace Schemas {
       readonly error_message: string | null;
       api_key?: string;
       readonly api_key_masked: string;
+      /** Azure OpenAI endpoint URL */
+      azure_endpoint?: string;
+      /**
+       * Azure OpenAI API version
+       * @maxLength 20
+       */
+      api_version?: string;
+      /**
+       * Azure endpoint (read-only, for display)
+       * @nullable
+       */
+      readonly azure_endpoint_display: string | null;
+      /**
+       * Azure API version (read-only, for display)
+       * @nullable
+       */
+      readonly api_version_display: string | null;
       set_as_active?: boolean;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -22186,6 +22273,25 @@ export namespace Schemas {
       success?: boolean | null;
     }
 
+    export interface OutdatedTrafficAlert {
+      /** Outdated version handling significant traffic. */
+      version: string;
+      /** Traffic-percentage threshold that triggered the alert (10% for most SDKs, 20% for web). */
+      threshold_percent: number;
+    }
+
+    /**
+     * * `healthy` - healthy
+    * `needs_attention` - needs_attention
+     */
+    export type OverallHealthEnum = typeof OverallHealthEnum[keyof typeof OverallHealthEnum];
+
+
+    export const OverallHealthEnum = {
+      Healthy: 'healthy',
+      NeedsAttention: 'needs_attention',
+    } as const;
+
     export interface PaginatedActionList {
       count: number;
       /** @nullable */
@@ -23461,6 +23567,49 @@ export namespace Schemas {
       results: ReviewQueue[];
     }
 
+    export interface RoleExternalReference {
+      readonly id: string;
+      /**
+       * Integration kind (e.g., github, linear, jira, slack).
+       * @maxLength 32
+       */
+      provider: string;
+      /**
+       * Provider organization/workspace/site identifier.
+       * @maxLength 255
+       */
+      provider_organization_id: string;
+      /**
+       * Stable provider role identifier.
+       * @maxLength 255
+       */
+      provider_role_id: string;
+      /**
+       * Human-friendly provider role identifier.
+       * @maxLength 255
+       * @nullable
+       */
+      provider_role_slug?: string | null;
+      /**
+       * Display name of the provider role.
+       * @maxLength 255
+       */
+      provider_role_name: string;
+      /** PostHog role UUID this external role maps to. */
+      role: string;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+    }
+
+    export interface PaginatedRoleExternalReferenceList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: RoleExternalReference[];
+    }
+
     export type RoleMembersItem = {[key: string]: unknown};
 
     export interface Role {
@@ -24005,6 +24154,11 @@ export namespace Schemas {
        * @nullable
        */
       readonly finished_at: string | null;
+      /**
+       * AI-generated summary included in this delivery, when one was produced.
+       * @nullable
+       */
+      readonly change_summary: string | null;
     }
 
     export interface PaginatedSubscriptionDeliveryList {
@@ -27371,6 +27525,23 @@ export namespace Schemas {
       readonly error_message?: string | null;
       api_key?: string;
       readonly api_key_masked?: string;
+      /** Azure OpenAI endpoint URL */
+      azure_endpoint?: string;
+      /**
+       * Azure OpenAI API version
+       * @maxLength 20
+       */
+      api_version?: string;
+      /**
+       * Azure endpoint (read-only, for display)
+       * @nullable
+       */
+      readonly azure_endpoint_display?: string | null;
+      /**
+       * Azure API version (read-only, for display)
+       * @nullable
+       */
+      readonly api_version_display?: string | null;
       set_as_active?: boolean;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -34458,6 +34629,15 @@ export namespace Schemas {
       query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
     }
 
+    export interface RecomputeResult {
+      run: Run;
+      counts_changed: boolean;
+      unresolved: number;
+      ci_rerun_triggered: boolean;
+      /** @nullable */
+      ci_rerun_error?: string | null;
+    }
+
     export interface ReorderTilesRequest {
       /**
        * Array of tile IDs in the desired display order (top to bottom, left to right).
@@ -34538,6 +34718,11 @@ export namespace Schemas {
       stale: number;
     }
 
+    export interface RoleLookupResponse {
+      /** Matching reference, or null if none exists. */
+      reference: RoleExternalReference | null;
+    }
+
     export interface RunInsightsResponse {
       /** Results for each insight tile on the dashboard. */
       results: DashboardTileResult[];
@@ -34607,6 +34792,107 @@ export namespace Schemas {
     export interface ScoreDefinitionNewVersion {
       /** Next immutable scorer configuration. */
       config: ScoreDefinitionConfig;
+    }
+
+    /**
+     * * `none` - none
+    * `warning` - warning
+    * `danger` - danger
+     */
+    export type SdkAssessmentSeverityEnum = typeof SdkAssessmentSeverityEnum[keyof typeof SdkAssessmentSeverityEnum];
+
+
+    export const SdkAssessmentSeverityEnum = {
+      None: 'none',
+      Warning: 'warning',
+      Danger: 'danger',
+    } as const;
+
+    export interface SdkReleaseAssessment {
+      /** In-use SDK version string, e.g. '1.298.0'. */
+      version: string;
+      /** Number of events captured with this version in the last 7 days. */
+      count: number;
+      /** Timestamp of the most recent event seen for this version (ISO 8601). */
+      max_timestamp: string;
+      /**
+       * When this version was published on GitHub (ISO 8601), or null if unknown.
+       * @nullable
+       */
+      release_date: string | null;
+      /**
+       * Days since this version was released, or null if unknown.
+       * @nullable
+       */
+      days_since_release: number | null;
+      /**
+       * Human-readable relative release age matching the UI (e.g. '5 months ago'). Null when release_date is unknown.
+       * @nullable
+       */
+      released_ago: string | null;
+      /** True when this version is flagged as outdated by smart-semver rules. */
+      is_outdated: boolean;
+      /** True when this version is flagged as old by age alone (separate from semver rules). */
+      is_old: boolean;
+      /** True if is_outdated OR is_old. */
+      needs_updating: boolean;
+      /** True when this version equals or exceeds the latest known published version. */
+      is_current_or_newer: boolean;
+      /** Per-version badge tooltip text matching the SDK Doctor UI exactly. Quote verbatim when reporting to users. Varies by state: 'Released X ago. Upgrade recommended.' for outdated versions, 'You have the latest available. Click Releases above to check for any since.' for current versions, or 'Released X ago. Upgrading is a good idea, but it's not urgent yet.' for recent-but-behind versions. */
+      status_reason: string;
+      /** SQL SELECT statement for drilling into events for this SDK version over the last 7 days. Suitable to pass to the execute-sql tool or to display as a copy-paste snippet. */
+      sql_query: string;
+      /** Relative URL path (starting with /project/{id}/) for the Activity > Explore page pre-filtered to events captured with this lib and lib_version over the last 7 days. Combine with the user's PostHog host (e.g. us.posthog.com) for a clickable link. */
+      activity_page_url: string;
+    }
+
+    export interface SdkAssessment {
+      /** SDK identifier, e.g. 'web', 'posthog-python', 'posthog-node', 'posthog-ios'. */
+      lib: string;
+      /** Human-readable SDK name matching the SDK Doctor UI (e.g. 'Python', 'Node.js', 'Web', 'iOS'). */
+      readable_name: string;
+      /** Most recent published version of this SDK. */
+      latest_version: string;
+      /** True if this SDK needs attention (is_outdated OR is_old). */
+      needs_updating: boolean;
+      /** True if the primary in-use version is flagged as outdated. */
+      is_outdated: boolean;
+      /** True if the primary in-use version is flagged as old by age alone. */
+      is_old: boolean;
+      /** UI severity badge — 'none' when healthy, 'warning' when outdated, 'danger' when the majority of team SDKs are outdated.
+
+    * `none` - none
+    * `warning` - warning
+    * `danger` - danger */
+      severity: SdkAssessmentSeverityEnum;
+      /** Per-SDK programmatic summary (used for ranking/filtering). For user-facing copy, prefer releases[].status_reason (badge tooltip) and banners (top-level alert text) — those match the UI exactly. */
+      reason: string;
+      /** Top-level alert sentences matching the SDK Doctor UI's 'Time for an update!' banner — one per outdated version with significant traffic. Quote verbatim when surfacing the headline to users. */
+      banners: string[];
+      /** Per-version assessment for all versions seen in the last 7 days. */
+      releases: SdkReleaseAssessment[];
+      /** Outdated versions that handle a significant share of traffic (above the threshold). Not populated for mobile SDKs. */
+      outdated_traffic_alerts: OutdatedTrafficAlert[];
+    }
+
+    export interface SdkHealthReport {
+      /** 'healthy' when no SDKs need updating, 'needs_attention' otherwise.
+
+    * `healthy` - healthy
+    * `needs_attention` - needs_attention */
+      overall_health: OverallHealthEnum;
+      /** UI-level status — 'success' when healthy, 'warning' when some SDKs are outdated, 'danger' when the majority are outdated.
+
+    * `success` - success
+    * `warning` - warning
+    * `danger` - danger */
+      health: HealthEnum;
+      /** Number of SDKs that need updating. */
+      needs_updating_count: number;
+      /** Number of distinct PostHog SDKs the project is actively using. */
+      team_sdk_count: number;
+      /** Per-SDK health assessments. */
+      sdks: SdkAssessment[];
     }
 
     export type SentimentResultScores = {[key: string]: number};
@@ -35341,6 +35627,11 @@ export namespace Schemas {
       rates: SurveyStatsResponseRates;
     }
 
+    export interface TaskRepositoriesResponse {
+      /** Distinct repositories in use by non-deleted, non-internal tasks for the current team. */
+      repositories: string[];
+    }
+
     export type TaskRunAppendLogRequestEntriesItem = {[key: string]: unknown};
 
     export interface TaskRunAppendLogRequest {
@@ -35722,6 +36013,21 @@ export namespace Schemas {
     }
 
     export type TaskRunCreateRequestSchema = ClaudeTaskRunCreateSchema | CodexTaskRunCreateSchema | TaskRunResumeRequestSchema;
+
+    export interface TaskRunErrorResponse {
+      /** Human-readable validation error */
+      detail?: string;
+      /** Human-readable error message */
+      error?: string;
+      /** Machine-readable error type */
+      type?: string;
+      /** Machine-readable error code */
+      code?: string;
+      /** Request field associated with the error */
+      attr?: string;
+      /** Artifact ids that could not be resolved for the run */
+      missing_artifact_ids?: string[];
+    }
 
     export interface TaskRunRelayMessageRequest {
       /** @maxLength 10000 */
@@ -36510,6 +36816,29 @@ export namespace Schemas {
       /** Available attribute keys matching the filters. */
       results: _LogAttributeEntry[];
       /** Total attribute keys matched (not paginated). */
+      count: number;
+    }
+
+    export interface _LogsCountBody {
+      /** Date range for the count. Defaults to last hour. */
+      dateRange?: _DateRange;
+      /** Filter by log severity levels. */
+      severityLevels?: SeverityLevelsEnum[];
+      /** Filter by service names. */
+      serviceNames?: string[];
+      /** Full-text search term to filter log bodies. */
+      searchTerm?: string;
+      /** Property filters for the query. */
+      filterGroup?: _LogPropertyFilter[];
+    }
+
+    export interface _LogsCountRequest {
+      /** The count query to execute. */
+      query: _LogsCountBody;
+    }
+
+    export interface _LogsCountResponse {
+      /** Number of log entries matching the filters. */
       count: number;
     }
 
@@ -39934,6 +40263,40 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type RoleExternalReferencesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type RoleExternalReferencesLookupRetrieveParams = {
+    /**
+     * Integration kind (e.g., github, linear, jira, slack).
+     * @minLength 1
+     */
+    provider: string;
+    /**
+     * Provider organization/workspace/site identifier.
+     * @minLength 1
+     */
+    provider_organization_id: string;
+    /**
+     * Stable provider role identifier.
+     * @minLength 1
+     */
+    provider_role_id?: string;
+    /**
+     * Human-friendly provider role identifier.
+     * @minLength 1
+     */
+    provider_role_slug?: string;
+    };
+
     export type RolesListParams = {
     /**
      * Number of results to return per page.
@@ -41213,6 +41576,17 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type ExperimentsTimeseriesResultsRetrieveParams = {
+    /**
+     * Fingerprint of the metric configuration. Available alongside metric_uuid on each metric in the experiment's metrics array.
+     */
+    fingerprint: string;
+    /**
+     * UUID of the metric to fetch timeseries for. Available on each metric in the experiment's metrics array.
+     */
+    metric_uuid: string;
     };
 
     export type ExportsListParams = {
@@ -43143,6 +43517,13 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type SdkDoctorReportRetrieveParams = {
+    /**
+     * When true, bypasses the Redis cache and re-queries ClickHouse for SDK usage. Use sparingly — data is refreshed every 12 hours by a background job.
+     */
+    force_refresh?: boolean;
+    };
+
     export type SessionGroupSummariesListParams = {
     /**
      * Number of results to return per page.
@@ -43349,11 +43730,39 @@ export namespace Schemas {
      */
     repository?: string;
     /**
+     * Case-insensitive substring search over task title and description. A numeric value also matches the task number. An empty value disables the filter.
+     */
+    search?: string;
+    /**
      * Filter by task run stage
      * @minLength 1
      */
     stage?: string;
+    /**
+     * Filter tasks by the status of their most recent run.
+
+    * `not_started` - not_started
+    * `queued` - queued
+    * `in_progress` - in_progress
+    * `completed` - completed
+    * `failed` - failed
+    * `cancelled` - cancelled
+     * @minLength 1
+     */
+    status?: TasksListStatus;
     };
+
+    export type TasksListStatus = typeof TasksListStatus[keyof typeof TasksListStatus];
+
+
+    export const TasksListStatus = {
+      NotStarted: 'not_started',
+      Queued: 'queued',
+      InProgress: 'in_progress',
+      Completed: 'completed',
+      Failed: 'failed',
+      Cancelled: 'cancelled',
+    } as const;
 
     export type TasksRunsListParams = {
     /**
@@ -43449,15 +43858,6 @@ export namespace Schemas {
      * Filter by run type
      */
     run_type?: string;
-    };
-
-    export type VisualReviewReposQuarantineDestroyParams = {
-    /**
-     * Snapshot identifier to unquarantine
-     * @minLength 1
-     * @maxLength 512
-     */
-    identifier: string;
     };
 
     export type VisualReviewRunsListParams = {

@@ -7,7 +7,11 @@
 category: Product analytics
 feature: product_analytics
 url_prefix: /insights
-ui_apps: {}
+ui_apps:
+    insight-actors:
+        type: detail
+        view_prop: data
+        link_prop: openLink
 tools:
     insights-list:
         operation: insights_list

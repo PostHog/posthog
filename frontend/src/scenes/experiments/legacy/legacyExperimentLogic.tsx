@@ -3,12 +3,13 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { runWithLimit } from 'scenes/dashboard/dashboardUtils'
+import { classifyError, extractErrorDetailString } from 'scenes/experiments/experimentLogic'
 import { isLegacyExperimentQuery, isLegacySharedMetric } from 'scenes/experiments/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import api from '~/lib/api'
-import { QUERY_TIMEOUT_ERROR_MESSAGE, performQuery } from '~/queries/query'
+import { performQuery } from '~/queries/query'
 import {
     CachedExperimentFunnelsQueryResponse,
     CachedExperimentTrendsQueryResponse,
@@ -100,16 +101,6 @@ interface LegacyMetricLoadingSummary {
     cachedCount: number
 }
 
-const OUT_OF_MEMORY_ERROR_CODES = new Set(['memory_limit_exceeded', 'query_memory_limit_exceeded'])
-
-function isOutOfMemoryError(errorCode: string | null, errorMessage: string | null): boolean {
-    if (errorCode && OUT_OF_MEMORY_ERROR_CODES.has(errorCode)) {
-        return true
-    }
-
-    return !!errorMessage && /(out of memory|memory limit exceeded|exceeded memory limit)/i.test(errorMessage)
-}
-
 function parseMetricErrorDetail(error: any): { detail: any; hasDiagnostics: boolean } {
     const errorDetailText = typeof error.detail === 'string' ? error.detail : null
     const errorDetailMatch = errorDetailText?.match(/\{.*\}/)
@@ -123,35 +114,6 @@ function parseMetricErrorDetail(error: any): { detail: any; hasDiagnostics: bool
     } catch {
         return { detail: error.detail || error.message, hasDiagnostics: false }
     }
-}
-
-function isTimeoutError(errorDetail: unknown, errorMessage: string | null, statusCode: number | null): boolean {
-    if (statusCode === 504) {
-        return true
-    }
-
-    return errorDetail === QUERY_TIMEOUT_ERROR_MESSAGE || errorMessage === QUERY_TIMEOUT_ERROR_MESSAGE
-}
-
-function classifyError(
-    errorDetail: unknown,
-    errorMessage: string | null,
-    errorCode: string | null,
-    statusCode: number | null
-): 'timeout' | 'out_of_memory' | 'server_error' | 'network_error' | 'unknown' {
-    if (isTimeoutError(errorDetail, errorMessage, statusCode)) {
-        return 'timeout'
-    }
-    if (isOutOfMemoryError(errorCode, errorMessage)) {
-        return 'out_of_memory'
-    }
-    if (statusCode !== null && statusCode >= 500) {
-        return 'server_error'
-    }
-    if (statusCode === 0 || errorCode === 'network_error' || errorMessage?.includes('NetworkError')) {
-        return 'network_error'
-    }
-    return 'unknown'
 }
 
 /**
@@ -333,6 +295,7 @@ const loadLegacyMetrics = async ({
                     error_type: errorType,
                     error_code: errorCode,
                     error_message: errorMessage,
+                    error_detail: extractErrorDetailString(errorDetail),
                     status_code: statusCode,
                 })
 

@@ -1202,15 +1202,16 @@ class TestLogsAlertAPI(APIBaseTest):
         defaults.update(overrides)
         return defaults
 
-    def _mock_minute_buckets(self, minute_counts: list[tuple[int, int]]) -> list[BucketedCount]:
-        """Create 1-minute buckets. minute_counts is [(offset_minutes, count), ...]."""
+    def _mock_cadence_buckets(self, offset_counts: list[tuple[int, int]]) -> list[BucketedCount]:
+        """Create cadence-aligned buckets. `offset_counts` is [(offset_minutes_from_base, count), ...].
+        Offsets should be multiples of the simulate cadence (5 min) to land on bucket boundaries."""
         base = datetime(2025, 12, 16, 10, 0, tzinfo=UTC)
-        return [BucketedCount(timestamp=base + timedelta(minutes=m), count=c) for m, c in minute_counts]
+        return [BucketedCount(timestamp=base + timedelta(minutes=m), count=c) for m, c in offset_counts]
 
     @freeze_time("2025-12-16T10:30:00Z")
     @patch("products.logs.backend.alerts_api.AlertCheckQuery")
     def test_simulate_returns_response_shape(self, mock_query_cls):
-        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets([(0, 50), (1, 20)])
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_cadence_buckets([(0, 50), (5, 20)])
 
         response = self.client.post(self._simulate_url(), self._simulate_payload(), format="json")
         assert response.status_code == status.HTTP_200_OK
@@ -1228,8 +1229,8 @@ class TestLogsAlertAPI(APIBaseTest):
     @freeze_time("2025-12-16T10:30:00Z")
     @patch("products.logs.backend.alerts_api.AlertCheckQuery")
     def test_simulate_fills_empty_minutes(self, mock_query_cls):
-        # Two data points 10 minutes apart — should fill 1-min gaps between them
-        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets([(0, 50), (10, 200)])
+        # Two data points 10 minutes apart — should fill 5-min cadence gaps between them
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_cadence_buckets([(0, 50), (10, 200)])
 
         response = self.client.post(
             self._simulate_url(),
@@ -1243,14 +1244,16 @@ class TestLogsAlertAPI(APIBaseTest):
     @parameterized.expand(
         [
             (
+                # Single cadence bucket above threshold → fires once.
                 "fires",
-                [(0, 40), (1, 40), (2, 40)],
+                [(0, 150)],
                 {"threshold_count": 100, "threshold_operator": "above", "window_minutes": 5},
                 {"min_fire_count": 1},
             ),
             (
+                # Bucket at cadence 0 fires; cadence 5 (5 min later) drops to 0 → resolves.
                 "fires_and_resolves",
-                [(0, 40), (1, 40), (2, 40)],
+                [(0, 150), (5, 0)],
                 {"threshold_count": 100, "threshold_operator": "above", "window_minutes": 5},
                 {"min_fire_count": 1, "min_resolve_count": 1},
             ),
@@ -1259,7 +1262,7 @@ class TestLogsAlertAPI(APIBaseTest):
     @freeze_time("2025-12-16T10:30:00Z")
     @patch("products.logs.backend.alerts_api.AlertCheckQuery")
     def test_simulate_rolling_window(self, _name, buckets, payload_overrides, expected, mock_query_cls):
-        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets(buckets)
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_cadence_buckets(buckets)
 
         response = self.client.post(
             self._simulate_url(),
@@ -1275,14 +1278,11 @@ class TestLogsAlertAPI(APIBaseTest):
     @freeze_time("2025-12-16T10:30:00Z")
     @patch("products.logs.backend.alerts_api.AlertCheckQuery")
     def test_simulate_n_of_m_delays_firing(self, mock_query_cls):
-        # window=5, 2-of-3 N-of-M. A spike at minute 0 pushes rolling sum above threshold
-        # for minutes 0-4. At minute 0 there's only one evaluation, so N=2 isn't met and
-        # the alert stays not_firing; by minute 1 there are two consecutive breaches,
-        # satisfying 2-of-3 -> fires. This is the "N-of-M delays firing past first breach"
-        # invariant; with window=5 the delay is one tick rather than two.
-        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets(
-            [(0, 150), (1, 50), (2, 150)]
-        )
+        # window=5, 2-of-3 N-of-M. Cadence-spaced buckets at minute 0 and 5 each have
+        # 150 logs (above threshold=100). At cadence 0 only 1-of-3 has breached, so
+        # alert stays not_firing. At cadence 5 there are 2 consecutive breaches,
+        # satisfying 2-of-3 -> fires. Demonstrates "N-of-M delays firing past first breach".
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_cadence_buckets([(0, 150), (5, 150)])
 
         response = self.client.post(
             self._simulate_url(),
@@ -1297,9 +1297,9 @@ class TestLogsAlertAPI(APIBaseTest):
         )
         data = response.json()
         data_buckets = [b for b in data["buckets"] if b["count"] > 0]
-        # Minute 0: rolling=150 breached, but only 1 evaluation -> not_firing
+        # Cadence 0: 150 breached, 1-of-3 -> not_firing
         assert data_buckets[0]["state"] == "not_firing"
-        # Minute 1: rolling=200 breached, 2 consecutive breaches met N=2 -> fires
+        # Cadence 5: 150 breached, 2-of-3 satisfied -> fires
         assert data_buckets[1]["state"] == "firing"
         assert data_buckets[1]["notification"] == "fire"
 
@@ -1309,7 +1309,7 @@ class TestLogsAlertAPI(APIBaseTest):
         # window=5, cooldown=15 min. Two spikes 10 minutes apart: first fires at minute 0,
         # rolling sum drops below threshold at minute 5 (spike falls out of window) -> resolves,
         # second spike at minute 10 would re-fire but cooldown from minute 0 fire suppresses it.
-        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets([(0, 200), (10, 200)])
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_cadence_buckets([(0, 200), (10, 200)])
 
         response = self.client.post(
             self._simulate_url(),
@@ -1369,7 +1369,7 @@ class TestLogsAlertAPI(APIBaseTest):
     @freeze_time("2025-12-16T10:30:00Z")
     @patch("products.logs.backend.alerts_api.AlertCheckQuery")
     def test_simulate_echoes_threshold_config(self, mock_query_cls):
-        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets([(0, 10)])
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_cadence_buckets([(0, 10)])
 
         response = self.client.post(
             self._simulate_url(),
