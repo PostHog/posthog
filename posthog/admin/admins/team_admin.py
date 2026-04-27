@@ -64,7 +64,11 @@ class TeamAdminForm(ModelForm):
 
     def clean_test_account_filters(self):
         value = self.cleaned_data.get("test_account_filters")
-        return value if value is not None else []
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise forms.ValidationError("test_account_filters must be a JSON list (e.g. `[]`).")
+        return value
 
 
 class TeamAdmin(admin.ModelAdmin):
