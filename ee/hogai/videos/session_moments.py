@@ -22,8 +22,6 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
 
-from products.llm_analytics.backend.providers.gemini import GeminiProvider
-
 from ee.hogai.session_summaries.constants import (
     DEFAULT_VIDEO_UNDERSTANDING_MODEL,
     MOMENT_VIDEO_EXPORT_FORMAT,
@@ -304,10 +302,11 @@ class GeminiVideoUnderstandingProvider:
 
     def __init__(self, model_id: str):
         self.model_id = model_id
-        # Using PostHog Gemini provider to avoid logic duplication
-        self._base_provider = GeminiProvider(model_id=model_id)
+        api_key = settings.GEMINI_API_KEY
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY is not set in environment or settings")
         # Using default Gemini client as workaround, as PostHog wrapper doesn't support async yet
-        self.client = Client(api_key=self._base_provider.get_api_key())
+        self.client = Client(api_key=api_key)
 
     async def understand_video(
         self,
@@ -322,7 +321,6 @@ class GeminiVideoUnderstandingProvider:
         Understand a video and return a summary using the provided prompt
         https://ai.google.dev/gemini-api/docs/video-understanding
         """
-        self._base_provider.validate_model(self.model_id)
         if mime_type not in self.SUPPORTED_VIDEO_MIME_TYPES:
             logger.exception(
                 f"Video bytes for understanding video are not in a supported MIME type (trace_id:{trace_id}): {mime_type}"
