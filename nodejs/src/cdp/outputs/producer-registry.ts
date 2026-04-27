@@ -4,6 +4,10 @@ import {
     MSK_PRODUCER_CONFIG_MAP,
     WAREHOUSE_PRODUCER,
     WAREHOUSE_PRODUCER_CONFIG_MAP,
+    WARPSTREAM_CALCULATED_EVENTS_PRODUCER,
+    WARPSTREAM_CALCULATED_EVENTS_PRODUCER_CONFIG_MAP,
+    WARPSTREAM_CYCLOTRON_PRODUCER,
+    WARPSTREAM_CYCLOTRON_PRODUCER_CONFIG_MAP,
     WARPSTREAM_INGESTION_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER_CONFIG_MAP,
 } from './producers'
@@ -12,17 +16,23 @@ import {
  * Producers used by the CDP deployments.
  *
  * - `WARPSTREAM_INGESTION_PRODUCER` — hog function monitoring (app metrics +
- *   log entries). Targets the warpstream-ingestion cluster via
- *   `KAFKA_WARPSTREAM_INGESTION_PRODUCER_*`.
- * - `MSK_PRODUCER` — legacy MSK cluster. Default for everything the CDP used
- *   to send through the raw `KafkaProducerWrapper` (prefiltered events,
- *   precalculated person properties, legacy plugin app metrics, batch hogflow).
- * - `WAREHOUSE_PRODUCER` — dedicated cluster for warehouse source webhooks,
- *   configured via `KAFKA_WAREHOUSE_PRODUCER_*`.
+ *   log entries). Targets the warpstream-ingestion cluster.
+ * - `WARPSTREAM_CALCULATED_EVENTS_PRODUCER` — dedicated cluster for the
+ *   precalculated-filters consumer's outputs (`clickhouse_prefiltered_events`,
+ *   `clickhouse_precalculated_person_properties`).
+ * - `WARPSTREAM_CYCLOTRON_PRODUCER` — Cyclotron Warpstream cluster used for
+ *   batch hogflow request enqueue. Distinct env-var prefix from the legacy
+ *   `KAFKA_CDP_PRODUCER_*` so output routing is decoupled from the cyclotron
+ *   job queue's own producer.
+ * - `MSK_PRODUCER` — legacy MSK cluster. Retained for outputs that historically
+ *   used the default `KafkaProducerWrapper` and still need MSK destinations.
+ * - `WAREHOUSE_PRODUCER` — dedicated cluster for warehouse source webhooks.
  */
 export function createCdpProducerRegistry(kafkaClientRack: string | undefined) {
     return new KafkaProducerRegistryBuilder(kafkaClientRack)
         .register(WARPSTREAM_INGESTION_PRODUCER, WARPSTREAM_INGESTION_PRODUCER_CONFIG_MAP)
+        .register(WARPSTREAM_CALCULATED_EVENTS_PRODUCER, WARPSTREAM_CALCULATED_EVENTS_PRODUCER_CONFIG_MAP)
+        .register(WARPSTREAM_CYCLOTRON_PRODUCER, WARPSTREAM_CYCLOTRON_PRODUCER_CONFIG_MAP)
         .register(MSK_PRODUCER, MSK_PRODUCER_CONFIG_MAP)
         .register(WAREHOUSE_PRODUCER, WAREHOUSE_PRODUCER_CONFIG_MAP)
 }

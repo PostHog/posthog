@@ -10,6 +10,8 @@ import type { CdpConfig } from './cdp/config'
 import type {
     KafkaMskProducerEnvConfig,
     KafkaWarehouseProducerEnvConfig,
+    KafkaWarpstreamCalculatedEventsProducerEnvConfig,
+    KafkaWarpstreamCyclotronProducerEnvConfig,
     KafkaWarpstreamIngestionProducerEnvConfig,
 } from './cdp/outputs/producers'
 import { IntegrationManagerService } from './cdp/services/managers/integration-manager.service'
@@ -122,6 +124,8 @@ export interface PluginsServerConfig
         // Producer envs needed by the CDP producer registry the legacy big server builds.
         KafkaMskProducerEnvConfig,
         KafkaWarpstreamIngestionProducerEnvConfig,
+        KafkaWarpstreamCalculatedEventsProducerEnvConfig,
+        KafkaWarpstreamCyclotronProducerEnvConfig,
         KafkaWarehouseProducerEnvConfig {}
 
 export interface HubServices {
