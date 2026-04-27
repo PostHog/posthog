@@ -174,16 +174,17 @@ function ScheduleStatusTag({ scheduledChange }: { scheduledChange: ScheduledChan
     const { executed_at, failure_reason, is_recurring } = scheduledChange
     const { currentTeam } = useValues(teamLogic)
     const tz = currentTeam?.timezone || 'UTC'
-    const tzShort = shortTimeZone(tz) ?? tz
 
     function getStatus(): { type: LemonTagType; text: string; tooltip?: string } {
         if (failure_reason) {
             return { type: 'danger', text: 'Error', tooltip: `Failed: ${failure_reason}` }
         } else if (executed_at) {
+            const executedAt = dayjs(executed_at)
+            const tzShort = shortTimeZone(tz, executedAt.toDate()) ?? tz
             return {
                 type: 'completion',
                 text: 'Complete',
-                tooltip: `Completed: ${dayjs(executed_at).tz(tz).format('MMMM D, YYYY h:mm A')} (${tzShort})`,
+                tooltip: `Completed: ${executedAt.tz(tz).format('MMMM D, YYYY h:mm A')} (${tzShort})`,
             }
         } else if (isSchedulePaused(scheduledChange)) {
             return {
@@ -262,8 +263,8 @@ function ChangeDescription({
 function ScheduleTiming({ scheduledChange }: { scheduledChange: ScheduledChangeType }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const tz = currentTeam?.timezone || 'UTC'
-    const tzShort = shortTimeZone(tz) ?? tz
     const scheduledAt = dayjs(scheduledChange.scheduled_at).tz(tz)
+    const tzShort = shortTimeZone(tz, scheduledAt.toDate()) ?? tz
     const formattedDate = `${scheduledAt.format(DAYJS_FORMAT)} (${tzShort})`
     const timeStr = scheduledAt.format('h:mm A')
 
@@ -1163,7 +1164,6 @@ function FeatureFlagScheduleLegacy(): JSX.Element {
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const { currentTeam } = useValues(teamLogic)
     const tz = currentTeam?.timezone || 'UTC'
-    const tzShort = shortTimeZone(tz) ?? tz
 
     const aggregationGroupTypeIndex = featureFlag.filters.aggregation_group_type_index
 
@@ -1228,6 +1228,7 @@ function FeatureFlagScheduleLegacy(): JSX.Element {
             dataIndex: 'scheduled_at',
             render: function Render(_, scheduledChange: ScheduledChangeType) {
                 const scheduledAt = dayjs(scheduledChange.scheduled_at).tz(tz)
+                const tzShort = shortTimeZone(tz, scheduledAt.toDate()) ?? tz
                 const formattedDate = `${scheduledAt.format(DAYJS_FORMAT)} (${tzShort})`
                 const timeStr = scheduledAt.format('h:mm A')
                 const isPaused = !scheduledChange.is_recurring && !!scheduledChange.recurrence_interval
@@ -1300,10 +1301,12 @@ function FeatureFlagScheduleLegacy(): JSX.Element {
                     if (failure_reason) {
                         return { type: 'danger', text: 'Error', tooltip: `Failed: ${failure_reason}` }
                     } else if (executed_at) {
+                        const executedAt = dayjs(executed_at)
+                        const tzShort = shortTimeZone(tz, executedAt.toDate()) ?? tz
                         return {
                             type: 'completion',
                             text: 'Complete',
-                            tooltip: `Completed: ${dayjs(executed_at).tz(tz).format('MMMM D, YYYY h:mm A')} (${tzShort})`,
+                            tooltip: `Completed: ${executedAt.tz(tz).format('MMMM D, YYYY h:mm A')} (${tzShort})`,
                         }
                     } else if (isPaused) {
                         return {
