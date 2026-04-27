@@ -27,6 +27,41 @@ from posthog.hogql_queries.experiments.utils import (
 )
 
 
+def _columns_for(
+    metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
+    *,
+    has_step_sessions: bool = False,
+    cuped: bool = False,
+) -> list[str]:
+    """
+    Mirror the column aliases that experiment_query_builder.py SELECTs produce.
+
+    This helper documents the SQL contract on the test side. If the production query
+    builder ever changes which aliases it emits, tests using this helper will need to
+    be updated alongside _ALIAS_TO_STATS_FIELD in utils.py.
+    """
+    cols = ["variant"]
+
+    breakdowns = metric.breakdownFilter.breakdowns if metric.breakdownFilter else None
+    if breakdowns:
+        cols.extend(f"breakdown_value_{i + 1}" for i in range(len(breakdowns)))
+
+    cols.extend(["num_users", "total_sum", "total_sum_of_squares"])
+
+    if isinstance(metric, ExperimentMeanMetric) and cuped:
+        cols.extend(["covariate_sum", "covariate_sum_squares", "main_covariate_sum_product"])
+
+    if isinstance(metric, ExperimentFunnelMetric):
+        cols.append("step_counts")
+        if has_step_sessions:
+            cols.append("steps_event_data")
+
+    if isinstance(metric, (ExperimentRatioMetric, ExperimentRetentionMetric)):
+        cols.extend(["denominator_sum", "denominator_sum_squares", "numerator_denominator_sum_product"])
+
+    return cols
+
+
 class TestGetVariantResult:
     """Tests for get_variant_result() which parses query result tuples into structured variant results."""
 
@@ -58,7 +93,7 @@ class TestGetVariantResult:
         metric = self.create_mean_metric()
         result = ("control", 100, 250.5, 750.25)
 
-        breakdown_value, stats = get_variant_result(result, metric)
+        breakdown_value, stats = get_variant_result(result, _columns_for(metric))
 
         assert breakdown_value is None
         assert stats.key == "control"
@@ -75,7 +110,7 @@ class TestGetVariantResult:
         )
         result = ("test", "Chrome", 150, 400.0, 1200.0)
 
-        breakdown_tuple, stats = get_variant_result(result, metric)
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
 
         assert breakdown_tuple == ("Chrome",)
         assert stats.key == "test"
@@ -90,7 +125,7 @@ class TestGetVariantResult:
         metric = self.create_funnel_metric()
         result = ("control", 100, 80.0, 80.0, [100, 80])
 
-        breakdown_value, stats = get_variant_result(result, metric)
+        breakdown_value, stats = get_variant_result(result, _columns_for(metric))
 
         assert breakdown_value is None
         assert stats.key == "control"
@@ -111,7 +146,7 @@ class TestGetVariantResult:
         )
         result = ("test", "Safari", 120, 90.0, 90.0, [120, 90])
 
-        breakdown_tuple, stats = get_variant_result(result, metric)
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
 
         assert breakdown_tuple == ("Safari",)
         assert stats.key == "test"
@@ -133,7 +168,7 @@ class TestGetVariantResult:
         ]
         result = ("control", 100, 80.0, 80.0, [100, 80], sessions_data)
 
-        breakdown_value, stats = get_variant_result(result, metric)
+        breakdown_value, stats = get_variant_result(result, _columns_for(metric, has_step_sessions=True))
 
         assert breakdown_value is None
         assert stats.key == "control"
@@ -151,7 +186,7 @@ class TestGetVariantResult:
         metric = self.create_ratio_metric()
         result = ("control", 100, 50.0, 75.0, 200.0, 500.0, 120.0)
 
-        breakdown_value, stats = get_variant_result(result, metric)
+        breakdown_value, stats = get_variant_result(result, _columns_for(metric))
 
         assert breakdown_value is None
         assert stats.key == "control"
@@ -171,7 +206,7 @@ class TestGetVariantResult:
         )
         result = ("test", "Firefox", 150, 75.0, 120.0, 300.0, 800.0, 200.0)
 
-        breakdown_tuple, stats = get_variant_result(result, metric)
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
 
         assert breakdown_tuple == ("Firefox",)
         assert stats.key == "test"
@@ -188,7 +223,7 @@ class TestGetVariantResult:
         metric = self.create_mean_metric()
         result = ("control", 100, 250.5, 750.25)  # Second field is numeric
 
-        breakdown_value, stats = get_variant_result(result, metric)
+        breakdown_value, stats = get_variant_result(result, _columns_for(metric))
 
         assert breakdown_value is None  # Should NOT detect breakdown
         assert stats.number_of_samples == 100
@@ -201,7 +236,7 @@ class TestGetVariantResult:
         )
         result = ("control", "Chrome", 100, 250.5, 750.25)  # Second field is breakdown value
 
-        breakdown_tuple, stats = get_variant_result(result, metric)
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
 
         assert breakdown_tuple == ("Chrome",)  # Should parse breakdown
         assert stats.number_of_samples == 100
@@ -220,7 +255,7 @@ class TestGetVariantResult:
         metric = self.create_mean_metric()
         result = (variant_key, 100, 250.5, 750.25)
 
-        breakdown_value, stats = get_variant_result(result, metric)
+        breakdown_value, stats = get_variant_result(result, _columns_for(metric))
 
         assert stats.key == expected_key
 
@@ -239,7 +274,7 @@ class TestGetVariantResult:
         # Result: variant, os, browser, samples, sum, sum_squares
         result = ("test", "MacOS", "Chrome", 150, 400.0, 1200.0)
 
-        breakdown_tuple, stats = get_variant_result(result, metric)
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
 
         assert breakdown_tuple == ("MacOS", "Chrome")
         assert stats.key == "test"
@@ -265,7 +300,7 @@ class TestGetVariantResult:
         # Result: variant, os, browser, device_type, samples, sum, sum_squares, step_counts
         result = ("control", "MacOS", "Chrome", "Desktop", 100, 80.0, 80.0, [100, 80])
 
-        breakdown_tuple, stats = get_variant_result(result, metric)
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
 
         assert breakdown_tuple == ("MacOS", "Chrome", "Desktop")
         assert stats.key == "control"
@@ -284,7 +319,7 @@ class TestGetVariantResult:
         # Result with numeric breakdown value
         result = ("test", 1920, 150, 75.0, 120.0, 300.0, 800.0, 200.0)
 
-        breakdown_tuple, stats = get_variant_result(result, metric)
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
 
         assert breakdown_tuple == ("1920",)  # Converted to string
         assert stats.number_of_samples == 150
@@ -303,7 +338,7 @@ class TestGetVariantResult:
         # Result: variant, os (string), screen_width (numeric), samples, sum, sum_squares
         result = ("control", "MacOS", 1920, 100, 250.0, 750.0)
 
-        breakdown_tuple, stats = get_variant_result(result, metric)
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
 
         assert breakdown_tuple == ("MacOS", "1920")  # Both as strings
         assert stats.number_of_samples == 100
@@ -324,7 +359,7 @@ class TestGetVariantResult:
         # Result: variant, breakdown, samples, sum, sum_squares, step_counts, step_sessions
         result = ("test", "Chrome", 100, 80.0, 80.0, [100, 80], sessions_data)
 
-        breakdown_tuple, stats = get_variant_result(result, metric)
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric, has_step_sessions=True))
 
         assert breakdown_tuple == ("Chrome",)
         assert stats.key == "test"
@@ -359,7 +394,7 @@ class TestGetVariantResult:
         # Result: variant, os, browser, samples, sum, sum_squares, step_counts, step_sessions
         result = ("control", "MacOS", "Chrome", 100, 80.0, 80.0, [100, 80], sessions_data)
 
-        breakdown_tuple, stats = get_variant_result(result, metric)
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric, has_step_sessions=True))
 
         assert breakdown_tuple == ("MacOS", "Chrome")
         assert stats.key == "control"
@@ -385,7 +420,7 @@ class TestGetVariantResult:
         # Result: variant, os, browser, samples, num_sum, num_sum_sq, denom_sum, denom_sum_sq, product
         result = ("test", "MacOS", "Safari", 150, 75.0, 120.0, 300.0, 800.0, 200.0)
 
-        breakdown_tuple, stats = get_variant_result(result, metric)
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
 
         assert breakdown_tuple == ("MacOS", "Safari")
         assert stats.key == "test"
@@ -403,7 +438,7 @@ class TestGetVariantResult:
         )
         result = ("control", None, 100, 250.0, 750.0)
 
-        breakdown_tuple, stats = get_variant_result(result, metric)
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
 
         assert breakdown_tuple == ("None",)
         assert stats.number_of_samples == 100
@@ -417,7 +452,7 @@ class TestGetVariantResult:
         # SQL queries use coalesce() to convert NULL to this special label
         result = ("control", BREAKDOWN_NULL_STRING_LABEL, 100, 250.0, 750.0)
 
-        breakdown_tuple, stats = get_variant_result(result, metric)
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
 
         assert breakdown_tuple == (BREAKDOWN_NULL_STRING_LABEL,)
         assert stats.number_of_samples == 100
@@ -430,7 +465,7 @@ class TestGetVariantResult:
         )
         result = ("control", "", 100, 250.0, 750.0)
 
-        breakdown_tuple, stats = get_variant_result(result, metric)
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
 
         assert breakdown_tuple == ("",)
         assert stats.number_of_samples == 100
@@ -440,7 +475,7 @@ class TestGetVariantResult:
         metric = self.create_mean_metric()
         result = ("control", 0, 0.0, 0.0)
 
-        breakdown_tuple, stats = get_variant_result(result, metric)
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
 
         assert breakdown_tuple is None
         assert stats.key == "control"
@@ -453,7 +488,7 @@ class TestGetVariantResult:
         metric = self.create_funnel_metric()
         result: tuple[str, int, float, float, list[int]] = ("control", 0, 0.0, 0.0, [])
 
-        breakdown_tuple, stats = get_variant_result(result, metric)
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
 
         assert breakdown_tuple is None
         assert stats.key == "control"
@@ -468,7 +503,7 @@ class TestGetVariantResult:
         # Test with newlines, tabs, quotes
         result = ("control", 'Chrome\n"Mobile"', 100, 250.0, 750.0)
 
-        breakdown_tuple, stats = get_variant_result(result, metric)
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
 
         assert breakdown_tuple == ('Chrome\n"Mobile"',)
         assert stats.number_of_samples == 100
@@ -481,7 +516,7 @@ class TestGetVariantResult:
         )
         result = ("test", "東京", 150, 400.0, 1200.0)
 
-        breakdown_tuple, stats = get_variant_result(result, metric)
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
 
         assert breakdown_tuple == ("東京",)
         assert stats.number_of_samples == 150
@@ -494,7 +529,7 @@ class TestGetVariantResult:
         )
         result = ("control", 100, 250.0, 750.0)
 
-        breakdown_tuple, stats = get_variant_result(result, metric)
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
 
         assert breakdown_tuple is None  # Empty list means no breakdown
         assert stats.number_of_samples == 100
@@ -515,7 +550,7 @@ class TestGetVariantResult:
         # Result: variant, os, browser, device, samples, num_sum, num_sum_sq, denom_sum, denom_sum_sq, product
         result = ("test", "MacOS", "Safari", "Desktop", 150, 75.0, 120.0, 300.0, 800.0, 200.0)
 
-        breakdown_tuple, stats = get_variant_result(result, metric)
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
 
         assert breakdown_tuple == ("MacOS", "Safari", "Desktop")
         assert stats.key == "test"
@@ -535,7 +570,7 @@ class TestGetVariantResults:
             ("test", 150, 400.0, 1200.0),
         ]
 
-        variant_results = get_variant_results(results, metric)
+        variant_results = get_variant_results(results, _columns_for(metric))
 
         assert len(variant_results) == 2
         assert variant_results[0][0] is None  # No breakdown
@@ -558,7 +593,7 @@ class TestGetVariantResults:
             ("test", "Safari", 120, 300.0, 900.0),
         ]
 
-        variant_results = get_variant_results(results, metric)
+        variant_results = get_variant_results(results, _columns_for(metric))
 
         assert len(variant_results) == 4
         assert variant_results[0][0] == ("Chrome",)
@@ -577,7 +612,7 @@ class TestGetVariantResults:
         )
         results: list[tuple] = []
 
-        variant_results = get_variant_results(results, metric)
+        variant_results = get_variant_results(results, _columns_for(metric))
 
         assert len(variant_results) == 0
 
