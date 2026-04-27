@@ -38,6 +38,7 @@ import CLI_PROXY_TOOL from '@/templates/cli-proxy-tool.md'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import INSTRUCTIONS_TEMPLATE_V1 from '@/templates/instructions-v1.md'
 import INSTRUCTIONS_TEMPLATE_V2 from '@/templates/instructions-v2.md'
+import SINGLE_EXEC_INSTRUCTIONS from '@/templates/single-exec-instructions.md'
 import { createExecTool } from '@/tools/exec'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import { type CloudRegion, type Context, type State, type Tool } from '@/tools/types'
@@ -576,19 +577,40 @@ export class MCP extends McpAgent<Env> {
                 }
             })
 
-        const standardInstructions =
-            version === 2
-                ? buildInstructionsV2(
-                      INSTRUCTIONS_TEMPLATE_V2,
-                      guidelines,
-                      groupTypes,
-                      metadata,
-                      toolInfos,
-                      queryToolInfos
-                  )
-                : buildInstructionsV1(INSTRUCTIONS_TEMPLATE_V1, metadata)
-        const instructions =
-            useSingleExec || !clientProfile.capabilities.supportsInstructions ? '' : standardInstructions
+        const supportsInstructions = clientProfile.capabilities.supportsInstructions
+
+        // In single-exec mode, when the client honors the MCP `instructions` field we
+        // lift the exec-tool blurb, tool-domain list, query-tool catalog, defined-group
+        // types and the active-environment `{metadata}` (user name, project, timezone)
+        // out of the `command` description and into `instructions`. Clients that ignore
+        // `instructions` (Codex — see `client-detection.ts`) keep today's behavior:
+        // empty `instructions`, everything inlined in the `command` description.
+        let instructions = ''
+        if (supportsInstructions) {
+            if (useSingleExec) {
+                instructions = buildInstructionsV2(
+                    SINGLE_EXEC_INSTRUCTIONS,
+                    guidelines,
+                    groupTypes,
+                    metadata,
+                    toolInfos,
+                    queryToolInfos,
+                    { compact: true }
+                )
+            } else {
+                instructions =
+                    version === 2
+                        ? buildInstructionsV2(
+                              INSTRUCTIONS_TEMPLATE_V2,
+                              guidelines,
+                              groupTypes,
+                              metadata,
+                              toolInfos,
+                              queryToolInfos
+                          )
+                        : buildInstructionsV1(INSTRUCTIONS_TEMPLATE_V1, metadata)
+            }
+        }
 
         this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
 
@@ -611,13 +633,16 @@ export class MCP extends McpAgent<Env> {
                 sqlTool.description = formatPrompt(EXECUTE_SQL_PROMPT, { guidelines: guidelines.trim() })
             }
 
+            // Strip `{tool_domains}`, `{query_tools}`, `{defined_groups}`, `{metadata}`
+            // from the command-parameter description when they're already in `instructions`
+            // (their placeholders resolve to empty strings via `buildInstructionsV2`).
             const commandReference = buildInstructionsV2(
                 CLI_PROXY_COMMAND,
                 guidelines,
-                groupTypes,
-                metadata,
-                toolInfos,
-                queryToolInfos
+                supportsInstructions ? undefined : groupTypes,
+                supportsInstructions ? undefined : metadata,
+                supportsInstructions ? undefined : toolInfos,
+                supportsInstructions ? undefined : queryToolInfos
             )
 
             const execTool = createExecTool(
