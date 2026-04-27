@@ -96,6 +96,17 @@ def _summarize_boxplot_trend(results: list[dict[str, Any]]) -> str:
 
 
 def _summarize_funnels(results: list[Any]) -> str:
+    # FunnelsQuery occasionally returns dict shapes (e.g. funnelVizType=time_to_convert
+    # gives {'bins': [...], 'average_conversion_time': ...}, and some breakdown variants
+    # return {breakdown_value: [...]}). Subscripting those as results[0] used to raise
+    # KeyError: 0 and abort the whole subscription summary activity.
+    if not isinstance(results, list):
+        LOGGER.info(
+            "subscription_summary.unexpected_funnel_shape",
+            results_type=type(results).__name__,
+        )
+        return _summarize_generic([results])
+
     lines: list[str] = []
 
     steps = results

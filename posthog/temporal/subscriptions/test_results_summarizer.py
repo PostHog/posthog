@@ -244,6 +244,52 @@ class TestBuildResultsSummaryUnexpectedShape:
         assert events[1]["row_type"] == "int"
 
 
+@parameterized_class(
+    ("name", "results", "expected_fragments"),
+    [
+        (
+            "time_to_convert_dict_shape",
+            {
+                "bins": [[10, 5], [20, 3], [30, 1]],
+                "average_conversion_time": 17.5,
+            },
+            ["average_conversion_time=17.5"],
+        ),
+        (
+            "breakdown_dict_shape",
+            {
+                "Chrome": [
+                    {"name": "Visit", "count": 100, "conversion_rate": 100},
+                    {"name": "Signup", "count": 40, "conversion_rate": 40},
+                ],
+                "Firefox": [
+                    {"name": "Visit", "count": 50, "conversion_rate": 100},
+                ],
+            },
+            ["Chrome", "Firefox"],
+        ),
+    ],
+)
+class TestBuildResultsSummaryFunnelsDictShape:
+    """Funnels can return dict shapes (time_to_convert, breakdown variants).
+    The summarizer must degrade gracefully and emit a log instead of letting
+    KeyError: 0 escape and abort the whole snapshot_subscription_insights activity.
+    """
+
+    name: str
+    results: dict
+    expected_fragments: list[str]
+
+    def test_dict_shape_does_not_crash_and_logs(self):
+        with structlog.testing.capture_logs() as captured_logs:
+            summary = build_results_summary("FunnelsQuery", self.results)
+        for fragment in self.expected_fragments:
+            assert fragment in summary, f"Expected '{fragment}' in summary:\n{summary}"
+        events = [log for log in captured_logs if log.get("event") == "subscription_summary.unexpected_funnel_shape"]
+        assert len(events) == 1, f"expected one log for the dict-shaped funnel result, got {events}"
+        assert events[0]["results_type"] == "dict"
+
+
 class TestBuildResultsSummaryEdgeCases:
     def test_inf_values_do_not_crash(self):
         results = [{"label": "Metric", "data": [1.0, float("inf"), 3.0]}]
