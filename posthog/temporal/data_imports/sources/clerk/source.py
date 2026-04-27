@@ -29,6 +29,12 @@ class ClerkSource(ResumableSource[ClerkSourceConfig, ClerkResumeConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CLERK
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "401 Client Error: Unauthorized for url: https://api.clerk.com": "Your Clerk secret key is invalid or has been revoked. Please generate a new key and reconnect.",
+            "403 Client Error: Forbidden for url: https://api.clerk.com": "Your Clerk secret key does not have the required scopes for this endpoint (e.g. organizations). Please update the key permissions in Clerk and reconnect, or deselect the affected schemas.",
+        }
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(

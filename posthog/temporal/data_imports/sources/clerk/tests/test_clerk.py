@@ -8,7 +8,13 @@ from unittest.mock import MagicMock, patch
 
 from requests import Request, Response
 
-from posthog.temporal.data_imports.sources.clerk.clerk import ClerkPaginator, ClerkResumeConfig, clerk_source
+from posthog.temporal.data_imports.sources.clerk.clerk import (
+    ClerkPaginator,
+    ClerkResumeConfig,
+    clerk_source,
+    validate_credentials,
+)
+from posthog.temporal.data_imports.sources.clerk.source import ClerkSource
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 
@@ -224,3 +230,93 @@ class TestClerkSourceResumeBehavior:
         as_json = json.dumps(dataclasses.asdict(cfg))
         reconstituted = ClerkResumeConfig(**json.loads(as_json))
         assert reconstituted == cfg
+
+
+class TestClerkValidateCredentials:
+    """Validation must probe every endpoint we sync.
+
+    Clerk secret keys without B2B/organizations scopes pass a ``/v1/users``
+    probe but 403 on ``/v1/organizations``; the previous validation only hit
+    ``/v1/users`` so the scope mismatch surfaced mid-sync rather than at
+    connect time.
+    """
+
+    def _ok_response(self) -> Response:
+        return _make_http_response([{"id": "u1"}], status_code=200)
+
+    def _forbidden_response(self) -> Response:
+        return _make_http_response(
+            {"errors": [{"message": "Missing required scope"}]},
+            status_code=403,
+        )
+
+    def test_returns_true_when_every_endpoint_returns_200(self) -> None:
+        with patch(
+            "posthog.temporal.data_imports.sources.clerk.clerk.requests.get",
+            side_effect=lambda *_args, **_kwargs: self._ok_response(),
+        ) as mock_get:
+            ok, err = validate_credentials("sk_live_test")
+
+        assert ok is True
+        assert err is None
+        called_paths = [call.args[0] for call in mock_get.call_args_list]
+        assert "https://api.clerk.com/v1/users" in called_paths
+        assert "https://api.clerk.com/v1/organizations" in called_paths
+        assert "https://api.clerk.com/v1/organization_memberships" in called_paths
+        assert "https://api.clerk.com/v1/invitations" in called_paths
+
+    def test_returns_false_when_organizations_endpoint_is_forbidden(self) -> None:
+        def fake_get(url: str, *_args: Any, **_kwargs: Any) -> Response:
+            if url.endswith("/organizations"):
+                return self._forbidden_response()
+            return self._ok_response()
+
+        with patch(
+            "posthog.temporal.data_imports.sources.clerk.clerk.requests.get",
+            side_effect=fake_get,
+        ):
+            ok, err = validate_credentials("sk_live_test")
+
+        assert ok is False
+        assert err is not None
+        assert "/organizations" in err
+        assert "scopes" in err.lower()
+
+    def test_returns_false_when_secret_key_is_invalid(self) -> None:
+        with patch(
+            "posthog.temporal.data_imports.sources.clerk.clerk.requests.get",
+            return_value=_make_http_response(
+                {"errors": [{"message": "Invalid API key"}]},
+                status_code=401,
+            ),
+        ):
+            ok, err = validate_credentials("sk_live_bad")
+
+        assert ok is False
+        assert err == "Invalid API key"
+
+
+class TestClerkSourceNonRetryableErrors:
+    """403/401 from Clerk must be classified as non-retryable so Temporal
+    disables the schema with a friendly message instead of looping the
+    activity and multiplying exception counts."""
+
+    def test_lists_403_and_401_as_non_retryable(self) -> None:
+        errors = ClerkSource().get_non_retryable_errors()
+
+        assert any(
+            "403 Client Error: Forbidden for url: https://api.clerk.com" in key for key in errors
+        )
+        assert any(
+            "401 Client Error: Unauthorized for url: https://api.clerk.com" in key for key in errors
+        )
+
+    def test_403_message_matches_real_exception_substring(self) -> None:
+        """The dispatcher in import_data_sync.py uses substring matching against
+        ``str(exception)``. Verify our key is a real substring of the
+        ``HTTPError`` text raised by ``response.raise_for_status()``."""
+        errors = ClerkSource().get_non_retryable_errors()
+        real_exception_message = (
+            "403 Client Error: Forbidden for url: https://api.clerk.com/v1/organizations?limit=100"
+        )
+        assert any(key in real_exception_message for key in errors)

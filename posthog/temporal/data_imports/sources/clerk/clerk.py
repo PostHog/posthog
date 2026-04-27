@@ -143,29 +143,52 @@ def _convert_timestamps(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def validate_credentials(secret_key: str) -> tuple[bool, str | None]:
-    """Validate Clerk API credentials by making a test request."""
-    url = "https://api.clerk.com/v1/users"
+    """Validate Clerk API credentials by probing every endpoint we sync.
+
+    Clerk secret keys can be issued without B2B/organizations scopes, in which
+    case ``/v1/users`` returns 200 but ``/v1/organizations`` and
+    ``/v1/organization_memberships`` 403 only once the import pipeline runs.
+    Probing each endpoint here surfaces the scope mismatch at connect time
+    instead of mid-sync.
+    """
     headers = {
         "Authorization": f"Bearer {secret_key}",
         "Content-Type": "application/json",
     }
 
-    try:
-        response = requests.get(url, headers=headers, params={"limit": 1}, timeout=10)
+    base_url = "https://api.clerk.com/v1"
+    for endpoint in CLERK_ENDPOINTS.values():
+        try:
+            response = requests.get(
+                f"{base_url}{endpoint.path}",
+                headers=headers,
+                params={"limit": 1},
+                timeout=10,
+            )
+        except requests.exceptions.RequestException as e:
+            return False, str(e)
 
         if response.status_code == 200:
-            return True, None
+            continue
 
+        message = response.text
         try:
             error_data = response.json()
             if error_data.get("errors"):
-                return False, error_data["errors"][0].get("message", response.text)
+                message = error_data["errors"][0].get("message", message)
         except Exception:
             pass
 
-        return False, response.text
-    except requests.exceptions.RequestException as e:
-        return False, str(e)
+        if response.status_code == 403:
+            return (
+                False,
+                f"The provided Clerk secret key does not have access to {endpoint.path}. "
+                "Make sure the key has the required scopes (e.g. organizations) and try again.",
+            )
+
+        return False, message
+
+    return True, None
 
 
 def clerk_source(
