@@ -2150,6 +2150,18 @@ export const surveyLogic = kea<surveyLogicType>([
             (s) => [s.survey],
             (survey): Array<{ language: string; questionIndex: number; field: string; error: string }> => {
                 const errors: Array<{ language: string; questionIndex: number; field: string; error: string }> = []
+                const surveyLevelFieldChecks = [
+                    { key: 'name', defaultValue: survey.name },
+                    { key: 'thankYouMessageHeader', defaultValue: survey.appearance?.thankYouMessageHeader },
+                    {
+                        key: 'thankYouMessageDescription',
+                        defaultValue: survey.appearance?.thankYouMessageDescription,
+                    },
+                    {
+                        key: 'thankYouMessageCloseButtonText',
+                        defaultValue: survey.appearance?.thankYouMessageCloseButtonText,
+                    },
+                ]
 
                 // Get all languages
                 const languages = new Set<string>()
@@ -2167,20 +2179,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 languages.forEach((lang) => {
                     const trans = survey.translations?.[lang]
                     if (trans) {
-                        const fieldChecks = [
-                            { key: 'name', defaultValue: survey.name },
-                            { key: 'description', defaultValue: survey.description },
-                            { key: 'thankYouMessageHeader', defaultValue: survey.appearance?.thankYouMessageHeader },
-                            {
-                                key: 'thankYouMessageDescription',
-                                defaultValue: survey.appearance?.thankYouMessageDescription,
-                            },
-                            {
-                                key: 'thankYouMessageCloseButtonText',
-                                defaultValue: survey.appearance?.thankYouMessageCloseButtonText,
-                            },
-                        ]
-                        fieldChecks.forEach(({ key, defaultValue }) => {
+                        surveyLevelFieldChecks.forEach(({ key, defaultValue }) => {
                             const value = trans[key]
                             // Only check if default is explicitly empty (not undefined)
                             const defaultIsExplicitlyEmpty =
@@ -2199,20 +2198,7 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 // Add errors for empty default fields that have translations
                 if (fieldsWithEmptyDefaults.size > 0) {
-                    const fieldChecks = [
-                        { key: 'name', defaultValue: survey.name },
-                        { key: 'description', defaultValue: survey.description },
-                        { key: 'thankYouMessageHeader', defaultValue: survey.appearance?.thankYouMessageHeader },
-                        {
-                            key: 'thankYouMessageDescription',
-                            defaultValue: survey.appearance?.thankYouMessageDescription,
-                        },
-                        {
-                            key: 'thankYouMessageCloseButtonText',
-                            defaultValue: survey.appearance?.thankYouMessageCloseButtonText,
-                        },
-                    ]
-                    fieldChecks.forEach(({ key, defaultValue }) => {
+                    surveyLevelFieldChecks.forEach(({ key, defaultValue }) => {
                         const defaultIsExplicitlyEmpty =
                             defaultValue !== undefined &&
                             (typeof defaultValue !== 'string' || defaultValue.trim() === '')
@@ -2231,20 +2217,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 languages.forEach((lang) => {
                     const trans = survey.translations?.[lang]
                     if (trans) {
-                        const fieldChecks = [
-                            { key: 'name', defaultValue: survey.name },
-                            { key: 'description', defaultValue: survey.description },
-                            { key: 'thankYouMessageHeader', defaultValue: survey.appearance?.thankYouMessageHeader },
-                            {
-                                key: 'thankYouMessageDescription',
-                                defaultValue: survey.appearance?.thankYouMessageDescription,
-                            },
-                            {
-                                key: 'thankYouMessageCloseButtonText',
-                                defaultValue: survey.appearance?.thankYouMessageCloseButtonText,
-                            },
-                        ]
-                        fieldChecks.forEach(({ key, defaultValue }) => {
+                        surveyLevelFieldChecks.forEach(({ key, defaultValue }) => {
                             const value = trans[key]
                             const defaultHasValue =
                                 defaultValue && typeof defaultValue === 'string' && defaultValue.trim() !== ''
@@ -2295,16 +2268,17 @@ export const surveyLogic = kea<surveyLogicType>([
                         return
                     }
 
+                    const textFieldChecks = [
+                        { key: 'question', defaultValue: question.question },
+                        { key: 'description', defaultValue: question.description },
+                        { key: 'buttonText', defaultValue: question.buttonText },
+                        { key: 'lowerBoundLabel', defaultValue: question.lowerBoundLabel },
+                        { key: 'upperBoundLabel', defaultValue: question.upperBoundLabel },
+                    ]
+
                     // First collect fields that have translations but empty defaults
                     const fieldsWithEmptyDefaults = new Set<string>()
                     Object.values(question.translations).forEach((trans) => {
-                        const textFieldChecks = [
-                            { key: 'question', defaultValue: question.question },
-                            { key: 'description', defaultValue: question.description },
-                            { key: 'buttonText', defaultValue: question.buttonText },
-                            { key: 'lowerBoundLabel', defaultValue: question.lowerBoundLabel },
-                            { key: 'upperBoundLabel', defaultValue: question.upperBoundLabel },
-                        ]
                         textFieldChecks.forEach(({ key, defaultValue }) => {
                             const value = trans[key]
                             // Only check if default is explicitly empty (not undefined)
@@ -2323,13 +2297,6 @@ export const surveyLogic = kea<surveyLogicType>([
 
                     // Add errors for empty default fields that have translations
                     if (fieldsWithEmptyDefaults.size > 0) {
-                        const textFieldChecks = [
-                            { key: 'question', defaultValue: question.question },
-                            { key: 'description', defaultValue: question.description },
-                            { key: 'buttonText', defaultValue: question.buttonText },
-                            { key: 'lowerBoundLabel', defaultValue: question.lowerBoundLabel },
-                            { key: 'upperBoundLabel', defaultValue: question.upperBoundLabel },
-                        ]
                         textFieldChecks.forEach(({ key, defaultValue }) => {
                             const defaultIsExplicitlyEmpty =
                                 defaultValue !== undefined &&
@@ -2347,13 +2314,6 @@ export const surveyLogic = kea<surveyLogicType>([
 
                     Object.entries(question.translations).forEach(([lang, trans]) => {
                         // Check text fields
-                        const textFieldChecks = [
-                            { key: 'question', defaultValue: question.question },
-                            { key: 'description', defaultValue: question.description },
-                            { key: 'buttonText', defaultValue: question.buttonText },
-                            { key: 'lowerBoundLabel', defaultValue: question.lowerBoundLabel },
-                            { key: 'upperBoundLabel', defaultValue: question.upperBoundLabel },
-                        ]
                         textFieldChecks.forEach(({ key, defaultValue }) => {
                             const value = trans[key]
                             const defaultHasValue =
@@ -2392,7 +2352,7 @@ export const surveyLogic = kea<surveyLogicType>([
                                     field: 'link',
                                     error: 'Contains placeholder "[Translation needed]"',
                                 })
-                            } else if (!trans.link.match(/^(https:|mailto:)/)) {
+                            } else if (!trans.link.match(/^(https:\/\/|mailto:)/)) {
                                 errors.push({
                                     language: lang,
                                     questionIndex: qIndex,
@@ -2428,7 +2388,7 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 // Also validate default question links
                 survey.questions.forEach((question, qIndex) => {
-                    if (question.link && !question.link.match(/^(https:|mailto:)/)) {
+                    if (question.link && !question.link.match(/^(https:\/\/|mailto:)/)) {
                         errors.push({
                             language: 'default',
                             questionIndex: qIndex,

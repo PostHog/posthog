@@ -86,7 +86,6 @@ export function SurveyTranslations(): JSX.Element {
             ...currentTranslations,
             [lang]: {
                 name: survey.name || '',
-                description: survey.description || '',
                 thankYouMessageHeader: survey.appearance?.thankYouMessageHeader || '',
                 thankYouMessageDescription: survey.appearance?.thankYouMessageDescription || '',
                 thankYouMessageCloseButtonText: survey.appearance?.thankYouMessageCloseButtonText || '',

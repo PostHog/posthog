@@ -73,8 +73,8 @@ import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQ
 import { SurveyFormAppearance } from './SurveyFormAppearance'
 import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
-import { canUseSurveyWizard } from './utils'
 import { COMMON_LANGUAGES } from './SurveyTranslations'
+import { canUseSurveyWizard } from './utils'
 
 function SurveyCompletionConditions(): JSX.Element {
     const { survey, dataCollectionType, isAdaptiveLimitFFEnabled } = useValues(surveyLogic)
@@ -292,22 +292,21 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
     } = useActions(surveyLogic)
     const { setPreferredEditor } = useActions(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
-    const { guidedEditorEnabled } = useValues(surveyLogic)
+    const surveyTranslationsEnabled = !!featureFlags[FEATURE_FLAGS.SURVEYS_TRANSLATIONS]
+    const activeEditingLanguage = surveyTranslationsEnabled ? editingLanguage : null
+    const hasActiveTranslationValidationErrors = surveyTranslationsEnabled && hasTranslationValidationErrors
+    const activeTranslationValidationErrors = surveyTranslationsEnabled ? translationValidationErrors : []
     const previewSurvey = useMemo(() => {
-        if (!editingLanguage || !survey.translations?.[editingLanguage]) {
+        if (!activeEditingLanguage || !survey.translations?.[activeEditingLanguage]) {
             return survey
         }
 
         const processed = { ...survey }
-        const translation = survey.translations[editingLanguage]
+        const translation = survey.translations[activeEditingLanguage]
 
         if (translation.name) {
             processed.name = translation.name
         }
-        if (translation.description) {
-            processed.description = translation.description
-        }
-
         if (
             translation.thankYouMessageHeader ||
             translation.thankYouMessageDescription ||
@@ -328,7 +327,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
         }
 
         processed.questions = survey.questions.map((q) => {
-            const qTrans = q.translations?.[editingLanguage]
+            const qTrans = q.translations?.[activeEditingLanguage]
             if (qTrans) {
                 return {
                     ...q,
@@ -345,19 +344,24 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
         })
 
         return processed
-    }, [survey, editingLanguage])
+    }, [survey, activeEditingLanguage])
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
     const { thankYouMessageDescriptionContentType = null } = survey.appearance ?? {}
     useMountedLogic(actionsModel)
 
     const [showFlowModal, setShowFlowModal] = useState(false)
 
-    // Auto-expand Steps panel when a language is selected for translation or when returning to default
+    // Auto-expand Steps panel when a language is selected for translation.
     useEffect(() => {
-        if (editingLanguage !== undefined) {
+        if (!surveyTranslationsEnabled && editingLanguage !== null) {
+            setEditingLanguage(null)
+            return
+        }
+
+        if (activeEditingLanguage !== null) {
             setSelectedSection(SurveyEditSection.Steps)
         }
-    }, [editingLanguage, setSelectedSection])
+    }, [activeEditingLanguage, editingLanguage, setEditingLanguage, setSelectedSection, surveyTranslationsEnabled])
 
     const handleCancelClick = (): void => {
         editingSurvey(false)
@@ -416,24 +420,26 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
 
     return (
         <SceneContent>
-            <div className={`flex flex-col gap-y-4 ${editingLanguage || hasTranslationValidationErrors ? 'mt-1' : ''}`}>
+            <div
+                className={`flex flex-col gap-y-4 ${
+                    activeEditingLanguage || hasActiveTranslationValidationErrors ? 'mt-1' : ''
+                }`}
+            >
                 <SceneTitleSection
-                    name={editingLanguage ? (survey.translations?.[editingLanguage]?.name ?? '') : survey.name}
-                    description={
-                        editingLanguage
-                            ? (survey.translations?.[editingLanguage]?.description ?? '')
-                            : survey.description
+                    name={
+                        activeEditingLanguage ? (survey.translations?.[activeEditingLanguage]?.name ?? '') : survey.name
                     }
+                    description={activeEditingLanguage ? null : survey.description}
                     resourceType={{
                         type: 'survey',
                     }}
                     canEdit
                     onNameChange={(name) => {
-                        if (editingLanguage) {
+                        if (activeEditingLanguage) {
                             setSurveyValue('translations', {
                                 ...survey.translations,
-                                [editingLanguage]: {
-                                    ...survey.translations?.[editingLanguage],
+                                [activeEditingLanguage]: {
+                                    ...survey.translations?.[activeEditingLanguage],
                                     name,
                                 },
                             })
@@ -442,17 +448,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                         }
                     }}
                     onDescriptionChange={(description) => {
-                        if (editingLanguage) {
-                            setSurveyValue('translations', {
-                                ...survey.translations,
-                                [editingLanguage]: {
-                                    ...survey.translations?.[editingLanguage],
-                                    description,
-                                },
-                            })
-                        } else {
-                            setSurveyValue('description', description)
-                        }
+                        setSurveyValue('description', description)
                     }}
                     renameDebounceMs={0}
                     forceEdit
@@ -486,7 +482,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                 form="survey"
                                 size="small"
                                 disabledReason={
-                                    hasTranslationValidationErrors
+                                    hasActiveTranslationValidationErrors
                                         ? 'Cannot save: please fix translation validation errors below'
                                         : undefined
                                 }
@@ -504,7 +500,8 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                             (survey.questions &&
                                 survey.questions.some((q) => q.translations && Object.keys(q.translations).length > 0))
                         )
-                        const shouldShowValidationErrors = hasTranslationValidationErrors && hasActualTranslations
+                        const shouldShowValidationErrors =
+                            surveyTranslationsEnabled && hasActiveTranslationValidationErrors && hasActualTranslations
 
                         if (shouldShowValidationErrors) {
                             return (
@@ -518,7 +515,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                 children: (
                                                     <span className="text-sm">
                                                         ⚠️ Translation validation issues (
-                                                        {translationValidationErrors.length})
+                                                        {activeTranslationValidationErrors.length})
                                                     </span>
                                                 ),
                                                 className: 'bg-warning-highlight',
@@ -526,17 +523,21 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                             content: (
                                                 <div className="text-sm">
                                                     {(() => {
-                                                        const errorsByLanguage = translationValidationErrors.reduce(
-                                                            (acc, error) => {
-                                                                const lang = error.language
-                                                                if (!acc[lang]) {
-                                                                    acc[lang] = []
-                                                                }
-                                                                acc[lang].push(error)
-                                                                return acc
-                                                            },
-                                                            {} as Record<string, typeof translationValidationErrors>
-                                                        )
+                                                        const errorsByLanguage =
+                                                            activeTranslationValidationErrors.reduce(
+                                                                (acc, error) => {
+                                                                    const lang = error.language
+                                                                    if (!acc[lang]) {
+                                                                        acc[lang] = []
+                                                                    }
+                                                                    acc[lang].push(error)
+                                                                    return acc
+                                                                },
+                                                                {} as Record<
+                                                                    string,
+                                                                    typeof activeTranslationValidationErrors
+                                                                >
+                                                            )
 
                                                         return Object.entries(errorsByLanguage).map(
                                                             ([lang, errors]) => (
@@ -581,14 +582,14 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                     ]}
                                 />
                             )
-                        } else if (editingLanguage) {
+                        } else if (activeEditingLanguage) {
                             return (
                                 <div className="px-4 py-2 mt-1 mb-1.5 bg-warning-highlight rounded border border-warning">
                                     <span className="text-sm">
                                         Editing translation for{' '}
                                         <strong>
-                                            {COMMON_LANGUAGES.find((l) => l.value === editingLanguage)?.label ||
-                                                editingLanguage}
+                                            {COMMON_LANGUAGES.find((l) => l.value === activeEditingLanguage)?.label ||
+                                                activeEditingLanguage}
                                         </strong>
                                         . Only user-facing text can be translated - all other fields are editable in the{' '}
                                         <button
@@ -813,7 +814,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                             setSelectedPageIndex={setSelectedPageIndex}
                                                                             setSurveyValue={setSurveyValue}
                                                                             translationValidationErrors={
-                                                                                translationValidationErrors
+                                                                                activeTranslationValidationErrors
                                                                             }
                                                                             translationErrorsByQuestion={
                                                                                 translationErrorsByQuestion
@@ -939,10 +940,10 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                               >
                                                                                                   <LemonInput
                                                                                                       value={
-                                                                                                          editingLanguage
+                                                                                                          activeEditingLanguage
                                                                                                               ? (survey
                                                                                                                     .translations?.[
-                                                                                                                    editingLanguage
+                                                                                                                    activeEditingLanguage
                                                                                                                 ]
                                                                                                                     ?.thankYouMessageHeader ??
                                                                                                                 '')
@@ -955,17 +956,17 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                                           val
                                                                                                       ) => {
                                                                                                           if (
-                                                                                                              editingLanguage
+                                                                                                              activeEditingLanguage
                                                                                                           ) {
                                                                                                               setSurveyValue(
                                                                                                                   'translations',
                                                                                                                   {
                                                                                                                       ...survey.translations,
-                                                                                                                      [editingLanguage]:
+                                                                                                                      [activeEditingLanguage]:
                                                                                                                           {
                                                                                                                               ...survey
                                                                                                                                   .translations?.[
-                                                                                                                                  editingLanguage
+                                                                                                                                  activeEditingLanguage
                                                                                                                               ],
                                                                                                                               thankYouMessageHeader:
                                                                                                                                   val,
@@ -984,7 +985,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                                           }
                                                                                                       }}
                                                                                                       placeholder={
-                                                                                                          editingLanguage
+                                                                                                          activeEditingLanguage
                                                                                                               ? survey
                                                                                                                     .appearance
                                                                                                                     .thankYouMessageHeader
@@ -1017,10 +1018,10 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                               >
                                                                                                   <HTMLEditor
                                                                                                       value={
-                                                                                                          editingLanguage
+                                                                                                          activeEditingLanguage
                                                                                                               ? (survey
                                                                                                                     .translations?.[
-                                                                                                                    editingLanguage
+                                                                                                                    activeEditingLanguage
                                                                                                                 ]
                                                                                                                     ?.thankYouMessageDescription ??
                                                                                                                 '')
@@ -1033,17 +1034,17 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                                           val
                                                                                                       ) => {
                                                                                                           if (
-                                                                                                              editingLanguage
+                                                                                                              activeEditingLanguage
                                                                                                           ) {
                                                                                                               setSurveyValue(
                                                                                                                   'translations',
                                                                                                                   {
                                                                                                                       ...survey.translations,
-                                                                                                                      [editingLanguage]:
+                                                                                                                      [activeEditingLanguage]:
                                                                                                                           {
                                                                                                                               ...survey
                                                                                                                                   .translations?.[
-                                                                                                                                  editingLanguage
+                                                                                                                                  activeEditingLanguage
                                                                                                                               ],
                                                                                                                               thankYouMessageDescription:
                                                                                                                                   val,
@@ -1063,7 +1064,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                                           }
                                                                                                       }}
                                                                                                       onTabChange={
-                                                                                                          editingLanguage
+                                                                                                          activeEditingLanguage
                                                                                                               ? undefined
                                                                                                               : (
                                                                                                                     key
@@ -1088,14 +1089,14 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                                           'text'
                                                                                                       }
                                                                                                       textPlaceholder={
-                                                                                                          editingLanguage
+                                                                                                          activeEditingLanguage
                                                                                                               ? survey
                                                                                                                     .appearance
                                                                                                                     .thankYouMessageDescription
                                                                                                               : 'ex: We really appreciate it.'
                                                                                                       }
                                                                                                       disableTabSwitching={
-                                                                                                          !!editingLanguage
+                                                                                                          !!activeEditingLanguage
                                                                                                       }
                                                                                                       className={getFieldErrorClass(
                                                                                                           'thankYouMessageDescription'
@@ -1124,10 +1125,10 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                               >
                                                                                                   <LemonInput
                                                                                                       value={
-                                                                                                          editingLanguage
+                                                                                                          activeEditingLanguage
                                                                                                               ? (survey
                                                                                                                     .translations?.[
-                                                                                                                    editingLanguage
+                                                                                                                    activeEditingLanguage
                                                                                                                 ]
                                                                                                                     ?.thankYouMessageCloseButtonText ??
                                                                                                                 '')
@@ -1140,17 +1141,17 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                                           val
                                                                                                       ) => {
                                                                                                           if (
-                                                                                                              editingLanguage
+                                                                                                              activeEditingLanguage
                                                                                                           ) {
                                                                                                               setSurveyValue(
                                                                                                                   'translations',
                                                                                                                   {
                                                                                                                       ...survey.translations,
-                                                                                                                      [editingLanguage]:
+                                                                                                                      [activeEditingLanguage]:
                                                                                                                           {
                                                                                                                               ...survey
                                                                                                                                   .translations?.[
-                                                                                                                                  editingLanguage
+                                                                                                                                  activeEditingLanguage
                                                                                                                               ],
                                                                                                                               thankYouMessageCloseButtonText:
                                                                                                                                   val,
@@ -1169,7 +1170,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                                           }
                                                                                                       }}
                                                                                                       placeholder={
-                                                                                                          editingLanguage
+                                                                                                          activeEditingLanguage
                                                                                                               ? survey
                                                                                                                     .appearance
                                                                                                                     .thankYouMessageCloseButtonText
@@ -1186,7 +1187,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                   <LemonField.Pure className="mt-2">
                                                                                       <Tooltip
                                                                                           title={
-                                                                                              editingLanguage
+                                                                                              activeEditingLanguage
                                                                                                   ? 'Auto disappear can only be changed in the default language'
                                                                                                   : undefined
                                                                                           }
@@ -1198,7 +1199,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                               }
                                                                                               label="Auto disappear"
                                                                                               disabled={
-                                                                                                  editingLanguage !==
+                                                                                                  activeEditingLanguage !==
                                                                                                   null
                                                                                               }
                                                                                               onChange={(checked) =>
@@ -1230,9 +1231,9 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                         type="secondary"
                                                         className="w-max"
                                                         icon={<IconPlus />}
-                                                        disabled={editingLanguage !== null}
+                                                        disabled={activeEditingLanguage !== null}
                                                         disabledReason={
-                                                            editingLanguage
+                                                            activeEditingLanguage
                                                                 ? 'Cannot add questions while editing a translation'
                                                                 : undefined
                                                         }
@@ -1297,11 +1298,15 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                         </>
                                     ),
                                 },
-                                {
-                                    key: SurveyEditSection.Translations,
-                                    header: 'Translations',
-                                    content: <SurveyTranslations />,
-                                },
+                                ...(surveyTranslationsEnabled
+                                    ? [
+                                          {
+                                              key: SurveyEditSection.Translations,
+                                              header: 'Translations',
+                                              content: <SurveyTranslations />,
+                                          },
+                                      ]
+                                    : []),
                                 ...(survey.type !== SurveyType.API
                                     ? [
                                           {
@@ -1874,7 +1879,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                     <div className="h-full">
                         <div
                             className={`sticky ${
-                                editingLanguage || hasTranslationValidationErrors ? 'top-28' : 'top-16'
+                                activeEditingLanguage || hasActiveTranslationValidationErrors ? 'top-28' : 'top-16'
                             }`}
                         >
                             <SurveyFormAppearance

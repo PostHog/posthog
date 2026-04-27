@@ -260,10 +260,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         // Same choice at same position, keep the translation
                         return transChoices[newIndex]
                     }
-                    // This is a new/modified choice, initialize with the default or placeholder
-                    if (newChoice !== '' && newChoice !== undefined) {
-                        return newChoice
-                    }
+                    // New or modified choices must be translated explicitly.
                     return '[Translation needed]'
                 })
                 updatedTranslations[lang] = {

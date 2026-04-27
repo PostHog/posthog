@@ -3791,7 +3791,6 @@ export interface Survey extends WithAccessControl {
         string,
         {
             name?: string
-            description?: string
             thankYouMessageHeader?: string
             thankYouMessageDescription?: string
             thankYouMessageCloseButtonText?: string
