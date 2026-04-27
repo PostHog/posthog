@@ -9,7 +9,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Min
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
@@ -87,6 +87,8 @@ from ee.surveys.summaries.headline_summary import generate_survey_headline
 # Constants for better maintainability
 logger = structlog.get_logger(__name__)
 CACHE_TIMEOUT_SECONDS = 300
+DISPLAY_LANGUAGE_QUERY_PARAM = "display_language"
+DISPLAY_LANGUAGE_RE = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}$")
 
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
 EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
@@ -104,6 +106,19 @@ FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
     "linked_flag_id",
     "targeting_flag_filters",
 ]
+
+
+def get_hosted_survey_display_language(request: HttpRequest) -> str | None:
+    display_language = request.GET.get(DISPLAY_LANGUAGE_QUERY_PARAM)
+    if not display_language:
+        return None
+
+    display_language = display_language.strip()
+    if not display_language or len(display_language) > 35 or not DISPLAY_LANGUAGE_RE.fullmatch(display_language):
+        return None
+
+    return display_language
+
 
 # Does not include actions or events, as those are objects and thus are evaluated differently
 CONDITION_FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
@@ -2894,6 +2909,7 @@ def public_survey_page(request, survey_id: str):
         "survey_id": survey_id,
         "survey_data": survey_data,
         "project_config": project_config,
+        "display_language": get_hosted_survey_display_language(request),
         "debug": settings.DEBUG,
         "embed_mode": request.GET.get("embed") == "true",
     }
