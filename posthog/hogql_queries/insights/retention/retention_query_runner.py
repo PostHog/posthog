@@ -266,6 +266,14 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
     def breakdowns_in_query(self) -> bool:
         return has_breakdown_filter(self.query.breakdownFilter)
 
+    @cached_property
+    def has_cohort_breakdown(self) -> bool:
+        return (
+            self.query.breakdownFilter is not None
+            and self.query.breakdownFilter.breakdowns is not None
+            and any(b.type == "cohort" for b in self.query.breakdownFilter.breakdowns)
+        )
+
     def events_timestamp_filter(self, field: ast.Expr | None = None) -> ast.Expr:
         """
         Timestamp filter between date_from and date_to
@@ -389,18 +397,16 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         with self.timings.measure("retention_query"):
-            base_query = self._base_actor_activity_query()
-            base_query = self._apply_cumulative_actor_activity(base_query)
+            if not self.has_cohort_breakdown:
+                base_query = self.base_query()
+            else:
+                base_query = self._base_query_union_for_cohort_breakdown()
+            base_query = self._wrap_base_query_for_cumulative_retention(base_query)
             return self._outer_retention_query(base_query)
 
-    def _base_actor_activity_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        if (
-            self.query.breakdownFilter is None
-            or self.query.breakdownFilter.breakdowns is None
-            or not any(b.type == "cohort" for b in self.query.breakdownFilter.breakdowns)
-        ):
-            return self.base_query()
-
+    def _base_query_union_for_cohort_breakdown(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        assert self.query.breakdownFilter
+        assert self.query.breakdownFilter.breakdowns
         base_queries: list[ast.SelectQuery | ast.SelectSetQuery] = []
         cohort_breakdowns = [b for b in self.query.breakdownFilter.breakdowns if b.type == "cohort"]
 
@@ -418,7 +424,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
         return ast.SelectSetQuery.create_from_queries(base_queries, "UNION ALL")
 
-    def _apply_cumulative_actor_activity(
+    def _wrap_base_query_for_cumulative_retention(
         self, base_query: ast.SelectQuery | ast.SelectSetQuery
     ) -> ast.SelectQuery | ast.SelectSetQuery:
         if not self.query.retentionFilter.cumulative:
