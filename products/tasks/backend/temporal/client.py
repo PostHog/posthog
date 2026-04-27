@@ -4,8 +4,11 @@ import logging
 from typing import TYPE_CHECKING, Any, Optional
 
 from django.conf import settings
+from django.db import transaction
+from django.utils import timezone as django_timezone
 
 import posthoganalytics
+from asgiref.sync import sync_to_async
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.models.team.team import Team
@@ -23,6 +26,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+_PRE_START_STATUSES: tuple[str, ...] = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED)
+
+
 def _normalize_slack_context(slack_thread_context: Optional[Any]) -> Optional[dict[str, Any]]:
     """Convert slack_thread_context to dict if needed."""
     if slack_thread_context is None:
@@ -30,6 +36,43 @@ def _normalize_slack_context(slack_thread_context: Optional[Any]) -> Optional[di
     if hasattr(slack_thread_context, "to_dict"):
         return slack_thread_context.to_dict()
     return slack_thread_context
+
+
+def _terminalize_unstarted_task_run(run_id: str, error_message: str) -> bool:
+    try:
+        with transaction.atomic():
+            task_run = TaskRun.objects.select_for_update().get(id=run_id)
+            if task_run.status not in _PRE_START_STATUSES:
+                logger.info(
+                    "task_processing_start_failure_not_terminalized",
+                    extra={
+                        "run_id": run_id,
+                        "status": task_run.status,
+                    },
+                )
+                return False
+
+            task_run.status = TaskRun.Status.FAILED
+            task_run.error_message = error_message
+            task_run.completed_at = django_timezone.now()
+            task_run.save(update_fields=["status", "error_message", "completed_at"])
+    except TaskRun.DoesNotExist:
+        logger.warning("task_processing_start_failure_task_run_missing", extra={"run_id": run_id})
+        return False
+
+    task_run.publish_stream_state_event()
+    task_run.capture_event(
+        "task_run_failed",
+        {
+            "error_message": error_message[:500],
+            "duration_seconds": task_run._duration_seconds(),
+        },
+    )
+    return True
+
+
+async def _terminalize_unstarted_task_run_async(run_id: str, error_message: str) -> bool:
+    return await sync_to_async(_terminalize_unstarted_task_run)(run_id, error_message)
 
 
 async def execute_task_processing_workflow_async(
@@ -69,6 +112,7 @@ async def execute_task_processing_workflow_async(
         else:
             if not user_id:
                 logger.warning("task_processing_missing_user_id", extra={"task_id": task_id})
+                await _terminalize_unstarted_task_run_async(run_id, "Failed to start task workflow: missing user id")
                 return
 
             logger.info("task_processing_fetching_team_and_user", extra={"team_id": team_id, "user_id": user_id})
@@ -91,6 +135,10 @@ async def execute_task_processing_workflow_async(
 
         if not tasks_enabled:
             logger.warning("task_processing_blocked_feature_flag", extra={"task_id": task_id})
+            await _terminalize_unstarted_task_run_async(
+                run_id,
+                "Failed to start task workflow: tasks feature is disabled",
+            )
             return
 
         workflow_id = TaskRun.get_workflow_id(task_id, run_id)
@@ -125,10 +173,18 @@ async def execute_task_processing_workflow_async(
             "task_processing_permission_validation_failed",
             extra={"task_id": task_id, "run_id": run_id, "error": str(e)},
         )
+        await _terminalize_unstarted_task_run_async(
+            run_id,
+            f"Failed to start task workflow: permission validation failed: {e}",
+        )
     except Exception as e:
         logger.exception(
             "task_processing_workflow_start_failed",
             extra={"task_id": task_id, "run_id": run_id, "error": str(e)},
+        )
+        await _terminalize_unstarted_task_run_async(
+            run_id,
+            f"Failed to start task workflow: {e}",
         )
 
 
@@ -173,6 +229,7 @@ def execute_task_processing_workflow(
         else:
             if not user_id:
                 logger.warning("task_processing_missing_user_id", extra={"task_id": task_id})
+                _terminalize_unstarted_task_run(run_id, "Failed to start task workflow: missing user id")
                 return
 
             user = User.objects.get(id=user_id)
@@ -190,6 +247,10 @@ def execute_task_processing_workflow(
 
         if not tasks_enabled:
             logger.warning("task_processing_blocked_feature_flag", extra={"task_id": task_id})
+            _terminalize_unstarted_task_run(
+                run_id,
+                "Failed to start task workflow: tasks feature is disabled",
+            )
             return
 
         workflow_id = TaskRun.get_workflow_id(task_id, run_id)
@@ -232,10 +293,18 @@ def execute_task_processing_workflow(
             "task_processing_permission_validation_failed",
             extra={"task_id": task_id, "run_id": run_id, "error": str(e)},
         )
+        _terminalize_unstarted_task_run(
+            run_id,
+            f"Failed to start task workflow: permission validation failed: {e}",
+        )
     except Exception as e:
         logger.exception(
             "task_processing_workflow_start_failed",
             extra={"task_id": task_id, "run_id": run_id, "error": str(e)},
+        )
+        _terminalize_unstarted_task_run(
+            run_id,
+            f"Failed to start task workflow: {e}",
         )
 
 
