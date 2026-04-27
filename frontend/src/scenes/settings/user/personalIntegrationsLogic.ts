@@ -17,11 +17,6 @@ export interface PersonalGitHubIntegration {
     created_at: string | null
 }
 
-export interface TeamGitHubIntegration {
-    installation_id: string
-    account_name: string | null
-}
-
 interface GithubStartResponse {
     install_url: string
 }
@@ -57,7 +52,10 @@ export const personalIntegrationsLogic = kea<personalIntegrationsLogicType>([
     path(['scenes', 'settings', 'user', 'personalIntegrationsLogic']),
 
     connect(() => ({
-        actions: [integrationsLogic, ['loadIntegrations', 'loadIntegrationsSuccess']],
+        actions: [
+            integrationsLogic,
+            ['loadIntegrations as loadProjectIntegrations', 'loadIntegrationsSuccess as projectIntegrationsLoaded'],
+        ],
     })),
 
     actions({
@@ -66,10 +64,10 @@ export const personalIntegrationsLogic = kea<personalIntegrationsLogicType>([
     }),
 
     loaders(() => ({
-        githubIntegrations: [
+        integrations: [
             [] as PersonalGitHubIntegration[],
             {
-                loadGitHubIntegrations: async () => {
+                loadIntegrations: async () => {
                     const response = await api.get<{ results: PersonalGitHubIntegration[] }>(
                         'api/users/@me/integrations/'
                     )
@@ -77,24 +75,13 @@ export const personalIntegrationsLogic = kea<personalIntegrationsLogicType>([
                 },
             },
         ],
-        teamGitHubIntegrations: [
-            [] as TeamGitHubIntegration[],
-            {
-                loadTeamGitHubIntegrations: async () => {
-                    const response = await api.get<{ team_github_integrations: TeamGitHubIntegration[] }>(
-                        'api/users/@me/integrations/'
-                    )
-                    return response.team_github_integrations
-                },
-            },
-        ],
     })),
 
     listeners(({ actions }) => ({
-        loadIntegrationsSuccess: () => {
+        projectIntegrationsLoaded: () => {
             // When a project-level integration is added/removed, the backend may
             // auto-create a user-level integration. Reload to pick it up.
-            actions.loadGitHubIntegrations()
+            actions.loadIntegrations()
         },
         connectGitHub: async () => {
             try {
@@ -111,8 +98,8 @@ export const personalIntegrationsLogic = kea<personalIntegrationsLogicType>([
             try {
                 await api.delete(`api/users/@me/integrations/github/${installationId}/`)
                 lemonToast.success('Disconnected GitHub installation')
-                actions.loadGitHubIntegrations()
                 actions.loadIntegrations()
+                actions.loadProjectIntegrations()
             } catch {
                 lemonToast.error('Could not disconnect GitHub installation.')
             }
@@ -121,8 +108,7 @@ export const personalIntegrationsLogic = kea<personalIntegrationsLogicType>([
 
     events(({ actions }) => ({
         afterMount: () => {
-            actions.loadGitHubIntegrations()
-            actions.loadTeamGitHubIntegrations()
+            actions.loadIntegrations()
             const params = new URLSearchParams(window.location.search)
 
             // Stash ``connect_from`` so the post-roundtrip success toast can surface a

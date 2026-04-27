@@ -379,15 +379,16 @@ class GitHubIntegrationBase:
         commit_url = data.get("html_url", f"https://github.com/{repository}/commit/{sha}")
         return GitHubCommitAuthor(login=author["login"], name=name, commit_url=commit_url)
 
-    def list_repositories(self, *, limit: int = 100, offset: int = 0) -> tuple[list[dict], bool]:
-        """List installation repositories via the GitHub API.
+    def list_repositories(self, *, page: int = 1, per_page: int = 100) -> tuple[list[dict], bool]:
+        """List one page of installation repositories from the GitHub API.
 
-        Fetches only the GitHub pages needed to satisfy the requested
-        ``[offset, offset+limit)`` window. Returns a tuple of
-        ``(repositories, has_more)`` where *has_more* indicates whether
-        additional repositories exist beyond the returned window.
+        Uses GitHub's ``page`` and ``per_page`` query parameters
+        (``per_page`` is clamped to 1–100, the API maximum). Returns
+        ``(repositories, has_more)`` where *has_more* is true when the page is
+        full, so another page may exist.
         """
-        GITHUB_PER_PAGE = 100
+        page = max(1, page)
+        per_page = max(1, min(100, per_page))
 
         try:
             if self.access_token_expired():
@@ -395,10 +396,10 @@ class GitHubIntegrationBase:
         except Exception:
             logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
 
-        def fetch(page: int) -> requests.Response:
+        def fetch() -> requests.Response:
             access_token = (self.integration.sensitive_config or {}).get("access_token")
             return self._github_api_get(
-                f"https://api.github.com/installation/repositories?page={page}&per_page={GITHUB_PER_PAGE}",
+                f"https://api.github.com/installation/repositories?page={page}&per_page={per_page}",
                 endpoint="/installation/repositories",
                 headers={
                     "Accept": "application/vnd.github+json",
@@ -438,18 +439,11 @@ class GitHubIntegrationBase:
             )
             raise GitHubIntegrationError(message)
 
-        # Work out which GitHub pages cover the requested window.
-        first_page = offset // GITHUB_PER_PAGE + 1
-        skip = offset % GITHUB_PER_PAGE
-        needed = skip + limit
-
-        # Fetch the first required page with 401-retry and transient-error retry.
         transient_status_codes = {502, 503, 504}
-        current_page = first_page
 
         for attempt in range(2):
             try:
-                response = fetch(current_page)
+                response = fetch()
             except requests.RequestException:
                 raise_repository_error("GitHubIntegration: list_repositories network error", exc_info=True)
 
@@ -459,7 +453,7 @@ class GitHubIntegrationBase:
                 except Exception:
                     raise_repository_error("GitHubIntegration: token refresh after 401 failed", exc_info=True)
                 try:
-                    response = fetch(current_page)
+                    response = fetch()
                 except requests.RequestException:
                     raise_repository_error("GitHubIntegration: list_repositories network error on retry", exc_info=True)
 
@@ -481,9 +475,8 @@ class GitHubIntegrationBase:
 
             if response.status_code == 200 and isinstance(body, dict):
                 page_repos = extract_repos(body)
-                all_fetched = page_repos
-                has_next_page = len(page_repos) == GITHUB_PER_PAGE
-                break
+                has_more = len(page_repos) == per_page
+                return page_repos, has_more
 
             if response.status_code in transient_status_codes and attempt == 0:
                 logger.info(
@@ -500,64 +493,22 @@ class GitHubIntegrationBase:
                 error=body if isinstance(body, dict) else None,
             )
             raise GitHubIntegrationError("GitHubIntegration: failed to list repositories")
-        else:
-            raise GitHubIntegrationError("GitHubIntegration: failed to list repositories after retries")
-
-        # Fetch subsequent pages until we have enough items.
-        while len(all_fetched) < needed and has_next_page:
-            current_page += 1
-            try:
-                response = fetch(current_page)
-            except requests.RequestException:
-                logger.warning(
-                    "GitHubIntegration: list_repositories network error on page",
-                    integration_id=self.integration.id,
-                    page=current_page,
-                    exc_info=True,
-                )
-                raise GitHubIntegrationError("GitHubIntegration: list_repositories network error on page")
-            try:
-                body = response.json()
-            except Exception:
-                logger.warning(
-                    "GitHubIntegration: list_repositories non-JSON response on page",
-                    integration_id=self.integration.id,
-                    page=current_page,
-                    status_code=response.status_code,
-                )
-                raise GitHubIntegrationError("GitHubIntegration: list_repositories non-JSON response on page")
-            if response.status_code != 200 or not isinstance(body, dict):
-                logger.warning(
-                    "GitHubIntegration: failed to list repositories on page",
-                    integration_id=self.integration.id,
-                    page=current_page,
-                    status_code=response.status_code,
-                    error=body if isinstance(body, dict) else None,
-                )
-                raise GitHubIntegrationError("GitHubIntegration: failed to list repositories on page")
-            page_repos = extract_repos(body)
-            all_fetched.extend(page_repos)
-            has_next_page = len(page_repos) == GITHUB_PER_PAGE
-
-        result = all_fetched[skip : skip + limit]
-        has_more = has_next_page or (skip + limit < len(all_fetched))
-
-        return result, has_more
+        raise GitHubIntegrationError("GitHubIntegration: failed to list repositories after retries")
 
     def list_all_repositories(self) -> list[dict]:
         """Fetch all accessible repositories, paginating through GitHub's API."""
         all_repositories: list[dict] = []
-        offset = 0
-        page_size = 100
+        page = 1
+        per_page = 100
 
         while True:
-            repositories, has_more = self.list_repositories(limit=page_size, offset=offset)
+            repositories, has_more = self.list_repositories(page=page, per_page=per_page)
             all_repositories.extend(repositories)
 
             if not has_more or not repositories:
                 return all_repositories
 
-            offset += len(repositories)
+            page += 1
 
     def list_branches(self, repo: str, *, limit: int = 100, offset: int = 0) -> tuple[list[str], bool]:
         """List branches for a given repository via the GitHub API.

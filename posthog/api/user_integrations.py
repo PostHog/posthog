@@ -121,38 +121,29 @@ class UserIntegrationsViewSet(viewsets.ViewSet):
     def _get_user(self) -> User:
         return cast(User, self.request.user)
 
-    def _team_github_context(self, user: User) -> dict[str, Any]:
-        """Fetch the current team's GitHub integrations for context."""
+    def _team_github_installation_ids(self, user: User) -> set[str]:
+        """Installation IDs for the current team's GitHub integrations (for ``uses_shared_installation``)."""
         team = user.current_team
         if team is None:
-            return {"team_github_integrations": [], "_installation_ids": set()}
+            return set()
 
-        team_integrations = Integration.objects.filter(team=team, kind="github").values("integration_id", "config")
-        result = []
         installation_ids: set[str] = set()
-        for ti in team_integrations:
+        for ti in Integration.objects.filter(team=team, kind="github").values("integration_id"):
             iid = ti["integration_id"]
-            if not iid:
-                continue
-            installation_ids.add(str(iid))
-            config = ti["config"] or {}
-            account = config.get("account", {})
-            result.append({"installation_id": str(iid), "account_name": account.get("name")})
-        return {"team_github_integrations": result, "_installation_ids": installation_ids}
+            if iid:
+                installation_ids.add(str(iid))
+        return installation_ids
 
     def list(self, request: Request) -> Response:
         user = self._get_user()
         integrations = UserIntegration.objects.filter(user=user, kind="github").order_by("created_at")
-        team_ctx = self._team_github_context(user)
+        team_installation_ids = self._team_github_installation_ids(user)
         return Response(
             {
                 "results": [
-                    _serialize_github_integration(
-                        integration, team_integration_installation_ids=team_ctx["_installation_ids"]
-                    )
+                    _serialize_github_integration(integration, team_integration_installation_ids=team_installation_ids)
                     for integration in integrations
                 ],
-                "team_github_integrations": team_ctx["team_github_integrations"],
             }
         )
 

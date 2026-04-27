@@ -106,11 +106,8 @@ class TestUserIntegrationsEndpoints(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.json()["results"]
         self.assertTrue(results[0]["uses_shared_installation"])
-        team_integrations = response.json()["team_github_integrations"]
-        self.assertEqual(len(team_integrations), 1)
-        self.assertEqual(team_integrations[0]["account_name"], "PostHog")
 
-    def test_list_includes_team_integrations_context(self):
+    def test_list_team_github_only_yields_empty_results(self):
         Integration.objects.create(
             team=self.team,
             kind="github",
@@ -120,9 +117,7 @@ class TestUserIntegrationsEndpoints(APIBaseTest):
         )
         response = self.client.get("/api/users/@me/integrations/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        team_integrations = response.json()["team_github_integrations"]
-        self.assertEqual(len(team_integrations), 1)
-        self.assertEqual(team_integrations[0]["installation_id"], "99999")
+        self.assertEqual(len(response.json()["results"]), 0)
 
     def test_delete_removes_specific_installation(self):
         _create_user_integration(self.user, external_id="12345")

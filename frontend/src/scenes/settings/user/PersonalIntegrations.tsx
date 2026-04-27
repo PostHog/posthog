@@ -92,10 +92,10 @@ function GitHubInstallationRow({ integration }: { integration: PersonalGitHubInt
 }
 
 export function PersonalIntegrations(): JSX.Element {
-    const { githubIntegrations, githubIntegrationsLoading } = useValues(personalIntegrationsLogic)
+    const { integrations, integrationsLoading } = useValues(personalIntegrationsLogic)
     const { connectGitHub } = useActions(personalIntegrationsLogic)
 
-    if (githubIntegrationsLoading && githubIntegrations.length === 0) {
+    if (integrationsLoading && integrations.length === 0) {
         return (
             <div className="deprecated-space-y-2">
                 <LemonSkeleton className="h-16 w-full" />
@@ -106,7 +106,7 @@ export function PersonalIntegrations(): JSX.Element {
     return (
         <div className="deprecated-space-y-3">
             <div className="divide-y rounded border bg-surface-primary">
-                {githubIntegrations.length === 0 ? (
+                {integrations.length === 0 ? (
                     <div className="px-4 py-6 text-center text-sm text-secondary">
                         <IconGithub className="text-3xl mb-2 opacity-40" />
                         <p className="mb-1">No GitHub installations connected yet</p>
@@ -116,13 +116,13 @@ export function PersonalIntegrations(): JSX.Element {
                         </p>
                     </div>
                 ) : (
-                    githubIntegrations.map((integration) => (
+                    integrations.map((integration) => (
                         <GitHubInstallationRow key={integration.installation_id} integration={integration} />
                     ))
                 )}
                 <div className="px-4 py-3">
                     <LemonButton type="secondary" size="small" icon={<IconPlus />} onClick={connectGitHub}>
-                        {githubIntegrations.length === 0 ? 'Connect GitHub' : 'Add account/organization'}
+                        {integrations.length === 0 ? 'Connect GitHub' : 'Add account/organization'}
                     </LemonButton>
                 </div>
             </div>
