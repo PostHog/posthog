@@ -49,10 +49,10 @@ test.describe('Early Access Management', () => {
         }
 
         // Check for error toast as well, to surface failures in CI logs
-        const errorToast = page.locator('[data-attr="error-toast"]')
-        if (await errorToast.isVisible({ timeout: 2000 }).catch(() => false)) {
-            const errorText = await errorToast.textContent()
-            console.info(`Error toast found: ${errorText}`)
+        if (saveResponse.status() >= 400) {
+            const errorToast = page.locator('[data-attr="error-toast"]')
+            const errorText = (await errorToast.textContent().catch(() => null))?.trim()
+            console.info(`Error toast found (status ${saveResponse.status()}): ${errorText}`)
         }
 
         await expect(page.locator('[data-attr="success-toast"]')).toContainText('Early access feature saved')
