@@ -290,13 +290,15 @@ def is_command_message(activity: dict) -> bool:
     return normalized in _GREETING_COMMANDS
 
 
-def _send_help_card(activity: dict, *, log_prefix: str, reply: bool) -> bool:
-    """Post the help card to a conversation, optionally as a thread reply.
+def post_help_card(activity: dict, *, log_prefix: str, reply: bool) -> bool:
+    """Post the help/welcome adaptive card to a conversation.
 
-    Returns ``True`` when the card was posted *or* when retrying would not
-    help (malformed activity, bot config missing). Returns ``False`` only on
-    transient transport failures (5xx, timeouts) so callers that care
-    (the Celery welcome task) can retry.
+    Used for both the cert-mandated proactive welcome on bot install
+    (``reply=False``) and the cert-mandated reply to greeting/help commands
+    (``reply=True``). Returns ``True`` when the card was posted *or* when
+    retrying would not help (malformed activity, bot config missing). Returns
+    ``False`` only on transient transport failures (5xx, timeouts) so the
+    caller's retry budget is reserved for cases where retrying could fix it.
     """
     service_url = activity.get("serviceUrl", "")
     conversation_id = _extract_conversation_id(activity)
@@ -326,16 +328,6 @@ def _send_help_card(activity: dict, *, log_prefix: str, reply: bool) -> bool:
         payload=payload,
         log_prefix=log_prefix,
     )
-
-
-def send_teams_welcome_card(activity: dict) -> bool:
-    """Proactively greet the team when SupportHog is first added (cert 11.4.4.3)."""
-    return _send_help_card(activity, log_prefix="teams_welcome", reply=False)
-
-
-def send_teams_help_reply(activity: dict) -> None:
-    """Reply to a greeting/help @mention with the help card (cert 11.4.4.3)."""
-    _send_help_card(activity, log_prefix="teams_help", reply=True)
 
 
 def _send_confirmation_card(
@@ -665,7 +657,7 @@ def handle_teams_mention(activity: dict, team: Team, tenant_id: str) -> None:
     # Greeting/help commands (cert 11.4.4.3) reply with the help card and do
     # NOT create a ticket — otherwise testers typing "Hi" generate noise.
     if is_command_message(activity):
-        send_teams_help_reply(activity)
+        post_help_card(activity, log_prefix="teams_help_reply", reply=True)
         return
 
     conversation_id = _extract_conversation_id(activity)
