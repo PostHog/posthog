@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
 
 import { IconArrowRight, IconCopy, IconGear, IconGithub, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonSkeleton, LemonSwitch, Spinner } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -197,52 +199,53 @@ function RepoCard({ repo }: { repo: RepoApi }): JSX.Element {
 }
 
 function RepoEditForm(): JSX.Element {
-    const { formValues, saving, hasChanges } = useValues(visualReviewSettingsSceneLogic)
-    const { setFormField, saveRepo, cancelEdit } = useActions(visualReviewSettingsSceneLogic)
+    const { repoFormSubmitting, hasChanges } = useValues(visualReviewSettingsSceneLogic)
+    const { cancelEdit } = useActions(visualReviewSettingsSceneLogic)
 
     return (
-        <div className="border-2 border-primary rounded-lg p-4 space-y-4">
-            <div>
-                <label className="block text-sm font-medium mb-1">Baseline file paths</label>
-                <p className="text-muted text-xs mb-1.5">Where baseline hashes are stored for each run type.</p>
-                <BaselinePathEditor
-                    paths={formValues.baseline_file_paths}
-                    onChange={(paths) => setFormField('baseline_file_paths', paths)}
-                />
-            </div>
-
-            <div>
-                <LemonSwitch
-                    checked={formValues.enable_pr_comments}
-                    onChange={(checked) => setFormField('enable_pr_comments', checked)}
-                    label="Post PR comments"
-                    bordered
-                />
-                <p className="text-muted text-xs mt-1">
-                    Post a comment on pull requests when visual changes are detected, prompting reviewers to approve.
-                </p>
-            </div>
-
-            <div className="flex gap-2 pt-2">
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    onClick={saveRepo}
-                    loading={saving}
-                    disabledReason={!hasChanges ? 'No changes' : undefined}
+        <Form logic={visualReviewSettingsSceneLogic} formKey="repoForm" enableFormOnSubmit>
+            <div className="border-2 border-primary rounded-lg p-4 space-y-4">
+                <LemonField
+                    name="baseline_file_paths"
+                    label="Baseline file paths"
+                    help="Where baseline hashes are stored for each run type."
                 >
-                    Save
-                </LemonButton>
-                <LemonButton type="secondary" size="small" onClick={cancelEdit}>
-                    Cancel
-                </LemonButton>
+                    {({ value, onChange }) => <BaselinePathEditor paths={value} onChange={onChange} />}
+                </LemonField>
+
+                <LemonField name="enable_pr_comments">
+                    {({ value, onChange }) => (
+                        <div>
+                            <LemonSwitch checked={value} onChange={onChange} label="Post PR comments" bordered />
+                            <p className="text-muted text-xs mt-1">
+                                Post a comment on pull requests when visual changes are detected, prompting reviewers to
+                                approve.
+                            </p>
+                        </div>
+                    )}
+                </LemonField>
+
+                <div className="flex gap-2 pt-2">
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        htmlType="submit"
+                        loading={repoFormSubmitting}
+                        disabledReason={!hasChanges ? 'No changes' : undefined}
+                    >
+                        Save
+                    </LemonButton>
+                    <LemonButton type="secondary" size="small" onClick={cancelEdit}>
+                        Cancel
+                    </LemonButton>
+                </div>
             </div>
-        </div>
+        </Form>
     )
 }
 
 function AddRepoDropdown(): JSX.Element {
-    const { availableRepos, existingRepoNames, saving, githubManageAccessUrl } =
+    const { availableRepos, existingRepoNames, reposLoading, githubManageAccessUrl } =
         useValues(visualReviewSettingsSceneLogic)
     const { addRepo } = useActions(visualReviewSettingsSceneLogic)
     const { githubRepositoriesLoading } = useValues(integrationsLogic)
@@ -262,7 +265,7 @@ function AddRepoDropdown(): JSX.Element {
     return (
         <LemonSelect
             placeholder="Add a repository..."
-            loading={saving}
+            loading={reposLoading}
             options={[
                 {
                     options:

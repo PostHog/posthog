@@ -1,6 +1,9 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { z } from 'zod'
 
+import { parseWithStandardSchema, standardSchemaToKeaErrors } from 'lib/forms/standard-schema'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
@@ -11,12 +14,20 @@ import type { GitHubRepoApi } from 'products/integrations/frontend/generated/api
 
 import { visualReviewReposCreate, visualReviewReposList, visualReviewReposPartialUpdate } from '../generated/api'
 import type { PatchedUpdateRepoRequestInputApi, RepoApi } from '../generated/api.schemas'
+import { VisualReviewReposPartialUpdateBody } from '../generated/api.zod'
 import type { visualReviewSettingsSceneLogicType } from './visualReviewSettingsSceneLogicType'
 
 export interface RepoFormValues {
     baseline_file_paths: Record<string, string>
     enable_pr_comments: boolean
 }
+
+const repoFormSchema = VisualReviewReposPartialUpdateBody.extend({
+    baseline_file_paths: z
+        .record(z.string().trim().min(1, 'Run type is required'), z.string().trim().min(1, 'Path is required'))
+        .default({}),
+    enable_pr_comments: z.boolean().default(false),
+})
 
 const EMPTY_FORM: RepoFormValues = {
     baseline_file_paths: {},
@@ -41,7 +52,6 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
     actions({
         editRepo: (repoId: string) => ({ repoId }),
         cancelEdit: true,
-        setFormField: (field: keyof RepoFormValues, value: RepoFormValues[keyof RepoFormValues]) => ({ field, value }),
         addRepo: (githubRepo: GitHubRepoApi) => ({ githubRepo }),
         saveRepo: true,
     }),
@@ -67,24 +77,39 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
                 loadReposSuccess: () => null,
             },
         ],
-        formValues: [
-            EMPTY_FORM as RepoFormValues,
-            {
-                cancelEdit: () => EMPTY_FORM,
-                setFormField: (state, { field, value }) => ({ ...state, [field]: value }),
-                loadReposSuccess: () => EMPTY_FORM,
-            },
-        ],
-        saving: [
-            false,
-            {
-                saveRepo: () => true,
-                addRepo: () => true,
-                loadReposSuccess: () => false,
-                loadReposFailure: () => false,
-            },
-        ],
     }),
+
+    forms(({ actions, values }) => ({
+        repoForm: {
+            defaults: EMPTY_FORM,
+            errors: (values) => standardSchemaToKeaErrors(repoFormSchema, values),
+            submit: async (formValues) => {
+                try {
+                    const parsed = parseWithStandardSchema(repoFormSchema, formValues)
+                    if (!parsed.success) {
+                        return
+                    }
+                    if (values.editingRepoId) {
+                        const updates: PatchedUpdateRepoRequestInputApi = {
+                            baseline_file_paths: parsed.data.baseline_file_paths,
+                            enable_pr_comments: parsed.data.enable_pr_comments,
+                        }
+                        await visualReviewReposPartialUpdate(
+                            String(values.currentProjectId),
+                            values.editingRepoId,
+                            updates
+                        )
+                        lemonToast.success('Settings saved')
+                    }
+
+                    actions.loadRepos()
+                } catch {
+                    lemonToast.error('Failed to save')
+                    actions.loadReposFailure('Save failed')
+                }
+            },
+        },
+    })),
 
     selectors({
         editingRepo: [
@@ -97,15 +122,15 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
             },
         ],
         hasChanges: [
-            (s) => [s.formValues, s.editingRepo],
-            (formValues, editingRepo): boolean => {
+            (s) => [s.repoForm, s.editingRepo],
+            (repoForm, editingRepo): boolean => {
                 if (!editingRepo) {
                     return false
                 }
                 return (
-                    JSON.stringify(formValues.baseline_file_paths) !==
+                    JSON.stringify(repoForm.baseline_file_paths) !==
                         JSON.stringify(editingRepo.baseline_file_paths || {}) ||
-                    formValues.enable_pr_comments !== editingRepo.enable_pr_comments
+                    repoForm.enable_pr_comments !== editingRepo.enable_pr_comments
                 )
             },
         ],
@@ -169,10 +194,14 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
         editRepo: ({ repoId }) => {
             const repo = values.repos.find((r) => r.id === repoId)
             if (repo) {
-                const form = formValuesFromRepo(repo)
-                actions.setFormField('baseline_file_paths', form.baseline_file_paths)
-                actions.setFormField('enable_pr_comments', form.enable_pr_comments)
+                actions.setRepoFormValues(formValuesFromRepo(repo))
             }
+        },
+        cancelEdit: () => {
+            actions.resetRepoForm()
+        },
+        saveRepo: () => {
+            actions.submitRepoForm()
         },
         addRepo: async ({ githubRepo }) => {
             try {
@@ -185,25 +214,6 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
             } catch {
                 lemonToast.error('Failed to add repo')
                 actions.loadReposFailure('Add failed')
-            }
-        },
-        saveRepo: async () => {
-            try {
-                const { editingRepoId, formValues } = values
-
-                if (editingRepoId) {
-                    const updates: PatchedUpdateRepoRequestInputApi = {
-                        baseline_file_paths: formValues.baseline_file_paths,
-                        enable_pr_comments: formValues.enable_pr_comments,
-                    }
-                    await visualReviewReposPartialUpdate(String(values.currentProjectId), editingRepoId, updates)
-                    lemonToast.success('Settings saved')
-                }
-
-                actions.loadRepos()
-            } catch {
-                lemonToast.error('Failed to save')
-                actions.loadReposFailure('Save failed')
             }
         },
     })),
