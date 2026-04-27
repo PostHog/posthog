@@ -53,9 +53,13 @@ import {
     EarlyAccessFeatureType,
     FeatureFlagBucketingIdentifier,
     FeatureFlagEvaluationRuntime,
+    FeatureFlagReleaseConditionType,
     FeatureFlagGroupType,
     FeatureFlagStatusResponse,
     FeatureFlagType,
+    FeatureFlagValueType,
+    FeatureFlagV2ReleaseCondition,
+    FeatureFlagV2Variant,
     FilterLogicalOperator,
     InsightModel,
     JsonType,
@@ -122,6 +126,7 @@ function maybeApplyUrlIntent(
 }
 
 type FlagType = 'boolean' | 'multivariate' | 'remote_config'
+const FEATURE_FLAG_V2_SCHEMA_VERSION = 2
 
 // Paired schedule presets create two complementary enable/disable schedules in one action.
 // The backend has no concept of "paired" — this is a frontend convenience.
@@ -215,6 +220,248 @@ export const NEW_FLAG: FeatureFlagType = {
     evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
     bucketing_identifier: null,
     _should_create_usage_dashboard: true,
+}
+
+export function isFeatureFlagV2Config(filters: FeatureFlagType['filters'] | undefined | null): boolean {
+    return filters?.schema_version === FEATURE_FLAG_V2_SCHEMA_VERSION
+}
+
+export function defaultValueForFeatureFlagValueType(valueType: FeatureFlagValueType): JsonType {
+    if (valueType === FeatureFlagValueType.STRING) {
+        return ''
+    }
+    if (valueType === FeatureFlagValueType.JSON) {
+        return {}
+    }
+    return true
+}
+
+function defaultV2Variants(valueType: FeatureFlagValueType): FeatureFlagV2Variant[] {
+    return [
+        {
+            key: 'control',
+            name: '',
+            rollout_percentage: 50,
+            value: valueType === FeatureFlagValueType.BOOLEAN ? false : defaultValueForFeatureFlagValueType(valueType),
+        },
+        {
+            key: 'test',
+            name: '',
+            rollout_percentage: 50,
+            value: defaultValueForFeatureFlagValueType(valueType),
+        },
+    ]
+}
+
+function releaseConditionId(group: FeatureFlagGroupType, index: number): string {
+    return group.release_condition_id || group.sort_key || `condition-${index + 1}`
+}
+
+function releaseConditionType(group: FeatureFlagGroupType): FeatureFlagReleaseConditionType {
+    if (group.release_condition_type) {
+        return group.release_condition_type
+    }
+    if (group.variants?.length) {
+        return FeatureFlagReleaseConditionType.EXPERIMENT
+    }
+    return group.rollout_percentage === 100
+        ? FeatureFlagReleaseConditionType.TARGETED
+        : FeatureFlagReleaseConditionType.ROLLOUT
+}
+
+function v2ConditionToGroup(condition: FeatureFlagV2ReleaseCondition): FeatureFlagGroupType {
+    return {
+        properties: condition.properties ?? [],
+        rollout_percentage:
+            condition.type === FeatureFlagReleaseConditionType.TARGETED ? 100 : (condition.rollout_percentage ?? 0),
+        variant: null,
+        release_condition_id: condition.id,
+        release_condition_type: condition.type,
+        value: condition.value,
+        variants: condition.variants,
+        sort_key: condition.id,
+        description: condition.description,
+        aggregation_group_type_index: condition.aggregation_group_type_index,
+    }
+}
+
+function parseJsonEditorValue(value: JsonType | undefined): JsonType {
+    if (typeof value !== 'string') {
+        return value ?? null
+    }
+    if (!value.trim()) {
+        return null
+    }
+    try {
+        return JSON.parse(value)
+    } catch {
+        return value
+    }
+}
+
+function normalizeValueForType(value: JsonType | undefined, valueType: FeatureFlagValueType): JsonType {
+    if (valueType === FeatureFlagValueType.BOOLEAN) {
+        return value === false ? false : true
+    }
+    if (valueType === FeatureFlagValueType.STRING) {
+        return typeof value === 'string' ? value : String(value ?? '')
+    }
+    return parseJsonEditorValue(value)
+}
+
+function v2FormFiltersToStoredFilters(filters: FeatureFlagType['filters']): FeatureFlagType['filters'] {
+    const valueType = filters.value_type ?? FeatureFlagValueType.BOOLEAN
+    const defaultValue = normalizeValueForType(filters.default_value, valueType)
+    const groups = filters.groups ?? []
+    const releaseConditionIds = new Set<string>()
+
+    const releaseConditions: FeatureFlagV2ReleaseCondition[] = groups.map((group, index) => {
+        const type = releaseConditionType(group)
+        const preferredId = releaseConditionId(group, index)
+        let id = releaseConditionIds.has(preferredId) ? group.sort_key || `condition-${index + 1}` : preferredId
+        if (releaseConditionIds.has(id)) {
+            id = `${id}-${index + 1}`
+        }
+        releaseConditionIds.add(id)
+        const baseCondition = {
+            id,
+            type,
+            properties: group.properties ?? [],
+            aggregation_group_type_index:
+                group.aggregation_group_type_index ?? filters.aggregation_group_type_index ?? null,
+            description: group.description ?? null,
+        }
+
+        if (type === FeatureFlagReleaseConditionType.EXPERIMENT) {
+            return {
+                ...baseCondition,
+                rollout_percentage: group.rollout_percentage ?? 0,
+                variants:
+                    group.variants?.map((variant) => ({
+                        ...variant,
+                        value: normalizeValueForType(variant.value, valueType),
+                    })) ?? defaultV2Variants(valueType),
+            }
+        }
+
+        return {
+            ...baseCondition,
+            rollout_percentage:
+                type === FeatureFlagReleaseConditionType.ROLLOUT ? (group.rollout_percentage ?? 0) : undefined,
+            value: normalizeValueForType(group.value ?? defaultValue, valueType),
+        }
+    })
+
+    return {
+        schema_version: FEATURE_FLAG_V2_SCHEMA_VERSION,
+        value_type: valueType,
+        default_value: defaultValue,
+        release_conditions: releaseConditions,
+        groups: [],
+    }
+}
+
+function legacyFlagToV2FormFilters(flag: FeatureFlagType): FeatureFlagType['filters'] {
+    const valueType = flag.is_remote_configuration
+        ? FeatureFlagValueType.JSON
+        : flag.filters.multivariate
+          ? FeatureFlagValueType.STRING
+          : FeatureFlagValueType.BOOLEAN
+    const defaultValue =
+        valueType === FeatureFlagValueType.JSON
+            ? parseJsonEditorValue(flag.filters.payloads?.true)
+            : defaultValueForFeatureFlagValueType(valueType)
+
+    const groups = (flag.filters.groups ?? []).map((group, index): FeatureFlagGroupType => {
+        if (flag.filters.multivariate && !group.variant) {
+            return {
+                ...group,
+                release_condition_id: releaseConditionId(group, index),
+                release_condition_type: FeatureFlagReleaseConditionType.EXPERIMENT,
+                value: undefined,
+                variants: flag.filters.multivariate?.variants.map((variant) => ({
+                    ...variant,
+                    value: variant.key,
+                })),
+            }
+        }
+
+        return {
+            ...group,
+            release_condition_id: releaseConditionId(group, index),
+            release_condition_type:
+                group.rollout_percentage === 100
+                    ? FeatureFlagReleaseConditionType.TARGETED
+                    : FeatureFlagReleaseConditionType.ROLLOUT,
+            value:
+                valueType === FeatureFlagValueType.JSON
+                    ? defaultValue
+                    : flag.filters.multivariate && group.variant
+                      ? group.variant
+                      : defaultValueForFeatureFlagValueType(valueType),
+            variants: undefined,
+            variant: null,
+        }
+    })
+
+    return {
+        schema_version: FEATURE_FLAG_V2_SCHEMA_VERSION,
+        value_type: valueType,
+        default_value: defaultValue,
+        release_conditions: [],
+        groups,
+        aggregation_group_type_index: flag.filters.aggregation_group_type_index,
+        multivariate: null,
+        payloads: {},
+    }
+}
+
+function v2StoredFiltersToFormFilters(filters: FeatureFlagType['filters']): FeatureFlagType['filters'] {
+    return {
+        ...filters,
+        groups: (filters.release_conditions ?? []).map(v2ConditionToGroup),
+        multivariate: null,
+        payloads: {},
+    }
+}
+
+export function featureFlagToFormFlag(flag: FeatureFlagType, useMakeoverConfig: boolean): FeatureFlagType {
+    if (!useMakeoverConfig) {
+        return variantKeyToIndexFeatureFlagPayloads(flag)
+    }
+
+    if (isFeatureFlagV2Config(flag.filters)) {
+        return {
+            ...flag,
+            filters: v2StoredFiltersToFormFilters(flag.filters),
+            is_remote_configuration: false,
+            has_encrypted_payloads: false,
+        }
+    }
+
+    return {
+        ...flag,
+        filters: legacyFlagToV2FormFilters(flag),
+        is_remote_configuration: false,
+        has_encrypted_payloads: false,
+    }
+}
+
+export function prepareFeatureFlagForSave(
+    flag: Partial<FeatureFlagType>,
+    useMakeoverConfig: boolean
+): Partial<FeatureFlagType> {
+    const cleanedFlag = cleanFlag(flag)
+    if (!useMakeoverConfig || !cleanedFlag.filters) {
+        return indexToVariantKeyFeatureFlagPayloads(cleanedFlag)
+    }
+
+    return {
+        ...cleanedFlag,
+        is_remote_configuration: false,
+        has_encrypted_payloads: false,
+        filters: v2FormFiltersToStoredFilters(flag.filters ?? cleanedFlag.filters),
+    }
 }
 const NEW_VARIANT = {
     key: '',
@@ -1180,7 +1427,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         key: '',
                     } as FeatureFlagType
 
-                    return variantKeyToIndexFeatureFlagPayloads(duplicatedFlag)
+                    return featureFlagToFormFlag(
+                        duplicatedFlag,
+                        !!values.enabledFeatures[FEATURE_FLAGS.FEATURE_FLAGS_MAKEOVER]
+                    )
                 }
 
                 if (props.id && props.id !== 'new' && props.id !== 'link') {
@@ -1199,7 +1449,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             }
                         }
 
-                        return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
+                        return featureFlagToFormFlag(
+                            retrievedFlag,
+                            !!values.enabledFeatures[FEATURE_FLAGS.FEATURE_FLAGS_MAKEOVER]
+                        )
                     } catch (e: any) {
                         if (e.status === 403 && e.code === 'permission_denied') {
                             actions.setAccessDeniedToFeatureFlag()
@@ -1273,26 +1526,36 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         const defaultEnvs = values.defaultEvaluationContexts
                         const defaultContexts = defaultEnvs?.default_evaluation_contexts || []
 
-                        return {
-                            ...baseFlagConfig,
-                            evaluation_contexts: defaultContexts.map((ctx) => ctx.name),
-                        }
+                        return featureFlagToFormFlag(
+                            {
+                                ...baseFlagConfig,
+                                evaluation_contexts: defaultContexts.map((ctx) => ctx.name),
+                            },
+                            !!values.enabledFeatures[FEATURE_FLAGS.FEATURE_FLAGS_MAKEOVER]
+                        )
                     }
 
                     // If either condition is false, return flag without default tags
-                    return baseFlagConfig
+                    return featureFlagToFormFlag(
+                        baseFlagConfig,
+                        !!values.enabledFeatures[FEATURE_FLAGS.FEATURE_FLAGS_MAKEOVER]
+                    )
                 }
 
-                return {
-                    ...NEW_FLAG,
-                    ensure_experience_continuity: values.currentTeam?.flags_persistence_default ?? false,
-                    _should_create_usage_dashboard: true,
-                }
+                return featureFlagToFormFlag(
+                    {
+                        ...NEW_FLAG,
+                        ensure_experience_continuity: values.currentTeam?.flags_persistence_default ?? false,
+                        _should_create_usage_dashboard: true,
+                    },
+                    !!values.enabledFeatures[FEATURE_FLAGS.FEATURE_FLAGS_MAKEOVER]
+                )
             },
             saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
-                // Destructure all fields we want to exclude or handle specially
-                const flag = cleanFlag(updatedFlag)
-                const preparedFlag = indexToVariantKeyFeatureFlagPayloads(flag)
+                const preparedFlag = prepareFeatureFlagForSave(
+                    updatedFlag,
+                    !!values.enabledFeatures[FEATURE_FLAGS.FEATURE_FLAGS_MAKEOVER]
+                )
 
                 try {
                     let savedFlag: FeatureFlagType
@@ -1331,7 +1594,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         )
                     }
                     savedFlag.id && refreshTreeItem('feature_flag', String(savedFlag.id))
-                    return variantKeyToIndexFeatureFlagPayloads(savedFlag)
+                    return featureFlagToFormFlag(
+                        savedFlag,
+                        !!values.enabledFeatures[FEATURE_FLAGS.FEATURE_FLAGS_MAKEOVER]
+                    )
                 } catch (error: any) {
                     if (error.code === 'behavioral_cohort_found' || error.code === 'cohort_does_not_exist') {
                         eventUsageLogic.actions.reportFailedToCreateFeatureFlagWithCohort(error.code, error.detail)
@@ -1340,9 +1606,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
             saveSidebarExperimentFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
-                const flag = cleanFlag(updatedFlag)
-
-                const preparedFlag = indexToVariantKeyFeatureFlagPayloads(flag)
+                const preparedFlag = prepareFeatureFlagForSave(
+                    updatedFlag,
+                    !!values.enabledFeatures[FEATURE_FLAGS.FEATURE_FLAGS_MAKEOVER]
+                )
 
                 try {
                     let savedFlag: FeatureFlagType
@@ -1363,7 +1630,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     }
                     savedFlag.id && refreshTreeItem('feature_flag', String(savedFlag.id))
 
-                    return variantKeyToIndexFeatureFlagPayloads(savedFlag)
+                    return featureFlagToFormFlag(
+                        savedFlag,
+                        !!values.enabledFeatures[FEATURE_FLAGS.FEATURE_FLAGS_MAKEOVER]
+                    )
                 } catch (error: any) {
                     if (error.code === 'behavioral_cohort_found' || error.code === 'cohort_does_not_exist') {
                         eventUsageLogic.actions.reportFailedToCreateFeatureFlagWithCohort(error.code, error.detail)

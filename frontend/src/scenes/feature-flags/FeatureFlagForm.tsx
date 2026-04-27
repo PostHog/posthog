@@ -64,12 +64,23 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
-import { FeatureFlagBucketingIdentifier, FeatureFlagEvaluationRuntime, MultivariateFlagVariant } from '~/types'
+import {
+    FeatureFlagBucketingIdentifier,
+    FeatureFlagEvaluationRuntime,
+    FeatureFlagValueType,
+    MultivariateFlagVariant,
+} from '~/types'
 
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
-import { FeatureFlagLogicProps, featureFlagLogic, slugifyFeatureFlagKey } from './featureFlagLogic'
+import {
+    FeatureFlagLogicProps,
+    defaultValueForFeatureFlagValueType,
+    featureFlagLogic,
+    slugifyFeatureFlagKey,
+} from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
+import { FeatureFlagValueInput } from './FeatureFlagValueInput'
 import { PercentageInput } from './PercentageInput'
 
 interface SortableVariantHeaderProps {
@@ -183,6 +194,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     const { isApprovalRequired } = useValues(approvalsGateLogic)
     const hasEvaluationContexts = useFeatureFlag('FLAG_EVALUATION_TAGS') // NB: the tag was named "flag-evaluation-tags" before we renamed the concept – i.e. this powers evaluation contexts even though the name implies tags
     const featureFlagsV2Enabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAGS_V2]
+    const featureFlagMakeoverEnabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAGS_MAKEOVER]
     const isNewFeatureFlag = id === 'new' || id === undefined
     const implementationRef = useRef<HTMLDivElement>(null)
 
@@ -241,6 +253,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         : multivariateEnabled
           ? 'multivariate'
           : 'boolean'
+    const currentValueType = featureFlag?.filters?.value_type ?? FeatureFlagValueType.BOOLEAN
 
     const onSelectFlagType = (value: string): void => {
         if (value === 'remote_config') {
@@ -268,6 +281,30 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         }
     }
 
+    const onSelectValueType = (valueType: FeatureFlagValueType): void => {
+        const defaultValue = defaultValueForFeatureFlagValueType(valueType)
+        setFeatureFlag({
+            ...featureFlag,
+            is_remote_configuration: false,
+            filters: {
+                ...featureFlag.filters,
+                value_type: valueType,
+                default_value: defaultValue,
+                groups: featureFlag.filters.groups.map((group) => ({
+                    ...group,
+                    value: group.release_condition_type === 'experiment' ? undefined : defaultValue,
+                    variants: group.variants?.map((variant) => ({
+                        ...variant,
+                        value:
+                            valueType === FeatureFlagValueType.BOOLEAN && variant.key === 'control'
+                                ? false
+                                : defaultValue,
+                    })),
+                })),
+            },
+        })
+    }
+
     const FLAG_TYPE_OPTIONS = [
         {
             value: 'boolean',
@@ -286,6 +323,27 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
             icon: <IconCode className="text-lg" />,
             label: 'Remote config',
             description: 'Single payload without feature flag logic',
+        },
+    ] as const
+
+    const VALUE_TYPE_OPTIONS = [
+        {
+            value: FeatureFlagValueType.BOOLEAN,
+            icon: <IconFlag className="text-lg" />,
+            label: 'Boolean',
+            description: 'Returns true or false when enabled',
+        },
+        {
+            value: FeatureFlagValueType.STRING,
+            icon: <IconList className="text-lg" />,
+            label: 'String',
+            description: 'Returns a typed string value',
+        },
+        {
+            value: FeatureFlagValueType.JSON,
+            icon: <IconCode className="text-lg" />,
+            label: 'JSON',
+            description: 'Returns structured JSON data',
         },
     ] as const
 
@@ -357,7 +415,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                         type: featureFlag.active ? 'feature_flag' : 'feature_flag_off',
                     }}
                     forceBackTo={
-                        isNewFeatureFlag && featureFlagsV2Enabled
+                        isNewFeatureFlag && (featureFlagsV2Enabled || featureFlagMakeoverEnabled)
                             ? {
                                   key: 'FeatureFlagTemplates',
                                   name: 'Templates',
@@ -670,79 +728,156 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                         <div className="flex-2 flex flex-col gap-4" style={{ minWidth: '30rem' }}>
                             {/* Flag type cards */}
                             <div className="rounded border p-3 bg-bg-light gap-4 flex flex-col">
-                                <div className="flex flex-col gap-2">
-                                    <LemonLabel info="Changing type may remove existing variants or payloads.">
-                                        Flag type
-                                    </LemonLabel>
-                                    <div
-                                        className="grid grid-cols-1 md:grid-cols-3 gap-3"
-                                        role="radiogroup"
-                                        aria-label="Flag type"
-                                        data-attr="feature-flag-type"
-                                    >
-                                        {FLAG_TYPE_OPTIONS.map((option) => {
-                                            const isSelected = currentFlagType === option.value
-                                            return (
-                                                <div
-                                                    key={option.value}
-                                                    role="radio"
-                                                    aria-checked={isSelected}
-                                                    tabIndex={0}
-                                                    className={`rounded p-3 cursor-pointer transition-colors ${
-                                                        isSelected
-                                                            ? 'bg-accent-highlight-light border-2 border-accent'
-                                                            : 'border bg-surface-primary border-primary hover:bg-fill-button-tertiary-hover'
-                                                    }`}
-                                                    onClick={() => onSelectFlagType(option.value)}
-                                                    onKeyDown={(e) => {
-                                                        if (e.key === 'Enter' || e.key === ' ') {
-                                                            e.preventDefault()
-                                                            onSelectFlagType(option.value)
-                                                        }
-                                                    }}
-                                                    data-attr={`feature-flag-type-${option.value}`}
-                                                >
-                                                    <div className="flex flex-col gap-1">
-                                                        <div className="flex items-center gap-2">
-                                                            {option.icon}
-                                                            <span className="font-medium flex-1">{option.label}</span>
-                                                            {isSelected && (
-                                                                <IconCheckCircle className="text-accent text-base" />
-                                                            )}
+                                {featureFlagMakeoverEnabled ? (
+                                    <div className="flex flex-col gap-2">
+                                        <LemonLabel info="All enabled flag values must match this type.">
+                                            Value type
+                                        </LemonLabel>
+                                        <div
+                                            className="grid grid-cols-1 md:grid-cols-3 gap-3"
+                                            role="radiogroup"
+                                            aria-label="Value type"
+                                            data-attr="feature-flag-value-type"
+                                        >
+                                            {VALUE_TYPE_OPTIONS.map((option) => {
+                                                const isSelected = currentValueType === option.value
+                                                return (
+                                                    <div
+                                                        key={option.value}
+                                                        role="radio"
+                                                        aria-checked={isSelected}
+                                                        tabIndex={0}
+                                                        className={`rounded p-3 cursor-pointer transition-colors ${
+                                                            isSelected
+                                                                ? 'bg-accent-highlight-light border-2 border-accent'
+                                                                : 'border bg-surface-primary border-primary hover:bg-fill-button-tertiary-hover'
+                                                        }`}
+                                                        onClick={() => onSelectValueType(option.value)}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                                e.preventDefault()
+                                                                onSelectValueType(option.value)
+                                                            }
+                                                        }}
+                                                        data-attr={`feature-flag-value-type-${option.value}`}
+                                                    >
+                                                        <div className="flex flex-col gap-1">
+                                                            <div className="flex items-center gap-2">
+                                                                {option.icon}
+                                                                <span className="font-medium flex-1">
+                                                                    {option.label}
+                                                                </span>
+                                                                {isSelected && (
+                                                                    <IconCheckCircle className="text-accent text-base" />
+                                                                )}
+                                                            </div>
+                                                            <span className="text-xs text-muted">
+                                                                {option.description}
+                                                            </span>
                                                         </div>
-                                                        <span className="text-xs text-muted">{option.description}</span>
                                                     </div>
-                                                </div>
-                                            )
-                                        })}
+                                                )
+                                            })}
+                                        </div>
+                                        <div className="flex flex-col gap-2 mt-2">
+                                            <LemonLabel info="Returned when this flag is enabled without a matching release condition.">
+                                                Default value when enabled
+                                            </LemonLabel>
+                                            <FeatureFlagValueInput
+                                                valueType={currentValueType}
+                                                value={featureFlag.filters.default_value}
+                                                onChange={(value) =>
+                                                    setFeatureFlag({
+                                                        ...featureFlag,
+                                                        filters: {
+                                                            ...featureFlag.filters,
+                                                            default_value: value,
+                                                        },
+                                                    })
+                                                }
+                                            />
+                                        </div>
                                     </div>
-                                    <div className="text-secondary text-xs mt-1">
-                                        {featureFlag.is_remote_configuration ? (
-                                            <>
-                                                Returns a JSON payload directly, without feature flag evaluation logic.
-                                                Access it via <code className="text-xs">getFeatureFlagPayload</code>.
-                                            </>
-                                        ) : multivariateEnabled ? (
-                                            <>
-                                                When release conditions match, returns one of the variant keys (string)
-                                                based on rollout percentages. Each variant can optionally include a JSON
-                                                payload. Access the variant via{' '}
-                                                <code className="text-xs">getFeatureFlag</code> and its payload via{' '}
-                                                <code className="text-xs">getFeatureFlagPayload</code>.
-                                            </>
-                                        ) : (
-                                            <>
-                                                Returns <code className="text-xs">true</code> or{' '}
-                                                <code className="text-xs">false</code> based on targeting rules. You can
-                                                optionally attach a JSON payload that will be available on the flag when
-                                                it evaluates to <code className="text-xs">true</code>.
-                                            </>
-                                        )}
+                                ) : (
+                                    <div className="flex flex-col gap-2">
+                                        <LemonLabel info="Changing type may remove existing variants or payloads.">
+                                            Flag type
+                                        </LemonLabel>
+                                        <div
+                                            className="grid grid-cols-1 md:grid-cols-3 gap-3"
+                                            role="radiogroup"
+                                            aria-label="Flag type"
+                                            data-attr="feature-flag-type"
+                                        >
+                                            {FLAG_TYPE_OPTIONS.map((option) => {
+                                                const isSelected = currentFlagType === option.value
+                                                return (
+                                                    <div
+                                                        key={option.value}
+                                                        role="radio"
+                                                        aria-checked={isSelected}
+                                                        tabIndex={0}
+                                                        className={`rounded p-3 cursor-pointer transition-colors ${
+                                                            isSelected
+                                                                ? 'bg-accent-highlight-light border-2 border-accent'
+                                                                : 'border bg-surface-primary border-primary hover:bg-fill-button-tertiary-hover'
+                                                        }`}
+                                                        onClick={() => onSelectFlagType(option.value)}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                                e.preventDefault()
+                                                                onSelectFlagType(option.value)
+                                                            }
+                                                        }}
+                                                        data-attr={`feature-flag-type-${option.value}`}
+                                                    >
+                                                        <div className="flex flex-col gap-1">
+                                                            <div className="flex items-center gap-2">
+                                                                {option.icon}
+                                                                <span className="font-medium flex-1">
+                                                                    {option.label}
+                                                                </span>
+                                                                {isSelected && (
+                                                                    <IconCheckCircle className="text-accent text-base" />
+                                                                )}
+                                                            </div>
+                                                            <span className="text-xs text-muted">
+                                                                {option.description}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                )
+                                            })}
+                                        </div>
+                                        <div className="text-secondary text-xs mt-1">
+                                            {featureFlag.is_remote_configuration ? (
+                                                <>
+                                                    Returns a JSON payload directly, without feature flag evaluation
+                                                    logic. Access it via{' '}
+                                                    <code className="text-xs">getFeatureFlagPayload</code>.
+                                                </>
+                                            ) : multivariateEnabled ? (
+                                                <>
+                                                    When release conditions match, returns one of the variant keys
+                                                    (string) based on rollout percentages. Each variant can optionally
+                                                    include a JSON payload. Access the variant via{' '}
+                                                    <code className="text-xs">getFeatureFlag</code> and its payload via{' '}
+                                                    <code className="text-xs">getFeatureFlagPayload</code>.
+                                                </>
+                                            ) : (
+                                                <>
+                                                    Returns <code className="text-xs">true</code> or{' '}
+                                                    <code className="text-xs">false</code> based on targeting rules. You
+                                                    can optionally attach a JSON payload that will be available on the
+                                                    flag when it evaluates to <code className="text-xs">true</code>.
+                                                </>
+                                            )}
+                                        </div>
                                     </div>
-                                </div>
+                                )}
 
                                 {/* Variants section - only for multivariate */}
-                                {multivariateEnabled && (
+                                {!featureFlagMakeoverEnabled && multivariateEnabled && (
                                     <div className="flex flex-col gap-2">
                                         <div className="flex items-center justify-between">
                                             <LemonLabel>Variants</LemonLabel>
@@ -928,66 +1063,70 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                 )}
 
                                 {/* Payload section - for boolean and remote config flags */}
-                                {!multivariateEnabled && featureFlag.is_remote_configuration && (
-                                    <div className="flex flex-col gap-2">
-                                        <LemonLabel info="JSON data returned by this remote config.">
-                                            Payload
-                                        </LemonLabel>
-                                        <div className="text-secondary text-xs mb-1">
-                                            Remote config flags always return the payload. Access it via{' '}
-                                            <code className="text-xs">getFeatureFlagPayload</code>.
+                                {!featureFlagMakeoverEnabled &&
+                                    !multivariateEnabled &&
+                                    featureFlag.is_remote_configuration && (
+                                        <div className="flex flex-col gap-2">
+                                            <LemonLabel info="JSON data returned by this remote config.">
+                                                Payload
+                                            </LemonLabel>
+                                            <div className="text-secondary text-xs mb-1">
+                                                Remote config flags always return the payload. Access it via{' '}
+                                                <code className="text-xs">getFeatureFlagPayload</code>.
+                                            </div>
+                                            <Group name={['filters', 'payloads']}>
+                                                <LemonField name="true">
+                                                    <JSONEditorInput placeholder='Examples: "A string", 2500, {"key": "value"}' />
+                                                </LemonField>
+                                            </Group>
                                         </div>
-                                        <Group name={['filters', 'payloads']}>
-                                            <LemonField name="true">
-                                                <JSONEditorInput placeholder='Examples: "A string", 2500, {"key": "value"}' />
-                                            </LemonField>
-                                        </Group>
-                                    </div>
-                                )}
-                                {!multivariateEnabled && !featureFlag.is_remote_configuration && (
-                                    <LemonCollapse
-                                        activeKeys={payloadExpanded ? ['payload'] : []}
-                                        onChange={(keys) => setPayloadExpanded(keys?.includes('payload') ?? false)}
-                                        panels={[
-                                            {
-                                                key: 'payload',
-                                                header: 'Payload',
-                                                content: (
-                                                    <div className="flex flex-col gap-2">
-                                                        <div className="text-secondary text-xs">
-                                                            When the flag evaluates to{' '}
-                                                            <code className="text-xs">true</code>, this payload will be
-                                                            available via{' '}
-                                                            <code className="text-xs">getFeatureFlagPayload</code>.{' '}
-                                                            <Link
-                                                                to="https://posthog.com/docs/feature-flags/creating-feature-flags#payloads"
-                                                                target="_blank"
-                                                            >
-                                                                Learn more
-                                                            </Link>
+                                    )}
+                                {!featureFlagMakeoverEnabled &&
+                                    !multivariateEnabled &&
+                                    !featureFlag.is_remote_configuration && (
+                                        <LemonCollapse
+                                            activeKeys={payloadExpanded ? ['payload'] : []}
+                                            onChange={(keys) => setPayloadExpanded(keys?.includes('payload') ?? false)}
+                                            panels={[
+                                                {
+                                                    key: 'payload',
+                                                    header: 'Payload',
+                                                    content: (
+                                                        <div className="flex flex-col gap-2">
+                                                            <div className="text-secondary text-xs">
+                                                                When the flag evaluates to{' '}
+                                                                <code className="text-xs">true</code>, this payload will
+                                                                be available via{' '}
+                                                                <code className="text-xs">getFeatureFlagPayload</code>.{' '}
+                                                                <Link
+                                                                    to="https://posthog.com/docs/feature-flags/creating-feature-flags#payloads"
+                                                                    target="_blank"
+                                                                >
+                                                                    Learn more
+                                                                </Link>
+                                                            </div>
+                                                            <Group name={['filters', 'payloads']}>
+                                                                <LemonField name="true">
+                                                                    <JSONEditorInput placeholder='Examples: "A string", 2500, {"key": "value"}' />
+                                                                </LemonField>
+                                                            </Group>
                                                         </div>
-                                                        <Group name={['filters', 'payloads']}>
-                                                            <LemonField name="true">
-                                                                <JSONEditorInput placeholder='Examples: "A string", 2500, {"key": "value"}' />
-                                                            </LemonField>
-                                                        </Group>
-                                                    </div>
-                                                ),
-                                            },
-                                        ]}
-                                    />
-                                )}
+                                                    ),
+                                                },
+                                            ]}
+                                        />
+                                    )}
                             </div>
 
                             {/* Release conditions card - skip for remote config */}
-                            {!featureFlag.is_remote_configuration && (
+                            {(featureFlagMakeoverEnabled || !featureFlag.is_remote_configuration) && (
                                 <div className="rounded border p-3 bg-bg-light">
                                     <FeatureFlagReleaseConditionsCollapsible
                                         id={String(props.id)}
                                         flagId={props.id}
                                         filters={featureFlag.filters}
                                         onChange={setFeatureFlagFilters}
-                                        variants={nonEmptyVariants}
+                                        variants={featureFlagMakeoverEnabled ? [] : nonEmptyVariants}
                                         isDisabled={!featureFlag.active}
                                         bucketingIdentifier={featureFlag.bucketing_identifier}
                                         onBucketingIdentifierChange={(value: FeatureFlagBucketingIdentifier | null) =>

@@ -37,16 +37,20 @@ import { getFilterLabel } from '~/taxonomy/helpers'
 import {
     AnyPropertyFilter,
     FeatureFlagBucketingIdentifier,
+    FeatureFlagReleaseConditionType,
     FeatureFlagGroupType,
+    FeatureFlagV2Variant,
+    FeatureFlagValueType,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
 
-import { featureFlagLogic } from './featureFlagLogic'
+import { defaultValueForFeatureFlagValueType, featureFlagLogic } from './featureFlagLogic'
 import {
     FeatureFlagReleaseConditionsLogicProps,
     featureFlagReleaseConditionsLogic,
 } from './featureFlagReleaseConditionsLogic'
+import { FeatureFlagValueInput } from './FeatureFlagValueInput'
 
 function PropertyValueComponent({ property }: { property: AnyPropertyFilter }): JSX.Element {
     if (property.type === PropertyFilterType.Cohort) {
@@ -137,6 +141,7 @@ export function FeatureFlagReleaseConditions({
         addConditionSet,
         moveConditionSetUp,
         moveConditionSetDown,
+        setFilters,
     } = useActions(releaseConditionsLogic)
 
     const { showGroupsOptions, groupTypes, aggregationLabel } = useValues(groupsModel)
@@ -149,6 +154,9 @@ export function FeatureFlagReleaseConditions({
     const realtimeCohortFlagTargeting = useFeatureFlag('REALTIME_COHORT_FLAG_TARGETING')
 
     const featureFlagVariants = nonEmptyFeatureFlagVariants || nonEmptyVariants
+    const isMakeoverConfig = filters.schema_version === 2
+    const valueType = filters.value_type ?? FeatureFlagValueType.BOOLEAN
+    const defaultFlagValue = filters.default_value ?? defaultValueForFeatureFlagValueType(valueType)
 
     // :KLUDGE: Match by select only allows Select.Option as children, so render groups option directly rather than as a child
     const matchByGroupsIntroductionOption = GroupsIntroductionOption()
@@ -177,8 +185,87 @@ export function FeatureFlagReleaseConditions({
             groupsAccessStatus
         )
 
+    const getReleaseConditionType = (group: FeatureFlagGroupType): FeatureFlagReleaseConditionType => {
+        if (group.release_condition_type) {
+            return group.release_condition_type
+        }
+        if (group.variants?.length) {
+            return FeatureFlagReleaseConditionType.EXPERIMENT
+        }
+        return group.rollout_percentage === 100
+            ? FeatureFlagReleaseConditionType.TARGETED
+            : FeatureFlagReleaseConditionType.ROLLOUT
+    }
+
+    const defaultVariants = (): FeatureFlagV2Variant[] => [
+        {
+            key: 'control',
+            name: '',
+            rollout_percentage: 50,
+            value: valueType === FeatureFlagValueType.BOOLEAN ? false : defaultValueForFeatureFlagValueType(valueType),
+        },
+        {
+            key: 'test',
+            name: '',
+            rollout_percentage: 50,
+            value: defaultValueForFeatureFlagValueType(valueType),
+        },
+    ]
+
+    const updateConditionDraft = (index: number, patch: Partial<FeatureFlagGroupType>): void => {
+        setFilters({
+            ...filters,
+            groups: filterGroups.map((group, groupIndex) =>
+                groupIndex === index
+                    ? {
+                          ...group,
+                          ...patch,
+                      }
+                    : group
+            ),
+        })
+    }
+
+    const updateConditionVariant = (
+        conditionIndex: number,
+        variantIndex: number,
+        patch: Partial<FeatureFlagV2Variant>
+    ): void => {
+        const group = filterGroups[conditionIndex]
+        const variants = [...(group.variants?.length ? group.variants : defaultVariants())]
+        variants[variantIndex] = {
+            ...variants[variantIndex],
+            ...patch,
+        }
+        updateConditionDraft(conditionIndex, { variants })
+    }
+
+    const addConditionVariant = (conditionIndex: number): void => {
+        const group = filterGroups[conditionIndex]
+        updateConditionDraft(conditionIndex, {
+            variants: [
+                ...(group.variants?.length ? group.variants : defaultVariants()),
+                {
+                    key: '',
+                    name: '',
+                    rollout_percentage: 0,
+                    value: defaultValueForFeatureFlagValueType(valueType),
+                },
+            ],
+        })
+    }
+
+    const removeConditionVariant = (conditionIndex: number, variantIndex: number): void => {
+        const group = filterGroups[conditionIndex]
+        const variants = [...(group.variants?.length ? group.variants : defaultVariants())]
+        variants.splice(variantIndex, 1)
+        updateConditionDraft(conditionIndex, { variants })
+    }
+
     const renderReleaseConditionGroup = (group: FeatureFlagGroupType, index: number): JSX.Element => {
         const rolloutValue = group.rollout_percentage ?? 100
+        const currentReleaseConditionType = getReleaseConditionType(group)
+        const conditionVariants = group.variants?.length ? group.variants : defaultVariants()
 
         return (
             <div className="w-full" key={group.sort_key}>
@@ -276,6 +363,130 @@ export function FeatureFlagReleaseConditions({
                     )}
                     {readOnly && group.description && <div className="mt-2 text-muted">{group.description}</div>}
                     <LemonDivider className="my-3" />
+                    {isMakeoverConfig && !readOnly && !isSuper && (
+                        <>
+                            <div className="flex flex-col gap-3">
+                                <div className="max-w-md">
+                                    <LemonLabel className="mb-2">Release type</LemonLabel>
+                                    <LemonSelect
+                                        value={currentReleaseConditionType}
+                                        onChange={(value) => {
+                                            const releaseType = value as FeatureFlagReleaseConditionType
+                                            updateConditionDraft(index, {
+                                                release_condition_type: releaseType,
+                                                rollout_percentage:
+                                                    releaseType === FeatureFlagReleaseConditionType.TARGETED
+                                                        ? 100
+                                                        : (group.rollout_percentage ?? 0),
+                                                value:
+                                                    releaseType === FeatureFlagReleaseConditionType.EXPERIMENT
+                                                        ? undefined
+                                                        : (group.value ?? defaultFlagValue),
+                                                variants:
+                                                    releaseType === FeatureFlagReleaseConditionType.EXPERIMENT
+                                                        ? conditionVariants
+                                                        : undefined,
+                                            })
+                                        }}
+                                        options={[
+                                            {
+                                                label: 'Targeted release',
+                                                value: FeatureFlagReleaseConditionType.TARGETED,
+                                            },
+                                            {
+                                                label: 'Percentage rollout',
+                                                value: FeatureFlagReleaseConditionType.ROLLOUT,
+                                            },
+                                            {
+                                                label: 'Experiment',
+                                                value: FeatureFlagReleaseConditionType.EXPERIMENT,
+                                            },
+                                        ]}
+                                        data-attr={`release-condition-type-${index}`}
+                                    />
+                                </div>
+
+                                {currentReleaseConditionType !== FeatureFlagReleaseConditionType.EXPERIMENT ? (
+                                    <div className="max-w-md">
+                                        <LemonLabel className="mb-2">Value</LemonLabel>
+                                        <FeatureFlagValueInput
+                                            valueType={valueType}
+                                            value={group.value ?? defaultFlagValue}
+                                            onChange={(value) => updateConditionDraft(index, { value })}
+                                        />
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-col gap-3">
+                                        <LemonLabel>Experiment variants</LemonLabel>
+                                        {conditionVariants.map((variant, variantIndex) => (
+                                            <div
+                                                key={variantIndex}
+                                                className="grid grid-cols-1 md:grid-cols-[1fr_8rem_1fr_auto] gap-2 items-start"
+                                            >
+                                                <div>
+                                                    <LemonLabel className="mb-1">Variant key</LemonLabel>
+                                                    <EditableField
+                                                        name={`variant-${variantIndex}-key`}
+                                                        value={variant.key}
+                                                        placeholder="control"
+                                                        onSave={(value) =>
+                                                            updateConditionVariant(index, variantIndex, {
+                                                                key: value,
+                                                            })
+                                                        }
+                                                        saveOnBlur
+                                                        compactButtons
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <LemonLabel className="mb-1">Split</LemonLabel>
+                                                    <PercentageInput
+                                                        value={variant.rollout_percentage}
+                                                        onChange={(value) =>
+                                                            updateConditionVariant(index, variantIndex, {
+                                                                rollout_percentage: value,
+                                                            })
+                                                        }
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <LemonLabel className="mb-1">Value</LemonLabel>
+                                                    <FeatureFlagValueInput
+                                                        valueType={valueType}
+                                                        value={variant.value}
+                                                        onChange={(value) =>
+                                                            updateConditionVariant(index, variantIndex, { value })
+                                                        }
+                                                    />
+                                                </div>
+                                                <div className="pt-6">
+                                                    {conditionVariants.length > 1 && (
+                                                        <LemonButton
+                                                            icon={<IconTrash />}
+                                                            noPadding
+                                                            tooltip="Remove variant"
+                                                            onClick={() => removeConditionVariant(index, variantIndex)}
+                                                        />
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))}
+                                        <div>
+                                            <LemonButton
+                                                type="secondary"
+                                                size="small"
+                                                icon={<IconPlus />}
+                                                onClick={() => addConditionVariant(index)}
+                                            >
+                                                Add variant
+                                            </LemonButton>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                            <LemonDivider className="my-3" />
+                        </>
+                    )}
                     {!readOnly && hasNonInstantProperty(group.properties || []) && (
                         <LemonBanner type="info" className="mt-3 mb-3">
                             These properties aren't immediately available on first page load for unidentified persons.
@@ -398,7 +609,16 @@ export function FeatureFlagReleaseConditions({
                     {(!readOnly || (readOnly && (group.properties?.length || 0) > 0)) && (
                         <LemonDivider className="my-3" />
                     )}
-                    {readOnly ? (
+                    {isMakeoverConfig && currentReleaseConditionType === FeatureFlagReleaseConditionType.TARGETED ? (
+                        readOnly ? (
+                            <LemonTag type="highlight">
+                                <div className="text-sm">
+                                    Targeted release to matching{' '}
+                                    <b>{aggregationTargetName(group.aggregation_group_type_index)}</b>.
+                                </div>
+                            </LemonTag>
+                        ) : null
+                    ) : readOnly ? (
                         <LemonTag
                             type={
                                 filterGroups.length == 1
@@ -502,7 +722,7 @@ export function FeatureFlagReleaseConditions({
                             </div>
                         </div>
                     )}
-                    {featureFlagVariants.length > 0 && (
+                    {!isMakeoverConfig && featureFlagVariants.length > 0 && (
                         <>
                             <LemonDivider className="my-3" />
                             {readOnly ? (

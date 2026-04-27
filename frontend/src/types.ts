@@ -3982,6 +3982,10 @@ export interface FeatureFlagGroupType {
     properties?: AnyPropertyFilter[]
     rollout_percentage?: number | null
     variant?: string | null
+    release_condition_id?: string | null
+    release_condition_type?: FeatureFlagReleaseConditionType | null
+    value?: JsonType
+    variants?: FeatureFlagV2Variant[]
     users_affected?: number
     sort_key?: string | null // Client-side only stable id for sorting.
     description?: string | null
@@ -4009,7 +4013,42 @@ export enum FeatureFlagBucketingIdentifier {
     DEVICE_ID = 'device_id',
 }
 
+export enum FeatureFlagValueType {
+    BOOLEAN = 'boolean',
+    STRING = 'string',
+    JSON = 'json',
+}
+
+export enum FeatureFlagReleaseConditionType {
+    TARGETED = 'targeted',
+    ROLLOUT = 'rollout',
+    EXPERIMENT = 'experiment',
+}
+
+export interface FeatureFlagV2Variant {
+    key: string
+    name?: string | null
+    rollout_percentage: number
+    value: JsonType
+}
+
+export interface FeatureFlagV2ReleaseCondition {
+    id: string
+    type: FeatureFlagReleaseConditionType
+    properties: AnyPropertyFilter[]
+    aggregation_group_type_index: integer | null
+    value?: JsonType
+    rollout_percentage?: number | null
+    variants?: FeatureFlagV2Variant[]
+    name?: string | null
+    description?: string | null
+}
+
 export interface FeatureFlagFilters {
+    schema_version?: integer
+    value_type?: FeatureFlagValueType
+    default_value?: JsonType
+    release_conditions?: FeatureFlagV2ReleaseCondition[]
     groups: FeatureFlagGroupType[]
     multivariate?: MultivariateFlagOptions | null
     aggregation_group_type_index?: integer | null

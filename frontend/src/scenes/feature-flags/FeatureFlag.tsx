@@ -185,7 +185,8 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     }
 
     const isNewFeatureFlag = id === 'new' || id === undefined
-    const useFormUI = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAGS_V2]
+    const useFormUI =
+        !!featureFlags[FEATURE_FLAGS.FEATURE_FLAGS_V2] || !!featureFlags[FEATURE_FLAGS.FEATURE_FLAGS_MAKEOVER]
 
     useFileSystemLogView({
         type: 'feature_flag',

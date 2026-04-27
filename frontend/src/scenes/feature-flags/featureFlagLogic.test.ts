@@ -4,17 +4,25 @@ import { expectLogic, partial } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { FeatureFlagType, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    FeatureFlagReleaseConditionType,
+    FeatureFlagType,
+    FeatureFlagValueType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 import { FeatureFlagFilters } from '~/types'
 
 import { detectFeatureFlagChanges } from './featureFlagConfirmationLogic'
 import {
     NEW_FLAG,
     convertIndexBasedPayloadsToVariantKeys,
+    featureFlagToFormFlag,
     featureFlagLogic,
     hasMultipleVariantsActive,
     hasZeroRollout,
     indexToVariantKeyFeatureFlagPayloads,
+    prepareFeatureFlagForSave,
     slugifyFeatureFlagKey,
     validateFeatureFlagKey,
 } from './featureFlagLogic'
@@ -109,6 +117,133 @@ describe('payload conversion helpers', () => {
                 },
             },
         })
+    })
+})
+
+describe('feature flag v2 config helpers', () => {
+    it('converts a legacy boolean flag into the makeover draft format', () => {
+        const formFlag = featureFlagToFormFlag(
+            {
+                ...MOCK_FEATURE_FLAG,
+                filters: {
+                    groups: [{ properties: [], rollout_percentage: 25, variant: null }],
+                    multivariate: null,
+                    payloads: {},
+                },
+            },
+            true
+        )
+
+        expect(formFlag.filters).toMatchObject({
+            schema_version: 2,
+            value_type: FeatureFlagValueType.BOOLEAN,
+            default_value: true,
+            groups: [
+                {
+                    rollout_percentage: 25,
+                    release_condition_type: FeatureFlagReleaseConditionType.ROLLOUT,
+                    value: true,
+                },
+            ],
+        })
+    })
+
+    it('saves the makeover draft as v2 release_conditions only', () => {
+        const preparedFlag = prepareFeatureFlagForSave(
+            {
+                ...MOCK_FEATURE_FLAG,
+                filters: {
+                    schema_version: 2,
+                    value_type: FeatureFlagValueType.BOOLEAN,
+                    default_value: true,
+                    groups: [
+                        {
+                            properties: [],
+                            rollout_percentage: 100,
+                            release_condition_id: 'beta-users',
+                            release_condition_type: FeatureFlagReleaseConditionType.TARGETED,
+                            value: true,
+                        },
+                        {
+                            properties: [],
+                            rollout_percentage: 100,
+                            release_condition_id: 'homepage-test',
+                            release_condition_type: FeatureFlagReleaseConditionType.EXPERIMENT,
+                            variants: [
+                                { key: 'control', rollout_percentage: 50, value: false },
+                                { key: 'test', rollout_percentage: 50, value: true },
+                            ],
+                        },
+                    ],
+                    release_conditions: [],
+                },
+            },
+            true
+        )
+
+        expect(preparedFlag).toMatchObject({
+            is_remote_configuration: false,
+            filters: {
+                schema_version: 2,
+                value_type: FeatureFlagValueType.BOOLEAN,
+                default_value: true,
+                groups: [],
+                release_conditions: [
+                    {
+                        id: 'beta-users',
+                        type: FeatureFlagReleaseConditionType.TARGETED,
+                        value: true,
+                    },
+                    {
+                        id: 'homepage-test',
+                        type: FeatureFlagReleaseConditionType.EXPERIMENT,
+                        rollout_percentage: 100,
+                        variants: [
+                            { key: 'control', rollout_percentage: 50, value: false },
+                            { key: 'test', rollout_percentage: 50, value: true },
+                        ],
+                    },
+                ],
+            },
+        })
+    })
+
+    it('deduplicates release condition IDs when saving duplicated conditions', () => {
+        const preparedFlag = prepareFeatureFlagForSave(
+            {
+                ...MOCK_FEATURE_FLAG,
+                filters: {
+                    schema_version: 2,
+                    value_type: FeatureFlagValueType.BOOLEAN,
+                    default_value: true,
+                    groups: [
+                        {
+                            properties: [],
+                            rollout_percentage: 100,
+                            release_condition_id: 'beta-users',
+                            sort_key: 'beta-users',
+                            release_condition_type: FeatureFlagReleaseConditionType.TARGETED,
+                            value: true,
+                        },
+                        {
+                            properties: [],
+                            rollout_percentage: 100,
+                            release_condition_id: 'beta-users',
+                            sort_key: 'duplicated-condition',
+                            release_condition_type: FeatureFlagReleaseConditionType.TARGETED,
+                            value: true,
+                        },
+                    ],
+                    release_conditions: [],
+                },
+            },
+            true
+        )
+
+        expect(preparedFlag.filters?.release_conditions?.map((condition) => condition.id)).toEqual([
+            'beta-users',
+            'duplicated-condition',
+        ])
     })
 })
 
