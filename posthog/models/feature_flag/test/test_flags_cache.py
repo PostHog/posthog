@@ -22,6 +22,7 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
+from posthog.kafka_client.topics import KAFKA_FLAGS_CACHE_INVALIDATION
 from posthog.models import FeatureFlag, Team
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
@@ -40,6 +41,7 @@ from posthog.models.feature_flag.flags_cache import (
     get_teams_with_flags_queryset,
     update_flags_cache,
 )
+from posthog.models.feature_flag.flags_cache_messages import FlagsCacheInvalidation
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
@@ -577,6 +579,179 @@ class TestServiceFlagsSignals(BaseTest):
         # Cache should be cleared (this will load from DB and return empty)
         # We can't test directly with the deleted team object, but the signal should have fired
         # In production, this prevents stale cache entries
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test")
+class TestServiceFlagsKafkaDualWrite(BaseTest):
+    """Test the Kafka dual-write side of the signal handlers (PR 1 of the
+    flags-cache Kafka migration). Celery enqueue stays unchanged; the Kafka
+    produce sits behind a per-team feature flag and never breaks the signal
+    handler if Kafka is unhappy."""
+
+    def setUp(self):
+        super().setUp()
+        clear_flags_cache(self.team, kinds=["redis", "s3"])
+
+    @patch("posthog.models.feature_flag.flags_cache._produce_invalidation")
+    @patch("posthog.models.feature_flag.flags_cache._kafka_dual_write_enabled", return_value=False)
+    @patch("posthog.tasks.feature_flags.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_dual_write_off_skips_kafka_produce(self, mock_task, mock_gate, mock_produce):
+        """Flag off: Celery still fires, Kafka producer is not invoked."""
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="dual-write-off",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        mock_task.delay.assert_called_once_with(self.team.id)
+        mock_produce.assert_not_called()
+
+    @patch("posthog.models.feature_flag.flags_cache.producer_scope")
+    @patch("posthog.models.feature_flag.flags_cache._kafka_dual_write_enabled", return_value=True)
+    @patch("posthog.tasks.feature_flags.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_dual_write_on_produces_to_kafka(self, mock_task, mock_gate, mock_producer_scope):
+        """Flag on: Celery fires AND Kafka producer is invoked with the right
+        topic, partition key, and a payload that round-trips through the envelope.
+
+        The producer's `data` arg must be a dict (not pre-encoded bytes) so the
+        default `json_serializer` can encode it. Passing bytes would raise
+        `TypeError` inside `json.dumps`, which the outer swallow would silently
+        eat — every produce a no-op. This test pins the contract.
+        """
+        mock_producer = MagicMock()
+        mock_producer_scope.return_value.__enter__.return_value = mock_producer
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="dual-write-on",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        mock_task.delay.assert_called_once_with(self.team.id)
+        mock_producer_scope.assert_called_once()
+        scope_kwargs = mock_producer_scope.call_args.kwargs
+        assert scope_kwargs["topic"] == KAFKA_FLAGS_CACHE_INVALIDATION
+        assert scope_kwargs["flush_timeout"] == 0
+
+        mock_producer.produce.assert_called_once()
+        produce_kwargs = mock_producer.produce.call_args.kwargs
+        assert produce_kwargs["topic"] == KAFKA_FLAGS_CACHE_INVALIDATION
+        # Partition key is the team_id as bytes — gives the future consumer per-team
+        # partition affinity.
+        assert produce_kwargs["key"] == str(self.team.id).encode("utf-8")
+
+        # `data` must be a dict so `_KafkaProducer.json_serializer` can encode it.
+        data = produce_kwargs["data"]
+        assert isinstance(data, dict), f"expected dict for default serializer, got {type(data).__name__}"
+        envelope = FlagsCacheInvalidation.model_validate(data)
+        assert envelope.version == 1
+        assert envelope.team_id == self.team.id
+        assert envelope.operation == "invalidate"
+
+    def test_produce_invalidation_survives_default_serializer(self):
+        """Direct unit test against `_produce_invalidation` that exercises the
+        real `_KafkaProducer.json_serializer`.
+
+        Catches the bytes-vs-dict bug at unit-test cost: if `data` is bytes,
+        `json.dumps(b"…")` raises and the swallow logs but never produces. Here
+        we substitute a producer whose `produce` runs the real default serializer
+        and asserts the bytes hitting the inner confluent producer round-trip
+        through the envelope.
+        """
+        from posthog.kafka_client.client import _KafkaProducer
+        from posthog.models.feature_flag.flags_cache import _produce_invalidation
+
+        captured: dict[str, Any] = {}
+
+        class _CapturingProducer:
+            def produce(self, topic, value=None, key=None, headers=None):
+                captured["topic"] = topic
+                captured["value"] = value
+                captured["key"] = key
+
+        # Build a real `_KafkaProducer` in test mode so the default `json_serializer`
+        # runs, then swap its underlying confluent producer for a capturing stub.
+        real = _KafkaProducer.__new__(_KafkaProducer)
+        real._test = True
+        real.producer = _CapturingProducer()
+
+        with patch("posthog.models.feature_flag.flags_cache.producer_scope") as scope:
+            scope.return_value.__enter__.return_value = real
+            _produce_invalidation(self.team.id)
+
+        assert captured["topic"] == KAFKA_FLAGS_CACHE_INVALIDATION
+        assert captured["key"] == str(self.team.id).encode("utf-8")
+        assert isinstance(captured["value"], bytes)
+        envelope = FlagsCacheInvalidation.model_validate_json(captured["value"].decode("utf-8"))
+        assert envelope.team_id == self.team.id
+        assert envelope.operation == "invalidate"
+        assert envelope.version == 1
+
+    @patch("posthog.models.feature_flag.flags_cache.producer_scope")
+    @patch("posthog.models.feature_flag.flags_cache._kafka_dual_write_enabled", return_value=True)
+    @patch("posthog.tasks.feature_flags.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_dual_write_swallows_produce_errors(self, mock_task, mock_gate, mock_producer_scope):
+        """Kafka produce failure must not break flag editing — Celery is the
+        source of truth during dual-write."""
+        mock_producer_scope.side_effect = RuntimeError("kafka cluster unreachable")
+
+        # Should not raise.
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="dual-write-error",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        mock_task.delay.assert_called_once_with(self.team.id)
+
+    @parameterized.expand(
+        [
+            ("feature_flag_save",),
+            ("team_create",),
+            ("evaluation_context_save",),
+        ]
+    )
+    @patch("posthog.models.feature_flag.flags_cache._produce_invalidation")
+    @patch("posthog.models.feature_flag.flags_cache._kafka_dual_write_enabled", return_value=True)
+    @patch("posthog.tasks.feature_flags.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_dual_write_fires_for_each_wired_handler(self, handler_name, mock_task, mock_gate, mock_produce):
+        """All three wired handlers (FeatureFlag save, Team create,
+        EvaluationContext save) produce a Kafka message when the gate is on.
+        The cohort handler stays untouched in PR 1 — covered separately."""
+        if handler_name == "feature_flag_save":
+            FeatureFlag.objects.create(
+                team=self.team,
+                key=f"flag-{handler_name}",
+                created_by=self.user,
+                filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            )
+            expected_team_id = self.team.id
+        elif handler_name == "team_create":
+            new_team = Team.objects.create(organization=self.organization, name="Dual-Write Team")
+            expected_team_id = new_team.id
+        elif handler_name == "evaluation_context_save":
+            flag = FeatureFlag.objects.create(
+                team=self.team,
+                key=f"flag-{handler_name}",
+                created_by=self.user,
+                filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            )
+            mock_task.reset_mock()
+            mock_produce.reset_mock()
+            ctx = EvaluationContext.objects.create(team=self.team, name="ctx-dual-write")
+            FeatureFlagEvaluationContext.objects.create(feature_flag=flag, evaluation_context=ctx)
+            expected_team_id = self.team.id
+        else:
+            raise AssertionError(f"unhandled case {handler_name}")
+
+        mock_task.delay.assert_called_with(expected_team_id)
+        mock_produce.assert_called_with(expected_team_id)
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
