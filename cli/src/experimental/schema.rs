@@ -9,11 +9,14 @@ use tracing::info;
 use crate::api::client::PHClient;
 use crate::invocation_context::context;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "lowercase")]
-enum Language {
+pub enum Language {
+    #[value(name = "typescript")]
     TypeScript,
+    #[value(name = "golang")]
     Golang,
+    #[value(name = "python")]
     Python,
 }
 
@@ -190,9 +193,16 @@ struct DefinitionsResponse {
     schema_hash: String,
 }
 
-pub fn pull(_host: Option<String>, output_override: Option<String>) -> Result<()> {
+pub fn pull(
+    _host: Option<String>,
+    output_override: Option<String>,
+    language_override: Option<Language>,
+) -> Result<()> {
     // Select language
-    let language = select_language()?;
+    let language = match language_override {
+        Some(language) => language,
+        None => select_language()?,
+    };
 
     info!(
         "Fetching {} definitions from PostHog...",

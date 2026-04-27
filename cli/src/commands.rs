@@ -5,7 +5,10 @@ use crate::{
     download::SymbolSetsSubcommand,
     dsym::DsymSubcommand,
     error::CapturedError,
-    experimental::{endpoints::EndpointCommand, query::command::QueryCommand, tasks::TaskCommand},
+    experimental::{
+        endpoints::EndpointCommand, query::command::QueryCommand, schema::Language,
+        tasks::TaskCommand,
+    },
     invocation_context::{context, init_context, INVOCATION_CONTEXT},
     proguard::ProguardSubcommand,
     sourcemaps::{hermes::HermesSubcommand, plain::SourcemapCommand},
@@ -134,6 +137,9 @@ pub enum SchemaCommand {
         /// Output path for generated definitions (stored in posthog.json for future runs)
         #[arg(short, long)]
         output: Option<String>,
+        /// Language to generate definitions for
+        #[arg(short, long)]
+        language: Option<Language>,
     },
     /// Show current schema sync status
     Status,
@@ -259,8 +265,8 @@ impl Cli {
                     }
                 },
                 ExpCommand::Schema { cmd } => match cmd {
-                    SchemaCommand::Pull { output } => {
-                        crate::experimental::schema::pull(self.host, output)?;
+                    SchemaCommand::Pull { output, language } => {
+                        crate::experimental::schema::pull(self.host, output, language)?;
                     }
                     SchemaCommand::Status => {
                         crate::experimental::schema::status()?;
@@ -274,5 +280,96 @@ impl Cli {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn schema_pull_accepts_all_languages() {
+        for (flag, expected) in [
+            ("typescript", Language::TypeScript),
+            ("golang", Language::Golang),
+            ("python", Language::Python),
+        ] {
+            let cli =
+                Cli::try_parse_from(["posthog-cli", "exp", "schema", "pull", "--language", flag])
+                    .unwrap_or_else(|_| panic!("--language {flag} should parse"));
+
+            match cli.command {
+                Commands::Exp {
+                    cmd: ExpCommand::Schema {
+                        cmd: SchemaCommand::Pull { language: Some(language), .. },
+                    },
+                } => assert_eq!(language, expected, "--language {flag}"),
+                _ => panic!("expected schema pull command for --language {flag}"),
+            }
+        }
+    }
+
+    #[test]
+    fn schema_pull_accepts_short_flag_for_all_languages() {
+        for (flag, expected) in [
+            ("typescript", Language::TypeScript),
+            ("golang", Language::Golang),
+            ("python", Language::Python),
+        ] {
+            let cli =
+                Cli::try_parse_from(["posthog-cli", "exp", "schema", "pull", "-l", flag])
+                    .unwrap_or_else(|_| panic!("-l {flag} should parse"));
+
+            match cli.command {
+                Commands::Exp {
+                    cmd: ExpCommand::Schema {
+                        cmd: SchemaCommand::Pull { language: Some(language), .. },
+                    },
+                } => assert_eq!(language, expected, "-l {flag}"),
+                _ => panic!("expected schema pull command for -l {flag}"),
+            }
+        }
+    }
+
+    #[test]
+    fn schema_pull_language_and_output_together() {
+        let cli = Cli::try_parse_from([
+            "posthog-cli",
+            "exp",
+            "schema",
+            "pull",
+            "--language",
+            "typescript",
+            "--output",
+            "src/posthog-typed.ts",
+        ])
+        .expect("--language and --output together should parse");
+
+        match cli.command {
+            Commands::Exp {
+                cmd: ExpCommand::Schema {
+                    cmd: SchemaCommand::Pull { output, language: Some(language) },
+                },
+            } => {
+                assert_eq!(language, Language::TypeScript);
+                assert_eq!(output, Some("src/posthog-typed.ts".to_string()));
+            }
+            _ => panic!("expected schema pull command"),
+        }
+    }
+
+    #[test]
+    fn schema_pull_without_language_flag_defaults_to_none() {
+        let cli = Cli::try_parse_from(["posthog-cli", "exp", "schema", "pull"])
+            .expect("schema pull without language should parse");
+
+        match cli.command {
+            Commands::Exp {
+                cmd: ExpCommand::Schema {
+                    cmd: SchemaCommand::Pull { language, .. },
+                },
+            } => assert_eq!(language, None),
+            _ => panic!("expected schema pull command"),
+        }
     }
 }
