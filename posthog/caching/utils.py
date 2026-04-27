@@ -123,7 +123,6 @@ def is_stale_filter(
 
 # enum legacy, default, lazy
 class ThresholdMode(Enum):
-    LEGACY = "legacy"
     DEFAULT = "default"
     LAZY = "lazy"
     AI = "ai"
