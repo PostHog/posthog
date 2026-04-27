@@ -2,5 +2,10 @@
 # name: TestAPIDocsSchema.test_api_docs_generation_warnings_snapshot
   list([
     '',
+    "::warning file=posthog/api/documentation.py::REST convention: '/early_access_feature/' is a collection endpoint but uses a singular name — prefer plural (e.g. '/early_access_features/')",
+    "::warning file=posthog/api/documentation.py::REST convention: '/file_system/' is a collection endpoint but uses a singular name — prefer plural (e.g. '/file_systems/')",
+    "::warning file=posthog/api/documentation.py::REST convention: '/file_system_shortcut/' is a collection endpoint but uses a singular name — prefer plural (e.g. '/file_system_shortcuts/')",
+    "::warning file=posthog/api/documentation.py::REST convention: '/persisted_folder/' is a collection endpoint but uses a singular name — prefer plural (e.g. '/persisted_folders/')",
+    "::warning file=posthog/api/documentation.py::REST convention: '/saved/' is a collection endpoint but uses a singular name — prefer plural (e.g. '/saveds/')",
   ])
 # ---
