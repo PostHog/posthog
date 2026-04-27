@@ -195,6 +195,7 @@ export const logsAttributesRetrieveQueryLimitMax = 100
 
 export const logsAttributesRetrieveQueryOffsetMin = 0
 
+export const logsAttributesRetrieveQuerySearchValuesDefault = false
 export const logsAttributesRetrieveQueryServiceNamesDefault = []
 
 export const LogsAttributesRetrieveQueryParams = /* @__PURE__ */ zod.object({
@@ -279,6 +280,12 @@ export const LogsAttributesRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Pagination offset (default: 0)'),
     search: zod.string().min(1).optional().describe('Search filter for attribute names'),
+    search_values: zod
+        .boolean()
+        .default(logsAttributesRetrieveQuerySearchValuesDefault)
+        .describe(
+            'When true, the search query also matches attribute values (not just keys). Each result indicates whether it matched on key or value.'
+        ),
     serviceNames: zod
         .array(zod.string())
         .default(logsAttributesRetrieveQueryServiceNamesDefault)

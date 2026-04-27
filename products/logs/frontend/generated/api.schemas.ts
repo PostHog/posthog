@@ -607,10 +607,31 @@ export interface _LogPropertyFilterApi {
     value?: unknown | null
 }
 
+/**
+ * * `key` - key
+ * `value` - value
+ */
+export type MatchedOnEnumApi = (typeof MatchedOnEnumApi)[keyof typeof MatchedOnEnumApi]
+
+export const MatchedOnEnumApi = {
+    Key: 'key',
+    Value: 'value',
+} as const
+
 export interface _LogAttributeEntryApi {
     name: string
     /** Property filter type: "log_attribute" or "log_resource_attribute". Use this as the `type` field when filtering. */
     propertyFilterType: string
+    /** How the search query matched this row: "key" if the attribute key matched, "value" if a value matched.
+
+* `key` - key
+* `value` - value */
+    matchedOn: MatchedOnEnumApi
+    /**
+     * Sample matching value — only set when matchedOn is "value".
+     * @nullable
+     */
+    matchedValue?: string | null
 }
 
 export interface _LogsAttributesResponseApi {
@@ -981,6 +1002,10 @@ export type LogsAttributesRetrieveParams = {
      * @minLength 1
      */
     search?: string
+    /**
+     * When true, the search query also matches attribute values (not just keys). Each result indicates whether it matched on key or value.
+     */
+    search_values?: boolean
     /**
      * Filter attributes to those appearing in logs from these services.
      */
