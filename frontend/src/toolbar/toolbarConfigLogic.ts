@@ -589,13 +589,20 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            const errorType = classifyFetchError(error)
+            // Network/CORS failures and timeouts are an expected outcome of probing an
+            // arbitrary uiHost (offline self-hosted instances, strict CORS, slow proxies).
+            // The analytics event below and the config modal already cover the UX path,
+            // so only surface unexpected error types to error tracking.
+            if (errorType !== 'network_or_cors' && errorType !== 'timeout') {
+                captureToolbarException(error, 'ui_host_check', {
+                    error_type: errorType,
+                })
+            }
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
-                error_type: classifyFetchError(error),
+                error_type: errorType,
                 duration_ms: Date.now() - checkStart,
             })
 
