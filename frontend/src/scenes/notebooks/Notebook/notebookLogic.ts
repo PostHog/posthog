@@ -122,7 +122,7 @@ export const notebookLogic = kea<notebookLogicType>([
             notebookSettingsLogic,
             ['showKernelInfo', 'showTableOfContents'],
             notebookCollabLogic({ shortId: props.shortId }),
-            ['ttEditor'],
+            ['editors'],
         ],
         actions: [
             notebooksModel,
@@ -141,19 +141,23 @@ export const notebookLogic = kea<notebookLogicType>([
     actions({
         setEditor: (editor: NotebookEditor) => ({ editor }),
         editorIsReady: true,
-        onEditorUpdate: true,
+        onEditorUpdate: (clientID?: string) => ({ clientID }),
         onEditorSelectionUpdate: true,
-        setLocalContent: (jsonContent: JSONContent, updateEditor = false, skipCapture = false) => ({
+        setLocalContent: (jsonContent: JSONContent, updateEditor = false, skipCapture = false, clientID?: string) => ({
             jsonContent,
             updateEditor,
             skipCapture,
+            clientID,
         }),
         clearLocalContent: true,
         setPreviewContent: (jsonContent: JSONContent) => ({ jsonContent }),
         clearPreviewContent: true,
         loadNotebook: true,
         scheduleNotebookRefresh: true,
-        saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
+        saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>, clientID?: string) => ({
+            notebook,
+            clientID,
+        }),
         renameNotebook: (title: string) => ({ title }),
         setEditingNodeEditing: (nodeId: string, editing: boolean) => ({ nodeId, editing }),
         exportJSON: true,
@@ -356,13 +360,19 @@ export const notebookLogic = kea<notebookLogicType>([
                     return notebook
                 },
 
-                saveNotebook: async ({ notebook }) => {
+                saveNotebook: async ({ notebook, clientID }) => {
                     if (!values.notebook) {
                         return values.notebook
                     }
 
-                    if (values.collabEnabled && values.ttEditor) {
-                        const sendable = sendableSteps(values.ttEditor.state)
+                    if (values.collabEnabled) {
+                        // Save the pending steps from the editor that fired onEditorUpdate;
+                        // this lets N editors in the same tab each save their own edits.
+                        const editor = clientID ? values.editors[clientID] : undefined
+                        if (!editor) {
+                            return values.notebook
+                        }
+                        const sendable = sendableSteps(editor.state)
                         if (!sendable) {
                             return values.notebook
                         }
@@ -375,10 +385,10 @@ export const notebookLogic = kea<notebookLogicType>([
                                     client_id: sendable.clientID,
                                     version: sendable.version,
                                     steps: stepsJson,
-                                    content: values.editor?.getJSON(),
-                                    text_content: values.editor?.getText() || '',
+                                    content: editor.getJSON(),
+                                    text_content: editor.getText() || '',
                                     title: notebook.title,
-                                    cursor_head: values.ttEditor.state.selection.head,
+                                    cursor_head: editor.state.selection.head,
                                 }
                             )
                             actions.ackLocalSteps(stepsJson, sendable.clientID)
@@ -402,10 +412,13 @@ export const notebookLogic = kea<notebookLogicType>([
                                         version: firstMissedVersion + i,
                                     }))
                                 )
-                                actions.saveNotebook({
-                                    content: values.editor?.getJSON() ?? notebook.content,
-                                    title: notebook.title,
-                                })
+                                actions.saveNotebook(
+                                    {
+                                        content: editor.getJSON(),
+                                        title: notebook.title,
+                                    },
+                                    clientID
+                                )
                                 return values.notebook
                             }
                             if (error.status === 410) {
@@ -794,7 +807,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 lemonToast.warning('Could not add insight to notebook')
             }
         },
-        setLocalContent: async ({ updateEditor, jsonContent, skipCapture }, breakpoint) => {
+        setLocalContent: async ({ updateEditor, jsonContent, skipCapture, clientID }, breakpoint) => {
             if (
                 values.mode !== 'canvas' &&
                 !!values.notebook?.user_access_level &&
@@ -838,10 +851,13 @@ export const notebookLogic = kea<notebookLogicType>([
             }
 
             if (!values.isLocalOnly && values.content && !values.notebookLoading) {
-                actions.saveNotebook({
-                    content: values.content,
-                    title: values.title,
-                })
+                actions.saveNotebook(
+                    {
+                        content: values.content,
+                        title: values.title,
+                    },
+                    clientID
+                )
             }
         },
 
@@ -857,13 +873,14 @@ export const notebookLogic = kea<notebookLogicType>([
             }
         },
 
-        onEditorUpdate: () => {
-            if (!values.editor) {
+        onEditorUpdate: ({ clientID }) => {
+            const editor = clientID ? values.editors[clientID] : null
+            if (!editor) {
                 return
             }
-            const jsonContent = values.editor.getJSON()
+            const jsonContent = editor.getJSON()
 
-            actions.setLocalContent(jsonContent)
+            actions.setLocalContent(jsonContent, false, false, clientID)
             // Throttle onUpdateEditor to avoid performance issues with many notebook nodes
             if (cache.throttledOnUpdateEditorTimeout) {
                 clearTimeout(cache.throttledOnUpdateEditorTimeout)

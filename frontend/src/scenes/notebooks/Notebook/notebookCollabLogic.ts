@@ -9,7 +9,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
 import { TTEditor } from 'lib/components/RichContentEditor/types'
-import { uuid } from 'lib/utils'
 
 import type { notebookCollabLogicType } from './notebookCollabLogicType'
 import { REMOTE_PRESENCE_META, RemotePresenceUpdate } from './RemotePresenceExtension'
@@ -40,11 +39,6 @@ type StreamStepEvent = {
     user_id?: number | null
     user_name?: string
     cursor_head?: number | null
-}
-
-/** Stable presence color from PostHog's data palette; anonymous users get slot 0 */
-function userColor(userId: number | null | undefined): string {
-    return getSeriesColor(typeof userId === 'number' ? userId : 0)
 }
 
 /**
@@ -113,7 +107,8 @@ function streamEventToRemoteStep(parsed: StreamStepEvent, version: number): Remo
                       clientId: parsed.client_id,
                       userId: parsed.user_id ?? null,
                       userName: parsed.user_name,
-                      userColor: userColor(parsed.user_id),
+                      // Stable presence color from PostHog's data palette; anonymous users get slot 0.
+                      userColor: getSeriesColor(typeof parsed.user_id === 'number' ? parsed.user_id : 0),
                       cursorHead: parsed.cursor_head,
                   }
                 : undefined,
@@ -126,40 +121,50 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
     key(({ shortId }) => shortId),
 
     actions({
-        bindEditor: (editor: TTEditor) => ({ editor }),
-        unbindEditor: true,
-        /** Ack our own saved steps so PM-collab advances its version (matching clientID = no-op apply). */
+        bindEditor: (clientID: string, editor: TTEditor) => ({ clientID, editor }),
+        unbindEditor: (clientID: string) => ({ clientID }),
         ackLocalSteps: (steps: Record<string, any>[], clientID: string) => ({ steps, clientID }),
-        /** Apply steps received from SSE or a 409 body. Idempotent by version. */
         applyRemoteSteps: (steps: RemoteStep[]) => ({ steps }),
         connectStream: true,
         disconnectStream: true,
     }),
 
     reducers({
-        ttEditor: [
-            null as TTEditor | null,
+        // Multiple instances of the same notebook can be mounted in one browser tab
+        // (e.g. within multiple PostHog tabs); each gets its own PM-collab clientID.
+        editors: [
+            {} as Record<string, TTEditor>,
             {
-                bindEditor: (_, { editor }) => editor,
-                unbindEditor: () => null,
+                bindEditor: (state, { clientID, editor }) => ({ ...state, [clientID]: editor }),
+                unbindEditor: (state, { clientID }) => {
+                    const next = { ...state }
+                    delete next[clientID]
+                    return next
+                },
             },
         ],
-        // Stable per-logic clientID; shared with the PM collab plugin for self-event filtering.
-        clientID: [uuid() as string, {}],
     }),
 
     listeners(({ actions, values, props, cache }) => ({
         bindEditor: () => {
-            actions.connectStream()
+            // Open the stream on the first bind; subsequent binds use the same connection.
+            if (Object.keys(values.editors).length === 1) {
+                actions.connectStream()
+            }
         },
 
         unbindEditor: () => {
-            actions.disconnectStream()
+            if (Object.keys(values.editors).length === 0) {
+                actions.disconnectStream()
+            }
         },
 
         ackLocalSteps: ({ steps, clientID }) => {
-            const editor = values.ttEditor
-            if (!editor || !steps.length) {
+            if (!steps.length) {
+                return
+            }
+            const editor = values.editors[clientID]
+            if (!editor) {
                 return
             }
             try {
@@ -179,15 +184,14 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
         },
 
         applyRemoteSteps: ({ steps }) => {
-            const editor = values.ttEditor
-            if (!editor) {
-                return
-            }
-            for (const remote of steps) {
-                if (remote.clientId === values.clientID) {
-                    continue
+            // Fan out to every bound editor; each skips its own echo via clientID.
+            for (const [clientID, editor] of Object.entries(values.editors)) {
+                for (const remote of steps) {
+                    if (remote.clientId === clientID) {
+                        continue
+                    }
+                    applyRemoteStep(editor, remote)
                 }
-                applyRemoteStep(editor, remote)
             }
         },
 
@@ -213,14 +217,7 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
                     posthog.captureException(e as Error, { action: 'notebook collab stream parse' })
                     return
                 }
-                if (parsed.client_id === values.clientID) {
-                    return
-                }
-                const editor = values.ttEditor
-                if (!editor) {
-                    return
-                }
-                applyRemoteStep(editor, streamEventToRemoteStep(parsed, version))
+                actions.applyRemoteSteps([streamEventToRemoteStep(parsed, version)])
             }
 
             const onError = (error: any): void => {
@@ -255,6 +252,5 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
 
     beforeUnmount(({ actions }) => {
         actions.disconnectStream()
-        actions.unbindEditor()
     }),
 ])
