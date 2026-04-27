@@ -34,7 +34,7 @@ export type RemoteStep = {
     presence?: RemoteStepPresence
 }
 
-type StreamStepEvent = {
+export type StreamStepEvent = {
     step: Record<string, any>
     client_id: string
     user_id?: number | null
@@ -102,7 +102,7 @@ export function applyRemoteStep(editor: TTEditor, remote: RemoteStep): void {
     }
 }
 
-function streamEventToRemoteStep(parsed: StreamStepEvent, version: number): RemoteStep {
+export function streamEventToRemoteStep(parsed: StreamStepEvent, version: number): RemoteStep {
     return {
         step: parsed.step,
         clientId: parsed.client_id,
