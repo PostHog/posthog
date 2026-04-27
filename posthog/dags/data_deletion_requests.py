@@ -693,7 +693,14 @@ def delete_person_profiles_op(
     context: dagster.OpExecutionContext,
     person_removal: PersonRemovalContext,
 ) -> PersonRemovalContext:
-    """Tombstone Person rows in CH and delete from Postgres, last."""
+    """Tombstone Person rows in CH and delete from Postgres, last.
+
+    On per-person failures, errors are recorded in op metadata and the request is allowed to
+    transition to COMPLETED — Postgres rows remain for the failed UUIDs and the operator can
+    submit a follow-up request for them. This mirrors the best-effort semantics of the
+    `POST /api/projects/:id/persons/bulk_delete/` endpoint and avoids flipping the whole
+    request to FAILED after upstream events/recordings ops have already done their work.
+    """
     if not person_removal.drop_profiles:
         context.log.info("drop_profiles=False, skipping profile deletion")
         return person_removal
@@ -708,17 +715,17 @@ def delete_person_profiles_op(
         return person_removal
 
     result = delete_persons_profile(person_removal.team_id, persons, actor=None)
-    context.add_output_metadata(
-        {
-            "deleted_count": dagster.MetadataValue.int(result.deleted_count),
-            "errors": dagster.MetadataValue.int(len(result.errors)),
-        }
-    )
+    metadata: dict[str, dagster.MetadataValue] = {
+        "deleted_count": dagster.MetadataValue.int(result.deleted_count),
+        "errors": dagster.MetadataValue.int(len(result.errors)),
+    }
     if result.errors:
-        raise dagster.Failure(
-            description=f"Person profile deletion failed for {len(result.errors)} persons",
-            metadata={"errors": dagster.MetadataValue.text(", ".join(str(u) for u in result.errors))},
+        context.log.warning(
+            f"Person profile deletion had {len(result.errors)} per-person failures; "
+            f"Postgres rows remain for failed UUIDs and can be retried via a follow-up request"
         )
+        metadata["error_uuids"] = dagster.MetadataValue.text(", ".join(str(u) for u in result.errors))
+    context.add_output_metadata(metadata)
     return person_removal
 
 

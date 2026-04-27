@@ -1106,7 +1106,10 @@ def test_delete_person_profiles_op_noop_when_disabled():
 
 
 @pytest.mark.django_db
-def test_delete_person_profiles_op_raises_on_per_person_failure():
+def test_delete_person_profiles_op_records_per_person_errors_in_metadata():
+    # Best-effort semantics: per-person failures are recorded in op metadata and surfaced via
+    # logs, but the op returns normally so the request can finalize to COMPLETED and the
+    # operator can issue a follow-up request for the failed UUIDs.
     p_uuid = str(uuid4())
     Person.objects.create(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
     ctx = PersonRemovalContext(
@@ -1118,10 +1121,18 @@ def test_delete_person_profiles_op_raises_on_per_person_failure():
         drop_events=False,
         drop_recordings=False,
     )
+    op_context = build_op_context()
     with patch("posthog.dags.data_deletion_requests.delete_persons_profile") as deleter:
         deleter.return_value = type("R", (), {"deleted_count": 0, "errors": [p_uuid]})()
-        with pytest.raises(dagster.Failure, match="profile deletion failed"):
-            delete_person_profiles_op(build_op_context(), ctx)
+        with patch.object(op_context.log, "warning") as warn:
+            result = delete_person_profiles_op(op_context, ctx)
+
+    # No raise — best-effort, returns the context.
+    assert result is ctx
+    # The op surfaced the failure via a warning log so operators can find the failed UUIDs.
+    assert warn.called
+    warn_message = warn.call_args.args[0] if warn.call_args.args else ""
+    assert "1 per-person failures" in warn_message
 
 
 @pytest.mark.django_db
