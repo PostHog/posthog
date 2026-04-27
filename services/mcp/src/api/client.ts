@@ -872,25 +872,6 @@ export class ApiClient {
                 })
             },
 
-            schema: async (): Promise<
-                Result<{
-                    tables: Array<{
-                        name: string
-                        fields: Array<{
-                            name: string
-                            type: string
-                            nullable: boolean
-                            join_table?: string | null
-                            chain?: string[] | null
-                        }>
-                    }>
-                    functions: string[]
-                }>
-            > => {
-                const url = `${this.baseUrl}/api/environments/${projectId}/query/schema/`
-                return this.fetchJson(url)
-            },
-
             sqlInsight: async ({ query }: { query: string }): Promise<Result<any[]>> => {
                 const requestBody = {
                     query: query,

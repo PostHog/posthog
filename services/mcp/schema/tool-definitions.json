@@ -75,9 +75,9 @@
         }
     },
     "hogql-schema": {
-        "description": "Return the HogQL catalog for the active project: every queryable table with its fields (name, simplified type, nullability) plus the list of supported HogQL functions. Call this once up front when building a HogQL query from scratch so you pick real table and column names on the first attempt instead of guessing. Cheap — no ClickHouse cost.",
+        "description": "Return the HogQL catalog for the active project: every queryable table (PostHog, system, warehouse, view, materialized view, batch export, endpoint) keyed by name, with each table's fields, plus the join graph between data-warehouse tables. Call this once up front when building a HogQL query from scratch so you pick real table and column names on the first attempt instead of guessing. Cheap — no ClickHouse cost.",
         "category": "Insights & analytics",
-        "summary": "List tables, columns, and functions available to HogQL queries.",
+        "summary": "List tables and columns available to HogQL queries.",
         "feature": "insights",
         "title": "HogQL schema",
         "required_scopes": ["query:read"],

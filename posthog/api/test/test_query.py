@@ -380,34 +380,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response["detail"],
             )
 
-    def test_query_schema_endpoint_returns_tables_and_functions(self):
-        response = self.client.get(f"/api/environments/{self.team.id}/query/schema/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        payload = response.json()
-        self.assertIn("tables", payload)
-        self.assertIn("functions", payload)
-
-        table_names = {t["name"] for t in payload["tables"]}
-        self.assertIn("events", table_names)
-        self.assertIn("persons", table_names)
-        self.assertIn("sessions", table_names)
-
-        events = next(t for t in payload["tables"] if t["name"] == "events")
-        field_names = {f["name"] for f in events["fields"]}
-        self.assertIn("event", field_names)
-        self.assertIn("timestamp", field_names)
-        self.assertIn("distinct_id", field_names)
-        # The fields carry simplified type strings, not class names
-        timestamp = next(f for f in events["fields"] if f["name"] == "timestamp")
-        self.assertEqual(timestamp["type"], "datetime")
-
-        # Functions are a sorted list of HogQL-exposed names
-        self.assertGreater(len(payload["functions"]), 50)
-        self.assertIn("count", payload["functions"])
-        self.assertIn("toStartOfDay", payload["functions"])
-        self.assertEqual(payload["functions"], sorted(payload["functions"]))
-
     def test_hogql_error_is_enriched_with_metadata(self):
         query = {"kind": "HogQLQuery", "query": "SELECT user_id FROM events LIMIT 1"}
 

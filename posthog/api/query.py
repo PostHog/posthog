@@ -15,9 +15,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.schema import (
-    HogLanguage,
-    HogQLMetadata,
-    HogQLMetadataResponse,
     HogQLQuery,
     HogQLQueryModifiers,
     LimitContext as SchemaLimitContext,
@@ -30,11 +27,8 @@ from posthog.schema import (
 
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import DatabaseField, ExpressionField, FieldTraverser, LazyJoin, Table
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
-from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES
-from posthog.hogql.metadata import get_hogql_metadata
+from posthog.hogql.metadata import enrich_hogql_validation_error
 
 from posthog import settings
 from posthog.api.documentation import extend_schema
@@ -77,126 +71,6 @@ QUERY_VALIDATION_ERROR_TOTAL = Counter(
     "Query validation failures returned from the query API.",
     labelnames=["query_type", "validation_code"],
 )
-
-
-def _enrich_hogql_validation_error(
-    query: BaseModel | None,
-    team,
-    user,
-    original_detail: str,
-) -> tuple[str, dict | None]:
-    """
-    When a HogQL query fails, run it through metadata resolution to collect
-    structured error positions, table references, and any fix hints. Returns a
-    (possibly enriched) detail string and a dict suitable for exceptions_hog's
-    `extra` attribute — or (original_detail, None) when enrichment isn't
-    applicable or fails.
-    """
-    if not isinstance(query, HogQLQuery) or not query.query:
-        return original_detail, None
-
-    try:
-        metadata: HogQLMetadataResponse = get_hogql_metadata(
-            query=HogQLMetadata(
-                kind="HogQLMetadata",
-                language=HogLanguage.HOG_QL,
-                query=query.query,
-                modifiers=query.modifiers,
-                filters=query.filters,
-                connectionId=query.connectionId,
-            ),
-            team=team,
-            user=user,
-        )
-    except Exception:
-        return original_detail, None
-
-    lines: list[str] = [original_detail]
-
-    for notice in [*metadata.errors, *metadata.warnings, *metadata.notices]:
-        if notice.fix and notice.fix not in lines:
-            lines.append(f"Hint: {notice.fix}")
-
-    if metadata.table_names:
-        lines.append(f"Tables referenced: {', '.join(metadata.table_names)}")
-
-    extra = {"hogql_metadata": metadata.model_dump(mode="json", exclude_none=True)}
-    return "\n".join(lines), extra
-
-
-_FIELD_TYPE_BY_CLASS_NAME: dict[str, str] = {
-    "IntegerDatabaseField": "integer",
-    "FloatDatabaseField": "float",
-    "DecimalDatabaseField": "decimal",
-    "StringDatabaseField": "string",
-    "StringJSONDatabaseField": "json",
-    "StringArrayDatabaseField": "array<string>",
-    "FloatArrayDatabaseField": "array<float>",
-    "DateDatabaseField": "date",
-    "DateTimeDatabaseField": "datetime",
-    "BooleanDatabaseField": "boolean",
-    "UUIDDatabaseField": "uuid",
-    "StructDatabaseField": "struct",
-    "UnknownDatabaseField": "unknown",
-}
-
-
-def _describe_field(field_or_table) -> dict | None:
-    """Serialize a single field definition for the /query/schema/ payload.
-    Returns None for entries that aren't usable as query columns (unresolved
-    field references etc.), so the caller can drop them."""
-    if isinstance(field_or_table, DatabaseField):
-        return {
-            "name": field_or_table.name,
-            "type": _FIELD_TYPE_BY_CLASS_NAME.get(type(field_or_table).__name__, "unknown"),
-            "nullable": field_or_table.is_nullable(),
-        }
-    if isinstance(field_or_table, ExpressionField):
-        return {"name": field_or_table.name, "type": "expression", "nullable": False}
-    if isinstance(field_or_table, LazyJoin):
-        target = field_or_table.join_table
-        target_name = target if isinstance(target, str) else target.to_printed_hogql()
-        return {"name": None, "type": "join", "nullable": False, "join_table": target_name}
-    if isinstance(field_or_table, FieldTraverser):
-        return {"name": None, "type": "alias", "nullable": False, "chain": [str(x) for x in field_or_table.chain]}
-    if isinstance(field_or_table, Table):
-        # Nested tables are surfaced as their own top-level entries by get_all_table_names.
-        return None
-    return None
-
-
-def _serialize_table(database: Database, table_name: str) -> dict | None:
-    try:
-        table = database.get_table(table_name)
-    except Exception:
-        return None
-
-    fields: list[dict] = []
-    for column_name, field in table.fields.items():
-        payload = _describe_field(field)
-        if payload is None:
-            continue
-        if payload.get("name") is None:
-            payload["name"] = column_name
-        fields.append(payload)
-
-    return {"name": table_name, "fields": fields}
-
-
-def _build_query_schema_payload(team, user) -> dict:
-    """Build the response payload for GET /query/schema/ — one entry per
-    table visible to the caller, with field names and simplified types, plus
-    the catalog of HogQL functions the agent can call in a query."""
-    database = Database.create_for(team=team, user=user)
-    table_names = database.get_all_table_names()
-
-    tables: list[dict] = []
-    for table_name in table_names:
-        serialized = _serialize_table(database, table_name)
-        if serialized is not None:
-            tables.append(serialized)
-
-    return {"tables": tables, "functions": sorted(ALL_EXPOSED_FUNCTION_NAMES)}
 
 
 def _extract_validation_code(error: ValidationError) -> str:
@@ -248,7 +122,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "query"
     # Special case for query - these are all essentially read actions
-    scope_object_read_actions = ["retrieve", "create", "list", "destroy", "query_schema"]
+    scope_object_read_actions = ["retrieve", "create", "list", "destroy"]
     scope_object_write_actions: list[str] = []
     sharing_enabled_actions = ["retrieve"]
 
@@ -364,7 +238,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             detail = str(e)
             extra: dict | None = None
             if isinstance(e, ExposedHogQLError):
-                detail, extra = _enrich_hogql_validation_error(query, self.team, request.user, detail)
+                detail, extra = enrich_hogql_validation_error(query, self.team, request.user, detail)
             validation_error = ValidationError(detail, getattr(e, "code_name", None))
             if extra is not None:
                 validation_error.extra = extra  # type: ignore[attr-defined]
@@ -417,20 +291,6 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
     @action(methods=["POST"], detail=False)
     def check_auth_for_async(self, request: Request, *args, **kwargs):
         return JsonResponse({"user": "ok"}, status=status.HTTP_200_OK)
-
-    @extend_schema(
-        description=(
-            "Return the HogQL catalog for this project: every queryable table with "
-            "its fields (name, simplified type, nullability) plus the supported "
-            "function names. Intended as a one-shot discovery call for editors and "
-            "LLM agents building HogQL queries."
-        ),
-        responses={200: OpenApiResponse(description="Schema payload")},
-    )
-    @action(methods=["GET"], detail=False, url_path="schema")
-    def query_schema(self, request: Request, *args, **kwargs) -> Response:
-        payload = _build_query_schema_payload(team=self.team, user=request.user)
-        return Response(payload, status=status.HTTP_200_OK)
 
     @extend_schema(
         description="(Experimental)",
