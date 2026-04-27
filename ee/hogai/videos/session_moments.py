@@ -11,7 +11,7 @@ import structlog
 from google.genai import Client
 from google.genai.errors import APIError
 from google.genai.types import Blob, Content, Part, VideoMetadata
-from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttributes, WorkflowIDReusePolicy
 
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.user import User
@@ -19,6 +19,7 @@ from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
 from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
+from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
 
 from products.llm_analytics.backend.providers.gemini import GeminiProvider
@@ -162,6 +163,12 @@ class SessionMomentsLLMAnalyzer:
                 retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
                 execution_timeout=timedelta(minutes=30),
+                search_attributes=TypedSearchAttributes(
+                    search_attributes=[
+                        SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=self.team_id),
+                        SearchAttributePair(key=POSTHOG_SESSION_RECORDING_ID_KEY, value=self.session_id),
+                    ]
+                ),
             )
             # Return the asset ID for later retrieval
             return exported_asset.id
