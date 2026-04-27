@@ -1108,7 +1108,8 @@ def break_part(
                 f"ATTACH PARTITION '{partition_id}' FROM {database}.{staging_target}"
             )
 
-            # Verify the row delta matches what we expected from staging.
+            # Source row delta must be >= staging row count (concurrent inserts
+            # only inflate it — the check is one-sided).
             post_attach_rows = client.execute(
                 "SELECT sum(rows) FROM system.parts "
                 "WHERE database = %(db)s AND table = %(table)s AND active "
