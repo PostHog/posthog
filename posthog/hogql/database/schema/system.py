@@ -171,7 +171,14 @@ insights: PostgresTable = PostgresTable(
         "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
         "_saved": BooleanDatabaseField(name="saved", hidden=True),
         "saved": ExpressionField(name="saved", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_saved"])])),
+        "_favorited": BooleanDatabaseField(name="favorited", hidden=True),
+        "favorited": ExpressionField(
+            name="favorited", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_favorited"])])
+        ),
         "created_at": DateTimeDatabaseField(name="created_at"),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "last_modified_at": DateTimeDatabaseField(name="last_modified_at"),
+        "last_modified_by_id": IntegerDatabaseField(name="last_modified_by_id", nullable=True),
         "updated_at": DateTimeDatabaseField(name="updated_at"),
     },
 )
