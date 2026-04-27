@@ -18,6 +18,7 @@ from posthog.dags.data_deletion_requests import (
     execute_event_deletion,
     finalize_deletion_request,
     load_deletion_request,
+    load_person_removal_request,
     load_property_removal_request,
 )
 from posthog.models.data_deletion_request import DataDeletionRequest, ExecutionMode, RequestStatus, RequestType
@@ -879,3 +880,42 @@ def test_full_job_property_removal_clears_materialized_columns(
         assert request.status == RequestStatus.COMPLETED
     finally:
         cluster.any_host(partial(_drop_default_mat_columns, col_defs)).result()
+
+
+@pytest.mark.django_db
+def test_load_person_removal_request_transitions_to_in_progress():
+    request = DataDeletionRequest.objects.create(
+        team_id=TEAM_ID,
+        request_type=RequestType.PERSON_REMOVAL,
+        person_uuids=[str(uuid4())],
+        person_drop_profiles=True,
+        person_drop_events=True,
+        person_drop_recordings=False,
+        status=RequestStatus.APPROVED,
+    )
+    config = DataDeletionRequestConfig(request_id=str(request.pk))
+    ctx = build_op_context()
+
+    result = load_person_removal_request(ctx, config)
+
+    assert result.team_id == TEAM_ID
+    assert result.drop_profiles is True
+    assert result.drop_events is True
+    assert result.drop_recordings is False
+    request.refresh_from_db()
+    assert request.status == RequestStatus.IN_PROGRESS
+
+
+@pytest.mark.django_db
+def test_load_person_removal_rejects_wrong_type():
+    request = DataDeletionRequest.objects.create(
+        team_id=TEAM_ID,
+        request_type=RequestType.EVENT_REMOVAL,
+        events=["$pageview"],
+        start_time=datetime.now() - timedelta(days=1),
+        end_time=datetime.now(),
+        status=RequestStatus.APPROVED,
+    )
+    config = DataDeletionRequestConfig(request_id=str(request.pk))
+    with pytest.raises(Exception, match="not an approved person_removal request"):
+        load_person_removal_request(build_op_context(), config)

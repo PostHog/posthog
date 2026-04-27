@@ -51,6 +51,19 @@ class DeletionRequestContext:
     hogql_predicate: str = ""
 
 
+@dataclass
+class PersonRemovalContext:
+    request_id: str
+    team_id: int
+    person_uuids: list[str]
+    person_distinct_ids: list[str]
+    drop_profiles: bool
+    drop_events: bool
+    drop_recordings: bool
+    start_time: datetime | None = None
+    end_time: datetime | None = None
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -523,6 +536,70 @@ def cleanup_temp_tables(
         context.log.info(f"Shard {shard_num}: temp table dropped")
 
     return deletion_request
+
+
+# ---------------------------------------------------------------------------
+# Person removal ops
+# ---------------------------------------------------------------------------
+
+
+@dagster.op(tags=OWNER_TAG)
+def load_person_removal_request(
+    context: dagster.OpExecutionContext,
+    config: DataDeletionRequestConfig,
+) -> PersonRemovalContext:
+    """Load and validate a person_removal request, transition to IN_PROGRESS."""
+    from django.db import transaction
+
+    with transaction.atomic():
+        request = (
+            DataDeletionRequest.objects.select_for_update()
+            .filter(
+                pk=config.request_id,
+                status=RequestStatus.APPROVED,
+                request_type=RequestType.PERSON_REMOVAL,
+            )
+            .first()
+        )
+
+        if not request:
+            raise dagster.Failure(
+                f"Request {config.request_id} is not an approved person_removal request.",
+            )
+
+        request.status = RequestStatus.IN_PROGRESS
+        request.save(update_fields=["status", "updated_at"])
+
+    context.log.info(
+        f"Processing person_removal request {request.pk}: "
+        f"team_id={request.team_id}, "
+        f"uuids={len(request.person_uuids)}, distinct_ids={len(request.person_distinct_ids)}, "
+        f"drop_profiles={request.person_drop_profiles}, "
+        f"drop_events={request.person_drop_events}, "
+        f"drop_recordings={request.person_drop_recordings}"
+    )
+    context.add_output_metadata(
+        {
+            "team_id": dagster.MetadataValue.int(request.team_id),
+            "uuid_count": dagster.MetadataValue.int(len(request.person_uuids)),
+            "distinct_id_count": dagster.MetadataValue.int(len(request.person_distinct_ids)),
+            "drop_profiles": dagster.MetadataValue.bool(request.person_drop_profiles),
+            "drop_events": dagster.MetadataValue.bool(request.person_drop_events),
+            "drop_recordings": dagster.MetadataValue.bool(request.person_drop_recordings),
+        }
+    )
+
+    return PersonRemovalContext(
+        request_id=str(request.pk),
+        team_id=request.team_id,
+        person_uuids=[str(u) for u in request.person_uuids],
+        person_distinct_ids=list(request.person_distinct_ids),
+        drop_profiles=request.person_drop_profiles,
+        drop_events=request.person_drop_events,
+        drop_recordings=request.person_drop_recordings,
+        start_time=request.start_time,
+        end_time=request.end_time,
+    )
 
 
 # ---------------------------------------------------------------------------
