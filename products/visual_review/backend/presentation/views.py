@@ -340,6 +340,14 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             run = api.complete_run(UUID(pk), team_id=self.team_id)
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+        except api.GitHubRateLimitError as e:
+            response = Response(
+                {"detail": "GitHub API rate limit exceeded. Please retry later.", "code": "rate_limited"},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+            if e.retry_after:
+                response["Retry-After"] = str(e.retry_after)
+            return response
         return Response(RunSerializer(instance=run).data)
 
     @validated_request(
@@ -386,6 +394,14 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         except api.PRSHAMismatchError as e:
             return Response({"detail": str(e), "code": "sha_mismatch"}, status=status.HTTP_409_CONFLICT)
+        except api.GitHubRateLimitError as e:
+            response = Response(
+                {"detail": "GitHub API rate limit exceeded. Please retry later.", "code": "rate_limited"},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+            if e.retry_after:
+                response["Retry-After"] = str(e.retry_after)
+            return response
         except api.GitHubCommitError:
             return Response({"detail": "GitHub commit failed"}, status=status.HTTP_502_BAD_GATEWAY)
 

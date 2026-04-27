@@ -319,8 +319,20 @@ class ExperimentService:
                 kind = node.get("kind")
                 if kind == "EventsNode":
                     event = node.get("event")
-                    if event is not None:
+                    # Treat None and empty/whitespace-only strings as "no event"
+                    # (semantically equivalent to "All events"). The pydantic
+                    # schema permits "" but it can't reference a real event.
+                    if isinstance(event, str) and event.strip():
                         event_names.add(event)
+                    elif event is not None and not isinstance(event, str):
+                        # Pydantic should have rejected non-str/None upstream;
+                        # log so we can catch any path that bypassed validation
+                        # rather than silently dropping the value.
+                        logger.warning(
+                            "experiment_metric_unexpected_event_type",
+                            event_type=type(event).__name__,
+                            event_value=repr(event)[:100],
+                        )
                 elif kind == "ActionsNode":
                     if (action_id := node.get("id")) is not None:
                         action_ids.add(int(action_id))
@@ -354,13 +366,18 @@ class ExperimentService:
             )
 
     def validate_metric_event_names(self, metrics: list[dict] | None) -> None:
-        """Validate that all EventsNode event names have been seen by this team.
+        """Validate that all EventsNode event names have been seen by this project.
 
         The frontend event picker already prevents selecting unknown events, so an
         unrecognized name coming through the API is almost certainly a typo.
         Callers that intentionally reference not-yet-ingested events (e.g. setting up
         an experiment before deploying the emitting code) can pass
         ``allow_unknown_events=True`` to bypass this check.
+
+        Scope must match the picker: the EventDefinition list endpoint is
+        project-scoped (see posthog/api/event_definition.py), so a user in a
+        multi-team project can pick an event ingested by a sibling team. We
+        mirror that scope here to avoid rejecting legitimate selections.
         """
         event_names, _ = self._extract_entity_nodes(metrics)
         if not event_names:
@@ -368,14 +385,30 @@ class ExperimentService:
 
         from products.event_definitions.backend.models.event_definition import EventDefinition
 
+        project_id = self.team.project_id
+        # Uses `team_id = project_id` (not team_id = self.team.id)
+        # on purpose: legacy EventDefinitions (project_id IS NULL) belong to the
+        # *primary* team, and primary_team.id == project.id by convention. This
+        # mirrors the picker SQL in posthog/api/event_definition.py so sibling
+        # teams can validate against legacy primary-team events the picker shows.
         existing = set(
             EventDefinition.objects.filter(
-                team_id=self.team.id,
+                Q(project_id=project_id) | Q(project_id__isnull=True, team_id=project_id),
                 name__in=event_names,
             ).values_list("name", flat=True)
         )
         unknown = event_names - existing
         if unknown:
+            # Capture the rejected payload shape so we can identify clients
+            # that send malformed metrics (e.g. event="").
+            logger.warning(
+                "experiment_metric_event_validation_rejected",
+                team_id=self.team.id,
+                project_id=project_id,
+                unknown_events=sorted(unknown),
+                all_extracted_events=sorted(event_names),
+                metrics_count=len(metrics) if metrics else 0,
+            )
             unknown_str = ", ".join(f"'{name}'" for name in sorted(unknown))
             raise ValidationError(
                 f"Event(s) {unknown_str} not found. "

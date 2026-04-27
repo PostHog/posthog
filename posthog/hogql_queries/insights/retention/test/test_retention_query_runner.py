@@ -6749,7 +6749,7 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
                         "cumulative": True,
                     },
                 },
-            )
+            ).calculate()
 
     def test_custom_brackets_day_period(self):
         """
