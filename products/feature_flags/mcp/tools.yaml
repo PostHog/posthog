@@ -314,6 +314,7 @@ tools:
         enabled: false
     feature-flags-test-evaluation-create:
         operation: feature_flags_test_evaluation_create
+        enabled: false
     org-feature-flags-retrieve:
         operation: org_feature_flags_retrieve
         enabled: false
