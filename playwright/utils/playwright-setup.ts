@@ -129,7 +129,7 @@ class NonRetryableError extends Error {
  * Main class for setting up PostHog workspaces in tests
  */
 export class PlaywrightSetup {
-    private _request: APIRequestContext | null = null
+    private _requestPromise: Promise<APIRequestContext> | null = null
     private baseURL: string
 
     constructor(baseURL?: string) {
@@ -137,17 +137,18 @@ export class PlaywrightSetup {
         this.baseURL = baseURL || process.env.BASE_URL || 'http://localhost:8080'
     }
 
-    private async getRequest(): Promise<APIRequestContext> {
-        if (!this._request) {
-            this._request = await playwrightRequest.newContext({ baseURL: this.baseURL })
+    private getRequest(): Promise<APIRequestContext> {
+        if (!this._requestPromise) {
+            this._requestPromise = playwrightRequest.newContext({ baseURL: this.baseURL })
         }
-        return this._request
+        return this._requestPromise
     }
 
     async dispose(): Promise<void> {
-        if (this._request) {
-            await this._request.dispose()
-            this._request = null
+        if (this._requestPromise) {
+            const request = await this._requestPromise
+            this._requestPromise = null
+            await request.dispose()
         }
     }
 
