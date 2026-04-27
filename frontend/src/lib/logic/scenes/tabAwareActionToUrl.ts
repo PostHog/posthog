@@ -16,6 +16,12 @@ export const tabAwareActionToUrl = <L extends Logic = Logic>(
                 k,
                 (payload: Record<string, any>): any => {
                     if (v) {
+                        // kea-router can dispatch via this wrapper after the per-tab logic
+                        // has unmounted; calling action creators on it would throw
+                        // "X.create is not a function".
+                        if (!logic.isMounted()) {
+                            return undefined
+                        }
                         // Check if sceneLogic is mounted before accessing values
                         if (!sceneLogic.isMounted()) {
                             // If sceneLogic is not mounted, just execute the original action

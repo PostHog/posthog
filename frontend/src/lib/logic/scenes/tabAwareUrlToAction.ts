@@ -13,6 +13,12 @@ export const tabAwareUrlToAction = <L extends Logic = Logic>(
             Object.entries(finalInput).map(([k, v]) => [
                 k,
                 (params: any, searchParams: any, hashParams: any, payload: any, previousLocation: any): any => {
+                    // kea-router's popListener can fire after the per-tab logic has unmounted
+                    // (e.g. during a deep-link load like /sql#q=...). Dispatching an action on
+                    // an unmounted logic throws "X.create is not a function".
+                    if (!logic.isMounted()) {
+                        return
+                    }
                     // Check if sceneLogic is mounted before accessing values
                     if (!sceneLogic.isMounted()) {
                         // If sceneLogic is not mounted, just execute the original action
