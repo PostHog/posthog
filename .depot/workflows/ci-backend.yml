@@ -555,8 +555,10 @@ jobs:
         # increase for tmate testing
         timeout-minutes: 60
         name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
-        # Runner type is performance-critical — consult #team-devex before changing
-        runs-on: depot-ubuntu-latest
+        # Runner type is performance-critical — consult #team-devex before changing.
+        # Shadow trial: bumped from depot-ubuntu-latest (2 vCPU / 8 GB) to -4 (4 vCPU / 16 GB)
+        # because django_db_setup migration replay was tipping past the 600s pytest-timeout.
+        runs-on: depot-ubuntu-24.04-4
         strategy:
             fail-fast: false
             matrix:
@@ -809,7 +811,7 @@ jobs:
                   MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
               run: |
                   set +e
-                  pytest -v --tb=short --timeout=600 --timeout-method=thread posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
+                  pytest -v --tb=short --timeout=1200 --timeout-method=thread posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 \
                       --splitting-algorithm=duration_based_chunks \
