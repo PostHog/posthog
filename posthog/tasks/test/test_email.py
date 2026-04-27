@@ -176,6 +176,24 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
 
+    @patch("posthoganalytics.capture")
+    def test_send_email_verification_without_current_organization(
+        self, mock_capture: MagicMock, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        user = User.objects.create(email="orgless@posthog.com", first_name="Orgless")
+        assert user.current_organization is None
+        token = email_verification_token_generator.make_token(user)
+
+        send_email_verification(user.id, token)
+
+        mock_capture.assert_called_once_with(
+            event="verification email sent",
+            distinct_id=str(user.distinct_id),
+        )
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+
     def test_send_fatal_plugin_error(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")

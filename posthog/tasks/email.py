@@ -402,11 +402,13 @@ def send_email_verification(user_id: int, token: str, next_url: str | None = Non
     )
     message.add_user_recipient(user, email_override=user.pending_email)
     message.send(send_async=False)
-    posthoganalytics.capture(
-        distinct_id=str(user.distinct_id),
-        event="verification email sent",
-        groups={"organization": str(user.current_organization.id)},  # type: ignore
-    )
+    capture_kwargs: dict[str, Any] = {
+        "distinct_id": str(user.distinct_id),
+        "event": "verification email sent",
+    }
+    if user.current_organization is not None:
+        capture_kwargs["groups"] = {"organization": str(user.current_organization.id)}
+    posthoganalytics.capture(**capture_kwargs)
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
@@ -430,11 +432,13 @@ def send_email_mfa_link(user_id: int, token: str) -> None:
     )
     message.add_user_recipient(user)
     message.send(send_async=False)
-    posthoganalytics.capture(
-        distinct_id=str(user.distinct_id),
-        event="email mfa link sent",
-        groups={"organization": str(user.current_organization.id)},  # type: ignore
-    )
+    capture_kwargs: dict[str, Any] = {
+        "distinct_id": str(user.distinct_id),
+        "event": "email mfa link sent",
+    }
+    if user.current_organization is not None:
+        capture_kwargs["groups"] = {"organization": str(user.current_organization.id)}
+    posthoganalytics.capture(**capture_kwargs)
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
