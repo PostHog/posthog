@@ -179,6 +179,7 @@ export function createExecTool(
                         }
                     }
 
+                    const useJson = forceJson || tool._meta?.[POSTHOG_META_KEY]?.outputFormat === 'json'
                     const startedAt = Date.now()
                     let result: unknown
                     try {
@@ -187,7 +188,7 @@ export function createExecTool(
                         trackInnerCall?.(tool.name, {
                             duration_ms: Date.now() - startedAt,
                             success: false,
-                            output_format: forceJson ? 'json' : 'text',
+                            output_format: useJson ? 'json' : 'text',
                             error_message: err instanceof Error ? err.message : String(err),
                         })
                         throw err
@@ -225,7 +226,6 @@ export function createExecTool(
                         )
                     }
 
-                    const useJson = forceJson || tool._meta?.[POSTHOG_META_KEY]?.outputFormat === 'json'
                     trackInnerCall?.(tool.name, {
                         duration_ms: durationMs,
                         success: true,
