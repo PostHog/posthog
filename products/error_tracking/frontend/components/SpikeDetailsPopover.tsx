@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
 
-import { LemonSkeleton, Popover } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton, Popover } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { ErrorTrackingSpikeEvent } from 'lib/components/Errors/types'
@@ -41,6 +41,7 @@ export function SpikeDetailsPopover({
 
     const [zoomData, setZoomData] = useState<SparklineData | null>(null)
     const [loading, setLoading] = useState(true)
+    const [hasZoomError, setHasZoomError] = useState(false)
 
     const center = useMemo(() => dayjs(spikeEvent?.detected_at ?? datum.date), [spikeEvent, datum])
     const zoomDateFrom = useMemo(() => center.subtract(ZOOM_WINDOW_MINUTES / 2, 'minute'), [center])
@@ -49,6 +50,8 @@ export function SpikeDetailsPopover({
     useEffect(() => {
         let cancelled = false
         setLoading(true)
+        setHasZoomError(false)
+        setZoomData(null)
         const run = async (): Promise<void> => {
             try {
                 const response = await api.query(
@@ -73,6 +76,11 @@ export function SpikeDetailsPopover({
                     response.results?.[0]?.aggregations ?? undefined
                 const buckets = aggregations?.volume_buckets ?? []
                 setZoomData(buckets.map(({ label, value }) => ({ value, date: new Date(label) })))
+            } catch {
+                if (!cancelled) {
+                    setZoomData(null)
+                    setHasZoomError(true)
+                }
             } finally {
                 if (!cancelled) {
                     setLoading(false)
@@ -120,7 +128,12 @@ export function SpikeDetailsPopover({
                         </div>
                         <div className="text-xs text-muted">{ZOOM_WINDOW_MINUTES}-minute window centered on spike</div>
                         <div className="h-[120px] w-full">
-                            {loading || !zoomData ? (
+                            {hasZoomError ? (
+                                <LemonBanner type="error" className="mb-0 h-full min-h-0 text-xs">
+                                    Could not load the volume window for this spike. Try again or open the full issue
+                                    view.
+                                </LemonBanner>
+                            ) : loading || !zoomData ? (
                                 <LemonSkeleton className="w-full h-full" />
                             ) : (
                                 <VolumeSparkline
