@@ -11,7 +11,7 @@ from urllib import parse
 from django.conf import settings
 from django.contrib import admin, messages
 from django.core.files.uploadedfile import UploadedFile
-from django.forms import ModelForm
+from django.forms import ModelForm, ValidationError
 from django.http import HttpResponse, HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
@@ -67,7 +67,7 @@ class TeamAdminForm(ModelForm):
         if value is None:
             return []
         if not isinstance(value, list):
-            raise forms.ValidationError("test_account_filters must be a JSON list (e.g. `[]`).")
+            raise ValidationError("test_account_filters must be a JSON list (e.g. `[]`).")
         return value
 
 
