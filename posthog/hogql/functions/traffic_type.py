@@ -110,22 +110,16 @@ def get_traffic_category(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     return _build_bot_array_lookup(args[0], "category", default="regular", empty_ua_value="no_user_agent")
 
 
-def is_bot(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
+def is_bot_by_user_agent(user_agent_expr: ast.Expr) -> ast.Expr:
+    """Returns true if the user agent matches a known bot pattern, false otherwise.
+
+    NULL/empty user agents return false — missing data is not a confirmed bot.
+    This is one detection signal; the virtual property $virt_is_bot may combine
+    multiple signals (e.g., HTTP headers, IP reputation) via create_is_bot_field().
     """
-    HogQL function: __preview_isBot(user_agent)
-
-    EXPERIMENTAL: This function may change without notice.
-
-    Returns true if the user agent matches bot/automation patterns, false otherwise.
-    NULL user agents are treated as bots (empty UA is considered automation).
-
-    Uses multiMatchAnyIndex for efficient single-pass matching (same as get_traffic_type etc.).
-    """
-    user_agent_expr = args[0]
-
     safe_user_agent = ast.Call(name="ifNull", args=[user_agent_expr, ast.Constant(value="")])
 
-    patterns = [*BOT_DEFINITIONS.keys(), "^$"]
+    patterns = [*BOT_DEFINITIONS.keys()]
     patterns_array = ast.Array(exprs=[ast.Constant(value=p) for p in patterns])
 
     index_call = ast.Call(name="multiMatchAnyIndex", args=[safe_user_agent, patterns_array])
@@ -135,6 +129,19 @@ def is_bot(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
         left=index_call,
         right=ast.Constant(value=0),
     )
+
+
+def is_bot(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
+    """
+    HogQL function: __preview_isBot(user_agent)
+
+    EXPERIMENTAL: This function may change without notice.
+
+    Returns true if the user agent matches a known bot pattern, false otherwise.
+    NULL/empty user agents return false — missing data is not a confirmed bot.
+    Use __preview_getTrafficCategory() to find events with no user agent (returns 'no_user_agent').
+    """
+    return is_bot_by_user_agent(args[0])
 
 
 def get_bot_type(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:

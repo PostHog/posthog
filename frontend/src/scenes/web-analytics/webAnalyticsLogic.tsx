@@ -671,13 +671,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 operator: PropertyOperator.Exact,
                                 type: PropertyFilterType.Event,
                             },
-                            {
-                                // Exclude events with no user agent — these are missing data, not confirmed bots
-                                key: '$virt_traffic_category',
-                                value: ['no_user_agent'],
-                                operator: PropertyOperator.IsNot,
-                                type: PropertyFilterType.Event,
-                            },
                         ]
                     }
                 }

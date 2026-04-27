@@ -217,7 +217,7 @@ class TestTrafficTypeIntegration(BaseTest):
         )
         assert len(response.results) == 1
         is_bot, traffic_type, category, bot_name = response.results[0]
-        assert is_bot == 1
+        assert is_bot == 0  # Missing UA is not a confirmed bot
         assert traffic_type == "Automation"
         assert category == "no_user_agent"
         assert bot_name == ""
@@ -236,7 +236,7 @@ class TestTrafficTypeIntegration(BaseTest):
         response = self._query_tagged("`$virt_is_bot`, `$virt_traffic_type`, `$virt_traffic_category`", tag)
         assert len(response.results) == 1
         is_bot, traffic_type, category = response.results[0]
-        assert is_bot == 1
+        assert is_bot == 0  # Missing UA is not a confirmed bot
         assert traffic_type == "Automation"
         assert category == "no_user_agent"
 
