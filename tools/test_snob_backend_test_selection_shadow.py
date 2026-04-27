@@ -232,6 +232,20 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
 
         self.assertTrue(any("too many changed files" in r for r in result.full_run_reasons))
 
+    def test_high_fanout_file_signals_full_run(self) -> None:
+        selection = _load_selection_module()
+
+        original_path = selection.HIGH_FANOUT_PATH
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+                f.write("posthog/redis.py\nposthog/models/team/team.py\n")
+                selection.HIGH_FANOUT_PATH = Path(f.name)
+
+            result = selection.ast_select_tests(["posthog/redis.py"], {})
+            self.assertTrue(any("high-fanout" in r for r in result.full_run_reasons))
+        finally:
+            selection.HIGH_FANOUT_PATH = original_path
+
     def test_changed_tests_do_not_trigger_full_run_patterns(self) -> None:
         selection = _load_selection_module()
 

@@ -40,6 +40,7 @@ from pathlib import Path, PurePosixPath
 
 REPO_ROOT = Path(__file__).parent.parent.resolve()
 DURATIONS_PATH = REPO_ROOT / ".test_durations"
+HIGH_FANOUT_PATH = Path(__file__).parent / "testmon_high_fanout_files.txt"
 
 LOCAL_ROOTS = ("posthog", "ee", "products", "common", "dags")
 HTTP_METHODS = {"delete", "get", "head", "options", "patch", "post", "put"}
@@ -214,6 +215,18 @@ def _api_tokens_from_strings(strings: set[str]) -> tuple[str, ...]:
             if clean and clean not in {"api", "projects", "environments", "current", "team_id", "project_id"}:
                 tokens.update(_normal_tokens(clean))
     return tuple(sorted(tokens))
+
+
+def _load_high_fanout_files() -> frozenset[str]:
+    """Load the list of files that testmon shows affecting >50% of all tests.
+
+    Generated from testmon runtime coverage data. Any change to these files
+    should trigger a full test run because the selector can't narrow down
+    which tests are actually affected.
+    """
+    if not HIGH_FANOUT_PATH.exists():
+        return frozenset()
+    return frozenset(line.strip() for line in HIGH_FANOUT_PATH.read_text().splitlines() if line.strip())
 
 
 def _is_signal_handler_file(path: str) -> bool:
@@ -407,6 +420,7 @@ def ast_select_tests(changed_files: list[str], features_by_path: dict[str, TestF
     posthog_api_tokens: set[str] = set()
 
     changed_prod_files = [p for p in changed_files if not _is_test_file(p) and p.endswith(".py")]
+    high_fanout = _load_high_fanout_files()
 
     for path in changed_files:
         if not _is_test_file(path):
@@ -414,6 +428,8 @@ def ast_select_tests(changed_files: list[str], features_by_path: dict[str, TestF
                 if pattern in path:
                     full_run_reasons.append(f"{path} matches full-run pattern {pattern}")
                     break
+            if path in high_fanout:
+                full_run_reasons.append(f"{path} is a high-fanout file (testmon: >50% of tests)")
 
         if not _is_api_surface_change(path):
             continue
