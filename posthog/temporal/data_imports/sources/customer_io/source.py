@@ -71,6 +71,7 @@ class CustomerIOSource(
             docsUrl="https://posthog.com/docs/cdp/sources/customer-io",
             fields=cast(list[FieldType], []),
             releaseStatus=ReleaseStatus.ALPHA,
+            featureFlag="dwh-customer-io",
             webhookSetupCaption="""To set up the webhook manually:
 
 1. Go to your [Customer.io workspace > Data & Integrations > Integrations > Reporting Webhooks](https://fly.customer.io/settings/webhooks/new/reporting_webhook)
