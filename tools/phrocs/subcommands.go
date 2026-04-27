@@ -187,18 +187,26 @@ func runStop(timeoutSec int) int {
 		// Wait for the socket to actually disappear.
 		for time.Now().Before(deadline) {
 			if _, err := net.DialTimeout("unix", sock, 100*time.Millisecond); err != nil {
-				// No longer reachable — detached phrocs has torn down.
-				_ = os.Remove(pidFilePath())
-				fmt.Println("phrocs stopped")
-				return 0
+				// Dial failed — but a fresh detached could race in between
+				// the old process releasing the lock and us cleaning up.
+				// Confirm via the pidfile lock that nobody is holding it
+				// before we declare success and remove the pidfile.
+				// Treat lock-check errors as "still held" so a transient
+				// failure can't cause us to wipe a live process's pidfile.
+				if held, lerr := pidfileLockHeld(); lerr == nil && !held {
+					_ = os.Remove(pidFilePath())
+					fmt.Println("phrocs stopped")
+					return 0
+				}
 			}
 			time.Sleep(100 * time.Millisecond)
 		}
 		// Deadline reached with socket still present. Before escalating,
 		// check whether the detached phrocs finished its graceful shutdown
-		// between our last dial and this check — its defer removes the
-		// pidfile on a clean exit, so ENOENT here means "done, just slow".
-		if _, err := os.Stat(pidFilePath()); errors.Is(err, os.ErrNotExist) {
+		// between our last dial and this check. Use the lock rather than
+		// pidfile presence so a racing fresh detached doesn't trick us.
+		if held, lerr := pidfileLockHeld(); lerr == nil && !held {
+			_ = os.Remove(pidFilePath())
 			_ = os.Remove(sock)
 			fmt.Println("phrocs stopped")
 			return 0
