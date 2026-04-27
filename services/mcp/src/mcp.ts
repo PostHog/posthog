@@ -80,10 +80,10 @@ export class MCP extends McpAgent<Env> {
 
     _sessionManager: SessionManager | undefined
 
-    _clientInfoPromise: Promise<void> | undefined
-    _mcpClientName: string | undefined
-    _mcpClientVersion: string | undefined
-    _mcpProtocolVersion: string | undefined
+    private clientInfoResolved = false
+    private mcpClientName: string | undefined
+    private mcpClientVersion: string | undefined
+    private mcpProtocolVersion: string | undefined
 
     get requestProperties(): RequestProperties {
         return this.props as RequestProperties
@@ -110,33 +110,26 @@ export class MCP extends McpAgent<Env> {
     }
 
     async resolveClientInfo(): Promise<void> {
-        if (!this._clientInfoPromise) {
-            this._clientInfoPromise = this._doResolveClientInfo()
-        }
-        return this._clientInfoPromise
-    }
-
-    private _seedClientInfoFromProps(): boolean {
-        const { mcpClientName, mcpClientVersion, mcpProtocolVersion } = this.requestProperties
-        if (!mcpClientName && !mcpClientVersion) {
-            return false
-        }
-        this._mcpClientName = mcpClientName
-        this._mcpClientVersion = mcpClientVersion
-        this._mcpProtocolVersion = mcpProtocolVersion
-        return true
-    }
-
-    private async _doResolveClientInfo(): Promise<void> {
-        // Prefer values parsed from the current request body (see
-        // `extractClientInfoFromBody` in index.ts). This is the only path
-        // that works on first-connect, because the framework's
-        // `getInitializeRequest()` reads from DO storage which is only written
-        // *after* `onStart`/`init()` has already run.
-        if (this._seedClientInfoFromProps()) {
+        if (this.clientInfoResolved) {
             return
         }
 
+        // Prefer values parsed from the current request body (see
+        // `extractClientInfoFromBody` in index.ts). This is the only path
+        // that works during init(), because the framework's async
+        // `getInitializeRequest()` reads DO storage which is only written
+        // *after* `onStart`/`init()` has run.
+        const { mcpClientName, mcpClientVersion, mcpProtocolVersion } = this.requestProperties
+        if (mcpClientName || mcpClientVersion) {
+            this.mcpClientName = mcpClientName
+            this.mcpClientVersion = mcpClientVersion
+            this.mcpProtocolVersion = mcpProtocolVersion
+            this.clientInfoResolved = true
+            return
+        }
+
+        // Fallback: read the saved initialize message from DO storage.
+        // Post-init only — during init() this storage write has not landed.
         try {
             const initRequest = await this.getInitializeRequest()
             if (!initRequest || !('params' in initRequest)) {
@@ -155,11 +148,13 @@ export class MCP extends McpAgent<Env> {
                 return
             }
 
-            this._mcpClientName = sanitizeHeaderValue(params.clientInfo?.name)
-            this._mcpClientVersion = sanitizeHeaderValue(params.clientInfo?.version)
-            this._mcpProtocolVersion = sanitizeHeaderValue(params.protocolVersion)
-        } catch {
-            // skip
+            this.mcpClientName = sanitizeHeaderValue(params.clientInfo?.name)
+            this.mcpClientVersion = sanitizeHeaderValue(params.clientInfo?.version)
+            this.mcpProtocolVersion = sanitizeHeaderValue(params.protocolVersion)
+            this.clientInfoResolved = true
+        } catch (error) {
+            // stay unresolved so a later caller can retry
+            console.error('[MCP] resolveClientInfo fallback failed:', error)
         }
     }
 
@@ -221,9 +216,9 @@ export class MCP extends McpAgent<Env> {
                 apiToken: this.requestProperties.apiToken,
                 baseUrl,
                 clientUserAgent: this.requestProperties.clientUserAgent,
-                mcpClientName: this._mcpClientName,
-                mcpClientVersion: this._mcpClientVersion,
-                mcpProtocolVersion: this._mcpProtocolVersion,
+                mcpClientName: this.mcpClientName,
+                mcpClientVersion: this.mcpClientVersion,
+                mcpProtocolVersion: this.mcpProtocolVersion,
                 mcpConsumer: this.requestProperties.mcpConsumer,
             })
         }
@@ -320,9 +315,9 @@ export class MCP extends McpAgent<Env> {
                           }
                         : {}),
                     ...(clientName ? { mcp_oauth_client_name: clientName } : {}),
-                    ...(this._mcpClientName ? { mcp_client_name: this._mcpClientName } : {}),
-                    ...(this._mcpClientVersion ? { mcp_client_version: this._mcpClientVersion } : {}),
-                    ...(this._mcpProtocolVersion ? { mcp_protocol_version: this._mcpProtocolVersion } : {}),
+                    ...(this.mcpClientName ? { mcp_client_name: this.mcpClientName } : {}),
+                    ...(this.mcpClientVersion ? { mcp_client_version: this.mcpClientVersion } : {}),
+                    ...(this.mcpProtocolVersion ? { mcp_protocol_version: this.mcpProtocolVersion } : {}),
                     ...(this.requestProperties.mcpConsumer ? { mcp_consumer: this.requestProperties.mcpConsumer } : {}),
                     ...(this.requestProperties.transport ? { mcp_transport: this.requestProperties.transport } : {}),
                     ...contextProperties,
@@ -415,7 +410,7 @@ export class MCP extends McpAgent<Env> {
                     toolMeta: tool._meta,
                     toolName: tool.name,
                     params,
-                    clientName: this._mcpClientName,
+                    clientName: this.mcpClientName,
                     distinctId,
                 })
             } catch (error: any) {
@@ -469,13 +464,18 @@ export class MCP extends McpAgent<Env> {
     async init(): Promise<void> {
         const { features, tools, version: clientVersion, organizationId, projectId, readOnly } = this.requestProperties
 
-        // Seed the MCP client-info fields from request properties (parsed from
-        // the JSON-RPC initialize message in the request body at the worker
-        // entry point). This must happen before any code reads
-        // `this._mcpClientName` — most importantly the `useSingleExec`
-        // decision below. Without this, first-connect sessions make tool
-        // registration decisions with an undefined client name.
-        this._seedClientInfoFromProps()
+        // Resolve MCP client info before any code reads it — most importantly
+        // the `useSingleExec` decision below. During init() this resolves from
+        // request properties (populated by `extractClientInfoFromBody` at the
+        // worker entry point); the DO-storage fallback inside
+        // `resolveClientInfo` is only reachable post-init.
+        await this.resolveClientInfo()
+
+        const clientProfile = new MCPClientProfile({
+            clientName: this.mcpClientName,
+            clientVersion: this.mcpClientVersion,
+            consumer: this.requestProperties.mcpConsumer,
+        })
 
         // Start feature flag resolution in parallel with cache seeding
         const flagPromise = this.resolveVersionFlag()
@@ -515,17 +515,11 @@ export class MCP extends McpAgent<Env> {
             singleExecPromise,
         ])
 
-        const clientProfile = new MCPClientProfile({
-            clientName: this._mcpClientName,
-            clientVersion: this._mcpClientVersion,
-            consumer: this.requestProperties.mcpConsumer,
-        })
-
         // Restrict single-exec mode to coding agents only — Cursor and other clients that
         // render `structuredContent` in their UI need the full per-tool roster, not the
-        // wrapped CLI. `_mcpClientName` is seeded from request properties at the top of
-        // `init()` so this decision sees the real value on first-connect. PostHog's agent
-        // wrapper self-identifies via the `x-posthog-mcp-consumer` header and forces
+        // wrapped CLI. `resolveClientInfo` is awaited at the top of `init()` so this
+        // decision sees the real value on first-connect. PostHog's agent wrapper
+        // self-identifies via the `x-posthog-mcp-consumer` header and forces
         // single-exec regardless of the wrapped client's reported name.
         const useSingleExec =
             singleExecFlagOn && (clientProfile.isCodingAgent() || clientProfile.isPostHogCodeConsumer())
@@ -648,9 +642,9 @@ export class MCP extends McpAgent<Env> {
                 this.requestProperties.sessionId
                     ? this.sessionManager.getSessionUuid(this.requestProperties.sessionId)
                     : undefined,
-            getMcpClientName: async () => this._mcpClientName,
-            getMcpClientVersion: async () => this._mcpClientVersion,
-            getMcpProtocolVersion: async () => this._mcpProtocolVersion,
+            getMcpClientName: async () => this.mcpClientName,
+            getMcpClientVersion: async () => this.mcpClientVersion,
+            getMcpProtocolVersion: async () => this.mcpProtocolVersion,
             // Prefer the cached region (set on init after detection) so we don't miss it
             // when the inbound request didn't include the `region` hint.
             getRegion: async () => (await this.cache.get('region')) ?? this.requestProperties.region,

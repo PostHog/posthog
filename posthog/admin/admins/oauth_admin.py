@@ -117,6 +117,8 @@ class OAuthApplicationAdmin(admin.ModelAdmin):
                 "provisioning_auth_method",
                 "provisioning_partner_type",
                 "provisioning_active",
+                "provisioning_skip_existing_user_consent",
+                "provisioning_can_issue_deep_links",
                 "provisioning_can_create_accounts",
                 "provisioning_can_provision_resources",
                 "provisioning_rate_limit_account_requests",

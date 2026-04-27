@@ -9,6 +9,7 @@ from posthog.test.base import (
     _create_event,
     flush_persons_and_events,
     get_indexes_from_explain,
+    materialized,
 )
 
 from django.test import override_settings
@@ -234,6 +235,131 @@ class TestPropertyTypes(BaseTest):
             "clickhouse",
         )
         return pretty_print_in_tests(query, self.team.pk)
+
+
+class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
+    def _print_select(self, select: str):
+        expr = parse_select(select)
+        query, _ = prepare_and_print_ast(
+            expr,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "clickhouse",
+        )
+        return pretty_print_in_tests(query, self.team.pk)
+
+    @parameterized.expand(
+        [
+            ("bare_properties", "select JSONExtractString(properties, '$browser') from events"),
+            ("table_alias", "select JSONExtractString(e.properties, '$browser') from events e"),
+        ]
+    )
+    def test_jsonextractstring_rewritten_to_mat_column(self, _name: str, query: str):
+        with materialized("events", "$browser"):
+            printed = self._print_select(query)
+            assert "mat_$browser" in printed, f"Expected mat_$browser in output, got: {printed}"
+            assert "JSONExtractString" not in printed, f"Expected no JSONExtractString, got: {printed}"
+
+    def test_jsonextractstring_rewrites_all_calls_in_same_query(self):
+        with materialized("events", "$browser"), materialized("events", "$os"):
+            printed = self._print_select(
+                "select JSONExtractString(properties, '$browser'), JSONExtractString(properties, '$os') from events"
+            )
+            assert "mat_$browser" in printed, printed
+            assert "mat_$os" in printed, printed
+            assert "JSONExtractString(events.properties" not in printed, printed
+
+    @parameterized.expand(
+        [
+            ("no_mat_column", "select JSONExtractString(properties, 'some_random_prop_xyz') from events"),
+            ("three_args", "select JSONExtractString(properties, '$browser', 'nested') from events"),
+            ("non_json_field", "select JSONExtractString(event, '$browser') from events"),
+        ]
+    )
+    def test_jsonextract_not_rewritten(self, _name: str, query: str):
+        printed = self._print_select(query)
+        assert "mat_" not in printed, f"Expected no mat_ column in output, got: {printed}"
+
+    def test_jsonextractint_not_rewritten_even_with_mat_column(self):
+        with materialized("events", "$browser"):
+            printed = self._print_select("select JSONExtractInt(properties, '$browser') from events")
+            assert "mat_" not in printed, f"Expected no mat_ column in output, got: {printed}"
+
+    def _seed_edge_case_events(self):
+        _create_event(
+            team=self.team,
+            distinct_id="u_set",
+            event="pageview",
+            properties={"$browser": "Chrome", "tag": "set"},
+        )
+        _create_event(
+            team=self.team,
+            distinct_id="u_empty",
+            event="pageview",
+            properties={"$browser": "", "tag": "empty"},
+        )
+        _create_event(
+            team=self.team,
+            distinct_id="u_null_str",
+            event="pageview",
+            properties={"$browser": "null", "tag": "null_str"},
+        )
+        _create_event(
+            team=self.team,
+            distinct_id="u_json_null",
+            event="pageview",
+            properties={"$browser": None, "tag": "json_null"},
+        )
+        _create_event(
+            team=self.team,
+            distinct_id="u_unset",
+            event="pageview",
+            properties={"tag": "unset"},
+        )
+
+    def _run_and_collect(
+        self, extract_expr: str = "JSONExtractString(properties, '$browser')"
+    ) -> tuple[dict[str, Any], str]:
+        hogql = f"SELECT properties.tag, {extract_expr} FROM events WHERE event = 'pageview' ORDER BY properties.tag"
+        response = execute_hogql_query(hogql, team=self.team)
+        assert response.results is not None
+        values = {row[0]: row[1] for row in response.results}
+        return values, response.clickhouse or ""
+
+    def test_rewrite_value_semantics_no_mat_column(self):
+        self._seed_edge_case_events()
+        values, sql = self._run_and_collect()
+        assert "JSONExtractString(events.properties" in sql, sql
+        assert "mat_$browser" not in sql, sql
+        # JSONExtractString returns '' for JSON null (type mismatch), not 'null'.
+        # Only JSONExtractRaw returns the literal string 'null' for JSON null.
+        assert values == {"set": "Chrome", "empty": "", "null_str": "null", "json_null": "", "unset": ""}
+
+    def test_rewrite_value_semantics_non_nullable_mat_column(self):
+        self._seed_edge_case_events()
+        with materialized("events", "$browser", is_nullable=False):
+            values, sql = self._run_and_collect()
+        assert "JSONExtractString(events.properties" not in sql, sql
+        assert "mat_$browser" in sql, sql
+        # Rewritten call goes through the standard property-access path, so the mat
+        # column is wrapped in nullIf(nullIf(col, ''), 'null') — same as properties.$x.
+        assert "nullIf(nullIf(events.`mat_$browser`" in sql, sql
+        assert values == {"set": "Chrome", "empty": None, "null_str": None, "json_null": None, "unset": None}
+
+    def test_rewrite_value_semantics_nullable_mat_column(self):
+        self._seed_edge_case_events()
+        with materialized("events", "$browser", is_nullable=True):
+            values, sql = self._run_and_collect()
+        assert "JSONExtractString(events.properties" not in sql, sql
+        assert "mat_$browser" in sql, sql
+        assert values == {"set": "Chrome", "empty": "", "null_str": "null", "json_null": None, "unset": None}
+
+    @parameterized.expand([("non_nullable", False), ("nullable", True)])
+    def test_jsonextractstring_synonym_of_properties_access(self, _name: str, is_nullable: bool):
+        self._seed_edge_case_events()
+        with materialized("events", "$browser", is_nullable=is_nullable):
+            extract_values, _ = self._run_and_collect("JSONExtractString(properties, '$browser')")
+            access_values, _ = self._run_and_collect("properties.$browser")
+        assert extract_values == access_values
 
 
 # ── Timezone index pruning tests ──────────────────────────────────────────────

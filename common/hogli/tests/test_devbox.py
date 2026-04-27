@@ -213,6 +213,7 @@ class TestCoderConfig:
     ) -> None:
         monkeypatch.setattr(coder, "ensure_tailscale_connected", lambda setup_hint=coder.RUNTIME_SETUP_HINT: None)
         monkeypatch.setattr(coder, "ensure_tailscale_routes_accepted", lambda: None)
+        monkeypatch.setattr(coder, "ensure_coder_reachable", lambda: None)
         monkeypatch.setattr(coder, "coder_installed", lambda: False)
 
         with pytest.raises(SystemExit):
@@ -278,23 +279,74 @@ class TestCoderVersion:
     def test_ensure_coder_installed_uses_deployment_install_script(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
+        managed_dir = tmp_path / "bin"
         monkeypatch.setattr(coder, "coder_installed", lambda: False)
         monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
         monkeypatch.setattr(coder, "get_server_version", lambda: "1.0.0")
-        monkeypatch.setattr(coder, "_MANAGED_CODER_DIR", tmp_path / "bin")
+        monkeypatch.setattr(coder, "_MANAGED_CODER_DIR", managed_dir)
 
         captured_cmd: list[str] = []
 
         def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
             captured_cmd.extend(args)
+            managed_dir.mkdir(parents=True, exist_ok=True)
+            (managed_dir / "coder").touch()
             return subprocess.CompletedProcess(args, 0, "", "")
 
         monkeypatch.setattr(coder.subprocess, "run", fake_run)
 
         coder.ensure_coder_installed()
         full_cmd = " ".join(captured_cmd)
+        assert "set -o pipefail" in full_cmd
         assert "curl -fsSL https://coder.example.com/install.sh" in full_cmd
         assert f"--prefix {tmp_path}" in full_cmd
+
+    def test_ensure_coder_installed_fails_when_binary_missing_after_install(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setattr(coder, "coder_installed", lambda: False)
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
+        monkeypatch.setattr(coder, "get_server_version", lambda: "1.0.0")
+        monkeypatch.setattr(coder, "_MANAGED_CODER_DIR", tmp_path / "bin")
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        monkeypatch.setattr(coder.subprocess, "run", fake_run)
+
+        with pytest.raises(SystemExit):
+            coder.ensure_coder_installed()
+
+    def test_ensure_coder_authenticated_fails_fast_when_not_installed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(coder, "coder_installed", lambda: False)
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
+
+        def boom(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+            raise AssertionError("should not invoke coder when not installed")
+
+        monkeypatch.setattr(coder.subprocess, "run", boom)
+
+        with pytest.raises(SystemExit):
+            coder.ensure_coder_authenticated()
+
+
+class TestCoderReachable:
+    """Test the Coder deployment reachability probe."""
+
+    def test_coder_reachable_returns_false_on_request_exception(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
+
+        def boom(*a: object, **kw: object) -> object:
+            raise coder.requests.ConnectionError("blackholed")
+
+        monkeypatch.setattr(coder.requests, "get", boom)
+        assert coder.coder_reachable() is False
+
+    def test_ensure_coder_reachable_fails_when_unreachable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
+        monkeypatch.setattr(coder, "coder_reachable", lambda: False)
+        with pytest.raises(SystemExit):
+            coder.ensure_coder_reachable()
 
 
 class TestWorkspaceNaming:
@@ -485,6 +537,7 @@ class TestDevboxCommands:
 
         monkeypatch.setattr(devbox_cli, "ensure_tailscale_connected", lambda setup_hint="": calls.append("tailscale"))
         monkeypatch.setattr(devbox_cli, "ensure_tailscale_routes_accepted", lambda: calls.append("routes"))
+        monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda: calls.append("reachable"))
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: calls.append("install"))
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: calls.append("login"))
         monkeypatch.setattr(
@@ -524,6 +577,7 @@ class TestDevboxCommands:
         assert calls == [
             "tailscale",
             "routes",
+            "reachable",
             "install",
             "login",
             "ssh:False",
@@ -540,6 +594,7 @@ class TestDevboxCommands:
     ) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_tailscale_connected", lambda setup_hint="": None)
         monkeypatch.setattr(devbox_cli, "ensure_tailscale_routes_accepted", lambda: None)
+        monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda configure_ssh, **kw: None)
@@ -571,6 +626,7 @@ class TestDevboxCommands:
 
         monkeypatch.setattr(devbox_cli, "ensure_tailscale_connected", lambda setup_hint="": None)
         monkeypatch.setattr(devbox_cli, "ensure_tailscale_routes_accepted", lambda: None)
+        monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda configure_ssh, **kw: None)

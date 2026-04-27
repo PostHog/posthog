@@ -1,11 +1,14 @@
 from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
+# Preload to work around circular imports in `ee.hogai.{core.agent_modes,chat_agent,tools}`.
+import posthog.temporal.ai  # noqa: F401
 from posthog.api import data_color_theme, hog_flow, hog_flow_template, metalytics, my_notifications, project
 from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.js_snippet import JsSnippetViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
+from posthog.api.sdk_doctor import SdkDoctorViewSet
 from posthog.api.wizard import http as wizard
 from posthog.approvals import api as approval_api
 from posthog.batch_exports import http as batch_exports
@@ -261,6 +264,7 @@ register_grandfathered_environment_nested_viewset(
 )
 
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["project_id"])
+projects_router.register(r"sdk_doctor", SdkDoctorViewSet, "project_sdk_doctor", ["project_id"])
 projects_router.register(
     r"activity_log",
     advanced_activity_logs.ActivityLogViewSet,

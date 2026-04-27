@@ -432,17 +432,18 @@
         }
     },
     "external-data-sources-db-schema": {
-        "description": "Validate source credentials and return the available tables from the remote database. Use this before creating a source to verify connectivity and discover tables. Pass source_type and credential fields in the payload object. The response includes per-table: available sync methods (incremental, full_refresh, append, cdc), available incremental fields with types, detected primary keys, available columns with types and nullability, and row counts. Present all of this to the user so they can configure each table before creation: which tables to sync, sync method, incremental field (and type), and primary key overrides.",
+        "description": "Validate credentials against a remote source and return the list of tables available to sync (works for database sources like Postgres/MySQL and SaaS sources like Stripe/Hubspot alike). Pass source_type and credential fields in the payload object. Each table entry includes: table name, incremental_available, append_available, cdc_available, supports_webhooks, detected_primary_keys, available_columns (name/type/nullable), rows estimate, and incremental_fields (candidate timestamp/integer columns for incremental sync). Use this BEFORE external-data-sources-create so the user can pick a sync_type per table. Returns 400 with a message if credentials are invalid.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
-        "summary": "Preview remote database schema before creating a source.",
-        "title": "Preview remote database schema",
+        "summary": "Discover tables and sync methods for a source",
+        "title": "Discover tables and sync methods for a source",
         "required_scopes": ["external_data_source:write"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
-            "readOnlyHint": false
+            "readOnlyHint": true
         }
     },
     "external-data-sources-jobs": {

@@ -5,6 +5,7 @@ from django.contrib import admin
 from django.contrib.admin.sites import NotRegistered  # type: ignore[attr-defined]
 from django.urls import include, path, re_path
 from django.views.decorators.csrf import csrf_exempt
+from django.views.generic import RedirectView
 
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
@@ -128,6 +129,8 @@ if settings.ADMIN_PORTAL_ENABLED:
     from posthog.admin.admins.tophog_admin import tophog_dashboard_view
 
     admin_urlpatterns = [
+        # APPEND_SLASH is disabled globally, so redirect /admin to /admin/ explicitly
+        path("admin", RedirectView.as_view(url="/admin/", permanent=False, query_string=True)),
         path("admin/oauth2/callback", admin_oauth2_callback, name="admin_oauth2_callback"),
         path("admin/oauth2/success", admin_oauth_success, name="admin_oauth_success"),
         path("admin/auth_check", admin_auth_check, name="admin_auth_check"),

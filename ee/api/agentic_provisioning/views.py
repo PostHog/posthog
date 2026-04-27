@@ -447,10 +447,7 @@ def _handle_existing_user(
     code_challenge: str = "",
     code_challenge_method: str = "S256",
 ) -> Response:
-    # Only server-to-server partners with shared secrets skip consent.
-    # Everything else (pkce, future methods) requires browser approval.
-    TRUSTED_AUTH_METHODS = ("hmac", "bearer")
-    if partner and partner.provisioning_auth_method not in TRUSTED_AUTH_METHODS:
+    if partner and not partner.provisioning_skip_existing_user_consent:
         if not code_challenge:
             return Response(
                 {
@@ -725,7 +722,6 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
         _capture_provisioning_event("authorize", "auto_created_project", team_id=team.id)
 
     # Re-check partner is still active (could have been deactivated since account_requests)
-    TRUSTED_AUTH_METHODS = ("hmac", "bearer")
     partner_id = pending.get("partner_id", "")
     is_trusted_partner = not partner_id
     if partner_id:
@@ -735,7 +731,7 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
                 cache.delete(pending_key)
                 _capture_provisioning_event("authorize", "partner_deactivated")
                 return HttpResponseRedirect(f"{settings.SITE_URL}?error=partner_deactivated")
-            is_trusted_partner = partner_app.provisioning_auth_method in TRUSTED_AUTH_METHODS
+            is_trusted_partner = partner_app.provisioning_skip_existing_user_consent
         except OAuthApplication.DoesNotExist:
             pass
 
@@ -1804,10 +1800,30 @@ def deep_links(request: Request) -> Response:
     if auth_error:
         return auth_error
 
-    if error := _verify_hmac_if_present(request):
+    # HMAC partners must include a valid signature on this endpoint - bearer alone
+    # is not sufficient to mint a full web session via the deep-link primitive.
+    if access_token.application.provisioning_auth_method == "hmac":
+        if not request.META.get("HTTP_STRIPE_SIGNATURE"):
+            return _error_response(
+                "hmac_signature_required",
+                "HMAC signature required for this partner",
+                status=401,
+            )
+        if error := verify_provisioning_signature(request):
+            return error
+    elif error := _verify_hmac_if_present(request):
         return error
+
     if error := verify_api_version(request):
         return error
+
+    if not access_token.application.provisioning_can_issue_deep_links:
+        _capture_provisioning_event("deep_link_created", "not_enabled")
+        return _error_response(
+            "deep_links_not_enabled",
+            "Deep links are not enabled for this partner",
+            status=403,
+        )
 
     purpose = request.data.get("purpose", "dashboard")
     if purpose not in SUPPORTED_DEEP_LINK_PURPOSES:
@@ -2098,6 +2114,7 @@ def _get_legacy_stripe_oauth_app():
         authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
         redirect_uris="https://localhost",
         algorithm="RS256",
+        provisioning_can_issue_deep_links=True,
     )
 
 
