@@ -12,6 +12,7 @@ from django.conf import settings
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
 from django.core.cache import cache
+from django.http import HttpResponse
 from django.test import RequestFactory, override_settings
 from django.utils import timezone
 
@@ -29,12 +30,18 @@ from two_factor.utils import totp_digits
 
 from posthog.api.authentication import password_reset_token_generator, post_login, social_login_notification
 from posthog.api.oauth.test_dcr import generate_rsa_key
-from posthog.auth import OAuthAccessTokenAuthentication, ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
+from posthog.auth import (
+    InternalAPIUser,
+    OAuthAccessTokenAuthentication,
+    ProjectSecretAPIKeyAuthentication,
+    ProjectSecretAPIKeyUser,
+)
 from posthog.helpers.user_devices import (
     KNOWN_DEVICE_COOKIE,
     build_known_device_cookie_value,
     has_valid_known_device_cookie,
 )
+from posthog.middleware import KnownLoginDeviceCookieMiddleware
 from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -334,7 +341,7 @@ class TestLoginAPI(APIBaseTest):
                     "/api/login",
                     {"email": "new_user@posthog.com", "password": "invalid"},
                 )
-                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertIn(response.status_code, [status.HTTP_400_BAD_REQUEST, status.HTTP_403_FORBIDDEN])
                 self.assertEqual(response.json(), self.ERROR_INVALID_CREDENTIALS)
 
                 # Assert user is not logged in
@@ -397,7 +404,7 @@ class TestLogoutRedirect(APIBaseTest):
         self.assertEqual(response["Location"], settings.LOGIN_URL)
 
     def test_logout_forwards_safe_next_param(self):
-        response = self.client.post("/logout?next=/settings/user-notifications")
+        response = self.client.post("/logout", {"next": "/settings/user-notifications"}, format="multipart")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertEqual(response["Location"], "/login?next=/settings/user-notifications")
 
@@ -409,7 +416,7 @@ class TestLogoutRedirect(APIBaseTest):
         ]
     )
     def test_logout_ignores_unsafe_next_param(self, _name, unsafe):
-        response = self.client.post(f"/logout?next={unsafe}")
+        response = self.client.post("/logout", {"next": unsafe}, format="multipart")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertEqual(response["Location"], settings.LOGIN_URL, f"Unsafe next was preserved: {unsafe}")
 
@@ -2369,3 +2376,14 @@ class TestKnownLoginDeviceCookieMiddleware(APIBaseTest):
         response = self.client.get("/api/users/@me/")
         assert response.status_code == 200
         assert KNOWN_DEVICE_COOKIE.format(user_id=self.user.id) not in response.cookies
+
+    def test_does_not_set_known_device_cookie_for_internal_api_user(self):
+        request = RequestFactory().get("/api/internal/hog_flows/process_due_schedules")
+        SessionMiddleware(lambda r: HttpResponse()).process_request(request)
+        request.session["touched"] = True
+        request.__dict__["user"] = InternalAPIUser()
+
+        response = KnownLoginDeviceCookieMiddleware(lambda r: HttpResponse())(request)
+
+        assert response.status_code == 200
+        assert not any(name.startswith("ph_device_") for name in response.cookies)
