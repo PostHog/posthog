@@ -13,7 +13,7 @@ export function formatPrompt(template: string, vars: Record<string, string>): st
     // e.g. `` `$` `` (common in PostHog docs that mention `$pageview`) would splice the
     // template prefix/suffix into the output and look like a double injection.
     return Object.entries(vars)
-        .reduce((result, [key, value]) => result.replaceAll(`{${key}}`, () => value), template)
+        .reduce((result, [key, value]) => result.replaceAll(`{${key}}`, () => value ?? ''), template)
         .trim()
 }
 

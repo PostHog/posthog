@@ -26,6 +26,7 @@ import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { BotDetail } from 'scenes/web-analytics/BotDetail'
 import {
     ProductTab,
     QueryTile,
@@ -53,7 +54,7 @@ import { InsightLogicProps, OnboardingStepKey, TeamPublicType, TeamType } from '
 import { HealthStatusTab, webAnalyticsHealthLogic } from './health'
 import { LiveWebAnalyticsMetrics } from './LiveMetricsDashboard/LiveWebAnalyticsMetrics'
 import { WebAnalyticsExport } from './WebAnalyticsExport'
-import { WebAnalyticsFilters } from './WebAnalyticsFilters'
+import { BotAnalyticsFilters, WebAnalyticsFilters } from './WebAnalyticsFilters'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
 
 export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }): JSX.Element => {
@@ -414,13 +415,15 @@ const Filters = ({ tabs }: { tabs: JSX.Element }): JSX.Element | null => {
         case ProductTab.HEALTH:
         case ProductTab.LIVE:
             return null
+        case ProductTab.BOT_ANALYTICS:
+            return <BotAnalyticsFilters tabs={tabs} />
         default:
             return <WebAnalyticsFilters tabs={tabs} />
     }
 }
 
 const MainContent = (): JSX.Element => {
-    const { productTab } = useValues(webAnalyticsLogic)
+    const { productTab, botDetailName } = useValues(webAnalyticsLogic)
 
     if (productTab === ProductTab.PAGE_REPORTS) {
         return <PageReports />
@@ -432,6 +435,10 @@ const MainContent = (): JSX.Element => {
 
     if (productTab === ProductTab.LIVE) {
         return <LiveWebAnalyticsMetrics />
+    }
+
+    if (productTab === ProductTab.BOT_ANALYTICS && botDetailName) {
+        return <BotDetail />
     }
 
     return <Tiles />
