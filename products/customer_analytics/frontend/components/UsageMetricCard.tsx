@@ -1,7 +1,6 @@
 import { IconTrending } from '@posthog/icons'
 import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
-import { getColorVar } from 'lib/colors'
 import { Sparkline } from 'lib/components/Sparkline'
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { formatPercentage, humanFriendlyCurrency, humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils'
@@ -9,8 +8,8 @@ import { formatPercentage, humanFriendlyCurrency, humanFriendlyLargeNumber, huma
 import { UsageMetric } from '~/queries/schema/schema-general'
 
 export type TrendInfo = {
-    icon: React.ComponentType<{ color?: string }>
-    color: string
+    icon: React.ComponentType<{ className?: string }>
+    colorClass: string
     tooltip: string | null
 }
 
@@ -21,20 +20,20 @@ export const getTrendFromPercentageChange = (changeFromPreviousPct: number | nul
     if (changeFromPreviousPct === 0) {
         return {
             icon: IconTrendingFlat,
-            color: getColorVar('muted'),
+            colorClass: 'text-muted',
             tooltip: 'unchanged',
         }
     }
     if (changeFromPreviousPct > 0) {
         return {
             icon: IconTrending,
-            color: getColorVar('success'),
+            colorClass: 'text-success',
             tooltip: `increased by ${formatPercentage(Math.abs(changeFromPreviousPct))}`,
         }
     }
     return {
         icon: IconTrendingDown,
-        color: getColorVar('danger'),
+        colorClass: 'text-danger',
         tooltip: `decreased by ${formatPercentage(Math.abs(changeFromPreviousPct))}`,
     }
 }
@@ -54,14 +53,13 @@ const formatValue = (metric: UsageMetric): string => {
 }
 
 const DeltaIndicator = ({ pct }: { pct: number | null }): JSX.Element | null => {
-    if (pct === null) {
+    const trend = getTrendFromPercentageChange(pct)
+    if (pct === null || !trend) {
         return null
     }
-    const Icon = pct > 0 ? IconTrending : pct < 0 ? IconTrendingDown : IconTrendingFlat
-    const colorClass = pct > 0 ? 'text-success' : pct < 0 ? 'text-danger' : 'text-muted'
     return (
-        <span className={`inline-flex items-center gap-1 text-xs font-semibold tabular-nums ${colorClass}`}>
-            <Icon className="w-3.5 h-3.5" />
+        <span className={`inline-flex items-center gap-1 text-xs font-semibold tabular-nums ${trend.colorClass}`}>
+            <trend.icon className="w-3.5 h-3.5" />
             {formatPercentage(pct)}
         </span>
     )
@@ -95,7 +93,9 @@ export const UsageMetricCard = ({ metric }: { metric: UsageMetric }): JSX.Elemen
                     )}
                     <div className="flex items-center justify-between mt-auto">
                         <DeltaIndicator pct={metric.change_from_previous_pct} />
-                        <span className="text-xs text-muted whitespace-nowrap">Last {metric.interval} days</span>
+                        <span className="text-xs text-muted whitespace-nowrap ml-auto">
+                            Last {metric.interval} days
+                        </span>
                     </div>
                 </LemonCard>
             </div>
