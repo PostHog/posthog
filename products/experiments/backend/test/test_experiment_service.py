@@ -3527,66 +3527,58 @@ class TestExperimentService(APIBaseTest):
         )
         assert experiment.metrics == []
 
-    @parameterized.expand(
-        [
-            (
-                "empty_mean",
-                {
-                    "kind": "ExperimentMetric",
-                    "metric_type": "mean",
-                    "source": {"kind": "EventsNode", "event": ""},
-                },
-            ),
-            (
-                "whitespace_ratio",
-                {
-                    "kind": "ExperimentMetric",
-                    "metric_type": "ratio",
-                    "numerator": {"kind": "EventsNode", "event": "   "},
-                    "denominator": {"kind": "EventsNode", "event": ""},
-                },
-            ),
-            (
-                "empty_funnel_step",
-                {
-                    "kind": "ExperimentMetric",
-                    "metric_type": "funnel",
-                    "series": [{"kind": "EventsNode", "event": ""}],
-                },
-            ),
-        ]
-    )
-    def test_blank_event_names_pass_validation(self, name: str, metric: dict) -> None:
-        # Regression: pydantic permits event="" but it's not a queryable event name.
-        # Treat blank/whitespace events like None / "All events" instead of producing
-        # the misleading "Event(s) '' not found" error customers were hitting.
+    # Shared cases for blank/whitespace event regression tests across create and update.
+    # Regression: pydantic permits event="" but it's not a queryable event name.
+    # Treat blank/whitespace events like None / "All events" instead of producing
+    # the misleading "Event(s) '' not found" error customers were hitting.
+    _BLANK_EVENT_CASES = [
+        (
+            "empty_mean",
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": ""},
+            },
+        ),
+        (
+            "whitespace_ratio",
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "ratio",
+                "numerator": {"kind": "EventsNode", "event": "   "},
+                "denominator": {"kind": "EventsNode", "event": ""},
+            },
+        ),
+        (
+            "empty_funnel_step",
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "funnel",
+                "series": [{"kind": "EventsNode", "event": ""}],
+            },
+        ),
+    ]
+
+    @parameterized.expand(_BLANK_EVENT_CASES)
+    def test_blank_event_names_pass_validation_on_create(self, name: str, metric: dict) -> None:
         service = self._service()
         experiment = service.create_experiment(
-            name=f"Blank Event {name}",
-            feature_flag_key=f"blank-event-{name.replace('_', '-')}-flag",
+            name=f"Blank Event Create {name}",
+            feature_flag_key=f"blank-event-create-{name.replace('_', '-')}-flag",
             metrics=[metric],
         )
         assert experiment.metrics is not None and len(experiment.metrics) == 1
 
-    def test_empty_string_event_name_passes_validation_on_update(self):
+    @parameterized.expand(_BLANK_EVENT_CASES)
+    def test_blank_event_names_pass_validation_on_update(self, name: str, metric: dict) -> None:
         service = self._service()
         experiment = service.create_experiment(
-            name="Update Empty Event",
-            feature_flag_key="update-empty-event-flag",
+            name=f"Blank Event Update {name}",
+            feature_flag_key=f"blank-event-update-{name.replace('_', '-')}-flag",
         )
-        # Should not raise
-        service.update_experiment(
-            experiment,
-            {
-                "metrics": [
-                    {
-                        "kind": "ExperimentMetric",
-                        "metric_type": "mean",
-                        "source": {"kind": "EventsNode", "event": ""},
-                    },
-                ],
-            },
-        )
+        # Should not raise — both paths share the same validator but go through
+        # separate functions (create_experiment vs update_experiment).
+        service.update_experiment(experiment, {"metrics": [metric]})
 
     @parameterized.expand(
         [
