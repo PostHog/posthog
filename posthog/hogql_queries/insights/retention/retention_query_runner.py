@@ -263,7 +263,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 ]
 
     @cached_property
-    def breakdowns_in_query(self) -> bool:
+    def has_breakdown(self) -> bool:
         return has_breakdown_filter(self.query.breakdownFilter)
 
     @cached_property
@@ -462,7 +462,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             ast.OrderExpr(expr=ast.Field(chain=["intervals_from_base"])),
         ]
 
-        if self.breakdowns_in_query:
+        if self.has_breakdown:
             select.append(
                 ast.Alias(
                     alias="breakdown_value",
@@ -504,7 +504,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             ast.Field(chain=["start_interval_index"]),
         ]
 
-        if self.breakdowns_in_query:
+        if self.has_breakdown:
             select.append(ast.Field(chain=["breakdown_value"]))
             group_by.append(ast.Field(chain=["breakdown_value"]))
 
@@ -526,7 +526,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             ast.Field(chain=["start_interval_index"]),
         ]
 
-        if self.breakdowns_in_query:
+        if self.has_breakdown:
             select.append(ast.Field(chain=["breakdown_value"]))
 
         return ast.SelectQuery(
@@ -590,7 +590,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         cols = {name: i for i, name in enumerate(response.columns or [])}
         has_aggregation_value = "aggregation_value" in cols
 
-        if self.breakdowns_in_query:
+        if self.has_breakdown:
             # Step 1: Calculate total cohort size for each breakdown value (size at intervals_from_base = 0)
             breakdown_totals: dict[str, int] = {}
             original_results = response.results or []
