@@ -662,8 +662,15 @@ class KnownLoginDeviceCookieMiddleware:
 
     def __call__(self, request: HttpRequest):
         response = self.get_response(request)
-        if request.session.accessed and request.user.is_authenticated and not is_impersonated_session(request):
-            set_known_device_cookie(response, request.user)
+        user = getattr(request, "user", None)
+        if (
+            user
+            and getattr(user, "id", None)
+            and request.session.accessed
+            and user.is_authenticated
+            and not is_impersonated_session(request)
+        ):
+            set_known_device_cookie(response, user)
         return response
 
 
