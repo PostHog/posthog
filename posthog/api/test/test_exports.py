@@ -1046,6 +1046,46 @@ class TestExports(APIBaseTest):
             f"reached the limit of {effective_limit} full video exports this month", response.json()["detail"]
         )
 
+    @parameterized.expand(
+        [
+            # (name, existing_mode, should_succeed)
+            ("llm_screenshots_dont_count", "screenshot", True),
+            ("user_video_exports_count", "video", False),
+        ]
+    )
+    @patch("posthog.api.exports.async_to_sync")
+    @patch("posthog.api.exports.async_connect")
+    def test_video_export_limit_excludes_llm_screenshots(
+        self,
+        _name: str,
+        existing_mode: str,
+        should_succeed: bool,
+        mock_async_connect,
+        mock_async_to_sync,
+    ) -> None:
+        """LLM-generated session-moment clips (mode=screenshot) bypass the user-export quota."""
+        for i in range(50):
+            ExportedAsset.objects.create(
+                team=self.team,
+                export_format="video/webm",
+                export_context={"session_recording_id": f"session_{i}", "mode": existing_mode},
+                created_by=self.user,
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "video/mp4",
+                "export_context": {"session_recording_id": "new_user_export", "mode": "video"},
+            },
+        )
+
+        if should_succeed:
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        else:
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(response.json()["attr"], "export_limit_exceeded")
+
     @patch("posthog.tasks.exports.image_exporter.export_image")
     def test_export_records_failure_on_query_error(self, mock_export_direct) -> None:
         """Test that export_asset records failure info on the asset when a QueryError occurs.
