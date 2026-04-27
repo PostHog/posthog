@@ -22,7 +22,7 @@
             "type": "string"
         },
         "group_type_index": {
-            "description": "Zero-based index of the group type this metric applies to.",
+            "description": "Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope the metric — usage metrics apply to both groups and persons regardless of this value.",
             "maximum": 2147483647,
             "minimum": -2147483648,
             "type": "number"
