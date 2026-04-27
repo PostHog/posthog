@@ -10,7 +10,7 @@ MAX_SUMMARY_LENGTH = 2000
 
 def build_results_summary(
     query_kind: str,
-    results: list[Any] | None,
+    results: Any,
     columns: list[str] | None = None,
 ) -> str:
     if not results:
@@ -95,7 +95,7 @@ def _summarize_boxplot_trend(results: list[dict[str, Any]]) -> str:
     return "\n".join(lines) if lines else "No trend series"
 
 
-def _summarize_funnels(results: list[Any]) -> str:
+def _summarize_funnels(results: Any) -> str:
     # FunnelsQuery occasionally returns dict shapes (e.g. funnelVizType=time_to_convert
     # gives {'bins': [...], 'average_conversion_time': ...}, and some breakdown variants
     # return {breakdown_value: [...]}). Subscripting those as results[0] used to raise
