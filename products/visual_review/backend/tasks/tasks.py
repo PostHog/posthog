@@ -13,7 +13,8 @@ from uuid import UUID
 import structlog
 from celery import shared_task
 
-from ..github import GitHubRateLimitError
+from posthog.models.integration import GitHubRateLimitError
+
 from ..logic import HashIntegrityError
 
 logger = structlog.get_logger(__name__)

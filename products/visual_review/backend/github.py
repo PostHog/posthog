@@ -12,18 +12,11 @@ import time
 import requests
 import structlog
 
+from posthog.models.integration import GITHUB_API_VERSION, GitHubRateLimitError
+
+__all__ = ["GitHubRateLimitError", "github_request"]
+
 logger = structlog.get_logger(__name__)
-
-GITHUB_API_VERSION = "2022-11-28"
-
-
-class GitHubRateLimitError(Exception):
-    """GitHub API rate limit exhausted for this installation."""
-
-    def __init__(self, message: str, reset_at: int | None = None, retry_after: int | None = None):
-        super().__init__(message)
-        self.reset_at = reset_at
-        self.retry_after = retry_after
 
 
 def github_request(
