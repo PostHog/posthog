@@ -530,9 +530,7 @@ class TestSystemTablesTaskInternalExclusion(BaseTest):
     def test_generated_sql_includes_internal_predicate(self):
         db = Database.create_for(team=self.team)
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
-        query, _ = prepare_and_print_ast(
-            parse_select("SELECT id FROM system.tasks"), context, dialect="clickhouse"
-        )
+        query, _ = prepare_and_print_ast(parse_select("SELECT id FROM system.tasks"), context, dialect="clickhouse")
         assert "system__tasks.internal" in query
         assert f"equals(system__tasks.team_id, {self.team.pk})" in query
 
