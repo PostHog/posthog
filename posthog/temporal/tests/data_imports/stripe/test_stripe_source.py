@@ -587,6 +587,19 @@ def test_validate_credentials_oauth_skips_account():
         mock_client.credit_notes.list.assert_called_once_with(params={"limit": 1})
 
 
+def test_validate_credentials_oauth_account_table_name_returns_true():
+    mock_client = mock.MagicMock()
+
+    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+        result = validate_credentials("oauth_token", ACCOUNT_RESOURCE_NAME, auth_method="oauth")
+
+        assert result is True
+
+        # No Stripe API calls should be made — Account is skipped for OAuth before any checks run
+        mock_client.accounts.list.assert_not_called()
+        mock_client.balance_transactions.list.assert_not_called()
+
+
 class TestGetApiKey:
     @pytest.fixture
     def stripe_source(self):
