@@ -181,6 +181,9 @@ export function setupInsightMocks({
             // and return them here, enabling tests that load insights by short ID
             '/api/environments/:team_id/insights/': { results: [] },
             '/api/environments/:team_id/insights/trend': [],
+            // Annotations layer fetches this on mount; resolve immediately so async
+            // state changes don't race against tooltip/click assertions.
+            '/api/projects/:team_id/annotations/': { results: [], count: 0, next: null, previous: null },
         },
         post: {
             '/api/environments/:team_id/query/:kind': (req: RestRequest) => {

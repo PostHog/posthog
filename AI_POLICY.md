@@ -18,8 +18,8 @@ Before submitting, please verify the change actually works end-to-end — don't 
 PRs that clearly weren't run or tested will be closed under this policy.
 
 **Disclose AI usage.**
-Our [PR template](.github/pull_request_template.md) includes an LLM context section — please use it (most agents will pick it up automatically).
-If an LLM co-authored or authored your PR, say so and leave context about the tools and session.
+Our [PR template](.github/pull_request_template.md) includes an Agent context section — please use it (most agents will pick it up automatically).
+If an agent co-authored or authored your PR, say so and leave context about the tools and session.
 This helps reviewers calibrate.
 
 **Prefer PRs over AI-generated issues.**

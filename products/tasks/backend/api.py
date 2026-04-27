@@ -11,7 +11,7 @@ from typing import Any, cast
 from django.conf import settings
 from django.core.cache import cache
 from django.db import models, transaction
-from django.db.models import F
+from django.db.models import F, OuterRef, Q, Subquery
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 from django.utils import timezone
 
@@ -56,6 +56,7 @@ from .serializers import (
     SandboxEnvironmentSerializer,
     TaskAutomationSerializer,
     TaskListQuerySerializer,
+    TaskRepositoriesResponseSerializer,
     TaskRunAppendLogRequestSerializer,
     TaskRunArtifactPresignRequestSerializer,
     TaskRunArtifactPresignResponseSerializer,
@@ -71,6 +72,7 @@ from .serializers import (
     TaskRunCreateRequestSchemaSerializer,
     TaskRunCreateRequestSerializer,
     TaskRunDetailSerializer,
+    TaskRunErrorResponseSerializer,
     TaskRunRelayMessageRequestSerializer,
     TaskRunRelayMessageResponseSerializer,
     TaskRunSessionLogsQuerySerializer,
@@ -180,6 +182,36 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
 
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=TaskRepositoriesResponseSerializer,
+                description="Distinct repositories used by tasks in the current project.",
+            ),
+        },
+        summary="List distinct task repositories",
+        description="Return the set of repositories referenced by non-deleted, non-internal tasks in the current project. Used to populate repository filter pickers without being constrained by task list pagination.",
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="repositories",
+        required_scopes=["task:read"],
+        pagination_class=None,
+        filter_backends=[],
+    )
+    def repositories(self, request, **kwargs):
+        repositories = (
+            Task.objects.filter(team=self.team, deleted=False, internal=False)
+            .exclude(repository__isnull=True)
+            .exclude(repository__exact="")
+            .values_list("repository", flat=True)
+            .distinct()
+            .order_by("repository")
+        )
+        serializer = TaskRepositoriesResponseSerializer({"repositories": list(repositories)})
+        return Response(serializer.data)
+
     @validated_request(
         query_serializer=RepositoryReadinessQuerySerializer,
         responses={
@@ -228,6 +260,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         organization = params.get("organization")
         repository = params.get("repository")
         created_by = params.get("created_by")
+        search = params.get("search")
+        status_filter = params.get("status")
 
         if repository:
             repo_str = repository.strip().lower()
@@ -243,8 +277,32 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if created_by:
             qs = qs.filter(created_by_id=created_by)
 
-        # Only filter by internal on list — retrieve should always work if you have the ID
+        # Only apply list-oriented filters on list — retrieve/update should always work if
+        # you have the ID. Without this guard, a client passing a query param while fetching
+        # a single task by ID would see an unexpected 404 when the task does not match.
         if self.action == "list":
+            if search:
+                search_term = search.strip()
+                if search_term:
+                    search_q = Q(title__icontains=search_term) | Q(description__icontains=search_term)
+                    # Slugs look like "<team-prefix>-<task_number>". If the search term is a bare
+                    # number, or looks like "<prefix>-<number>", also match by task_number so users
+                    # can find tasks by slug.
+                    number_part = search_term.split("-")[-1].strip()
+                    if number_part.isdigit():
+                        search_q |= Q(task_number=int(number_part))
+                    qs = qs.filter(search_q)
+
+            if status_filter:
+                # `-id` is a deterministic tiebreaker when two runs share a `created_at`
+                # timestamp (e.g. both seeded with `timezone.now()` in the same tick).
+                latest_run_status = (
+                    TaskRun.objects.filter(task=OuterRef("pk")).order_by("-created_at", "-id").values("status")[:1]
+                )
+                qs = qs.annotate(_latest_run_status=Subquery(latest_run_status)).filter(
+                    _latest_run_status=status_filter
+                )
+
             internal_param = getattr(self.request, "validated_query_data", {}).get("internal")
             if internal_param is True:
                 qs = qs.filter(internal=True)
@@ -253,6 +311,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # select_related to avoid N+1 on created_by (UserBasicSerializer) and team (slug property)
         qs = qs.select_related("created_by", "team").prefetch_related("runs")
+
+        # `stage` joins through `runs` and can produce duplicate task rows. If any other
+        # JOIN-producing filter is added above, broaden this guard (or move `.distinct()`
+        # to run unconditionally).
+        if stage:
+            qs = qs.distinct()
 
         return qs
 
@@ -444,6 +508,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         request_serializer=TaskRunCreateRequestSerializer,
         responses={
             200: OpenApiResponse(response=TaskSerializer, description="Task with updated latest run"),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid task run payload"),
             404: OpenApiResponse(description="Task not found"),
         },
         summary="Run task",
@@ -458,6 +523,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         pending_user_message = request.validated_data.get("pending_user_message")
         pending_user_artifact_ids = request.validated_data.get("pending_user_artifact_ids") or []
         sandbox_environment_id = request.validated_data.get("sandbox_environment_id")
+        sandbox_environment_id_supplied_by_user = sandbox_environment_id is not None
         pr_authorship_mode = request.validated_data.get("pr_authorship_mode")
         run_source = request.validated_data.get("run_source")
         signal_report_id = request.validated_data.get("signal_report_id")
@@ -552,22 +618,27 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response({"detail": "github_user_token is required for user-authored cloud runs"}, status=400)
 
         if sandbox_environment_id is not None:
-            sandbox_environment = SandboxEnvironment.objects.filter(id=sandbox_environment_id, team=task.team).first()
-            if not sandbox_environment:
-                return Response({"detail": "Invalid sandbox_environment_id"}, status=400)
-
-            extra_state = extra_state or {}
-            extra_state["sandbox_environment_id"] = str(sandbox_environment.id)
-
-            logger.info(
-                "Applying sandbox environment to task run",
-                extra={
-                    "task_id": str(task.id),
-                    "sandbox_environment_id": str(sandbox_environment.id),
-                    "sandbox_environment_name": sandbox_environment.name,
-                    "network_access_level": sandbox_environment.network_access_level,
-                },
+            sandbox_environment = SandboxEnvironment.get_accessible_for_task(
+                environment_id=sandbox_environment_id,
+                team_id=task.team_id,
+                task_created_by_id=task.created_by_id,
             )
+            if sandbox_environment is None:
+                if sandbox_environment_id_supplied_by_user:
+                    return Response({"detail": "Invalid sandbox_environment_id"}, status=400)
+            else:
+                extra_state = extra_state or {}
+                extra_state["sandbox_environment_id"] = str(sandbox_environment.id)
+
+                logger.info(
+                    "Applying sandbox environment to task run",
+                    extra={
+                        "task_id": str(task.id),
+                        "sandbox_environment_id": str(sandbox_environment.id),
+                        "sandbox_environment_name": sandbox_environment.name,
+                        "network_access_level": sandbox_environment.network_access_level,
+                    },
+                )
 
         staged_artifacts: list[dict[str, Any]] = []
         if pending_user_artifact_ids:
@@ -694,7 +765,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         request_serializer=TaskRunBootstrapCreateRequestSerializer,
         responses={
             201: OpenApiResponse(response=TaskRunDetailSerializer, description="Created task run"),
-            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid task run payload"),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid task run payload"),
         },
         summary="Create task run",
         description="Create a new run for a specific task without starting execution.",
@@ -760,8 +831,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         if sandbox_environment_id is not None:
-            sandbox_environment = SandboxEnvironment.objects.filter(id=sandbox_environment_id, team=task.team).first()
-            if not sandbox_environment:
+            sandbox_environment = SandboxEnvironment.get_accessible_for_task(
+                environment_id=sandbox_environment_id,
+                team_id=task.team_id,
+                task_created_by_id=task.created_by_id,
+            )
+            if sandbox_environment is None:
                 return Response({"detail": "Invalid sandbox_environment_id"}, status=status.HTTP_400_BAD_REQUEST)
 
             extra_state = extra_state or {}

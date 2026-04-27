@@ -702,9 +702,19 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 is_retry: boolean
                 refresh_id: string
                 metric_kind: string
-                error_type: 'timeout' | 'out_of_memory' | 'server_error' | 'network_error' | 'unknown'
+                error_type:
+                    | 'timeout'
+                    | 'out_of_memory'
+                    | 'server_error'
+                    | 'network_error'
+                    | 'not_found'
+                    | 'authentication'
+                    | 'authorization'
+                    | 'validation_error'
+                    | 'unknown'
                 error_code: string | null
                 error_message: string | null
+                error_detail: string | null
                 status_code: number | null
             }
         ) => ({

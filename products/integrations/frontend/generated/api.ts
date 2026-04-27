@@ -18,8 +18,13 @@ import type {
     IntegrationsListParams,
     OrganizationIntegrationApi,
     PaginatedIntegrationConfigListApi,
+    PaginatedRoleExternalReferenceListApi,
     PatchedIntegrationConfigApi,
     PatchedOrganizationIntegrationApi,
+    RoleExternalReferenceApi,
+    RoleExternalReferencesListParams,
+    RoleExternalReferencesLookupRetrieveParams,
+    RoleLookupResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -68,6 +73,95 @@ export const integrationsEnvironmentMappingPartialUpdate = async (
             body: JSON.stringify(patchedOrganizationIntegrationApi),
         }
     )
+}
+
+export const getRoleExternalReferencesListUrl = (organizationId: string, params?: RoleExternalReferencesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/role_external_references/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/role_external_references/`
+}
+
+export const roleExternalReferencesList = async (
+    organizationId: string,
+    params?: RoleExternalReferencesListParams,
+    options?: RequestInit
+): Promise<PaginatedRoleExternalReferenceListApi> => {
+    return apiMutator<PaginatedRoleExternalReferenceListApi>(getRoleExternalReferencesListUrl(organizationId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getRoleExternalReferencesCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/role_external_references/`
+}
+
+export const roleExternalReferencesCreate = async (
+    organizationId: string,
+    roleExternalReferenceApi: NonReadonly<RoleExternalReferenceApi>,
+    options?: RequestInit
+): Promise<RoleExternalReferenceApi> => {
+    return apiMutator<RoleExternalReferenceApi>(getRoleExternalReferencesCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(roleExternalReferenceApi),
+    })
+}
+
+export const getRoleExternalReferencesDestroyUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/role_external_references/${id}/`
+}
+
+export const roleExternalReferencesDestroy = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getRoleExternalReferencesDestroyUrl(organizationId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getRoleExternalReferencesLookupRetrieveUrl = (
+    organizationId: string,
+    params: RoleExternalReferencesLookupRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/role_external_references/lookup/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/role_external_references/lookup/`
+}
+
+export const roleExternalReferencesLookupRetrieve = async (
+    organizationId: string,
+    params: RoleExternalReferencesLookupRetrieveParams,
+    options?: RequestInit
+): Promise<RoleLookupResponseApi> => {
+    return apiMutator<RoleLookupResponseApi>(getRoleExternalReferencesLookupRetrieveUrl(organizationId, params), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getIntegrationsListUrl = (projectId: string, params?: IntegrationsListParams) => {
