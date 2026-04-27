@@ -16,7 +16,10 @@ import {
     recentTaxonomicFiltersLogic,
     stripRecentContext,
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
-import { taxonomicFilterPinnedPropertiesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
+import {
+    hasPinnedContext,
+    taxonomicFilterPinnedPropertiesLogic,
+} from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import {
     DataWarehousePopoverField,
     ExcludedProperties,
@@ -95,25 +98,6 @@ const PROPERTY_TAXONOMIC_GROUP_TYPES = new Set(Object.values(PROPERTY_FILTER_TYP
 
 export interface SelectItemMeta {
     position?: number
-    isPinned?: boolean
-}
-
-type SuggestionKind = 'pinned' | 'recent' | 'quick_filter' | 'search_result' | 'browse'
-
-function getSuggestionKind(item: any, meta: SelectItemMeta | undefined, hasSearchInput: boolean): SuggestionKind {
-    if (isQuickFilterItem(item)) {
-        return 'quick_filter'
-    }
-    if (hasRecentContext(item)) {
-        return 'recent'
-    }
-    if (meta?.isPinned) {
-        return 'pinned'
-    }
-    if (hasSearchInput) {
-        return 'search_result'
-    }
-    return 'browse'
 }
 
 function indexAfterLastMetaGroup(
@@ -1653,16 +1637,20 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             if (item) {
                 const sourceGroupType = hasRecentContext(item) ? item._recentContext.sourceGroupType : group.type
                 const hadSearchInput = !!values.searchQuery
-                const suggestionKind = getSuggestionKind(item, meta, hadSearchInput)
+                const wasQuickFilter = isQuickFilterItem(item)
+                const wasFromRecents = hasRecentContext(item)
+                const wasFromPinnedList = hasPinnedContext(item)
 
                 posthog.capture('taxonomic filter item selected', {
                     groupType: values.activeTab,
                     sourceGroupType,
-                    suggestionKind,
-                    position: meta?.position,
+                    wasFromPinnedList,
+                    wasFromRecents,
+                    wasQuickFilter,
                     hadSearchInput,
+                    position: meta?.position,
                     query: values.searchQuery || undefined,
-                    ...(isQuickFilterItem(item) && {
+                    ...(wasQuickFilter && {
                         filterName: item.name,
                         propertyKey: item.propertyKey,
                         operator: item.operator,

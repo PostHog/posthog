@@ -427,7 +427,7 @@ export const InfiniteListRow = ({
                 itemGroup,
                 trimmedSearchQuery,
                 { name: trimmedSearchQuery, isNonCaptured: true },
-                { position: rowIndex, isPinned: false }
+                { position: rowIndex }
             )
         }
 
@@ -533,10 +533,7 @@ export const InfiniteListRow = ({
                         return
                     }
                     if (canSelectItem(listGroupType, dataWarehousePopoverFields)) {
-                        return selectItem(itemGroup, itemValue ?? null, item, {
-                            position: rowIndex,
-                            isPinned: isCurrentRowPinned,
-                        })
+                        return selectItem(itemGroup, itemValue ?? null, item, { position: rowIndex })
                     }
                     onToggleRowPin(rowIndex)
                 }}

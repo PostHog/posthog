@@ -364,7 +364,7 @@ describe('TaxonomicFilter', () => {
             expect(value).toBe(3)
         })
 
-        it('captures `taxonomic filter item selected` with groupType, sourceGroupType, position and suggestionKind on click', async () => {
+        it('captures `taxonomic filter item selected` with groupType, sourceGroupType, position and orthogonal source booleans on click', async () => {
             const captureSpy = jest.spyOn(posthog, 'capture')
             renderFilter()
 
@@ -380,14 +380,16 @@ describe('TaxonomicFilter', () => {
                 expect(call?.[1]).toMatchObject({
                     groupType: TaxonomicFilterGroupType.Events,
                     sourceGroupType: TaxonomicFilterGroupType.Events,
-                    suggestionKind: 'browse',
-                    position: 1,
+                    wasFromPinnedList: false,
+                    wasFromRecents: false,
+                    wasQuickFilter: false,
                     hadSearchInput: false,
+                    position: 1,
                 })
             })
         })
 
-        it('captures suggestionKind=search_result when a search query is active', async () => {
+        it('captures hadSearchInput=true when a search query is active at selection time', async () => {
             const captureSpy = jest.spyOn(posthog, 'capture')
             renderFilter()
 
@@ -406,8 +408,10 @@ describe('TaxonomicFilter', () => {
             await waitFor(() => {
                 const call = captureSpy.mock.calls.find((c) => c[0] === 'taxonomic filter item selected')
                 expect(call?.[1]).toMatchObject({
-                    suggestionKind: 'search_result',
                     hadSearchInput: true,
+                    wasFromPinnedList: false,
+                    wasFromRecents: false,
+                    wasQuickFilter: false,
                 })
             })
         })
