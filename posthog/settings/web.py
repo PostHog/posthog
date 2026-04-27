@@ -128,6 +128,9 @@ MIDDLEWARE = [
     "posthog.middleware.CsrfOrKeyViewMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # Must run immediately after AuthenticationMiddleware so downstream middleware
+    # (activity logging, structlog binding, etc.) sees the swapped staff user on /admin/* paths.
+    "posthog.middleware.AdminImpersonationMiddleware",
     "posthog.api.query_coalescer.QueryCoalescingMiddleware",
     "posthog.middleware.SocialAuthExceptionMiddleware",
     "posthog.middleware.SessionAgeMiddleware",
@@ -136,7 +139,6 @@ MIDDLEWARE = [
     "posthog.middleware.user_logging_context_middleware",
     "django_otp.middleware.OTPMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
-    "posthog.middleware.AdminImpersonationMiddleware",
     "posthog.middleware.AutoLogoutImpersonateMiddleware",
     "posthog.middleware.ImpersonationReadOnlyMiddleware",
     "posthog.middleware.ImpersonationBlockedPathsMiddleware",

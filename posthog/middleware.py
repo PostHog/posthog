@@ -718,12 +718,14 @@ class AdminImpersonationMiddleware:
             original_user = get_original_user_from_session(request)
             if original_user and original_user.is_active and original_user.is_staff:
                 request.user = original_user
+                # Keep the lazy auth-middleware cache in sync with the swapped user.
+                request._cached_user = original_user  # type: ignore[attr-defined]
         return self.get_response(request)
 
     def _should_swap_user(self, request: HttpRequest) -> bool:
         if not request.path.startswith("/admin/"):
             return False
-        if request.path.startswith(self.EXEMPT_PATHS):
+        if request.path in self.EXEMPT_PATHS:
             return False
         return is_impersonated_session(request)
 

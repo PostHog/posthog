@@ -966,24 +966,30 @@ class TestAdminImpersonationMiddleware(APIBaseTest):
             data={"read_only": "true", "reason": "Test read-only impersonation"},
         )
 
-    def test_admin_writes_allowed_during_read_only_impersonation(self):
+    @patch("posthog.views.get_client")
+    def test_admin_writes_allowed_during_read_only_impersonation(self, mock_get_client: MagicMock):
         """Admin POST/PATCH/DELETE actions must not be blocked by the read-only
         impersonation middleware — admin runs as the original staff user."""
+        mock_redis = MagicMock()
+        mock_redis.ttl.return_value = -1
+        mock_get_client.return_value = mock_redis
+
         self.login_as_other_user_read_only()
 
-        # Hit an admin endpoint that performs a write. /admin/redis/edit-ttl is a
-        # POST endpoint that the impersonation read-only middleware would otherwise reject.
+        # POST to /admin/redis/edit-ttl — a function-based admin view registered directly
+        # in the URLconf (not lazy-loaded), so it's reachable in tests. A successful POST
+        # redirects (302) to the redis values list.
         response = self.client.post(
             "/admin/redis/edit-ttl",
             data={"key": "test:key", "ttl_seconds": "60"},
         )
 
-        # The middleware must not return its 403 read-only response.
-        assert not (
-            response.status_code == 403
-            and response.headers.get("Content-Type", "").startswith("application/json")
-            and response.json().get("code") == "impersonation_read_only"
-        )
+        # Endpoint must be reached (would-be 404 means the test isn't proving anything).
+        assert response.status_code != 404, "admin URL not registered in test environment"
+        # Middleware must not return its read-only 403.
+        assert response.status_code != 403, f"unexpected 403: {response.content!r}"
+        # Sanity check the write actually happened.
+        mock_redis.expire.assert_called_once_with("test:key", 60)
 
     def test_api_writes_still_blocked_during_read_only_impersonation(self):
         """Non-admin write requests must still be blocked under read-only impersonation."""
