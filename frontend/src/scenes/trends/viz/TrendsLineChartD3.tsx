@@ -3,6 +3,7 @@ import { useCallback, useMemo } from 'react'
 
 import { createXAxisTickCallback } from 'lib/charts/utils/dates'
 import { buildTheme } from 'lib/charts/utils/theme'
+import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { DEFAULT_Y_AXIS_ID, LineChart, ReferenceLines, ValueLabels } from 'lib/hog-charts'
 import type { LineChartConfig, PointClickData, Series, TooltipContext } from 'lib/hog-charts'
 import { ciRanges, movingAverage, trendLine } from 'lib/statistics'
@@ -23,8 +24,11 @@ import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
 import type { IndexedTrendResult } from '../types'
 import { AnnotationsLayer } from './AnnotationsLayer'
-import { goalLinesToReferenceLines } from './goalLinesAdapter'
+import { buildAnomalyMarkers } from './anomalyPointsAdapter'
+import { AnomalyPointsLayer } from './AnomalyPointsLayer'
+import { alertThresholdsToReferenceLines, goalLinesToReferenceLines } from './goalLinesAdapter'
 import { handleTrendsLineChartClick } from './handleTrendsLineChartClick'
+import { buildTrendsYTickFormatter } from './trendsAxisFormat'
 import type { TrendsSeriesMeta } from './trendsSeriesMeta'
 import { TrendsTooltip } from './TrendsTooltip'
 
@@ -68,6 +72,10 @@ export function TrendsLineChartD3({ context, inSharedMode = false }: TrendsLineC
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
+
+    const { alertThresholdLines, alertAnomalyPoints } = useValues(
+        insightAlertsLogic({ insightId: insight.id!, insightLogicProps: insightProps })
+    )
 
     const isPercentStackView = !!showPercentStackView && !!supportsPercentStackView
     const resolvedGroupTypeLabel =
@@ -217,6 +225,11 @@ export function TrendsLineChartD3({ context, inSharedMode = false }: TrendsLineC
         [interval, currentPeriodResult?.days, timezone]
     )
 
+    const yTickFormatter = useMemo(
+        () => buildTrendsYTickFormatter(trendsFilter, isPercentStackView, baseCurrency),
+        [trendsFilter, isPercentStackView, baseCurrency]
+    )
+
     const chartConfig: LineChartConfig = useMemo(
         () => ({
             showGrid: true,
@@ -225,11 +238,33 @@ export function TrendsLineChartD3({ context, inSharedMode = false }: TrendsLineC
             yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
             percentStackView: isPercentStackView,
             xTickFormatter,
+            yTickFormatter,
         }),
-        [yAxisScaleType, isPercentStackView, xTickFormatter]
+        [yAxisScaleType, isPercentStackView, xTickFormatter, yTickFormatter]
     )
 
-    const referenceLines = useMemo(() => goalLinesToReferenceLines(goalLines, hogSeries), [goalLines, hogSeries])
+    const referenceLines = useMemo(
+        () => [
+            ...alertThresholdsToReferenceLines(alertThresholdLines),
+            ...goalLinesToReferenceLines(goalLines, hogSeries),
+        ],
+        [alertThresholdLines, goalLines, hogSeries]
+    )
+
+    const anomalyMarkers = useMemo(
+        () =>
+            buildAnomalyMarkers(
+                alertAnomalyPoints,
+                indexedResults,
+                getTrendsColor,
+                (r) => {
+                    const idx = (indexedResults ?? []).indexOf(r)
+                    return showMultipleYAxes && idx > 0 ? `y${idx}` : DEFAULT_Y_AXIS_ID
+                },
+                getTrendsHidden
+            ),
+        [alertAnomalyPoints, indexedResults, getTrendsColor, getTrendsHidden, showMultipleYAxes]
+    )
 
     const valueLabelFormatter = useCallback(
         (value: number) => formatPercentStackAxisValue(trendsFilter, value, isPercentStackView, baseCurrency),
@@ -331,6 +366,7 @@ export function TrendsLineChartD3({ context, inSharedMode = false }: TrendsLineC
             className="LineGraph"
         >
             <ReferenceLines lines={referenceLines} />
+            <AnomalyPointsLayer markers={anomalyMarkers} />
             {showValuesOnSeries && <ValueLabels valueFormatter={valueLabelFormatter} />}
             {showAnnotations && (
                 <AnnotationsLayer
