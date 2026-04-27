@@ -113,6 +113,9 @@ def compute_next_run(current: datetime, interval: str) -> datetime:
     raise ValueError(f"Unknown recurrence interval: {interval}")
 
 
+UTC_ZONE_INFO = ZoneInfo("UTC")
+
+
 def resolve_schedule_timezone(tz_name: str | None) -> ZoneInfo:
     """
     Resolve a stored timezone name to a ZoneInfo, falling back to UTC for NULL or invalid values.
@@ -121,14 +124,14 @@ def resolve_schedule_timezone(tz_name: str | None) -> ZoneInfo:
     a row carries a malformed timezone string.
     """
     if not tz_name:
-        return UTC
+        return UTC_ZONE_INFO
     try:
         return ZoneInfo(tz_name)
     except ZoneInfoNotFoundError:
-        return UTC
+        return UTC_ZONE_INFO
 
 
-def compute_next_run_cron(cron_expr: str, current: datetime, tz: ZoneInfo = UTC) -> datetime:
+def compute_next_run_cron(cron_expr: str, current: datetime, tz: ZoneInfo = UTC_ZONE_INFO) -> datetime:
     """
     Compute the next scheduled run time from a cron expression.
 
