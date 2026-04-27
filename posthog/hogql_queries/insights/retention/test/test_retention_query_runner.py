@@ -4702,6 +4702,164 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         # Verify the cohort filter was actually merged into query properties
         assert runner.query.properties is not None
 
+    @snapshot_clickhouse_queries
+    def test_retention_outer_query_plain_snapshot(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["user1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["user2"])
+        _create_events(self.team, [("user1", _date(0)), ("user1", _date(1)), ("user2", _date(0))])
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(3)},
+                "retentionFilter": {"totalIntervals": 4, "period": "Day"},
+            }
+        )
+
+        self.assertEqual(result[0]["values"][0]["count"], 2)
+
+    @snapshot_clickhouse_queries
+    def test_retention_outer_query_breakdown_snapshot(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["user1"], properties={"country": "US"})
+        _create_person(team_id=self.team.pk, distinct_ids=["user2"], properties={"country": "DE"})
+        _create_events(self.team, [("user1", _date(0)), ("user1", _date(1)), ("user2", _date(0))])
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(3)},
+                "retentionFilter": {"totalIntervals": 4, "period": "Day"},
+                "breakdownFilter": {"breakdown": "country", "breakdown_type": "person"},
+            }
+        )
+
+        self.assertEqual({row["breakdown_value"] for row in result}, {"DE", "US"})
+
+    @snapshot_clickhouse_queries
+    def test_retention_outer_query_property_aggregation_snapshot(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["user1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["user2"])
+        _create_events(
+            self.team,
+            [
+                ("user1", _date(0), {"revenue": 10}),
+                ("user1", _date(1), {"revenue": 20}),
+                ("user2", _date(0), {"revenue": 30}),
+            ],
+        )
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(3)},
+                "retentionFilter": {
+                    "totalIntervals": 4,
+                    "period": "Day",
+                    "aggregationType": "sum",
+                    "aggregationProperty": "revenue",
+                },
+            }
+        )
+
+        self.assertEqual(result[0]["values"][0]["aggregation_value"], 40)
+
+    @snapshot_clickhouse_queries
+    def test_retention_outer_query_breakdown_property_aggregation_snapshot(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["user1"], properties={"country": "US"})
+        _create_person(team_id=self.team.pk, distinct_ids=["user2"], properties={"country": "DE"})
+        _create_events(
+            self.team,
+            [
+                ("user1", _date(0), {"revenue": 10}),
+                ("user1", _date(1), {"revenue": 20}),
+                ("user2", _date(0), {"revenue": 30}),
+            ],
+        )
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(3)},
+                "retentionFilter": {
+                    "totalIntervals": 4,
+                    "period": "Day",
+                    "aggregationType": "sum",
+                    "aggregationProperty": "revenue",
+                },
+                "breakdownFilter": {"breakdown": "country", "breakdown_type": "person"},
+            }
+        )
+
+        us_result = next(row for row in result if row["breakdown_value"] == "US")
+        self.assertEqual(us_result["values"][0]["aggregation_value"], 10)
+
+    @snapshot_clickhouse_queries
+    def test_retention_outer_query_multiple_cohort_breakdowns_snapshot(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["user1"], properties={"name": "user1"})
+        _create_person(team_id=self.team.pk, distinct_ids=["user2"], properties={"name": "user2"})
+        flush_persons_and_events()
+
+        cohort1 = Cohort.objects.create(
+            id=101,
+            team=self.team,
+            name="cohort1",
+            groups=[{"properties": [{"key": "name", "value": "user1", "type": "person"}]}],
+        )
+
+        cohort2 = Cohort.objects.create(
+            id=102,
+            team=self.team,
+            name="cohort2",
+            groups=[{"properties": [{"key": "name", "value": "user2", "type": "person"}]}],
+        )
+
+        _create_events(self.team, [("user1", _date(0)), ("user1", _date(1)), ("user2", _date(0))])
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(3)},
+                "retentionFilter": {"totalIntervals": 4, "period": "Day"},
+                "breakdownFilter": {"breakdown_type": "cohort", "breakdown": [cohort1.pk, cohort2.pk]},
+            }
+        )
+
+        self.assertIsInstance(result, list)
+
+    @snapshot_clickhouse_queries
+    def test_retention_outer_query_cumulative_snapshot(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["user1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["user2"])
+        _create_events(self.team, [("user1", _date(0)), ("user1", _date(2)), ("user2", _date(0))])
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(3)},
+                "retentionFilter": {"totalIntervals": 4, "period": "Day", "cumulative": True},
+            }
+        )
+
+        self.assertEqual(result[0]["values"][0]["count"], 2)
+
+    @snapshot_clickhouse_queries
+    def test_retention_outer_query_cumulative_breakdown_snapshot(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["user1"], properties={"country": "US"})
+        _create_person(team_id=self.team.pk, distinct_ids=["user2"], properties={"country": "DE"})
+        _create_events(self.team, [("user1", _date(0)), ("user1", _date(2)), ("user2", _date(0))])
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(3)},
+                "retentionFilter": {"totalIntervals": 4, "period": "Day", "cumulative": True},
+                "breakdownFilter": {"breakdown": "country", "breakdown_type": "person"},
+            }
+        )
+
+        self.assertEqual({row["breakdown_value"] for row in result}, {"DE", "US"})
+
+    @snapshot_clickhouse_queries
     def test_retention_aggregation_sum(self):
         """Test retention with SUM aggregation on a property"""
         Person.objects.create(team=self.team, distinct_ids=["user1"])
