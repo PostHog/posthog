@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 from django.utils import timezone
 
 from dateutil.parser import isoparse
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 
 from posthog.clickhouse.client import sync_execute
@@ -275,6 +275,7 @@ def bulk_create_events(
     sync_execute(BULK_INSERT_EVENT_SQL() + ", ".join(inserts), params, flush=False)
 
 
+@extend_schema_serializer(component_name="EventElement")
 class ElementSerializer(serializers.ModelSerializer):
     event = serializers.CharField()
 

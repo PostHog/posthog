@@ -11,24 +11,26 @@ import {
     SessionRecordingsDestroyParams,
     SessionRecordingsRetrieveParams,
 } from '@/generated/replay/api'
+import { withUiApp } from '@/resources/ui-apps'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const SessionRecordingGetSchema = SessionRecordingsRetrieveParams.omit({ project_id: true })
 
-const sessionRecordingGet = (): ToolBase<typeof SessionRecordingGetSchema, Schemas.SessionRecording> => ({
-    name: 'session-recording-get',
-    schema: SessionRecordingGetSchema,
-    handler: async (context: Context, params: z.infer<typeof SessionRecordingGetSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.SessionRecording>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recordings/${encodeURIComponent(String(params.id))}/`,
-        })
-        return result
-    },
-})
+const sessionRecordingGet = (): ToolBase<typeof SessionRecordingGetSchema, WithPostHogUrl<Schemas.SessionRecording>> =>
+    withUiApp('session-recording', {
+        name: 'session-recording-get',
+        schema: SessionRecordingGetSchema,
+        handler: async (context: Context, params: z.infer<typeof SessionRecordingGetSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.SessionRecording>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recordings/${encodeURIComponent(String(params.id))}/`,
+            })
+            return await withPostHogUrl(context, result, `/replay/${result.id}`)
+        },
+    })
 
 const SessionRecordingDeleteSchema = SessionRecordingsDestroyParams.omit({ project_id: true })
 

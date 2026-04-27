@@ -1,7 +1,6 @@
 """Temporal activities for logs alerting."""
 
 import time
-import asyncio
 import dataclasses
 from datetime import UTC, datetime, timedelta
 
@@ -13,6 +12,7 @@ import temporalio.activity
 
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.exceptions_capture import capture_exception
+from posthog.sync import database_sync_to_async_pool
 
 from products.logs.backend.alert_check_query import AlertCheckQuery, fetch_live_logs_checkpoint, resolve_alert_date_to
 from products.logs.backend.alert_error_classifier import (
@@ -32,6 +32,7 @@ from products.logs.backend.logs_url_params import build_logs_url_params
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.temporal.metrics import (
     increment_check_errors,
+    increment_checkpoint_unavailable,
     increment_checks_total,
     increment_notification_failures,
     increment_state_transition,
@@ -60,8 +61,7 @@ class CheckAlertsOutput:
 @temporalio.activity.defn
 async def check_alerts_activity(input: CheckAlertsInput) -> CheckAlertsOutput:
     """Find all due alerts and evaluate them sequentially."""
-    result = await asyncio.to_thread(_check_alerts_sync)
-    return result
+    return await database_sync_to_async_pool(_check_alerts_sync)()
 
 
 def _check_alerts_sync() -> CheckAlertsOutput:
@@ -91,9 +91,12 @@ def _check_alerts_sync() -> CheckAlertsOutput:
             logger.exception("Failed to fetch logs ingestion checkpoint; falling back to wall-clock")
 
     try:
-        record_checkpoint_lag(now, checkpoint)
+        if checkpoint is None:
+            increment_checkpoint_unavailable()
+        else:
+            record_checkpoint_lag(now, checkpoint)
     except Exception:
-        logger.exception("Failed to record checkpoint lag gauge")
+        logger.exception("Failed to record checkpoint metric")
 
     stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
 

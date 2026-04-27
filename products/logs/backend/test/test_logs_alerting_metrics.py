@@ -12,6 +12,7 @@ from products.logs.backend.temporal.metrics import (
     ExecutionTimeRecorder,
     LogsAlertingMetricsInterceptor,
     increment_check_errors,
+    increment_checkpoint_unavailable,
     increment_checks_total,
     increment_notification_failures,
     increment_state_transition,
@@ -150,16 +151,20 @@ class TestRecordCheckpointLag:
         assert name == "logs_alerting_ingestion_checkpoint_lag_seconds"
         mock_gauge.set.assert_called_once_with(expected)
 
+
+class TestIncrementCheckpointUnavailable:
     @patch("products.logs.backend.temporal.metrics.get_metric_meter")
-    def test_sentinel_when_checkpoint_none(self, mock_get_meter: MagicMock):
+    def test_increments_counter(self, mock_get_meter: MagicMock):
         mock_meter = MagicMock()
-        mock_gauge = MagicMock()
-        mock_meter.create_gauge.return_value = mock_gauge
+        mock_counter = MagicMock()
+        mock_meter.create_counter.return_value = mock_counter
         mock_get_meter.return_value = mock_meter
 
-        record_checkpoint_lag(dt.datetime(2025, 1, 1, 0, 0, 0), None)
+        increment_checkpoint_unavailable()
 
-        mock_gauge.set.assert_called_once_with(-1)
+        (name, _description), _ = mock_meter.create_counter.call_args
+        assert name == "logs_alerting_checkpoint_unavailable_total"
+        mock_counter.add.assert_called_once_with(1)
 
 
 class TestRecordCheckDuration:
