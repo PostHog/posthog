@@ -62,7 +62,7 @@ class SessionSummariesSerializer(serializers.Serializer):
     )
 
 
-_PRODUCT_CONTEXT_WRAPPER_TAG_RE = re.compile(r"</?\s*product_context\s*/?>", re.IGNORECASE)
+_PRODUCT_CONTEXT_WRAPPER_TAG_RE = re.compile(r"</?\s*product_context\b[^>]*>", re.IGNORECASE)
 
 
 class SessionSummariesConfigSerializer(serializers.ModelSerializer):
