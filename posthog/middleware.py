@@ -698,10 +698,9 @@ class AdminImpersonationMiddleware:
     every staff-only command. This middleware swaps `request.user` back to the
     original staff user for `/admin/` routes so admin views, model permissions, and
     `staff_member_required` decorators all see the real operator. The impersonation
-    session itself is left intact (the loginas session flag stays set), so the
-    impersonated user is still surfaced everywhere else and `is_impersonated_session`
-    keeps returning True. The impersonated user is exposed on
-    `request.impersonated_user` so templates can show a status banner.
+    session itself is left intact (the loginas session flag stays set), so
+    `is_impersonated_session` keeps returning True and `get_impersonated_user` still
+    returns the customer (looked up from the session).
     """
 
     # Endpoints that need to see the impersonated user as `request.user`.
@@ -718,7 +717,6 @@ class AdminImpersonationMiddleware:
         if self._should_swap_user(request):
             original_user = get_original_user_from_session(request)
             if original_user and original_user.is_active and original_user.is_staff:
-                request.impersonated_user = request.user
                 request.user = original_user
         return self.get_response(request)
 

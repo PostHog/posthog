@@ -191,6 +191,7 @@ TEMPLATES = [
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
                 "loginas.context_processors.impersonated_session_status",
+                "posthog.helpers.impersonation.impersonation_context",
             ]
         },
     }
