@@ -7,12 +7,18 @@ from urllib.parse import urljoin
 import requests
 from requests import Request, Response
 from requests.auth import AuthBase
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from .exceptions import IgnoreResponseException
 from .jsonpath_utils import TJsonPath, find_values
 from .paginators import BasePaginator
 
 logger = logging.getLogger(__name__)
+
+
+class RESTClientRetryableError(Exception):
+    pass
+
 
 Hooks = dict[str, list[Any]]
 
@@ -94,9 +100,18 @@ class RESTClient:
             if paginator is None or not paginator.has_next_page:
                 break
 
+    @retry(
+        retry=retry_if_exception_type(RESTClientRetryableError),
+        stop=stop_after_attempt(5),
+        wait=wait_exponential_jitter(initial=1, max=30),
+        reraise=True,
+    )
     def _send_request(self, request: Request, hooks: Hooks) -> Response:
         prepared = self.session.prepare_request(request)
         response = self.session.send(prepared)
+
+        if response.status_code == 429 or response.status_code >= 500:
+            raise RESTClientRetryableError(f"HTTP {response.status_code} for {response.url}")
 
         response_hooks = hooks.get("response", [])
         if response_hooks:
