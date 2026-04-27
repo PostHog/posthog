@@ -398,7 +398,7 @@ class StripeValidationError(Exception):
         super().__init__(message)
 
 
-def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool:
+def validate_credentials(api_key: str, table_name: Optional[str] = None, auth_method: str = "api_key") -> bool:
     """
     Validates Stripe API credentials and checks permissions for all required resources.
     Returns True if the API key is valid and has all required permissions.
@@ -428,6 +428,10 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
             parent_entry = cast(StripeResource, all_resources[entry.parent_name])
             return f"{name} ({entry.parent_name})", parent_entry
         return name, entry
+
+    if auth_method == "oauth":
+        # accounts.list requires Connect platform access — OAuth connected-account tokens can't call it
+        resources_to_check = [r for r in resources_to_check if r["name"] != ACCOUNT_RESOURCE_NAME]
 
     missing_permissions: dict[str, str] = {}
     errors: dict[str, str] = {}

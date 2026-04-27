@@ -547,6 +547,46 @@ def test_validate_credentials_with_missing_table_name():
     assert "bad_table" in str(e)
 
 
+def test_validate_credentials_oauth_skips_account():
+    mock_client = mock.MagicMock()
+
+    mock_client.accounts.list = mock.MagicMock()
+    mock_client.balance_transactions.list = mock.MagicMock()
+    mock_client.charges.list = mock.MagicMock()
+    mock_client.customers.list = mock.MagicMock()
+    mock_client.disputes.list = mock.MagicMock()
+    mock_client.invoice_items.list = mock.MagicMock()
+    mock_client.invoices.list = mock.MagicMock()
+    mock_client.payouts.list = mock.MagicMock()
+    mock_client.prices.list = mock.MagicMock()
+    mock_client.products.list = mock.MagicMock()
+    mock_client.subscriptions.list = mock.MagicMock()
+    mock_client.refunds.list = mock.MagicMock()
+    mock_client.credit_notes.list = mock.MagicMock()
+
+    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+        result = validate_credentials("oauth_token", auth_method="oauth")
+
+        assert result is True
+
+        # accounts.list requires Connect platform access — must not be called for OAuth tokens
+        mock_client.accounts.list.assert_not_called()
+
+        # All other resources should still be checked
+        mock_client.balance_transactions.list.assert_called_once_with(params={"limit": 1})
+        mock_client.charges.list.assert_called_once_with(params={"limit": 1})
+        mock_client.customers.list.assert_called_once_with(params={"limit": 1})
+        mock_client.disputes.list.assert_called_once_with(params={"limit": 1})
+        mock_client.invoice_items.list.assert_called_once_with(params={"limit": 1})
+        mock_client.invoices.list.assert_called_once_with(params={"limit": 1})
+        mock_client.payouts.list.assert_called_once_with(params={"limit": 1})
+        mock_client.prices.list.assert_called_once_with(params={"limit": 1})
+        mock_client.products.list.assert_called_once_with(params={"limit": 1})
+        mock_client.subscriptions.list.assert_called_once_with(params={"limit": 1})
+        mock_client.refunds.list.assert_called_once_with(params={"limit": 1})
+        mock_client.credit_notes.list.assert_called_once_with(params={"limit": 1})
+
+
 class TestGetApiKey:
     @pytest.fixture
     def stripe_source(self):
