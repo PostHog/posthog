@@ -39,6 +39,11 @@ from posthog.tasks.exporter import export_asset
 
 from products.logs.backend.alerts_api import LogsAlertViewSet
 from products.logs.backend.count_query_runner import CountQueryRunner
+from products.logs.backend.count_ranges_query_runner import (
+    DEFAULT_TARGET_BUCKETS,
+    MAX_TARGET_BUCKETS,
+    CountRangesQueryRunner,
+)
 from products.logs.backend.explain import LogExplainViewSet
 from products.logs.backend.has_logs_query_runner import team_has_logs
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
@@ -307,6 +312,79 @@ class _LogsCountBodySerializer(serializers.Serializer):
 
 class _LogsCountRequestSerializer(serializers.Serializer):
     query = _LogsCountBodySerializer(help_text="The count query to execute.")
+
+
+class _LogsCountRangesBodySerializer(serializers.Serializer):
+    dateRange = _DateRangeSerializer(
+        required=False,
+        help_text=(
+            "Window to bucket. Defaults to last hour. Use a bucket's date_from/date_to "
+            "from a prior response to recursively narrow into a sub-range."
+        ),
+    )
+    targetBuckets = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=MAX_TARGET_BUCKETS,
+        default=DEFAULT_TARGET_BUCKETS,
+        help_text=(
+            "Approximate number of buckets to return. The bucket interval is picked "
+            "adaptively from a fixed list (1/5/10s, 1/2/5/10/15/30/60/120/240/360/720/1440m) "
+            f"to land near this target. Defaults to {DEFAULT_TARGET_BUCKETS}, capped at {MAX_TARGET_BUCKETS}."
+        ),
+    )
+    severityLevels = serializers.ListField(
+        child=serializers.ChoiceField(choices=["trace", "debug", "info", "warn", "error", "fatal"]),
+        required=False,
+        default=list,
+        help_text="Filter by log severity levels. Applied before bucketing.",
+    )
+    serviceNames = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=list,
+        help_text="Filter by service names. Applied before bucketing.",
+    )
+    searchTerm = serializers.CharField(
+        required=False,
+        help_text="Full-text search across log bodies. Applied before bucketing.",
+    )
+    filterGroup = serializers.ListField(
+        child=_LogPropertyFilterSerializer(),
+        required=False,
+        default=list,
+        help_text="Property filters applied before bucketing. Same shape as `query-logs`.",
+    )
+
+
+class _LogsCountRangesRequestSerializer(serializers.Serializer):
+    query = _LogsCountRangesBodySerializer(help_text="The bucketed-count query to execute.")
+
+
+class _LogsCountRangeBucketSerializer(serializers.Serializer):
+    date_from = serializers.CharField(
+        help_text="Bucket start as ISO 8601 timestamp. Inclusive lower bound. Pass back as `dateRange.date_from` to drill in.",
+    )
+    date_to = serializers.CharField(
+        help_text="Bucket end as ISO 8601 timestamp. Exclusive upper bound. Pass back as `dateRange.date_to` to drill in.",
+    )
+    count = serializers.IntegerField(help_text="Log entries matching the filters within this bucket.")
+
+
+class _LogsCountRangesResponseSerializer(serializers.Serializer):
+    ranges = _LogsCountRangeBucketSerializer(
+        many=True,
+        help_text=(
+            "Buckets ordered by `date_from` ascending. Empty buckets are omitted — infer "
+            "gaps by comparing each bucket's `date_to` to the next bucket's `date_from`."
+        ),
+    )
+    interval = serializers.CharField(
+        help_text=(
+            'Short-form duration of the chosen bucket width (e.g. "1h", "5m", "30s", "1d"). '
+            "Informational only — use each bucket's `date_from`/`date_to` for follow-up queries."
+        ),
+    )
 
 
 class _LogsServicesBodySerializer(serializers.Serializer):
@@ -674,6 +752,51 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             request.user,
             "logs count queried",
             {
+                "has_search_term": bool(query_data.get("searchTerm")),
+                "has_filter_group": bool(query_data.get("filterGroup")),
+                "severity_levels_count": len(query_data.get("severityLevels", [])),
+                "service_names_count": len(query_data.get("serviceNames", [])),
+            },
+            team=self.team,
+            request=request,
+        )
+
+        return Response(response.results, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        request=_LogsCountRangesRequestSerializer,
+        responses={200: _LogsCountRangesResponseSerializer},
+    )
+    @action(detail=False, methods=["POST"], required_scopes=["logs:read"], url_path="count-ranges")
+    def count_ranges(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=Product.LOGS, feature=Feature.QUERY)
+        query_data = request.data.get("query", {})
+
+        date_range_data = query_data.get("dateRange")
+        date_range = self.get_model(date_range_data, DateRange) if date_range_data else DateRange(date_from="-1h")
+
+        target_buckets = query_data.get("targetBuckets", DEFAULT_TARGET_BUCKETS)
+
+        query = LogsQuery(
+            dateRange=date_range,
+            severityLevels=query_data.get("severityLevels", []),
+            serviceNames=query_data.get("serviceNames", []),
+            searchTerm=query_data.get("searchTerm", None),
+            filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
+        )
+
+        runner = CountRangesQueryRunner(team=self.team, query=query, target_buckets=target_buckets)
+        response = runner.run(
+            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            analytics_props=get_request_analytics_properties(request),
+        )
+        assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
+
+        report_user_action(
+            request.user,
+            "logs count ranges queried",
+            {
+                "target_buckets": target_buckets,
                 "has_search_term": bool(query_data.get("searchTerm")),
                 "has_filter_group": bool(query_data.get("filterGroup")),
                 "severity_levels_count": len(query_data.get("severityLevels", [])),

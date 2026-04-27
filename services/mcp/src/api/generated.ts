@@ -37121,6 +37121,46 @@ export namespace Schemas {
       filterGroup?: _LogPropertyFilter[];
     }
 
+    export interface _LogsCountRangeBucket {
+      /** Bucket start as ISO 8601 timestamp. Inclusive lower bound. Pass back as `dateRange.date_from` to drill in. */
+      date_from: string;
+      /** Bucket end as ISO 8601 timestamp. Exclusive upper bound. Pass back as `dateRange.date_to` to drill in. */
+      date_to: string;
+      /** Log entries matching the filters within this bucket. */
+      count: number;
+    }
+
+    export interface _LogsCountRangesBody {
+      /** Window to bucket. Defaults to last hour. Use a bucket's date_from/date_to from a prior response to recursively narrow into a sub-range. */
+      dateRange?: _DateRange;
+      /**
+       * Approximate number of buckets to return. The bucket interval is picked adaptively from a fixed list (1/5/10s, 1/2/5/10/15/30/60/120/240/360/720/1440m) to land near this target. Defaults to 10, capped at 100.
+       * @minimum 1
+       * @maximum 100
+       */
+      targetBuckets?: number;
+      /** Filter by log severity levels. Applied before bucketing. */
+      severityLevels?: SeverityLevelsEnum[];
+      /** Filter by service names. Applied before bucketing. */
+      serviceNames?: string[];
+      /** Full-text search across log bodies. Applied before bucketing. */
+      searchTerm?: string;
+      /** Property filters applied before bucketing. Same shape as `query-logs`. */
+      filterGroup?: _LogPropertyFilter[];
+    }
+
+    export interface _LogsCountRangesRequest {
+      /** The bucketed-count query to execute. */
+      query: _LogsCountRangesBody;
+    }
+
+    export interface _LogsCountRangesResponse {
+      /** Buckets ordered by `date_from` ascending. Empty buckets are omitted — infer gaps by comparing each bucket's `date_to` to the next bucket's `date_from`. */
+      ranges: _LogsCountRangeBucket[];
+      /** Short-form duration of the chosen bucket width (e.g. "1h", "5m", "30s", "1d"). Informational only — use each bucket's `date_from`/`date_to` for follow-up queries. */
+      interval: string;
+    }
+
     export interface _LogsCountRequest {
       /** The count query to execute. */
       query: _LogsCountBody;
