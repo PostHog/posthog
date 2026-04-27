@@ -651,7 +651,7 @@ jobs:
               if: github.run_attempt == '1'
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  app-id: ${{ secrets.GH_APP_TELEMETRY_APP_ID }}
+                  client-id: ${{ secrets.GH_APP_TELEMETRY_APP_ID }}
                   private-key: ${{ secrets.GH_APP_TELEMETRY_PRIVATE_KEY }}
             - name: Capture running time to PostHog
               if: github.run_attempt == '1'
