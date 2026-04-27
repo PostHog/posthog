@@ -155,12 +155,15 @@ class TestVisuallyAnalyzeSessionSegmentMCPToolAPI(APIBaseTest):
         self.assertIn("checkout", data["content"])
         mock_execute.assert_called_once()
 
+    @patch("ee.hogai.tools.replay.visually_analyze_session_segment._session_belongs_to_team", return_value=True)
     @patch("ee.hogai.tools.replay.visually_analyze_session_segment.GeminiVideoUnderstandingProvider")
     @patch(
         "ee.hogai.tools.replay.visually_analyze_session_segment.async_connect",
         new_callable=AsyncMock,
     )
-    def test_full_flow_with_mocked_temporal_and_gemini(self, mock_connect, mock_gemini_cls):
+    def test_full_flow_with_mocked_temporal_and_gemini(
+        self, mock_connect, mock_gemini_cls, mock_session_belongs_to_team
+    ):
         mock_client = AsyncMock()
         mock_connect.return_value = mock_client
 
@@ -196,3 +199,29 @@ class TestVisuallyAnalyzeSessionSegmentMCPToolAPI(APIBaseTest):
 
         mock_client.execute_workflow.assert_called_once()
         mock_provider.understand_video.assert_called_once()
+        mock_session_belongs_to_team.assert_called_once()
+
+    @patch(
+        "ee.hogai.tools.replay.visually_analyze_session_segment.ExportedAsset.objects.acreate", new_callable=AsyncMock
+    )
+    @patch("ee.hogai.tools.replay.visually_analyze_session_segment._session_belongs_to_team", return_value=False)
+    def test_unknown_or_cross_team_session_is_rejected(self, mock_session_belongs_to_team, mock_create_asset):
+        response = self.client.post(
+            self._url(),
+            {
+                "args": {
+                    "session_id": "session-from-another-team",
+                    "start_timestamp": "00:00:30",
+                    "end_timestamp": "00:01:00",
+                    "angle": "look for scrolling behavior",
+                }
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertFalse(data["success"])
+        self.assertIn("No session recording was found", data["content"])
+        mock_session_belongs_to_team.assert_called_once()
+        mock_create_asset.assert_not_called()

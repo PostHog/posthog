@@ -16,7 +16,8 @@ from posthog.models.exported_asset import ExportedAsset
 from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
-from posthog.temporal.exports_video.workflow import VideoExportInputs, VideoExportWorkflow
+from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
+from posthog.temporal.session_replay.rasterize_recording.workflow import RasterizeRecordingWorkflow
 
 from ee.hogai.session_summaries.constants import (
     DEFAULT_VIDEO_UNDERSTANDING_MODEL,
@@ -47,6 +48,14 @@ def parse_timestamp_to_seconds(timestamp: str) -> int:
     if minutes >= 60 or seconds >= 60:
         raise ValueError(f"Invalid timestamp '{timestamp}': minutes and seconds must be < 60")
     return hours * 3600 + minutes * 60 + seconds
+
+
+def _session_belongs_to_team(*, team: Team, session_id: str) -> bool:
+    from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+
+    replay_events = SessionReplayEvents()
+    sessions_found, _, _ = replay_events.sessions_found_with_timestamps(session_ids=[session_id], team=team)
+    return session_id in sessions_found
 
 
 async def visually_analyze_session_segment(
@@ -85,6 +94,12 @@ async def visually_analyze_session_segment(
             f"{MAX_SEGMENT_DURATION_S}s (2 minutes). Please select a shorter time range."
         )
 
+    session_belongs_to_team = await database_sync_to_async(_session_belongs_to_team, thread_sensitive=False)(
+        team=team, session_id=session_id
+    )
+    if not session_belongs_to_team:
+        raise MaxToolRetryableError("No session recording was found matching the provided session ID.")
+
     # Create ExportedAsset for the video segment
     created_at = now()
     expires_after = created_at + timedelta(days=EXPIRES_AFTER_DAYS)
@@ -109,10 +124,10 @@ async def visually_analyze_session_segment(
         client = await async_connect()
         workflow_id = f"mcp-session-segment-video_{session_id}_{start_s}-{end_s}_{uuid.uuid4()}"
         await client.execute_workflow(
-            VideoExportWorkflow.run,
-            VideoExportInputs(exported_asset_id=exported_asset.id),
+            RasterizeRecordingWorkflow.run,
+            RasterizeRecordingInputs(exported_asset_id=exported_asset.id),
             id=workflow_id,
-            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
             retry_policy=RetryPolicy(maximum_attempts=3),
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
             execution_timeout=timedelta(minutes=10),
@@ -182,7 +197,7 @@ async def _get_video_bytes(asset_id: int) -> bytes | None:
 # ---------------------------------------------------------------------------
 
 
-class VisuallyAnalyzeSessionSegmentToolArgs(BaseModel):
+class VisuallyAnalyzeSessionSegmentArgs(BaseModel):
     session_id: str = Field(description="The session recording ID to analyze.")
     start_timestamp: str = Field(description="Start timestamp within the session in hh:mm:ss format (e.g. '00:01:30').")
     end_timestamp: str = Field(description="End timestamp within the session in hh:mm:ss format (e.g. '00:03:00').")
@@ -202,7 +217,7 @@ class VisuallyAnalyzeSessionSegmentTool(MaxTool):
         Use this to understand what happened visually in a specific part of a session.
         """
     ).strip()
-    args_schema: type[BaseModel] = VisuallyAnalyzeSessionSegmentToolArgs
+    args_schema: type[BaseModel] = VisuallyAnalyzeSessionSegmentArgs
 
     billable: bool = True
 
