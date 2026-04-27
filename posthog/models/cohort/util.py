@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 import copy
 import uuid
 from datetime import datetime, timedelta
 from enum import StrEnum
-from typing import Any, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, Optional, Union, cast
 
 from django.conf import settings
 from django.utils import timezone
@@ -53,16 +55,10 @@ from posthog.models.person.sql import (
     PERSON_STATIC_COHORT_TABLE,
 )
 from posthog.models.property import Property, PropertyGroup
-from posthog.personhog_client import ReadConsistency, consistency_to_read_options
-from posthog.personhog_client.proto import (
-    CheckCohortMembershipRequest,
-    CountCohortMembersRequest,
-    DeleteCohortMemberRequest,
-    DeleteCohortMembersBulkRequest,
-    InsertCohortMembersRequest,
-    ListCohortMemberIdsRequest,
-)
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
+
+if TYPE_CHECKING:
+    from posthog.personhog_client import ReadConsistency
 from posthog.queries.util import PersonPropertiesMode
 
 # temporary marker to denote when cohortpeople table started being populated
@@ -1043,7 +1039,7 @@ def cohort_filters_have_values(filters_dict: dict | None) -> bool:
 
 
 def insert_actors_into_cohort_by_query(
-    cohort: "Cohort",
+    cohort: Cohort,
     query: str,
     params: dict[str, Any],
     context: HogQLContext,
@@ -1063,13 +1059,13 @@ def insert_actors_into_cohort_by_query(
     )
 
 
-def insert_cohort_query_actors_into_ch(cohort: "Cohort", *, team: "Team"):
+def insert_cohort_query_actors_into_ch(cohort: Cohort, *, team: Team):
     context = HogQLContext(enable_select_queries=True, team_id=team.id)
     query = print_cohort_hogql_query(cohort, context, team=team)
     insert_actors_into_cohort_by_query(cohort, query, {}, context, team_id=team.id)
 
 
-def build_static_cohort_filters_query(cohort: "Cohort", *, team: "Team") -> tuple[str, dict[str, Any], HogQLContext]:
+def build_static_cohort_filters_query(cohort: Cohort, *, team: Team) -> tuple[str, dict[str, Any], HogQLContext]:
     from posthog.queries.cohort_query import CohortQuery
 
     context = HogQLContext(enable_select_queries=True, team_id=team.id)
@@ -1087,12 +1083,12 @@ def build_static_cohort_filters_query(cohort: "Cohort", *, team: "Team") -> tupl
     return f"SELECT id AS actor_id FROM ({base_query})", params, context
 
 
-def insert_cohort_filter_actors_into_ch(cohort: "Cohort", *, team: "Team"):
+def insert_cohort_filter_actors_into_ch(cohort: Cohort, *, team: Team):
     query, params, context = build_static_cohort_filters_query(cohort, team=team)
     insert_actors_into_cohort_by_query(cohort, query, params, context, team_id=team.id)
 
 
-def insert_cohort_people_into_pg(cohort: "Cohort", *, team_id: int):
+def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int):
     from posthog.helpers.batch_iterators import CursorBatchIterator
 
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
@@ -1129,6 +1125,7 @@ def insert_cohort_people_into_pg(cohort: "Cohort", *, team_id: int):
 
 def _check_cohort_membership_via_personhog(person_id: int, cohort_ids: list[int]) -> dict[int, bool]:
     from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import CheckCohortMembershipRequest
 
     client = get_personhog_client()
     if client is None:
@@ -1196,6 +1193,7 @@ _LIST_COHORT_MEMBER_IDS_PAGE_SIZE = 10_000
 
 def _list_cohort_member_ids_via_personhog(cohort_id: int) -> list[int]:
     from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import ListCohortMemberIdsRequest
 
     client = get_personhog_client()
     if client is None:
@@ -1251,6 +1249,7 @@ def list_cohort_member_ids(team_id: int, cohort_id: int) -> list[int]:
 
 def _insert_cohort_members_via_personhog(cohort_id: int, person_ids: list[int], version: int | None) -> int:
     from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import InsertCohortMembersRequest
 
     client = get_personhog_client()
     if client is None:
@@ -1313,6 +1312,7 @@ def insert_cohort_members(team_id: int, cohort_id: int, person_ids: list[int], v
 
 def _delete_cohort_member_via_personhog(cohort_id: int, person_id: int) -> bool:
     from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import DeleteCohortMemberRequest
 
     client = get_personhog_client()
     if client is None:
@@ -1352,6 +1352,7 @@ _DELETE_BULK_MAX_ITERATIONS = 10_000
 
 def _delete_cohort_members_bulk_via_personhog(cohort_ids: list[int], batch_size: int) -> int:
     from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import DeleteCohortMembersBulkRequest
 
     client = get_personhog_client()
     if client is None:
@@ -1405,7 +1406,9 @@ def delete_cohort_members_bulk(team_id: int, cohort_ids: list[int], batch_size: 
 
 
 def _count_cohort_members_via_personhog(cohort_ids: list[int], consistency: ReadConsistency) -> int:
+    from posthog.personhog_client import consistency_to_read_options
     from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import CountCohortMembersRequest
 
     client = get_personhog_client()
     if client is None:

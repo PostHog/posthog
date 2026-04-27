@@ -22,7 +22,6 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import PropertyOperatorType
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.batch_iterators import ArrayBatchIterator, BatchIterator, FunctionBatchIterator
-from posthog.models.cohort.util import delete_cohort_member, insert_cohort_members, is_person_in_cohort
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.filters.filter import Filter
@@ -830,6 +829,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             if new_uuids:
                 insert_static_cohort(new_uuids, self.pk, team_id=team_id)
 
+        from posthog.models.cohort.util import insert_cohort_members
+
         insert_cohort_members(team_id, self.pk, person_ids, self.version)
 
     def _get_existing_ch_member_uuids(
@@ -867,7 +868,12 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         Raises:
             Exception: If removal fails due to database errors.
         """
-        from posthog.models.cohort.util import get_static_cohort_size, remove_person_from_static_cohort
+        from posthog.models.cohort.util import (
+            delete_cohort_member,
+            get_static_cohort_size,
+            is_person_in_cohort,
+            remove_person_from_static_cohort,
+        )
 
         try:
             # Get person by UUID
