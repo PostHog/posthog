@@ -152,6 +152,8 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             "SSL/TLS connection is required": None,
             "DiskFull": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
             "No space left on device": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
+            "OutOfMemory": "Source database ran out of memory while reading metadata. Increase `work_mem`/`maintenance_work_mem` on your Postgres server, or run the sync against a replica with more memory headroom.",
+            "out of memory": "Source database ran out of memory while reading metadata. Increase `work_mem`/`maintenance_work_mem` on your Postgres server, or run the sync against a replica with more memory headroom.",
         }
 
     def get_schemas(

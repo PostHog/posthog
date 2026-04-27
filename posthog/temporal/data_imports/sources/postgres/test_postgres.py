@@ -115,12 +115,24 @@ class TestPostgresSourceNonRetryableErrors:
             'FATAL:  password authentication failed for user "myuser"',
             'FATAL: no such database "nonexistent_db"',
             "Name or service not known",
+            'OutOfMemory: out of memory; Failed on request of size 32816 in memory context "MessageContext"',
+            'ERROR: out of memory\nDETAIL: Failed on request of size 1048576 in memory context "ExecutorState"',
         ],
     )
     def test_permanent_connection_errors_are_non_retryable(self, source, error_msg):
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Permanent error should be non-retryable: {error_msg}"
+
+    def test_out_of_memory_has_user_facing_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        assert "out of memory" in non_retryable
+        assert "OutOfMemory" in non_retryable
+        for key in ("out of memory", "OutOfMemory"):
+            message = non_retryable[key]
+            assert message is not None
+            assert "memory" in message
+            assert "work_mem" in message
 
     def test_validate_credentials_for_access_method_requires_schema_for_warehouse_imports(self, source):
         config = source.parse_config(
