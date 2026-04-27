@@ -7,14 +7,13 @@ record of every tool call (name, arguments, latency) plus the final answer.
 
 from __future__ import annotations
 
-import asyncio
 import os
 import time
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 
 import anthropic
-
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
@@ -71,6 +70,7 @@ def _extract_text(content_blocks: list[Any]) -> str:
 async def _run_loop(
     session: ClientSession,
     *,
+    client: anthropic.AsyncAnthropic,
     prompt: str,
     model: str,
     max_iterations: int,
@@ -79,7 +79,6 @@ async def _run_loop(
     tools_resp = await session.list_tools()
     anthropic_tools = _mcp_tools_to_anthropic(tools_resp.tools)
 
-    client = anthropic.AsyncAnthropic()
     messages: list[dict[str, Any]] = [{"role": "user", "content": prompt}]
     result = RunResult(final_answer="")
     overall_start = time.monotonic()
@@ -137,9 +136,7 @@ async def _run_loop(
 
         messages.append({"role": "user", "content": tool_results})
     else:
-        result.final_answer = (
-            "[harness] hit max tool-use iterations without a final answer"
-        )
+        result.final_answer = "[harness] hit max tool-use iterations without a final answer"
 
     result.total_latency_ms = (time.monotonic() - overall_start) * 1000
     return result
@@ -149,26 +146,38 @@ async def run_prompt(
     server: MCPServer,
     prompt: str,
     *,
+    client: anthropic.AsyncAnthropic | None = None,
     model: str = DEFAULT_MODEL,
     max_iterations: int = DEFAULT_MAX_TOOL_ITERATIONS,
     max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> RunResult:
-    """Connect to the MCP server, run the prompt through Claude, return a RunResult."""
+    """Connect to the MCP server, run the prompt through Claude, return a RunResult.
+
+    Pass ``client`` to share a connection pool across cases; otherwise a
+    one-shot ``AsyncAnthropic`` is created and closed for this call.
+    """
 
     headers = {
         "Authorization": server.auth_header,
         "Accept": "application/json, text/event-stream",
     }
-    async with streamablehttp_client(server.url, headers=headers) as (read, write, _):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            return await _run_loop(
-                session,
-                prompt=prompt,
-                model=model,
-                max_iterations=max_iterations,
-                max_tokens=max_tokens,
-            )
+    owns_client = client is None
+    anthropic_client = client or anthropic.AsyncAnthropic()
+    try:
+        async with streamablehttp_client(server.url, headers=headers) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                return await _run_loop(
+                    session,
+                    client=anthropic_client,
+                    prompt=prompt,
+                    model=model,
+                    max_iterations=max_iterations,
+                    max_tokens=max_tokens,
+                )
+    finally:
+        if owns_client:
+            await anthropic_client.close()
 
 
 def run_prompt_sync(server: MCPServer, prompt: str, **kwargs: Any) -> RunResult:

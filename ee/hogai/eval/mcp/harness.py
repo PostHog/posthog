@@ -19,12 +19,10 @@ This module starts ``wrangler dev`` once per pytest session, waits for the
 from __future__ import annotations
 
 import os
+import time
 import signal
 import socket
 import subprocess
-import time
-import urllib.error
-import urllib.request
 from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
@@ -77,41 +75,48 @@ class WranglerProcess:
         env["POSTHOG_API_BASE_URL"] = self.posthog_api_base_url
 
         self._log_handle = open(self.log_path, "w")  # noqa: SIM115
-        self._process = subprocess.Popen(
-            [
-                "pnpm",
-                "wrangler",
-                "dev",
-                "--port",
-                str(self.port),
-                "--ip",
-                "127.0.0.1",
-                "--local",
-            ],
-            cwd=str(MCP_PACKAGE_DIR),
-            env=env,
-            stdout=self._log_handle,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-        )
+        try:
+            self._process = subprocess.Popen(
+                [
+                    "pnpm",
+                    "wrangler",
+                    "dev",
+                    "--port",
+                    str(self.port),
+                    "--ip",
+                    "127.0.0.1",
+                    "--local",
+                ],
+                cwd=str(MCP_PACKAGE_DIR),
+                env=env,
+                stdout=self._log_handle,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+        except Exception:
+            # Popen failed (e.g. pnpm not on PATH); avoid leaking the log fd.
+            self._log_handle.close()
+            self._log_handle = None
+            raise
 
     def wait_ready(self, *, timeout: float = WRANGLER_STARTUP_TIMEOUT_S) -> None:
-        url = f"http://127.0.0.1:{self.port}/"
+        # Probe via raw TCP rather than urllib — wrangler accepts connections
+        # only once the worker is actually serving, and a bare socket avoids
+        # building a URL from a runtime port (which trips static-analysis rules
+        # for dynamic urllib calls).
         deadline = time.monotonic() + timeout
-        last_err: Exception | None = None
+        last_err: OSError | None = None
         while time.monotonic() < deadline:
             if self._process is not None and self._process.poll() is not None:
                 raise RuntimeError(f"wrangler dev exited early (see {self.log_path})")
             try:
-                with urllib.request.urlopen(url, timeout=2) as resp:
-                    if resp.status < 500:
-                        return
-            except (urllib.error.URLError, ConnectionError) as e:
+                with socket.create_connection(("127.0.0.1", self.port), timeout=2):
+                    return
+            except OSError as e:
                 last_err = e
             time.sleep(0.5)
         raise TimeoutError(
-            f"wrangler dev did not become ready within {timeout}s "
-            f"(last error: {last_err}, see {self.log_path})"
+            f"wrangler dev did not become ready within {timeout}s (last error: {last_err}, see {self.log_path})"
         )
 
     def stop(self) -> None:
@@ -139,27 +144,34 @@ class WranglerProcess:
                 self._log_handle = None
 
 
+_PORT_RETRY_ATTEMPTS = 3
+
+
 def start_mcp_server() -> tuple[MCPServer, WranglerProcess]:
     api_base_url = os.environ.get("POSTHOG_MCP_EVAL_API_BASE_URL", DEFAULT_POSTHOG_API_BASE_URL)
     api_key = os.environ.get("POSTHOG_MCP_EVAL_API_KEY")
     if not api_key:
         raise RuntimeError(
-            "POSTHOG_MCP_EVAL_API_KEY is required: a personal API key on "
-            f"{api_base_url} with broad scopes."
+            f"POSTHOG_MCP_EVAL_API_KEY is required: a personal API key on {api_base_url} with broad scopes."
         )
 
-    port = _free_port()
-    process = WranglerProcess(port=port, posthog_api_base_url=api_base_url)
-    process.start()
-    try:
-        process.wait_ready()
-    except Exception:
-        process.stop()
-        raise
+    # _free_port() and wrangler's bind() are not atomic, so a concurrent process
+    # can grab the port between the two. Retry a few times to absorb that race.
+    last_exc: Exception | None = None
+    for _ in range(_PORT_RETRY_ATTEMPTS):
+        port = _free_port()
+        process = WranglerProcess(port=port, posthog_api_base_url=api_base_url)
+        process.start()
+        try:
+            process.wait_ready()
+        except Exception as exc:
+            last_exc = exc
+            process.stop()
+            continue
+        return MCPServer(
+            url=f"http://127.0.0.1:{port}/mcp",
+            api_key=api_key,
+            posthog_api_base_url=api_base_url,
+        ), process
 
-    server = MCPServer(
-        url=f"http://127.0.0.1:{port}/mcp",
-        api_key=api_key,
-        posthog_api_base_url=api_base_url,
-    )
-    return server, process
+    raise RuntimeError(f"wrangler dev failed to start after {_PORT_RETRY_ATTEMPTS} attempts: {last_exc}")

@@ -39,13 +39,13 @@ pytest ee/hogai/eval/mcp/eval_mcp_smoke.py -s
 
 ## Configuration knobs
 
-| Env var | Default | Purpose |
-| --- | --- | --- |
-| `POSTHOG_MCP_EVAL_API_BASE_URL` | `http://localhost:8010` | Where Django is running |
-| `POSTHOG_MCP_EVAL_API_KEY` | — | Personal API key on that PostHog instance |
-| `POSTHOG_MCP_EVAL_MODEL` | `claude-sonnet-4-5` | Claude model to drive the tool-use loop |
-| `ANTHROPIC_API_KEY` | — | LLM credentials |
-| `BRAINTRUST_API_KEY` | _unset_ | Optional, enables Braintrust logging |
+| Env var                         | Default                 | Purpose                                   |
+| ------------------------------- | ----------------------- | ----------------------------------------- |
+| `POSTHOG_MCP_EVAL_API_BASE_URL` | `http://localhost:8010` | Where Django is running                   |
+| `POSTHOG_MCP_EVAL_API_KEY`      | —                       | Personal API key on that PostHog instance |
+| `POSTHOG_MCP_EVAL_MODEL`        | `claude-sonnet-4-5`     | Claude model to drive the tool-use loop   |
+| `ANTHROPIC_API_KEY`             | —                       | LLM credentials                           |
+| `BRAINTRUST_API_KEY`            | _unset_                 | Optional, enables Braintrust logging      |
 
 ## Files
 
