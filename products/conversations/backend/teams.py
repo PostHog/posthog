@@ -205,7 +205,9 @@ _HELP_CARD_BODY = [
 ]
 
 
-def _build_help_card(open_url: str) -> dict[str, Any]:
+def _build_help_card() -> dict[str, Any]:
+    """Help/welcome adaptive card. No action button — Teams users are customers,
+    not PostHog operators, so an "Open PostHog" link would 404 for them."""
     return {
         "contentType": "application/vnd.microsoft.card.adaptive",
         "content": {
@@ -213,13 +215,6 @@ def _build_help_card(open_url: str) -> dict[str, Any]:
             "type": "AdaptiveCard",
             "version": "1.2",
             "body": _HELP_CARD_BODY,
-            "actions": [
-                {
-                    "type": "Action.OpenUrl",
-                    "title": "Open PostHog",
-                    "url": open_url,
-                }
-            ],
         },
     }
 
@@ -326,7 +321,7 @@ def _send_help_card(activity: dict, *, log_prefix: str, reply: bool) -> bool:
         "type": "message",
         "from": {"id": bot_from_id},
         "conversation": {"id": conversation_id},
-        "attachments": [_build_help_card(open_url=settings.SITE_URL)],
+        "attachments": [_build_help_card()],
     }
     if reply:
         activity_id = activity.get("id", "")
