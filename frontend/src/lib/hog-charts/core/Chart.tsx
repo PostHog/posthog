@@ -1,10 +1,11 @@
-import React, { useMemo } from 'react'
+import React, { useCallback, useMemo, useRef } from 'react'
 
 import { AxisLabels } from '../overlays/AxisLabels'
 import { Crosshair } from '../overlays/Crosshair'
 import { DefaultTooltip } from '../overlays/DefaultTooltip'
 import { Tooltip } from '../overlays/Tooltip'
-import { ChartContext } from './chart-context'
+import { ChartHoverContext, ChartLayoutContext } from './chart-context'
+import type { ChartHoverContextValue, ChartLayoutContextValue } from './chart-context'
 import { ChartErrorBoundary } from './ChartErrorBoundary'
 import { useChartCanvas } from './hooks/useChartCanvas'
 import { useChartDraw } from './hooks/useChartDraw'
@@ -162,7 +163,26 @@ export function Chart<Meta = unknown>({
 
     const cursorStyle = hoverIndex >= 0 && onPointClick ? 'pointer' : 'default'
 
-    const contextValue = useMemo(() => {
+    const canvasBounds = useCallback(
+        (): DOMRect | null => canvasRef.current?.getBoundingClientRect() ?? null,
+        [canvasRef]
+    )
+
+    // Wrap resolveValue in a ref + stable callback so callers don't have to memoize it.
+    // An un-memoized arrow literal from a parent would otherwise invalidate the layout
+    // context on every render and defeat the layout/hover split.
+    const resolveValueRef = useRef<ResolveValueFn | undefined>(resolveValue)
+    resolveValueRef.current = resolveValue
+    const stableResolveValue = useCallback<ResolveValueFn>((s, i) => {
+        const fn = resolveValueRef.current
+        if (fn) {
+            return fn(s, i)
+        }
+        const v = s.data[i]
+        return typeof v === 'number' && Number.isFinite(v) ? v : 0
+    }, [])
+
+    const layoutValue = useMemo<ChartLayoutContextValue | null>(() => {
         if (!scales || !dimensions) {
             return null
         }
@@ -171,55 +191,61 @@ export function Chart<Meta = unknown>({
             dimensions,
             labels,
             series: coloredSeries,
-            hoverIndex,
+            theme,
+            resolveValue: stableResolveValue,
+            canvasBounds,
         }
-    }, [scales, dimensions, labels, coloredSeries, hoverIndex])
+    }, [scales, dimensions, labels, coloredSeries, theme, stableResolveValue, canvasBounds])
+
+    const hoverValue = useMemo<ChartHoverContextValue>(() => ({ hoverIndex }), [hoverIndex])
 
     return (
         <ChartErrorBoundary>
-            <ChartContext.Provider value={contextValue}>
-                <div
-                    ref={wrapperRef}
-                    className={className}
-                    style={{ position: 'relative', width: '100%', flex: 1, minHeight: 0, cursor: cursorStyle }}
-                    onMouseMove={handlers.onMouseMove}
-                    onMouseLeave={handlers.onMouseLeave}
-                    onClick={handlers.onClick}
-                >
-                    <canvas
-                        ref={canvasRef}
-                        role="img"
-                        aria-label={`Chart with ${coloredSeries.reduce((n, s) => n + (s.hidden ? 0 : 1), 0)} data series`}
-                        style={{
-                            position: 'absolute',
-                            top: 0,
-                            left: 0,
-                            cursor: cursorStyle,
-                        }}
-                    />
+            <ChartLayoutContext.Provider value={layoutValue}>
+                <ChartHoverContext.Provider value={hoverValue}>
+                    <div
+                        ref={wrapperRef}
+                        className={className}
+                        style={{ position: 'relative', width: '100%', flex: 1, minHeight: 0, cursor: cursorStyle }}
+                        onMouseMove={handlers.onMouseMove}
+                        onMouseLeave={handlers.onMouseLeave}
+                        onClick={handlers.onClick}
+                    >
+                        <canvas
+                            ref={canvasRef}
+                            role="img"
+                            aria-label={`Chart with ${coloredSeries.reduce((n, s) => n + (s.hidden ? 0 : 1), 0)} data series`}
+                            style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                cursor: cursorStyle,
+                            }}
+                        />
 
-                    {dimensions && scales && (
-                        <OverlayLayer>
-                            <AxisLabels
-                                xTickFormatter={xTickFormatter}
-                                yTickFormatter={resolvedYFormatter}
-                                yRightTickFormatter={resolvedYRightFormatter}
-                                hideXAxis={hideXAxis}
-                                hideYAxis={hideYAxis}
-                                axisColor={theme.axisColor}
-                            />
+                        {dimensions && scales && (
+                            <OverlayLayer>
+                                <AxisLabels
+                                    xTickFormatter={xTickFormatter}
+                                    yTickFormatter={resolvedYFormatter}
+                                    yRightTickFormatter={resolvedYRightFormatter}
+                                    hideXAxis={hideXAxis}
+                                    hideYAxis={hideYAxis}
+                                    axisColor={theme.axisColor}
+                                />
 
-                            {showCrosshair && <Crosshair color={theme.crosshairColor} />}
+                                {showCrosshair && <Crosshair color={theme.crosshairColor} />}
 
-                            {children}
+                                {children}
 
-                            {tooltipCtx && showTooltip && (
-                                <Tooltip context={tooltipCtx} renderTooltip={renderTooltip} />
-                            )}
-                        </OverlayLayer>
-                    )}
-                </div>
-            </ChartContext.Provider>
+                                {tooltipCtx && showTooltip && (
+                                    <Tooltip context={tooltipCtx} renderTooltip={renderTooltip} />
+                                )}
+                            </OverlayLayer>
+                        )}
+                    </div>
+                </ChartHoverContext.Provider>
+            </ChartLayoutContext.Provider>
         </ChartErrorBoundary>
     )
 }

@@ -5,7 +5,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1089_ducklake_backfill_populate"),
-        ("posthog", "1124_alter_alertconfiguration_subscribed_users"),
+        ("posthog", "1125_scheduledchange_timezone"),
     ]
 
     operations = [
