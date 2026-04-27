@@ -23,7 +23,6 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
-from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.http import require_http_methods
 
 import structlog
@@ -116,7 +115,6 @@ def post_login(sender, user, request: HttpRequest, **kwargs):
 
 
 @require_http_methods(["POST"])
-@csrf_protect
 def logout(request):
     clear_two_factor_session_flags(request)
 
