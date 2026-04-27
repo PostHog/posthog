@@ -1,6 +1,7 @@
 from typing import Any, Optional, cast
 
 from posthog.schema import (
+    DashboardFilter,
     ExperimentActorsQuery,
     FunnelAggregateByHogQL,
     FunnelCorrelationActorsQuery,
@@ -118,6 +119,27 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
     def to_actors_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return self.to_query()
+
+    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
+        # The actors-query nodes wrapping the underlying insight (FunnelsActorsQuery,
+        # InsightActorsQuery, FunnelCorrelationActorsQuery, ...) do not themselves carry
+        # `properties`/`dateRange`, so the base implementation can't apply dashboard
+        # filters to them. Walk down through `.source` until we reach an analytics query
+        # that does, and apply there. This silently dropped dashboard filters in
+        # subscription deliveries of persons-modal-style insights.
+        target = self.query.source
+        while target is not None and not (hasattr(target, "properties") and hasattr(target, "dateRange")):
+            next_source = getattr(target, "source", None)
+            if next_source is None or next_source is target:
+                break
+            target = next_source
+
+        if target is None or not (hasattr(target, "properties") and hasattr(target, "dateRange")):
+            super().apply_dashboard_filters(dashboard_filter)
+            return
+
+        target_runner = get_query_runner(target, self.team, self.timings, self.limit_context, self.modifiers)
+        target_runner.apply_dashboard_filters(dashboard_filter)
 
     def to_events_query(self) -> ast.SelectQuery:
         if isinstance(self.source_runner, TrendsQueryRunner):
