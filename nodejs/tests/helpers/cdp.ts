@@ -4,6 +4,8 @@ import {
     CdpProducerName,
     MSK_PRODUCER,
     WAREHOUSE_PRODUCER,
+    WARPSTREAM_CALCULATED_EVENTS_PRODUCER,
+    WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
 } from '../../src/cdp/outputs/producers'
 import { InternalCaptureService } from '../../src/common/services/internal-capture'
@@ -17,6 +19,8 @@ import { Hub } from '../../src/types'
 function buildTestCdpProducerRegistry(hub: Hub): KafkaProducerRegistry<CdpProducerName> {
     return new KafkaProducerRegistry<CdpProducerName>({
         [WARPSTREAM_INGESTION_PRODUCER]: hub.kafkaProducer,
+        [WARPSTREAM_CALCULATED_EVENTS_PRODUCER]: hub.kafkaProducer,
+        [WARPSTREAM_CYCLOTRON_PRODUCER]: hub.kafkaProducer,
         [MSK_PRODUCER]: hub.kafkaProducer,
         [WAREHOUSE_PRODUCER]: hub.kafkaProducer,
     })
