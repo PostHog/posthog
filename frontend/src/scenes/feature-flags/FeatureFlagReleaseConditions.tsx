@@ -10,6 +10,10 @@ import { LemonLabel, LemonSelect, LemonSnack, Link, Tooltip } from '@posthog/lem
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
+import {
+    getFlagDependencyValueLabel,
+    isFlagDependencyBooleanValue,
+} from 'lib/components/PropertyFilters/flagDependencyValueLabels'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -66,7 +70,9 @@ function PropertyValueComponent({ property }: { property: AnyPropertyFilter }): 
         <>
             {propertyValues.map((val, idx) => (
                 <LemonSnack key={idx}>
-                    {String(val)}
+                    {property.type === PropertyFilterType.Flag && isFlagDependencyBooleanValue(val)
+                        ? getFlagDependencyValueLabel(val)
+                        : String(val)}
                     <span>
                         {isPropertyFilterWithOperator(property) &&
                         ['is_date_before', 'is_date_after'].includes(property.operator) &&

@@ -17,6 +17,11 @@ import { GroupKeySelect } from 'lib/components/PropertyFilters/components/GroupK
 import { PropertyFilterBetween } from 'lib/components/PropertyFilters/components/PropertyFilterBetween'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { propertyValueLogic } from 'lib/components/PropertyFilters/components/propertyValueLogic'
+import {
+    getFlagDependencyValueLabel,
+    getFlagDependencyValueTooltip,
+    isFlagDependencyBooleanValue,
+} from 'lib/components/PropertyFilters/flagDependencyValueLabels'
 import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
@@ -276,9 +281,13 @@ export function PropertyValue({
         )
     }
 
-    const formattedValues = (value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]).map(
-        (label) => String(formatPropertyValueForDisplay(propertyKey, label, propertyDefinitionType, groupTypeIndex))
-    )
+    const rawSelectedValues = value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]
+    const formattedValues = rawSelectedValues.map((label) => {
+        if (isFlagDependencyProperty && isFlagDependencyBooleanValue(label)) {
+            return getFlagDependencyValueLabel(label)
+        }
+        return String(formatPropertyValueForDisplay(propertyKey, label, propertyDefinitionType, groupTypeIndex))
+    })
 
     if (!editable) {
         if (isGroupKeyProperty && groupKeyNames) {
@@ -353,8 +362,8 @@ export function PropertyValue({
         if (name === '') {
             return <i>(empty string)</i>
         }
-        if (isFlagDependencyProperty && typeof value === 'boolean') {
-            return <code>{name}</code>
+        if (isFlagDependencyProperty && isFlagDependencyBooleanValue(value)) {
+            return <>{getFlagDependencyValueLabel(value)}</>
         }
         return <>{formatPropertyValueForDisplay(propertyKey, name, propertyDefinitionType, groupTypeIndex)}</>
     }
@@ -437,9 +446,17 @@ export function PropertyValue({
                 options={displayOptions.map(({ name: _name }, index) => {
                     const name = toString(_name)
                     const isSuggested = initialSuggestedValues.set.has(name)
+                    const tooltip =
+                        isFlagDependencyProperty && isFlagDependencyBooleanValue(_name)
+                            ? getFlagDependencyValueTooltip(_name)
+                            : undefined
                     return {
                         key: name,
-                        label: name,
+                        label:
+                            isFlagDependencyProperty && isFlagDependencyBooleanValue(_name)
+                                ? getFlagDependencyValueLabel(_name)
+                                : name,
+                        tooltip,
                         value: isFlagDependencyProperty ? _name : undefined, // Preserve original type for flags
                         labelComponent: (
                             <span

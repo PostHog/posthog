@@ -4,6 +4,10 @@ import { IconFlag, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonLabel, LemonSnack, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
+import {
+    getFlagDependencyValueLabel,
+    isFlagDependencyBooleanValue,
+} from 'lib/components/PropertyFilters/flagDependencyValueLabels'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconOpenInNew, IconSubArrowRight } from 'lib/lemon-ui/icons'
@@ -52,7 +56,10 @@ function PropertyValueDisplay({ property }: { property: AnyPropertyFilter }): JS
         <>
             {propertyValues.map((val, idx) => {
                 const strVal = String(val)
-                const display = groupKeyNames[strVal] || strVal
+                let display = groupKeyNames[strVal] || strVal
+                if (property.type === PropertyFilterType.Flag && isFlagDependencyBooleanValue(val)) {
+                    display = getFlagDependencyValueLabel(val)
+                }
                 return <LemonSnack key={idx}>{display}</LemonSnack>
             })}
         </>
