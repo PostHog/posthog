@@ -1,0 +1,452 @@
+[
+  {
+    "pattern": "GPTBot",
+    "name": "GPTBot",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "Google-CloudVertexBot",
+    "name": "Google Cloud Vertex",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "Google-Extended",
+    "name": "Google AI",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "GoogleOther",
+    "name": "GoogleOther",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "Claude-SearchBot",
+    "name": "Claude Search",
+    "category": "ai_search",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "Claude-User",
+    "name": "Claude User",
+    "category": "ai_assistant",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "ClaudeBot",
+    "name": "Claude",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "Claude-Web",
+    "name": "Claude Web",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "anthropic-ai",
+    "name": "Anthropic",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "Perplexity-User",
+    "name": "Perplexity User",
+    "category": "ai_assistant",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "PerplexityBot",
+    "name": "Perplexity",
+    "category": "ai_search",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "CCBot",
+    "name": "Common Crawl",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "meta-externalagent",
+    "name": "Meta AI",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "Bytespider",
+    "name": "ByteDance",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "TikTokSpider",
+    "name": "TikTok AI",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "cohere-ai",
+    "name": "Cohere",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "Diffbot",
+    "name": "Diffbot",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "omgili",
+    "name": "Webz.io",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "Webzio-Extended",
+    "name": "Webz.io Extended",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "Timpibot",
+    "name": "Timpi",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "Amazonbot",
+    "name": "Amazon",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "PetalBot",
+    "name": "Petal",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "Brightbot",
+    "name": "Brightbot",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "OAI-SearchBot",
+    "name": "OpenAI Search",
+    "category": "ai_search",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "Applebot-Extended",
+    "name": "Apple AI",
+    "category": "ai_search",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "ChatGPT-User",
+    "name": "ChatGPT",
+    "category": "ai_assistant",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "Meta-ExternalFetcher",
+    "name": "Meta Fetcher",
+    "category": "ai_assistant",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "DuckAssistBot",
+    "name": "DuckDuckGo AI",
+    "category": "ai_assistant",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "MistralAI-User",
+    "name": "Mistral AI",
+    "category": "ai_assistant",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "Applebot/",
+    "name": "Applebot",
+    "category": "ai_search",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "Googlebot",
+    "name": "Googlebot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "bingbot",
+    "name": "Bingbot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Bingbot",
+    "name": "Bingbot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "YandexBot",
+    "name": "Yandex",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Baiduspider",
+    "name": "Baidu",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "DuckDuckBot",
+    "name": "DuckDuckGo",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Slurp",
+    "name": "Yahoo",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "AdsBot-Google",
+    "name": "Google Ads",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Google-InspectionTool",
+    "name": "Google Inspection",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "AhrefsSiteAudit",
+    "name": "Ahrefs Site Audit",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "AhrefsBot",
+    "name": "Ahrefs",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Barkrowler",
+    "name": "Barkrowler",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "SemrushBot",
+    "name": "Semrush",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "MJ12bot",
+    "name": "Majestic",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "DotBot",
+    "name": "Moz",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "FacebookBot",
+    "name": "Facebook Bot",
+    "category": "social_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "facebookexternalhit",
+    "name": "Facebook",
+    "category": "social_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Twitterbot",
+    "name": "Twitter",
+    "category": "social_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "LinkedInBot",
+    "name": "LinkedIn",
+    "category": "social_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Pinterest",
+    "name": "Pinterest",
+    "category": "social_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Slackbot",
+    "name": "Slack",
+    "category": "social_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "TelegramBot",
+    "name": "Telegram",
+    "category": "social_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "WhatsApp",
+    "name": "WhatsApp",
+    "category": "social_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Pingdom",
+    "name": "Pingdom",
+    "category": "monitoring",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "UptimeRobot",
+    "name": "UptimeRobot",
+    "category": "monitoring",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Site24x7",
+    "name": "Site24x7",
+    "category": "monitoring",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "StatusCake",
+    "name": "StatusCake",
+    "category": "monitoring",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Datadog",
+    "name": "Datadog",
+    "category": "monitoring",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "curl/",
+    "name": "curl",
+    "category": "http_client",
+    "traffic_type": "Automation"
+  },
+  {
+    "pattern": "Wget",
+    "name": "Wget",
+    "category": "http_client",
+    "traffic_type": "Automation"
+  },
+  {
+    "pattern": "python-requests",
+    "name": "Python Requests",
+    "category": "http_client",
+    "traffic_type": "Automation"
+  },
+  {
+    "pattern": "axios",
+    "name": "Axios",
+    "category": "http_client",
+    "traffic_type": "Automation"
+  },
+  {
+    "pattern": "node-fetch",
+    "name": "Node Fetch",
+    "category": "http_client",
+    "traffic_type": "Automation"
+  },
+  {
+    "pattern": "Go-http-client",
+    "name": "Go HTTP",
+    "category": "http_client",
+    "traffic_type": "Automation"
+  },
+  {
+    "pattern": "okhttp",
+    "name": "OkHttp",
+    "category": "http_client",
+    "traffic_type": "Automation"
+  },
+  {
+    "pattern": "Apache-HttpClient",
+    "name": "Apache HTTP",
+    "category": "http_client",
+    "traffic_type": "Automation"
+  },
+  {
+    "pattern": "libwww-perl",
+    "name": "LWP",
+    "category": "http_client",
+    "traffic_type": "Automation"
+  },
+  {
+    "pattern": "Scrapy",
+    "name": "Scrapy",
+    "category": "http_client",
+    "traffic_type": "Automation"
+  },
+  {
+    "pattern": "Chrome Privacy Preserving Prefetch Proxy",
+    "name": "Chrome Prefetch Proxy",
+    "category": "http_client",
+    "traffic_type": "Automation"
+  },
+  {
+    "pattern": "Mozlila/",
+    "name": "Mozlila Typo Bot",
+    "category": "headless_browser",
+    "traffic_type": "Automation"
+  },
+  {
+    "pattern": "HeadlessChrome",
+    "name": "Headless Chrome",
+    "category": "headless_browser",
+    "traffic_type": "Automation"
+  },
+  {
+    "pattern": "PhantomJS",
+    "name": "PhantomJS",
+    "category": "headless_browser",
+    "traffic_type": "Automation"
+  },
+  {
+    "pattern": "Puppeteer",
+    "name": "Puppeteer",
+    "category": "headless_browser",
+    "traffic_type": "Automation"
+  },
+  {
+    "pattern": "Playwright",
+    "name": "Playwright",
+    "category": "headless_browser",
+    "traffic_type": "Automation"
+  },
+  {
+    "pattern": "Selenium",
+    "name": "Selenium",
+    "category": "headless_browser",
+    "traffic_type": "Automation"
+  }
+]

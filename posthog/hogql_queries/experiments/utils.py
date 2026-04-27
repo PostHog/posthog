@@ -25,11 +25,13 @@ from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.client.escape import substitute_params_for_display
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
+from posthog.hogql_queries.experiments.cuped_config import CupedQueryConfig, get_cuped_config
 from posthog.models import Team
 
 from products.experiments.stats.bayesian.enums import PriorType
 from products.experiments.stats.bayesian.method import BayesianConfig, BayesianMethod
 from products.experiments.stats.frequentist.method import FrequentistConfig, FrequentistMethod, TestType
+from products.experiments.stats.shared.cuped import CupedData, cuped_adjust
 from products.experiments.stats.shared.enums import DifferenceType
 from products.experiments.stats.shared.statistics import (
     ProportionStatistic,
@@ -118,6 +120,7 @@ def split_baseline_and_test_variants(
 def get_variant_result(
     result: tuple,
     metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
+    cuped_enabled: bool = False,
 ) -> tuple[tuple[str, ...] | None, ExperimentStatsBase]:
     """
     Parse a single result row from the experiment query into a structured variant result.
@@ -149,7 +152,8 @@ def get_variant_result(
     Metric-specific fields:
         - FunnelMetric: step_counts, [optional: step_sessions]
         - RatioMetric: denominator_sum, denominator_sum_squares, numerator_denominator_sum_product
-        - MeanMetric: (no additional fields)
+        - MeanMetric with CUPED: covariate_sum, covariate_sum_squares, main_covariate_sum_product
+        - MeanMetric without CUPED: (no additional fields)
         - RetentionMetric: (no additional fields)
     """
     # Determine number of breakdowns from metric definition
@@ -202,7 +206,10 @@ def get_variant_result(
             base_stats["denominator_sum_squares"] = result[metric_fields_start_idx + 1]
             base_stats["numerator_denominator_sum_product"] = result[metric_fields_start_idx + 2]
         case ExperimentMeanMetric():
-            pass  # No additional fields beyond base_stats
+            if cuped_enabled:
+                base_stats["covariate_sum"] = result[metric_fields_start_idx]
+                base_stats["covariate_sum_squares"] = result[metric_fields_start_idx + 1]
+                base_stats["main_covariate_sum_product"] = result[metric_fields_start_idx + 2]
 
     return (breakdown_tuple, ExperimentStatsBase(**base_stats))
 
@@ -210,6 +217,7 @@ def get_variant_result(
 def get_variant_results(
     sorted_results: list[tuple],
     metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
+    cuped_enabled: bool = False,
 ) -> list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]:
     """
     Parse multiple result rows from experiment query into structured variant results.
@@ -224,7 +232,7 @@ def get_variant_results(
     Returns:
         List of (breakdown_tuple, ExperimentStatsBase) tuples
     """
-    return [get_variant_result(result, metric) for result in sorted_results]
+    return [get_variant_result(result, metric, cuped_enabled=cuped_enabled) for result in sorted_results]
 
 
 def get_new_variant_results(sorted_results: list[tuple]) -> list[ExperimentStatsBase]:
@@ -332,6 +340,19 @@ def aggregate_variants_across_breakdowns(
                 }
             )
 
+        if variant_list[0].covariate_sum is not None:
+            aggregated_stats.update(
+                {
+                    "covariate_sum": sum(v.covariate_sum for v in variant_list if v.covariate_sum is not None),
+                    "covariate_sum_squares": sum(
+                        v.covariate_sum_squares for v in variant_list if v.covariate_sum_squares is not None
+                    ),
+                    "main_covariate_sum_product": sum(
+                        v.main_covariate_sum_product for v in variant_list if v.main_covariate_sum_product is not None
+                    ),
+                }
+            )
+
         aggregated_variants.append(ExperimentStatsBase(**aggregated_stats))
 
     return aggregated_variants
@@ -372,6 +393,12 @@ def validate_variant_result(
         validated_result.denominator_sum = variant_result.denominator_sum
         validated_result.denominator_sum_squares = variant_result.denominator_sum_squares
         validated_result.numerator_denominator_sum_product = variant_result.numerator_denominator_sum_product
+
+    # Include CUPED-specific fields if present
+    if hasattr(variant_result, "covariate_sum") and variant_result.covariate_sum is not None:
+        validated_result.covariate_sum = variant_result.covariate_sum
+        validated_result.covariate_sum_squares = variant_result.covariate_sum_squares
+        validated_result.main_covariate_sum_product = variant_result.main_covariate_sum_product
 
     return validated_result
 
@@ -434,13 +461,69 @@ def metric_variant_to_statistic(
         )
 
 
+def metric_variant_to_cuped_data(variant: ExperimentStatsBaseValidated) -> CupedData:
+    return CupedData(
+        pre_statistic=SampleMeanStatistic(
+            n=variant.number_of_samples,
+            sum=variant.covariate_sum or 0.0,
+            sum_squares=variant.covariate_sum_squares or 0.0,
+        ),
+        sum_of_cross_products=variant.main_covariate_sum_product or 0.0,
+    )
+
+
+def _copy_cuped_fields(
+    result: ExperimentVariantResultFrequentist | ExperimentVariantResultBayesian,
+    variant: ExperimentStatsBaseValidated,
+) -> None:
+    if variant.covariate_sum is None:
+        return
+
+    result.covariate_sum = variant.covariate_sum
+    result.covariate_sum_squares = variant.covariate_sum_squares
+    result.main_covariate_sum_product = variant.main_covariate_sum_product
+
+
+ExperimentStatistic = SampleMeanStatistic | ProportionStatistic | RatioStatistic
+
+
+def _apply_cuped_adjustment_if_enabled(
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
+    cuped_config: CupedQueryConfig,
+    test_stat: ExperimentStatistic,
+    control_stat: ExperimentStatistic,
+    test_variant: ExperimentStatsBaseValidated,
+    control_variant: ExperimentStatsBaseValidated,
+) -> tuple[ExperimentStatistic, ExperimentStatistic, float | None]:
+    if not cuped_config.enabled or not isinstance(metric, ExperimentMeanMetric):
+        return test_stat, control_stat, None
+
+    if not isinstance(test_stat, SampleMeanStatistic) or not isinstance(control_stat, SampleMeanStatistic):
+        return test_stat, control_stat, None
+
+    cuped_result = cuped_adjust(
+        test_stat,
+        control_stat,
+        metric_variant_to_cuped_data(test_variant),
+        metric_variant_to_cuped_data(control_variant),
+    )
+
+    return (
+        cuped_result.treatment_adjusted,
+        cuped_result.control_adjusted,
+        cuped_result.control_unadjusted_mean,
+    )
+
+
 def get_frequentist_experiment_result(
     metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
     stats_config: dict | None = None,
+    cuped_config: CupedQueryConfig | None = None,
 ) -> ExperimentQueryResponse:
     frequentist_config = stats_config.get("frequentist", {}) if stats_config else {}
+    resolved_cuped_config = cuped_config or get_cuped_config(stats_config, metric)
 
     config = FrequentistConfig(
         alpha=_validate_numeric_range(frequentist_config.get("alpha", 0.05), 0.0, 1.0, 0.05),
@@ -487,12 +570,29 @@ def get_frequentist_experiment_result(
             experiment_variant_result.numerator_denominator_sum_product = (
                 test_variant_validated.numerator_denominator_sum_product
             )
+        _copy_cuped_fields(experiment_variant_result, test_variant_validated)
 
         # Check if we can perform statistical analysis
         if control_stat and not test_variant_validated.validation_failures:
             try:
                 test_stat = metric_variant_to_statistic(metric, test_variant_validated)
-                result = method.run_test(test_stat, control_stat)
+                test_stat_for_result, control_stat_for_result, unadjusted_mean = _apply_cuped_adjustment_if_enabled(
+                    metric,
+                    resolved_cuped_config,
+                    test_stat,
+                    control_stat,
+                    test_variant_validated,
+                    control_variant_validated,
+                )
+
+                if unadjusted_mean is None:
+                    result = method.run_test(test_stat_for_result, control_stat_for_result)
+                else:
+                    result = method.run_test(
+                        test_stat_for_result,
+                        control_stat_for_result,
+                        unadjusted_mean=unadjusted_mean,
+                    )
 
                 confidence_interval = [result.confidence_interval[0], result.confidence_interval[1]]
 
@@ -521,11 +621,13 @@ def get_bayesian_experiment_result(
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
     stats_config: dict | None = None,
+    cuped_config: CupedQueryConfig | None = None,
 ) -> ExperimentQueryResponse:
     """
     Get experiment results using the new Bayesian method with the new format
     """
     bayesian_config = stats_config.get("bayesian", {}) if stats_config else {}
+    resolved_cuped_config = cuped_config or get_cuped_config(stats_config, metric)
 
     config = BayesianConfig(
         ci_level=_validate_numeric_range(bayesian_config.get("ci_level", 0.95), 0.0, 1.0, 0.95),
@@ -572,12 +674,29 @@ def get_bayesian_experiment_result(
             experiment_variant_result.numerator_denominator_sum_product = (
                 test_variant_validated.numerator_denominator_sum_product
             )
+        _copy_cuped_fields(experiment_variant_result, test_variant_validated)
 
         # Check if we can perform statistical analysis
         if control_stat and not test_variant_validated.validation_failures:
             try:
                 test_stat = metric_variant_to_statistic(metric, test_variant_validated)
-                result = method.run_test(test_stat, control_stat)
+                test_stat_for_result, control_stat_for_result, unadjusted_mean = _apply_cuped_adjustment_if_enabled(
+                    metric,
+                    resolved_cuped_config,
+                    test_stat,
+                    control_stat,
+                    test_variant_validated,
+                    control_variant_validated,
+                )
+
+                if unadjusted_mean is None:
+                    result = method.run_test(test_stat_for_result, control_stat_for_result)
+                else:
+                    result = method.run_test(
+                        test_stat_for_result,
+                        control_stat_for_result,
+                        unadjusted_mean=unadjusted_mean,
+                    )
 
                 # Convert credible interval to percentage
                 credible_interval = [result.credible_interval[0], result.credible_interval[1]]

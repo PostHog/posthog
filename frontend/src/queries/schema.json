@@ -2848,6 +2848,13 @@
                         "$ref": "#/definitions/AssistantRecordingsQueryPropertyFilter"
                     },
                     "type": "array"
+                },
+                "session_ids": {
+                    "description": "Filter to specific session recording IDs. Use this when you have known session IDs (e.g., from $session_id on events) to fetch multiple recordings in a single call.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 }
             },
             "required": ["kind"],
@@ -17641,6 +17648,12 @@
         "ExperimentStatsBase": {
             "additionalProperties": false,
             "properties": {
+                "covariate_sum": {
+                    "type": "number"
+                },
+                "covariate_sum_squares": {
+                    "type": "number"
+                },
                 "denominator_sum": {
                     "type": "number"
                 },
@@ -17649,6 +17662,9 @@
                 },
                 "key": {
                     "type": "string"
+                },
+                "main_covariate_sum_product": {
+                    "type": "number"
                 },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
@@ -17684,6 +17700,12 @@
         "ExperimentStatsBaseValidated": {
             "additionalProperties": false,
             "properties": {
+                "covariate_sum": {
+                    "type": "number"
+                },
+                "covariate_sum_squares": {
+                    "type": "number"
+                },
                 "denominator_sum": {
                     "type": "number"
                 },
@@ -17692,6 +17714,9 @@
                 },
                 "key": {
                     "type": "string"
+                },
+                "main_covariate_sum_product": {
+                    "type": "number"
                 },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
@@ -17893,6 +17918,12 @@
                 "chance_to_win": {
                     "type": "number"
                 },
+                "covariate_sum": {
+                    "type": "number"
+                },
+                "covariate_sum_squares": {
+                    "type": "number"
+                },
                 "credible_interval": {
                     "items": {
                         "type": "number"
@@ -17909,6 +17940,9 @@
                 },
                 "key": {
                     "type": "string"
+                },
+                "main_covariate_sum_product": {
+                    "type": "number"
                 },
                 "method": {
                     "const": "bayesian",
@@ -17965,6 +17999,12 @@
                     "minItems": 2,
                     "type": "array"
                 },
+                "covariate_sum": {
+                    "type": "number"
+                },
+                "covariate_sum_squares": {
+                    "type": "number"
+                },
                 "denominator_sum": {
                     "type": "number"
                 },
@@ -17973,6 +18013,9 @@
                 },
                 "key": {
                     "type": "string"
+                },
+                "main_covariate_sum_product": {
+                    "type": "number"
                 },
                 "method": {
                     "const": "frequentist",

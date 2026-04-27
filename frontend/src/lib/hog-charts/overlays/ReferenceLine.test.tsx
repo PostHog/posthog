@@ -191,6 +191,40 @@ describe('ReferenceLine', () => {
             const line = lineDiv(container, 'top')!
             expect(line.style.borderTopWidth).toBe('4px')
         })
+
+        // var() literals are deliberately not in this table: jsdom doesn't store CSS
+        // custom properties and reads back as the empty string, so we can only assert
+        // the no-crash path for var() — see the dedicated test below. Real browsers
+        // resolve the variable natively.
+        it.each([
+            ['hex literal', '#ff8800'],
+            ['rgb literal', 'rgb(10, 20, 30)'],
+        ])('passes %s color through to inline styles without resolving', (_name, color) => {
+            const { container } = renderInChart(<ReferenceLine value={50} style={{ color }} />)
+            const line = lineDiv(container, 'top')!
+            expect(line.style.borderTopColor).toBe(color)
+        })
+
+        it('renders a var(...) color without throwing (browser-resolved at runtime)', () => {
+            const { container } = renderInChart(<ReferenceLine value={50} style={{ color: 'var(--danger)' }} />)
+            const line = lineDiv(container, 'top')
+            // We're asserting the component mounts and exposes the line — the actual color
+            // resolution happens in the browser's CSSOM, which jsdom doesn't implement.
+            expect(line).not.toBeNull()
+        })
+
+        it('uses style.fillColor when provided, falling back to color', () => {
+            const { container } = renderInChart(
+                <ReferenceLine
+                    value={50}
+                    fillSide="above"
+                    style={{ color: '#111', fillColor: 'rgb(50, 60, 70)', fillOpacity: 0.3 }}
+                />
+            )
+            const fill = container.querySelectorAll<HTMLDivElement>('div')[0]
+            expect(fill.style.backgroundColor).toBe('rgb(50, 60, 70)')
+            expect(fill.style.opacity).toBe('0.3')
+        })
     })
 
     describe('ReferenceLines wrapper', () => {
