@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { markExecPayload, buildToolResultPayload } from '@/lib/build-tool-result'
+import { isPostHogCodeConsumer } from '@/lib/client-detection'
 import { formatResponse } from '@/lib/response'
 
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
@@ -35,7 +37,8 @@ export function createExecTool(
     allTools: Tool<ZodObjectAny>[],
     context: Context,
     toolDescription: string,
-    commandReference: string
+    commandReference: string,
+    mcpConsumer: string | undefined
 ): Tool<ExecSchema> {
     const ExecSchema = makeExecSchema(commandReference)
 
@@ -167,6 +170,33 @@ export function createExecTool(
                     }
 
                     const result = await tool.handler(context, input)
+
+                    // If the inner tool has a UI app attached AND the caller self-identifies as
+                    // PostHog Code (the UI-apps host), emit a full `CallToolResult` payload
+                    // carrying `structuredContent` + `_meta.ui.resourceUri`. Clients only see
+                    // the `exec` tool registered in single-exec mode, so the UI metadata has to
+                    // ride on the per-call response. Gated on the consumer because other
+                    // single-exec callers (direct Claude Code, cline, Slack-launched runs, etc.)
+                    // don't render UI apps — they should see plain text.
+                    if (tool._meta?.ui?.resourceUri && isPostHogCodeConsumer(mcpConsumer)) {
+                        const isStringResult = typeof result === 'string'
+                        const distinctId = isStringResult ? undefined : await context.getDistinctId()
+                        return markExecPayload(
+                            buildToolResultPayload({
+                                handlerResult: result,
+                                toolMeta: tool._meta,
+                                toolName: tool.name,
+                                params: forceJson ? { ...input, output_format: 'json' } : input,
+                                // Consumer is the UI-apps host; keep `structuredContent` for the UI.
+                                // Passing `undefined` bypasses the coding-agent suppression in
+                                // `buildToolResultPayload` because this path explicitly wants it.
+                                clientName: undefined,
+                                distinctId,
+                                includeUiResponseMeta: true,
+                            })
+                        )
+                    }
+
                     const useJson = forceJson || tool._meta?.[POSTHOG_META_KEY]?.outputFormat === 'json'
                     return useJson ? JSON.stringify(result) : formatResponse(result)
                 }

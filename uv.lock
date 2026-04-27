@@ -11,7 +11,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-04-14T06:23:44.395219Z"
+exclude-newer = "2026-04-17T15:38:24.120617Z"
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
@@ -1620,16 +1620,16 @@ wheels = [
 
 [[package]]
 name = "django"
-version = "4.2.29"
+version = "5.2.13"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "asgiref" },
     { name = "sqlparse" },
     { name = "tzdata", marker = "sys_platform == 'win32'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1e/7d/7306757cf2ac016d718d8a5dbae66de630addaa73dca2c341fc388458e71/django-4.2.29.tar.gz", hash = "sha256:86d91bc8086569c8d08f9c55888b583a921ac1f95ed3bdc7d5659d4709542014", size = 10438980, upload-time = "2026-03-03T13:56:42.083Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1f/c5/c69e338eb2959f641045802e5ea87ca4bf5ac90c5fd08953ca10742fad51/django-5.2.13.tar.gz", hash = "sha256:a31589db5188d074c63f0945c3888fad104627dfcc236fb2b97f71f89da33bc4", size = 10890368, upload-time = "2026-04-07T14:02:15.072Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ae/2b/bd0a1d1846d5580e9f209b9e0128b4859e381ec1b39d6d175c61294bb530/django-4.2.29-py3-none-any.whl", hash = "sha256:074d7c4d2808050e528388bda442bd491f06def4df4fe863f27066851bba010c", size = 7996481, upload-time = "2026-03-03T13:56:36.495Z" },
+    { url = "https://files.pythonhosted.org/packages/59/b1/51ab36b2eefcf8cdb9338c7188668a157e29e30306bfc98a379704c9e10d/django-5.2.13-py3-none-any.whl", hash = "sha256:5788fce61da23788a8ce6f02583765ab060d396720924789f97fa42119d37f7a", size = 8310982, upload-time = "2026-04-07T14:02:08.883Z" },
 ]
 
 [[package]]
@@ -2265,14 +2265,14 @@ wheels = [
 
 [[package]]
 name = "freezegun"
-version = "1.2.2"
+version = "1.5.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "python-dateutil" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1d/97/002ac49ec52858538b4aa6f6831f83c2af562c17340bdf6043be695f39ac/freezegun-1.2.2.tar.gz", hash = "sha256:cd22d1ba06941384410cd967d8a99d5ae2442f57dfafeff2fda5de8dc5c05446", size = 30670, upload-time = "2022-08-12T12:24:08.735Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/95/dd/23e2f4e357f8fd3bdff613c1fe4466d21bfb00a6177f238079b17f7b1c84/freezegun-1.5.5.tar.gz", hash = "sha256:ac7742a6cc6c25a2c35e9292dfd554b897b517d2dec26891a2e8debf205cb94a", size = 35914, upload-time = "2025-08-09T10:39:08.338Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/50/cd/ba1c8319c002727ccfa03049127218d1767232a77219924d03ba170e0601/freezegun-1.2.2-py3-none-any.whl", hash = "sha256:ea1b963b993cb9ea195adbd893a48d573fda951b0da64f60883d7e988b606c9f", size = 17062, upload-time = "2022-08-12T12:24:06.364Z" },
+    { url = "https://files.pythonhosted.org/packages/5e/2e/b41d8a1a917d6581fc27a35d05561037b048e47df50f27f8ac9c7e27a710/freezegun-1.5.5-py3-none-any.whl", hash = "sha256:cd557f4a75cf074e84bc374249b9dd491eaeacd61376b9eb3c423282211619d2", size = 19266, upload-time = "2025-08-09T10:39:06.636Z" },
 ]
 
 [[package]]
@@ -4881,17 +4881,17 @@ wheels = [
 
 [[package]]
 name = "pixelhog"
-version = "1.0.0"
+version = "1.1.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/d9/56/f462f024d9342a8c22edc319c4ef69eccce1067f571120ac7b9985aefeba/pixelhog-1.0.0.tar.gz", hash = "sha256:c52eb35d02dffd539f9c9570ad8b06f514f14287583036ea92c37227f6c90d74", size = 20347, upload-time = "2026-04-13T11:03:55.391Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/88/94/896a3aa2d6e10d68371c5e996d4dd163a6b865cebe41f169f91a83243116/pixelhog-1.1.0.tar.gz", hash = "sha256:c0a2635dbda09bf45ab14c082688ba602caa25666db765f13a091747bbfd6ced", size = 22462, upload-time = "2026-04-22T11:46:24.104Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5e/91/b5f58c8abc2f931a8f3b298148ee66f8ea1bfde0371a23fd792172091b34/pixelhog-1.0.0-cp312-abi3-macosx_10_12_x86_64.whl", hash = "sha256:6809cdb8242e7f934adaad8c1849ee6a2da75a84b8ed7b7648b693c7ee023dea", size = 453294, upload-time = "2026-04-13T11:03:57.708Z" },
-    { url = "https://files.pythonhosted.org/packages/d4/4a/a7053f4c590fa337c601de2af7ce43beea7a95c7429d18dabe3160f4d5a0/pixelhog-1.0.0-cp312-abi3-macosx_11_0_arm64.whl", hash = "sha256:9c0c08067e14ea3baeadaf0cc830d5fa0829b69ab6be9f99a74b807e877958ec", size = 441509, upload-time = "2026-04-13T11:04:00.181Z" },
-    { url = "https://files.pythonhosted.org/packages/ac/fa/557469fafd80389e077fabc16d80e9034bdf8cf78cddc30fcc80265c463f/pixelhog-1.0.0-cp312-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:6e706c23e9c7a58c38fbad531380cc5f7de22f5d4dd9d209b4f3af6b3778f165", size = 471762, upload-time = "2026-04-13T11:04:01.185Z" },
-    { url = "https://files.pythonhosted.org/packages/2f/4f/3d191ce7e1874dd51bea8e0daed075c237f59680dd53464f6db70eeeb36b/pixelhog-1.0.0-cp312-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:b69cacd91f7286084ff787f14ccc208e13ab337c13ba63ea52a738b84ee93863", size = 506511, upload-time = "2026-04-13T11:03:58.921Z" },
-    { url = "https://files.pythonhosted.org/packages/08/b5/602e77e784e39061a2fd10e3ae8d57566861b94d19f3c1191341caac3b2a/pixelhog-1.0.0-cp312-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:20e73ad915e25229cf41dc637a9ea81dc55cecdb4ec16ef6467e2d18127fb2ba", size = 648118, upload-time = "2026-04-13T11:04:03.644Z" },
-    { url = "https://files.pythonhosted.org/packages/3b/20/e636acaaa82f34817567579311857095d4acd2353f2cad5f2e518b1dc8d7/pixelhog-1.0.0-cp312-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:091a3f222e0792efdae5e5170ed89e95ccc264a6486d5529dd9fddd97e32baf1", size = 702723, upload-time = "2026-04-13T11:04:02.536Z" },
-    { url = "https://files.pythonhosted.org/packages/83/b1/f01f99bcfdf16d4a1dc55b5c0c2bebc70df76cacaa065ba569201da14d5c/pixelhog-1.0.0-cp312-abi3-win_amd64.whl", hash = "sha256:12f09811f77d9d5b364926cc128db423dea01781e586006ed4450c54e9adab1d", size = 390313, upload-time = "2026-04-13T11:03:56.387Z" },
+    { url = "https://files.pythonhosted.org/packages/94/85/dfeea1e8ca9724ba0015e43814a408b5b51199750ee9eb772d39b2c99723/pixelhog-1.1.0-cp312-abi3-macosx_10_12_x86_64.whl", hash = "sha256:2c88337bde847b99ca7f357b2776dac152ca3cf26574d96922e945156a6642e1", size = 598717, upload-time = "2026-04-22T11:46:21.5Z" },
+    { url = "https://files.pythonhosted.org/packages/d9/94/5827891ea895c99e3bd941023619c181a1bfeb4b9e3f154e6fbc357a1e57/pixelhog-1.1.0-cp312-abi3-macosx_11_0_arm64.whl", hash = "sha256:4b2d2080ef04672fefcd6b0e421335a19c81d23bee1ac074cb52cc8324de40d9", size = 589517, upload-time = "2026-04-22T11:46:20.046Z" },
+    { url = "https://files.pythonhosted.org/packages/97/a9/8541660036ad13be00c986a8d66540b1908d8b2769be62b021f86c1cf4eb/pixelhog-1.1.0-cp312-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:c43918a0d432c5d571ff24ca5e8594bdf1bd709c1d8a46909a97d59c1c547465", size = 624535, upload-time = "2026-04-22T11:46:16.117Z" },
+    { url = "https://files.pythonhosted.org/packages/20/11/b8c7f8510dd0ab44b14223f17fffc998b5c0ea0afb94dde2c47173900c43/pixelhog-1.1.0-cp312-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f193e6e06bcb57b03ffb6c71a8e937e8c88b9f720b8a6633e5e4753f4bc54ed2", size = 659123, upload-time = "2026-04-22T11:46:17.415Z" },
+    { url = "https://files.pythonhosted.org/packages/0a/c7/be1bb07fbfda9e4f4c20d82428dcfc3da23c5d0e22d4e41c89ad507069ab/pixelhog-1.1.0-cp312-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:3911397ea6401c557c4877e61e393f280cfe188f1f22917d0512318187c91c55", size = 801023, upload-time = "2026-04-22T11:46:18.689Z" },
+    { url = "https://files.pythonhosted.org/packages/99/49/f2fd98acda01eefa84a318d6ba6a1f50fd4529eb208b34848e2010927930/pixelhog-1.1.0-cp312-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:ac0e60fd7cd7358f71b076a8e89c83b656fe4491f8813d7b9c370e6da2aa9c38", size = 855059, upload-time = "2026-04-22T11:46:22.916Z" },
+    { url = "https://files.pythonhosted.org/packages/d8/c6/f75c90929f33c013ff7ce6c220872fc59b044ae3a7f424a8bede6ba89e0a/pixelhog-1.1.0-cp312-abi3-win_amd64.whl", hash = "sha256:39e07af50de54b589cff1f249209d7c68eaf243c99e7c1478d003d225e829fc1", size = 537830, upload-time = "2026-04-22T11:46:25.309Z" },
 ]
 
 [[package]]
@@ -5069,11 +5069,11 @@ dependencies = [
     { name = "google-cloud-iam" },
     { name = "google-genai" },
     { name = "google-re2" },
-    { name = "granian", extra = ["pname", "reload", "uvloop"] },
     { name = "grimp" },
     { name = "grpcio" },
     { name = "gspread" },
     { name = "hogql-parser" },
+    { name = "humanize" },
     { name = "infi-clickhouse-orm" },
     { name = "jsonref" },
     { name = "kafka-python" },
@@ -5185,6 +5185,7 @@ dev = [
     { name = "faker" },
     { name = "fakeredis", extra = ["lua"] },
     { name = "freezegun" },
+    { name = "granian", extra = ["pname", "reload", "uvloop"] },
     { name = "grpcio-tools" },
     { name = "hypothesis" },
     { name = "import-linter" },
@@ -5224,7 +5225,6 @@ dev = [
     { name = "types-aiobotocore" },
     { name = "types-boto3", extra = ["essential"] },
     { name = "types-croniter" },
-    { name = "types-freezegun" },
     { name = "types-markdown" },
     { name = "types-paramiko" },
     { name = "types-pymysql" },
@@ -5290,7 +5290,7 @@ requires-dist = [
     { name = "deltalake", extras = ["pyarrow"], specifier = "==1.4.0" },
     { name = "disposable-email-domains", specifier = "~=0.0.140" },
     { name = "dj-database-url", specifier = "~=3.0.0" },
-    { name = "django", specifier = "~=4.2.29" },
+    { name = "django", specifier = "~=5.2.0" },
     { name = "django-admin-inline-paginator", specifier = "===0.4.0" },
     { name = "django-axes", extras = ["ipware"], specifier = "==8.0.0" },
     { name = "django-cors-headers", specifier = "~=4.8.0" },
@@ -5325,11 +5325,11 @@ requires-dist = [
     { name = "google-cloud-iam", specifier = "==2.21" },
     { name = "google-genai", specifier = "==1.46.0" },
     { name = "google-re2", specifier = ">=1.1.20251105" },
-    { name = "granian", extras = ["uvloop", "reload", "pname"], specifier = "==2.5.5" },
     { name = "grimp", specifier = "~=3.14" },
     { name = "grpcio", specifier = "~=1.71.0" },
     { name = "gspread", specifier = "==6.2.1" },
     { name = "hogql-parser", specifier = "==1.3.40" },
+    { name = "humanize", specifier = "~=4.12.3" },
     { name = "infi-clickhouse-orm", git = "https://github.com/PostHog/infi.clickhouse_orm?rev=4e3996becf66bf5c26580aff12a80425d9d56fe5" },
     { name = "jsonref", specifier = "==1.1.0" },
     { name = "kafka-python", specifier = "==2.3.0" },
@@ -5369,10 +5369,10 @@ requires-dist = [
     { name = "pandas", specifier = "~=2.2.2" },
     { name = "paramiko", specifier = "==3.4.1" },
     { name = "pillow", specifier = "==12.2.0" },
-    { name = "pixelhog", specifier = "~=1.0.0" },
+    { name = "pixelhog", specifier = "~=1.1.0" },
     { name = "playwright", specifier = "~=1.54.0" },
     { name = "polars", specifier = "==1.37.1" },
-    { name = "posthoganalytics", specifier = "==7.10.2" },
+    { name = "posthoganalytics", specifier = "==7.13.0" },
     { name = "protobuf", specifier = "~=5.29.6" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.4" },
     { name = "psycopg2-binary", specifier = "==2.9.10" },
@@ -5440,7 +5440,8 @@ dev = [
     { name = "djangorestframework-stubs", specifier = "~=3.16.0" },
     { name = "faker", specifier = "==17.5.0" },
     { name = "fakeredis", extras = ["lua"], specifier = "==2.23.3" },
-    { name = "freezegun", specifier = "==1.2.2" },
+    { name = "freezegun", specifier = "==1.5.5" },
+    { name = "granian", extras = ["uvloop", "reload", "pname"], specifier = "==2.5.5" },
     { name = "grpcio-tools", specifier = "~=1.71.0" },
     { name = "hypothesis", specifier = "~=6.151.9" },
     { name = "import-linter", specifier = "~=2.11" },
@@ -5480,7 +5481,6 @@ dev = [
     { name = "types-aiobotocore", specifier = "~=2.22.0" },
     { name = "types-boto3", extras = ["essential"], specifier = "==1.37.6" },
     { name = "types-croniter", specifier = "~=6.0.0" },
-    { name = "types-freezegun", specifier = "==1.1.10" },
     { name = "types-markdown", specifier = "==3.3.9" },
     { name = "types-paramiko", specifier = "==3.4.0.20240423" },
     { name = "types-pymysql", specifier = "==1.1.0.20240524" },
@@ -5500,19 +5500,18 @@ sentiment = [
 
 [[package]]
 name = "posthoganalytics"
-version = "7.10.2"
+version = "7.13.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
     { name = "distro" },
     { name = "python-dateutil" },
     { name = "requests" },
-    { name = "six" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f3/07/a90abd8bf52ff20eedb0d4e181552c6c44bd566ca73c3879c751e6e94921/posthoganalytics-7.10.2.tar.gz", hash = "sha256:e07e26d3fd53304228c546eac7501064d69db7560b853e1b3e9a7178f079c089", size = 186998, upload-time = "2026-04-08T13:50:34.539Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/05/27/34aa6241cdc0145d6a7ceedfd590425d9f35ca17983f6f812f83ffce5e08/posthoganalytics-7.13.0.tar.gz", hash = "sha256:a1dc24da926f016df3c50cd6846eb899326bf83eedaa2486d1c6956a41250f16", size = 193851, upload-time = "2026-04-21T09:12:15.658Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ce/e4/12799dc26d81fd0f8eecfc5164ebd97f26901238b1dc53b4942c9e067c68/posthoganalytics-7.10.2-py3-none-any.whl", hash = "sha256:281b42853a7fa5957650544cfac6aabe5e1f906e5589d05a1ad89ba5a52601ce", size = 217460, upload-time = "2026-04-08T13:50:32.723Z" },
+    { url = "https://files.pythonhosted.org/packages/0b/28/703fc06f56231f81c522cb895ebdcd9d14bfbe38f1b8d4f07a358b6696ab/posthoganalytics-7.13.0-py3-none-any.whl", hash = "sha256:87d8f04f9255645efd058caf027b7f6a68642186d91de5f174f369c8e1819f1d", size = 229183, upload-time = "2026-04-21T09:12:13.981Z" },
 ]
 
 [[package]]
@@ -7774,15 +7773,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/35/ac/7b26a9b19cc2b137293b14af71402ba83d13674c208b141474b6887465ae/types_croniter-6.0.0.20250809.tar.gz", hash = "sha256:c829295d4d65eaddcfafec905b0fbab59e72c3c91ee934a4d504dcafad79ff95", size = 11745, upload-time = "2025-08-09T03:14:10.729Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d1/99/e8e40592fbecb6671b32e4dab4cca2a1d4fa7d5b2f54aece134ccb42e839/types_croniter-6.0.0.20250809-py3-none-any.whl", hash = "sha256:d9f53f3e837eb6af509e2090fd2f5bb29b38425dd78f77d7b3bf37ccd2b2bf93", size = 9712, upload-time = "2025-08-09T03:14:09.966Z" },
-]
-
-[[package]]
-name = "types-freezegun"
-version = "1.1.10"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/31/0d/2a0485b7f693437570da1b005cbc06748252d24a5a24e521a0bcf4f8912e/types-freezegun-1.1.10.tar.gz", hash = "sha256:cb3a2d2eee950eacbaac0673ab50499823365ceb8c655babb1544a41446409ec", size = 2861, upload-time = "2022-06-09T09:19:19.568Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/96/48/3380ecdafe5646f4e9e31814297073aeb6929c474212377189cbee228b50/types_freezegun-1.1.10-py3-none-any.whl", hash = "sha256:fadebe72213e0674036153366205038e1f95c8ca96deb4ef9b71ddc15413543e", size = 2904, upload-time = "2022-06-09T09:19:17.892Z" },
 ]
 
 [[package]]

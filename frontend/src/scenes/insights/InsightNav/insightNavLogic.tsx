@@ -68,6 +68,8 @@ import {
 } from '~/queries/utils'
 import { BaseMathType, InsightLogicProps, InsightType, IntervalType } from '~/types'
 
+import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics/frontend/constants'
+
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import type { insightNavLogicType } from './insightNavLogicType'
 
@@ -518,11 +520,12 @@ export const insightNavLogic = kea<insightNavLogicType>([
             if (isDataVisualizationNode(query)) {
                 router.actions.push(urls.sqlEditor({ query: query.source.query }))
             } else if (isInsightVizNode(query)) {
+                const source = values.queryPropertyCache
+                    ? mergeCachedProperties(query.source, values.queryPropertyCache)
+                    : query.source
                 actions.setQuery({
                     ...query,
-                    source: values.queryPropertyCache
-                        ? mergeCachedProperties(query.source, values.queryPropertyCache)
-                        : query.source,
+                    source: { ...source, tags: { ...source.tags, ...PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } },
                 } as InsightVizNode)
             } else {
                 actions.setQuery(query)

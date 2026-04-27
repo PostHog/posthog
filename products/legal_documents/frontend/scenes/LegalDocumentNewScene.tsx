@@ -8,6 +8,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -78,8 +79,28 @@ export function LegalDocumentNewScene(): JSX.Element {
         existingDocumentTypes,
     } = useValues(legalDocumentsLogic)
     const { isAdminOrOwner } = useValues(organizationLogic)
+    const { isCloudOrDev } = useValues(preflightLogic)
     const { setDocumentType, setDpaMode } = useActions(legalDocumentsLogic)
     const isEnabled = useFeatureFlag('LEGAL_DOCUMENTS')
+
+    if (!isCloudOrDev) {
+        return (
+            <SceneContent>
+                <SceneTitleSection
+                    name="Legal documents"
+                    resourceType={{ type: 'default_icon_type', forceIcon: <IconBalance /> }}
+                    forceBackTo={{
+                        key: Scene.LegalDocuments,
+                        name: 'Legal documents',
+                        path: urls.legalDocuments(),
+                    }}
+                />
+                <LemonBanner type="info">
+                    <p className="mb-0">Legal documents are only available on PostHog Cloud.</p>
+                </LemonBanner>
+            </SceneContent>
+        )
+    }
 
     if (!isEnabled) {
         return (
@@ -125,15 +146,17 @@ export function LegalDocumentNewScene(): JSX.Element {
     const documentType = legalDocument.document_type
     const baaBlocked = documentType === 'BAA' && !hasQualifyingBaaAddon
     const headingLabel = documentType === 'BAA' ? 'New Business Associate Agreement' : 'New Data Processing Agreement'
-    const submitDisabledReason = existingDocumentOfCurrentType
-        ? `Your organization already has a ${documentType}. Contact support if you need a new one.`
-        : baaBlocked
-          ? 'Subscribe to Boost, Scale, or Enterprise to generate a BAA'
-          : documentType === 'DPA' && !isDpaModeSubmittable
-            ? 'Switch to one of the legally binding formats to submit for signature'
-            : legalDocumentHasErrors
-              ? 'Fill in all required fields before submitting'
-              : undefined
+    const submitDisabledReason = isLegalDocumentSubmitting
+        ? 'Creating the PandaDoc envelope…'
+        : existingDocumentOfCurrentType
+          ? `Your organization already has a ${documentType}. Contact support if you need a new one.`
+          : baaBlocked
+            ? 'Subscribe to Boost, Scale, or Enterprise to generate a BAA'
+            : documentType === 'DPA' && !isDpaModeSubmittable
+              ? 'Switch to one of the legally binding formats to submit for signature'
+              : legalDocumentHasErrors
+                ? 'Fill in all required fields before submitting'
+                : undefined
 
     return (
         <SceneContent>
@@ -147,7 +170,14 @@ export function LegalDocumentNewScene(): JSX.Element {
                     path: urls.legalDocuments(),
                 }}
                 actions={
-                    <LemonButton to={urls.legalDocuments()} type="tertiary" size="small">
+                    <LemonButton
+                        to={urls.legalDocuments()}
+                        type="tertiary"
+                        size="small"
+                        disabledReason={
+                            isLegalDocumentSubmitting ? 'Hang tight — your envelope is on its way' : undefined
+                        }
+                    >
                         Cancel
                     </LemonButton>
                 }
@@ -174,28 +204,18 @@ export function LegalDocumentNewScene(): JSX.Element {
                             </LemonBanner>
                         )}
 
-                        <LemonField name="company_name" label="Legal Company Name">
+                        <LemonField name="company_name" label="Legal company name">
                             <LemonInput id={FIELD_IDS.company_name} placeholder="Acme, Inc." />
                         </LemonField>
 
-                        {documentType === 'DPA' && (
-                            <LemonField name="company_address" label="Company address">
-                                <LemonInput
-                                    id={FIELD_IDS.company_address}
-                                    placeholder="1 Analytics Way, San Francisco, CA"
-                                />
-                            </LemonField>
-                        )}
-
-                        <LemonField name="representative_name" label="Representative name">
-                            <LemonInput id={FIELD_IDS.representative_name} placeholder="Jane Doe" />
+                        <LemonField name="company_address" label="Company address">
+                            <LemonInput
+                                id={FIELD_IDS.company_address}
+                                placeholder="1 Analytics Way, San Francisco, CA"
+                            />
                         </LemonField>
 
-                        <LemonField name="representative_title" label="Representative title">
-                            <LemonInput id={FIELD_IDS.representative_title} placeholder="CEO" />
-                        </LemonField>
-
-                        <LemonField name="representative_email" label="Representative email">
+                        <LemonField name="representative_email" label="Signer email">
                             <LemonInput
                                 id={FIELD_IDS.representative_email}
                                 type="email"

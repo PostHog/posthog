@@ -59,6 +59,7 @@ export interface ApiConfig {
     mcpClientName?: string | undefined
     mcpClientVersion?: string | undefined
     mcpProtocolVersion?: string | undefined
+    mcpConsumer?: string | undefined
     oauthClientName?: string | undefined
 }
 
@@ -85,7 +86,13 @@ export class ApiClient {
         // TODO: should we move rate limiting from `fetchJson` to here?
         const defaultHeaders: HeadersInit = {
             Authorization: `Bearer ${this.config.apiToken}`,
-            'User-Agent': getUserAgent(this.config.clientUserAgent),
+            // The consumer self-identifier (`mcpConsumer`) is folded into the User-Agent as
+            // `<consumer>/<wrapped-client>` rather than forwarded as a separate header.
+            'User-Agent': getUserAgent({
+                clientUserAgent: this.config.clientUserAgent,
+                mcpConsumer: this.config.mcpConsumer,
+                mcpClientName: this.config.mcpClientName,
+            }),
             ...(this.config.clientUserAgent
                 ? {
                       // Forward the originating client's User-Agent as a custom header so the
@@ -245,6 +252,19 @@ export class ApiClient {
                         const attr = errorData.attr ? ` (field: ${errorData.attr})` : ''
                         console.error(`[API] Validation error on ${method} ${url}: ${detail}${attr}`)
                         throw new Error(`Validation error: ${detail}${attr}`)
+                    }
+
+                    if (response.status === 404) {
+                        const experimentMatch = /\/experiments\/(\d+)/.exec(url)
+                        if (experimentMatch) {
+                            const experimentId = experimentMatch[1]
+                            console.error(`[API] Experiment ${experimentId} not found on ${method} ${url}`)
+                            throw new Error(
+                                `Experiment ${experimentId} not found in this project. ` +
+                                    `If the id is correct, the experiment may belong to a different project — ` +
+                                    `call experiment-list to see experiments accessible with your current API key and project, or switch-project first.`
+                            )
+                        }
                     }
 
                     console.error(`[API] Request failed on ${method} ${url}: ${response.status} ${response.statusText}`)
@@ -942,7 +962,7 @@ export class ApiClient {
                         const recordingLinks = (row[2] ?? [])
                             .map((r: any) => r.session_id)
                             .filter(Boolean)
-                            .map((sessionId: string) => `${baseUrl}/replay/home?sessionRecordingId=${sessionId}`)
+                            .map((sessionId: string) => `${baseUrl}/replay/${sessionId}`)
                         return [...base, recordingLinks]
                     }
                     return base

@@ -3,8 +3,11 @@ import React, { useState } from 'react'
 
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { PostHogCaptureOnViewed } from '@posthog/react'
 
+import { DetectiveHog } from 'lib/components/hedgehogs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -124,6 +127,56 @@ function SnapshotThumbnail({
     )
 }
 
+const PENDING_STALE_THRESHOLD_MS = 15 * 60 * 1000
+
+function RunInProgressEmptyState({
+    isProcessing,
+    createdAt,
+    ciJobUrl,
+}: {
+    isProcessing: boolean
+    createdAt: string
+    ciJobUrl?: string
+}): JSX.Element {
+    const ageMs = Date.now() - new Date(createdAt).getTime()
+    const isStale = !isProcessing && ageMs > PENDING_STALE_THRESHOLD_MS
+
+    const title = isProcessing ? 'Processing diffs' : isStale ? 'Still waiting for snapshots' : 'Waiting for snapshots'
+    const copy = isProcessing
+        ? 'Snapshots are being compared against the baseline. This usually takes under a minute.'
+        : isStale
+          ? 'This run has been waiting for over 15 minutes. The CI job may have failed before uploading snapshots.'
+          : 'This run is waiting for the CI job to upload snapshot artifacts. It will appear here once the upload completes.'
+
+    return (
+        <PostHogCaptureOnViewed
+            name="visual-review-run-in-progress-shown"
+            properties={{ is_processing: isProcessing, is_stale: isStale }}
+            className="flex flex-col items-center justify-center text-center gap-3 py-12 px-6"
+            data-attr="visual-review-run-in-progress"
+        >
+            {isStale ? (
+                <LemonBanner type="warning" className="max-w-lg mb-4">
+                    The CI job hasn't reported back.{' '}
+                    {ciJobUrl ? (
+                        <Link to={ciJobUrl} target="_blank" className="font-semibold">
+                            Check CI logs
+                        </Link>
+                    ) : (
+                        'Check your CI logs to see if the job failed.'
+                    )}
+                </LemonBanner>
+            ) : null}
+            <DetectiveHog className="w-32 h-32" />
+            <h2 className="m-0">{title}</h2>
+            <p className="max-w-md text-tertiary m-0">
+                {copy}
+                {isProcessing && <Spinner textColored className="ml-2 align-middle" />}
+            </p>
+        </PostHogCaptureOnViewed>
+    )
+}
+
 export function VisualReviewRunScene(): JSX.Element {
     const {
         run,
@@ -141,6 +194,9 @@ export function VisualReviewRunScene(): JSX.Element {
         repoFullName,
         isApproving,
         isApprovingSnapshot,
+        isRecomputing,
+        isRunInProgress,
+        isRunProcessing,
     } = useValues(visualReviewRunSceneLogic)
     const {
         setSelectedSnapshotId,
@@ -149,6 +205,7 @@ export function VisualReviewRunScene(): JSX.Element {
         markAsTolerated,
         quarantineSnapshot,
         unquarantineSnapshot,
+        recomputeRun,
     } = useActions(visualReviewRunSceneLogic)
 
     if (runLoading || !run) {
@@ -168,6 +225,31 @@ export function VisualReviewRunScene(): JSX.Element {
         )
     }
 
+    if (isRunInProgress) {
+        return (
+            <SceneContent>
+                <SceneTitleSection name={run.branch} resourceType={{ type: 'visual_review' }} />
+                <RunInProgressEmptyState
+                    isProcessing={isRunProcessing}
+                    createdAt={run.created_at}
+                    ciJobUrl={run.metadata?.ci_job_url as string | undefined}
+                />
+            </SceneContent>
+        )
+    }
+
+    if (run.status === 'failed') {
+        return (
+            <SceneContent>
+                <SceneTitleSection name={run.branch} resourceType={{ type: 'visual_review' }} />
+                <LemonBanner type="error">
+                    This run failed to process.{run.error_message ? ` ${run.error_message}` : ''} Check the CI logs for
+                    details, or rerun the job to try again.
+                </LemonBanner>
+            </SceneContent>
+        )
+    }
+
     // Review summary (from loaded snapshots — paginated but covers actionable ones first)
     // Quarantined snapshots don't need review — exclude from pending count
     const reviewPending = snapshots.filter(
@@ -182,11 +264,25 @@ export function VisualReviewRunScene(): JSX.Element {
     const diffNew = run.summary.new
     const diffRemoved = run.summary.removed
     const diffTolerated = Math.max(0, (run.summary.tolerated_matched ?? 0) - reviewTolerated)
+    const hasChanges = diffChanged > 0 || diffNew > 0 || diffRemoved > 0
 
-    // If server counts are higher than loaded, show "+" to hint at pagination
-    const totalActionable = diffChanged + diffNew + diffRemoved
-    const loadedActionable = reviewPending + reviewApproved + reviewTolerated
-    const hasMore = totalActionable > loadedActionable
+    // Predict whether recompute would flip the gate — uses client-side quarantine set
+    // which updates immediately, unlike summary.unresolved which requires a recompute round-trip
+    const allChangesResolved =
+        run.status === 'completed' &&
+        !run.approved &&
+        !run.is_stale &&
+        hasChanges &&
+        snapshots
+            .filter((s: SnapshotApi) => s.result !== 'unchanged')
+            .every(
+                (s: SnapshotApi) =>
+                    quarantinedIdentifierSet.has(s.identifier) ||
+                    s.review_state === 'tolerated' ||
+                    s.review_state === 'approved'
+            )
+
+    const hasMore = diffChanged + diffNew + diffRemoved > reviewPending + reviewApproved + reviewTolerated
 
     // Navigation — use changed snapshots when there are changes, otherwise all snapshots
     const navSnapshots = sortedChangedSnapshots.length > 0 ? sortedChangedSnapshots : snapshots
@@ -238,6 +334,20 @@ export function VisualReviewRunScene(): JSX.Element {
                             View latest run
                         </Link>
                     )}
+                </LemonBanner>
+            )}
+
+            {allChangesResolved && (
+                <LemonBanner
+                    type="info"
+                    className="mb-4"
+                    action={{
+                        children: 'Re-trigger CI',
+                        loading: isRecomputing,
+                        onClick: recomputeRun,
+                    }}
+                >
+                    All changes are resolved — re-trigger to update the commit status and pass the gate.
                 </LemonBanner>
             )}
 
@@ -362,6 +472,14 @@ export function VisualReviewRunScene(): JSX.Element {
                             prNumber={run.pr_number}
                             repoFullName={repoFullName}
                             runType={run.run_type}
+                            githubRunId={(run.metadata?.github_run_id as string) || null}
+                            isRecomputing={isRecomputing}
+                            onRecompute={
+                                run.status === 'completed' && !run.approved && !run.is_stale ? recomputeRun : undefined
+                            }
+                            recomputeDisabledReason={
+                                !allChangesResolved ? 'Re-trigger would not change the outcome' : undefined
+                            }
                         />
                     ) : snapshotsLoading ? (
                         <div className="space-y-3 py-4">

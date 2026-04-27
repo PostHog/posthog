@@ -29,11 +29,12 @@ tools:
         title: List all cohorts
         description: >
 
-            List all cohorts in the project. Returns a summary of each cohort including 
-            id, name, description, count (person count), is_static (cohort type), and created_at timestamp.
-            Use 'cohorts-retrieve' with the cohort ID to get full details including filters, calculation status,
+            List all cohorts in the project. Returns a summary of each cohort including  id, name, description, count
+            (person count), is_static (cohort type), and created_at timestamp. Use 'cohorts-retrieve' with the cohort ID
+            to get full details including filters, calculation status,
 
             and query definition.
+        ui_app: cohort-list
         response:
             include:
                 - id
@@ -42,7 +43,6 @@ tools:
                 - count
                 - is_static
                 - created_at
-        ui_app: cohort-list
     cohorts-create:
         operation: cohorts_create
         enabled: true
@@ -157,4 +157,7 @@ tools:
             succeeds silently.
     persons-cohorts-retrieve:
         operation: persons_cohorts_retrieve
+        enabled: false
+    cohorts-all-activity-retrieve:
+        operation: cohorts_all_activity_retrieve
         enabled: false

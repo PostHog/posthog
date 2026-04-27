@@ -35,6 +35,7 @@ from posthog.constants import (
 )
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
+from posthog.hogql_queries.insights.retention.test.utils import pad, pluck
 from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.models import Action, Cohort
 from posthog.models.group.util import create_group
@@ -58,27 +59,6 @@ def _create_signup_actions(team, user_and_timestamps):
 
 def _date(day, hour=5, month=0, minute=0):
     return datetime(2020, 6 + month, 10 + day, hour, minute).isoformat()
-
-
-def pluck(list_of_dicts, key, child_key=None):
-    return [pluck(d[key], child_key) if child_key else d[key] for d in list_of_dicts]
-
-
-def pad(retention_result: list[list[int]]) -> list[list[int]]:
-    """
-    changes the old 'triangle' format to the new 'matrix' format
-    after retention updates
-    """
-    result = []
-    max_length = max(len(row) for row in retention_result)
-
-    for row in retention_result:
-        if len(row) < max_length:
-            row.extend([0] * (max_length - len(row)))
-
-        result.append(row)
-
-    return result
 
 
 def _create_events(team, user_and_timestamps, event="$pageview"):
@@ -5317,13 +5297,13 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 },
             },
         )
-        actor_query = runner.actor_query()
+        base_query = runner.base_query()
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
             modifiers=create_default_modifiers_for_team(self.team),
         )
-        sql, _ = prepare_and_print_ast(actor_query, context, "clickhouse", pretty=True)
+        sql, _ = prepare_and_print_ast(base_query, context, "clickhouse", pretty=True)
 
         self.assertNotIn("events__events", sql, "Self-join detected with person property aggregation")
         self.assertIn("_start_event_data", sql)
@@ -5348,13 +5328,13 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 },
             },
         )
-        actor_query = runner.actor_query()
+        base_query = runner.base_query()
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
             modifiers=create_default_modifiers_for_team(self.team),
         )
-        sql, _ = prepare_and_print_ast(actor_query, context, "clickhouse", pretty=True)
+        sql, _ = prepare_and_print_ast(base_query, context, "clickhouse", pretty=True)
 
         self.assertNotIn("events__events", sql)
         # event property access should be present, not person property access
@@ -6333,6 +6313,7 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         assert canada_day0_cohort is not None
         self.assertEqual(canada_day0_cohort["values"][0]["count"], 3, "Canada should have 3 users")
 
+    @snapshot_clickhouse_queries
     def test_retention_24h_window_calculation(self):
         # This test validates that 24-hour window retention works differently from calendar-based retention
         # Key difference: with 24h windows, intervals are calculated from each user's first event timestamp,
@@ -6768,7 +6749,7 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
                         "cumulative": True,
                     },
                 },
-            )
+            ).calculate()
 
     def test_custom_brackets_day_period(self):
         """

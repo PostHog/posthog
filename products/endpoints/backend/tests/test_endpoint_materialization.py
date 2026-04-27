@@ -493,6 +493,11 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("status", response_data["materialization"])
         self.assertIn("sync_frequency", response_data["materialization"])
         self.assertEqual(response_data["materialization"]["sync_frequency"], "12hour")
+        self.assertIn("saved_query_id", response_data["materialization"])
+        version = endpoint.get_version()
+        assert version.saved_query is not None
+        self.assertEqual(response_data["materialization"]["saved_query_id"], str(version.saved_query.id))
+        self.assertEqual(response_data["current_version_id"], str(version.id))
 
     def test_materialization_status_endpoint(self):
         """Test the dedicated materialization_status endpoint returns only materialization data."""
@@ -1403,7 +1408,7 @@ class TestEndpointMaterializationTemporal:
         assert schedule.spec.jitter == timedelta(hours=1)
 
         # Verify schedule policy
-        assert schedule.policy.overlap == ScheduleOverlapPolicy.SKIP
+        assert schedule.policy.overlap == ScheduleOverlapPolicy.CANCEL_OTHER
 
     async def test_sync_frequency_affects_schedule_interval(self, materialized_endpoint):
         """Test that different sync_frequency values create schedules with correct intervals."""

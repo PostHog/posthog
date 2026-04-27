@@ -74,13 +74,7 @@ Prefer query wrappers when the user's question maps to a supported insight type.
 
 #### Available insight query tools
 
-`query-trends` | Time series, aggregations, formulas, comparisons | Default: last 30d, supports multiple series
-`query-funnel` | Conversion rates, drop-off analysis, time to convert | Requires at least 2 steps
-`query-retention` | User return patterns over time | Requires target (start) and returning events
-`query-stickiness` | Engagement frequency (how many days users do X) | No breakdowns supported
-`query-paths` | User navigation flows and sequences | Specify includeEventTypes
-`query-lifecycle` | New, returning, resurrecting, dormant user composition | Single event only, no math aggregation
-`query-traces-list` | LLM/AI trace listing and inspection | For AI observability data
+{query_tools}
 
 #### Choosing the right query tool
 
