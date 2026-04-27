@@ -6,7 +6,7 @@ export function buildDefinedGroupsBlock(groupTypes?: GroupType[]): string {
     if (!groupTypes || groupTypes.length === 0) {
         return ''
     }
-    return groupTypes.map((gt) => gt.group_type).join(', ')
+    return `Defined group types: ${groupTypes.map((gt) => gt.group_type).join(', ')}`
 }
 
 export function buildActiveEnvironmentContextPrompt(

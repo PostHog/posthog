@@ -579,40 +579,37 @@ export class MCP extends McpAgent<Env> {
 
         const supportsInstructions = clientProfile.capabilities.supportsInstructions
 
-        const standardInstructions =
-            version === 2
-                ? buildInstructionsV2(
-                      INSTRUCTIONS_TEMPLATE_V2,
-                      guidelines,
-                      groupTypes,
-                      metadata,
-                      toolInfos,
-                      queryToolInfos
-                  )
-                : buildInstructionsV1(INSTRUCTIONS_TEMPLATE_V1, metadata)
-
         // In single-exec mode, when the client honors the MCP `instructions` field we
         // lift the exec-tool blurb, tool-domain list, query-tool catalog, defined-group
         // types and the active-environment `{metadata}` (user name, project, timezone)
         // out of the `command` description and into `instructions`. Clients that ignore
         // `instructions` (Codex — see `client-detection.ts`) keep today's behavior:
         // empty `instructions`, everything inlined in the `command` description.
-        const singleExecInstructions =
-            useSingleExec && supportsInstructions
-                ? buildInstructionsV2(
-                      SINGLE_EXEC_INSTRUCTIONS,
-                      guidelines,
-                      groupTypes,
-                      metadata,
-                      toolInfos,
-                      queryToolInfos,
-                      { compact: true }
-                  ).trim()
-                : ''
-
         let instructions = ''
         if (supportsInstructions) {
-            instructions = useSingleExec ? singleExecInstructions : standardInstructions
+            if (useSingleExec) {
+                instructions = buildInstructionsV2(
+                    SINGLE_EXEC_INSTRUCTIONS,
+                    guidelines,
+                    groupTypes,
+                    metadata,
+                    toolInfos,
+                    queryToolInfos,
+                    { compact: true }
+                )
+            } else {
+                instructions =
+                    version === 2
+                        ? buildInstructionsV2(
+                              INSTRUCTIONS_TEMPLATE_V2,
+                              guidelines,
+                              groupTypes,
+                              metadata,
+                              toolInfos,
+                              queryToolInfos
+                          )
+                        : buildInstructionsV1(INSTRUCTIONS_TEMPLATE_V1, metadata)
+            }
         }
 
         this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })

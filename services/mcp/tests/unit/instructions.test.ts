@@ -44,14 +44,14 @@ describe('buildDefinedGroupsBlock', () => {
             { group_type: 'instance', group_type_index: 1, name_singular: 'Instance', name_plural: 'Instances' },
             { group_type: 'business', group_type_index: 2, name_singular: null, name_plural: null },
         ]
-        expect(buildDefinedGroupsBlock(groupTypes)).toBe('organization, instance, business')
+        expect(buildDefinedGroupsBlock(groupTypes)).toBe('Defined group types: organization, instance, business')
     })
 
     it('should ignore singular/plural names and only use group_type', () => {
         const groupTypes: GroupType[] = [
             { group_type: 'workspace', group_type_index: 0, name_singular: 'Workspace', name_plural: 'Workspaces' },
         ]
-        expect(buildDefinedGroupsBlock(groupTypes)).toBe('workspace')
+        expect(buildDefinedGroupsBlock(groupTypes)).toBe('Defined group types: workspace')
     })
 
     it('should return empty string for undefined', () => {
