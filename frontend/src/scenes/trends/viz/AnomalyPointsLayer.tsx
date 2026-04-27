@@ -28,21 +28,21 @@ export function AnomalyPointsLayer({ markers, radius = 3 }: AnomalyPointsLayerPr
     const plotBottom = plotTop + plotHeight
 
     const dots: React.ReactElement[] = []
-    markers.forEach((marker, idx) => {
+    for (const marker of markers) {
         const label = labels[marker.dataIndex]
         const x = label != null ? scales.x(label) : undefined
         if (x == null || !isFinite(x)) {
-            return
+            continue
         }
         const yScaleFn = scales.yAxes?.[marker.yAxisId]?.scale ?? scales.y
         const y = yScaleFn(marker.value)
         if (!isFinite(y) || x < plotLeft || x > plotRight || y < plotTop || y > plotBottom) {
-            return
+            continue
         }
         const diameter = radius * 2
         dots.push(
             <div
-                key={idx}
+                key={`${marker.dataIndex}-${marker.yAxisId}`}
                 className="absolute pointer-events-none rounded-full"
                 style={{
                     left: x - radius,
@@ -50,12 +50,10 @@ export function AnomalyPointsLayer({ markers, radius = 3 }: AnomalyPointsLayerPr
                     width: diameter,
                     height: diameter,
                     backgroundColor: marker.color,
-                    border: `2px solid ${marker.color}`,
-                    boxSizing: 'content-box',
                 }}
             />
         )
-    })
+    }
 
     return <>{dots}</>
 }

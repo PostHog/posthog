@@ -3,7 +3,6 @@ import { useCallback, useMemo } from 'react'
 
 import { createXAxisTickCallback } from 'lib/charts/utils/dates'
 import { buildTheme } from 'lib/charts/utils/theme'
-import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { DEFAULT_Y_AXIS_ID, LineChart, ReferenceLines, ValueLabels } from 'lib/hog-charts'
 import type { LineChartConfig, PointClickData, Series, TooltipContext } from 'lib/hog-charts'
 import { ciRanges, movingAverage, trendLine } from 'lib/statistics'
@@ -24,10 +23,9 @@ import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
 import type { IndexedTrendResult } from '../types'
 import { AnnotationsLayer } from './AnnotationsLayer'
-import { buildAnomalyMarkers } from './anomalyPointsAdapter'
-import { AnomalyPointsLayer } from './AnomalyPointsLayer'
-import { alertThresholdsToReferenceLines, goalLinesToReferenceLines } from './goalLinesAdapter'
+import { goalLinesToReferenceLines } from './goalLinesAdapter'
 import { handleTrendsLineChartClick } from './handleTrendsLineChartClick'
+import { TrendsAlertOverlays } from './TrendsAlertOverlays'
 import { buildTrendsYTickFormatter } from './trendsAxisFormat'
 import type { TrendsSeriesMeta } from './trendsSeriesMeta'
 import { TrendsTooltip } from './TrendsTooltip'
@@ -72,10 +70,6 @@ export function TrendsLineChartD3({ context, inSharedMode = false }: TrendsLineC
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
-
-    const { alertThresholdLines, alertAnomalyPoints } = useValues(
-        insightAlertsLogic({ insightId: insight.id!, insightLogicProps: insightProps })
-    )
 
     const isPercentStackView = !!showPercentStackView && !!supportsPercentStackView
     const resolvedGroupTypeLabel =
@@ -243,27 +237,14 @@ export function TrendsLineChartD3({ context, inSharedMode = false }: TrendsLineC
         [yAxisScaleType, isPercentStackView, xTickFormatter, yTickFormatter]
     )
 
-    const referenceLines = useMemo(
-        () => [
-            ...alertThresholdsToReferenceLines(alertThresholdLines),
-            ...goalLinesToReferenceLines(goalLines, hogSeries),
-        ],
-        [alertThresholdLines, goalLines, hogSeries]
-    )
+    const referenceLines = useMemo(() => goalLinesToReferenceLines(goalLines, hogSeries), [goalLines, hogSeries])
 
-    const anomalyMarkers = useMemo(
-        () =>
-            buildAnomalyMarkers(
-                alertAnomalyPoints,
-                indexedResults,
-                getTrendsColor,
-                (r) => {
-                    const idx = (indexedResults ?? []).indexOf(r)
-                    return showMultipleYAxes && idx > 0 ? `y${idx}` : DEFAULT_Y_AXIS_ID
-                },
-                getTrendsHidden
-            ),
-        [alertAnomalyPoints, indexedResults, getTrendsColor, getTrendsHidden, showMultipleYAxes]
+    const getYAxisId = useCallback(
+        (r: IndexedTrendResult) => {
+            const idx = (indexedResults ?? []).indexOf(r)
+            return showMultipleYAxes && idx > 0 ? `y${idx}` : DEFAULT_Y_AXIS_ID
+        },
+        [indexedResults, showMultipleYAxes]
     )
 
     const valueLabelFormatter = useCallback(
@@ -366,7 +347,16 @@ export function TrendsLineChartD3({ context, inSharedMode = false }: TrendsLineC
             className="LineGraph"
         >
             <ReferenceLines lines={referenceLines} />
-            <AnomalyPointsLayer markers={anomalyMarkers} />
+            {insight.id ? (
+                <TrendsAlertOverlays
+                    insightId={insight.id}
+                    insightProps={insightProps}
+                    indexedResults={indexedResults}
+                    getColor={getTrendsColor}
+                    getYAxisId={getYAxisId}
+                    isHidden={getTrendsHidden}
+                />
+            ) : null}
             {showValuesOnSeries && <ValueLabels valueFormatter={valueLabelFormatter} />}
             {showAnnotations && (
                 <AnnotationsLayer
