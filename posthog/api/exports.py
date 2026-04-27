@@ -99,11 +99,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         # legitimately run close to HOGQL_INCREASED_MAX_EXECUTION_TIME.
         threshold_seconds = _stuck_threshold_seconds(instance.export_format)
         timeout_threshold = now() - timedelta(seconds=threshold_seconds)
-        if (
-            instance.created_at < timeout_threshold
-            and not instance.has_content
-            and not instance.exception
-        ):
+        if instance.created_at < timeout_threshold and not instance.has_content and not instance.exception:
             timeout_message = "Export failed without throwing an exception. Please try to rerun this export and contact support if it fails to complete multiple times."
             data["exception"] = timeout_message
 
