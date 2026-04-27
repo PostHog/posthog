@@ -39,6 +39,7 @@ from posthog.models.user_integration import (
     UserIntegration,
     user_github_integration_from_installation,
 )
+from posthog.permissions import APIScopePermission
 from posthog.rate_limit import UserAuthenticationThrottle
 
 logger = structlog.get_logger(__name__)
@@ -111,11 +112,25 @@ class UserIntegrationsViewSet(viewsets.ViewSet):
     """``/api/users/@me/integrations/`` — manage the user's GitHub integrations.
 
     Session or OAuth access token (e.g. PostHog Code). Personal API keys are not
-    accepted. Implicitly scoped to ``request.user``.
+    accepted. OAuth tokens must include ``user:read`` / ``user:write`` like other
+    ``@me`` user APIs. Implicitly scoped to ``request.user``.
     """
 
+    scope_object = "user"
+    required_scopes: list[str] | None = None
+    scope_object_read_actions = ["list", "retrieve", "github_repos"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "destroy",
+        "github_start",
+        "github_destroy",
+    ]
+
     authentication_classes = [SessionAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, APIScopePermission]
     http_method_names = ["get", "post", "delete"]
 
     def _get_user(self) -> User:
@@ -386,16 +401,25 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
             params={"per_page": 1},
             timeout=10,
         )
-        if verify_response.status_code == 404:
-            logger.warning(
-                "github_link: user does not have access to installation",
-                installation_id=installation_id,
-                user_id=request.user.id,
-            )
-            return _error("installation_not_authorized")
-    except Exception:
-        logger.warning("github_link: installation ownership check failed", exc_info=True)
-        # Don't fail on a transient API error; proceed optimistically.
+    except requests.RequestException:
+        logger.warning("github_link: installation ownership check request failed", exc_info=True)
+        return _error("installation_verify_failed")
+
+    if verify_response.status_code == 404:
+        logger.warning(
+            "github_link: user does not have access to installation",
+            installation_id=installation_id,
+            user_id=request.user.id,
+        )
+        return _error("installation_not_authorized")
+    if verify_response.status_code != 200:
+        logger.warning(
+            "github_link: unexpected status verifying installation access",
+            installation_id=installation_id,
+            user_id=request.user.id,
+            status_code=verify_response.status_code,
+        )
+        return _error("installation_verify_failed")
 
     # Get installation info and access token
     try:

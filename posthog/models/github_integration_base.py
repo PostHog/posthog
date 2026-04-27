@@ -241,7 +241,11 @@ class GitHubIntegrationBase:
             self._record_github_api_exception("POST", endpoint)
             raise
         self._record_github_api_response(response, "POST", endpoint)
-        data = response.json()
+        try:
+            data = response.json()
+        except ValueError:
+            self._on_token_refresh_failed(response)
+            raise Exception(f"Non-JSON response when refreshing installation token: {response.text[:500]}") from None
 
         if response.status_code != 201 or not data.get("token"):
             self._on_token_refresh_failed(response)

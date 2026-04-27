@@ -346,8 +346,9 @@ def user_github_integration_from_installation(
     The default (``False``) performs ``update_or_create`` — appropriate for the explicit
     Linked Accounts connect flow where the user is intentionally replacing credentials.
     """
-    expires_in = datetime.fromisoformat(installation.token_expires_at.replace('Z', '+00:00')).timestamp() - now
-    expires_in = datetime.fromisoformat(installation.token_expires_at).timestamp() - now
+    now = int(time.time())
+    raw_expires = installation.token_expires_at
+    expires_in = int(datetime.fromisoformat(raw_expires.replace("Z", "+00:00")).timestamp() - now)
 
     config: dict[str, Any] = {
         "installation_id": installation.installation_id,
