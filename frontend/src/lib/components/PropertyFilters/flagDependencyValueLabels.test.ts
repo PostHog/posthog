@@ -14,8 +14,8 @@ describe('flagDependencyValueLabels', () => {
     })
 
     it('returns labels for true/false', () => {
-        expect(getFlagDependencyValueLabel(true)).toBe('Evaluates to true')
-        expect(getFlagDependencyValueLabel(false)).toBe('Evaluates to false')
+        expect(getFlagDependencyValueLabel(true)).toBe('Evaluate true')
+        expect(getFlagDependencyValueLabel(false)).toBe('Evaluate false')
         expect(getFlagDependencyValueLabel('variant-a')).toBe('variant-a')
     })
 

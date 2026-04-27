@@ -16,7 +16,7 @@ export function getFlagDependencyValueLabel(raw: unknown): string {
     if (!isFlagDependencyBooleanValue(raw)) {
         return String(raw)
     }
-    return dependencyFlagEvaluatesTrue(raw) ? 'Evaluates to true' : 'Evaluates to false'
+    return dependencyFlagEvaluatesTrue(raw) ? 'Evaluate true' : 'Evaluate false'
 }
 
 /** Explains inclusion semantics for the dependency flag value picker */
