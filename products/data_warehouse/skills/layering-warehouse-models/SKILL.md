@@ -4,7 +4,7 @@ description: >
   Conventions for organizing PostHog data warehouse models into conceptual
   layers — raw / staging / intermediate / final. Use before creating any new
   `DataWarehouseSavedQuery`, when reviewing an existing modeling project that's
-  grown organically, when a user asks "where  should this view live?" or "what
+  grown organically, when a user asks "where should this view live?" or "what
   should I call this?", or when deciding whether to split a tangled view into
   multiple models. Pure methodology — works alongside `modeling-lifecycle`
   (which uses these conventions) without requiring any new tools.
