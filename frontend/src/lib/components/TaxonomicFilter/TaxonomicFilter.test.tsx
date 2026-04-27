@@ -3,6 +3,7 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -361,6 +362,54 @@ describe('TaxonomicFilter', () => {
             const [group, value] = onChangeMock.mock.calls[0]
             expect(group.type).toBe(TaxonomicFilterGroupType.Actions)
             expect(value).toBe(3)
+        })
+
+        it('captures `taxonomic filter item selected` with groupType, sourceGroupType, position and suggestionKind on click', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            renderFilter()
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-events-1')).toBeInTheDocument()
+            })
+
+            await userEvent.click(screen.getByTestId('prop-filter-events-1'))
+
+            await waitFor(() => {
+                const call = captureSpy.mock.calls.find((c) => c[0] === 'taxonomic filter item selected')
+                expect(call).not.toBeUndefined()
+                expect(call?.[1]).toMatchObject({
+                    groupType: TaxonomicFilterGroupType.Events,
+                    sourceGroupType: TaxonomicFilterGroupType.Events,
+                    suggestionKind: 'browse',
+                    position: 1,
+                    hadSearchInput: false,
+                })
+            })
+        })
+
+        it('captures suggestionKind=search_result when a search query is active', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            renderFilter()
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
+            })
+
+            await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'event')
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
+            })
+
+            await userEvent.click(screen.getByTestId('prop-filter-events-0'))
+
+            await waitFor(() => {
+                const call = captureSpy.mock.calls.find((c) => c[0] === 'taxonomic filter item selected')
+                expect(call?.[1]).toMatchObject({
+                    suggestionKind: 'search_result',
+                    hadSearchInput: true,
+                })
+            })
         })
 
         it('selecting different items in the same group calls onChange each time', async () => {

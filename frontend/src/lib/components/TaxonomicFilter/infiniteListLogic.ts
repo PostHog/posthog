@@ -936,7 +936,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
                 if (!isDisabledItem) {
                     const itemValue = selectedItem ? itemGroup?.getValue?.(selectedItem) : null
-                    actions.selectItem(itemGroup, itemValue ?? null, selectedItem)
+                    actions.selectItem(itemGroup, itemValue ?? null, selectedItem, {
+                        position: values.index,
+                        isPinned: values.pinnedRowIndex === values.index,
+                    })
                 }
             }
         },
