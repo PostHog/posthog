@@ -8237,6 +8237,47 @@ export namespace Schemas {
       _create_static_person_ids?: string[];
     }
 
+    export type CohortPersonResultProperties = {[key: string]: unknown};
+
+    export type CohortPersonResultMatchedRecordingsItem = {[key: string]: unknown};
+
+    /**
+     * * `person` - person
+     */
+    export type CohortPersonResultTypeEnum = typeof CohortPersonResultTypeEnum[keyof typeof CohortPersonResultTypeEnum];
+
+
+    export const CohortPersonResultTypeEnum = {
+      Person: 'person',
+    } as const;
+
+    export interface CohortPersonResult {
+      id: string;
+      uuid: string;
+      type: CohortPersonResultTypeEnum;
+      /** @nullable */
+      name: string | null;
+      distinct_ids: string[];
+      properties: CohortPersonResultProperties;
+      /** @nullable */
+      created_at: string | null;
+      /** @nullable */
+      last_seen_at: string | null;
+      /** @nullable */
+      is_identified: boolean | null;
+      matched_recordings?: CohortPersonResultMatchedRecordingsItem[];
+      /** @nullable */
+      value_at_data_point?: number | null;
+    }
+
+    export interface CohortPersonsResponse {
+      results: CohortPersonResult[];
+      /** @nullable */
+      next: string | null;
+      /** @nullable */
+      previous: string | null;
+    }
+
     export type ColorMode = typeof ColorMode[keyof typeof ColorMode];
 
 
@@ -40821,6 +40862,14 @@ export namespace Schemas {
 
     export type CohortsPersonsRetrieveParams = {
     format?: CohortsPersonsRetrieveFormat;
+    /**
+     * Maximum number of persons to return per page (defaults to 100).
+     */
+    limit?: number;
+    /**
+     * Number of persons to skip before starting to return results.
+     */
+    offset?: number;
     };
 
     export type CohortsPersonsRetrieveFormat = typeof CohortsPersonsRetrieveFormat[keyof typeof CohortsPersonsRetrieveFormat];

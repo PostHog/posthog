@@ -330,43 +330,21 @@ export const CohortPersonResultTypeEnumApi = {
     Person: 'person',
 } as const
 
-/**
- * Key-value map of person properties.
- */
 export type CohortPersonResultApiProperties = { [key: string]: unknown }
 
 export type CohortPersonResultApiMatchedRecordingsItem = { [key: string]: unknown }
 
-/**
- * Shape of a single person entry returned by the cohort persons endpoint.
-
-Mirrors the `SerializedPerson` TypedDict in `posthog/queries/actor_base_query.py`
-so the generated OpenAPI schema matches the actual runtime response.
- */
 export interface CohortPersonResultApi {
-    /** Numeric person ID or UUID string. */
     id: string
-    /** Unique identifier (UUID) for this person. */
     uuid: string
     type: CohortPersonResultTypeEnumApi
-    /**
-     * Display name derived from person properties.
-     * @nullable
-     */
+    /** @nullable */
     name: string | null
-    /** Up to 10 distinct IDs belonging to this person. */
     distinct_ids: string[]
-    /** Key-value map of person properties. */
     properties: CohortPersonResultApiProperties
-    /**
-     * When this person was first seen.
-     * @nullable
-     */
+    /** @nullable */
     created_at: string | null
-    /**
-     * Timestamp of the last event from this person.
-     * @nullable
-     */
+    /** @nullable */
     last_seen_at: string | null
     /** @nullable */
     is_identified: boolean | null
@@ -375,20 +353,11 @@ export interface CohortPersonResultApi {
     value_at_data_point?: number | null
 }
 
-/**
- * Response shape for the paginated cohort persons endpoint.
- */
 export interface CohortPersonsResponseApi {
     results: CohortPersonResultApi[]
-    /**
-     * URL for the next page of results, or null.
-     * @nullable
-     */
+    /** @nullable */
     next: string | null
-    /**
-     * URL for the previous page of results, or null.
-     * @nullable
-     */
+    /** @nullable */
     previous: string | null
 }
 

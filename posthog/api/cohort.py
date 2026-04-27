@@ -83,34 +83,25 @@ from posthog.renderers import SafeJSONRenderer
 from posthog.utils import format_query_params_absolute_url
 
 
+# Mirrors SerializedPerson in posthog/queries/actor_base_query.py
 class CohortPersonResultSerializer(serializers.Serializer):
-    """Shape of a single person entry returned by the cohort persons endpoint.
-
-    Mirrors the `SerializedPerson` TypedDict in `posthog/queries/actor_base_query.py`
-    so the generated OpenAPI schema matches the actual runtime response.
-    """
-
-    id = serializers.CharField(help_text="Numeric person ID or UUID string.")
-    uuid = serializers.UUIDField(help_text="Unique identifier (UUID) for this person.")
+    id = serializers.CharField()
+    uuid = serializers.UUIDField()
     type = serializers.ChoiceField(choices=["person"])
-    name = serializers.CharField(allow_null=True, help_text="Display name derived from person properties.")
-    distinct_ids = serializers.ListField(
-        child=serializers.CharField(), help_text="Up to 10 distinct IDs belonging to this person."
-    )
-    properties = serializers.DictField(help_text="Key-value map of person properties.")
-    created_at = serializers.DateTimeField(allow_null=True, help_text="When this person was first seen.")
-    last_seen_at = serializers.DateTimeField(allow_null=True, help_text="Timestamp of the last event from this person.")
+    name = serializers.CharField(allow_null=True)
+    distinct_ids = serializers.ListField(child=serializers.CharField())
+    properties = serializers.DictField()
+    created_at = serializers.DateTimeField(allow_null=True)
+    last_seen_at = serializers.DateTimeField(allow_null=True)
     is_identified = serializers.BooleanField(allow_null=True)
     matched_recordings = serializers.ListField(child=serializers.DictField(), required=False)
     value_at_data_point = serializers.FloatField(allow_null=True, required=False)
 
 
 class CohortPersonsResponseSerializer(serializers.Serializer):
-    """Response shape for the paginated cohort persons endpoint."""
-
     results = CohortPersonResultSerializer(many=True)
-    next = serializers.URLField(allow_null=True, help_text="URL for the next page of results, or null.")
-    previous = serializers.URLField(allow_null=True, help_text="URL for the previous page of results, or null.")
+    next = serializers.URLField(allow_null=True)
+    previous = serializers.URLField(allow_null=True)
 
 
 def validate_filters_and_compute_realtime_support(
