@@ -415,6 +415,10 @@ class ExperimentQueryBuilder:
                     exposures.exposure_session_id,
                     exposures.first_exposure_time"""
 
+        cuped_entity_metrics_select = (
+            ",\n                    {covariate_value_expr} AS covariate_value" if self.cuped_config.enabled else ""
+        )
+
         ctes_sql = f"""
             exposures AS (
                 {{exposure_select_query}}
@@ -426,7 +430,7 @@ class ExperimentQueryBuilder:
                 SELECT
                     exposures.entity_id AS entity_id,
                     exposures.variant AS variant,
-                    {{funnel_aggregation}} AS value{extra_select_columns}
+                    {{funnel_aggregation}} AS value{extra_select_columns}{cuped_entity_metrics_select}
                 FROM exposures
                 LEFT JOIN metric_events
                     ON exposures.entity_id = metric_events.entity_id
@@ -437,12 +441,14 @@ class ExperimentQueryBuilder:
             )
         """
 
+        cuped_lookback_days = self.cuped_config.lookback_days if self.cuped_config.enabled else None
+
         placeholders: dict[str, ast.Expr | ast.SelectQuery] = {
             "exposure_predicate": self._build_exposure_predicate(),
             "variant_property": self._build_variant_property(),
             "variant_expr": self._build_variant_expr_for_funnel(),
             "entity_key": parse_expr(self.entity_key),
-            "funnel_steps_filter": self._build_funnel_steps_filter(),
+            "funnel_steps_filter": self._build_funnel_steps_filter(cuped_lookback_days=cuped_lookback_days),
             "funnel_aggregation": self._build_funnel_aggregation_expr(),
             "num_steps_minus_1": ast.Constant(value=num_steps - 1),
             "exposure_select_query": self._get_exposure_query(),
@@ -451,11 +457,20 @@ class ExperimentQueryBuilder:
             placeholders["uuid_to_session_map"] = self._build_uuid_to_session_map()
             placeholders["uuid_to_timestamp_map"] = self._build_uuid_to_timestamp_map()
 
+        if self.cuped_config.enabled:
+            placeholders["covariate_value_expr"] = self._build_funnel_covariate_value_expr(
+                events_alias="metric_events",
+                last_step_index=num_steps - 1,
+                exposure_alias="exposures",
+            )
+
         if self.metric_events_preaggregation_job_ids:
             placeholders["metric_events_job_ids"] = ast.Constant(value=self.metric_events_preaggregation_job_ids)
             placeholders["metric_events_team_id"] = ast.Constant(value=self.team.id)
             placeholders["metric_events_date_from"] = self.date_range_query.date_from_as_hogql()
             placeholders["metric_events_date_to"] = self.date_range_query.date_to_as_hogql()
+
+        cuped_select = self._funnel_cuped_select_clause()
 
         query = parse_select(
             f"""
@@ -469,7 +484,7 @@ class ExperimentQueryBuilder:
                 -- it return 0, and so on. So reaching the last step means it will return
                 -- num_steps - 1
                 countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum,
-                countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum_of_squares
+                countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum_of_squares{cuped_select}
                 -- step_counts added programmatically below
                 -- steps_event_data added programmatically below
                 -- breakdown columns added programmatically below
@@ -579,9 +594,15 @@ class ExperimentQueryBuilder:
                     {uuid_to_session_map} AS uuid_to_session,
                     {uuid_to_timestamp_map} AS uuid_to_timestamp"""
 
+        cuped_entity_metrics_select = (
+            ",\n                    {covariate_value_expr} AS covariate_value" if self.cuped_config.enabled else ""
+        )
+
         # Unordered funnels need temporal filtering: the UDF doesn't enforce that
         # step_0 (exposure) happens before step_1..N, so we must exclude events
         # before first exposure. Add a lightweight first_exposures sub-CTE.
+        # CUPED also needs the per-entity exposure timestamp to scope the pre-window
+        # covariate, so we materialize first_exposures whenever it's enabled.
         if is_unordered_funnel:
             first_exposures_cte_str = """
             first_exposures AS (
@@ -594,6 +615,22 @@ class ExperimentQueryBuilder:
                     ON base_events.entity_id = first_exposures.entity_id
                 WHERE base_events.timestamp >= first_exposures.first_exposure_time"""
             # INNER JOIN implicitly filters to exposed entities, no HAVING needed
+            having_clause = ""
+        elif self.cuped_config.enabled:
+            first_exposures_cte_str = """
+            first_exposures AS (
+                SELECT entity_id, min(timestamp) AS first_exposure_time
+                FROM base_events
+                WHERE step_0 = 1
+                GROUP BY entity_id
+            ),"""
+            # Ordered funnels with CUPED keep all events (post-window plus pre-exposure
+            # window) in the input. The aggregate_funnel_array UDF anchors on step_0,
+            # which only fires inside the experiment window (the exposure predicate is
+            # date-bounded), so pre-window events with step_X=1 (X>0) are never used.
+            # Joining first_exposures gives us first_exposure_time for the covariate.
+            temporal_join = """INNER JOIN first_exposures
+                    ON base_events.entity_id = first_exposures.entity_id"""
             having_clause = ""
         else:
             first_exposures_cte_str = ""
@@ -608,25 +645,36 @@ class ExperimentQueryBuilder:
                 SELECT
                     base_events.entity_id AS entity_id,
                     {{variant_expr}} AS variant,
-                    {{funnel_aggregation}} AS value{extra_select_columns}
+                    {{funnel_aggregation}} AS value{extra_select_columns}{cuped_entity_metrics_select}
                 FROM base_events
                 {temporal_join}
                 GROUP BY base_events.entity_id{having_clause}
             )
         """
 
+        cuped_lookback_days = self.cuped_config.lookback_days if self.cuped_config.enabled else None
+
         placeholders: dict[str, ast.Expr | ast.SelectQuery] = {
             "exposure_predicate": self._build_exposure_predicate(),
             "variant_property": self._build_variant_property(),
             "variant_expr": self._build_variant_expr_for_funnel_optimized(),
             "entity_key": parse_expr(self.entity_key),
-            "funnel_steps_filter": self._build_funnel_steps_filter(),
+            "funnel_steps_filter": self._build_funnel_steps_filter(cuped_lookback_days=cuped_lookback_days),
             "funnel_aggregation": self._build_funnel_aggregation_expr_optimized(),
             "num_steps_minus_1": ast.Constant(value=num_steps - 1),
         }
         if not self.funnel_steps_data_disabled:
             placeholders["uuid_to_session_map"] = self._build_uuid_to_session_map_optimized()
             placeholders["uuid_to_timestamp_map"] = self._build_uuid_to_timestamp_map_optimized()
+
+        if self.cuped_config.enabled:
+            placeholders["covariate_value_expr"] = self._build_funnel_covariate_value_expr(
+                events_alias="base_events",
+                last_step_index=num_steps - 1,
+                exposure_alias="first_exposures",
+            )
+
+        cuped_select = self._funnel_cuped_select_clause()
 
         query = parse_select(
             f"""
@@ -640,7 +688,7 @@ class ExperimentQueryBuilder:
                 -- it return 0, and so on. So reaching the last step means it will return
                 -- num_steps - 1
                 countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum,
-                countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum_of_squares
+                countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum_of_squares{cuped_select}
                 -- step_counts added programmatically below
                 -- steps_event_data added programmatically below
                 -- breakdown columns added programmatically below
@@ -1295,11 +1343,15 @@ class ExperimentQueryBuilder:
         else:
             return parse_expr(f"{events_alias}.timestamp >= exposures.first_exposure_time")
 
-    def _build_cuped_pre_window_predicate(self, events_alias: str = "metric_events") -> ast.Expr:
+    def _build_cuped_pre_window_predicate(
+        self,
+        events_alias: str = "metric_events",
+        exposure_alias: str = "exposures",
+    ) -> ast.Expr:
         return parse_expr(
             f"""
-            {events_alias}.timestamp >= exposures.first_exposure_time - toIntervalDay({{lookback_days}})
-            AND {events_alias}.timestamp < exposures.first_exposure_time
+            {events_alias}.timestamp >= {exposure_alias}.first_exposure_time - toIntervalDay({{lookback_days}})
+            AND {events_alias}.timestamp < {exposure_alias}.first_exposure_time
             """,
             placeholders={"lookback_days": ast.Constant(value=self.cuped_config.lookback_days)},
         )
@@ -1314,6 +1366,50 @@ class ExperimentQueryBuilder:
                 "metric_value": ast.Field(chain=[events_alias, "value"]),
             },
         )
+
+    def _build_funnel_covariate_value_expr(
+        self,
+        *,
+        events_alias: str,
+        last_step_index: int,
+        exposure_alias: str,
+    ) -> ast.Expr:
+        """
+        Per-entity binary covariate for funnel CUPED: 1 if the entity fired the
+        funnel's last step inside the pre-exposure window, else 0.
+
+        The covariate has to be binary to keep the same Bernoulli scale as the
+        post-window proportion metric, and aligns with the example pattern of
+        treating the conversion event as both the metric and the covariate.
+        """
+        return parse_expr(
+            f"""
+            coalesce(
+                maxIf(
+                    1,
+                    {events_alias}.step_{last_step_index} = 1
+                    AND {events_alias}.timestamp >= {exposure_alias}.first_exposure_time - toIntervalDay({{lookback_days}})
+                    AND {events_alias}.timestamp < {exposure_alias}.first_exposure_time
+                ),
+                0
+            )
+            """,
+            placeholders={"lookback_days": ast.Constant(value=self.cuped_config.lookback_days)},
+        )
+
+    def _funnel_cuped_select_clause(self) -> str:
+        """
+        SQL fragment appended to the funnel result SELECT when CUPED is enabled.
+        The cross-product term multiplies the user-level conversion indicator
+        (value.1 = num_steps - 1) with the binary covariate.
+        """
+        if not self.cuped_config.enabled:
+            return ""
+
+        return """,
+                sum(entity_metrics.covariate_value) AS covariate_sum,
+                sum(power(entity_metrics.covariate_value, 2)) AS covariate_sum_squares,
+                sum(if(entity_metrics.value.1 = {num_steps_minus_1}, 1, 0) * entity_metrics.covariate_value) AS main_covariate_sum_product"""
 
     def _build_metric_predicate(
         self,
@@ -1883,10 +1979,13 @@ class ExperimentQueryBuilder:
         exposure_filter = self._build_exposure_predicate()
         return step_builder.build_boolean_columns(exposure_filter)
 
-    def _build_funnel_steps_filter(self) -> ast.Expr:
+    def _build_funnel_steps_filter(self, cuped_lookback_days: int | None = None) -> ast.Expr:
         """
         Returns the expression to filter funnel steps (matches ANY step) within
         the time period of the experiment + the conversion window if set.
+
+        When `cuped_lookback_days` is provided, the lower bound is rolled back by
+        that many days so the same scan also feeds the CUPED pre-exposure window.
         """
         assert isinstance(self.metric, ExperimentFunnelMetric)
 
@@ -1902,13 +2001,23 @@ class ExperimentQueryBuilder:
         else:
             date_to = self.date_range_query.date_to_as_hogql()
 
+        date_from = self.date_range_query.date_from_as_hogql()
+        if cuped_lookback_days is not None:
+            date_from = parse_expr(
+                "{date_from} - toIntervalDay({lookback_days})",
+                placeholders={
+                    "date_from": date_from,
+                    "lookback_days": ast.Constant(value=cuped_lookback_days),
+                },
+            )
+
         return parse_expr(
             """
             timestamp >= {date_from} AND timestamp <= {date_to}
             AND {funnel_steps_filter}
             """,
             placeholders={
-                "date_from": self.date_range_query.date_from_as_hogql(),
+                "date_from": date_from,
                 "date_to": date_to,
                 "funnel_steps_filter": funnel_steps_to_filter(self.team, self.metric.series),
             },

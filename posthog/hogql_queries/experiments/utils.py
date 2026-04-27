@@ -150,7 +150,9 @@ def get_variant_result(
         (variant, breakdown_value_1, breakdown_value_2, num_samples, sum, sum_squares, [metric_specific_fields...])
 
     Metric-specific fields:
-        - FunnelMetric: step_counts, [optional: step_sessions]
+        - FunnelMetric without CUPED: step_counts, [optional: step_sessions]
+        - FunnelMetric with CUPED: covariate_sum, covariate_sum_squares,
+          main_covariate_sum_product, step_counts, [optional: step_sessions]
         - RatioMetric: denominator_sum, denominator_sum_squares, numerator_denominator_sum_product
         - MeanMetric with CUPED: covariate_sum, covariate_sum_squares, main_covariate_sum_product
         - MeanMetric without CUPED: (no additional fields)
@@ -184,8 +186,14 @@ def get_variant_result(
     # Add metric-specific fields based on metric type
     match metric:
         case ExperimentFunnelMetric():
-            base_stats["step_counts"] = result[metric_fields_start_idx]
-            if len(result) > metric_fields_start_idx + 1:
+            funnel_fields_start_idx = metric_fields_start_idx
+            if cuped_enabled:
+                base_stats["covariate_sum"] = result[metric_fields_start_idx]
+                base_stats["covariate_sum_squares"] = result[metric_fields_start_idx + 1]
+                base_stats["main_covariate_sum_product"] = result[metric_fields_start_idx + 2]
+                funnel_fields_start_idx = metric_fields_start_idx + 3
+            base_stats["step_counts"] = result[funnel_fields_start_idx]
+            if len(result) > funnel_fields_start_idx + 1:
                 base_stats["step_sessions"] = [
                     [
                         SessionData(
@@ -193,7 +201,7 @@ def get_variant_result(
                         )
                         for person_id, session_id, event_uuid, timestamp in step_sessions
                     ]
-                    for step_sessions in result[metric_fields_start_idx + 1]
+                    for step_sessions in result[funnel_fields_start_idx + 1]
                 ]
         case ExperimentRatioMetric():
             base_stats["denominator_sum"] = result[metric_fields_start_idx]
@@ -495,10 +503,16 @@ def _apply_cuped_adjustment_if_enabled(
     test_variant: ExperimentStatsBaseValidated,
     control_variant: ExperimentStatsBaseValidated,
 ) -> tuple[ExperimentStatistic, ExperimentStatistic, float | None]:
-    if not cuped_config.enabled or not isinstance(metric, ExperimentMeanMetric):
+    if not cuped_config.enabled:
         return test_stat, control_stat, None
 
-    if not isinstance(test_stat, SampleMeanStatistic) or not isinstance(control_stat, SampleMeanStatistic):
+    if not isinstance(metric, (ExperimentMeanMetric, ExperimentFunnelMetric)):
+        return test_stat, control_stat, None
+
+    # cuped_adjust supports SampleMeanStatistic and ProportionStatistic, but not RatioStatistic.
+    if not isinstance(test_stat, (SampleMeanStatistic, ProportionStatistic)) or not isinstance(
+        control_stat, (SampleMeanStatistic, ProportionStatistic)
+    ):
         return test_stat, control_stat, None
 
     cuped_result = cuped_adjust(
