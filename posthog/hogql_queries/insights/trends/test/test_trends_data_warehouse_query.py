@@ -295,21 +295,19 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         )
 
         with freeze_time("2023-01-07"):
-            response = self.get_response(trends_query=trends_query)
+            response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
 
-        assert response.columns is not None
-        assert set(response.columns).issubset({"date", "total", "breakdown_value"})
         assert len(response.results) == 4
-
-        breakdown_results = sorted(
-            ((row[1], row[2][0] if isinstance(row[2], list) else row[2]) for row in response.results),
-            key=lambda r: r[1],
-        )
-
-        assert breakdown_results[0] == ([1, 0, 0, 0, 0, 0, 0], "a")
-        assert breakdown_results[1] == ([0, 1, 0, 0, 0, 0, 0], "b")
-        assert breakdown_results[2] == ([0, 0, 1, 0, 0, 0, 0], "c")
-        assert breakdown_results[3] == ([0, 0, 0, 1, 0, 0, 0], "d")
+        # `breakdown_value` is a list under multi-breakdown, even when there's only one entry —
+        # this exercises the list-vs-string handling in `build_series_response`/`format_results`.
+        breakdown_results = sorted(response.results, key=lambda r: r["breakdown_value"])
+        assert [r["breakdown_value"] for r in breakdown_results] == [["a"], ["b"], ["c"], ["d"]]
+        assert [r["data"] for r in breakdown_results] == [
+            [1, 0, 0, 0, 0, 0, 0],
+            [0, 1, 0, 0, 0, 0, 0],
+            [0, 0, 1, 0, 0, 0, 0],
+            [0, 0, 0, 1, 0, 0, 0],
+        ]
 
     def test_trends_breakdown_with_event_property(self):
         table_name = self.setup_data_warehouse()
