@@ -156,6 +156,17 @@ Stale entries (skip-list keys that no longer match a discovered viewset) fail CI
 - **String-by-name cross-tenant lookups** (e.g., looking up a Dashboard by `name=` rather than `id=`). Best caught by a semgrep rule (`idor-implicit-fk-in-serializer`) or manual taint review.
 - **CREATE bodies** (POST). Phase 5b will add body synthesis; until then, audit POST handlers manually when adding a new tenant-FK serializer field.
 
+**Writable JSON / Dict fields — manual audit required:**
+
+The auto-IDOR framework cannot inspect inside JSON; any tenant-scoped FK id smuggled into a `JSONField` / `DictField` (Cohort filters, FeatureFlag filters, Insight queries, HogFlow trees, Alert configs, Project settings) is invisible to the parametric sweep. `python .github/scripts/check-idor-test-coverage.py` prints a `[idor-json-review]` punch list of every `(viewset, field)` pair with a writable JSON/Dict field — review it whenever you add or change one of these fields.
+
+When auditing a JSON field, check:
+
+1. **Does the JSON carry FK ids that point at tenant-scoped models?** (Cohort, Dashboard, Insight, FeatureFlag, etc.) If yes, every nested id needs validation against `self.team` / `self.organization`.
+2. **Is validation in `validate()` / `perform_create()` / `perform_update()`?** That's where IDOR happens — ensure ids are loaded via a team-scoped queryset (e.g., `Cohort.objects.filter(team=self.team).get(pk=...)`).
+3. **Does the field accept arbitrary nested structures?** Recursive validation is required; spot-checking the top level is not enough.
+4. **Are there `ResolveLazyJSON` / `parse_filter` helpers that already validate scope?** Reuse them rather than rolling new validation.
+
 **Running locally:**
 
 ```bash

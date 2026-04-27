@@ -287,9 +287,54 @@ def main(argv: list[str] | None = None) -> int:
             for entry in stale_action[:10]:
                 print(f"  - ACT   {entry}")
 
+    # 6. Informational — enumerate writable JSON / Dict fields. Discovery
+    #    cannot inspect inside JSON, so any tenant-scoped FK id smuggled
+    #    into a JSON property (Cohort.filters, FeatureFlag.filters,
+    #    Insight.query, HogFlow.tree, Alert.config, …) is invisible to
+    #    the parametric sweep and needs manual audit. This list gates
+    #    nothing — it's a punch list for reviewers.
+    json_fields_for_review = _enumerate_json_fields()
+    print()
+    print(f"[idor-json-review]   writable JSON/Dict fields needing manual audit: {len(json_fields_for_review)}")
+    if json_fields_for_review:
+        print("[idor-json-review]   (these can carry tenant-scoped FK ids inside their JSON)")
+        for viewset_name, field_name in json_fields_for_review:
+            print(f"  - {viewset_name}.{field_name}")
+
     print()
     print("OK — all tenant-scoped detail viewsets are IDOR-covered.")
     return 0
+
+
+def _enumerate_json_fields() -> list[tuple[str, str]]:
+    """Return (viewset_name, field_name) pairs for every writable JSONField/DictField
+    surfaced by an auto-tested viewset's serializer.
+
+    The framework cannot reach inside JSON, so these fields are the most likely
+    place a tenant FK can be smuggled past the parametric sweep. Surface them
+    in the CI report so reviewers know what to audit by hand.
+    """
+    from rest_framework import serializers as drf_ser
+
+    from posthog.test.idor.discovery import discover_idor_test_cases
+
+    out: list[tuple[str, str]] = []
+    for case in discover_idor_test_cases():
+        serializer_cls = getattr(case.viewset_cls, "serializer_class", None)
+        if serializer_cls is None:
+            continue
+        try:
+            instance = serializer_cls(context={"team_id": None, "request": None, "get_team": lambda: None})
+            for name, field in instance.fields.items():
+                if field.read_only:
+                    continue
+                if isinstance(field, (drf_ser.JSONField, drf_ser.DictField)):
+                    out.append((case.name, name))
+        except Exception:
+            # Serializer construction can fail for many reasons (required context,
+            # custom __init__); skip rather than break the report.
+            pass
+    return sorted(out)
 
 
 def _model_name(cls: type) -> str:
