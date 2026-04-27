@@ -209,34 +209,38 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
         # call doesn't block delivery. Gated by the same SignalSourceConfig(LLM_ANALYTICS,
         # EVALUATION) row that gates per-result emission — the activity bails out early
         # for teams/evaluations that haven't opted in.
-        try:
-            await temporalio.workflow.start_child_workflow(
-                EmitEvalReportSignalWorkflow.run,
-                EmitEvalReportSignalInputs(
-                    team_id=context.team_id,
+        # Wrapped in workflow.patched so in-flight workflows started before this code
+        # was deployed don't hit a nondeterminism error on replay — they'll skip the
+        # child-workflow command entirely.
+        if temporalio.workflow.patched("eval-report-emit-signal-2026-04"):
+            try:
+                await temporalio.workflow.start_child_workflow(
+                    EmitEvalReportSignalWorkflow.run,
+                    EmitEvalReportSignalInputs(
+                        team_id=context.team_id,
+                        evaluation_id=context.evaluation_id,
+                        evaluation_name=context.evaluation_name,
+                        evaluation_description=context.evaluation_description,
+                        evaluation_prompt=context.evaluation_prompt,
+                        report_id=agent_result.report_id,
+                        report_run_id=store_result.report_run_id,
+                        period_start=agent_result.period_start,
+                        period_end=agent_result.period_end,
+                        content=agent_result.content,
+                    ),
+                    id=f"emit-eval-report-signal-{context.team_id}-{context.evaluation_id}-{store_result.report_run_id}",
+                    task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                    parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                    execution_timeout=timedelta(minutes=5),
+                )
+            except Exception:
+                temporalio.workflow.logger.exception(
+                    "Failed to start eval report signal workflow",
                     evaluation_id=context.evaluation_id,
-                    evaluation_name=context.evaluation_name,
-                    evaluation_description=context.evaluation_description,
-                    evaluation_prompt=context.evaluation_prompt,
-                    report_id=agent_result.report_id,
+                    team_id=context.team_id,
                     report_run_id=store_result.report_run_id,
-                    period_start=agent_result.period_start,
-                    period_end=agent_result.period_end,
-                    content=agent_result.content,
-                ),
-                id=f"emit-eval-report-signal-{context.team_id}-{context.evaluation_id}-{store_result.report_run_id}",
-                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-                parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
-                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                execution_timeout=timedelta(minutes=5),
-            )
-        except Exception:
-            temporalio.workflow.logger.exception(
-                "Failed to start eval report signal workflow",
-                evaluation_id=context.evaluation_id,
-                team_id=context.team_id,
-                report_run_id=store_result.report_run_id,
-            )
+                )
 
         # 4. Deliver
         await temporalio.workflow.execute_activity(
