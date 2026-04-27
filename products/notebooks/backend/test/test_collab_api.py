@@ -201,7 +201,7 @@ class TestNotebookCollabStreamAPI(APIBaseTest):
         return f"/api/projects/{team_id or self.team.id}/notebooks/{short_id}/collab/stream/"
 
     def _consume_stream(self, response) -> str:
-        return b"".join(response.streaming_content).decode("utf-8")  # type: ignore[attr-defined]
+        return b"".join(response.streaming_content).decode("utf-8")
 
     def test_stream_happy_path_delivers_pre_populated_step(self):
         notebook = self._create_notebook()
