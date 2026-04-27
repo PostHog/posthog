@@ -873,6 +873,208 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
     @parameterized.expand(
         [
             ("direct", False),
+            # Skip precomputed for data warehouse - not yet supported
+        ]
+    )
+    @snapshot_clickhouse_queries
+    def test_query_runner_data_warehouse_funnel_partial_coverage(self, name, use_precomputation):
+        """
+        Test NULL handling when some users have exposure but no warehouse data.
+
+        This validates the arrayFilter fix for CHQueryErrorCannotInsertNullInOrdinaryColumn.
+        When a user has an exposure event but no matching warehouse data, the LEFT JOIN
+        produces NULLs. The arrayFilter should remove these NULLs before passing to
+        aggregate_funnel_array.
+
+        Test scenario:
+        - Control: 10 exposures, only 6 have warehouse data
+        - Test: 8 exposures, only 4 have warehouse data
+
+        Expected behavior:
+        - Query executes without NULL errors
+        - Users without warehouse data are treated as funnel drop-offs at step_0
+        - Only users with warehouse data can complete step 1
+        """
+        table_name = self.create_data_warehouse_table_with_usage()
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag, start_date=datetime(2023, 1, 1), end_date=datetime(2023, 1, 31)
+        )
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        metric = ExperimentFunnelMetric(
+            series=[
+                EventsNode(event="$pageview"),
+                ExperimentDataWarehouseNode(
+                    table_name=table_name,
+                    events_join_key="properties.$user_id",
+                    data_warehouse_join_key="userid",
+                    timestamp_field="ds",
+                ),
+            ],
+        )
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+        experiment.exposure_criteria = {"filterTestAccounts": False}
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        # Populate exposure events with PARTIAL warehouse coverage
+        # Control: 10 exposures, but only 6 have $user_id (will match warehouse data)
+        for i in range(10):
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"distinct_control_{i}",
+                properties={
+                    "$feature_flag_response": "control",
+                    feature_flag_property: "control",
+                    "$feature_flag": feature_flag.key,
+                    # Only first 6 have $user_id - rest will produce NULLs in LEFT JOIN
+                    "$user_id": f"user_control_{i}" if i < 6 else None,
+                    "$group_0": "my_awesome_group",
+                },
+                timestamp=datetime(2023, 1, i + 1),
+            )
+
+        # Test: 8 exposures, only 4 have $user_id
+        for i in range(8):
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"distinct_test_{i}",
+                properties={
+                    "$feature_flag_response": "test",
+                    feature_flag_property: "test",
+                    "$feature_flag": feature_flag.key,
+                    # Only first 4 have $user_id
+                    "$user_id": f"user_test_{i}" if i < 4 else None,
+                    "$group_0": "my_awesome_group",
+                },
+                timestamp=datetime(2023, 1, i + 1),
+            )
+
+        flush_persons_and_events()
+
+        # Execute query - should NOT fail with CHQueryErrorCannotInsertNullInOrdinaryColumn
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        with freeze_time("2023-01-07"):
+            result = query_runner.calculate()
+
+        # Verify query completed successfully without NULL errors
+        assert result.variant_results is not None
+        assert result.baseline is not None
+
+        # Verify all exposures are counted
+        # Control is baseline, test is in variant_results
+        assert result.baseline.number_of_samples == 10  # All control exposures counted
+        assert result.variant_results[0].number_of_samples == 8  # All test exposures counted
+
+        # The funnel conversion numbers depend on warehouse data availability
+        # Users without $user_id cannot match warehouse data, so they drop off at step 0
+        # This test primarily validates that the query executes without NULL errors
+
+    @parameterized.expand(
+        [
+            ("direct", False),
+            # Skip precomputed for data warehouse - not yet supported
+        ]
+    )
+    @snapshot_clickhouse_queries
+    def test_query_runner_data_warehouse_funnel_zero_coverage(self, name, use_precomputation):
+        """
+        Test NULL handling when NO users have warehouse data.
+
+        Edge case: All exposures but zero warehouse matches. This should result in
+        all users being counted as exposures but none completing the DW step.
+
+        Test scenario:
+        - Control: 5 exposures, NONE have $user_id
+        - Test: 5 exposures, NONE have $user_id
+
+        Expected behavior:
+        - Query executes without NULL errors
+        - All users counted as exposures (step_0)
+        - Zero users complete step 1 (no warehouse data to match)
+        """
+        table_name = self.create_data_warehouse_table_with_usage()
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag, start_date=datetime(2023, 1, 1), end_date=datetime(2023, 1, 31)
+        )
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        metric = ExperimentFunnelMetric(
+            series=[
+                EventsNode(event="$pageview"),
+                ExperimentDataWarehouseNode(
+                    table_name=table_name,
+                    events_join_key="properties.$user_id",
+                    data_warehouse_join_key="userid",
+                    timestamp_field="ds",
+                ),
+            ],
+        )
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+        experiment.exposure_criteria = {"filterTestAccounts": False}
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        # Populate exposure events with ZERO warehouse coverage
+        # All exposures have NULL $user_id - none will match warehouse data
+        for variant, count in [("control", 5), ("test", 5)]:
+            for i in range(count):
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"distinct_{variant}_{i}",
+                    properties={
+                        "$feature_flag_response": variant,
+                        feature_flag_property: variant,
+                        "$feature_flag": feature_flag.key,
+                        # NO $user_id - all will produce NULLs in LEFT JOIN
+                        "$group_0": "my_awesome_group",
+                    },
+                    timestamp=datetime(2023, 1, i + 1),
+                )
+
+        flush_persons_and_events()
+
+        # Execute query - should NOT fail even with all NULLs
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        with freeze_time("2023-01-07"):
+            result = query_runner.calculate()
+
+        # Verify query completed successfully
+        assert result.variant_results is not None
+        assert result.baseline is not None
+
+        # All exposures should be counted
+        # Control is baseline, test is in variant_results
+        assert result.baseline.number_of_samples == 5
+        assert result.variant_results[0].number_of_samples == 5
+
+        # With zero warehouse data, funnel completion should be zero
+        # (all users drop off at step_0 since no warehouse data exists)
+        assert result.baseline.sum == 0.0
+        assert result.variant_results[0].sum == 0.0
+
+    @parameterized.expand(
+        [
+            ("direct", False),
             ("precomputed", True),
         ]
     )
