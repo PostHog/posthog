@@ -301,31 +301,33 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
                             })()}
 
                         {!isProperty && !hasTaxonomyPromotedProperty(editDefinition.name) && (
-                            <div className="ph-ignore-input">
-                                <LemonField
-                                    name="promoted_property"
-                                    label={
-                                        <LemonLabel info="When set, PostHog surfaces like the session replay inspector show this property's value alongside the event. Choose the single property that best summarizes each occurrence of the event.">
-                                            Promoted property
-                                        </LemonLabel>
-                                    }
-                                    data-attr="definition-promoted-property"
-                                >
-                                    {({ value, onChange }) => (
-                                        <TaxonomicPopover<string>
-                                            allowClear
-                                            data-attr="definition-promoted-property-picker"
-                                            groupType={TaxonomicFilterGroupType.EventProperties}
-                                            eventNames={[editDefinition.name]}
-                                            value={value ?? null}
-                                            onChange={(changedValue) =>
-                                                onChange(typeof changedValue === 'string' ? changedValue : null)
-                                            }
-                                            placeholder="Select a property to promote"
-                                        />
-                                    )}
-                                </LemonField>
-                            </div>
+                            <FlaggedFeature flag={FEATURE_FLAGS.PROMOTED_EVENT_PROPERTIES_EDIT}>
+                                <div className="ph-ignore-input">
+                                    <LemonField
+                                        name="promoted_property"
+                                        label={
+                                            <LemonLabel info="When set, PostHog surfaces like the session replay inspector show this property's value alongside the event. Choose the single property that best summarizes each occurrence of the event.">
+                                                Promoted property
+                                            </LemonLabel>
+                                        }
+                                        data-attr="definition-promoted-property"
+                                    >
+                                        {({ value, onChange }) => (
+                                            <TaxonomicPopover<string>
+                                                allowClear
+                                                data-attr="definition-promoted-property-picker"
+                                                groupType={TaxonomicFilterGroupType.EventProperties}
+                                                eventNames={[editDefinition.name]}
+                                                value={value ?? null}
+                                                onChange={(changedValue) =>
+                                                    onChange(typeof changedValue === 'string' ? changedValue : null)
+                                                }
+                                                placeholder="Select a property to promote"
+                                            />
+                                        )}
+                                    </LemonField>
+                                </div>
+                            </FlaggedFeature>
                         )}
                     </div>
                 )}
