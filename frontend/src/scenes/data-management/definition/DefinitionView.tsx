@@ -353,34 +353,36 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                         const effective = taxonomyPromoted ?? teamOverride
                         const isBuiltIn = !!taxonomyPromoted
                         return (
-                            <div className="flex flex-col flex-1">
-                                <h5>
-                                    Promoted property{' '}
-                                    <Tooltip title="If set, this property's value is shown alongside the event name in surfaces like the session replay inspector.">
-                                        <IconInfo className="text-sm" />
-                                    </Tooltip>
-                                </h5>
-                                <b>
-                                    {effective ? (
-                                        <span className="flex items-center gap-1">
-                                            <PropertyKeyInfo
-                                                value={effective}
-                                                type={TaxonomicFilterGroupType.EventProperties}
-                                                disableIcon
-                                            />
-                                            {isBuiltIn && (
-                                                <Tooltip title="This is a built-in default for this event. Team overrides are not applied to events with a built-in promoted property.">
-                                                    <LemonTag type="muted" size="small">
-                                                        Built-in
-                                                    </LemonTag>
-                                                </Tooltip>
-                                            )}
-                                        </span>
-                                    ) : (
-                                        '-'
-                                    )}
-                                </b>
-                            </div>
+                            <FlaggedFeature flag={FEATURE_FLAGS.PROMOTED_EVENT_PROPERTIES_EDIT}>
+                                <div className="flex flex-col flex-1">
+                                    <h5>
+                                        Promoted property{' '}
+                                        <Tooltip title="If set, this property's value is shown alongside the event name in surfaces like the session replay inspector.">
+                                            <IconInfo className="text-sm" />
+                                        </Tooltip>
+                                    </h5>
+                                    <b>
+                                        {effective ? (
+                                            <span className="flex items-center gap-1">
+                                                <PropertyKeyInfo
+                                                    value={effective}
+                                                    type={TaxonomicFilterGroupType.EventProperties}
+                                                    disableIcon
+                                                />
+                                                {isBuiltIn && (
+                                                    <Tooltip title="This is a built-in default for this event. Team overrides are not applied to events with a built-in promoted property.">
+                                                        <LemonTag type="muted" size="small">
+                                                            Built-in
+                                                        </LemonTag>
+                                                    </Tooltip>
+                                                )}
+                                            </span>
+                                        ) : (
+                                            '-'
+                                        )}
+                                    </b>
+                                </div>
+                            </FlaggedFeature>
                         )
                     })()}
             </div>
