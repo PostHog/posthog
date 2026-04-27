@@ -86,7 +86,9 @@ export function useChartInteraction<Meta = unknown>({
             )
             return fresh ? { ...fresh, isPinned: true, onUnpin: unpin } : null
         })
-        // isPinned and tooltipCtx intentionally omitted to avoid feedback loop with setTooltipCtx.
+        // Omitted on purpose:
+        //   - isPinned / tooltipCtx: would feedback-loop with setTooltipCtx
+        //   - unpin / canvasRef: stable for the lifetime of the hook (useCallback([])/useRef)
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [series, labels, scales, dimensions])
 

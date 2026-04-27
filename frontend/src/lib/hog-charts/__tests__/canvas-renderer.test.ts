@@ -357,55 +357,60 @@ describe('hog-charts canvas-renderer', () => {
     })
 
     describe('drawArea — partial dashing', () => {
-        it('splits the fill into solid leading + hatched trailing for dashedFromIndex', () => {
-            const ctx = mockCanvasContext()
-            const labels = ['a', 'b', 'c', 'd', 'e']
-            const series = makeSeries({ key: 's', data: [10, 20, 30, 40, 50], dashedFromIndex: 3 })
-            drawArea(makeDrawContext(ctx, labels), series)
-            // Two fills: solid then hatched (boundary point shared).
-            expect(ctx.fill).toHaveBeenCalledTimes(2)
-        })
-
-        it('splits the fill into hatched leading + solid trailing for dashedToIndex', () => {
-            const ctx = mockCanvasContext()
-            const labels = ['a', 'b', 'c', 'd', 'e']
-            const series = makeSeries({ key: 's', data: [10, 20, 30, 40, 50], dashedToIndex: 1 })
-            drawArea(makeDrawContext(ctx, labels), series)
-            // Two fills: hatched then solid (mirrors how planLineStrokes treats dashedToIndex).
-            expect(ctx.fill).toHaveBeenCalledTimes(2)
-        })
-
-        it('produces three fills (hatched + solid + hatched) when both dashed indices are set', () => {
-            const ctx = mockCanvasContext()
-            const labels = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
-            const series = makeSeries({
-                key: 's',
+        it.each([
+            {
+                name: 'dashedFromIndex only → solid leading + hatched trailing',
+                labels: ['a', 'b', 'c', 'd', 'e'],
+                data: [10, 20, 30, 40, 50],
+                dashedFromIndex: 3 as number | undefined,
+                dashedToIndex: undefined as number | undefined,
+                expectedFills: 2,
+            },
+            {
+                name: 'dashedToIndex only → hatched leading + solid trailing',
+                labels: ['a', 'b', 'c', 'd', 'e'],
+                data: [10, 20, 30, 40, 50],
+                dashedFromIndex: undefined as number | undefined,
+                dashedToIndex: 1 as number | undefined,
+                expectedFills: 2,
+            },
+            {
+                name: 'both indices → hatched + solid + hatched',
+                labels: ['a', 'b', 'c', 'd', 'e', 'f', 'g'],
                 data: [10, 20, 30, 40, 50, 60, 70],
-                dashedToIndex: 1,
-                dashedFromIndex: 5,
-            })
+                dashedFromIndex: 5 as number | undefined,
+                dashedToIndex: 1 as number | undefined,
+                expectedFills: 3,
+            },
+        ])('$name', ({ labels, data, dashedFromIndex, dashedToIndex, expectedFills }) => {
+            const ctx = mockCanvasContext()
+            const series = makeSeries({ key: 's', data, dashedFromIndex, dashedToIndex })
             drawArea(makeDrawContext(ctx, labels), series)
-            expect(ctx.fill).toHaveBeenCalledTimes(3)
+            expect(ctx.fill).toHaveBeenCalledTimes(expectedFills)
         })
     })
 
     describe('drawArea — fillBetweenData edge cases', () => {
-        it('breaks the area when fillBetweenData is shorter than data instead of silently baseline-filling', () => {
+        it.each([
+            {
+                name: 'shorter than data → segment breaks instead of silently baseline-filling',
+                labels: ['a', 'b', 'c', 'd'],
+                data: [10, 20, 30, 40],
+                bottomValues: [5, 5],
+                expectedFills: 1,
+            },
+            {
+                name: 'non-finite mid-segment → splits into two fills',
+                labels: ['a', 'b', 'c', 'd', 'e'],
+                data: [10, 20, 30, 40, 50],
+                bottomValues: [5, 5, NaN, 5, 5],
+                expectedFills: 2,
+            },
+        ])('$name', ({ labels, data, bottomValues, expectedFills }) => {
             const ctx = mockCanvasContext()
-            const labels = ['a', 'b', 'c', 'd']
-            const series = makeSeries({ key: 's', data: [10, 20, 30, 40] })
-            // Only first two bottoms provided; remaining are undefined → segment must break.
-            drawArea(makeDrawContext(ctx, labels), series, undefined, [5, 5])
-            // Segment with only 2 points fills once; the remaining pieces must not render.
-            expect(ctx.fill).toHaveBeenCalledTimes(1)
-        })
-
-        it('breaks the area when fillBetweenData contains a non-finite value mid-segment', () => {
-            const ctx = mockCanvasContext()
-            const labels = ['a', 'b', 'c', 'd', 'e']
-            const series = makeSeries({ key: 's', data: [10, 20, 30, 40, 50] })
-            drawArea(makeDrawContext(ctx, labels), series, undefined, [5, 5, NaN, 5, 5])
-            expect(ctx.fill).toHaveBeenCalledTimes(2)
+            const series = makeSeries({ key: 's', data })
+            drawArea(makeDrawContext(ctx, labels), series, undefined, bottomValues)
+            expect(ctx.fill).toHaveBeenCalledTimes(expectedFills)
         })
     })
 
