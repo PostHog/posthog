@@ -1,5 +1,6 @@
 import os
 import re
+import sys
 from typing import Any, get_args
 
 from django.core.exceptions import ImproperlyConfigured
@@ -642,6 +643,54 @@ _ORG_PREFIX_RE = re.compile(r"^/api/organizations/\{parent_lookup_\w+\}/")
 _ORG_PROJECTS_FINAL_RE = re.compile(r"^/api/organizations/[^/]+/projects/")
 _PROJECT_ENVS_FINAL_RE = re.compile(r"^/api/projects/[^/]+/environments/")
 
+# Extract the first resource segment after /api/{root}/{id}/ or /api/
+_RESOURCE_SEGMENT_RE = re.compile(
+    r"^/api/(?:(?:organizations|projects|environments)/\{[^}]+\}/)?(?P<segment>[a-zA-Z0-9_-]+)/"
+)
+
+
+def _warn_singular_collection_paths(paths: dict[str, dict]) -> None:
+    """Print ::warning annotations for REST collection endpoints using singular names.
+
+    Checks if a resource segment has both collection (GET without trailing {id})
+    and detail (GET/PATCH/DELETE with {id}) operations — the hallmark of a CRUD
+    collection — but uses a singular noun. Namespace prefixes that only group
+    sub-resources are excluded.
+    """
+    segments: dict[str, dict[str, bool]] = {}
+
+    for path in paths:
+        m = _RESOURCE_SEGMENT_RE.match(path)
+        if not m:
+            continue
+        segment = m.group("segment")
+        rest = path[m.end() :]
+
+        if segment not in segments:
+            segments[segment] = {"has_collection": False, "has_detail": False, "is_namespace": False}
+
+        if not rest or rest == "/":
+            if "get" in paths[path]:
+                segments[segment]["has_collection"] = True
+        elif re.match(r"^\{[^}]+\}/?$", rest):
+            segments[segment]["has_detail"] = True
+        elif re.match(r"^[a-zA-Z0-9_-]+/.*\{", rest):
+            # Nested sub-resource with its own {id} (e.g. error_tracking/releases/{id}/) — true namespace
+            segments[segment]["is_namespace"] = True
+
+    for segment, info in sorted(segments.items()):
+        if not (info["has_collection"] and info["has_detail"]):
+            continue
+        if info["is_namespace"]:
+            continue
+        if segment.endswith("s") or segment.endswith("ies"):
+            continue
+        sys.stderr.write(
+            f"::warning file=posthog/api/documentation.py"
+            f"::REST convention: '/{segment}/' is a collection endpoint but uses a singular name"
+            f" — prefer plural (e.g. '/{segment}s/')\n"
+        )
+
 
 def _get_product_from_module(module: str) -> str | None:
     """Extract product folder name from module path like 'products.batch_exports.backend.api'."""
@@ -908,6 +957,8 @@ def custom_postprocessing_hook(result, generator, request, public):
         result["components"]["schemas"] = {
             name: _fix_pydantic_schema_for_openapi(schema) for name, schema in result["components"]["schemas"].items()
         }
+
+    _warn_singular_collection_paths(paths)
 
     return {
         **result,
