@@ -12,6 +12,7 @@ the user's metric to identify which lifecycle status (new, returning, resurrecti
 dormant) moved.
 
 ```json
+posthog:query-lifecycle
 {
   "kind": "LifecycleQuery",
   "dateRange": { "date_from": "-30d" },
@@ -26,6 +27,7 @@ dormant) moved.
 run `posthog:query-lifecycle` once per segment with property filters on the series:
 
 ```json
+posthog:query-lifecycle
 {
   "kind": "LifecycleQuery",
   "dateRange": { "date_from": "-30d" },
@@ -55,6 +57,7 @@ product-specific signup event. Then run `posthog:query-paths` from that event to
 where new users fall off in onboarding.
 
 ```json
+posthog:query-paths
 {
   "kind": "PathsQuery",
   "dateRange": { "date_from": "-30d" },

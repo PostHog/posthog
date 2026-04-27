@@ -43,6 +43,7 @@ Because `breakdownFilter` is ignored for box plots, substitute with one of:
 an `EventsNode` filtered via `properties`:
 
 ```json
+posthog:query-trends
 {
   "kind": "TrendsQuery",
   "dateRange": { "date_from": "-30d" },
@@ -116,6 +117,7 @@ three checks — timing, plausible mechanism, user overlap.
 `posthog:query-lifecycle` on the same event:
 
 ```json
+posthog:query-lifecycle
 {
   "kind": "LifecycleQuery",
   "dateRange": { "date_from": "-30d" },

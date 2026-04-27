@@ -19,6 +19,7 @@ Which new paths appeared, which disappeared?
 Anomaly window:
 
 ```json
+posthog:query-paths
 {
   "kind": "PathsQuery",
   "dateRange": { "date_from": "-7d" },
@@ -41,6 +42,7 @@ Before assuming the path shape changed, confirm the endpoints themselves are sta
 Run `posthog:query-trends` on the `startPoint` event and the `endPoint` event separately:
 
 ```json
+posthog:query-trends
 {
   "kind": "TrendsQuery",
   "dateRange": { "date_from": "-30d" },
@@ -76,6 +78,7 @@ at the query level (applies to all events in the path) and rerun per segment. Us
 **breakdown dimensions** menu from shared-patterns for candidate segments to try.
 
 ```json
+posthog:query-paths
 {
   "kind": "PathsQuery",
   "dateRange": { "date_from": "-30d" },

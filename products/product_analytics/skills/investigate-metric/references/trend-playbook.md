@@ -32,6 +32,7 @@ delta, the cause is likely system-wide (bad deploy, tracking regression, infra).
 Example call:
 
 ```json
+posthog:query-trends
 {
   "kind": "TrendsQuery",
   "dateRange": { "date_from": "-30d" },
@@ -64,6 +65,7 @@ overlap) from shared-patterns.
 `posthog:query-lifecycle` on the same metric:
 
 ```json
+posthog:query-lifecycle
 {
   "kind": "LifecycleQuery",
   "dateRange": { "date_from": "-30d" },

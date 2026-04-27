@@ -113,6 +113,7 @@ day(s) with `interval: "hour"`. The shape often answers the hypothesis: a one-ho
 an incident; a full-day dip is a broader cause.
 
 ```json
+posthog:query-trends
 {
   "kind": "TrendsQuery",
   "dateRange": { "date_from": "2026-03-10T00:00:00Z", "date_to": "2026-03-10T23:59:59Z" },
@@ -130,6 +131,7 @@ not funnels or other insight kinds. Pass the TrendsQuery whose anomalous bucket 
 drill, plus the selector fields (`day`, `series`, `breakdown`):
 
 ```json
+posthog:query-trends-actors
 {
   "kind": "InsightActorsQuery",
   "source": {
@@ -150,6 +152,7 @@ For UI/UX-shaped drops, pull recordings matching the affected window / segment v
 queries:
 
 ```json
+posthog:query-session-recordings-list
 {
   "kind": "RecordingsQuery",
   "dateRange": { "date_from": "2026-03-10", "date_to": "2026-03-10" },

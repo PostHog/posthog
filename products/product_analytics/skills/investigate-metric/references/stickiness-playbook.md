@@ -10,6 +10,7 @@ Steps reference [shared-patterns.md](./shared-patterns.md) for reusable recipes.
 run `posthog:query-stickiness` once per segment with property filters on the series.
 
 ```json
+posthog:query-stickiness
 {
   "kind": "StickinessQuery",
   "dateRange": { "date_from": "-30d" },
@@ -41,6 +42,7 @@ via existing cohorts, ad-hoc filters, or the segment split from step 1 — run
 `posthog:query-trends` on candidate core events scoped to each:
 
 ```json
+posthog:query-trends
 {
   "kind": "TrendsQuery",
   "dateRange": { "date_from": "-30d" },

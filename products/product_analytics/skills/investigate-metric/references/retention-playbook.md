@@ -14,6 +14,7 @@ payloads directly. Compare the affected cohort(s) to baseline cohorts side by si
 `{type: "actions", id: <id>, name: "..."}`). They are nested inside `retentionFilter`.
 
 ```json
+posthog:query-retention
 {
   "kind": "RetentionQuery",
   "dateRange": { "date_from": "-90d" },
@@ -34,6 +35,7 @@ the affected start period via `posthog:cohorts-create` / `posthog:cohorts-list`,
 a trends query on the retained-activity event filtered to that cohort:
 
 ```json
+posthog:query-trends
 {
   "kind": "TrendsQuery",
   "dateRange": { "date_from": "-30d" },
@@ -51,6 +53,7 @@ see which slice of the affected cohort isn't coming back.
 returned after week 0 from returning users who churned later in the period:
 
 ```json
+posthog:query-lifecycle
 {
   "kind": "LifecycleQuery",
   "dateRange": { "date_from": "-30d" },

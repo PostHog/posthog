@@ -13,6 +13,39 @@ description: >
 Metric investigation is a multi-step orchestration. This skill provides the decision tree;
 each metric type has its own playbook reference with specific tool calls and recipes.
 
+## Tools
+
+**Always use these typed query tools. Do NOT use `posthog:query-run`.**
+
+| Tool                                              | Purpose                                                                |
+| ------------------------------------------------- | ---------------------------------------------------------------------- |
+| `posthog:query-trends`                            | Trends queries (count over time)                                       |
+| `posthog:query-funnel`                            | Funnel queries (multi-step conversion)                                 |
+| `posthog:query-retention`                         | Retention queries (cohort return rates)                                |
+| `posthog:query-stickiness`                        | Stickiness queries (active days per user)                              |
+| `posthog:query-lifecycle`                         | Lifecycle queries (new/returning/resurrecting/dormant)                 |
+| `posthog:query-paths`                             | Paths queries (navigation flow)                                        |
+| `posthog:query-trends-actors`                     | Drill into the users behind a trend bucket                             |
+| `posthog:execute-sql`                             | HogQL — only when no typed tool fits (see shared-patterns.md)          |
+| `posthog:insight-get`                             | Fetch a saved insight's metadata (read `query.kind` from the response) |
+| `posthog:insight-query`                           | Fetch a saved insight's data (runs the insight's own query)            |
+| `posthog:feature-flag-get-all`                    | List flags to find rollouts in the anomaly window                      |
+| `posthog:experiment-get-all`                      | List experiments to find launches/conclusions in the window            |
+| `posthog:annotations-list`                        | List annotations to find deploys/incidents in the window               |
+| `posthog:annotation-create`                       | Mark a discovered cause for future investigations                      |
+| `posthog:properties-list`                         | Discover available properties before breaking down                     |
+| `posthog:event-definitions-list`                  | Find an event by name fragment                                         |
+| `posthog:error-tracking-issues-list`              | Cross-check the anomaly against errors                                 |
+| `posthog:query-logs`                              | Cross-check the anomaly against logs                                   |
+| `posthog:query-session-recordings-list`           | Pull recordings for affected users                                     |
+| `posthog:cohorts-list` / `posthog:cohorts-create` | Reuse or create cohorts                                                |
+| `posthog:insight-create`                          | Save a chart from the investigation                                    |
+
+The typed query tools accept the query body directly — pass `kind: "TrendsQuery"`,
+`series`, `dateRange`, etc. as top-level fields. Do not wrap in `InsightVizNode`.
+`InsightVizNode` is the rendering wrapper used by the PostHog UI; the typed tools strip
+rendering fields automatically.
+
 ## When to use
 
 Use this skill when the user asks a "why did X change?" question about a metric.
@@ -71,18 +104,6 @@ corresponding source above (most often `posthog:insight-get` on a saved insight)
 
 If the metric spans multiple kinds (e.g., "retention and stickiness both dropped"),
 run the playbooks in sequence — do not try to fuse them.
-
-## Tool selection
-
-Use the **typed query tools** — `posthog:query-trends`, `posthog:query-funnel`,
-`posthog:query-retention`, `posthog:query-stickiness`, `posthog:query-lifecycle`,
-`posthog:query-paths` — not `posthog:query-run`. The typed tools have simpler schemas
-(rendering-only fields are stripped), and their output composes with
-`posthog:query-trends-actors` for actor drilldowns. `posthog:query-run` accepts raw
-`InsightVizNode` payloads but doesn't have these benefits.
-
-Use `posthog:insight-query` to fetch a saved insight's data (passes the insight's own
-query through). Use the typed tools for follow-up queries you construct yourself.
 
 ## Step 2 — Common opening moves
 

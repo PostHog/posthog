@@ -14,6 +14,7 @@ Steps reference [shared-patterns.md](./shared-patterns.md) for reusable recipes
 Anomaly window:
 
 ```json
+posthog:query-funnel
 {
   "kind": "FunnelsQuery",
   "dateRange": { "date_from": "-7d" },
@@ -35,6 +36,7 @@ step N. If entries are steady but completions fell, the problem is at that step.
 entries also fell, the problem is upstream.
 
 ```json
+posthog:query-trends
 {
   "kind": "TrendsQuery",
   "dateRange": { "date_from": "-30d" },
@@ -53,6 +55,7 @@ in shared-patterns). To find who dropped off, run two trends queries — one on 
 completions, one on step N completions — scoped to the same window:
 
 ```json
+posthog:query-trends
 {
   "kind": "TrendsQuery",
   "dateRange": { "date_from": "-7d" },
@@ -80,6 +83,7 @@ plausibly cause failures; a console warning elsewhere usually can't.
 the end point show what users do when they bail.
 
 ```json
+posthog:query-paths
 {
   "kind": "PathsQuery",
   "dateRange": { "date_from": "-30d" },
