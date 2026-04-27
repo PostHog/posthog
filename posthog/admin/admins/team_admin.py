@@ -84,7 +84,6 @@ class TeamAdmin(admin.ModelAdmin):
         "organization",
         "project",
         "primary_dashboard",
-        "test_account_filters",
         "created_at",
         "updated_at",
         "internal_properties",
