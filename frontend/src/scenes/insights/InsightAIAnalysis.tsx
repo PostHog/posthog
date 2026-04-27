@@ -25,8 +25,10 @@ export interface InsightAIAnalysisProps {
 export function InsightAIAnalysis({ query }: InsightAIAnalysisProps): JSX.Element | null {
     const { insight, insightProps } = useValues(insightLogic)
     const { insightDataLoading } = useValues(insightVizDataLogic(insightProps))
+    const { loadData } = useActions(insightVizDataLogic(insightProps))
     const {
         analysis,
+        analysisReason,
         isAnalyzing,
         hasClickedAnalyze,
         hasClickedSuggestions,
@@ -34,9 +36,8 @@ export function InsightAIAnalysis({ query }: InsightAIAnalysisProps): JSX.Elemen
         analysisError,
         suggestionsLoading,
     } = useValues(insightAIAnalysisLogic({ insightId: insight.id, query }))
-    const { resetAnalysis, reportAnalysisFeedback, loadSuggestions, setHasClickedSuggestions } = useActions(
-        insightAIAnalysisLogic({ insightId: insight.id, query })
-    )
+    const { resetAnalysis, reportAnalysisFeedback, loadSuggestions, setHasClickedSuggestions, startAnalysis } =
+        useActions(insightAIAnalysisLogic({ insightId: insight.id, query }))
     const { openSidePanel } = useActions(sidePanelStateLogic)
 
     useEffect(() => {
@@ -145,8 +146,51 @@ export function InsightAIAnalysis({ query }: InsightAIAnalysisProps): JSX.Elemen
                     </div>
                     <InsightSuggestions insightId={insight.id} query={query} />
                 </>
+            ) : analysisReason === 'no_cached_results' ? (
+                <LemonBanner
+                    type="info"
+                    className="mb-4"
+                    action={{
+                        children: 'Run insight',
+                        onClick: () => {
+                            loadData('force_blocking')
+                            resetAnalysis()
+                        },
+                        loading: insightDataLoading,
+                        disabledReason: insightDataLoading ? 'Insight is loading' : undefined,
+                        'data-attr': 'insight-ai-run-insight-button',
+                    }}
+                >
+                    This insight has no results yet — run it first to generate AI analysis.
+                </LemonBanner>
+            ) : analysisReason === 'no_query' || analysisReason === 'invalid_query' ? (
+                <LemonBanner type="warning" className="mb-4">
+                    This insight isn't configured for AI analysis yet — set up a query and try again.
+                </LemonBanner>
+            ) : analysisError ? (
+                <LemonBanner
+                    type="error"
+                    className="mb-4"
+                    action={{
+                        children: 'Try again',
+                        onClick: () => startAnalysis(),
+                        'data-attr': 'insight-ai-retry-analysis-button',
+                    }}
+                >
+                    {analysisError}
+                </LemonBanner>
             ) : (
-                <div className="text-muted">Failed to generate analysis. Please try again.</div>
+                <LemonBanner
+                    type="error"
+                    className="mb-4"
+                    action={{
+                        children: 'Try again',
+                        onClick: () => startAnalysis(),
+                        'data-attr': 'insight-ai-retry-analysis-button',
+                    }}
+                >
+                    Failed to generate analysis. Please try again.
+                </LemonBanner>
             )}
         </div>
     )

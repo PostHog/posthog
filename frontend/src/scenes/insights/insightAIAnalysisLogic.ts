@@ -32,6 +32,7 @@ export const insightAIAnalysisLogic = kea<insightAIAnalysisLogicType>([
         setHasClickedAnalyze: (hasClicked: boolean) => ({ hasClicked }),
         setHasClickedSuggestions: true,
         resetAnalysis: true,
+        setAnalysisReason: (reason: string | null) => ({ reason }),
         reportAnalysisFeedback: (isPositive: boolean) => ({ isPositive }),
         reportSuggestionFeedback: (suggestionIndex: number, suggestionTitle: string, isPositive: boolean) => ({
             suggestionIndex,
@@ -39,7 +40,7 @@ export const insightAIAnalysisLogic = kea<insightAIAnalysisLogicType>([
             isPositive,
         }),
     }),
-    loaders(({ props }) => ({
+    loaders(({ props, actions }) => ({
         analysis: [
             null as string | null,
             {
@@ -49,6 +50,7 @@ export const insightAIAnalysisLogic = kea<insightAIAnalysisLogicType>([
                     }
 
                     const response = await api.insights.analyze(props.insightId)
+                    actions.setAnalysisReason(response.reason ?? null)
                     return response.result
                 },
             },
@@ -119,6 +121,14 @@ export const insightAIAnalysisLogic = kea<insightAIAnalysisLogicType>([
                     }
                     return 'Failed to generate analysis'
                 },
+                resetAnalysis: () => null,
+            },
+        ],
+        analysisReason: [
+            null as string | null,
+            {
+                startAnalysis: () => null,
+                setAnalysisReason: (_, { reason }) => reason,
                 resetAnalysis: () => null,
             },
         ],

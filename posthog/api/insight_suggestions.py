@@ -187,65 +187,62 @@ def get_query_specific_instructions(kind: str) -> str:
 def get_insight_analysis(
     query: InsightVizNode,
     team: Team,
-    insight_result: Optional[dict[str, Any]],
+    insight_result: dict[str, Any],
     insight_name: Optional[str] = None,
     insight_description: Optional[str] = None,
 ) -> str:
-    """Generate an AI analysis of the insight, highlighting main points and actionable items."""
-    try:
-        # We strip out large data like persons/urls but keep the filter and results
-        result_summary = (
-            json.dumps(summarize_insight_result(insight_result), default=str)
-            if insight_result
-            else "No results available"
-        )
+    """Generate an AI analysis of the insight, highlighting main points and actionable items.
 
-        specific_instructions = get_query_specific_instructions(query.source.kind)
+    Callers must pass a non-empty ``insight_result`` — the no-results case should be
+    handled upstream so we don't waste an LLM call (and a billing event) summarizing
+    "No results available". Errors from the LLM call are propagated so the frontend
+    can surface a real error message instead of a silent empty string.
+    """
+    # We strip out large data like persons/urls but keep the filter and results
+    result_summary = json.dumps(summarize_insight_result(insight_result), default=str)
 
-        context_str = ""
-        if insight_name:
-            context_str += f"Insight Name: {insight_name}\n"
-        if insight_description:
-            context_str += f"Insight Description: {insight_description}\n"
+    specific_instructions = get_query_specific_instructions(query.source.kind)
 
-        prompt = (
-            "You are a senior product data analyst. "
-            "Your goal is to explain *what* is happening in this insight and *why* it matters. "
-            "\n\n"
-            f"Specific Analysis Context: {specific_instructions}\n"
-            f"{context_str}\n"
-            "Output Requirements:\n"
-            "1. **Headline**: Start with a single, high-impact sentence summarizing the most important finding.\n"
-            "2. **Evidence**: Provide 2-3 concise bullet points (-) supporting the headline. You MUST quantify changes (e.g., '+15%', '2x higher', 'dropped by 30%') using the data provided.\n"
-            "3. **Takeaway**: End with one specific recommendation or question for further investigation.\n"
-            "\n"
-            "Style Rules:\n"
-            "- Be direct. Remove fluff like 'The chart shows', 'We can observe', or 'Based on the data'.\n"
-            "- Focus on *changes* and *differences*.\n"
-            "- Use plain text only (no markdown formatting like bold/italics) as the output will be rendered as raw text.\n"
-            "\n"
-            f"Query Configuration: {query.model_dump_json(exclude_none=True)}\n\n"
-            f"Results Summary: {result_summary}"
-        )
+    context_str = ""
+    if insight_name:
+        context_str += f"Insight Name: {insight_name}\n"
+    if insight_description:
+        context_str += f"Insight Description: {insight_description}\n"
 
-        messages = [
-            {
-                "role": "system",
-                "content": "You are a helpful data analyst that provides concise, actionable insights about PostHog analytics data.",
-            },
-            {"role": "user", "content": prompt},
-        ]
+    prompt = (
+        "You are a senior product data analyst. "
+        "Your goal is to explain *what* is happening in this insight and *why* it matters. "
+        "\n\n"
+        f"Specific Analysis Context: {specific_instructions}\n"
+        f"{context_str}\n"
+        "Output Requirements:\n"
+        "1. **Headline**: Start with a single, high-impact sentence summarizing the most important finding.\n"
+        "2. **Evidence**: Provide 2-3 concise bullet points (-) supporting the headline. You MUST quantify changes (e.g., '+15%', '2x higher', 'dropped by 30%') using the data provided.\n"
+        "3. **Takeaway**: End with one specific recommendation or question for further investigation.\n"
+        "\n"
+        "Style Rules:\n"
+        "- Be direct. Remove fluff like 'The chart shows', 'We can observe', or 'Based on the data'.\n"
+        "- Focus on *changes* and *differences*.\n"
+        "- Use plain text only (no markdown formatting like bold/italics) as the output will be rendered as raw text.\n"
+        "\n"
+        f"Query Configuration: {query.model_dump_json(exclude_none=True)}\n\n"
+        f"Results Summary: {result_summary}"
+    )
 
-        content, _, _ = hit_openai(
-            messages,
-            f"team/{team.id}/analysis",
-            posthog_properties={"ai_product": "product_analytics", "ai_feature": "insight-ai-analysis"},
-        )
-        return content
+    messages = [
+        {
+            "role": "system",
+            "content": "You are a helpful data analyst that provides concise, actionable insights about PostHog analytics data.",
+        },
+        {"role": "user", "content": prompt},
+    ]
 
-    except Exception:
-        logger.exception("ai_analysis_failed")
-        return ""
+    content, _, _ = hit_openai(
+        messages,
+        f"team/{team.id}/analysis",
+        posthog_properties={"ai_product": "product_analytics", "ai_feature": "insight-ai-analysis"},
+    )
+    return content
 
 
 def get_ai_suggestions(

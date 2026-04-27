@@ -2196,7 +2196,7 @@ const api = {
             }
             return await new ApiRequest().insight(id).withAction('suggestions').get()
         },
-        async analyze(id: number): Promise<{ result: string }> {
+        async analyze(id: number): Promise<{ result: string; reason?: string }> {
             return await new ApiRequest().insight(id).withAction('analyze').get()
         },
         async generateMetadata(query: Record<string, any>): Promise<{ name: string; description: string }> {

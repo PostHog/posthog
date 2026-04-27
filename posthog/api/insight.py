@@ -24,7 +24,7 @@ from pydantic import (
     RootModel,
     ValidationError as PydanticValidationError,
 )
-from rest_framework import request, serializers, status, viewsets
+from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.exceptions import ParseError, PermissionDenied, ValidationError
 from rest_framework.parsers import JSONParser
 from rest_framework.renderers import BaseRenderer
@@ -1537,12 +1537,12 @@ When set, the specified dashboard's filters and date range override will be appl
         insight = self.get_object()
 
         if not insight.query:
-            return Response({"result": ""})
+            return Response({"result": "", "reason": "no_query"})
 
         try:
             query = schema.InsightVizNode.model_validate(insight.query)
         except Exception:
-            return Response({"result": ""})
+            return Response({"result": "", "reason": "invalid_query"})
 
         result = None
         try:
@@ -1564,13 +1564,22 @@ When set, the specified dashboard's filters and date range override will be appl
         except Exception:
             result = None
 
-        analysis = get_insight_analysis(
-            query,
-            self.team,
-            result,
-            insight_name=insight.name,
-            insight_description=insight.description,
-        )
+        if result is None:
+            # Avoid hitting the LLM with empty data — let the client prompt the user
+            # to compute the insight first.
+            return Response({"result": "", "reason": "no_cached_results"})
+
+        try:
+            analysis = get_insight_analysis(
+                query,
+                self.team,
+                result,
+                insight_name=insight.name,
+                insight_description=insight.description,
+            )
+        except Exception as e:
+            logger.exception("ai_analysis_failed", insight_id=insight.id)
+            raise exceptions.APIException(f"Failed to generate analysis: {e}")
 
         return Response({"result": analysis})
 
