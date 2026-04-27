@@ -62,6 +62,7 @@ const PROPERTY_SELECTS = [
     'properties.$exception_list',
     'properties.$exception_fingerprint',
     'properties.$exception_issue_id',
+    'properties.$session_id',
     'properties.$lib',
     'properties.$browser',
     'properties.$browser_version',

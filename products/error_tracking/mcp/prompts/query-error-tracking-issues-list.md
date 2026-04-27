@@ -98,3 +98,9 @@ Defaults to 25. Use `nextOffset` from the previous response to fetch the next pa
   "filePath": "src/components/Checkout.tsx"
 }
 ```
+
+# Session recordings
+
+Each error issue is linked to sessions via `$session_id` on the underlying `$exception` events. When a user asks "what were they doing," "can I see what happened," or wants visual context for an error, fetch the session recording.
+
+Use `query-error-tracking-issue-events` to fetch sample exception events for the issue; those event samples include `$session_id` when available. Then use `query-session-recordings-list` with the `session_ids` parameter to fetch multiple recordings in one call. If no `$session_id` is available, use `query-session-recordings-list` with an event filter for `$exception` matching the error, and set `date_from` to cover the issue's time range.

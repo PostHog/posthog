@@ -27,6 +27,7 @@ describe('query-error-tracking-issue-events', () => {
                 'properties.$exception_type',
                 'properties.$exception_message',
                 'properties.$exception_list',
+                'properties.$session_id',
                 'properties.$current_url',
             ],
             results: [
@@ -58,6 +59,7 @@ describe('query-error-tracking-issue-events', () => {
                             noisy_extra: 'drop me',
                         },
                     ]),
+                    'session-id-1',
                     'https://example.test/app',
                 ],
             ],
@@ -84,6 +86,7 @@ describe('query-error-tracking-issue-events', () => {
         })
         expect(query.properties).toEqual(filterGroup)
         expect(query.select).toContain('properties.$exception_list')
+        expect(query.select).toContain('properties.$session_id')
         expect(query.where[0]).toContain(`issue_id = '${issueId}'`)
         expect(query.where[1]).toContain("can\\'t\\\\_load\\\\%\\\\_\\\\\\\\path")
         expect(result).toEqual({
@@ -101,6 +104,7 @@ describe('query-error-tracking-issue-events', () => {
                                 value: 'Cannot read properties of undefined',
                             },
                         ],
+                        $session_id: 'session-id-1',
                         $current_url: 'https://example.test/app',
                     },
                 },
