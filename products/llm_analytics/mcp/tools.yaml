@@ -250,7 +250,6 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
-        mcp_version: 2
         enrich_url: traces/{trace_id}
         title: Create review queue item
         description: >
@@ -280,7 +279,6 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        mcp_version: 2
         enrich_url: traces/{trace_id}
         title: Update review queue item
         description: >
@@ -295,7 +293,6 @@ tools:
             readOnly: false
             destructive: true
             idempotent: true
-        mcp_version: 2
         title: Delete review queue item
         description: >
             Remove a pending trace review assignment from review queues. This soft-deletes the queue item so the
@@ -325,7 +322,6 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
-        mcp_version: 2
         enrich_url: reviews?queue_id={id}
         title: Create review queue
         description: >
@@ -354,7 +350,6 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        mcp_version: 2
         enrich_url: reviews?queue_id={id}
         title: Update review queue
         description: >
@@ -368,7 +363,6 @@ tools:
             readOnly: false
             destructive: true
             idempotent: true
-        mcp_version: 2
         title: Delete review queue
         description: >
             Delete a review queue by ID. This soft-deletes the queue and soft-deletes all active pending assignments
@@ -398,7 +392,6 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
-        mcp_version: 2
         enrich_url: traces/{trace_id}
         title: Create trace review
         description: >
@@ -428,7 +421,6 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        mcp_version: 2
         enrich_url: traces/{trace_id}
         title: Update trace review
         description: >
@@ -443,7 +435,6 @@ tools:
             readOnly: false
             destructive: true
             idempotent: true
-        mcp_version: 2
         title: Delete trace review
         description: >
             Delete a trace review by ID. This soft-deletes the review so the same trace can be reviewed again later

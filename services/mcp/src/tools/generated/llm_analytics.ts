@@ -231,7 +231,6 @@ const llmAnalyticsReviewQueueItemsCreate = (): ToolBase<
 > => ({
     name: 'llm-analytics-review-queue-items-create',
     schema: LlmAnalyticsReviewQueueItemsCreateSchema,
-    mcpVersion: 2,
     handler: async (context: Context, params: z.infer<typeof LlmAnalyticsReviewQueueItemsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
@@ -279,7 +278,6 @@ const llmAnalyticsReviewQueueItemsPartialUpdate = (): ToolBase<
 > => ({
     name: 'llm-analytics-review-queue-items-partial-update',
     schema: LlmAnalyticsReviewQueueItemsPartialUpdateSchema,
-    mcpVersion: 2,
     handler: async (context: Context, params: z.infer<typeof LlmAnalyticsReviewQueueItemsPartialUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
@@ -303,7 +301,6 @@ const llmAnalyticsReviewQueueItemsDestroy = (): ToolBase<
 > => ({
     name: 'llm-analytics-review-queue-items-destroy',
     schema: LlmAnalyticsReviewQueueItemsDestroySchema,
-    mcpVersion: 2,
     handler: async (context: Context, params: z.infer<typeof LlmAnalyticsReviewQueueItemsDestroySchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
@@ -359,7 +356,6 @@ const llmAnalyticsReviewQueuesCreate = (): ToolBase<
 > => ({
     name: 'llm-analytics-review-queues-create',
     schema: LlmAnalyticsReviewQueuesCreateSchema,
-    mcpVersion: 2,
     handler: async (context: Context, params: z.infer<typeof LlmAnalyticsReviewQueuesCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
@@ -404,7 +400,6 @@ const llmAnalyticsReviewQueuesPartialUpdate = (): ToolBase<
 > => ({
     name: 'llm-analytics-review-queues-partial-update',
     schema: LlmAnalyticsReviewQueuesPartialUpdateSchema,
-    mcpVersion: 2,
     handler: async (context: Context, params: z.infer<typeof LlmAnalyticsReviewQueuesPartialUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
@@ -425,7 +420,6 @@ const LlmAnalyticsReviewQueuesDestroySchema = LlmAnalyticsReviewQueuesDestroyPar
 const llmAnalyticsReviewQueuesDestroy = (): ToolBase<typeof LlmAnalyticsReviewQueuesDestroySchema, unknown> => ({
     name: 'llm-analytics-review-queues-destroy',
     schema: LlmAnalyticsReviewQueuesDestroySchema,
-    mcpVersion: 2,
     handler: async (context: Context, params: z.infer<typeof LlmAnalyticsReviewQueuesDestroySchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
@@ -484,7 +478,6 @@ const llmAnalyticsTraceReviewsCreate = (): ToolBase<
 > => ({
     name: 'llm-analytics-trace-reviews-create',
     schema: LlmAnalyticsTraceReviewsCreateSchema,
-    mcpVersion: 2,
     handler: async (context: Context, params: z.infer<typeof LlmAnalyticsTraceReviewsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
@@ -538,7 +531,6 @@ const llmAnalyticsTraceReviewsPartialUpdate = (): ToolBase<
 > => ({
     name: 'llm-analytics-trace-reviews-partial-update',
     schema: LlmAnalyticsTraceReviewsPartialUpdateSchema,
-    mcpVersion: 2,
     handler: async (context: Context, params: z.infer<typeof LlmAnalyticsTraceReviewsPartialUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
@@ -568,7 +560,6 @@ const LlmAnalyticsTraceReviewsDestroySchema = LlmAnalyticsTraceReviewsDestroyPar
 const llmAnalyticsTraceReviewsDestroy = (): ToolBase<typeof LlmAnalyticsTraceReviewsDestroySchema, unknown> => ({
     name: 'llm-analytics-trace-reviews-destroy',
     schema: LlmAnalyticsTraceReviewsDestroySchema,
-    mcpVersion: 2,
     handler: async (context: Context, params: z.infer<typeof LlmAnalyticsTraceReviewsDestroySchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
