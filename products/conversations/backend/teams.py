@@ -189,11 +189,8 @@ _HELP_CARD_BODY = [
         "type": "TextBlock",
         "text": (
             "I turn Teams messages into PostHog support tickets, so you don't have to log into four different systems at once to answer one question. \n\n"
-            "**How to use me**\n"
-
             "You can open a new ticket anywhere by tagging me with an @mention. I'll sync replies from threads. You can set up dedicated support channels in PostHog settings too!\n\n"
-            "Need help in the future? Just say '@SupportHog help' to get this message again.",
-
+            "Need help in the future? Just say '@SupportHog help' to get this message again."
         ),
         "wrap": True,
     },
