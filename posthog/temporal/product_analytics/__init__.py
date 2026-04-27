@@ -1,5 +1,6 @@
 from posthog.temporal.backfill_materialized_property import (
     ACTIVITIES as BACKFILL_ACTIVITIES,
+    BackfillMaterializedPropertiesBatchWorkflow,
     BackfillMaterializedPropertyWorkflow,
 )
 
@@ -9,6 +10,7 @@ from .upgrade_queries_workflow import UpgradeQueriesWorkflow
 WORKFLOWS = [
     UpgradeQueriesWorkflow,
     BackfillMaterializedPropertyWorkflow,
+    BackfillMaterializedPropertiesBatchWorkflow,
 ]
 ACTIVITIES = [
     get_insights_to_migrate,

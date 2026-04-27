@@ -1,4 +1,15 @@
-"""Workflow for backfilling materialized property columns."""
+"""Workflows for backfilling materialized property columns.
+
+Two workflows live here:
+
+* ``BackfillMaterializedPropertyWorkflow`` — legacy per-slot workflow. Kept registered for
+  backwards compatibility with already-running instances; the API no longer starts new ones.
+
+* ``BackfillMaterializedPropertiesBatchWorkflow`` — the weekly batched workflow described in the
+  dynamic property materialization RFC. It picks up all PENDING slots, assigns them column
+  indexes, runs a single ``ALTER TABLE UPDATE`` with a ``multiIf`` per column, polls until the
+  mutation completes on every shard, then transitions the slots to READY.
+"""
 
 import json
 import datetime as dt
@@ -9,9 +20,18 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 
 from posthog.temporal.backfill_materialized_property.activities import (
+    ActivateSlotsInputs,
+    AssignPendingSlotsInputs,
+    AssignPendingSlotsResult,
     BackfillMaterializedColumnInputs,
+    FailSlotsInputs,
+    RunBatchedMutationInputs,
     UpdateSlotStateInputs,
+    activate_slots,
+    assign_pending_slots,
     backfill_materialized_column,
+    fail_slots,
+    run_batched_mutation,
     update_slot_state,
 )
 from posthog.temporal.common.base import PostHogWorkflow
@@ -136,3 +156,122 @@ class BackfillMaterializedPropertyWorkflow(PostHogWorkflow):
 
             # Re-raise the original exception
             raise
+
+
+@dataclasses.dataclass
+class BackfillMaterializedPropertiesBatchInputs:
+    """Inputs for the weekly batched dmat backfill workflow."""
+
+    # Wait time between assigning slots and submitting the mutation, so plugin-server
+    # TeamManager caches refresh and start populating the new columns for fresh events
+    # before the historical backfill mutation runs. Default 180s — see the legacy workflow
+    # for details. Tests can pass 0.
+    cache_refresh_wait_seconds: int = 180
+
+
+@workflow.defn(name="backfill-materialized-properties-batch")
+class BackfillMaterializedPropertiesBatchWorkflow(PostHogWorkflow):
+    """
+    Weekly batched workflow that materializes all PENDING slots in one mutation.
+
+    Flow:
+      1. Atomically assign each PENDING slot to a free column index for its team and
+         transition it to BACKFILL.
+      2. Sleep ~3 minutes so the plugin-server ingestion cache picks up the new
+         (slot_index, property) mappings before the historical backfill runs.
+      3. Submit a single ALTER TABLE UPDATE with a multiIf branch per (column, team)
+         and block until the mutation completes on every shard. The mutation is
+         idempotent: re-runs of the same workflow attach to the existing mutation
+         rather than enqueueing a duplicate.
+      4. Transition the assigned slots to READY. HogQL immediately starts using the
+         materialized columns once the slots are READY.
+
+    On any failure between steps 1 and 4, the affected slots are transitioned to ERROR
+    so an operator can investigate and reset them to PENDING for the next cycle.
+    """
+
+    @classmethod
+    def parse_inputs(cls, inputs: list[str]) -> BackfillMaterializedPropertiesBatchInputs:
+        loaded = json.loads(inputs[0]) if inputs else {}
+        return BackfillMaterializedPropertiesBatchInputs(**loaded)
+
+    @workflow.run
+    async def run(self, inputs: BackfillMaterializedPropertiesBatchInputs) -> None:
+        logger = structlog.get_logger("backfill_materialized_properties_batch")
+        workflow_id = workflow.info().workflow_id
+
+        assignment: AssignPendingSlotsResult = await workflow.execute_activity(
+            assign_pending_slots,
+            AssignPendingSlotsInputs(workflow_id=workflow_id),
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=RetryPolicy(
+                initial_interval=dt.timedelta(seconds=10),
+                maximum_interval=dt.timedelta(minutes=1),
+                maximum_attempts=3,
+            ),
+        )
+
+        if not assignment.assigned_slot_ids:
+            logger.info("No PENDING slots — workflow exits early", workflow_id=workflow_id)
+            return
+
+        if inputs.cache_refresh_wait_seconds > 0:
+            logger.info(
+                "Waiting for ingestion cache refresh",
+                wait_seconds=inputs.cache_refresh_wait_seconds,
+                slot_count=len(assignment.assigned_slot_ids),
+            )
+            await workflow.sleep(dt.timedelta(seconds=inputs.cache_refresh_wait_seconds))
+
+        try:
+            await workflow.execute_activity(
+                run_batched_mutation,
+                RunBatchedMutationInputs(assignments=assignment.assignments),
+                # Mutations on sharded_events can run for hours at production scale. The
+                # activity polls system.mutations rather than blocking on a single client
+                # connection, so this timeout bounds wall-clock duration, not connection life.
+                start_to_close_timeout=dt.timedelta(hours=12),
+                heartbeat_timeout=dt.timedelta(minutes=5),
+                retry_policy=RetryPolicy(
+                    initial_interval=dt.timedelta(minutes=2),
+                    maximum_interval=dt.timedelta(minutes=10),
+                    maximum_attempts=3,
+                ),
+            )
+        except Exception as e:
+            logger.exception("Batched mutation failed; marking slots as ERROR", workflow_id=workflow_id)
+            try:
+                await workflow.execute_activity(
+                    fail_slots,
+                    FailSlotsInputs(slot_ids=assignment.assigned_slot_ids, error_message=str(e)),
+                    start_to_close_timeout=dt.timedelta(minutes=5),
+                    retry_policy=RetryPolicy(
+                        initial_interval=dt.timedelta(seconds=10),
+                        maximum_interval=dt.timedelta(minutes=1),
+                        maximum_attempts=5,
+                    ),
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to mark slots as ERROR after mutation failure",
+                    workflow_id=workflow_id,
+                )
+            raise
+
+        await workflow.execute_activity(
+            activate_slots,
+            ActivateSlotsInputs(slot_ids=assignment.assigned_slot_ids),
+            start_to_close_timeout=dt.timedelta(minutes=10),
+            retry_policy=RetryPolicy(
+                initial_interval=dt.timedelta(seconds=10),
+                maximum_interval=dt.timedelta(minutes=1),
+                maximum_attempts=5,
+            ),
+        )
+
+        logger.info(
+            "Batched dmat workflow completed",
+            workflow_id=workflow_id,
+            slot_count=len(assignment.assigned_slot_ids),
+            column_count=len(assignment.assignments),
+        )

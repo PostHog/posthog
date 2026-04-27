@@ -8,10 +8,24 @@ from posthog.models.utils import UUIDTModel
 
 from products.event_definitions.backend.models import PropertyDefinition, PropertyType
 
+# Maximum number of materialized column slots a team can hold across all states.
+# Per the dynamic property materialization RFC: balances utility vs column consumption.
+MAX_SLOTS_PER_TEAM = 5
+
+# Maximum slot_index value (inclusive). 100 string columns are pre-allocated in ClickHouse,
+# numbered 0..99 — see DMAT_STRING_COLUMN_COUNT in posthog/models/event/sql.py.
+MAX_SLOT_INDEX = 99
+
 
 class MaterializedColumnSlotState(models.TextChoices):
+    # PENDING: queued for the next weekly backfill cycle. No ingestion writes, no query reads.
+    PENDING = "PENDING", "Pending"
+    # BACKFILL: assigned a slot_index; ingestion writes new events but historical backfill is in flight.
+    # Query reads still use JSON until READY to avoid serving partial data.
     BACKFILL = "BACKFILL", "Backfill"
+    # READY: backfill complete; HogQL serves reads from the dmat column.
     READY = "READY", "Ready"
+    # ERROR: backfill failed; can be retried by transitioning back to PENDING.
     ERROR = "ERROR", "Error"
 
 
@@ -33,11 +47,14 @@ class MaterializedColumnSlot(UUIDTModel):
     )
     # Denormalized from PropertyDefinition for efficient constraints and queries
     property_type = models.CharField(max_length=50, choices=PropertyType)
-    slot_index = models.PositiveSmallIntegerField()
+    # Null while in PENDING — assigned by the weekly backfill workflow when the slot transitions
+    # to BACKFILL. The unique constraint on (team, property_type, slot_index) only applies to rows
+    # with a non-null slot_index, so multiple PENDING slots can coexist without conflict.
+    slot_index = models.PositiveSmallIntegerField(null=True, blank=True)
     state = models.CharField(
         max_length=20,
         choices=MaterializedColumnSlotState,
-        default=MaterializedColumnSlotState.BACKFILL,
+        default=MaterializedColumnSlotState.PENDING,
     )
     backfill_temporal_workflow_id = models.CharField(max_length=400, null=True, blank=True)
     error_message = models.TextField(null=True, blank=True)
@@ -51,10 +68,20 @@ class MaterializedColumnSlot(UUIDTModel):
             models.UniqueConstraint(
                 fields=["team", "property_type", "slot_index"],
                 name="unique_team_property_type_slot_index",
+                condition=models.Q(slot_index__isnull=False),
             ),
             models.CheckConstraint(
                 name="valid_slot_index",
-                condition=models.Q(slot_index__gte=0) & models.Q(slot_index__lte=9),
+                condition=models.Q(slot_index__isnull=True)
+                | (models.Q(slot_index__gte=0) & models.Q(slot_index__lte=MAX_SLOT_INDEX)),
+            ),
+            models.CheckConstraint(
+                name="slot_index_required_when_assigned",
+                condition=(
+                    models.Q(state=MaterializedColumnSlotState.PENDING)
+                    | models.Q(state=MaterializedColumnSlotState.ERROR)
+                    | models.Q(slot_index__isnull=False)
+                ),
             ),
         ]
         indexes = [

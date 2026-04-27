@@ -1,29 +1,33 @@
 """Tests for materialized column slot activity logging."""
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import ActivityLog, MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
-from posthog.temporal.backfill_materialized_property.activities import UpdateSlotStateInputs, update_slot_state
+from posthog.temporal.backfill_materialized_property.activities import (
+    ActivateSlotsInputs,
+    FailSlotsInputs,
+    UpdateSlotStateInputs,
+    activate_slots,
+    fail_slots,
+    update_slot_state,
+)
 
 from products.event_definitions.backend.models.property_definition import PropertyType
 
 
 class TestMaterializedColumnActivityLogging(APIBaseTest):
-    """Test that all state changes are properly logged."""
+    """Activity logging contract for the PENDING-flow materialized column slot lifecycle."""
 
     def setUp(self):
         super().setUp()
         self.user.is_staff = True
         self.user.save()
 
-    @patch("posthog.api.materialized_column_slot.async_to_sync")
-    def test_activity_log_on_slot_creation(self, mock_async_to_sync):
-        """Test activity log created when slot assigned."""
-        mock_async_to_sync.return_value = MagicMock(return_value="workflow-id-123")
-
+    def test_activity_log_on_slot_creation(self):
+        """assign_slot creates a slot and logs `materialized_column_created`."""
         prop_def = PropertyDefinition.objects.create(
             team=self.team,
             name="test_prop",
@@ -178,7 +182,7 @@ class TestMaterializedColumnActivityLogging(APIBaseTest):
         assert state_changes[0]["after"] == "ERROR"
 
     def test_activity_log_no_log_for_backfill_state(self):
-        """Test that transitioning to BACKFILL doesn't create activity log."""
+        """Transitions to BACKFILL are bookkeeping only and shouldn't surface in the audit log."""
         activity_environment = ActivityEnvironment()
         prop_def = PropertyDefinition.objects.create(
             team=self.team,
@@ -196,20 +200,15 @@ class TestMaterializedColumnActivityLogging(APIBaseTest):
 
         initial_count = ActivityLog.objects.filter(team_id=self.team.id).count()
 
-        # Call update_slot_state activity with BACKFILL
         activity_environment.run(
             update_slot_state,
             UpdateSlotStateInputs(slot_id=str(slot.id), state="BACKFILL"),
         )
 
-        # Verify NO new activity log was created (only ERROR→READY and BACKFILL→ERROR/READY are logged)
         assert ActivityLog.objects.filter(team_id=self.team.id).count() == initial_count
 
-    @patch("posthog.api.materialized_column_slot.async_to_sync")
-    def test_activity_log_on_retry(self, mock_async_to_sync):
-        """Test activity log created when backfill retried."""
-        mock_async_to_sync.return_value = MagicMock(return_value="workflow-id-retry-123")
-
+    def test_activity_log_on_retry(self):
+        """retry_backfill puts the slot back into PENDING and logs the transition."""
         prop_def = PropertyDefinition.objects.create(
             team=self.team,
             name="test_prop",
@@ -231,7 +230,6 @@ class TestMaterializedColumnActivityLogging(APIBaseTest):
 
         assert response.status_code == 200
 
-        # Verify activity log was created
         activity_logs = ActivityLog.objects.filter(
             team_id=self.team.id,
             scope="DataManagement",
@@ -242,24 +240,18 @@ class TestMaterializedColumnActivityLogging(APIBaseTest):
         log = activity_logs.first()
         assert log is not None
         assert log.detail is not None
-
         assert log.detail["name"] == "test_prop"
 
-        # Verify state change from ERROR to BACKFILL
         state_changes = [c for c in log.detail["changes"] if c["field"] == "state"]
         assert len(state_changes) == 1
         assert state_changes[0]["before"] == "ERROR"
-        assert state_changes[0]["after"] == "BACKFILL"
+        assert state_changes[0]["after"] == "PENDING"
 
-        # User should be set (user initiated retry)
         assert log.user == self.user
 
     @patch("posthog.api.materialized_column_slot.is_impersonated_session")
-    @patch("posthog.api.materialized_column_slot.async_to_sync")
-    def test_activity_log_includes_impersonation_flag(self, mock_async_to_sync, mock_is_impersonated):
-        """Test that is_impersonated_session is captured."""
+    def test_activity_log_includes_impersonation_flag(self, mock_is_impersonated):
         mock_is_impersonated.return_value = True
-        mock_async_to_sync.return_value = MagicMock(return_value="workflow-id-123")
 
         prop_def = PropertyDefinition.objects.create(
             team=self.team,
@@ -275,7 +267,6 @@ class TestMaterializedColumnActivityLogging(APIBaseTest):
 
         assert response.status_code == 201
 
-        # Verify activity log has was_impersonated=True
         activity_logs = ActivityLog.objects.filter(
             team_id=self.team.id,
             scope="DataManagement",
@@ -285,5 +276,69 @@ class TestMaterializedColumnActivityLogging(APIBaseTest):
         assert activity_logs.count() == 1
         log = activity_logs.first()
         assert log is not None
-
         assert log.was_impersonated is True
+
+    def test_activate_slots_logs_completion(self):
+        """The new batched workflow's activate_slots activity logs a completion entry per slot."""
+        activity_environment = ActivityEnvironment()
+        prop_def = PropertyDefinition.objects.create(
+            team=self.team,
+            name="batched_prop",
+            property_type=PropertyType.String,
+            type=PropertyDefinition.Type.EVENT,
+        )
+        slot = MaterializedColumnSlot.objects.create(
+            team=self.team,
+            property_definition=prop_def,
+            property_type=PropertyType.String,
+            slot_index=12,
+            state=MaterializedColumnSlotState.BACKFILL,
+        )
+
+        activity_environment.run(activate_slots, ActivateSlotsInputs(slot_ids=[str(slot.id)]))
+
+        slot.refresh_from_db()
+        assert slot.state == MaterializedColumnSlotState.READY
+
+        activity_logs = ActivityLog.objects.filter(
+            team_id=self.team.id,
+            scope="DataManagement",
+            activity="materialized_column_backfill_completed",
+        )
+        assert activity_logs.count() == 1
+        log = activity_logs.first()
+        assert log is not None and log.detail is not None
+        assert log.detail["name"] == "batched_prop"
+
+    def test_fail_slots_logs_failure(self):
+        """fail_slots transitions slots to ERROR and logs `materialized_column_backfill_failed`."""
+        activity_environment = ActivityEnvironment()
+        prop_def = PropertyDefinition.objects.create(
+            team=self.team,
+            name="batched_prop",
+            property_type=PropertyType.String,
+            type=PropertyDefinition.Type.EVENT,
+        )
+        slot = MaterializedColumnSlot.objects.create(
+            team=self.team,
+            property_definition=prop_def,
+            property_type=PropertyType.String,
+            slot_index=12,
+            state=MaterializedColumnSlotState.BACKFILL,
+        )
+
+        activity_environment.run(
+            fail_slots,
+            FailSlotsInputs(slot_ids=[str(slot.id)], error_message="ClickHouse OOM"),
+        )
+
+        slot.refresh_from_db()
+        assert slot.state == MaterializedColumnSlotState.ERROR
+        assert slot.error_message == "ClickHouse OOM"
+
+        activity_logs = ActivityLog.objects.filter(
+            team_id=self.team.id,
+            scope="DataManagement",
+            activity="materialized_column_backfill_failed",
+        )
+        assert activity_logs.count() == 1

@@ -3,16 +3,24 @@
 import dataclasses
 from typing import Optional
 
+from django.db import transaction
+
 import structlog
 from temporalio import activity
 
-from posthog.clickhouse.cluster import get_cluster
+from posthog.clickhouse.cluster import AlterTableMutationRunner, get_cluster
 from posthog.models import MaterializedColumnSlot
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.event.sql import DMAT_STRING_COLUMN_COUNT
+from posthog.models.materialized_column_slots import MaterializedColumnSlotState
 
 from products.event_definitions.backend.models.property_definition import PropertyType
 
 logger = structlog.get_logger(__name__)
+
+# String-only column pool for the new batched workflow (per RFC).
+# Other types remain in the legacy per-slot path for backwards compatibility with existing slots.
+DMAT_STRING_COLUMN_NAME_PREFIX = "dmat_string_"
 
 PROPERTY_TYPE_TO_COLUMN_NAME: dict[str, str] = {
     str(PropertyType.String): "string",
@@ -21,7 +29,10 @@ PROPERTY_TYPE_TO_COLUMN_NAME: dict[str, str] = {
     str(PropertyType.Datetime): "datetime",
 }
 
-MATERIALIZABLE_PROPERTY_TYPES: set[str] = set(PROPERTY_TYPE_TO_COLUMN_NAME.keys())
+# New slots created via the PENDING flow are always String. The other types remain
+# in the codebase but are no longer accepted at the API layer — kept for query-time
+# resolution of legacy slots that are still READY.
+MATERIALIZABLE_PROPERTY_TYPES: set[str] = {str(PropertyType.String)}
 
 
 @dataclasses.dataclass
@@ -222,3 +233,323 @@ def update_slot_state(inputs: UpdateSlotStateInputs) -> bool:
     except Exception as e:
         logger.exception("Failed to update slot state", slot_id=inputs.slot_id, error=str(e))
         raise
+
+
+# ---------------------------------------------------------------------------
+# Batched weekly workflow (new design — see RFC: dynamic property materialization)
+# ---------------------------------------------------------------------------
+
+
+@dataclasses.dataclass
+class _ColumnAssignment:
+    """Plan for a single dmat_string column: which (team_id, property_name) pairs land in it."""
+
+    column_index: int
+    # List of (team_id, property_name, slot_id) — slot_id is the MaterializedColumnSlot UUID as a string.
+    branches: list[tuple[int, str, str]]
+
+
+@dataclasses.dataclass
+class AssignPendingSlotsInputs:
+    workflow_id: str
+
+
+@dataclasses.dataclass
+class AssignPendingSlotsResult:
+    # column_index → list of (team_id, property_name, slot_id_str) tuples
+    assignments: list[_ColumnAssignment]
+    # All slot IDs that were transitioned PENDING → BACKFILL by this activity.
+    assigned_slot_ids: list[str]
+
+
+def _plan_column_assignments(
+    pending_slots: list[MaterializedColumnSlot],
+    used_indexes_by_team: dict[int, set[int]],
+) -> list[_ColumnAssignment]:
+    """
+    Bin-pack PENDING slots into the smallest possible set of new column indexes.
+
+    Each column may hold one (team_id, property) pair per team — different teams can
+    share a column since each row belongs to one team. This minimises the number of
+    columns consumed per cycle, which extends runway before compaction is needed.
+
+    The greedy algorithm walks pending slots in deterministic order (team_id ASC, slot
+    UUID ASC) and places each into the smallest column index that:
+      - is not already used by that team in any other slot (PENDING/BACKFILL/READY), and
+      - has not yet been assigned to that team during this run.
+    """
+    # Sort for deterministic packing — important for idempotent retries.
+    pending_sorted = sorted(pending_slots, key=lambda s: (s.team_id, str(s.id)))
+
+    plan_by_column: dict[int, _ColumnAssignment] = {}
+    # Track which columns each team has already been placed into during this run.
+    team_columns_in_plan: dict[int, set[int]] = {}
+
+    for slot in pending_sorted:
+        team_used = used_indexes_by_team.get(slot.team_id, set()) | team_columns_in_plan.get(slot.team_id, set())
+        # Find the smallest column index not used by this team.
+        chosen: int | None = None
+        for col_idx in range(DMAT_STRING_COLUMN_COUNT):
+            if col_idx not in team_used:
+                chosen = col_idx
+                break
+        if chosen is None:
+            raise RuntimeError(
+                f"No free column index available for team {slot.team_id} (uses {sorted(team_used)}). "
+                "Compaction is needed."
+            )
+        plan_by_column.setdefault(chosen, _ColumnAssignment(column_index=chosen, branches=[]))
+        plan_by_column[chosen].branches.append((slot.team_id, slot.property_definition.name, str(slot.id)))
+        team_columns_in_plan.setdefault(slot.team_id, set()).add(chosen)
+
+    # Return assignments sorted by column index for stable SQL.
+    return [plan_by_column[idx] for idx in sorted(plan_by_column)]
+
+
+@activity.defn
+def assign_pending_slots(inputs: AssignPendingSlotsInputs) -> AssignPendingSlotsResult:
+    """
+    Atomically:
+      1. Read all PENDING slots
+      2. Compute column assignments avoiding per-team collisions with existing BACKFILL/READY slots
+      3. Update each PENDING slot in-place: set slot_index, transition to BACKFILL, stamp workflow_id
+
+    Returns the assignment plan so the workflow can submit a single batched mutation.
+    """
+    logger.info("Assigning pending slots to columns", workflow_id=inputs.workflow_id)
+
+    with transaction.atomic():
+        pending = list(
+            MaterializedColumnSlot.objects.select_for_update()
+            .select_related("property_definition", "team")
+            .filter(state=MaterializedColumnSlotState.PENDING, property_type=str(PropertyType.String))
+            .order_by("team_id", "id")
+        )
+
+        if not pending:
+            logger.info("No PENDING slots to assign", workflow_id=inputs.workflow_id)
+            return AssignPendingSlotsResult(assignments=[], assigned_slot_ids=[])
+
+        team_ids = {slot.team_id for slot in pending}
+        existing_used = (
+            MaterializedColumnSlot.objects.filter(
+                team_id__in=team_ids,
+                slot_index__isnull=False,
+                property_type=str(PropertyType.String),
+            )
+            .exclude(state=MaterializedColumnSlotState.PENDING)
+            .values_list("team_id", "slot_index")
+        )
+        used_indexes_by_team: dict[int, set[int]] = {}
+        for team_id, slot_index in existing_used:
+            used_indexes_by_team.setdefault(team_id, set()).add(slot_index)
+
+        assignments = _plan_column_assignments(pending, used_indexes_by_team)
+
+        # Apply the assignments: set slot_index, transition to BACKFILL.
+        slot_index_by_id: dict[str, int] = {}
+        for assignment in assignments:
+            for _team_id, _prop_name, slot_id in assignment.branches:
+                slot_index_by_id[slot_id] = assignment.column_index
+
+        assigned_slot_ids: list[str] = []
+        for slot in pending:
+            slot.slot_index = slot_index_by_id[str(slot.id)]
+            slot.state = MaterializedColumnSlotState.BACKFILL
+            slot.backfill_temporal_workflow_id = inputs.workflow_id
+            slot.error_message = None
+            slot.save(update_fields=["slot_index", "state", "backfill_temporal_workflow_id", "error_message"])
+            assigned_slot_ids.append(str(slot.id))
+
+    logger.info(
+        "Assigned PENDING slots",
+        workflow_id=inputs.workflow_id,
+        slot_count=len(assigned_slot_ids),
+        column_count=len(assignments),
+    )
+
+    return AssignPendingSlotsResult(assignments=assignments, assigned_slot_ids=assigned_slot_ids)
+
+
+@dataclasses.dataclass
+class RunBatchedMutationInputs:
+    assignments: list[_ColumnAssignment]
+
+
+def _build_batched_update_command(assignments: list[_ColumnAssignment]) -> tuple[str, dict[str, str]]:
+    """
+    Build the body of a single ALTER TABLE UPDATE that populates one or more dmat_string
+    columns using a multiIf branch per (team, column) pair.
+
+    Property names are passed as parameters to prevent SQL injection. team_ids are inlined
+    as integer literals (safe — they originate from a typed PositiveSmallIntegerField).
+
+    Returns (command, params) suitable for AlterTableMutationRunner.
+    """
+    if not assignments:
+        raise ValueError("Cannot build mutation command with no assignments")
+
+    set_clauses: list[str] = []
+    params: dict[str, str] = {}
+    all_team_ids: set[int] = set()
+
+    for assignment in assignments:
+        col_name = f"{DMAT_STRING_COLUMN_NAME_PREFIX}{assignment.column_index}"
+        branches: list[str] = []
+        for team_id, property_name, slot_id in assignment.branches:
+            # slot_id is unique → param key is collision-free across the entire mutation.
+            param_key = f"prop_{slot_id.replace('-', '')}"
+            params[param_key] = property_name
+            extract_sql = (
+                "replaceRegexpAll("
+                f"nullIf(nullIf(JSONExtractRaw(properties, %({param_key})s), ''), 'null'),"
+                " '^\"|\"$', ''"
+                ")"
+            )
+            branches.append(f"team_id = {int(team_id)}")
+            branches.append(extract_sql)
+            all_team_ids.add(team_id)
+        # Trailing default keeps any pre-existing value (zero-cost no-op for unaffected rows).
+        branches.append(col_name)
+        set_clauses.append(f"{col_name} = multiIf({', '.join(branches)})")
+
+    team_ids_sorted = sorted(all_team_ids)
+    where_clause = f"team_id IN ({', '.join(str(tid) for tid in team_ids_sorted)})"
+    command = f"UPDATE {', '.join(set_clauses)} WHERE {where_clause}"
+    return command, params
+
+
+@activity.defn
+def run_batched_mutation(inputs: RunBatchedMutationInputs) -> None:
+    """
+    Submit (or attach to an existing) batched ALTER TABLE UPDATE mutation and block until
+    it completes on every shard.
+
+    Uses AlterTableMutationRunner which:
+      - is idempotent — re-running with the same command attaches to the existing mutation
+      - submits with the cluster's default settings (mutations_sync=0 outside tests),
+        then polls system.mutations on each replica until is_done=1
+    """
+    if not inputs.assignments:
+        logger.info("No assignments to backfill — skipping mutation")
+        return
+
+    command, params = _build_batched_update_command(inputs.assignments)
+
+    logger.info(
+        "Submitting batched dmat backfill mutation",
+        column_count=len(inputs.assignments),
+        team_count=len({tid for a in inputs.assignments for tid, _, _ in a.branches}),
+    )
+
+    runner = AlterTableMutationRunner(
+        table="sharded_events",
+        commands={command},
+        parameters=params,
+    )
+    cluster = get_cluster()
+    runner.run_on_shards(cluster)
+
+    logger.info("Batched dmat backfill mutation complete on all shards")
+
+
+@dataclasses.dataclass
+class ActivateSlotsInputs:
+    slot_ids: list[str]
+
+
+@activity.defn
+def activate_slots(inputs: ActivateSlotsInputs) -> int:
+    """
+    Transition the given slot IDs from BACKFILL → READY in a single bulk update.
+
+    Logs an audit entry per slot to keep parity with the legacy per-slot workflow.
+    """
+    if not inputs.slot_ids:
+        return 0
+
+    activated = 0
+    for slot in MaterializedColumnSlot.objects.select_related("team", "property_definition").filter(
+        id__in=inputs.slot_ids,
+        state=MaterializedColumnSlotState.BACKFILL,
+    ):
+        old_state = slot.state
+        slot.state = MaterializedColumnSlotState.READY
+        slot.error_message = None
+        slot.save(update_fields=["state", "error_message"])
+        activated += 1
+
+        log_activity(
+            organization_id=slot.team.organization_id,
+            team_id=slot.team_id,
+            user=None,
+            was_impersonated=False,
+            item_id=str(slot.id),
+            scope="DataManagement",
+            activity="materialized_column_backfill_completed",
+            detail=Detail(
+                name=slot.property_definition.name,
+                changes=[
+                    Change(
+                        type="MaterializedColumnSlot",
+                        action="changed",
+                        field="state",
+                        before=old_state,
+                        after=str(MaterializedColumnSlotState.READY),
+                    ),
+                ],
+            ),
+        )
+
+    logger.info("Activated slots", count=activated, requested=len(inputs.slot_ids))
+    return activated
+
+
+@dataclasses.dataclass
+class FailSlotsInputs:
+    slot_ids: list[str]
+    error_message: str
+
+
+@activity.defn
+def fail_slots(inputs: FailSlotsInputs) -> int:
+    """
+    Transition the given slot IDs to ERROR with the supplied error_message. Used when the
+    batched mutation fails — operators can later transition them back to PENDING for retry.
+    """
+    if not inputs.slot_ids:
+        return 0
+
+    failed = 0
+    for slot in MaterializedColumnSlot.objects.select_related("team", "property_definition").filter(
+        id__in=inputs.slot_ids
+    ):
+        old_state = slot.state
+        slot.state = MaterializedColumnSlotState.ERROR
+        slot.error_message = inputs.error_message
+        slot.save(update_fields=["state", "error_message"])
+        failed += 1
+
+        log_activity(
+            organization_id=slot.team.organization_id,
+            team_id=slot.team_id,
+            user=None,
+            was_impersonated=False,
+            item_id=str(slot.id),
+            scope="DataManagement",
+            activity="materialized_column_backfill_failed",
+            detail=Detail(
+                name=slot.property_definition.name,
+                changes=[
+                    Change(
+                        type="MaterializedColumnSlot",
+                        action="changed",
+                        field="state",
+                        before=old_state,
+                        after=str(MaterializedColumnSlotState.ERROR),
+                    ),
+                ],
+            ),
+        )
+
+    return failed
