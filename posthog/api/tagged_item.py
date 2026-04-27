@@ -154,11 +154,9 @@ def _prefetch_tags_for_instances(instances: Sequence) -> None:
 
 
 class TaggedItemViewSetMixin(viewsets.GenericViewSet):
-    def prefetch_tagged_items_if_available(
-        self, queryset: QuerySet | models.query.RawQuerySet
-    ) -> QuerySet | models.query.RawQuerySet:
+    def prefetch_tagged_items_if_available(self, queryset: QuerySet | models.query.RawQuerySet) -> QuerySet:
         if isinstance(queryset, models.query.RawQuerySet):
-            return queryset
+            return queryset  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
         return queryset.prefetch_related(
             Prefetch(
                 "tagged_items",
@@ -167,9 +165,9 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
             )
         )
 
-    def filter_queryset(self, queryset: QuerySet) -> QuerySet | models.query.RawQuerySet:  # type: ignore[override]
-        filtered = super().filter_queryset(queryset)
-        return self.prefetch_tagged_items_if_available(filtered)
+    def filter_queryset(self, queryset: QuerySet) -> QuerySet:
+        queryset = super().filter_queryset(queryset)
+        return self.prefetch_tagged_items_if_available(queryset)
 
     def paginate_queryset(self, queryset):
         page = super().paginate_queryset(queryset)
