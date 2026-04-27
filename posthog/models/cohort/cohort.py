@@ -437,8 +437,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             return [str(person.uuid) for person in persons]
 
         # ORM path: lightweight values_list queries — no full model instantiation
-        # nosemgrep: no-direct-persons-db-orm
         person_ids_qs = (
+            # nosemgrep: no-direct-persons-db-orm
             PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
             .filter(team_id=team_id, distinct_id__in=distinct_ids)
             .values_list("person_id", flat=True)
@@ -709,11 +709,12 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                     # for Person + db_write for CohortPeople causes a
                     # "Subqueries aren't allowed across different databases"
                     # ValueError when the aliases differ (production config).
-                    # nosemgrep: no-direct-persons-db-orm
                     insert_uuids_query = (
+                        # nosemgrep: no-direct-persons-db-orm
                         Person.objects.using(db_write)
                         .filter(team_id=team_id, uuid__in=batch)
                         .exclude(
+                            # nosemgrep: no-direct-persons-db-orm
                             id__in=CohortPeople.objects.using(db_write)
                             .filter(cohort_id=self.id)
                             .values_list("person_id", flat=True)

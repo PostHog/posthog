@@ -96,8 +96,8 @@ def _updated_distinct_ids(team_id: int, distinct_id_versions: list[tuple[str, in
 
 
 def _update_distinct_id_in_postgres(distinct_id: str, version: int, team_id: int) -> Optional[PersonDistinctId]:
-    # nosemgrep: no-direct-persons-db-orm
     person_distinct_id = (
+        # nosemgrep: no-direct-persons-db-orm
         PersonDistinctId.objects.filter(team_id=team_id, distinct_id=distinct_id).select_related("person").first()
     )
     if person_distinct_id is None:

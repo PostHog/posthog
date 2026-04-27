@@ -12,7 +12,7 @@ rules:
       severity: WARNING
       languages: [python]
       patterns:
-          - pattern: $MODEL.objects. ... .$METHOD(...)
+          - pattern: $MODEL.objects
           - metavariable-regex:
                 metavariable: $MODEL
                 regex: >-
@@ -20,10 +20,10 @@ rules:
       paths:
           exclude:
               # personhog client implementation
-              - posthog/personhog_client/
+              - '**/posthog/personhog_client/**'
               # Routing helpers — intentional ORM fallback inside _personhog_routed()
-              - posthog/models/person/util.py
-              - posthog/models/group_type_mapping.py
+              - '**/posthog/models/person/util.py'
+              - '**/posthog/models/group_type_mapping.py'
               # semgrep test cases
               - '**/.semgrep/**'
               # Migrations
