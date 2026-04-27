@@ -87,6 +87,9 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
     live_events_token = serializers.SerializerMethodField()  # Compat with TeamSerializer
     product_intents = serializers.SerializerMethodField()  # Compat with TeamSerializer
     available_setup_task_ids = serializers.SerializerMethodField()  # Compat with TeamSerializer
+    # These are @property attrs on Team, not Django model fields — declare explicitly so drf-spectacular can resolve them
+    default_modifiers = serializers.DictField(read_only=True)  # Compat with TeamSerializer
+    person_on_events_querying_enabled = serializers.BooleanField(read_only=True)  # Compat with TeamSerializer
 
     def validate_app_urls(self, value: list[str | None] | None) -> list[str] | None:
         if value is None:

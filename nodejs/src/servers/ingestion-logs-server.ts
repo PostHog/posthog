@@ -3,13 +3,6 @@ import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'
 import { createPosthogRedisConnectionConfig } from '../config/redis-pools'
-import {
-    KafkaIngestionProducerEnvConfig,
-    KafkaProducerEnvConfig,
-    getDefaultKafkaIngestionProducerEnvConfig,
-    getDefaultKafkaProducerEnvConfig,
-} from '../ingestion/common/config'
-import { APP_METRICS_OUTPUT } from '../ingestion/common/outputs'
 import { DatabaseConnectionConfig, KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
 import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
 import {
@@ -21,11 +14,14 @@ import { LogsIngestionConsumer } from '../logs-ingestion/logs-ingestion-consumer
 import { createProducerRegistry } from '../logs-ingestion/outputs/producer-registry'
 import {
     KafkaMskProducerEnvConfig,
+    KafkaWarpstreamIngestionProducerEnvConfig,
+    KafkaWarpstreamLogsProducerEnvConfig,
     LogsProducerName,
-    WARPSTREAM_LOGS_PRODUCER,
     getDefaultKafkaMskProducerEnvConfig,
+    getDefaultKafkaWarpstreamIngestionProducerEnvConfig,
+    getDefaultKafkaWarpstreamLogsProducerEnvConfig,
 } from '../logs-ingestion/outputs/producers'
-import { createOutputsRegistry } from '../logs-ingestion/outputs/registry'
+import { createLogsOutputsRegistry } from '../logs-ingestion/outputs/registry'
 import { PluginServerService, RedisPool } from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisPoolFromConfig } from '../utils/db/redis'
@@ -47,9 +43,9 @@ import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from 
 export type IngestionLogsServerConfig = BaseServerConfig &
     LogsIngestionConsumerConfig &
     LogsIngestionOutputsConfig &
-    KafkaProducerEnvConfig &
+    KafkaWarpstreamLogsProducerEnvConfig &
     KafkaMskProducerEnvConfig &
-    KafkaIngestionProducerEnvConfig &
+    KafkaWarpstreamIngestionProducerEnvConfig &
     KafkaBrokerConfig &
     DatabaseConnectionConfig &
     RedisConnectionsConfig &
@@ -66,9 +62,9 @@ export class IngestionLogsServer implements NodeServer {
     constructor(config: Partial<IngestionLogsServerConfig> = {}) {
         this.config = {
             ...defaultConfig,
-            ...overrideConfigWithEnv(getDefaultKafkaProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaWarpstreamLogsProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaMskProducerEnvConfig()),
-            ...overrideConfigWithEnv(getDefaultKafkaIngestionProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaWarpstreamIngestionProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultLogsIngestionOutputsConfig()),
             ...config,
         }
@@ -94,9 +90,7 @@ export class IngestionLogsServer implements NodeServer {
         logger.info('👍', 'Postgres Router ready')
 
         logger.info('🤔', 'Connecting to Kafka...')
-        this.producerRegistry = (await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(
-            this.config
-        )) as KafkaProducerRegistry<LogsProducerName>
+        this.producerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
         logger.info('👍', 'Kafka ready')
 
         logger.info('🤔', 'Connecting to PostHog Redis...')
@@ -111,7 +105,7 @@ export class IngestionLogsServer implements NodeServer {
         const quotaLimiting = new QuotaLimiting(this.posthogRedisPool, teamManager)
 
         // 2. Resolve outputs (topic + producer per logical name, env-controlled)
-        const outputs = createOutputsRegistry().build(this.producerRegistry, this.config)
+        const outputs = createLogsOutputsRegistry().build(this.producerRegistry, this.config)
 
         // 3. Logs ingestion consumer
         const serviceLoaders: (() => Promise<PluginServerService>)[] = []
@@ -120,8 +114,7 @@ export class IngestionLogsServer implements NodeServer {
             const consumer = new LogsIngestionConsumer(this.config, {
                 teamManager,
                 quotaLimiting,
-                kafkaProducer: this.producerRegistry!.getProducer(WARPSTREAM_LOGS_PRODUCER),
-                appMetricsOutput: outputs.get(APP_METRICS_OUTPUT),
+                outputs,
             })
             await consumer.start()
             return consumer.service

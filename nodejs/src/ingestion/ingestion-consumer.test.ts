@@ -1360,12 +1360,14 @@ describe('IngestionConsumer', () => {
                     mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
                 expect(metricsMessages).toEqual([
                     {
+                        headers: undefined,
                         key: null,
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
                             app_source: 'hog_function',
                             app_source_id: transformationFunction.id,
                             count: 1,
+                            instance_id: '',
                             metric_kind: 'success',
                             metric_name: 'succeeded',
                             team_id: team.id,
@@ -1425,12 +1427,14 @@ describe('IngestionConsumer', () => {
                     mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
                 expect(metricsMessages).toEqual([
                     {
+                        headers: undefined,
                         key: null,
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
                             app_source: 'hog_function',
                             app_source_id: transformationFunction.id,
                             count: 1,
+                            instance_id: '',
                             metric_kind: 'success',
                             metric_name: 'succeeded',
                             team_id: team.id,

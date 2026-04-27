@@ -123,7 +123,13 @@ export default function TracingScene(): JSX.Element {
                 rowKey="uuid"
                 emptyState="No spans found"
                 onRow={(span) => ({
-                    onClick: () => openTraceModal(span.trace_id),
+                    onClick: () => {
+                        // Clicking a row leaves the scrollable <main tabIndex="0"> as the active
+                        // element; react-modal then scrolls it back into view when restoring focus
+                        // on close. Blur so the restore target is <body>, which doesn't scroll.
+                        ;(document.activeElement as HTMLElement | null)?.blur?.()
+                        openTraceModal(span.trace_id)
+                    },
                     className: 'cursor-pointer',
                 })}
             />

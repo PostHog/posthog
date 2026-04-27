@@ -1535,6 +1535,30 @@ class EmptyPropertyFilter(BaseModel):
     type: Literal["empty"] = "empty"
 
 
+class EndpointExecutionFailedSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    endpoint_name: str
+    endpoint_version: float | None = None
+    error_class: str
+    error_message: str
+    materialized: bool
+    saved_query_id: str | None = None
+
+
+class EndpointExecutionFailedSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: EndpointExecutionFailedSignalExtra
+    source_id: str
+    source_product: Literal["endpoints"] = "endpoints"
+    source_type: Literal["endpoint_execution_failed"] = "endpoint_execution_failed"
+    weight: float
+
+
 class EndpointLastExecutionTimesRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2099,6 +2123,7 @@ class ExternalDataSourceType(StrEnum):
     BUILD_BETTER = "BuildBetter"
     CONVEX = "Convex"
     CLICK_HOUSE = "ClickHouse"
+    PLAIN = "Plain"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -4348,6 +4373,7 @@ class SignalSourceProduct(StrEnum):
     ZENDESK = "zendesk"
     CONVERSATIONS = "conversations"
     ERROR_TRACKING = "error_tracking"
+    ENDPOINTS = "endpoints"
 
 
 class SignalSourceType(StrEnum):
@@ -4359,6 +4385,7 @@ class SignalSourceType(StrEnum):
     ISSUE_CREATED = "issue_created"
     ISSUE_REOPENED = "issue_reopened"
     ISSUE_SPIKING = "issue_spiking"
+    ENDPOINT_EXECUTION_FAILED = "endpoint_execution_failed"
 
 
 class SimilarIssue(BaseModel):
@@ -4409,6 +4436,12 @@ class SnapchatAdsTableExclusions(StrEnum):
 
 class SnapchatAdsTableKeywords(StrEnum):
     CAMPAIGNS = "campaigns"
+
+
+class ReleaseStatus(StrEnum):
+    ALPHA = "alpha"
+    BETA = "beta"
+    GA = "ga"
 
 
 class SourceFieldFileUploadJsonFormatConfig(BaseModel):
@@ -6516,6 +6549,25 @@ class ErrorTrackingIssueFilter(BaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
+class ErrorTrackingPendingFingerprintIssueStateUpdate(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    assigned_role_id: str | None = None
+    assigned_user_id: int | None = None
+    fingerprint: str
+    first_seen: str = Field(..., description="ISO 8601 datetime string.")
+    is_deleted: int
+    issue_description: str | None = None
+    issue_id: str
+    issue_name: str | None = None
+    issue_status: str
+    version: int = Field(
+        ...,
+        description=("Client-stamped monotonic version (`Date.now()` ms at mutation success)."),
+    )
+
+
 class EventMetadataPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6704,6 +6756,14 @@ class ExperimentParameters(BaseModel):
         description=(
             "Minimum detectable effect as a percentage. Lower values need more users"
             " but catch smaller changes. Suggest 20–30% for most experiments."
+        ),
+    )
+    rollout_percentage: float | None = Field(
+        default=None,
+        description=(
+            "Overall rollout percentage (0-100). Controls what fraction of all users"
+            " enter the experiment. Users outside the rollout never see any variant and"
+            " are excluded from analysis. Default: 100."
         ),
     )
 
@@ -8116,6 +8176,7 @@ class SignalInput(
         | LinearIssueSignalInput
         | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
+        | EndpointExecutionFailedSignalInput
     ]
 ):
     root: (
@@ -8126,6 +8187,7 @@ class SignalInput(
         | LinearIssueSignalInput
         | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
+        | EndpointExecutionFailedSignalInput
     ) = Field(..., discriminator="source_product")
 
 
@@ -8620,6 +8682,14 @@ class UsageMetric(BaseModel):
     interval: int
     name: str
     previous: float
+    timeseries: list[float] | None = Field(
+        default=None,
+        description=("Daily values over the current interval period. Only populated when display is 'sparkline'."),
+    )
+    timeseries_labels: list[str] | None = Field(
+        default=None,
+        description=("ISO date strings for sparkline tooltip labels. Only populated when display is 'sparkline'."),
+    )
     value: float
 
 
@@ -17190,6 +17260,9 @@ class RetentionEntity(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregation_target_field: str | None = Field(
+        default=None, description="Data warehouse field used as the actor identifier"
+    )
     custom_name: str | None = None
     id: str | float | None = None
     kind: RetentionEntityKind | None = None
@@ -17220,6 +17293,8 @@ class RetentionEntity(BaseModel):
         ]
         | None
     ) = Field(default=None, description="filters on the event")
+    table_name: str | None = Field(default=None, description="Data warehouse table name")
+    timestamp_field: str | None = Field(default=None, description="Data warehouse timestamp field")
     type: EntityType | None = None
     uuid: str | None = None
 
@@ -17241,6 +17316,13 @@ class RetentionFilter(BaseModel):
         description="The aggregation type to use for retention",
     )
     cumulative: bool | None = None
+    customAggregationTarget: bool | None = Field(
+        default=None,
+        description=(
+            "For data warehouse based retention insights when the aggregation target"
+            " can't be mapped to persons or groups."
+        ),
+    )
     dashboardDisplay: RetentionDashboardDisplayType | None = None
     display: ChartDisplayType | None = Field(default=None, description="controls the display of the retention graph")
     goalLines: list[GoalLine] | None = None
@@ -19996,6 +20078,14 @@ class ErrorTrackingQuery(BaseModel):
     offset: int | None = None
     orderBy: ErrorTrackingOrderBy = Field(..., description="Field to sort results by.")
     orderDirection: OrderDirection2 | None = Field(default=None, description="Sort direction.")
+    pendingFingerprintIssueStateUpdates: list[ErrorTrackingPendingFingerprintIssueStateUpdate] | None = Field(
+        default=None,
+        description=(
+            "Pending fingerprint issue state updates UNIONed into the fingerprint issue"
+            " state subquery (V3 only). The backend caps the list at 50 entries; extras"
+            " are dropped silently."
+        ),
+    )
     personId: str | None = None
     response: ErrorTrackingQueryResponse | None = None
     searchQuery: str | None = Field(
@@ -23204,7 +23294,6 @@ class SourceConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    betaSource: bool | None = None
     caption: str | Any | None = None
     disabledReason: str | None = None
     docsUrl: str | None = None
@@ -23227,6 +23316,7 @@ class SourceConfig(BaseModel):
     label: str | None = None
     name: ExternalDataSourceType
     permissionsCaption: str | None = None
+    releaseStatus: ReleaseStatus | None = None
     suggestedTables: list[SuggestedTable] | None = Field(
         default=[],
         description="Tables to suggest enabling, with optional tooltip explaining why",

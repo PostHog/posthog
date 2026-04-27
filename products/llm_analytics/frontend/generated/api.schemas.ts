@@ -79,22 +79,24 @@ export const OutputTypeEnumApi = {
  * `gemini` - Gemini
  * `openrouter` - Openrouter
  * `fireworks` - Fireworks
+ * `azure_openai` - Azure OpenAI
  */
-export type Provider2f4EnumApi = (typeof Provider2f4EnumApi)[keyof typeof Provider2f4EnumApi]
+export type LLMProviderEnumApi = (typeof LLMProviderEnumApi)[keyof typeof LLMProviderEnumApi]
 
-export const Provider2f4EnumApi = {
+export const LLMProviderEnumApi = {
     Openai: 'openai',
     Anthropic: 'anthropic',
     Gemini: 'gemini',
     Openrouter: 'openrouter',
     Fireworks: 'fireworks',
+    AzureOpenai: 'azure_openai',
 } as const
 
 /**
  * Nested serializer for model configuration.
  */
 export interface ModelConfigurationApi {
-    provider: Provider2f4EnumApi
+    provider: LLMProviderEnumApi
     /** @maxLength 100 */
     model: string
     /** @nullable */
@@ -351,19 +353,22 @@ export interface TestHogResponseApi {
 /**
  * * `trace` - trace
  * `generation` - generation
+ * `evaluation` - evaluation
  */
-export type AnalysisLevelEnumApi = (typeof AnalysisLevelEnumApi)[keyof typeof AnalysisLevelEnumApi]
+export type ClusteringJobAnalysisLevelEnumApi =
+    (typeof ClusteringJobAnalysisLevelEnumApi)[keyof typeof ClusteringJobAnalysisLevelEnumApi]
 
-export const AnalysisLevelEnumApi = {
+export const ClusteringJobAnalysisLevelEnumApi = {
     Trace: 'trace',
     Generation: 'generation',
+    Evaluation: 'evaluation',
 } as const
 
 export interface ClusteringJobApi {
     readonly id: string
     /** @maxLength 100 */
     name: string
-    analysis_level: AnalysisLevelEnumApi
+    analysis_level: ClusteringJobAnalysisLevelEnumApi
     event_filters?: unknown
     enabled?: boolean
     readonly created_at: string
@@ -383,7 +388,7 @@ export interface PatchedClusteringJobApi {
     readonly id?: string
     /** @maxLength 100 */
     name?: string
-    analysis_level?: AnalysisLevelEnumApi
+    analysis_level?: ClusteringJobAnalysisLevelEnumApi
     event_filters?: unknown
     enabled?: boolean
     readonly created_at?: string
@@ -797,7 +802,7 @@ export const LLMProviderKeyStateEnumApi = {
 
 export interface LLMProviderKeyApi {
     readonly id: string
-    provider: Provider2f4EnumApi
+    provider: LLMProviderEnumApi
     /** @maxLength 255 */
     name: string
     readonly state: LLMProviderKeyStateEnumApi
@@ -805,6 +810,23 @@ export interface LLMProviderKeyApi {
     readonly error_message: string | null
     api_key?: string
     readonly api_key_masked: string
+    /** Azure OpenAI endpoint URL */
+    azure_endpoint?: string
+    /**
+     * Azure OpenAI API version
+     * @maxLength 20
+     */
+    api_version?: string
+    /**
+     * Azure endpoint (read-only, for display)
+     * @nullable
+     */
+    readonly azure_endpoint_display: string | null
+    /**
+     * Azure API version (read-only, for display)
+     * @nullable
+     */
+    readonly api_version_display: string | null
     set_as_active?: boolean
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -823,7 +845,7 @@ export interface PaginatedLLMProviderKeyListApi {
 
 export interface PatchedLLMProviderKeyApi {
     readonly id?: string
-    provider?: Provider2f4EnumApi
+    provider?: LLMProviderEnumApi
     /** @maxLength 255 */
     name?: string
     readonly state?: LLMProviderKeyStateEnumApi
@@ -831,6 +853,23 @@ export interface PatchedLLMProviderKeyApi {
     readonly error_message?: string | null
     api_key?: string
     readonly api_key_masked?: string
+    /** Azure OpenAI endpoint URL */
+    azure_endpoint?: string
+    /**
+     * Azure OpenAI API version
+     * @maxLength 20
+     */
+    api_version?: string
+    /**
+     * Azure endpoint (read-only, for display)
+     * @nullable
+     */
+    readonly azure_endpoint_display?: string | null
+    /**
+     * Azure API version (read-only, for display)
+     * @nullable
+     */
+    readonly api_version_display?: string | null
     set_as_active?: boolean
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -922,9 +961,9 @@ export interface PatchedReviewQueueUpdateApi {
  * `numeric` - numeric
  * `boolean` - boolean
  */
-export type KindD08EnumApi = (typeof KindD08EnumApi)[keyof typeof KindD08EnumApi]
+export type ExperimentMetricKindEnumApi = (typeof ExperimentMetricKindEnumApi)[keyof typeof ExperimentMetricKindEnumApi]
 
-export const KindD08EnumApi = {
+export const ExperimentMetricKindEnumApi = {
     Categorical: 'categorical',
     Numeric: 'numeric',
     Boolean: 'boolean',
@@ -1010,7 +1049,7 @@ export interface ScoreDefinitionApi {
     readonly id: string
     readonly name: string
     readonly description: string
-    readonly kind: KindD08EnumApi
+    readonly kind: ExperimentMetricKindEnumApi
     readonly archived: boolean
     /** Current immutable configuration version number. */
     readonly current_version: number
@@ -1049,7 +1088,7 @@ export interface ScoreDefinitionCreateApi {
 * `categorical` - categorical
 * `numeric` - numeric
 * `boolean` - boolean */
-    kind: KindD08EnumApi
+    kind: ExperimentMetricKindEnumApi
     /** New scorers are always created as active. */
     archived?: boolean
     /** Initial immutable scorer configuration. */
@@ -1076,13 +1115,25 @@ export interface ScoreDefinitionNewVersionApi {
     config: ScoreDefinitionConfigApi
 }
 
+/**
+ * * `trace` - trace
+ * `generation` - generation
+ */
+export type SentimentRequestAnalysisLevelEnumApi =
+    (typeof SentimentRequestAnalysisLevelEnumApi)[keyof typeof SentimentRequestAnalysisLevelEnumApi]
+
+export const SentimentRequestAnalysisLevelEnumApi = {
+    Trace: 'trace',
+    Generation: 'generation',
+} as const
+
 export interface SentimentRequestApi {
     /**
      * @minItems 1
      * @maxItems 5
      */
     ids: string[]
-    analysis_level?: AnalysisLevelEnumApi
+    analysis_level?: SentimentRequestAnalysisLevelEnumApi
     force_refresh?: boolean
     /** @nullable */
     date_from?: string | null
@@ -1131,9 +1182,9 @@ export const SummarizeTypeEnumApi = {
  * * `minimal` - minimal
  * `detailed` - detailed
  */
-export type ModeE35EnumApi = (typeof ModeE35EnumApi)[keyof typeof ModeE35EnumApi]
+export type DetailModeValueEnumApi = (typeof DetailModeValueEnumApi)[keyof typeof DetailModeValueEnumApi]
 
-export const ModeE35EnumApi = {
+export const DetailModeValueEnumApi = {
     Minimal: 'minimal',
     Detailed: 'detailed',
 } as const
@@ -1148,7 +1199,7 @@ export interface SummarizeRequestApi {
 
 * `minimal` - minimal
 * `detailed` - detailed */
-    mode?: ModeE35EnumApi
+    mode?: DetailModeValueEnumApi
     /** Data to summarize. For traces: {trace, hierarchy}. For events: {event}. Not required when using trace_id or generation_id. */
     data?: unknown
     /** Force regenerate summary, bypassing cache */
@@ -1214,7 +1265,7 @@ export interface BatchCheckRequestApi {
 
 * `minimal` - minimal
 * `detailed` - detailed */
-    mode?: ModeE35EnumApi
+    mode?: DetailModeValueEnumApi
     /**
      * LLM model used for cached summaries
      * @nullable
@@ -1428,6 +1479,19 @@ export interface PatchedTraceReviewUpdateApi {
      * @nullable
      */
     queue_id?: string | null
+}
+
+export interface TranslateRequestApi {
+    /**
+     * The text to translate
+     * @maxLength 10000
+     */
+    text: string
+    /**
+     * Target language code (default: 'en' for English)
+     * @maxLength 10
+     */
+    target_language?: string
 }
 
 export interface LLMPromptOutlineEntryApi {
@@ -1745,10 +1809,20 @@ export interface LLMSkillApi {
 export type PatchedLLMSkillPublishApiMetadata = { [key: string]: unknown }
 
 export interface LLMSkillEditOperationApi {
-    /** Text to find in the current skill body. Must match exactly once. */
+    /** Text to find in the target content. Must match exactly once. */
     old: string
     /** Replacement text. */
     new: string
+}
+
+export interface LLMSkillFileEditApi {
+    /**
+     * Path of the bundled file to edit. Must match an existing file on the current skill version.
+     * @maxLength 500
+     */
+    path: string
+    /** Sequential find/replace operations to apply to this file's content. */
+    edits: LLMSkillEditOperationApi[]
 }
 
 export interface PatchedLLMSkillPublishApi {
@@ -1775,8 +1849,10 @@ export interface PatchedLLMSkillPublishApi {
     allowed_tools?: string[]
     /** Arbitrary key-value metadata. */
     metadata?: PatchedLLMSkillPublishApiMetadata
-    /** Bundled files to include with this version. Replaces all files from the previous version. */
+    /** Bundled files to include with this version. Replaces all files from the previous version. Mutually exclusive with file_edits. */
     files?: LLMSkillFileInputApi[]
+    /** Per-file find/replace updates. Each entry targets one existing file by path and applies sequential edits to its content. Non-targeted files carry forward unchanged. Cannot add, remove, or rename files — use 'files' for that. Mutually exclusive with files. */
+    file_edits?: LLMSkillFileEditApi[]
     /**
      * Latest version you are editing from. Used for optimistic concurrency checks.
      * @minimum 1
@@ -1790,6 +1866,44 @@ export interface LLMSkillDuplicateApi {
      * @maxLength 64
      */
     new_name: string
+}
+
+export interface LLMSkillFileCreateApi {
+    /**
+     * File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.
+     * @maxLength 500
+     */
+    path: string
+    /** Text content of the file. */
+    content: string
+    /**
+     * MIME type of the file content.
+     * @maxLength 100
+     */
+    content_type?: string
+    /**
+     * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
+     * @minimum 1
+     */
+    base_version?: number
+}
+
+export interface LLMSkillFileRenameApi {
+    /**
+     * Current file path to rename.
+     * @maxLength 500
+     */
+    old_path: string
+    /**
+     * New file path. Must not already exist in the skill.
+     * @maxLength 500
+     */
+    new_path: string
+    /**
+     * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
+     * @minimum 1
+     */
+    base_version?: number
 }
 
 export interface LLMSkillFileApi {
@@ -1918,6 +2032,8 @@ export interface PatchedDatasetApi {
     readonly team?: number
 }
 
+export type EvaluationRunsCreate200 = { [key: string]: unknown }
+
 export type EvaluationsListParams = {
     /**
      * Filter by enabled status
@@ -1952,6 +2068,10 @@ export type EvaluationsListParams = {
     search?: string
 }
 
+export type LlmAnalyticsClusteringConfigRetrieve200 = { [key: string]: unknown }
+
+export type LlmAnalyticsClusteringConfigSetEventFiltersCreate200 = { [key: string]: unknown }
+
 export type LlmAnalyticsClusteringJobsListParams = {
     /**
      * Number of results to return per page.
@@ -1962,6 +2082,10 @@ export type LlmAnalyticsClusteringJobsListParams = {
      */
     offset?: number
 }
+
+export type LlmAnalyticsEvaluationConfigRetrieve200 = { [key: string]: unknown }
+
+export type LlmAnalyticsEvaluationConfigSetActiveKeyCreate200 = { [key: string]: unknown }
 
 export type LlmAnalyticsEvaluationReportsListParams = {
     /**
@@ -1992,6 +2116,10 @@ export type LlmAnalyticsEvaluationSummaryCreate403 = { [key: string]: unknown }
 export type LlmAnalyticsEvaluationSummaryCreate404 = { [key: string]: unknown }
 
 export type LlmAnalyticsEvaluationSummaryCreate500 = { [key: string]: unknown }
+
+export type LlmAnalyticsModelsRetrieve200 = { [key: string]: unknown }
+
+export type LlmAnalyticsProviderKeyValidationsCreate200 = { [key: string]: unknown }
 
 export type LlmAnalyticsProviderKeysListParams = {
     /**
@@ -2137,6 +2265,8 @@ export type LlmAnalyticsTraceReviewsListParams = {
     trace_id__in?: string
 }
 
+export type LlmAnalyticsTranslateCreate200 = { [key: string]: unknown }
+
 export type LlmPromptsListParams = {
     /**
  * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
@@ -2256,6 +2386,14 @@ export type LlmSkillsNameFilesRetrieveParams = {
      * @minimum 1
      */
     version?: number
+}
+
+export type LlmSkillsNameFilesDestroyParams = {
+    /**
+     * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
+     * @minimum 1
+     */
+    base_version?: number
 }
 
 export type LlmSkillsResolveNameRetrieveParams = {

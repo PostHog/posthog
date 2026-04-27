@@ -275,6 +275,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Choose the type of insight you want to create',
     },
     [Scene.IntegrationsRedirect]: { name: 'Integrations redirect' },
+    [Scene.StripeConfirmInstall]: { name: 'Confirm Stripe install', projectBased: true },
     [Scene.IngestionWarnings]: {
         projectBased: true,
         name: 'Event ingestion warnings',
@@ -436,6 +437,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.ResourceTransfer]: {
         projectBased: true,
         name: 'Copy to project',
+        layout: 'app-container',
+    },
+    [Scene.DashboardTemplateCopy]: {
+        projectBased: true,
+        name: 'Copy template to project',
         layout: 'app-container',
     },
     [Scene.RevenueAnalytics]: {
@@ -724,6 +730,7 @@ export const redirects: Record<
 export const routes: Record<string, [Scene | string, string]> = {
     [urls.newTab()]: [Scene.NewTab, 'newTab'],
     [urls.dashboards()]: [Scene.Dashboards, 'dashboards'],
+    [urls.dashboardTemplateCopyToProject(':sourceTemplateId')]: [Scene.DashboardTemplateCopy, 'dashboardTemplateCopy'],
     [urls.dashboard(':id')]: [Scene.Dashboard, 'dashboard'],
     [urls.dashboardTextTile(':id', ':textTileId')]: [Scene.Dashboard, 'dashboardTextTile'],
     [urls.dashboardButtonTile(':id', ':buttonTileId')]: [Scene.Dashboard, 'dashboardButtonTile'],
@@ -866,6 +873,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.vercelLinkError()]: [Scene.VercelLinkError, 'vercelLinkError'],
     [urls.unsubscribe()]: [Scene.Unsubscribe, 'unsubscribe'],
     [urls.integrationsRedirect(':kind')]: [Scene.IntegrationsRedirect, 'integrationsRedirect'],
+    [urls.stripeConfirmInstall()]: [Scene.StripeConfirmInstall, 'stripeConfirmInstall'],
     [urls.debugQuery()]: [Scene.DebugQuery, 'debugQuery'],
     [urls.debugHog()]: [Scene.DebugHog, 'debugHog'],
 

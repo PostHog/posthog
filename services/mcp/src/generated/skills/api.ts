@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 6 enabled ops
+ * PostHog API - MCP 9 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -129,6 +129,8 @@ export const llmSkillsNamePartialUpdateBodyFilesItemPathMax = 500
 export const llmSkillsNamePartialUpdateBodyFilesItemContentTypeDefault = `text/plain`
 export const llmSkillsNamePartialUpdateBodyFilesItemContentTypeMax = 100
 
+export const llmSkillsNamePartialUpdateBodyFileEditsItemPathMax = 500
+
 export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
     body: zod
         .string()
@@ -139,7 +141,7 @@ export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
     edits: zod
         .array(
             zod.object({
-                old: zod.string().describe('Text to find in the current skill body. Must match exactly once.'),
+                old: zod.string().describe('Text to find in the target content. Must match exactly once.'),
                 new: zod.string().describe('Replacement text.'),
             })
         )
@@ -180,7 +182,32 @@ export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
             })
         )
         .optional()
-        .describe('Bundled files to include with this version. Replaces all files from the previous version.'),
+        .describe(
+            'Bundled files to include with this version. Replaces all files from the previous version. Mutually exclusive with file_edits.'
+        ),
+    file_edits: zod
+        .array(
+            zod.object({
+                path: zod
+                    .string()
+                    .max(llmSkillsNamePartialUpdateBodyFileEditsItemPathMax)
+                    .describe(
+                        'Path of the bundled file to edit. Must match an existing file on the current skill version.'
+                    ),
+                edits: zod
+                    .array(
+                        zod.object({
+                            old: zod.string().describe('Text to find in the target content. Must match exactly once.'),
+                            new: zod.string().describe('Replacement text.'),
+                        })
+                    )
+                    .describe("Sequential find/replace operations to apply to this file's content."),
+            })
+        )
+        .optional()
+        .describe(
+            "Per-file find/replace updates. Each entry targets one existing file by path and applies sequential edits to its content. Non-targeted files carry forward unchanged. Cannot add, remove, or rename files — use 'files' for that. Mutually exclusive with files."
+        ),
     base_version: zod
         .number()
         .min(1)
@@ -208,6 +235,72 @@ export const LlmSkillsNameDuplicateCreateBody = /* @__PURE__ */ zod.object({
         .describe('Name for the duplicated skill. Must be unique.'),
 })
 
+export const llmSkillsNameFilesCreatePathSkillNameRegExp = new RegExp('^[^/]+$')
+
+export const LlmSkillsNameFilesCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    skill_name: zod.string().regex(llmSkillsNameFilesCreatePathSkillNameRegExp),
+})
+
+export const llmSkillsNameFilesCreateBodyPathMax = 500
+
+export const llmSkillsNameFilesCreateBodyContentTypeDefault = `text/plain`
+export const llmSkillsNameFilesCreateBodyContentTypeMax = 100
+
+export const LlmSkillsNameFilesCreateBody = /* @__PURE__ */ zod.object({
+    path: zod
+        .string()
+        .max(llmSkillsNameFilesCreateBodyPathMax)
+        .describe("File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'."),
+    content: zod.string().describe('Text content of the file.'),
+    content_type: zod
+        .string()
+        .max(llmSkillsNameFilesCreateBodyContentTypeMax)
+        .default(llmSkillsNameFilesCreateBodyContentTypeDefault)
+        .describe('MIME type of the file content.'),
+    base_version: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe(
+            'Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.'
+        ),
+})
+
+export const llmSkillsNameFilesRenameCreatePathSkillNameRegExp = new RegExp('^[^/]+$')
+
+export const LlmSkillsNameFilesRenameCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    skill_name: zod.string().regex(llmSkillsNameFilesRenameCreatePathSkillNameRegExp),
+})
+
+export const llmSkillsNameFilesRenameCreateBodyOldPathMax = 500
+
+export const llmSkillsNameFilesRenameCreateBodyNewPathMax = 500
+
+export const LlmSkillsNameFilesRenameCreateBody = /* @__PURE__ */ zod.object({
+    old_path: zod.string().max(llmSkillsNameFilesRenameCreateBodyOldPathMax).describe('Current file path to rename.'),
+    new_path: zod
+        .string()
+        .max(llmSkillsNameFilesRenameCreateBodyNewPathMax)
+        .describe('New file path. Must not already exist in the skill.'),
+    base_version: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe(
+            'Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.'
+        ),
+})
+
 export const llmSkillsNameFilesRetrievePathFilePathRegExp = new RegExp('^.+$')
 export const llmSkillsNameFilesRetrievePathSkillNameRegExp = new RegExp('^[^/]+$')
 
@@ -227,4 +320,27 @@ export const LlmSkillsNameFilesRetrieveQueryParams = /* @__PURE__ */ zod.object(
         .min(1)
         .optional()
         .describe('Specific skill version to fetch. If omitted, the latest version is returned.'),
+})
+
+export const llmSkillsNameFilesDestroyPathFilePathRegExp = new RegExp('^.+$')
+export const llmSkillsNameFilesDestroyPathSkillNameRegExp = new RegExp('^[^/]+$')
+
+export const LlmSkillsNameFilesDestroyParams = /* @__PURE__ */ zod.object({
+    file_path: zod.string().regex(llmSkillsNameFilesDestroyPathFilePathRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    skill_name: zod.string().regex(llmSkillsNameFilesDestroyPathSkillNameRegExp),
+})
+
+export const LlmSkillsNameFilesDestroyQueryParams = /* @__PURE__ */ zod.object({
+    base_version: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe(
+            'Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.'
+        ),
 })

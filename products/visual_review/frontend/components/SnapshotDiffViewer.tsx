@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { IconGithub } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
-import { VisualImageDiffViewer, type VisualDiffResult } from 'lib/components/VisualImageDiffViewer'
+import { VisualImageDiffViewer, type ComparisonMode, type VisualDiffResult } from 'lib/components/VisualImageDiffViewer'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -17,12 +17,16 @@ import type {
 } from '../generated/api.schemas'
 import { SnapshotStatusIndicator } from './SnapshotStatusIndicator'
 
-function DiffMinimap({ url }: { url: string }): JSX.Element {
+function DiffMinimap({ url, onClick }: { url: string; onClick?: () => void }): JSX.Element {
     const [loaded, setLoaded] = useState(false)
     return (
         <div>
             <h4 className="text-xs font-semibold text-muted mb-2">Diff map</h4>
-            <div className="relative rounded border border-border overflow-hidden bg-bg-3000">
+            <button
+                type="button"
+                className="relative rounded border border-border overflow-hidden bg-bg-3000 w-full cursor-pointer hover:border-primary transition-colors"
+                onClick={onClick}
+            >
                 {!loaded && <LemonSkeleton className="absolute inset-0" />}
                 <img
                     src={url}
@@ -31,7 +35,7 @@ function DiffMinimap({ url }: { url: string }): JSX.Element {
                     onLoad={() => setLoaded(true)}
                     onError={() => setLoaded(true)}
                 />
-            </div>
+            </button>
         </div>
     )
 }
@@ -84,7 +88,7 @@ function QuarantineAction({
 
     return (
         <div>
-            <LemonButton type="secondary" size="small" fullWidth onClick={() => setIsOpen(true)}>
+            <LemonButton type="secondary" size="small" onClick={() => setIsOpen(true)}>
                 Quarantine this identifier
             </LemonButton>
             <LemonModal
@@ -183,6 +187,10 @@ interface SnapshotDiffViewerProps {
     prNumber?: number | null
     repoFullName?: string | null
     runType?: string
+    githubRunId?: string | null
+    isRecomputing?: boolean
+    onRecompute?: () => void
+    recomputeDisabledReason?: string
 }
 
 export function SnapshotDiffViewer({
@@ -201,7 +209,12 @@ export function SnapshotDiffViewer({
     prNumber,
     repoFullName,
     runType,
+    githubRunId,
+    isRecomputing,
+    onRecompute,
+    recomputeDisabledReason,
 }: SnapshotDiffViewerProps): JSX.Element {
+    const [comparisonMode, setComparisonMode] = useState<ComparisonMode>('sideBySide')
     const baselineUrl = snapshot.baseline_artifact?.download_url
     const currentUrl = snapshot.current_artifact?.download_url
 
@@ -305,6 +318,9 @@ export function SnapshotDiffViewer({
                         diffPercentage={snapshot.diff_percentage ?? null}
                         result={(snapshot.result || 'unchanged') as VisualDiffResult}
                         imageWidth={width ?? undefined}
+                        imageHeight={height ?? undefined}
+                        mode={comparisonMode}
+                        onModeChange={setComparisonMode}
                         className="min-h-[200px]"
                     />
                 </div>
@@ -312,7 +328,12 @@ export function SnapshotDiffViewer({
                 {/* Right sidebar */}
                 <div className="w-52 shrink-0 border-l pl-4 space-y-4">
                     {/* === Diff minimap === */}
-                    {snapshot.diff_artifact?.download_url && <DiffMinimap url={snapshot.diff_artifact.download_url} />}
+                    {snapshot.diff_artifact?.download_url && (
+                        <DiffMinimap
+                            url={snapshot.diff_artifact.download_url}
+                            onClick={() => setComparisonMode('diff')}
+                        />
+                    )}
 
                     {/* === Run section === */}
                     {(runType || commitSha || prNumber) && (
@@ -384,6 +405,57 @@ export function SnapshotDiffViewer({
                                             <span>{new Date(snapshot.reviewed_at).toLocaleDateString()}</span>
                                         </div>
                                     </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* === CI section === */}
+                    {(githubRunId || onRecompute) && (
+                        <div>
+                            <h4 className="text-xs font-semibold text-muted mb-2">CI</h4>
+                            <div className="space-y-2">
+                                {githubRunId && (
+                                    <div className="flex items-center justify-between text-xs">
+                                        <span className="text-muted">Run</span>
+                                        {repoFullName ? (
+                                            <Link
+                                                to={`https://github.com/${repoFullName}/actions/runs/${githubRunId}`}
+                                                target="_blank"
+                                                className="flex items-center gap-1 hover:text-primary"
+                                            >
+                                                {githubRunId}
+                                                <IconGithub className="text-xs" />
+                                            </Link>
+                                        ) : (
+                                            <span>{githubRunId}</span>
+                                        )}
+                                    </div>
+                                )}
+                                {onRecompute && (
+                                    <LemonButton
+                                        type="secondary"
+                                        size="xsmall"
+                                        loading={isRecomputing}
+                                        disabledReason={recomputeDisabledReason}
+                                        onClick={() => {
+                                            LemonDialog.open({
+                                                title: 'Re-trigger CI job?',
+                                                description: githubRunId
+                                                    ? `Re-evaluate quarantine rules, update snapshot counts and commit status, and re-trigger CI run ${githubRunId} so the gate reflects the current state.`
+                                                    : 'Re-evaluate quarantine rules and update snapshot counts and commit status. The CI job cannot be re-triggered automatically — upgrade the CLI to enable this.',
+                                                primaryButton: {
+                                                    children: githubRunId ? `Re-trigger ${githubRunId}` : 'Recompute',
+                                                    onClick: onRecompute,
+                                                },
+                                                secondaryButton: {
+                                                    children: 'Cancel',
+                                                },
+                                            })
+                                        }}
+                                    >
+                                        Re-trigger
+                                    </LemonButton>
                                 )}
                             </div>
                         </div>
@@ -484,7 +556,6 @@ export function SnapshotDiffViewer({
                                 type="secondary"
                                 status="danger"
                                 size="small"
-                                fullWidth
                                 onClick={() => {
                                     LemonDialog.open({
                                         title: 'Unquarantine this identifier?',

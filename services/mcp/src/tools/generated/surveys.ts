@@ -5,12 +5,12 @@ import type { Schemas } from '@/api/generated'
 import {
     SurveysCreateBody,
     SurveysDestroyParams,
+    SurveysGlobalStatsRetrieveQueryParams,
     SurveysListQueryParams,
     SurveysPartialUpdateBody,
     SurveysPartialUpdateParams,
     SurveysRetrieveParams,
-    SurveysStatsRetrieve2Params,
-    SurveysStatsRetrieve2QueryParams,
+    SurveysStatsRetrieveParams,
     SurveysStatsRetrieveQueryParams,
 } from '@/generated/surveys/api'
 import { withUiApp } from '@/resources/ui-apps'
@@ -248,8 +248,8 @@ const surveyDelete = (): ToolBase<typeof SurveyDeleteSchema, Schemas.SurveySeria
     },
 })
 
-const SurveyStatsSchema = SurveysStatsRetrieve2Params.omit({ project_id: true }).extend(
-    SurveysStatsRetrieve2QueryParams.shape
+const SurveyStatsSchema = SurveysStatsRetrieveParams.omit({ project_id: true }).extend(
+    SurveysStatsRetrieveQueryParams.shape
 )
 
 const surveyStats = (): ToolBase<typeof SurveyStatsSchema, WithPostHogUrl<Schemas.SurveyStatsResponse>> =>
@@ -270,7 +270,7 @@ const surveyStats = (): ToolBase<typeof SurveyStatsSchema, WithPostHogUrl<Schema
         },
     })
 
-const SurveysGlobalStatsSchema = SurveysStatsRetrieveQueryParams
+const SurveysGlobalStatsSchema = SurveysGlobalStatsRetrieveQueryParams
 
 const surveysGlobalStats = (): ToolBase<typeof SurveysGlobalStatsSchema, Schemas.SurveyGlobalStatsResponse> =>
     withUiApp('survey-global-stats', {

@@ -30,6 +30,7 @@ _FIRE_RESOLVE_DATA: dict[str, str] = {
     "service_names": "{event.properties.service_names}",
     "severity_levels": "{event.properties.severity_levels}",
     "logs_url": "{project.url}/logs?{event.properties.logs_url_params}",
+    "alert_url": "{project.url}/logs/alerts/{event.properties.alert_id}",
 }
 
 _BROKEN_ERRORED_BASE_DATA: dict[str, str] = {
@@ -38,7 +39,7 @@ _BROKEN_ERRORED_BASE_DATA: dict[str, str] = {
     "consecutive_failures": "{event.properties.consecutive_failures}",
     "service_names": "{event.properties.service_names}",
     "severity_levels": "{event.properties.severity_levels}",
-    "alert_url": "{project.url}/logs?alertId={event.properties.alert_id}",
+    "alert_url": "{project.url}/logs/alerts/{event.properties.alert_id}",
 }
 
 
@@ -84,9 +85,7 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
             "*Reason:* {event.properties.consecutive_failures} consecutive check failures.\n"
             "*Last error:* {event.properties.last_error_message}"
         ),
-        # Deep-link to the alert modal (via the ?alertId= param handled in logsSceneLogic) —
-        # a broken alert's viewer URL would show zero logs because the alert is no longer checking.
-        button_url="{project.url}/logs?alertId={event.properties.alert_id}",
+        button_url="{project.url}/logs/alerts/{event.properties.alert_id}",
         button_label="View alert",
         webhook_body={
             "id": "{event.uuid}",
@@ -102,7 +101,7 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
         event_id="$logs_alert_errored",
         header="🟡 Log alert '{event.properties.alert_name}' couldn't evaluate",
         body=("*Reason:* {event.properties.error_message}\n*Failure count:* {event.properties.consecutive_failures}"),
-        button_url="{project.url}/logs?alertId={event.properties.alert_id}",
+        button_url="{project.url}/logs/alerts/{event.properties.alert_id}",
         button_label="View alert",
         webhook_body={
             "id": "{event.uuid}",

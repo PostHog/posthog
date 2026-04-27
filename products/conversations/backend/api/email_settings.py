@@ -20,9 +20,13 @@ from posthog.models.user import User
 from posthog.rate_limit import EmailSendTestThrottle, EmailVerifyDomainThrottle
 
 from products.conversations.backend.mailgun import (
+    MailgunDomainConflict,
+    MailgunDomainNotRegistered,
+    MailgunError,
+    MailgunNotConfigured,
     add_domain as mailgun_add_domain,
     delete_domain as mailgun_delete_domain,
-    get_smtp_connection,
+    send_mime,
     verify_domain as mailgun_verify_domain,
 )
 from products.conversations.backend.models import EmailChannel
@@ -158,8 +162,11 @@ class EmailConnectView(APIView):
         else:
             try:
                 dns_records = mailgun_add_domain(domain)
-            except ValueError as e:
-                logger.info("email_connect_mailgun_domain_error", team_id=team.id, domain=domain, error=str(e))
+            except MailgunNotConfigured:
+                logger.info("email_connect_mailgun_not_configured", team_id=team.id, domain=domain)
+                return Response({"error": "Mailgun API key not configured"}, status=400)
+            except MailgunDomainConflict as e:
+                logger.info("email_connect_mailgun_domain_conflict", team_id=team.id, domain=domain, error=str(e))
                 return Response(
                     {
                         "error": "This domain cannot be registered for sending. "
@@ -225,7 +232,7 @@ class EmailVerifyDomainView(APIView):
 
         try:
             mg_result = mailgun_verify_domain(config.domain)
-        except ValueError:
+        except MailgunNotConfigured:
             return Response({"error": "Mailgun API key not configured"}, status=400)
         except Exception:
             logger.exception("email_verify_domain_failed", team_id=team.id, domain=config.domain)
@@ -284,20 +291,31 @@ class EmailSendTestView(APIView):
         )
         email_message.attach_alternative(html_body, "text/html")
 
-        connection = None
+        mime_bytes = email_message.message().as_bytes(linesep="\r\n")
+
         try:
-            connection = get_smtp_connection()
-            connection.open()
-            connection.send_messages([email_message])
-        except Exception:
+            send_mime(config.domain, mime_bytes, recipients=[user.email])
+        except MailgunNotConfigured:
+            logger.exception("email_send_test_not_configured", team_id=team.id, config_id=config.id)
+            return Response(
+                {"error": "Conversations email not configured on this instance"},
+                status=500,
+            )
+        except MailgunDomainNotRegistered:
+            logger.exception(
+                "email_send_test_domain_not_registered",
+                team_id=team.id,
+                config_id=config.id,
+                domain=config.domain,
+            )
+            config.mark_domain_unverified()
+            return Response(
+                {"error": "Domain not registered with Mailgun. Please reconnect."},
+                status=502,
+            )
+        except MailgunError:
             logger.exception("email_send_test_failed", team_id=team.id, config_id=config.id)
-            return Response({"error": "Failed to send test email. Check SMTP settings."}, status=502)
-        finally:
-            if connection:
-                try:
-                    connection.close()
-                except Exception:
-                    pass
+            return Response({"error": "Failed to send test email"}, status=502)
 
         logger.info("email_test_sent", team_id=team.id, to=user.email, config_id=config.id, user_id=user.id)
 
@@ -340,7 +358,7 @@ class EmailDisconnectView(APIView):
             assert domain_to_delete is not None
             try:
                 mailgun_delete_domain(domain_to_delete)
-            except ValueError:
+            except MailgunNotConfigured:
                 logger.info("email_disconnect_no_mailgun_key", team_id=team.id)
             except Exception:
                 logger.exception("email_disconnect_mailgun_delete_failed", team_id=team.id, domain=domain_to_delete)
