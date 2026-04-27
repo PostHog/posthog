@@ -4440,10 +4440,16 @@ export namespace Schemas {
 
     export interface ExperimentStatsBaseValidated {
       /** @nullable */
+      covariate_sum?: number | null;
+      /** @nullable */
+      covariate_sum_squares?: number | null;
+      /** @nullable */
       denominator_sum?: number | null;
       /** @nullable */
       denominator_sum_squares?: number | null;
       key: string;
+      /** @nullable */
+      main_covariate_sum_product?: number | null;
       number_of_samples: number;
       /** @nullable */
       numerator_denominator_sum_product?: number | null;
@@ -4472,10 +4478,16 @@ export namespace Schemas {
        */
       confidence_interval?: number[] | null;
       /** @nullable */
+      covariate_sum?: number | null;
+      /** @nullable */
+      covariate_sum_squares?: number | null;
+      /** @nullable */
       denominator_sum?: number | null;
       /** @nullable */
       denominator_sum_squares?: number | null;
       key: string;
+      /** @nullable */
+      main_covariate_sum_product?: number | null;
       method?: ExperimentVariantResultFrequentistMethod;
       number_of_samples: number;
       /** @nullable */
@@ -4504,6 +4516,10 @@ export namespace Schemas {
     export interface ExperimentVariantResultBayesian {
       /** @nullable */
       chance_to_win?: number | null;
+      /** @nullable */
+      covariate_sum?: number | null;
+      /** @nullable */
+      covariate_sum_squares?: number | null;
       /**
        * @minItems 2
        * @maxItems 2
@@ -4515,6 +4531,8 @@ export namespace Schemas {
       /** @nullable */
       denominator_sum_squares?: number | null;
       key: string;
+      /** @nullable */
+      main_covariate_sum_product?: number | null;
       method?: ExperimentVariantResultBayesianMethod;
       number_of_samples: number;
       /** @nullable */
@@ -16116,6 +16134,41 @@ export namespace Schemas {
       AiEmbedding: '$ai_embedding',
       AiTrace: '$ai_trace',
     } as const;
+
+    export interface ExecuteTestClusterRequest {
+      /**
+       * ClickHouse SQL to run against the test cluster.
+       * @maxLength 65536
+       */
+      sql: string;
+    }
+
+    export interface ExecuteTestClusterResponse {
+      /** Rows returned, each as a positional list of canonicalized values. */
+      result: unknown[][];
+      /**
+       * ClickHouse query_id for this execution.
+       * @nullable
+       */
+      query_id: string | null;
+      /**
+       * Server-side elapsed time in milliseconds.
+       * @nullable
+       */
+      elapsed_ms: number | null;
+      /**
+       * Rows read from storage (scan-side).
+       * @nullable
+       */
+      rows_read: number | null;
+      /**
+       * Bytes read from storage (scan-side).
+       * @nullable
+       */
+      bytes_read: number | null;
+      /** Rows in the `result` payload. */
+      rows_returned: number;
+    }
 
     /**
      * * `exit_on_conversion` - Conversion

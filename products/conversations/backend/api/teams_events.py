@@ -16,7 +16,8 @@ from posthog.rate_limit import TeamsEventWebhookThrottle
 from products.conversations.backend.models import TeamConversationsTeamsConfig
 from products.conversations.backend.services.region_routing import is_primary_region, proxy_to_secondary_region
 from products.conversations.backend.support_teams import is_trusted_teams_service_url, validate_teams_request
-from products.conversations.backend.tasks import process_teams_event
+from products.conversations.backend.tasks import process_teams_event, send_teams_welcome
+from products.conversations.backend.teams import is_bot_added_event
 
 logger = structlog.get_logger(__name__)
 
@@ -144,5 +145,21 @@ def teams_event_handler(request: HttpRequest) -> HttpResponse:
         _route_activity_to_relevant_region(request, activity, claims)
         return HttpResponse(status=202)
 
-    # Acknowledge other activity types (installationUpdate, conversationUpdate, etc.)
+    # Proactive welcome on install (Teams Store cert 11.4.4.3). The serviceUrl
+    # cross-check still applies, but we don't need a PostHog-side team match —
+    # the customer hasn't necessarily completed the OAuth flow yet, and the
+    # welcome card uses only the global Bot Framework token.
+    #
+    # We also re-run _claims_match_activity here so that an attacker holding a
+    # valid Bot Framework JWT can't pair it with a body that points serviceUrl
+    # at a different Microsoft regional endpoint than the one the JWT was
+    # issued for, even though the practical impact is limited (Bot Connector
+    # only delivers to conversations the bot is actually installed in).
+    if activity_type == "conversationUpdate" and is_bot_added_event(activity):
+        if not _claims_match_activity(claims, activity):
+            return HttpResponse(status=200)
+        cast(Any, send_teams_welcome).delay(activity=activity)
+        return HttpResponse(status=200)
+
+    # Acknowledge other activity types (installationUpdate, etc.)
     return HttpResponse(status=200)
