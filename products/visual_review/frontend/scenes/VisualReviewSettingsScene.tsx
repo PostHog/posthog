@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
+import { Form, Group } from 'kea-forms'
 
 import { IconArrowRight, IconCopy, IconGear, IconGithub, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonSkeleton, LemonSwitch, Spinner } from '@posthog/lemon-ui'
@@ -85,20 +85,27 @@ function BaselinePathEditor({ paths, onChange }: BaselinePathEditorProps): JSX.E
     return (
         <div className="space-y-2">
             {entries.map(([key, value], index) => (
-                <div key={index} className="flex gap-2 items-center">
+                <div key={index} className="flex gap-2 items-start">
                     <LemonInput
                         value={key}
                         onChange={(newKey) => updateKey(key, newKey)}
                         placeholder="Run type (e.g. storybook)"
                         className="flex-1"
                     />
-                    <LemonInput
-                        value={value}
-                        onChange={(newValue) => updateValue(key, newValue)}
-                        placeholder="Path (e.g. .snapshots.yml)"
-                        className="flex-[2]"
+                    <LemonField name={key} className="flex-[2]">
+                        <LemonInput
+                            value={value}
+                            onChange={(newValue) => updateValue(key, newValue)}
+                            placeholder="Path (e.g. .snapshots.yml)"
+                        />
+                    </LemonField>
+                    <LemonButton
+                        icon={<IconTrash />}
+                        type="secondary"
+                        size="small"
+                        className="mt-1"
+                        onClick={() => removeEntry(key)}
                     />
-                    <LemonButton icon={<IconTrash />} type="secondary" size="small" onClick={() => removeEntry(key)} />
                 </div>
             ))}
             <LemonButton icon={<IconPlus />} type="secondary" size="small" onClick={addEntry}>
@@ -205,12 +212,17 @@ function RepoEditForm(): JSX.Element {
     return (
         <Form logic={visualReviewSettingsSceneLogic} formKey="repoForm" enableFormOnSubmit>
             <div className="border-2 border-primary rounded-lg p-4 space-y-4">
-                <LemonField.Pure label="Baseline file paths" help="Where baseline hashes are stored for each run type.">
-                    <BaselinePathEditor
-                        paths={repoForm.baseline_file_paths}
-                        onChange={(paths) => setRepoFormValue('baseline_file_paths', paths)}
-                    />
-                </LemonField.Pure>
+                <Group name="baseline_file_paths">
+                    <LemonField.Pure
+                        label="Baseline file paths"
+                        help="Where baseline hashes are stored for each run type."
+                    >
+                        <BaselinePathEditor
+                            paths={repoForm.baseline_file_paths}
+                            onChange={(paths) => setRepoFormValue('baseline_file_paths', paths)}
+                        />
+                    </LemonField.Pure>
+                </Group>
 
                 <LemonField name="enable_pr_comments">
                     {({ value, onChange }) => (
