@@ -392,7 +392,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'mcp-servers',
         title: 'MCP servers',
         group: 'AI',
-        flag: 'MCP_SERVERS',
+        // flag: 'MCP_SERVERS',
         settings: [
             {
                 id: 'mcp-servers-manage',

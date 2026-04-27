@@ -159,6 +159,12 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
     needs_reauth = serializers.SerializerMethodField()
     pending_oauth = serializers.SerializerMethodField()
     name = serializers.SerializerMethodField()
+    icon_key = serializers.CharField(
+        source="template.icon_key",
+        read_only=True,
+        default="",
+        help_text="Lowercase key from the linked template for brand icons. Empty if custom install (no template).",
+    )
     proxy_url = serializers.SerializerMethodField()
     tool_count = serializers.SerializerMethodField(
         help_text="Number of live (non-removed) tools exposed by this installation."
@@ -170,6 +176,7 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
             "id",
             "template_id",
             "name",
+            "icon_key",
             "display_name",
             "url",
             "description",
@@ -182,7 +189,7 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "template_id", "created_at", "updated_at", "tool_count"]
+        read_only_fields = ["id", "template_id", "icon_key", "created_at", "updated_at", "tool_count"]
 
     def get_tool_count(self, obj: MCPServerInstallation) -> int:
         # Prefer the annotation to avoid N+1 on list; fall back to a direct
