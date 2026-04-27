@@ -3,11 +3,11 @@ import { useCallback, useMemo } from 'react'
 
 import { createXAxisTickCallback } from 'lib/charts/utils/dates'
 import { buildTheme } from 'lib/charts/utils/theme'
-import { DEFAULT_Y_AXIS_ID, LineChart } from 'lib/hog-charts'
-import type { LineChartConfig, PointClickData, Series } from 'lib/hog-charts'
-import type { TooltipContext } from 'lib/hog-charts/core/types'
-import { ReferenceLines } from 'lib/hog-charts/overlays/ReferenceLine'
+import { DEFAULT_Y_AXIS_ID, LineChart, ReferenceLines, ValueLabels } from 'lib/hog-charts'
+import type { LineChartConfig, PointClickData, Series, TooltipContext } from 'lib/hog-charts'
+import { ciRanges, movingAverage, trendLine } from 'lib/statistics'
 import { hexToRGBA } from 'lib/utils'
+import { formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -22,6 +22,7 @@ import { InsightEmptyState } from '../../insights/EmptyStates'
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
 import type { IndexedTrendResult } from '../types'
+import { AnnotationsLayer } from './AnnotationsLayer'
 import { goalLinesToReferenceLines } from './goalLinesAdapter'
 import { handleTrendsLineChartClick } from './handleTrendsLineChartClick'
 import type { TrendsSeriesMeta } from './trendsSeriesMeta'
@@ -29,12 +30,13 @@ import { TrendsTooltip } from './TrendsTooltip'
 
 interface TrendsLineChartD3Props {
     context?: QueryContext<InsightVizNode>
+    inSharedMode?: boolean
 }
 
-export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Element | null {
+export function TrendsLineChartD3({ context, inSharedMode = false }: TrendsLineChartD3Props): JSX.Element | null {
     const { isDarkModeOn } = useValues(themeLogic)
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, insight } = useValues(insightLogic)
 
     const {
         indexedResults,
@@ -57,6 +59,12 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
         hasPersonsModal,
         querySource,
         incompletenessOffsetFromEnd,
+        showMovingAverage,
+        movingAverageIntervals,
+        showTrendLines,
+        showValuesOnSeries,
+        showConfidenceIntervals,
+        confidenceLevel,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
@@ -82,28 +90,106 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
 
     const hogSeries: Series<TrendsSeriesMeta>[] = useMemo(
         () =>
-            (indexedResults ?? []).map((r: IndexedTrendResult, index: number) => {
+            (indexedResults ?? []).flatMap((r: IndexedTrendResult, index: number) => {
                 const isActiveSeries = !r.compare || r.compare_label !== 'previous'
                 const dashedFromIndex =
                     isInProgress && isActiveSeries ? r.data.length + incompletenessOffsetFromEnd : undefined
-                return {
+                const yAxisId = showMultipleYAxes && index > 0 ? `y${index}` : DEFAULT_Y_AXIS_ID
+                const meta: TrendsSeriesMeta = {
+                    action: r.action,
+                    breakdown_value: r.breakdown_value,
+                    compare_label: r.compare_label,
+                    days: r.days,
+                    order: r.action?.order ?? r.id,
+                    filter: r.filter,
+                }
+                const baseColor = getTrendsColor(r)
+                const displayColor = r.compare_label === 'previous' ? hexToRGBA(baseColor, 0.5) : baseColor
+                const hidden = getTrendsHidden(r)
+                const mainSeries: Series<TrendsSeriesMeta> = {
                     key: `${r.id}`,
                     label: r.label ?? '',
                     data: r.data,
-                    color: r.compare_label === 'previous' ? hexToRGBA(getTrendsColor(r), 0.5) : getTrendsColor(r),
+                    color: displayColor,
                     fillArea: display === ChartDisplayType.ActionsAreaGraph,
                     dashedFromIndex,
-                    hidden: getTrendsHidden(r),
-                    yAxisId: showMultipleYAxes && index > 0 ? `y${index}` : DEFAULT_Y_AXIS_ID,
-                    meta: {
-                        action: r.action,
-                        breakdown_value: r.breakdown_value,
-                        compare_label: r.compare_label,
-                        days: r.days,
-                        order: r.action?.order ?? r.id,
-                        filter: r.filter,
-                    },
+                    hidden,
+                    yAxisId,
+                    meta,
                 }
+                const series: Series<TrendsSeriesMeta>[] = [mainSeries]
+
+                if (showConfidenceIntervals) {
+                    const [lower, upper] = ciRanges(r.data, confidenceLevel / 100)
+                    series.push({
+                        key: `${r.id}__ci`,
+                        label: `${r.label ?? ''} (CI)`,
+                        data: upper,
+                        fillBetweenData: lower,
+                        color: displayColor,
+                        fillArea: true,
+                        fillOpacity: 0.2,
+                        pointRadius: 0,
+                        hidden: hidden,
+                        hideFromTooltip: true,
+                        hideValueLabels: true,
+                        yAxisId,
+                        meta,
+                    })
+                }
+
+                if (showMovingAverage && r.data.length >= movingAverageIntervals) {
+                    const maData = movingAverage(r.data, movingAverageIntervals)
+                    series.push({
+                        key: `${r.id}-ma`,
+                        label: `${r.label ?? ''} (Moving avg)`,
+                        data: maData,
+                        color: displayColor,
+                        fillArea: false,
+                        dashPattern: [10, 3],
+                        pointRadius: 0,
+                        hideFromTooltip: true,
+                        excludeFromStack: true,
+                        yAxisId,
+                        meta,
+                    })
+
+                    if (showTrendLines && !hidden) {
+                        series.push({
+                            key: `${r.id}-ma__trendline`,
+                            label: `${r.label ?? ''} (Moving avg)`,
+                            data: trendLine(maData),
+                            color: hexToRGBA(baseColor, 0.5),
+                            yAxisId,
+                            dashPattern: [1, 3],
+                            pointRadius: 0,
+                            hideFromTooltip: true,
+                            excludeFromStack: true,
+                            hideValueLabels: true,
+                        })
+                    }
+                }
+
+                // Fit excludes the in-progress tail (dashedFromIndex..end) so the flat
+                // partial bucket doesn't drag the slope down. Dimmed so the dashed
+                // overlay reads as subordinate to the series line — at full intensity
+                // the two colors visually compete, especially on a dark background.
+                if (showTrendLines && !hidden) {
+                    series.push({
+                        key: `${r.id}__trendline`,
+                        label: r.label ?? '',
+                        data: trendLine(r.data, dashedFromIndex),
+                        color: hexToRGBA(baseColor, 0.5),
+                        yAxisId,
+                        dashPattern: [1, 3],
+                        pointRadius: 0,
+                        hideFromTooltip: true,
+                        excludeFromStack: true,
+                        hideValueLabels: true,
+                    })
+                }
+
+                return series
             }),
         [
             indexedResults,
@@ -113,26 +199,42 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
             isInProgress,
             incompletenessOffsetFromEnd,
             showMultipleYAxes,
+            showMovingAverage,
+            movingAverageIntervals,
+            showTrendLines,
+            showConfidenceIntervals,
+            confidenceLevel,
         ]
     )
 
-    const chartConfig: LineChartConfig = useMemo(() => {
-        const xTickFormatter = createXAxisTickCallback({
-            interval: interval ?? 'day',
-            allDays: currentPeriodResult?.days ?? [],
-            timezone,
-        })
-        return {
+    const xTickFormatter = useMemo(
+        () =>
+            createXAxisTickCallback({
+                interval: interval ?? 'day',
+                allDays: currentPeriodResult?.days ?? [],
+                timezone,
+            }),
+        [interval, currentPeriodResult?.days, timezone]
+    )
+
+    const chartConfig: LineChartConfig = useMemo(
+        () => ({
             showGrid: true,
             showCrosshair: true,
             pinnableTooltip: true,
             yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
             percentStackView: isPercentStackView,
             xTickFormatter,
-        }
-    }, [interval, currentPeriodResult?.days, timezone, yAxisScaleType, isPercentStackView])
+        }),
+        [yAxisScaleType, isPercentStackView, xTickFormatter]
+    )
 
     const referenceLines = useMemo(() => goalLinesToReferenceLines(goalLines, hogSeries), [goalLines, hogSeries])
+
+    const valueLabelFormatter = useCallback(
+        (value: number) => formatPercentStackAxisValue(trendsFilter, value, isPercentStackView, baseCurrency),
+        [trendsFilter, isPercentStackView, baseCurrency]
+    )
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
 
@@ -215,6 +317,9 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
         return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
     }
 
+    const showAnnotations = !inSharedMode
+    const annotationsDates = currentPeriodResult?.days ?? []
+
     return (
         <LineChart
             series={hogSeries}
@@ -226,6 +331,14 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
             className="LineGraph"
         >
             <ReferenceLines lines={referenceLines} />
+            {showValuesOnSeries && <ValueLabels valueFormatter={valueLabelFormatter} />}
+            {showAnnotations && (
+                <AnnotationsLayer
+                    insightNumericId={insight.id || 'new'}
+                    dates={annotationsDates}
+                    xTickFormatter={xTickFormatter}
+                />
+            )}
         </LineChart>
     )
 }

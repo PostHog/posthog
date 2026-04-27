@@ -151,5 +151,5 @@ class TestProvisioningServices(ProvisioningTestBase):
             assert "analytics" in service["categories"]
 
     def test_missing_signature_returns_401(self):
-        res = self.client.get("/api/agentic/provisioning/services", HTTP_API_VERSION="0.1d")
+        res = self.client.get("/api/agentic/provisioning/services", headers={"api-version": "0.1d"})
         assert res.status_code == 401

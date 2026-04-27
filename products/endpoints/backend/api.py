@@ -412,7 +412,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         return queryset.filter(deleted=False)
 
     def get_serializer_class(self):
-        return None  # We use Pydantic models instead
+        return serializers.Serializer  # We use Pydantic models instead; this fallback satisfies drf-spectacular
 
     def get_throttles(self):
         return [EndpointBurstThrottle(), EndpointSustainedThrottle()]

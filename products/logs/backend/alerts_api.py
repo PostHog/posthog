@@ -51,6 +51,9 @@ MAX_ALERTS_PER_TEAM = 20
 MAX_SIMULATE_LOOKBACK_DAYS = 30
 MAX_SIMULATE_BUCKETS = 15_000
 STATE_TIMELINE_LOOKBACK_HOURS = 24
+# Mirrors LogsAlertConfiguration.check_interval_minutes' default — kept here so
+# the simulate endpoint evaluates at the same cadence production runs at.
+DEFAULT_CHECK_INTERVAL_MINUTES = 5
 _SENTINEL: Final = object()
 _NOT_ANNOTATED: Final = object()
 
@@ -955,18 +958,17 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             alert=fake_alert,
             date_from=date_from_dt,
             date_to=date_to_dt,
-        ).execute_bucketed(interval_minutes=1, limit=MAX_SIMULATE_BUCKETS)
+        ).execute_bucketed(interval_minutes=DEFAULT_CHECK_INTERVAL_MINUTES, limit=MAX_SIMULATE_BUCKETS)
 
-        # Fill gaps so every minute has a count (0 if no logs)
-        minute_buckets = _fill_empty_buckets(sparse_buckets, date_from_dt, date_to_dt, 1)
+        cadence_buckets = _fill_empty_buckets(sparse_buckets, date_from_dt, date_to_dt, DEFAULT_CHECK_INTERVAL_MINUTES)
 
-        # Compute rolling window sum: for each minute, sum the preceding window_minutes of counts.
-        # Simulate samples at minute granularity for a dense preview chart; real alerts evaluate
-        # less frequently (see LogsAlertConfiguration.check_interval_minutes, currently 5m).
-        counts = [b.count for b in minute_buckets]
+        # ALLOWED_WINDOW_MINUTES is bounded below by DEFAULT_CHECK_INTERVAL_MINUTES,
+        # so integer division here is always >= 1.
+        buckets_per_window = window_minutes // DEFAULT_CHECK_INTERVAL_MINUTES
+        counts = [b.count for b in cadence_buckets]
         rolling_counts: list[int] = []
         for i in range(len(counts)):
-            window_start = max(0, i - window_minutes + 1)
+            window_start = max(0, i - buckets_per_window + 1)
             rolling_counts.append(sum(counts[window_start : i + 1]))
 
         threshold = data["threshold_count"]
@@ -991,7 +993,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         fire_count = 0
         resolve_count = 0
 
-        for i, bucket in enumerate(minute_buckets):
+        for i, bucket in enumerate(cadence_buckets):
             window_count = rolling_counts[i]
             breached = window_count > threshold if is_above else window_count < threshold
             check = CheckResult(result_count=window_count, threshold_breached=breached)

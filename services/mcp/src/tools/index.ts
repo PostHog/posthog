@@ -6,6 +6,7 @@ import debugMcpUiApps from './debug/debugMcpUiApps'
 import searchDocs from './documentation/searchDocs'
 // Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
 import getExperimentResults from './experiments/getResults'
+import experimentListDeprecated from './experiments/listDeprecated'
 // Generated tools (from definitions/*.yaml)
 import { GENERATED_TOOL_MAP } from './generated'
 // Insights
@@ -19,6 +20,7 @@ import {
     executeSql,
     externalDataSourcesDbSchema,
     externalDataSourcesJobs,
+    externalDataSyncLogs,
     readDataSchema,
     readDataWarehouseSchema,
 } from './posthogAiTools'
@@ -58,6 +60,8 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Experiments (results is hand-written; CRUD + lifecycle are codegen)
     'experiment-results-get': getExperimentResults,
+    // Deprecated alias for experiment-list — forwards and annotates the response.
+    'experiment-get-all': experimentListDeprecated,
 
     // Insights
     'insight-query': queryInsight,
@@ -83,6 +87,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Data warehouse (custom handlers for non-standard request shapes)
     'external-data-sources-db-schema': externalDataSourcesDbSchema,
     'external-data-sources-jobs': externalDataSourcesJobs,
+    'external-data-sync-logs': externalDataSyncLogs,
 }
 
 export const getToolsFromContext = async (
