@@ -47,9 +47,11 @@ from posthog.test.idor import (
 from posthog.test.idor.body_factory import BodyUnfillable, build_minimal_post_body
 from posthog.test.idor.factory import reset_sentinel
 from posthog.test.idor.fk_discovery import (
+    ActionQueryParam,
     ActionSerializerCase,
     FilterParam,
     WritableFKField,
+    discover_action_query_params,
     discover_action_serializers,
     discover_filter_params,
     discover_writable_tenant_fks,
@@ -199,6 +201,34 @@ def _iter_filter_param_cases() -> list[tuple[str, IDORTestCase, FilterParam]]:
 
 
 FILTER_PARAM_CASES = _iter_filter_param_cases()
+
+
+def _iter_action_query_param_cases() -> list[tuple[str, IDORTestCase, ActionQueryParam, str]]:
+    """Cross-product of (viewset case × @action × query param × HTTP method).
+
+    Phase 6 — query-param IDORs on @action endpoints. Whereas
+    `test_cross_tenant_id_in_action` injects a victim id into the
+    request body, this parametric injects via the URL query string —
+    different code paths in the action handler.
+    """
+    out: list[tuple[str, IDORTestCase, ActionQueryParam, str]] = []
+    for case in DISCOVERED_CASES:
+        for query_param in discover_action_query_params(case.viewset_cls):
+            for method in query_param.http_methods:
+                if method != "GET":
+                    # Body-FK parametric already covers POST/PATCH/PUT actions
+                    # (it inspects the request serializer); skip here to avoid
+                    # double-counting.
+                    continue
+                label = (
+                    f"{case.name}__{query_param.method_name}__{method}__"
+                    f"{query_param.param_name}__{query_param.target_model.__name__}"
+                )
+                out.append((label, case, query_param, method))
+    return out
+
+
+ACTION_QUERY_PARAM_CASES = _iter_action_query_param_cases()
 
 
 def _tenant_root_params() -> list[tuple[str, TenantRootCase]]:
@@ -555,7 +585,53 @@ class TestAutomatedIDORCoverage(IDORTestMixin, APIBaseTest):
             return
         self.assertSentinelNotLeaked(response, victim_sentinel)
 
-    def _build_action_url_for_attacker(self, case: IDORTestCase, action: ActionSerializerCase) -> str:
+    @parameterized.expand(ACTION_QUERY_PARAM_CASES)
+    def test_cross_tenant_id_in_action_query_param(
+        self,
+        _name: str,
+        case: IDORTestCase,
+        query_param: ActionQueryParam,
+        method: str,
+    ) -> None:
+        """Attacker cannot smuggle a victim's tenant id via an @action's query string.
+
+        Companion to `test_cross_tenant_id_in_action`. That parametric
+        injects victim ids into the **request body** (POST/PATCH/PUT
+        actions); this one injects via the **query string** of GET
+        actions, which take a different validation path.
+        """
+        victim_sentinel = reset_sentinel()
+        try:
+            victim_resource = build_minimal_instance(query_param.target_model, team=self.victim_team)
+        except Exception as exc:
+            self.skipTest(
+                f"{case.name}.{query_param.method_name}.{query_param.param_name}: "
+                f"could not build victim {query_param.target_model.__name__} ({type(exc).__name__}: {exc})"
+            )
+
+        try:
+            action_url = self._build_action_url_for_attacker(case, query_param)
+        except Exception as exc:
+            self.skipTest(f"{case.name}.{query_param.method_name}.{query_param.param_name}: URL build failed ({exc})")
+
+        sep = "&" if "?" in action_url else "?"
+        url = f"{action_url}{sep}{query_param.param_name}={victim_resource.pk}"
+        client_method = getattr(self.client, method.lower())  # type: ignore[attr-defined]
+        response = client_method(url)
+
+        if response.status_code >= 500:
+            _maybe_warn_5xx(f"{case.name}.{query_param.method_name}", response.status_code)
+            self.assertSentinelNotLeaked(response, victim_sentinel)
+            return
+        if response.status_code not in range(200, 300):
+            return
+        self.assertSentinelNotLeaked(response, victim_sentinel)
+
+    def _build_action_url_for_attacker(
+        self,
+        case: IDORTestCase,
+        action: ActionSerializerCase | ActionQueryParam,
+    ) -> str:
         """Build a URL for `action` on `case`'s viewset, on the attacker's tenant root."""
         if case.url.root == "projects":
             root_id: int | str = self.project.pk  # type: ignore[attr-defined]

@@ -11,7 +11,7 @@ the DB, so these tests don't need `@pytest.mark.django_db`.
 
 from __future__ import annotations
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 
@@ -23,6 +23,7 @@ from posthog.models.integration import Integration
 from posthog.models.user import User
 from posthog.test.idor.fk_discovery import (
     FilterParam,
+    discover_action_query_params,
     discover_action_serializers,
     discover_filter_params,
     discover_writable_tenant_fks,
@@ -615,3 +616,56 @@ class TestDiscoverFilterParams:
         record = FilterParam(param_name="cohort", target_model=Cohort, scope="team")
         assert record.scope == "team"
         assert record.target_model is Cohort
+
+
+class _CohortQueryParamsViewSet(viewsets.ViewSet):
+    @extend_schema(parameters=[OpenApiParameter("cohort", str)])
+    @action(detail=False, methods=["get"])
+    def stats(self, request, **kwargs):
+        return None
+
+
+class _BodySerializerActionViewSet(viewsets.ViewSet):
+    @extend_schema(request=_CopyTemplateBodySerializer)
+    @action(detail=False, methods=["post"])
+    def copy_via_body(self, request, **kwargs):
+        return None
+
+
+class _NoSchemaQueryParamsViewSet(viewsets.ViewSet):
+    @action(detail=False, methods=["get"])
+    def search(self, request, **kwargs):
+        return None
+
+
+class _NonTenantQueryParamViewSet(viewsets.ViewSet):
+    @extend_schema(parameters=[OpenApiParameter("status", str), OpenApiParameter("archived", bool)])
+    @action(detail=False, methods=["get"])
+    def filter_by_status(self, request, **kwargs):
+        return None
+
+
+class TestDiscoverActionQueryParams:
+    def test_no_actions_returns_empty(self) -> None:
+        assert discover_action_query_params(_FakeViewSetNoActions) == []
+
+    def test_actions_without_extend_schema_skipped(self) -> None:
+        assert discover_action_query_params(_NoSchemaQueryParamsViewSet) == []
+
+    def test_extracts_openapi_parameter_pointing_at_tenant_model(self) -> None:
+        result = discover_action_query_params(_CohortQueryParamsViewSet)
+        assert len(result) == 1
+        record = result[0]
+        assert record.method_name == "stats"
+        assert record.param_name == "cohort"
+        assert record.target_model is Cohort
+        assert record.http_methods == ("GET",)
+        assert record.detail is False
+
+    def test_skips_actions_with_only_request_serializer(self) -> None:
+        # `parameters=` is None → no query params to extract.
+        result = discover_action_query_params(_BodySerializerActionViewSet)
+        assert result == []
+
+    def test_non_tenant_param_names_skipped(self) -> None:
+        assert discover_action_query_params(_NonTenantQueryParamViewSet) == []

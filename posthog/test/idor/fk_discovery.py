@@ -738,3 +738,136 @@ def _classify_filter_param(param_name: str) -> list[FilterParam]:
             continue
         out.append(FilterParam(param_name=param_name, target_model=target, scope=scope))
     return out
+
+
+@dataclass(frozen=True)
+class ActionQueryParam:
+    """A query-string parameter on a @action endpoint that points at a tenant-scoped model.
+
+    Mirrors `FilterParam` but tied to a custom action rather than the
+    viewset's list endpoint, so the runtime test must hit the action's
+    URL (`<list_url>/<action_url_path>/`) rather than the bare list URL.
+    """
+
+    method_name: str
+    """The bound method name on the viewset."""
+
+    url_path: str
+    """URL segment after the resource list (defaults to method name)."""
+
+    http_methods: tuple[str, ...]
+    """HTTP methods the action accepts (uppercased)."""
+
+    detail: bool
+    """True if the action is a detail-route (operates on a single instance)."""
+
+    param_name: str
+    """The query-param name (e.g. `dashboard`, `cohort_id`)."""
+
+    target_model: type[models.Model]
+    """The Django model class the param's value points at."""
+
+    scope: Scope
+    """Tenant scope of the target model."""
+
+
+def discover_action_query_params(viewset_cls: type) -> list[ActionQueryParam]:
+    """Walk @action endpoints and emit one record per tenant-pointing query param.
+
+    `@extend_schema(parameters=[...])` (drf-spectacular) accepts both
+    `OpenApiParameter` objects and request serializer classes. We pull
+    the captured list from the schema closure (mirroring
+    `_extract_extend_schema_request`), then classify each entry:
+
+      - `OpenApiParameter` — read `name` directly.
+      - Serializer subclass — walk its fields and treat field names as
+        param names.
+
+    The classifier reuses `_classify_filter_param` so role prefixes,
+    `_id` suffixes, and ambiguous `<thing>` matches behave identically
+    to list-endpoint filters.
+    """
+    if not hasattr(viewset_cls, "get_extra_actions"):
+        return []
+
+    out: list[ActionQueryParam] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    for action_method in viewset_cls.get_extra_actions():
+        schema_cls = (action_method.kwargs or {}).get("schema")
+        if schema_cls is None:
+            continue
+        raw_params = _extract_extend_schema_parameters(schema_cls)
+        if not raw_params:
+            continue
+
+        mapping = getattr(action_method, "mapping", None) or {}
+        methods = tuple(m.upper() for m in mapping.keys()) or ("GET",)
+        url_path = getattr(action_method, "url_path", None) or action_method.__name__
+        detail = bool(getattr(action_method, "detail", False))
+
+        for raw in raw_params:
+            param_names = _param_names_from_extend_schema_entry(raw)
+            for name in param_names:
+                for fp in _classify_filter_param(name):
+                    key = (action_method.__name__, fp.param_name, fp.target_model.__name__)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    out.append(
+                        ActionQueryParam(
+                            method_name=action_method.__name__,
+                            url_path=url_path,
+                            http_methods=methods,
+                            detail=detail,
+                            param_name=fp.param_name,
+                            target_model=fp.target_model,
+                            scope=fp.scope,
+                        )
+                    )
+    return out
+
+
+def _extract_extend_schema_parameters(schema_cls: type) -> list:
+    """Pull the captured `parameters=` list from drf-spectacular's @extend_schema closure.
+
+    The freevar lives in `get_override_parameters` rather than
+    `get_request_serializer`, but the introspection pattern is identical
+    to `_extract_extend_schema_request`.
+    """
+    for klass in schema_cls.__mro__:
+        if klass.__name__ != "ExtendedSchema":
+            continue
+        method = klass.__dict__.get("get_override_parameters")
+        if method is None or method.__closure__ is None:
+            continue
+        for freevar_name, cell in zip(method.__code__.co_freevars, method.__closure__):
+            if freevar_name != "parameters":
+                continue
+            value = cell.cell_contents
+            if value:
+                return list(value)
+    return []
+
+
+def _param_names_from_extend_schema_entry(raw: object) -> list[str]:
+    """Extract query-param name(s) from a single `parameters=[...]` entry.
+
+    drf-spectacular accepts two shapes:
+      - `OpenApiParameter(name="dashboard", ...)` → one name.
+      - `MyQueryParamSerializer` (a Serializer subclass) → one name per
+        writable field on the serializer.
+    Anything else is ignored.
+    """
+    name = getattr(raw, "name", None)
+    if isinstance(name, str) and name:
+        return [name]
+
+    if isinstance(raw, type) and issubclass(raw, serializers.Serializer):
+        try:
+            instance = raw()
+            return [n for n, f in instance.fields.items() if not f.read_only]
+        except Exception:
+            return []
+
+    return []
