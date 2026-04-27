@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 from .classifier import SnapshotClassifier
 from .db import WRITER_DB
 from .facade.enums import ReviewDecision, ReviewState, RunPurpose, RunStatus, SnapshotResult, ToleratedReason
+from .github import GitHubRateLimitError  # noqa: F401 — re-exported for facade
 from .models import Artifact, QuarantinedIdentifier, Repo, Run, RunSnapshot, ToleratedHash
 from .signing import sign_snapshot_hash, verify_signed_hash
 from .storage import ArtifactStorage
@@ -344,15 +345,14 @@ def _get_merge_base_sha(github: GitHubIntegration, repo_full_name: str, base: st
 
     import requests
 
+    from .github import github_request
+
     access_token = github.integration.sensitive_config["access_token"]
     try:
-        response = requests.get(
+        response = github_request(
+            "GET",
             f"https://api.github.com/repos/{repo_full_name}/compare/{quote(base, safe='')}...{quote(head, safe='')}",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
+            access_token=access_token,
             timeout=10,
         )
     except requests.RequestException:
@@ -384,15 +384,14 @@ def _get_default_branch(github: GitHubIntegration, repo_full_name: str) -> str:
     """Get the repo's default branch name via the GitHub API. Falls back to 'master'."""
     import requests
 
+    from .github import github_request
+
     access_token = github.integration.sensitive_config["access_token"]
     try:
-        response = requests.get(
+        response = github_request(
+            "GET",
             f"https://api.github.com/repos/{repo_full_name}",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
+            access_token=access_token,
             timeout=10,
         )
     except requests.RequestException:
@@ -1050,16 +1049,13 @@ def _resolve_repo_by_id(github, repo_external_id: int) -> str | None:
     latest full_name even if the repo was renamed or transferred.
     Returns None if the repo is inaccessible.
     """
-    import requests
+    from .github import github_request
 
     access_token = github.integration.sensitive_config["access_token"]
-    response = requests.get(
+    response = github_request(
+        "GET",
         f"https://api.github.com/repositories/{repo_external_id}",
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {access_token}",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
+        access_token=access_token,
         timeout=10,
     )
     if response.status_code == 200:
@@ -1082,7 +1078,7 @@ def _github_api_request(
     """
     from urllib.parse import quote
 
-    import requests
+    from .github import github_request
 
     # Prevent path traversal — each segment must be safe
     safe_path = "/".join(quote(segment, safe="") for segment in path.split("/"))
@@ -1092,15 +1088,9 @@ def _github_api_request(
         github.refresh_access_token()
 
     access_token = github.integration.sensitive_config["access_token"]
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {access_token}",
-        "X-GitHub-Api-Version": "2022-11-28",
-        **(kwargs.pop("headers", {})),
-    }
 
     url = f"https://api.github.com/repos/{repo.repo_full_name}/{safe_path}"
-    response = requests.request(method, url, headers=headers, **kwargs)
+    response = github_request(method, url, access_token=access_token, **kwargs)
 
     if response.status_code == 404 and repo.repo_external_id:
         new_full_name = _resolve_repo_by_id(github, repo.repo_external_id)
@@ -1115,7 +1105,7 @@ def _github_api_request(
             repo.save(update_fields=["repo_full_name"])
 
             url = f"https://api.github.com/repos/{new_full_name}/{safe_path}"
-            response = requests.request(method, url, headers=headers, **kwargs)
+            response = github_request(method, url, access_token=access_token, **kwargs)
 
     return response
 
@@ -1126,17 +1116,15 @@ def _get_pr_info(github, repo_full_name: str, pr_number: int) -> dict:
 
     Returns dict with head_ref (branch) and head_sha.
     """
-    import requests
+    from .github import github_request
 
     access_token = github.integration.sensitive_config["access_token"]
 
-    response = requests.get(
+    response = github_request(
+        "GET",
         f"https://api.github.com/repos/{repo_full_name}/pulls/{pr_number}",
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {access_token}",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
+        access_token=access_token,
+        timeout=10,
     )
 
     if response.status_code != 200:
@@ -1162,18 +1150,16 @@ def _fetch_baseline_file(
     import base64
 
     import yaml
-    import requests
+
+    from .github import github_request
 
     access_token = github.integration.sensitive_config["access_token"]
 
-    response = requests.get(
+    response = github_request(
+        "GET",
         f"https://api.github.com/repos/{repo_full_name}/contents/{file_path}",
+        access_token=access_token,
         params={"ref": branch},
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {access_token}",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
         timeout=10,
     )
 
@@ -1262,7 +1248,7 @@ def _post_commit_status(
 
     from django.conf import settings
 
-    import requests
+    from .github import github_request
 
     try:
         github = get_github_integration_for_repo(repo)
@@ -1276,18 +1262,15 @@ def _post_commit_status(
     target_url = f"{settings.SITE_URL}/project/{repo.team_id}/visual_review/runs/{run.id}"
 
     try:
-        response = requests.post(
+        response = github_request(
+            "POST",
             f"https://api.github.com/repos/{repo.repo_full_name}/statuses/{run.commit_sha}",
+            access_token=access_token,
             json={
                 "state": state,
                 "description": description[:140],
                 "context": f"PostHog Visual Review / {run.run_type}",
                 "target_url": target_url,
-            },
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
             },
             timeout=10,
         )

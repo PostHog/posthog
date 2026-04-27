@@ -13,6 +13,8 @@ from uuid import UUID
 import structlog
 from celery import shared_task
 
+from ..github import GitHubRateLimitError
+
 logger = structlog.get_logger(__name__)
 
 
@@ -21,6 +23,10 @@ logger = structlog.get_logger(__name__)
     ignore_result=True,
     acks_late=True,
     reject_on_worker_lost=True,
+    autoretry_for=(GitHubRateLimitError,),
+    max_retries=3,
+    retry_backoff=60,
+    retry_backoff_max=600,
 )
 def process_run_diffs(run_id: str) -> None:
     """
@@ -38,6 +44,9 @@ def process_run_diffs(run_id: str) -> None:
         process_diffs(run_uuid)
         logic.finish_processing(run_uuid)
         logger.info("visual_review.diff_processing_completed", run_id=run_id)
+    except GitHubRateLimitError:
+        logger.warning("visual_review.diff_processing_rate_limited", run_id=run_id)
+        raise
     except Exception as e:
         logger.exception("visual_review.diff_processing_failed", run_id=run_id, error=str(e))
         logic.finish_processing(run_uuid, error_message=str(e))
