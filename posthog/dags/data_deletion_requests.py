@@ -862,11 +862,16 @@ def data_deletion_request_person_removal():
 _DELETION_JOB_NAMES = [
     data_deletion_request_event_removal.name,
     data_deletion_request_property_removal.name,
+    data_deletion_request_person_removal.name,
 ]
 
 
 @dagster.sensor(
-    jobs=[data_deletion_request_event_removal, data_deletion_request_property_removal],
+    jobs=[
+        data_deletion_request_event_removal,
+        data_deletion_request_property_removal,
+        data_deletion_request_person_removal,
+    ],
     minimum_interval_seconds=600,
     default_status=dagster.DefaultSensorStatus.STOPPED,
 )
@@ -897,11 +902,11 @@ def data_deletion_request_pickup_sensor(context: dagster.SensorEvaluationContext
         return dagster.SkipReason("No approved deletion requests to process.")
 
     if next_request.request_type == RequestType.EVENT_REMOVAL:
-        job = data_deletion_request_event_removal
-        load_op = "load_deletion_request"
+        job, load_op = data_deletion_request_event_removal, "load_deletion_request"
     elif next_request.request_type == RequestType.PROPERTY_REMOVAL:
-        job = data_deletion_request_property_removal
-        load_op = "load_property_removal_request"
+        job, load_op = data_deletion_request_property_removal, "load_property_removal_request"
+    elif next_request.request_type == RequestType.PERSON_REMOVAL:
+        job, load_op = data_deletion_request_person_removal, "load_person_removal_request"
     else:
         return dagster.SkipReason(f"Unknown request_type for request {next_request.pk}: {next_request.request_type}")
 

@@ -18,6 +18,7 @@ from posthog.dags.data_deletion_requests import (
     PersonRemovalContext,
     data_deletion_request_event_removal,
     data_deletion_request_person_removal,
+    data_deletion_request_pickup_sensor,
     data_deletion_request_property_removal,
     delete_person_events_op,
     delete_person_profiles_op,
@@ -1116,3 +1117,22 @@ def test_data_deletion_request_person_removal_lifecycle(cluster: ClickhouseClust
     assert result.success
     request.refresh_from_db()
     assert request.status == RequestStatus.COMPLETED
+
+
+@pytest.mark.django_db
+def test_pickup_sensor_routes_person_removal_request():
+    request = DataDeletionRequest.objects.create(
+        team_id=TEAM_ID,
+        request_type=RequestType.PERSON_REMOVAL,
+        person_uuids=[str(uuid4())],
+        person_drop_profiles=True,
+        status=RequestStatus.APPROVED,
+        approved_at=datetime.now(),
+    )
+    instance = dagster.DagsterInstance.ephemeral()
+    ctx = dagster.build_sensor_context(instance=instance)
+    result = data_deletion_request_pickup_sensor(ctx)
+    assert isinstance(result, dagster.RunRequest)
+    assert result.job_name == "data_deletion_request_person_removal"
+    assert "load_person_removal_request" in result.run_config["ops"]
+    assert str(request.pk) == result.run_key
