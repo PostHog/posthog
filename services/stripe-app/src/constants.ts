@@ -11,8 +11,20 @@ export interface AppConstants {
     POSTHOG_NEW_SOURCE_URL: string
 }
 
+const FALLBACK_CONSTANTS: AppConstants = {
+    POSTHOG_US_BASE_URL: 'https://us.posthog.com',
+    POSTHOG_EU_BASE_URL: 'https://eu.posthog.com',
+    POSTHOG_DASHBOARD_URL: 'https://app.posthog.com',
+    POSTHOG_NEW_SOURCE_URL: 'https://app.posthog.com/data-warehouse/new-source?kind=Stripe',
+}
+
+// Must match the `constants` block in stripe-app.json.
+// `stripe apps upload` (apps plugin <1.15.32) server-canonicalises the manifest
+// by adding a `declarations` block that causes the SDK to ignore top-level
+// `constants` at runtime, making `environment.constants` undefined. Fall back
+// to these hardcoded values when that happens. See PR #56404.
 export function getConstants(environment: ExtensionContextValue['environment']): AppConstants {
-    return environment.constants as unknown as AppConstants
+    return (environment?.constants as unknown as AppConstants | undefined) ?? FALLBACK_CONSTANTS
 }
 
 export { BrandIcon }

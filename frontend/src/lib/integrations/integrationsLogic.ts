@@ -229,7 +229,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
             }
         },
         handleOauthCallback: async ({ kind, searchParams }) => {
-            const { state, code, error } = searchParams
+            const { state, code, error, stripe_user_id, account_id, user_id } = searchParams
             const { next, token, source, server_id, kind: stateKind } = fromParamsGivenUrl(state)
             // slack-posthog-code reuses /integrations/slack/callback as its approved redirect URI,
             // so the real kind is carried in OAuth state and takes precedence over the URL path.
@@ -239,6 +239,32 @@ export const integrationsLogic = kea<integrationsLogicType>([
             if (error) {
                 lemonToast.error(`Failed due to "${error}"`)
                 router.actions.replace(replaceUrl)
+                return
+            }
+
+            // Stripe marketplace installs redirect here without a PostHog-minted state, so we
+            // can't verify the callback against a CSRF cookie. Without that, an attacker could
+            // capture their own Connect-OAuth callback URL and trick a logged-in PostHog admin
+            // into visiting it, silently linking the attacker's Stripe account to the victim's
+            // team. Redirect to a confirmation page that shows the user the Stripe account
+            // they're about to link, and only POST to /integrations/ on explicit confirm.
+            // resolvedKind is typed as IntegrationKind which doesn't list 'stripe' in the enum,
+            // but the URL route (`/integrations/:kind/callback`) passes it through verbatim.
+            const isStripeMarketplaceInstall =
+                (resolvedKind as string) === 'stripe' && !state && !!stripe_user_id && !!code
+
+            if (isStripeMarketplaceInstall) {
+                const params = new URLSearchParams({
+                    code: String(code),
+                    stripe_user_id: String(stripe_user_id),
+                })
+                if (account_id) {
+                    params.set('account_id', String(account_id))
+                }
+                if (user_id) {
+                    params.set('user_id', String(user_id))
+                }
+                router.actions.replace(`${urls.stripeConfirmInstall()}?${params.toString()}`)
                 return
             }
 
