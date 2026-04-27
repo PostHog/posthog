@@ -266,3 +266,22 @@ class TestRESTClient:
         client = RESTClient(base_url="https://api.example.com")
         with pytest.raises(RESTClientRetryableError):
             list(client.paginate(path="/items", paginator=SinglePagePaginator()))
+
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.requests.Session")
+    def test_send_request_respects_retry_after_header(self, MockSession) -> None:
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+
+        rate_limited = _make_response({"error": "rate limited"}, status_code=429)
+        rate_limited.url = "https://api.example.com/items"
+        rate_limited.headers["Retry-After"] = "90"
+        ok = _make_response({"results": [{"id": 1}]})
+
+        mock_session.send.side_effect = [rate_limited, ok]
+
+        client = RESTClient(base_url="https://api.example.com")
+        pages = list(client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator()))
+
+        assert pages == [[{"id": 1}]]
+        assert mock_session.send.call_count == 2

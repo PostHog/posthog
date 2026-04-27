@@ -7,7 +7,7 @@ from urllib.parse import urljoin
 import requests
 from requests import Request, Response
 from requests.auth import AuthBase
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt
 
 from .exceptions import IgnoreResponseException
 from .jsonpath_utils import TJsonPath, find_values
@@ -17,7 +17,19 @@ logger = logging.getLogger(__name__)
 
 
 class RESTClientRetryableError(Exception):
-    pass
+    def __init__(self, message: str, retry_after: Optional[float] = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+def _retry_wait_seconds(state: RetryCallState) -> float:
+    fallback = min(2 ** (state.attempt_number - 1), 60)
+    if state.outcome is None or not state.outcome.failed:
+        return float(fallback)
+    exc = state.outcome.exception()
+    if isinstance(exc, RESTClientRetryableError) and exc.retry_after is not None:
+        return exc.retry_after
+    return float(fallback)
 
 
 Hooks = dict[str, list[Any]]
@@ -103,7 +115,7 @@ class RESTClient:
     @retry(
         retry=retry_if_exception_type(RESTClientRetryableError),
         stop=stop_after_attempt(5),
-        wait=wait_exponential_jitter(initial=1, max=30),
+        wait=_retry_wait_seconds,
         reraise=True,
     )
     def _send_request(self, request: Request, hooks: Hooks) -> Response:
@@ -111,7 +123,17 @@ class RESTClient:
         response = self.session.send(prepared)
 
         if response.status_code == 429 or response.status_code >= 500:
-            raise RESTClientRetryableError(f"HTTP {response.status_code} for {response.url}")
+            retry_after: Optional[float] = None
+            retry_after_header = response.headers.get("Retry-After")
+            if retry_after_header:
+                try:
+                    retry_after = float(retry_after_header)
+                except ValueError:
+                    pass
+            raise RESTClientRetryableError(
+                f"HTTP {response.status_code} for {response.url}",
+                retry_after=retry_after,
+            )
 
         response_hooks = hooks.get("response", [])
         if response_hooks:
