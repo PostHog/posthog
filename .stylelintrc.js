@@ -17,9 +17,9 @@ module.exports = {
         // ('context' value) in 2024, once support is better https://caniuse.com/?search=range%20context
         'media-feature-range-notation': 'prefix',
         'selector-class-pattern': [
-            '^[A-Za-z0-9_-]+(__[A-Za-z0-9_-]+)?(--[A-Za-z0-9-]+)?$',
+            '^[A-Za-z0-9_/-]+(__[A-Za-z0-9_/-]+)?(--[A-Za-z0-9/-]+)?$',
             {
-                message: 'Expected class selector to match Block__Element--Modifier or plain snake-case',
+                message: 'Expected class selector to match Block__Element--Modifier or plain snake-case (slash allowed for Tailwind opacity)',
             },
         ],
         'selector-id-pattern': [

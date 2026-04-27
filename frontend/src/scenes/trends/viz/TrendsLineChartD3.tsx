@@ -3,11 +3,8 @@ import { useCallback, useMemo } from 'react'
 
 import { createXAxisTickCallback } from 'lib/charts/utils/dates'
 import { buildTheme } from 'lib/charts/utils/theme'
-import { DEFAULT_Y_AXIS_ID, LineChart } from 'lib/hog-charts'
-import type { LineChartConfig, PointClickData, Series } from 'lib/hog-charts'
-import type { TooltipContext } from 'lib/hog-charts/core/types'
-import { ReferenceLines } from 'lib/hog-charts/overlays/ReferenceLine'
-import { ValueLabels } from 'lib/hog-charts/overlays/ValueLabels'
+import { DEFAULT_Y_AXIS_ID, LineChart, ReferenceLines, ValueLabels } from 'lib/hog-charts'
+import type { LineChartConfig, PointClickData, Series, TooltipContext } from 'lib/hog-charts'
 import { ciRanges, movingAverage, trendLine } from 'lib/statistics'
 import { hexToRGBA } from 'lib/utils'
 import { formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
@@ -25,6 +22,7 @@ import { InsightEmptyState } from '../../insights/EmptyStates'
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
 import type { IndexedTrendResult } from '../types'
+import { AnnotationsLayer } from './AnnotationsLayer'
 import { goalLinesToReferenceLines } from './goalLinesAdapter'
 import { handleTrendsLineChartClick } from './handleTrendsLineChartClick'
 import type { TrendsSeriesMeta } from './trendsSeriesMeta'
@@ -32,12 +30,13 @@ import { TrendsTooltip } from './TrendsTooltip'
 
 interface TrendsLineChartD3Props {
     context?: QueryContext<InsightVizNode>
+    inSharedMode?: boolean
 }
 
-export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Element | null {
+export function TrendsLineChartD3({ context, inSharedMode = false }: TrendsLineChartD3Props): JSX.Element | null {
     const { isDarkModeOn } = useValues(themeLogic)
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, insight } = useValues(insightLogic)
 
     const {
         indexedResults,
@@ -208,21 +207,27 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
         ]
     )
 
-    const chartConfig: LineChartConfig = useMemo(() => {
-        const xTickFormatter = createXAxisTickCallback({
-            interval: interval ?? 'day',
-            allDays: currentPeriodResult?.days ?? [],
-            timezone,
-        })
-        return {
+    const xTickFormatter = useMemo(
+        () =>
+            createXAxisTickCallback({
+                interval: interval ?? 'day',
+                allDays: currentPeriodResult?.days ?? [],
+                timezone,
+            }),
+        [interval, currentPeriodResult?.days, timezone]
+    )
+
+    const chartConfig: LineChartConfig = useMemo(
+        () => ({
             showGrid: true,
             showCrosshair: true,
             pinnableTooltip: true,
             yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
             percentStackView: isPercentStackView,
             xTickFormatter,
-        }
-    }, [interval, currentPeriodResult?.days, timezone, yAxisScaleType, isPercentStackView])
+        }),
+        [yAxisScaleType, isPercentStackView, xTickFormatter]
+    )
 
     const referenceLines = useMemo(() => goalLinesToReferenceLines(goalLines, hogSeries), [goalLines, hogSeries])
 
@@ -312,6 +317,9 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
         return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
     }
 
+    const showAnnotations = !inSharedMode
+    const annotationsDates = currentPeriodResult?.days ?? []
+
     return (
         <LineChart
             series={hogSeries}
@@ -324,6 +332,13 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
         >
             <ReferenceLines lines={referenceLines} />
             {showValuesOnSeries && <ValueLabels valueFormatter={valueLabelFormatter} />}
+            {showAnnotations && (
+                <AnnotationsLayer
+                    insightNumericId={insight.id || 'new'}
+                    dates={annotationsDates}
+                    xTickFormatter={xTickFormatter}
+                />
+            )}
         </LineChart>
     )
 }

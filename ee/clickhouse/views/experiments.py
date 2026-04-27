@@ -4,7 +4,7 @@ from typing import Any, Literal, cast
 from django.conf import settings
 from django.db.models import Prefetch, QuerySet
 
-from drf_spectacular.utils import extend_schema, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from pydantic import RootModel as PydanticRootModel
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
@@ -843,6 +843,30 @@ class EnterpriseExperimentsViewSet(
             }
         )
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="metric_uuid",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "UUID of the metric to fetch timeseries for. Available on each metric in the "
+                    "experiment's metrics array."
+                ),
+                required=True,
+            ),
+            OpenApiParameter(
+                name="fingerprint",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Fingerprint of the metric configuration. Available alongside metric_uuid on "
+                    "each metric in the experiment's metrics array."
+                ),
+                required=True,
+            ),
+        ],
+    )
     @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
     def timeseries_results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment = self.get_object()

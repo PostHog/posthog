@@ -167,6 +167,7 @@ export function VisualReviewRunScene(): JSX.Element {
         repoFullName,
         isApproving,
         isApprovingSnapshot,
+        isRecomputing,
         isRunInProgress,
         isRunProcessing,
     } = useValues(visualReviewRunSceneLogic)
@@ -177,6 +178,7 @@ export function VisualReviewRunScene(): JSX.Element {
         markAsTolerated,
         quarantineSnapshot,
         unquarantineSnapshot,
+        recomputeRun,
     } = useActions(visualReviewRunSceneLogic)
 
     if (runLoading || !run) {
@@ -231,11 +233,25 @@ export function VisualReviewRunScene(): JSX.Element {
     const diffNew = run.summary.new
     const diffRemoved = run.summary.removed
     const diffTolerated = Math.max(0, (run.summary.tolerated_matched ?? 0) - reviewTolerated)
+    const hasChanges = diffChanged > 0 || diffNew > 0 || diffRemoved > 0
 
-    // If server counts are higher than loaded, show "+" to hint at pagination
-    const totalActionable = diffChanged + diffNew + diffRemoved
-    const loadedActionable = reviewPending + reviewApproved + reviewTolerated
-    const hasMore = totalActionable > loadedActionable
+    // Predict whether recompute would flip the gate — uses client-side quarantine set
+    // which updates immediately, unlike summary.unresolved which requires a recompute round-trip
+    const allChangesResolved =
+        run.status === 'completed' &&
+        !run.approved &&
+        !run.is_stale &&
+        hasChanges &&
+        snapshots
+            .filter((s: SnapshotApi) => s.result !== 'unchanged')
+            .every(
+                (s: SnapshotApi) =>
+                    quarantinedIdentifierSet.has(s.identifier) ||
+                    s.review_state === 'tolerated' ||
+                    s.review_state === 'approved'
+            )
+
+    const hasMore = diffChanged + diffNew + diffRemoved > reviewPending + reviewApproved + reviewTolerated
 
     // Navigation — use changed snapshots when there are changes, otherwise all snapshots
     const navSnapshots = sortedChangedSnapshots.length > 0 ? sortedChangedSnapshots : snapshots
@@ -287,6 +303,20 @@ export function VisualReviewRunScene(): JSX.Element {
                             View latest run
                         </Link>
                     )}
+                </LemonBanner>
+            )}
+
+            {allChangesResolved && (
+                <LemonBanner
+                    type="info"
+                    className="mb-4"
+                    action={{
+                        children: 'Re-trigger CI',
+                        loading: isRecomputing,
+                        onClick: recomputeRun,
+                    }}
+                >
+                    All changes are resolved — re-trigger to update the commit status and pass the gate.
                 </LemonBanner>
             )}
 
@@ -411,6 +441,14 @@ export function VisualReviewRunScene(): JSX.Element {
                             prNumber={run.pr_number}
                             repoFullName={repoFullName}
                             runType={run.run_type}
+                            githubRunId={(run.metadata?.github_run_id as string) || null}
+                            isRecomputing={isRecomputing}
+                            onRecompute={
+                                run.status === 'completed' && !run.approved && !run.is_stale ? recomputeRun : undefined
+                            }
+                            recomputeDisabledReason={
+                                !allChangesResolved ? 'Re-trigger would not change the outcome' : undefined
+                            }
                         />
                     ) : snapshotsLoading ? (
                         <div className="space-y-3 py-4">

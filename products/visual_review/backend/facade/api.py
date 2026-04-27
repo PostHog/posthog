@@ -78,6 +78,14 @@ def _to_snapshot(
     )
 
 
+def _compute_unresolved(run) -> int:
+    """Compute unresolved count from prefetched snapshots, or fall back to DB."""
+    # Use prefetched snapshots if available (detail view), skip for list views
+    if "snapshots" in getattr(run, "_prefetched_objects_cache", {}):
+        return sum(1 for s in run.snapshots.all() if logic._is_unresolved(s))
+    return 0
+
+
 def _to_run(run, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None) -> contracts.Run:
     approved_by = (user_basic_infos or {}).get(run.approved_by_id) if run.approved_by_id else None
     return contracts.Run(
@@ -96,6 +104,7 @@ def _to_run(run, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = N
             new=run.new_count,
             removed=run.removed_count,
             unchanged=run.total_snapshots - run.changed_count - run.new_count - run.removed_count,
+            unresolved=_compute_unresolved(run),
             tolerated_matched=run.tolerated_match_count,
         ),
         error_message=run.error_message or None,
@@ -227,7 +236,7 @@ def add_snapshots(input: contracts.AddSnapshotsInput, run_id: UUID, team_id: int
 
 
 def get_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
-    run = logic.get_run(run_id, team_id=team_id)
+    run = logic.get_run_with_snapshots(run_id, team_id=team_id)
     user_ids = {run.approved_by_id} if run.approved_by_id else set()
     user_basic_infos = _fetch_user_basic_infos(user_ids)
     return _to_run(run, user_basic_infos)
@@ -286,6 +295,18 @@ def complete_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
         logic.get_run(run_id, team_id=team_id)  # validates ownership
     run = logic.complete_run(run_id)
     return _to_run(run)
+
+
+def recompute_run(run_id: UUID, team_id: int | None = None) -> contracts.RecomputeResult:
+    result = logic.recompute_run(run_id, team_id=team_id)
+    run = logic.get_run_with_snapshots(run_id, team_id=team_id)
+    return contracts.RecomputeResult(
+        run=_to_run(run),
+        counts_changed=result["counts_changed"],
+        unresolved=result["unresolved"],
+        ci_rerun_triggered=result["ci_rerun_triggered"],
+        ci_rerun_error=result["ci_rerun_error"],
+    )
 
 
 def approve_all(
@@ -385,3 +406,7 @@ def quarantine_identifier(
 
 def unquarantine_identifier(repo_id: UUID, identifier: str, run_type: str, team_id: int) -> None:
     logic.unquarantine_identifier(repo_id=repo_id, identifier=identifier, run_type=run_type, team_id=team_id)
+
+
+def expire_quarantine_entry(entry_id: UUID, team_id: int) -> None:
+    logic.expire_quarantine_entry(entry_id=entry_id, team_id=team_id)

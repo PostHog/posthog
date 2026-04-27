@@ -271,12 +271,11 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
     def breakdowns_in_query(self) -> bool:
         return has_breakdown_filter(self.query.breakdownFilter)
 
-    @cached_property
-    def events_timestamp_filter(self) -> ast.Expr:
+    def events_timestamp_filter(self, field: ast.Expr | None = None) -> ast.Expr:
         """
         Timestamp filter between date_from and date_to
         """
-        field_to_compare = ast.Field(chain=["events", "timestamp"])
+        field_to_compare = field or ast.Field(chain=["events", "timestamp"])
         return ast.And(
             exprs=[
                 ast.CompareOperation(
@@ -343,7 +342,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
         if not is_first_occurrence_matching_filters and not is_first_ever_occurrence:
             # when it's recurring, we only have to grab events for the period, rather than events for all time
-            events_where.append(self.events_timestamp_filter)
+            events_where.append(self.events_timestamp_filter())
 
         # Pre-filter by event name
         events = self.get_events_for_entity(self.start_event) + self.get_events_for_entity(self.return_event)
