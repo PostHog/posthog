@@ -181,24 +181,17 @@ def _is_bot_mention(activity: dict) -> bool:
 _HELP_CARD_BODY = [
     {
         "type": "TextBlock",
-        "text": "\U0001f44b Hi, I'm SupportHog!",
+        "text": "\U0001f44b Hi, I'm SupportHog",
         "weight": "Bolder",
         "size": "Medium",
     },
     {
         "type": "TextBlock",
         "text": (
-            "I turn Microsoft Teams messages into PostHog support tickets so your team "
-            "never loses track of a customer question.\n\n"
+            "I turn Teams messages into PostHog support tickets, so you don't have to log into four different systems at once to answer one question. \n\n"
             "**How to use me**\n"
-            "\u2022 @mention me in any channel to open a new ticket from that message\n"
-            "\u2022 Reply in the thread and I'll sync the conversation to PostHog\n"
-            "\u2022 Pick a dedicated support channel in PostHog \u2192 Settings \u2192 "
-            "Conversations \u2192 Microsoft Teams to auto-create a ticket from every "
-            "new message there\n\n"
-            "**Commands**\n"
-            "\u2022 `@SupportHog help` \u2014 show this message\n"
-            "\u2022 `@SupportHog hi` \u2014 say hi"
+            "You can open a new ticket anywhere by tagging me with an @mention. I'll sync replies from threads. You can set up dedicated support channels in PostHog settings too!\n\n",
+            "Need help in the future? Just say '@SupportHog help' to get this message again.",
         ),
         "wrap": True,
     },
