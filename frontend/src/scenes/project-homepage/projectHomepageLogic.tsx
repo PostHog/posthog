@@ -1,16 +1,13 @@
-import { BuiltLogic, actions, beforeUnmount, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
-import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { MaxContextInput } from 'scenes/max/maxTypes'
 import { projectLogic } from 'scenes/projectLogic'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { Breadcrumb, DashboardBasicType, DashboardPlacement, InsightModel, QueryBasedInsightModel } from '~/types'
+import { Breadcrumb, DashboardBasicType, InsightModel, QueryBasedInsightModel } from '~/types'
 
 export type RecentItem =
     | (QueryBasedInsightModel & { itemType: 'insight' })
@@ -21,14 +18,7 @@ import type { projectHomepageLogicType } from './projectHomepageLogicType'
 export const projectHomepageLogic = kea<projectHomepageLogicType>([
     path(['scenes', 'project-homepage', 'projectHomepageLogic']),
     connect(() => ({
-        values: [
-            teamLogic,
-            ['currentTeam'],
-            projectLogic,
-            ['currentProjectId'],
-            dashboardsModel,
-            ['rawDashboards', 'dashboardsLoading'],
-        ],
+        values: [projectLogic, ['currentProjectId'], dashboardsModel, ['rawDashboards', 'dashboardsLoading']],
     })),
 
     actions({
@@ -63,17 +53,6 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
     })),
 
     selectors({
-        primaryDashboardId: [() => [teamLogic.selectors.currentTeam], (currentTeam) => currentTeam?.primary_dashboard],
-        dashboardLogicProps: [
-            (s) => [s.primaryDashboardId],
-            (primaryDashboardId): DashboardLogicProps | null =>
-                primaryDashboardId
-                    ? {
-                          id: primaryDashboardId,
-                          placement: DashboardPlacement.ProjectHomepage,
-                      }
-                    : null,
-        ],
         maxContext: [
             () => [],
             // Context is only added explicitly via the @Context button.
@@ -108,23 +87,5 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
                 },
             ],
         ],
-    }),
-
-    subscriptions(({ cache }) => ({
-        dashboardLogicProps: (dashboardLogicProps) => {
-            if (dashboardLogicProps) {
-                const unmount = (dashboardLogic(dashboardLogicProps) as BuiltLogic).mount()
-                cache.unmountDashboardLogic?.()
-                cache.unmountDashboardLogic = unmount
-            } else if (cache.unmountDashboardLogic) {
-                cache.unmountDashboardLogic?.()
-                cache.unmountDashboardLogic = null
-            }
-        },
-    })),
-
-    beforeUnmount(({ cache }) => {
-        cache.unmountDashboardLogic?.()
-        cache.unmountDashboardLogic = null
     }),
 ])
