@@ -48,9 +48,7 @@ pub async fn discover_controller(
     let pods: Api<Pod> = Api::namespaced(client.clone(), namespace);
     let pod = tokio::time::timeout(KUBE_CALL_TIMEOUT, pods.get(pod_name))
         .await
-        .map_err(|_| {
-            DiscoveryError::Timeout(KUBE_CALL_TIMEOUT, format!("pod.get({pod_name})"))
-        })?
+        .map_err(|_| DiscoveryError::Timeout(KUBE_CALL_TIMEOUT, format!("pod.get({pod_name})")))?
         .map_err(|e| {
             if is_not_found(&e) {
                 DiscoveryError::PodNotFound(pod_name.to_string())
