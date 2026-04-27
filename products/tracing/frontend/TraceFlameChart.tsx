@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconWarning } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
@@ -283,7 +283,14 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
         () => readStoredLabelColumnWidth() ?? DEFAULT_LABEL_COLUMN_WIDTH
     )
     const labelResizeActiveRef = useRef(false)
+    const labelSplitterDragCleanupRef = useRef<(() => void) | null>(null)
     const timelineRef = useRef<HTMLDivElement>(null)
+
+    useEffect(() => {
+        return () => {
+            labelSplitterDragCleanupRef.current?.()
+        }
+    }, [])
     const serviceColorMap = useMemo(() => buildServiceColorMap(spans), [spans])
     const tree = useMemo(() => buildSpanTree(spans), [spans])
     const flatSpans = useMemo(() => flattenTree(tree), [tree])
@@ -339,12 +346,14 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
                 setLabelColumnWidth(lastWidth)
             }
             const onUp = (): void => {
+                labelSplitterDragCleanupRef.current = null
                 document.removeEventListener('mousemove', onMove)
                 document.removeEventListener('mouseup', onUp)
                 document.body.classList.remove('is-resizing')
                 labelResizeActiveRef.current = false
                 persistLabelColumnWidth(lastWidth)
             }
+            labelSplitterDragCleanupRef.current = onUp
             document.addEventListener('mousemove', onMove)
             document.addEventListener('mouseup', onUp)
         },
