@@ -18,12 +18,11 @@ const FALLBACK_CONSTANTS: AppConstants = {
     POSTHOG_NEW_SOURCE_URL: 'https://app.posthog.com/data-warehouse/new-source?kind=Stripe',
 }
 
-// `stripe apps upload` server-canonicalises the manifest by adding a
-// `declarations` block alongside the existing top-level `constants`. With a
-// `declarations` block present the SDK reads `declarations.constants` and
-// finds nothing, so `environment.constants` is undefined at runtime. Fall
-// back to the hardcoded values when that happens. Reproduced on CLI 1.40.0
-// and 1.40.8. See https://github.com/PostHog/posthog/pull/56404.
+// Must match the `constants` block in stripe-app.json.
+// `stripe apps upload` (apps plugin <1.15.32) server-canonicalises the manifest
+// by adding a `declarations` block that causes the SDK to ignore top-level
+// `constants` at runtime, making `environment.constants` undefined. Fall back
+// to these hardcoded values when that happens. See PR #56404.
 export function getConstants(environment: ExtensionContextValue['environment']): AppConstants {
     return (environment?.constants as unknown as AppConstants | undefined) ?? FALLBACK_CONSTANTS
 }
