@@ -56,6 +56,7 @@ from posthog.test.idor.fk_discovery import (
     discover_filter_params,
     discover_writable_tenant_fks,
 )
+from posthog.test.idor.json_fk_probes import JsonFkProbe, get_registered_probes
 from posthog.test.idor.skip_list import (
     IDOR_5XX_KNOWN_LATENT,
     IDOR_ACTION_SKIP_LIST,
@@ -229,6 +230,31 @@ def _iter_action_query_param_cases() -> list[tuple[str, IDORTestCase, ActionQuer
 
 
 ACTION_QUERY_PARAM_CASES = _iter_action_query_param_cases()
+
+
+def _iter_json_probe_cases() -> list[tuple[str, IDORTestCase, JsonFkProbe]]:
+    """Cross-product of (viewset case whose serializer matches a probe × probe).
+
+    Phase 6 — runtime probes for known JSON-FK shapes. Each probe is
+    registered in `posthog/test/idor/json_fk_probes.py` and pairs a
+    serializer + JSON field with an inject function that smuggles a
+    victim's tenant pk into the JSON tree at the right depth.
+    """
+    out: list[tuple[str, IDORTestCase, JsonFkProbe]] = []
+    probes = get_registered_probes()
+    for case in DISCOVERED_CASES:
+        serializer_cls = getattr(case.viewset_cls, "serializer_class", None)
+        if serializer_cls is None:
+            continue
+        for probe in probes:
+            if probe.serializer_class is not serializer_cls:
+                continue
+            label = f"{case.name}__{probe.field_name}__{probe.target_model.__name__}"
+            out.append((label, case, probe))
+    return out
+
+
+JSON_PROBE_CASES = _iter_json_probe_cases()
 
 
 def _tenant_root_params() -> list[tuple[str, TenantRootCase]]:
@@ -837,6 +863,89 @@ class TestAutomatedIDORCoverage(IDORTestMixin, APIBaseTest):
             return
 
         _assert_single_fk_not_bound_to_victim(reloaded, fk, victim_fk_pk, url, case)
+
+    @parameterized.expand(JSON_PROBE_CASES)
+    def test_cross_tenant_fk_in_json(
+        self,
+        _name: str,
+        case: IDORTestCase,
+        probe: JsonFkProbe,
+    ) -> None:
+        """Attacker cannot smuggle a victim's pk into a JSON field handled by `probe`.
+
+        Discovery cannot reach inside JSON fields, so each known JSON-FK
+        shape needs an explicit probe (registered in
+        `posthog/test/idor/json_fk_probes.py`). The runtime synthesizes a
+        body for the probe's serializer, applies the inject function to
+        smuggle the victim's pk into the JSON tree, and PATCHes the
+        attacker's own resource. A vulnerable handler accepts the
+        cross-tenant id without re-validating it against `self.team`.
+        """
+        instance, url, _sentinel = self._build_instance_and_url(case, team_for_instance=self.team)
+
+        # Build the victim's pk in the cross-tenant target model.
+        try:
+            victim_resource = build_minimal_instance(probe.target_model, team=self.victim_team)  # type: ignore[attr-defined]
+        except Exception as exc:
+            self.skipTest(
+                f"{case.name}.{probe.field_name}: could not build victim "
+                f"{probe.target_model.__name__} ({type(exc).__name__}: {exc})"
+            )
+
+        # Synthesize a base body, then run the probe to inject the victim pk
+        # into the JSON field. PATCH semantics let us send a sparse body —
+        # only the JSON field needs to be present for the validate() path.
+        body: dict[str, Any] = {}
+        try:
+            body = build_minimal_post_body(probe.serializer_class, team=self.team)  # type: ignore[attr-defined]
+        except Exception:
+            # PATCH allows a sparse body; the probe will fill in the JSON field.
+            pass
+        body = probe.inject_fn(body, victim_resource.pk)
+
+        response = self.client.patch(url, data=body, format="json")  # type: ignore[attr-defined]
+
+        # 5xx — latent server bug; warn unless explicitly known-latent.
+        if response.status_code >= 500:
+            _maybe_warn_5xx(f"{case.name}.{probe.field_name}", response.status_code)
+            return
+        # Non-2xx is acceptable — the validator rejected the cross-tenant id.
+        if response.status_code not in range(200, 300):
+            return
+
+        # 2xx — verify the victim's pk wasn't actually persisted into the JSON
+        # field. Walk the reloaded instance's stored value and look for the
+        # victim_pk anywhere in the structure.
+        reloaded = case.model_cls.objects.filter(pk=instance.pk).first()  # type: ignore[attr-defined]
+        if reloaded is None:
+            return
+        stored = getattr(reloaded, probe.field_name, None)
+        if stored is None:
+            return
+        victim_pk = victim_resource.pk
+        if _json_contains_value(stored, victim_pk):
+            raise AssertionError(
+                f"IDOR: PATCH {url} accepted a cross-tenant {probe.target_model.__name__}(pk={victim_pk}) "
+                f"smuggled into {case.model_cls.__name__}.{probe.field_name}. {probe.description}"
+            )
+
+
+def _json_contains_value(node: Any, target: Any) -> bool:
+    """Recursive search for `target` (compared via str) anywhere in a JSON tree.
+
+    The probe injection writes ints/UUIDs that may be coerced to strings on
+    the wire; comparing as strings keeps the check robust against type
+    drift through DRF + Postgres JSON serialization.
+    """
+    target_str = str(target)
+    if isinstance(node, dict):
+        for value in node.values():
+            if _json_contains_value(value, target_str):
+                return True
+        return False
+    if isinstance(node, list):
+        return any(_json_contains_value(item, target_str) for item in node)
+    return str(node) == target_str
 
 
 def _read_lookup_value(instance: object, kwarg: str) -> Any:
