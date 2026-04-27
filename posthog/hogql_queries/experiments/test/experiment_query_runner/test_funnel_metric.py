@@ -1075,6 +1075,154 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
     @parameterized.expand(
         [
             ("direct", False),
+            # Skip precomputed for data warehouse - not yet supported
+        ]
+    )
+    @snapshot_clickhouse_queries
+    def test_query_runner_data_warehouse_funnel_no_fanout(self, name, use_precomputation):
+        """
+        Test that argMin prevents fan-out when a user has multiple exposures with varying join keys.
+
+        This addresses Anders' comment about fan-out issue: when a single experiment entity has
+        multiple exposure events with different values of events_join_key (e.g., $user_id changes
+        across exposures), the exposure_identifier should NOT be added to GROUP BY as that would
+        create multiple rows in entity_metrics.
+
+        Instead, we use argMin(join_key, timestamp) to pick the join key from the first exposure.
+
+        Test scenario:
+        - Control user has 3 exposures with different $user_id values (user_control_1, user_control_2, user_control_3)
+        - Test user has 2 exposures with different $user_id values (user_test_1, user_test_2)
+
+        Expected behavior with argMin fix:
+        - Control: 1 row in entity_metrics (NOT 3), uses first $user_id (user_control_1)
+        - Test: 1 row in entity_metrics (NOT 2), uses first $user_id (user_test_1)
+        - num_users count is correct (counts unique entity_id, not rows)
+        """
+        table_name = self.create_data_warehouse_table_with_usage()
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag, start_date=datetime(2023, 1, 1), end_date=datetime(2023, 1, 31)
+        )
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        metric = ExperimentFunnelMetric(
+            series=[
+                EventsNode(event="$pageview"),
+                ExperimentDataWarehouseNode(
+                    table_name=table_name,
+                    events_join_key="properties.$user_id",
+                    data_warehouse_join_key="userid",
+                    timestamp_field="ds",
+                ),
+            ],
+        )
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+        experiment.exposure_criteria = {"filterTestAccounts": False}
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        # Create persons first so they're merged into one person
+        _create_person(distinct_ids=["distinct_control_fanout"], team_id=self.team.pk)
+        _create_person(distinct_ids=["distinct_test_fanout"], team_id=self.team.pk)
+
+        # Control: Single person with 3 exposures having DIFFERENT $user_id values
+        # This is the fan-out scenario Anders identified
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="distinct_control_fanout",
+            properties={
+                "$feature_flag_response": "control",
+                feature_flag_property: "control",
+                "$feature_flag": feature_flag.key,
+                "$user_id": "user_control_1",  # First exposure uses this
+                "$group_0": "my_awesome_group",
+            },
+            timestamp=datetime(2023, 1, 1, 10, 0),
+        )
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="distinct_control_fanout",
+            properties={
+                "$feature_flag_response": "control",
+                feature_flag_property: "control",
+                "$feature_flag": feature_flag.key,
+                "$user_id": "user_control_2",  # Second exposure different value
+                "$group_0": "my_awesome_group",
+            },
+            timestamp=datetime(2023, 1, 1, 11, 0),
+        )
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="distinct_control_fanout",
+            properties={
+                "$feature_flag_response": "control",
+                feature_flag_property: "control",
+                "$feature_flag": feature_flag.key,
+                "$user_id": "user_control_3",  # Third exposure different value
+                "$group_0": "my_awesome_group",
+            },
+            timestamp=datetime(2023, 1, 1, 12, 0),
+        )
+
+        # Test: Single person with 2 exposures having DIFFERENT $user_id values
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="distinct_test_fanout",
+            properties={
+                "$feature_flag_response": "test",
+                feature_flag_property: "test",
+                "$feature_flag": feature_flag.key,
+                "$user_id": "user_test_1",  # First exposure uses this
+                "$group_0": "my_awesome_group",
+            },
+            timestamp=datetime(2023, 1, 2, 10, 0),
+        )
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="distinct_test_fanout",
+            properties={
+                "$feature_flag_response": "test",
+                feature_flag_property: "test",
+                "$feature_flag": feature_flag.key,
+                "$user_id": "user_test_2",  # Second exposure different value
+                "$group_0": "my_awesome_group",
+            },
+            timestamp=datetime(2023, 1, 2, 11, 0),
+        )
+
+        flush_persons_and_events()
+
+        # Execute query
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        with freeze_time("2023-01-07"):
+            result = query_runner.calculate()
+
+        # Verify NO fan-out occurred
+        # Without argMin fix: Control would have 3 rows (one per $user_id), Test would have 2 rows
+        # With argMin fix: Control has 1 row, Test has 1 row
+        assert result.baseline.number_of_samples == 1, "Control should have exactly 1 entity (no fan-out)"
+        assert result.variant_results[0].number_of_samples == 1, "Test should have exactly 1 entity (no fan-out)"
+
+        # Verify the query used argMin for attribution (check SQL in snapshot)
+        # The exposure_identifier should use argMin(properties.$user_id, timestamp)
+        # NOT be added to GROUP BY which would cause fan-out
+
+    @parameterized.expand(
+        [
+            ("direct", False),
             ("precomputed", True),
         ]
     )
