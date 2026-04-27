@@ -11,8 +11,8 @@
 const POSTHOG_HOST = 'https://us.i.posthog.com'
 const EVENT_NAME = 'github_rate_limit_observed'
 
-async function captureEvent({ posthogToken, event, distinctId, properties, timestamp }) {
-    const res = await fetch(`${POSTHOG_HOST}/capture/`, {
+async function captureEvent({ fetchImpl, posthogToken, event, distinctId, properties, timestamp }) {
+    const res = await fetchImpl(`${POSTHOG_HOST}/capture/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -29,10 +29,9 @@ async function captureEvent({ posthogToken, event, distinctId, properties, times
     }
 }
 
-function buildProperties({ resource, snapshot, observedAt, repo, runId }) {
+function buildProperties({ resource, snapshot, observedAt, observedAtSeconds, repo, runId }) {
     const used = typeof snapshot.used === 'number' ? snapshot.used : snapshot.limit - snapshot.remaining
     const utilization = snapshot.limit > 0 ? used / snapshot.limit : 0
-    const nowSeconds = Math.floor(Date.parse(observedAt) / 1000)
     return {
         repo,
         resource,
@@ -41,7 +40,7 @@ function buildProperties({ resource, snapshot, observedAt, repo, runId }) {
         limit: snapshot.limit,
         utilization,
         reset_at: new Date(snapshot.reset * 1000).toISOString(),
-        reset_in_seconds: Math.max(0, snapshot.reset - nowSeconds),
+        reset_in_seconds: Math.max(0, snapshot.reset - observedAtSeconds),
         source: 'github_token',
         observed_at: observedAt,
         workflow_run_id: runId || null,
@@ -49,10 +48,10 @@ function buildProperties({ resource, snapshot, observedAt, repo, runId }) {
 }
 
 module.exports = async ({ github, context, core }, { now: _now, fetch: _fetch } = {}) => {
-    if (_fetch) {
-        global.fetch = _fetch
-    }
-    const observedAt = (_now ? _now() : new Date()).toISOString()
+    const fetchImpl = _fetch || fetch
+    const observedAtDate = _now ? _now() : new Date()
+    const observedAt = observedAtDate.toISOString()
+    const observedAtSeconds = Math.floor(observedAtDate.getTime() / 1000)
     const repo = `${context.repo.owner}/${context.repo.repo}`
     const runId = process.env.GITHUB_RUN_ID || null
 
@@ -71,10 +70,11 @@ module.exports = async ({ github, context, core }, { now: _now, fetch: _fetch } 
     let failures = 0
     for (const [resource, snapshot] of Object.entries(resources)) {
         if (!snapshot || typeof snapshot.limit !== 'number' || typeof snapshot.remaining !== 'number') continue
-        const properties = buildProperties({ resource, snapshot, observedAt, repo, runId })
+        const properties = buildProperties({ resource, snapshot, observedAt, observedAtSeconds, repo, runId })
         core.info(`${resource}: ${properties.remaining}/${properties.limit} remaining (resets ${properties.reset_at})`)
         try {
             await captureEvent({
+                fetchImpl,
                 posthogToken,
                 event: EVENT_NAME,
                 distinctId: repo,
