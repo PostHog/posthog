@@ -3,6 +3,7 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 
+import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { resetKafka } from '~/tests/helpers/kafka'
 import { forSnapshot } from '~/tests/helpers/snapshots'
@@ -112,7 +113,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                     ...hub,
                     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: mode === 'hybrid' ? 'kafka' : mode,
                 },
-                hub
+                createCdpConsumerDeps(hub)
             )
             await eventsConsumer.start()
 
@@ -121,7 +122,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                     ...hub,
                     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
                 },
-                hub
+                createCdpConsumerDeps(hub)
             )
             await cyclotronWorkerKafka.start()
 
@@ -130,7 +131,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                     ...hub,
                     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres',
                 },
-                hub
+                createCdpConsumerDeps(hub)
             )
             await cyclotronWorkerPostgres.start()
 

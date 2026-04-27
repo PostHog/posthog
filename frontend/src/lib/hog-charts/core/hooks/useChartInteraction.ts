@@ -56,6 +56,42 @@ export function useChartInteraction<Meta = unknown>({
 
     const isPinned = tooltipCtx?.isPinned ?? false
 
+    // Rebuild or clear the pinned tooltip when its underlying inputs change.
+    // Without this, the pin keeps stale values at stale pixel positions after the
+    // parent updates series/labels/scales/dimensions. resolveValue is read live via a
+    // ref so each render's new closure doesn't trigger a rebuild.
+    const resolveValueRef = useRef(resolveValue)
+    resolveValueRef.current = resolveValue
+    useEffect(() => {
+        if (!isPinned || !scales || !dimensions) {
+            return
+        }
+        setTooltipCtx((prev) => {
+            if (!prev || !prev.isPinned) {
+                return prev
+            }
+            if (prev.dataIndex >= labels.length) {
+                return null
+            }
+            const canvasBounds = canvasRef.current?.getBoundingClientRect() ?? new DOMRect()
+            const fresh = buildTooltipContext(
+                prev.dataIndex,
+                series,
+                labels,
+                scales.x,
+                scales.y,
+                canvasBounds,
+                resolveValueRef.current,
+                scales.yAxes
+            )
+            return fresh ? { ...fresh, isPinned: true, onUnpin: unpin } : null
+        })
+        // Omitted on purpose:
+        //   - isPinned / tooltipCtx: would feedback-loop with setTooltipCtx
+        //   - unpin / canvasRef: stable for the lifetime of the hook (useCallback([])/useRef)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [series, labels, scales, dimensions])
+
     // Dismiss listeners for pinned tooltip
     useEffect(() => {
         if (!isPinned) {
@@ -162,7 +198,10 @@ export function useChartInteraction<Meta = unknown>({
             return
         }
 
-        // Pin the tooltip if pinnable and there are multiple series
+        // Pin the tooltip if pinnable and there are multiple series — first click pins,
+        // a follow-up click on a tooltip row drills into a specific series via the
+        // consumer's own row handler. With a single series there's nothing to pin, so
+        // onPointClick fires immediately instead.
         if (pinnable && tooltipCtx && tooltipCtx.seriesData.length > 1) {
             setTooltipCtx({ ...tooltipCtx, isPinned: true, onUnpin: unpin })
             return

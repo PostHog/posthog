@@ -123,7 +123,20 @@ class AlertCheckQuery:
         return AlertCheckCountResult(count=count, query_duration_ms=duration_ms)
 
     def execute_bucketed(self, interval_minutes: int, *, limit: int = 10_000) -> list[BucketedCount]:
-        """Return time-bucketed counts for preview charts."""
+        """Return time-bucketed counts.
+
+        Used by the simulate preview chart and (as of the stateless eval refactor)
+        the production alert evaluator, which derives its N-of-M window directly
+        from the bucket sequence. Operational contract callers depend on:
+
+        - Buckets returned in ASC (oldest-first) order; alert eval reverses to get
+          newest-first for the state machine.
+        - `limit` bounds the row count to `evaluation_periods` for the eval path
+          (preview path uses MAX_SIMULATE_BUCKETS).
+        - Bucket boundaries are aligned to `toStartOfInterval(…, interval_minutes)`
+          from midnight UTC — pass cadence-aligned `date_from`/`date_to` so each
+          returned bucket holds a full `interval_minutes` of data.
+        """
         self._tag()
 
         # Wrapping in toStartOfMinute() lets ClickHouse match the projection's
@@ -237,11 +250,18 @@ def fetch_live_logs_checkpoint(team: Team) -> dt.datetime | None:
     return checkpoint
 
 
-def resolve_alert_date_to(now: dt.datetime, checkpoint: dt.datetime | None) -> dt.datetime:
-    """Anchor `date_to` on the checkpoint when fresh, else fall back to `now`."""
-    if checkpoint is None or (now - checkpoint) > CHECKPOINT_MAX_STALENESS:
-        return now
-    return min(now, checkpoint)
+def resolve_alert_date_to(nca: dt.datetime, checkpoint: dt.datetime | None) -> dt.datetime:
+    """Anchor `date_to` on the alert's scheduled `next_check_at`, clamped to the
+    ingestion checkpoint when the checkpoint is fresh enough.
+
+    Anchoring on `next_check_at` (not wall-clock-now) is what makes the query
+    window deterministic across retries and immune to scheduler lag — two evals
+    of the same alert at different actual eval times produce the same `date_to`
+    and thus the same query.
+    """
+    if checkpoint is None or (nca - checkpoint) > CHECKPOINT_MAX_STALENESS:
+        return nca
+    return min(nca, checkpoint)
 
 
 def is_projection_eligible(filters: dict) -> bool:
