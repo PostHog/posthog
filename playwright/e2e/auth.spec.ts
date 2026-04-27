@@ -102,6 +102,7 @@ test.describe('Auth', () => {
 
     test('Logout in another tab results in logout in the current tab too', async ({ page, context }) => {
         const secondPage = await context.newPage()
+        await secondPage.goto('/')
         await secondPage.locator('[data-attr=new-account-menu-button]').click()
         await secondPage.locator('[data-attr=new-account-menu-logout-button]').click()
         await secondPage.waitForURL(/\/login/)
