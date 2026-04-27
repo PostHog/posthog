@@ -78,13 +78,6 @@ fn decide_on_error(
         }
     } else if is_transient_server_error(err) {
         let delay = policy.next_delay(current_attempt);
-        warn!(
-            date_range = ?current_date_range,
-            attempt = current_attempt,
-            delay_secs = delay.as_secs(),
-            "upstream 5xx error, scheduling retry: {:#}",
-            err
-        );
         let (status_msg, display_msg) =
             format_backoff_messages(current_date_range, delay, "Upstream server error (5xx)");
         ErrorHandlingDecision::Backoff {
