@@ -48,17 +48,21 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
         }
 
         beforeEach(async () => {
+            // Each `KafkaProducerWrapper.create()` call (e.g. inside each cyclotron job
+            // queue) gets a fresh real producer it owns and disconnects on stop. The
+            // CDP outputs registry uses the dedicated `kafkaProducer` below — a separate
+            // real producer the test owns, observes, and disconnects in `afterEach`.
+            MockKafkaProducerWrapper.create = jest.fn((...args) => {
+                return ActualKafkaProducerWrapper.create(...args)
+            })
+
             await resetKafka()
 
             await resetTestDatabase()
             hub = await createHub()
 
-            // Build a single real producer that the registry, the cyclotron job queue,
-            // and any other `KafkaProducerWrapper.create()` caller all share — so the
-            // observer below sees every produce that happens during the test.
             kafkaProducer = await ActualKafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
             mockProducerObserver = new KafkaProducerObserver(kafkaProducer)
-            MockKafkaProducerWrapper.create = jest.fn(() => Promise.resolve(kafkaProducer))
 
             team = await getFirstTeam(hub.postgres)
             mockProducerObserver.resetKafkaProducer()
