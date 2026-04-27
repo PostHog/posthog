@@ -24,6 +24,17 @@ export function computeSeriesNonZeroMax(series: Series[]): number {
     return max === Number.NEGATIVE_INFINITY ? 0 : max
 }
 
+function goalLineToReferenceLine(goal: SchemaGoalLine, variant: 'goal' | 'alert'): ReferenceLineProps {
+    return {
+        value: goal.value,
+        orientation: 'horizontal',
+        label: goal.displayLabel === false ? undefined : goal.label,
+        labelPosition: goal.position ?? 'start',
+        variant,
+        style: goal.borderColor ? { color: goal.borderColor } : undefined,
+    }
+}
+
 /** Map persisted {@link SchemaGoalLine}s to {@link ReferenceLineProps} for the hog-charts
  *  primitive, preserving the `displayIfCrossed` filter. The filter drops a goal when
  *  `displayIfCrossed` is explicitly `false` *and* the line sits below the series peak —
@@ -38,14 +49,17 @@ export function goalLinesToReferenceLines(
     const seriesNonZeroMax = computeSeriesNonZeroMax(series)
     return goalLines
         .filter((goal) => goal.displayIfCrossed !== false || goal.value >= seriesNonZeroMax)
-        .map(
-            (goal): ReferenceLineProps => ({
-                value: goal.value,
-                orientation: 'horizontal',
-                label: goal.displayLabel === false ? undefined : goal.label,
-                labelPosition: goal.position ?? 'start',
-                variant: 'goal',
-                style: goal.borderColor ? { color: goal.borderColor } : undefined,
-            })
-        )
+        .map((goal) => goalLineToReferenceLine(goal, 'goal'))
+}
+
+/** Map alert threshold lines (sourced from `insightAlertsLogic.alertThresholdLines`) to
+ *  {@link ReferenceLineProps}. Same shape as goal lines, but rendered with the `alert`
+ *  variant (dashed red) so they read as bounds, not targets. */
+export function alertThresholdsToReferenceLines(
+    alertThresholdLines: SchemaGoalLine[] | null | undefined
+): ReferenceLineProps[] {
+    if (!alertThresholdLines?.length) {
+        return []
+    }
+    return alertThresholdLines.map((line) => goalLineToReferenceLine(line, 'alert'))
 }

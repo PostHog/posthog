@@ -25,6 +25,8 @@ import type { IndexedTrendResult } from '../types'
 import { AnnotationsLayer } from './AnnotationsLayer'
 import { goalLinesToReferenceLines } from './goalLinesAdapter'
 import { handleTrendsLineChartClick } from './handleTrendsLineChartClick'
+import { TrendsAlertOverlays } from './TrendsAlertOverlays'
+import { buildTrendsYTickFormatter } from './trendsAxisFormat'
 import type { TrendsSeriesMeta } from './trendsSeriesMeta'
 import { TrendsTooltip } from './TrendsTooltip'
 
@@ -217,6 +219,11 @@ export function TrendsLineChartD3({ context, inSharedMode = false }: TrendsLineC
         [interval, currentPeriodResult?.days, timezone]
     )
 
+    const yTickFormatter = useMemo(
+        () => buildTrendsYTickFormatter(trendsFilter, isPercentStackView, baseCurrency),
+        [trendsFilter, isPercentStackView, baseCurrency]
+    )
+
     const chartConfig: LineChartConfig = useMemo(
         () => ({
             showGrid: true,
@@ -225,11 +232,20 @@ export function TrendsLineChartD3({ context, inSharedMode = false }: TrendsLineC
             yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
             percentStackView: isPercentStackView,
             xTickFormatter,
+            yTickFormatter,
         }),
-        [yAxisScaleType, isPercentStackView, xTickFormatter]
+        [yAxisScaleType, isPercentStackView, xTickFormatter, yTickFormatter]
     )
 
     const referenceLines = useMemo(() => goalLinesToReferenceLines(goalLines, hogSeries), [goalLines, hogSeries])
+
+    const getYAxisId = useCallback(
+        (r: IndexedTrendResult) => {
+            const idx = (indexedResults ?? []).indexOf(r)
+            return showMultipleYAxes && idx > 0 ? `y${idx}` : DEFAULT_Y_AXIS_ID
+        },
+        [indexedResults, showMultipleYAxes]
+    )
 
     const valueLabelFormatter = useCallback(
         (value: number) => formatPercentStackAxisValue(trendsFilter, value, isPercentStackView, baseCurrency),
@@ -331,6 +347,16 @@ export function TrendsLineChartD3({ context, inSharedMode = false }: TrendsLineC
             className="LineGraph"
         >
             <ReferenceLines lines={referenceLines} />
+            {insight.id ? (
+                <TrendsAlertOverlays
+                    insightId={insight.id}
+                    insightProps={insightProps}
+                    indexedResults={indexedResults}
+                    getColor={getTrendsColor}
+                    getYAxisId={getYAxisId}
+                    isHidden={getTrendsHidden}
+                />
+            ) : null}
             {showValuesOnSeries && <ValueLabels valueFormatter={valueLabelFormatter} />}
             {showAnnotations && (
                 <AnnotationsLayer

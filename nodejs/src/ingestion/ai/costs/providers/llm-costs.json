@@ -1,5 +1,17 @@
 [
     {
+        "model": "~anthropic/claude-haiku-latest",
+        "cost": {
+            "default": {
+                "prompt_token": 0.000001,
+                "completion_token": 0.000005,
+                "cache_read_token": 1e-7,
+                "cache_write_token": 0.00000125,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
         "model": "~anthropic/claude-opus-latest",
         "cost": {
             "default": {
@@ -7,6 +19,80 @@
                 "completion_token": 0.000025,
                 "cache_read_token": 5e-7,
                 "cache_write_token": 0.00000625,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "~anthropic/claude-sonnet-latest",
+        "cost": {
+            "default": {
+                "prompt_token": 0.000003,
+                "completion_token": 0.000015,
+                "cache_read_token": 3e-7,
+                "cache_write_token": 0.00000375,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "~google/gemini-flash-latest",
+        "cost": {
+            "default": {
+                "prompt_token": 5e-7,
+                "completion_token": 0.000003,
+                "cache_read_token": 5e-8,
+                "cache_write_token": 8.333333333e-8,
+                "web_search": 0.014,
+                "image": 5e-7,
+                "audio": 0.000001,
+                "internal_reasoning": 0.000003
+            }
+        }
+    },
+    {
+        "model": "~google/gemini-pro-latest",
+        "cost": {
+            "default": {
+                "prompt_token": 0.000002,
+                "completion_token": 0.000012,
+                "cache_read_token": 2e-7,
+                "cache_write_token": 3.75e-7,
+                "web_search": 0.014,
+                "image": 0.000002,
+                "audio": 0.000002,
+                "internal_reasoning": 0.000012
+            }
+        }
+    },
+    {
+        "model": "~moonshotai/kimi-latest",
+        "cost": {
+            "default": {
+                "prompt_token": 7.448e-7,
+                "completion_token": 0.000004655,
+                "cache_read_token": 1.463e-7
+            }
+        }
+    },
+    {
+        "model": "~openai/gpt-latest",
+        "cost": {
+            "default": {
+                "prompt_token": 0.000005,
+                "completion_token": 0.00003,
+                "cache_read_token": 5e-7,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "~openai/gpt-mini-latest",
+        "cost": {
+            "default": {
+                "prompt_token": 7.5e-7,
+                "completion_token": 0.0000045,
+                "cache_read_token": 7.5e-8,
                 "web_search": 0.01
             }
         }
@@ -1443,15 +1529,20 @@
                 "completion_token": 0.000002784,
                 "cache_read_token": 1.16e-7
             },
-            "io-net": {
-                "prompt_token": 0.00000445,
-                "completion_token": 0.0000055,
-                "cache_read_token": 3.5e-7
+            "novita": {
+                "prompt_token": 0.00000174,
+                "completion_token": 0.00000348,
+                "cache_read_token": 1.45e-7
             },
             "siliconflow-fp8": {
                 "prompt_token": 0.00000174,
                 "completion_token": 0.00000348,
                 "cache_read_token": 1.45e-7
+            },
+            "together": {
+                "prompt_token": 0.0000021,
+                "completion_token": 0.0000044,
+                "cache_read_token": 2e-7
             }
         }
     },
@@ -2055,8 +2146,8 @@
                 "completion_token": 1.3e-7
             },
             "sambanova": {
-                "prompt_token": 2e-7,
-                "completion_token": 3.5e-7
+                "prompt_token": 2.2e-7,
+                "completion_token": 5.9e-7
             }
         }
     },
@@ -3025,8 +3116,8 @@
                 "completion_token": 0.00000138
             },
             "sambanova": {
-                "prompt_token": 3e-7,
-                "completion_token": 0.0000012
+                "prompt_token": 2.2e-7,
+                "completion_token": 5.9e-7
             },
             "siliconflow-fp8": {
                 "prompt_token": 3e-7,
@@ -4802,6 +4893,12 @@
                 "cache_read_token": 5e-7,
                 "web_search": 0.01
             },
+            "azure": {
+                "prompt_token": 0.000005,
+                "completion_token": 0.00003,
+                "cache_read_token": 5e-7,
+                "web_search": 0.01
+            },
             "openai": {
                 "prompt_token": 0.000005,
                 "completion_token": 0.00003,
@@ -6394,18 +6491,18 @@
         "model": "qwen/qwen3.6-27b",
         "cost": {
             "default": {
-                "prompt_token": 1.95e-7,
-                "completion_token": 0.00000156,
-                "cache_read_token": 9.75e-8
+                "prompt_token": 5e-7,
+                "completion_token": 0.000002,
+                "cache_read_token": 2.5e-7
             },
             "alibaba": {
                 "prompt_token": 6e-7,
                 "completion_token": 0.0000036
             },
             "chutes-fp8": {
-                "prompt_token": 1.95e-7,
-                "completion_token": 0.00000156,
-                "cache_read_token": 9.75e-8
+                "prompt_token": 5e-7,
+                "completion_token": 0.000002,
+                "cache_read_token": 2.5e-7
             },
             "morph": {
                 "prompt_token": 5.5e-7,
@@ -6420,6 +6517,10 @@
                 "prompt_token": 1.612e-7,
                 "completion_token": 9.6525e-7,
                 "cache_read_token": 1.612e-7
+            },
+            "akashml-fp8": {
+                "prompt_token": 2.3e-7,
+                "completion_token": 0.0000018
             },
             "atlas-cloud-fp8": {
                 "prompt_token": 1.612e-7,
@@ -7249,11 +7350,6 @@
                 "prompt_token": 0.00000225,
                 "completion_token": 0.00000275,
                 "cache_read_token": 0.00000225
-            },
-            "chutes-bf16": {
-                "prompt_token": 3.9e-7,
-                "completion_token": 0.00000175,
-                "cache_read_token": 1.95e-7
             },
             "deepinfra-fp4": {
                 "prompt_token": 4e-7,
