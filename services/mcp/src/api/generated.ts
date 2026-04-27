@@ -12160,10 +12160,10 @@ export namespace Schemas {
       Sessions: 'sessions',
     } as const;
 
-    export type OrderDirection2 = typeof OrderDirection2[keyof typeof OrderDirection2];
+    export type OrderDirection3 = typeof OrderDirection3[keyof typeof OrderDirection3];
 
 
-    export const OrderDirection2 = {
+    export const OrderDirection3 = {
       Asc: 'ASC',
       Desc: 'DESC',
     } as const;
@@ -12249,7 +12249,7 @@ export namespace Schemas {
       /** Field to sort results by. */
       orderBy: ErrorTrackingOrderBy;
       /** Sort direction. */
-      orderDirection?: OrderDirection2 | null;
+      orderDirection?: OrderDirection3 | null;
       /**
        * Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only). The backend caps the list at 50 entries; extras are dropped silently.
        * @nullable
@@ -14135,10 +14135,10 @@ export namespace Schemas {
       Timestamp: 'timestamp',
     } as const;
 
-    export type OrderDirection1 = typeof OrderDirection1[keyof typeof OrderDirection1];
+    export type OrderDirection2 = typeof OrderDirection2[keyof typeof OrderDirection2];
 
 
-    export const OrderDirection1 = {
+    export const OrderDirection2 = {
       Asc: 'asc',
       Desc: 'desc',
     } as const;
@@ -14217,7 +14217,7 @@ export namespace Schemas {
       /** @nullable */
       offset?: number | null;
       order_by: OrderBy;
-      order_direction: OrderDirection1;
+      order_direction: OrderDirection2;
       origin: EmbeddedDocument;
       products: string[];
       renderings: string[];

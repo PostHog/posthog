@@ -8368,9 +8368,9 @@ export const ErrorTrackingOrderByApi = {
     Sessions: 'sessions',
 } as const
 
-export type OrderDirection2Api = (typeof OrderDirection2Api)[keyof typeof OrderDirection2Api]
+export type OrderDirection3Api = (typeof OrderDirection3Api)[keyof typeof OrderDirection3Api]
 
-export const OrderDirection2Api = {
+export const OrderDirection3Api = {
     Asc: 'ASC',
     Desc: 'DESC',
 } as const
@@ -8456,7 +8456,7 @@ export interface ErrorTrackingQueryApi {
     /** Field to sort results by. */
     orderBy: ErrorTrackingOrderByApi
     /** Sort direction. */
-    orderDirection?: OrderDirection2Api | null
+    orderDirection?: OrderDirection3Api | null
     /**
      * Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only). The backend caps the list at 50 entries; extras are dropped silently.
      * @nullable
