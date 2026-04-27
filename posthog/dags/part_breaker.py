@@ -1075,6 +1075,17 @@ def break_part(
             )
             pre_attach_row_count = (pre_attach_rows[0][0] or 0) if pre_attach_rows else 0
 
+            # Re-read staging row count right before ATTACH. Background merges on staging
+            # (ReplacingMergeTree) can dedupe further between step 8 and now, making the
+            # earlier target_count snapshot stale and triggering false failures.
+            staging_rows_now = client.execute(
+                "SELECT sum(rows) FROM system.parts "
+                "WHERE database = %(db)s AND table = %(table)s AND active "
+                "AND partition_id = %(partition_id)s",
+                {"db": database, "table": staging_target, "partition_id": partition_id},
+            )
+            expected_added_rows = (staging_rows_now[0][0] or 0) if staging_rows_now else 0
+
             # Re-check for new mutations targeting our part. If any appeared, abort
             # before ATTACH — they'd have mutated the old part but not our staging data.
             current_mutation_ids = _get_mutation_ids_for_part(client, source_table, partition_id, part.part_name)
@@ -1107,13 +1118,13 @@ def break_part(
             )
             post_attach_row_count = (post_attach_rows[0][0] or 0) if post_attach_rows else 0
             added_rows = post_attach_row_count - pre_attach_row_count
-            if added_rows < target_count:
+            if added_rows < expected_added_rows:
                 raise dagster.Failure(
-                    description=f"ATTACH PARTITION added {added_rows:,} rows but staging target had "
-                    f"{target_count:,}. Skipping DROP to avoid data loss."
+                    description=f"ATTACH PARTITION added {added_rows:,} rows but staging had "
+                    f"{expected_added_rows:,} immediately before ATTACH. Skipping DROP to avoid data loss."
                 )
             context.log.info(
-                f"Safety check passed: ATTACH PARTITION added {added_rows:,} rows (target: {target_count:,})"
+                f"Safety check passed: ATTACH PARTITION added {added_rows:,} rows (expected: {expected_added_rows:,})"
             )
 
             # -- Step 12: Wait for replication before dropping.
