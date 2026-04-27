@@ -397,6 +397,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         with self.timings.measure("retention_query"):
+            base_query: ast.SelectQuery | ast.SelectSetQuery
             if not self.has_cohort_breakdown:
                 base_query = self._base_query()
             else:
@@ -411,14 +412,14 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         cohort_breakdowns = [b for b in self.query.breakdownFilter.breakdowns if b.type == "cohort"]
 
         for breakdown in cohort_breakdowns:
-            temp_query = self.query.model_copy(deep=True)
-            if temp_query.breakdownFilter:
-                temp_query.breakdownFilter.breakdowns = [breakdown]
-                temp_query.breakdownFilter.breakdown = str(breakdown.property)
-                temp_query.breakdownFilter.breakdown_type = breakdown.type  # type: ignore
+            individual_cohort_query = self.query.model_copy(deep=True)
+            if individual_cohort_query.breakdownFilter:
+                individual_cohort_query.breakdownFilter.breakdowns = [breakdown]
+                individual_cohort_query.breakdownFilter.breakdown = str(breakdown.property)
+                individual_cohort_query.breakdownFilter.breakdown_type = breakdown.type  # type: ignore
 
             temp_runner = RetentionQueryRunner(
-                query=temp_query, team=self.team, timings=self.timings, modifiers=self.modifiers
+                query=individual_cohort_query, team=self.team, timings=self.timings, modifiers=self.modifiers
             )
             base_queries.append(temp_runner._base_query())
 
