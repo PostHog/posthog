@@ -29,6 +29,7 @@ import { isString, objectClean, objectsEqual } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -570,6 +571,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             ['groupsTaxonomicTypes'],
             deletedRecordingsLogic,
             ['deletedRecordingIds'],
+            teamLogic,
+            ['currentTeam'],
         ],
     })),
 
@@ -1516,6 +1519,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             (hiddenRecordings): number => {
                 return hiddenRecordings?.length ?? 0
             },
+        ],
+
+        // True only after the team is loaded; stays false while loading so we don't flash an onboarding empty state at established users.
+        projectHasNoEvents: [
+            (s) => [s.currentTeam],
+            (currentTeam): boolean => !!currentTeam && !currentTeam.ingested_event,
         ],
 
         allowHogQLFilters: [

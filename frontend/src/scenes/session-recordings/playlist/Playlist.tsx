@@ -31,7 +31,8 @@ import { SessionRecordingsPlaylistTopSettings } from 'scenes/session-recordings/
 import { SessionRecordingsPlaylistTroubleshooting } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistTroubleshooting'
 import { urls } from 'scenes/urls'
 
-import { ReplayTabs, SessionRecordingType } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { OnboardingStepKey, ReplayTabs, SessionRecordingType } from '~/types'
 
 const SCROLL_TRIGGER_OFFSET = 100
 
@@ -375,7 +376,8 @@ const TitleWithCount = ({ title, count }: { title?: string; count: number }): JS
 }
 
 const ListEmptyState = (): JSX.Element => {
-    const { sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
+    const { sessionRecordingsAPIErrored, unusableEventsInFilter, projectHasNoEvents } =
+        useValues(sessionRecordingsPlaylistLogic)
 
     return (
         <div className="p-3 text-sm text-secondary">
@@ -383,11 +385,46 @@ const ListEmptyState = (): JSX.Element => {
                 <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
             ) : unusableEventsInFilter.length ? (
                 <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
+            ) : projectHasNoEvents ? (
+                <NoEventsYetEmptyState />
             ) : (
                 <div className="flex flex-col gap-2">
                     <SessionRecordingsPlaylistTroubleshooting />
                 </div>
             )}
+        </div>
+    )
+}
+
+const NoEventsYetEmptyState = (): JSX.Element => {
+    return (
+        <div className="flex flex-col gap-2" data-attr="session-recordings-playlist-no-events-empty-state">
+            <h3 className="title text-secondary mb-0">No recordings yet</h3>
+            <p>
+                Install the PostHog SDK to start capturing sessions. Once events start flowing in, recordings will
+                appear here automatically.
+            </p>
+            <div className="flex flex-wrap gap-2">
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    data-attr="session-recordings-playlist-go-to-onboarding"
+                    to={urls.onboarding({
+                        productKey: ProductKey.SESSION_REPLAY,
+                        stepKey: OnboardingStepKey.INSTALL,
+                    })}
+                >
+                    Set up Session replay
+                </LemonButton>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    to="https://posthog.com/docs/session-replay/installation"
+                    targetBlank
+                >
+                    Read the install docs
+                </LemonButton>
+            </div>
         </div>
     )
 }

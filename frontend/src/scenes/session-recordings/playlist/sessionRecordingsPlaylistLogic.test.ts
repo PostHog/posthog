@@ -3,10 +3,11 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { ActionFilter, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+import { ActionFilter, FilterLogicalOperator, PropertyFilterType, PropertyOperator, TeamType } from '~/types'
 
 import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
@@ -154,6 +155,22 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 await expectLogic(logic).toDispatchActionsInAnyOrder(['loadSessionRecordingsSuccess']).toMatchValues({
                     sessionRecordings: listOfSessionRecordings,
                 })
+            })
+        })
+
+        describe('projectHasNoEvents', () => {
+            it('is true when the current team has not ingested any events', async () => {
+                teamLogic.actions.loadCurrentTeamSuccess({ id: 1, ingested_event: false } as TeamType)
+                await expectLogic(logic).toMatchValues({ projectHasNoEvents: true })
+            })
+
+            it('is false when the current team has ingested at least one event', async () => {
+                teamLogic.actions.loadCurrentTeamSuccess({ id: 1, ingested_event: true } as TeamType)
+                await expectLogic(logic).toMatchValues({ projectHasNoEvents: false })
+            })
+
+            it('is false before the team has loaded', async () => {
+                await expectLogic(logic).toMatchValues({ projectHasNoEvents: false })
             })
         })
 
