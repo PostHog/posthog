@@ -5297,7 +5297,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 },
             },
         )
-        base_query = runner.base_query()
+        base_query = runner._base_query()
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
@@ -5328,7 +5328,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 },
             },
         )
-        base_query = runner.base_query()
+        base_query = runner._base_query()
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
