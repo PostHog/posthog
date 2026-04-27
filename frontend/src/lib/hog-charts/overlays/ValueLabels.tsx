@@ -15,8 +15,8 @@ export interface ValueLabelsProps {
 }
 
 const LABEL_FONT =
-    '500 11px -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif'
-const LABEL_VERTICAL_OFFSET = 8
+    '600 12px -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif'
+const LABEL_VERTICAL_OFFSET = 0
 
 let measureCtx: CanvasRenderingContext2D | null = null
 function getMeasureCtx(): CanvasRenderingContext2D | null {
@@ -25,6 +25,8 @@ function getMeasureCtx(): CanvasRenderingContext2D | null {
     }
     return measureCtx
 }
+
+const LABEL_HEIGHT = 22
 
 interface Candidate {
     key: string
@@ -58,7 +60,7 @@ function buildCandidates(
 
     for (let sIdx = 0; sIdx < series.length; sIdx++) {
         const s = series[sIdx]
-        if (s.hidden) {
+        if (s.hidden || s.hideValueLabels) {
             continue
         }
         if (s.data.length > maxPointsPerSeries) {
@@ -97,12 +99,26 @@ function buildCandidates(
     return candidates
 }
 
+function labelRect(c: Candidate): { left: number; right: number; top: number; bottom: number } {
+    const halfW = c.width / 2
+    const top = c.above ? c.y - LABEL_HEIGHT : c.y
+    return { left: c.x - halfW, right: c.x + halfW, top, bottom: top + LABEL_HEIGHT }
+}
+
+function rectsOverlap(
+    a: { left: number; right: number; top: number; bottom: number },
+    b: { left: number; right: number; top: number; bottom: number },
+    gap: number
+): boolean {
+    return a.left < b.right + gap && a.right + gap > b.left && a.top < b.bottom + gap && a.bottom + gap > b.top
+}
+
 function applyCollisionAvoidance(candidates: Candidate[], minGap: number): Candidate[] {
     if (candidates.length === 0) {
         return candidates
     }
-    // Collision is tracked per-series so labels from different series at the same x
-    // can both appear — mirrors the legacy chartjs-plugin-datalabels per-dataset behavior.
+
+    // First pass: per-series horizontal dedup
     const bySeries: Map<number, Candidate[]> = new Map()
     for (const c of candidates) {
         const bucket = bySeries.get(c.seriesIndex)
@@ -113,7 +129,7 @@ function applyCollisionAvoidance(candidates: Candidate[], minGap: number): Candi
         }
     }
 
-    const visible: Candidate[] = []
+    const afterHorizontal: Candidate[] = []
     for (const group of bySeries.values()) {
         group.sort((a, b) => a.x - b.x)
         let lastRightEdge = -Infinity
@@ -121,9 +137,21 @@ function applyCollisionAvoidance(candidates: Candidate[], minGap: number): Candi
             const halfWidth = c.width / 2
             const leftEdge = c.x - halfWidth
             if (leftEdge >= lastRightEdge + minGap) {
-                visible.push(c)
+                afterHorizontal.push(c)
                 lastRightEdge = c.x + halfWidth
             }
+        }
+    }
+
+    // Second pass: cross-series 2D overlap removal (earlier series win)
+    const visible: Candidate[] = []
+    const placedRects: { left: number; right: number; top: number; bottom: number }[] = []
+    for (const c of afterHorizontal) {
+        const rect = labelRect(c)
+        const overlaps = placedRects.some((placed) => rectsOverlap(rect, placed, minGap))
+        if (!overlaps) {
+            visible.push(c)
+            placedRects.push(rect)
         }
     }
     return visible
@@ -132,10 +160,10 @@ function applyCollisionAvoidance(candidates: Candidate[], minGap: number): Candi
 const LABEL_STYLE_BASE: React.CSSProperties = {
     position: 'absolute',
     color: 'white',
-    fontSize: 11,
-    fontWeight: 500,
+    fontSize: 12,
+    fontWeight: 600,
     lineHeight: 1.2,
-    padding: '1px 6px',
+    padding: '2px 4px',
     borderRadius: 4,
     border: '2px solid white',
     pointerEvents: 'none',
@@ -164,8 +192,8 @@ export function ValueLabels({
                 const style: React.CSSProperties = {
                     ...LABEL_STYLE_BASE,
                     backgroundColor: c.color,
-                    left: c.x,
-                    top: c.above ? c.y : c.y + LABEL_VERTICAL_OFFSET,
+                    left: Math.round(c.x),
+                    top: Math.round(c.above ? c.y : c.y + LABEL_VERTICAL_OFFSET),
                     transform: c.above
                         ? `translate(-50%, calc(-100% - ${LABEL_VERTICAL_OFFSET}px))`
                         : 'translateX(-50%)',
