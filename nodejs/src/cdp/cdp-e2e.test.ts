@@ -1,7 +1,5 @@
-import { MockKafkaProducerWrapper } from '~/tests/helpers/mocks/producer.mock'
+import { MockKafkaProducerWrapper, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
-
-import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
@@ -40,7 +38,6 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
         let team: Team
         let fnFetchNoFilters: HogFunctionType
         let globals: HogFunctionInvocationGlobals
-        let mockProducerObserver: KafkaProducerObserver
 
         const insertHogFunction = async (hogFunction: Partial<HogFunctionType>): Promise<HogFunctionType> => {
             const item = await _insertHogFunction(hub.postgres, team.id, hogFunction)
@@ -57,9 +54,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
 
             await resetTestDatabase()
             hub = await createHub()
-            kafkaProducer = await KafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
             team = await getFirstTeam(hub.postgres)
-            mockProducerObserver = new KafkaProducerObserver(kafkaProducer)
             mockProducerObserver.resetKafkaProducer()
 
             hub.CDP_FETCH_RETRIES = 2
