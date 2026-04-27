@@ -11,7 +11,13 @@ import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/Vie
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 
-import { AccessControlLevel, AccessControlResourceType, FeatureFlagEvaluationRuntime, FeatureFlagType } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    FeatureFlagEvaluationRuntime,
+    FeatureFlagType,
+    FeatureFlagValueType,
+} from '~/types'
 
 import { EditableOverviewSection } from './EditableOverviewSection'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
@@ -73,6 +79,7 @@ export function FeatureFlagOverviewV2({ featureFlag }: FeatureFlagOverviewV2Prop
     const multivariateEnabled = !!featureFlag.filters?.multivariate
     const variants = featureFlag.filters?.multivariate?.variants || []
     const hasPayload = !!featureFlag.filters?.payloads?.['true']
+    const usesTypedValueConfig = featureFlag.filters?.schema_version === 2
 
     const handleToggleClick = (): void => {
         LemonDialog.open({
@@ -92,6 +99,29 @@ export function FeatureFlagOverviewV2({ featureFlag }: FeatureFlagOverviewV2Prop
     }
 
     const getFlagTypeDisplay = (): { icon: JSX.Element; label: string; description: string } => {
+        if (usesTypedValueConfig) {
+            switch (featureFlag.filters?.value_type) {
+                case FeatureFlagValueType.STRING:
+                    return {
+                        icon: <IconList className="text-lg" />,
+                        label: 'String',
+                        description: 'Returns typed string values',
+                    }
+                case FeatureFlagValueType.JSON:
+                    return {
+                        icon: <IconCode className="text-lg" />,
+                        label: 'JSON',
+                        description: 'Returns typed JSON values',
+                    }
+                default:
+                    return {
+                        icon: <IconFlag className="text-lg" />,
+                        label: 'Boolean',
+                        description: 'Returns true or false',
+                    }
+            }
+        }
+
         if (featureFlag.is_remote_configuration) {
             return {
                 icon: <IconCode className="text-lg" />,
@@ -142,7 +172,7 @@ export function FeatureFlagOverviewV2({ featureFlag }: FeatureFlagOverviewV2Prop
 
     const flagTypeCard = (
         <div className="flex flex-col gap-2">
-            <label className="text-sm font-semibold">Flag type</label>
+            <label className="text-sm font-semibold">{usesTypedValueConfig ? 'Value type' : 'Flag type'}</label>
             <div className="flex items-center gap-3 p-3 rounded border bg-surface-secondary">
                 {flagTypeDisplay.icon}
                 <div className="flex flex-col">
