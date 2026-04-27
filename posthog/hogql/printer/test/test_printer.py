@@ -5362,8 +5362,12 @@ class TestPostgresPrinter(BaseTest):
     def test_values_query_clickhouse_raises_error(self):
         from posthog.hogql.errors import QueryError
 
-        with self.assertRaises(QueryError):
+        with self.assertRaises(QueryError) as ctx:
             self._select("SELECT * FROM (VALUES (1, 'a')) AS v(id, name)", dialect="clickhouse")
+        message = str(ctx.exception)
+        self.assertIn("VALUES clause is not supported in the ClickHouse dialect", message)
+        self.assertIn("arrayJoin", message)
+        self.assertIn("UNION ALL", message)
 
     def test_unpivot_prints_basic(self):
         self.assertEqual(

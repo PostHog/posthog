@@ -342,7 +342,12 @@ class ClickHousePrinter(BasePrinter):
         return super().visit_join_expr(node)
 
     def visit_values_query(self, node: ast.ValuesQuery):
-        raise QueryError("VALUES clause is not supported in ClickHouse dialect")
+        raise QueryError(
+            "VALUES clause is not supported in the ClickHouse dialect. "
+            "Rewrite the query using arrayJoin() over an array of tuples "
+            "(e.g. SELECT tuple.1 AS id, tuple.2 AS name FROM (SELECT arrayJoin([(1, 'a'), (2, 'b')]) AS tuple)) "
+            "or a UNION ALL of SELECT statements."
+        )
 
     def visit_and(self, node: ast.And):
         """
