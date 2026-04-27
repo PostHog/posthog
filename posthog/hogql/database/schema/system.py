@@ -859,9 +859,7 @@ tasks: PostgresTable = PostgresTable(
             name="internal", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_internal"])])
         ),
         "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
-        "deleted": ExpressionField(
-            name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])
-        ),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
         "deleted_at": DateTimeDatabaseField(name="deleted_at", nullable=True),
         "created_at": DateTimeDatabaseField(name="created_at"),
         "updated_at": DateTimeDatabaseField(name="updated_at"),
@@ -910,9 +908,7 @@ sandbox_environments: PostgresTable = PostgresTable(
         ),
         "repositories": StringArrayDatabaseField(name="repositories"),
         "_private": BooleanDatabaseField(name="private", hidden=True),
-        "private": ExpressionField(
-            name="private", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_private"])])
-        ),
+        "private": ExpressionField(name="private", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_private"])])),
         "_internal": BooleanDatabaseField(name="internal", hidden=True),
         "internal": ExpressionField(
             name="internal", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_internal"])])
