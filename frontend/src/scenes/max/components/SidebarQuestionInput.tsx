@@ -98,7 +98,7 @@ function SuggestionsList(): JSX.Element | null {
             focusElementRef.current.focus()
         }
         previousSuggestionGroup.current = activeSuggestionGroup
-    }, [activeSuggestionGroup])
+    }, [activeSuggestionGroup, rendered])
 
     const suggestionGroup = activeSuggestionGroup || previousSuggestionGroup.current
 
