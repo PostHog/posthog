@@ -769,7 +769,12 @@ def complete_run(run_id: UUID) -> Run:
     # Fetch baseline merged with merge-base to heal rebase-induced drift.
     # Branch baseline tracks approvals; merge-base fills entries lost when
     # git rebase replays a full-file bot commit destructively.
-    baseline, healed_count = _resolve_baselines_with_merge_base(repo, run.run_type, run.branch)
+    try:
+        baseline, healed_count = _resolve_baselines_with_merge_base(repo, run.run_type, run.branch)
+    except GitHubRateLimitError:
+        # Roll back to PENDING so the caller can retry after the limit resets
+        Run.objects.filter(id=run_id).update(status=RunStatus.PENDING)
+        raise
     if healed_count:
         run.metadata["baseline_healed_from_merge_base"] = healed_count
         run.save(using=WRITER_DB, update_fields=["metadata"])
