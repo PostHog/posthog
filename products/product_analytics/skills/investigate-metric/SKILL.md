@@ -10,90 +10,54 @@ description: >
 
 # Investigating a metric change
 
-Metric investigation is a multi-step orchestration. This skill provides the decision tree;
-each metric type has its own playbook reference with specific tool calls and recipes.
+For "why did X change?" questions about a saved insight, dashboard tile, or pasted query.
+Don't load this skill for plain "what is X?" questions — only when there's an observed
+change to explain.
 
 ## Tools
 
-This skill targets PostHog MCP v2. The typed query tools below accept the query body
-directly — pass `kind: "TrendsQuery"`, `series`, `dateRange`, etc. as top-level fields.
-Do not wrap in `InsightVizNode`.
+Targets PostHog MCP v2. Typed query tools accept the query body directly — pass
+`kind`, `series`, `dateRange` as top-level fields, do not wrap in `InsightVizNode`.
 
-| Tool                                              | Purpose                                                                                                   |
-| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `posthog:query-trends`                            | Trends queries (count over time)                                                                          |
-| `posthog:query-funnel`                            | Funnel queries (multi-step conversion)                                                                    |
-| `posthog:query-retention`                         | Retention queries (cohort return rates)                                                                   |
-| `posthog:query-stickiness`                        | Stickiness queries (active days per user)                                                                 |
-| `posthog:query-lifecycle`                         | Lifecycle queries (new/returning/resurrecting/dormant)                                                    |
-| `posthog:query-paths`                             | Paths queries (navigation flow)                                                                           |
-| `posthog:query-trends-actors`                     | Drill into the users behind a trend bucket                                                                |
-| `posthog:execute-sql`                             | HogQL — only when no typed tool fits (see shared-patterns.md)                                             |
-| `posthog:read-data-schema`                        | Discover events, properties, and sample values (replaces v1 `properties-list` / `event-definitions-list`) |
-| `posthog:insight-get`                             | Fetch a saved insight's metadata (read `query.kind` from the response)                                    |
-| `posthog:insight-query`                           | Fetch a saved insight's data (runs the insight's own query)                                               |
-| `posthog:feature-flag-get-all`                    | List flags to find rollouts in the anomaly window                                                         |
-| `posthog:experiment-get-all`                      | List experiments to find launches/conclusions in the window                                               |
-| `posthog:annotations-list`                        | List annotations to find deploys/incidents in the window                                                  |
-| `posthog:annotation-create`                       | Mark a discovered cause for future investigations                                                         |
-| `posthog:error-tracking-issues-list`              | Cross-check the anomaly against errors                                                                    |
-| `posthog:query-logs`                              | Cross-check the anomaly against logs                                                                      |
-| `posthog:query-session-recordings-list`           | Pull recordings for affected users                                                                        |
-| `posthog:cohorts-list` / `posthog:cohorts-create` | Reuse or create cohorts                                                                                   |
-| `posthog:insight-create`                          | Save a chart from the investigation                                                                       |
+| Tool                             | Purpose                                          |
+| -------------------------------- | ------------------------------------------------ |
+| `posthog:query-trends`           | Trends (count over time)                         |
+| `posthog:query-funnel`           | Funnels (multi-step conversion)                  |
+| `posthog:query-retention`        | Retention (cohort return rates)                  |
+| `posthog:query-stickiness`       | Stickiness (active days per user)                |
+| `posthog:query-lifecycle`        | Lifecycle (new/returning/resurrecting/dormant)   |
+| `posthog:query-paths`            | Paths (navigation flow)                          |
+| `posthog:query-trends-actors`    | Users behind a trend bucket (trends source only) |
+| `posthog:execute-sql`            | HogQL — when no typed tool fits                  |
+| `posthog:read-data-schema`       | Discover events, properties, sample values       |
+| `posthog:insight-get` / `-query` | Fetch a saved insight's metadata / data          |
+
+Plus the standard PostHog tools the playbooks reference by name (`feature-flag-get-all`,
+`experiment-get-all`, `annotations-list`, `error-tracking-issues-list`, `query-logs`,
+`query-session-recordings-list`, `cohorts-list/-create`, `annotation-create`,
+`insight-create`).
 
 ## Helper scripts
 
-Two scripts in [`scripts/`](./scripts/) automate the repetitive numerical work so the
-agent doesn't recompute it from raw query output:
-
-- [`compare_to_prior_periods.py`](./scripts/compare_to_prior_periods.py) — given a
-  trends result, auto-detects interval and compares each recent value to the right
-  cycle: hour-of-week for hourly data, day-of-week for daily data, sequential
-  median range for weekly/monthly. Use after step 2.1 to resolve the variance
-  question (step 2.2) without recomputing it inline.
-- [`breakdown_attribution.py`](./scripts/breakdown_attribution.py) — given a breakdown
-  trends result, ranks segments by **absolute** contribution to the delta (not %),
-  and detects "offsetting" cases where the aggregate looks flat but segments moved
-  in opposite directions. Use after running breakdowns in any playbook to follow
-  the **interpreting breakdown results** guidance from shared-patterns.
-
-Pipe the raw `posthog:query-trends` JSON straight in:
+- [`compare_to_prior_periods.py`](./scripts/compare_to_prior_periods.py) — auto-detects
+  interval and compares recent values to the natural cycle (day-of-week, hour-of-week,
+  or sequential). Use to resolve step 2.2 cheaply.
+- [`breakdown_attribution.py`](./scripts/breakdown_attribution.py) — ranks breakdown
+  segments by absolute delta and flags offsetting moves.
 
 ```bash
 python3 scripts/compare_to_prior_periods.py < query_result.json
 WINDOW=7 python3 scripts/breakdown_attribution.py < breakdown_result.json
 ```
 
-## When to use
-
-Use this skill when the user asks a "why did X change?" question about a metric.
-Examples: "DAU dropped last Tuesday", "signup conversion fell 20% this week",
-"week-1 retention for the March cohort is worse than February",
-"returning users crashed after the release".
-
-Do not load this skill for ordinary metric-reading questions ("what is DAU?", "show me retention").
-Only use it when there is an observed change to explain.
-
 ## Step 1 — Classify the metric
 
-Every query payload has a `kind` field (`TrendsQuery`, `FunnelsQuery`, `RetentionQuery`,
-`StickinessQuery`, `LifecycleQuery`, `PathsQuery`). That `kind` is the classification —
-it determines which playbook to run. Do not ask the user to classify when you can read it.
+Read `query.kind` from the source the user pointed at:
 
-### Read the kind from what the user is looking at
-
-Check these sources in order:
-
-1. **A query you've already run for this metric in this conversation** — the payload you passed to
-   `posthog:query-trends`, `posthog:query-funnel`, etc. has a `kind` field.
-2. **A saved insight the user referenced** (URL, `short_id`, or "insight X") — call `posthog:insight-get`
-   and read the returned insight's `query.kind` (the insight resource has a `query` JSON blob with a
-   `kind` field). If you also need the insight's numbers to confirm the anomaly, call
-   `posthog:insight-query` with the same identifier — `insight-get` returns only metadata.
-3. **A query JSON the user pasted directly** — read `kind` from the payload.
-
-Map `kind` to the playbook file:
+- Saved insight (URL, `short_id`): `posthog:insight-get` → `query.kind`. Use
+  `posthog:insight-query` if you also need the numbers.
+- A query you already ran or the user pasted: read `kind` directly.
+- Nothing pointed at: ask for the URL or short_id. Don't guess.
 
 | kind              | Playbook                                                      |
 | ----------------- | ------------------------------------------------------------- |
@@ -104,137 +68,78 @@ Map `kind` to the playbook file:
 | `LifecycleQuery`  | [lifecycle-playbook.md](./references/lifecycle-playbook.md)   |
 | `PathsQuery`      | [paths-playbook.md](./references/paths-playbook.md)           |
 
-**TrendsQuery sub-check.** If `kind === "TrendsQuery"`, also read `trendsFilter.display`
-(from the payload, or from `insight.query.source.trendsFilter.display` on a saved
-insight). If it equals `"BoxPlot"`, use
-[box-plot-playbook.md](./references/box-plot-playbook.md) instead of the trend playbook —
-the metric is a distribution of a numeric `math_property`, not a count, and breakdowns
-are unsupported. All other display values route to the trend playbook.
+If `kind === "TrendsQuery"` and `trendsFilter.display === "BoxPlot"`, use
+[box-plot-playbook.md](./references/box-plot-playbook.md) — distribution metric, no
+breakdowns.
 
-### If the user hasn't pointed at anything
-
-If the user reports a metric change in free text without giving you an insight, dashboard, or query,
-**ask before guessing**. The user saw the change somewhere — a saved insight, a dashboard tile, an
-ad-hoc chart, a screenshot — and that source is the ground truth for the investigation.
-
-Ask for the URL, `short_id`, or a description of where they're seeing the metric. Then use the
-corresponding source above (most often `posthog:insight-get` on a saved insight) to read the
-`kind` directly.
-
-If the metric spans multiple kinds (e.g., "retention and stickiness both dropped"),
-run the playbooks in sequence — do not try to fuse them.
+If the user's question spans multiple kinds, run the playbooks in sequence.
 
 ## Step 2 — Common opening moves
 
-Apply these regardless of metric kind, before entering the playbook.
+### 2.1 Confirm the anomaly
 
-### 2.1 Confirm the anomaly and pin the window
+Run the primary tool. Record baseline, current, delta (absolute and %), and the start
+of the anomaly window.
 
-Run the primary tool for the metric's kind with the user's metric definition.
-Confirm the change exists and identify its start date within a day or two.
-Record: baseline value, current value, delta (absolute and %), start of the anomaly window.
+### 2.2 Variance check
 
-### 2.2 Check whether the change is variance
+Widen to 3–4× the user's interval (or use `compareFilter: {"compare": true}` on
+TrendsQuery / StickinessQuery; for other kinds run two date ranges).
+Pipe the widened result through
+[`compare_to_prior_periods.py`](./scripts/compare_to_prior_periods.py) — it flags
+seasonality, partial right-edge buckets, and real anomalies. If the movement is
+normal variance, report that and stop.
 
-If the query already covers enough history to see the normal range, read it from there.
-Otherwise, widen to 3–4× the user's interval (e.g., 90 days for a 7-day drop).
-For TrendsQuery or StickinessQuery, add `compareFilter: {"compare": true}` to show
-the prior period alongside. Other query kinds don't support `compareFilter` — compare
-by running the same query for two date ranges instead.
+### 2.3 Known changes in the window
 
-Pipe the widened query result through
-[`scripts/compare_to_prior_periods.py`](./scripts/compare_to_prior_periods.py). It
-auto-detects the interval and compares each recent value to its position in the
-natural cycle (hour-of-week for hourly, day-of-week for daily, sequential range for
-weekly/monthly). For daily metrics specifically, the most common cause of "looks
-like a drop" is weekend seasonality plus a partial-day right edge — the script
-flags both.
+In rough order of signal:
 
-Single-interval spikes or dips can be real (deploy, campaign, brief outage) — investigate them.
-If the movement looks like normal variance, flag that in the findings but continue the
-investigation when the user asked for one.
+- `posthog:feature-flag-get-all` → flags with `updated_at` near the anomaly start.
+- `posthog:experiment-get-all` → `start_date` / `end_date` near the start.
+- `posthog:annotations-list` → `date_marker` near the start.
+- `git log` for the window if the repo is reachable (highest signal when available).
 
-### 2.3 Check for known changes in the window
-
-What deployed, flagged, or experimented near the start of the anomaly? Four sources, in order
-of typical signal strength:
-
-1. **Feature flags updated in the window.** `posthog:feature-flag-get-all`, then filter the
-   returned list client-side by `updated_at` falling in or just before the anomaly window.
-   A flag whose rollout changed right before the movement is a strong candidate — confirm by
-   breaking the metric down on `$feature/<flag_key>` in the playbook.
-2. **Experiments started or ended in the window.** `posthog:experiment-get-all`, then check
-   `start_date` / `end_date`. An experiment launching shifts metrics through its variant
-   rollout; one concluding (traffic snapping back to control) can cause an apparent drop.
-3. **Annotations.** `posthog:annotations-list` — look for `date_marker` values in or just
-   before the window. Annotations mark deploys, releases, campaigns, and incidents _when
-   someone remembered to log them_; absence doesn't mean nothing shipped.
-4. **Commits** (if you have access to the code repository that ships this metric). `git log`
-   for the window is the source of truth for what actually deployed — higher-signal than
-   annotations, but only available when the agent can reach the repo. Skip if unavailable.
-
-Any aligning candidate is a hypothesis, not a conclusion — confirm in the metric-specific
-playbook (typically via a breakdown on `$feature/<flag_key>`, `app_version`, or `utm_source`).
+Any match is a hypothesis to confirm in the playbook (usually via breakdown on
+`$feature/<flag_key>`, `app_version`, or `utm_source`).
 
 ## Step 3 — Run the playbook
 
-Open the playbook file matching the `kind` from Step 1 and execute its numbered steps.
-Each playbook references [shared-patterns.md](./references/shared-patterns.md) for reusable
-recipes (property discovery, breakdown dimensions and interpretation, interval zoom, actor
-drilldown, session recordings, error cross-check, `execute-sql` escape hatch).
-
-Carry the record from Step 2.1 (baseline, current, delta, window) and any candidates from
-Step 2.3 (flags, experiments, annotations, commits) into the playbook so they're available
-for confirmation.
+Open the playbook for the kind from Step 1 and follow its numbered steps. Carry the
+record from 2.1 and any candidates from 2.3 into it.
 
 ## Step 4 — Cross-check
 
-Before finalizing the findings, run one control query to rule out coincidence.
-
-Pick a segment that the suspected cause should **not** have affected, and rerun the primary
-query there. If the metric is stable in the control segment, the hypothesis is strong.
-If the metric moved in the control segment too, the cause is broader than you thought —
-expand the investigation.
-
-Skip the cross-check when the anomaly is fully explained by variance or seasonality
-(Step 2.2) — there's no hypothesis to control against.
+Pick a segment the suspected cause should **not** have affected and rerun there. Stable
+in the control = strong hypothesis; moved too = expand the investigation. Skip when
+2.2 already explained the movement.
 
 ## Step 5 — Write findings
 
-Produce the output-format report below.
-
-Offer to save key charts as insights via `posthog:insight-create` so the user can return to the
-analysis. If a likely cause is identified and no annotation exists for it, offer to create one
-via `posthog:annotation-create` with the identified date so future investigations find it.
-
-See [common-causes.md](./references/common-causes.md) for the standard cause taxonomy.
-
-## Output format
-
-Structure the report as:
+Use the format below. Offer to save key charts via `posthog:insight-create`. If a
+cause is found and no annotation marks it, offer `posthog:annotation-create`. See
+[common-causes.md](./references/common-causes.md) for the cause taxonomy.
 
 ```markdown
-# Investigation: <metric description>
+# Investigation: <metric>
 
-**Anomaly**: <baseline> → <current> (<delta> <direction>) starting <date>
+**Anomaly**: <baseline> → <current> (<delta>) starting <date>
 
 ## Likely cause
 
-<most-confident hypothesis, one sentence>
+<one sentence>
 
 **Evidence**
 
-- <query result 1 that supports the hypothesis>
-- <query result 2 that supports the hypothesis>
-- <annotation / flag / experiment / commit if applicable>
+- <query result>
+- <flag / experiment / annotation / commit if applicable>
 
-## Possible causes (ruled out or lower confidence)
+## Possible causes (ruled out)
 
-- <hypothesis>: <why ruled out or why lower confidence>
+- <hypothesis>: <why>
 
 ## Affected segment
 
-- <properties shared by affected users/events — country, plan, version, etc.>
+- <shared properties of affected users/events>
 
 ## Data gaps
 
@@ -242,34 +147,20 @@ Structure the report as:
 
 ## Suggested follow-ups
 
-- <concrete next action — monitor metric X, check event Y, review deploy Z>
-- <offer to save chart as insight / create annotation>
+- <concrete next action>
+- <offer to save chart / create annotation>
 ```
 
-Include direct links where useful: `[Insight: name](/insights/short_id)`, `[Dashboard: name](/dashboard/id)`.
-
-## Handling unavailable data
-
-- **Missing breakdown dimension** — if a key property isn't set on events, call
-  `posthog:read-data-schema` with `kind: "event_properties"` to confirm what is
-  available and note the gap.
-- **Tool call failure** — continue the investigation with the remaining tools and report
-  which steps were skipped.
-- **Variance / single-point anomalies** — covered in Step 2.2. If the change is within
-  normal variance, flag it but continue when the user asked for an investigation.
+Link insights and dashboards inline: `[Name](/insights/short_id)`.
 
 ## Reference files
 
-- **Playbooks** (one per metric kind — open the one matching your classification):
-  - [trend-playbook.md](./references/trend-playbook.md)
-  - [box-plot-playbook.md](./references/box-plot-playbook.md) — TrendsQuery with `trendsFilter.display = "BoxPlot"`
-  - [funnel-playbook.md](./references/funnel-playbook.md)
-  - [retention-playbook.md](./references/retention-playbook.md)
-  - [stickiness-playbook.md](./references/stickiness-playbook.md)
-  - [lifecycle-playbook.md](./references/lifecycle-playbook.md)
-  - [paths-playbook.md](./references/paths-playbook.md)
-- [shared-patterns.md](./references/shared-patterns.md) — reusable recipes used across
-  playbooks (property discovery, breakdown dimensions, interval zoom, actor drilldown,
-  session recordings, error cross-check, `execute-sql` escape hatch).
-- [common-causes.md](./references/common-causes.md) — taxonomy of likely causes with the
-  confirming query for each.
+- Playbooks: [trend](./references/trend-playbook.md),
+  [box-plot](./references/box-plot-playbook.md),
+  [funnel](./references/funnel-playbook.md),
+  [retention](./references/retention-playbook.md),
+  [stickiness](./references/stickiness-playbook.md),
+  [lifecycle](./references/lifecycle-playbook.md),
+  [paths](./references/paths-playbook.md)
+- [shared-patterns.md](./references/shared-patterns.md) — recipes used across playbooks
+- [common-causes.md](./references/common-causes.md) — cause taxonomy with confirming queries

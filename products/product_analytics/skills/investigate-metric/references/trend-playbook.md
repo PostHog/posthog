@@ -1,37 +1,19 @@
 # Trend metrics playbook
 
-For any count-over-time metric — "DAU dropped", "revenue spiked", "clicks fell",
-"sessions fell after the release".
+For "DAU dropped", "revenue spiked", "clicks fell after the release".
 
-Steps reference [shared-patterns.md](./shared-patterns.md) for reusable recipes
-(interval zoom, property discovery, breakdown dimensions, actor drilldown, session
-recordings, error cross-check).
+## 1. Zoom in
 
-## 1. Zoom in on the anomaly window
+Rerun `posthog:query-trends` at `interval: "hour"` scoped to the suspicious day(s). A
+one-hour cliff is an incident or deploy; a full-day shift is a broader cause (campaign,
+cohort change, tracking regression).
 
-Apply the **interval zoom** pattern from shared-patterns. Rerun `posthog:query-trends`
-with the user's metric, `interval: "hour"`, and a tight `dateRange` around the suspicious
-day(s). Hourly resolution reveals the shape of the anomaly: a narrow spike / cliff points
-to a specific incident, deploy, or cron job; a sustained shift points to broader causes
-(campaign, cohort change, tracking regression).
+## 2. Break down
 
-## 2. Break down the trend
-
-Run several breakdowns to see if one segment is driving the change. Rerun
-`posthog:query-trends` with different `breakdownFilter.breakdowns` values.
-
-Discover properties attached to the metric's event first (see **property discovery** in
-shared-patterns), then try the dimensions from the **breakdown dimensions** menu —
-standard event context, feature-flag exposure, user state, custom event properties,
-technical / version.
-
-Apply the **interpreting breakdown results** guidance: check absolute contribution (a
-dramatic % swing on a small series is usually noise); if no single dimension isolates the
-delta, the cause is likely system-wide (bad deploy, tracking regression, infra).
-[`scripts/breakdown_attribution.py`](../scripts/breakdown_attribution.py) ranks
-segments by absolute contribution and flags offsetting moves automatically.
-
-Example call:
+Try several breakdowns. Use `read-data-schema` to find candidate properties. Pipe
+results through [`breakdown_attribution.py`](../scripts/breakdown_attribution.py) — it
+ranks by absolute delta and flags offsetting moves. If no segment isolates the delta,
+the cause is system-wide.
 
 ```json
 posthog:query-trends
@@ -47,35 +29,18 @@ posthog:query-trends
 }
 ```
 
-## 3. Identify the affected users
+## 3. Identify affected users
 
-Apply the **actor drilldown** pattern. Run `posthog:query-trends-actors` on the anomalous
-bucket (specific day/hour, or the breakdown value that moved). Inspect returned persons'
-properties for common threads.
+Run `posthog:query-trends-actors` on the anomalous bucket (or breakdown value that
+moved). For UI-shaped drops, pull session recordings for the same segment.
 
-For UI/UX-shaped drops, also pull **session recordings** for the same window / segment
-via `posthog:query-session-recordings-list`.
+## 4. Errors / logs
 
-## 4. Cross-check against errors / logs
+`posthog:error-tracking-issues-list` and `posthog:query-logs` for the window. Confirm
+timing, plausible mechanism, and user overlap before treating as the cause.
 
-Apply the **error / logs cross-check** pattern. An aligned error spike is a candidate,
-not a conclusion — confirm with the three checks (timing, plausible mechanism, user
-overlap) from shared-patterns.
+## 5. Cohort composition
 
-## 5. Check for a cohort-composition change
-
-`posthog:query-lifecycle` on the same metric:
-
-```json
-posthog:query-lifecycle
-{
-  "kind": "LifecycleQuery",
-  "dateRange": { "date_from": "-30d" },
-  "interval": "day",
-  "series": [{ "kind": "EventsNode", "event": "$pageview" }]
-}
-```
-
-If the drop is concentrated in one lifecycle status (new users didn't arrive, dormant
-users didn't resurrect), that reframes the investigation — the metric may be fine
-behaviorally while the _mix_ of users changed.
+Run `posthog:query-lifecycle` on the same event. If the drop is concentrated in one
+status (new users didn't arrive, dormant users didn't resurrect), the user mix changed
+rather than per-user behavior.

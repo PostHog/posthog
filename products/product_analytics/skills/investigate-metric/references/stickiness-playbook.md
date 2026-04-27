@@ -1,13 +1,12 @@
 # Stickiness metrics playbook
 
-For "DAU/MAU ratio dropped", "sessions per week fell", "engagement decayed".
+For "DAU/MAU dropped", "sessions per week fell", "engagement decayed".
 
-Steps reference [shared-patterns.md](./shared-patterns.md) for reusable recipes.
+## 1. Segment
 
-## 1. Who got less sticky?
-
-`AssistantStickinessQuery` does **not** support `breakdownFilter`. To compare segments,
-run `posthog:query-stickiness` once per segment with property filters on the series.
+`AssistantStickinessQuery` doesn't support `breakdownFilter`. Run
+`posthog:query-stickiness` once per segment with property filters on the series, and
+compare side-by-side.
 
 ```json
 posthog:query-stickiness
@@ -25,32 +24,13 @@ posthog:query-stickiness
 }
 ```
 
-Rerun with `"value": "free"` (or other segment values) and compare results side by side.
-Use the **breakdown dimensions** menu from shared-patterns for candidate segments to try.
+## 2. Drill into the low-stickiness segment
 
-## 2. Identify the affected users
+Run `posthog:query-trends` on a key engagement event filtered to that segment, then
+`posthog:query-trends-actors` on the trend. Pull recordings for a handful.
 
-To drill into actors for the low-stickiness segment, run `posthog:query-trends` on a key
-engagement event filtered to that segment, then apply the **actor drilldown** pattern
-from shared-patterns on that trend. Pull **session recordings** for a few of those users
-to see how they're actually using the product.
+## 3. What sticky users do that non-sticky users don't
 
-## 3. Compare engagement events between sticky and non-sticky cohorts
-
-Once you have a sticky cohort (high stickiness) and a non-sticky cohort (low stickiness) —
-via existing cohorts, ad-hoc filters, or the segment split from step 1 — run
-`posthog:query-trends` on candidate core events scoped to each:
-
-```json
-posthog:query-trends
-{
-  "kind": "TrendsQuery",
-  "dateRange": { "date_from": "-30d" },
-  "interval": "day",
-  "series": [{ "kind": "EventsNode", "event": "candidate_core_event", "math": "dau" }],
-  "properties": [{ "type": "cohort", "key": "id", "value": "<sticky_cohort_id>", "operator": "in" }]
-}
-```
-
-Rerun with the non-sticky cohort's filter. Events where the two series diverge sharply
-are the ones that drive stickiness.
+With a sticky and a non-sticky cohort, run `posthog:query-trends` on candidate core
+events scoped to each (filter via `properties` cohort filter). Events where the two
+diverge are the ones driving stickiness.

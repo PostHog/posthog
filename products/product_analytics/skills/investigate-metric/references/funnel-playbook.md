@@ -1,17 +1,23 @@
 # Funnel metrics playbook
 
-For "conversion fell", "drop-off increased at step X", "signup-to-purchase fell off".
+For "conversion fell", "drop-off increased at step X".
 
-Steps reference [shared-patterns.md](./shared-patterns.md) for reusable recipes
-(interval zoom, breakdown dimensions, session recordings, error cross-check).
+## 0. Rule out an incomplete latest bucket
 
-## 1. Confirm which step regressed
+If `(now − latest_bucket_start) < funnel_window`, users in the bucket haven't had time
+to convert. Tells:
 
-`posthog:query-funnel` with the user's steps. Identify the step where conversion dropped.
-`FunnelsQuery` does not support `compareFilter` — run the funnel for two date ranges
-(anomaly window and a baseline window of equal length just before it) and compare results.
+- Drop is uniform across breakdowns (real regressions usually aren't).
+- First-step volume is stable or growing.
+- Prior bucket sits on the historical baseline.
 
-Anomaly window:
+If incomplete: report it as the cause; suggest setting `dateRange.date_to` one funnel
+window in the past, and offer to annotate.
+
+## 1. Which step regressed
+
+`FunnelsQuery` doesn't support `compareFilter` — run the funnel twice with date ranges
+of equal length and compare.
 
 ```json
 posthog:query-funnel
@@ -27,70 +33,26 @@ posthog:query-funnel
 }
 ```
 
-Then rerun with `"dateRange": { "date_from": "-14d", "date_to": "-7d" }` for the baseline.
+Then rerun with `"dateRange": { "date_from": "-14d", "date_to": "-7d" }`.
 
-## 2. Is it entries or completions?
+## 2. Entries or completions?
 
-Run two `posthog:query-trends` calls — one for entries to step N, one for completions of
-step N. If entries are steady but completions fell, the problem is at that step. If
-entries also fell, the problem is upstream.
+Run `posthog:query-trends` on the events at step N-1 and step N. Steady entries with
+falling completions = problem at that step. Falling entries = problem upstream.
 
-```json
-posthog:query-trends
-{
-  "kind": "TrendsQuery",
-  "dateRange": { "date_from": "-30d" },
-  "interval": "day",
-  "series": [{ "kind": "EventsNode", "event": "<event at step N>", "math": "dau" }]
-}
-```
+## 3. Who dropped off
 
-If a specific day looks anomalous, apply the **interval zoom** pattern from shared-patterns
-to get hour-level resolution.
+`posthog:query-trends-actors` only accepts a trends source. Run trends on step N-1
+completions and step N completions for the same window, drill into actors of each, and
+diff — users present in the first but not the second are the drop-offs.
 
-## 3. Who is dropping off?
+## 4. Errors / logs
 
-`posthog:query-trends-actors` only accepts a trends source today (see **actor drilldown**
-in shared-patterns). To find who dropped off, run two trends queries — one on step N-1
-completions, one on step N completions — scoped to the same window:
+Filter `posthog:error-tracking-issues-list` and `posthog:query-logs` to the surface
+where step N lives — a 500 on the submit endpoint can plausibly cause failures; a
+console warning elsewhere usually can't.
 
-```json
-posthog:query-trends
-{
-  "kind": "TrendsQuery",
-  "dateRange": { "date_from": "-7d" },
-  "interval": "day",
-  "series": [{ "kind": "EventsNode", "event": "<event at step N-1>", "math": "dau" }]
-}
-```
+## 5. What they do instead
 
-Then run `posthog:query-trends-actors` on the step N-1 trend to get the actor list.
-Compare with the actor list from a similar trends query on step N — users present in
-the first list but not the second are the drop-offs.
-
-Apply **breakdown dimensions** from shared-patterns to the trends query to segment the
-dropped-out users. For UI/UX drop-offs, pull **session recordings** for those actors.
-
-## 4. Cross-check against errors
-
-Apply the **error / logs cross-check** pattern from shared-patterns. For funnel steps
-specifically: filter to the surface where step N lives — a 500 at the submit endpoint can
-plausibly cause failures; a console warning elsewhere usually can't.
-
-## 5. What are they doing instead?
-
-`posthog:query-paths` with `endPoint` set to the failing step. Paths that do not reach
-the end point show what users do when they bail.
-
-```json
-posthog:query-paths
-{
-  "kind": "PathsQuery",
-  "dateRange": { "date_from": "-30d" },
-  "pathsFilter": {
-    "endPoint": "<event at step N>",
-    "includeEventTypes": ["$pageview", "custom_event"],
-    "edgeLimit": 50
-  }
-}
-```
+`posthog:query-paths` with `endPoint` set to the failing step. Paths that don't reach
+that endpoint show where users bail.

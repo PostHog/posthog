@@ -1,17 +1,18 @@
 # Retention metrics playbook
 
-For "week-1 retention regressed", "March cohort isn't coming back",
-"cohort X's week-N retention fell".
+For "week-1 retention regressed", "March cohort isn't coming back".
 
-Steps reference [shared-patterns.md](./shared-patterns.md) for reusable recipes.
+## 0. Config sanity check
 
-## 1. Isolate the affected cohort
+- If `totalIntervals` exceeds the date range, the tail cells are always zero and look
+  like a drop. Match `totalIntervals` to the range.
+- The most recent cohort hasn't had its full retention window yet — note as partial
+  rather than a regression.
 
-Use `posthog:query-retention` — it accepts `RetentionQuery` payloads directly.
-Compare the affected cohort(s) to baseline cohorts side by side.
+## 1. Isolate the cohort
 
-`targetEntity` / `returningEntity` use `{type: "events", name: "<event>"}` (or
-`{type: "actions", id: <id>, name: "..."}`). They are nested inside `retentionFilter`.
+`targetEntity` / `returningEntity` use `{type: "events", name: "<event>"}` and nest in
+`retentionFilter`. Compare affected cohort(s) to prior baselines side by side.
 
 ```json
 posthog:query-retention
@@ -28,56 +29,13 @@ posthog:query-retention
 }
 ```
 
-## 2. Scope to the retained-activity event
+## 2. Event vs. users
 
-Is the drop in the event itself, or in the users doing it? Create (or reuse) a cohort for
-the affected start period via `posthog:cohorts-create` / `posthog:cohorts-list`, then run
-a trends query on the retained-activity event filtered to that cohort:
-
-```json
-posthog:query-trends
-{
-  "kind": "TrendsQuery",
-  "dateRange": { "date_from": "-30d" },
-  "series": [{ "kind": "EventsNode", "event": "core_action", "math": "dau" }],
-  "properties": [{ "type": "cohort", "key": "id", "value": 42, "operator": "in" }]
-}
-```
-
-Apply the **breakdown dimensions** menu from shared-patterns to this trend if you want to
-see which slice of the affected cohort isn't coming back.
+Is the drop in the activity event itself or in the cohort doing it? Create or reuse a
+cohort for the affected period (`posthog:cohorts-create` / `-list`), then run
+`posthog:query-trends` on the activity event filtered to that cohort.
 
 ## 3. Split the dropout
 
-`posthog:query-lifecycle` scoped to the affected cohort — separate new users who never
-returned after week 0 from returning users who churned later in the period:
-
-```json
-posthog:query-lifecycle
-{
-  "kind": "LifecycleQuery",
-  "dateRange": { "date_from": "-30d" },
-  "interval": "week",
-  "series": [
-    {
-      "kind": "EventsNode",
-      "event": "core_action",
-      "properties": [{ "type": "cohort", "key": "id", "value": 42, "operator": "in" }]
-    }
-  ]
-}
-```
-
-This distinguishes "we never retained them in the first place" from "we retained them
-initially then lost them later" — different root causes, different follow-ups.
-
-## Config sanity check
-
-Before investigating, check the insight's config for common issues that inflate
-apparent drops:
-
-- **`totalIntervals` exceeds date range** — if the retention grid has intervals beyond
-  the data window, those cells are always zero and make the tail look worse than it is.
-  Match `totalIntervals` to the date range (e.g., 8 intervals for `-56d` at `Week` period).
-- **Partial cohorts** — the most recent cohort hasn't had its full retention window yet.
-  Note this in findings rather than treating it as a real drop.
+Run `posthog:query-lifecycle` scoped to the affected cohort to separate "never retained"
+(new users who didn't return) from "lost later" (returning users who churned).

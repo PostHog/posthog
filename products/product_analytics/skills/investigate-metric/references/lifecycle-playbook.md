@@ -1,30 +1,18 @@
 # Lifecycle metrics playbook
 
-For "new user acquisition fell", "returning users crashed",
-"resurrecting users stopped coming back".
+For "new users fell", "returning users crashed", "resurrecting stopped coming back".
 
-Steps reference [shared-patterns.md](./shared-patterns.md) for reusable recipes.
+## 1. Identify which status moved
 
-## 1. Start with lifecycle itself
+Run `posthog:query-lifecycle` with the user's metric. Read which of new / returning /
+resurrecting / dormant changed.
 
-`posthog:query-lifecycle` is already the primary tool for this metric type. Run it with
-the user's metric to identify which lifecycle status (new, returning, resurrecting,
-dormant) moved.
+## 2. Segment
 
-```json
-posthog:query-lifecycle
-{
-  "kind": "LifecycleQuery",
-  "dateRange": { "date_from": "-30d" },
-  "interval": "day",
-  "series": [{ "kind": "EventsNode", "event": "$pageview" }]
-}
-```
-
-## 2. Segment the moved status
-
-`AssistantLifecycleQuery` does **not** support `breakdownFilter`. To isolate a segment,
-run `posthog:query-lifecycle` once per segment with property filters on the series:
+`AssistantLifecycleQuery` doesn't support `breakdownFilter`. To compare segments, run
+`posthog:query-lifecycle` once per segment with `properties` filters on the series, or
+focus on a single status with `lifecycleFilter.toggledLifecycles: ["new"]` /
+`["returning"]`.
 
 ```json
 posthog:query-lifecycle
@@ -42,43 +30,12 @@ posthog:query-lifecycle
 }
 ```
 
-Alternatively, focus on a specific status with `lifecycleFilter.toggledLifecycles`, e.g.
-`["new"]` or `["returning"]`.
+## 3. Diagnose by status
 
-Use the **breakdown dimensions** menu from shared-patterns for candidate segments to try.
-
-## 3. Diagnose based on which status moved
-
-### New-user drop
-
-Identify the canonical first-session event for the project first — call
-`posthog:read-data-schema` with `{ "query": { "kind": "events" } }` and look for
-`$session_start`, `$pageview`, or a product-specific signup event. Then run
-`posthog:query-paths` from that event to see where new users fall off in onboarding.
-
-```json
-posthog:query-paths
-{
-  "kind": "PathsQuery",
-  "dateRange": { "date_from": "-30d" },
-  "pathsFilter": {
-    "startPoint": "<first-session event name from read-data-schema>",
-    "includeEventTypes": ["$pageview", "custom_event"],
-    "edgeLimit": 50
-  }
-}
-```
-
-### Returning-user drop
-
-`posthog:query-trends` on the affected cohort's key engagement events — which activity
-fell? Apply the **interval zoom** pattern from shared-patterns if a specific day stands
-out. Follow up with the **actor drilldown** pattern to see who the affected returning
-users are.
-
-### Resurrecting drop
-
-Usually an external cause. Compare marketing / re-engagement campaign annotations in the
-window (they were already checked in Step 2.3 — revisit them here with a resurrecting-
-user lens). If no campaign is winding down, check if re-engagement emails / pushes are
-still firing via the event stream.
+- **New-user drop** — find the project's first-session event via `read-data-schema`
+  (`$session_start`, `$pageview`, or a signup event), then run `posthog:query-paths`
+  from there to see where onboarding loses people.
+- **Returning-user drop** — `posthog:query-trends` on the cohort's key engagement events.
+  Use interval zoom + actor drilldown if a specific day stands out.
+- **Resurrecting drop** — usually external. Re-check annotations and re-engagement
+  campaign / email events.
