@@ -561,14 +561,60 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
     _ACTION_ID_PATTERN = re.compile(r"\[Action:([a-zA-Z0-9_-]+)\]")
     _EVENT_UUID_PATTERN = re.compile(r"for event ([a-f0-9-]{36})")
 
-    BLOCKED_RUNS_SQL = """
+    # Restricted to the 2026-04 dedup incident fingerprint to avoid replaying legitimate
+    # dedup catches (ghost runs caused by Kafka rebalance re-deliveries). See inline
+    # comments on each clause for the reasoning.
+    BLOCKED_RUNS_SQL = r"""
         SELECT instance_id, timestamp, message
         FROM log_entries
         WHERE team_id = %(team_id)s
           AND log_source = 'hog_flow'
           AND log_source_id = %(log_source_id)s
           AND positionCaseInsensitiveUTF8(message, 'duplicate execution detected') > 0
-          AND timestamp >= toDate(NOW() - INTERVAL 30 DAY)
+
+          -- Incident window: dedup shipped 2026-03-30 evening UTC and was reverted on
+          -- 2026-04-22 morning UTC. No bug-pattern blocks can exist outside this window.
+          AND timestamp >= toDateTime('2026-03-30 00:00:00')
+          AND timestamp <= toDateTime('2026-04-23 00:00:00')
+
+          -- Clause 1: action restricted to wait_until_condition, the only "hold-state"
+          -- action where the bug could fire dedup falsely. Other actions (delay, function
+          -- async, conditional_branch with delay) advance state.currentAction on resume,
+          -- so dedup never re-checks the same key. Blocks on those action types in this
+          -- window were legitimate ghost catches and must NOT be replayed.
+          AND positionUTF8(message, '[Action:action_wait_until_condition_') > 0
+
+          -- Clause 2: blocked instance_id must be uuidv7. The bug rewrote the original
+          -- UUIDT id to uuidv7 when the paused invocation was re-queued through
+          -- Cyclotron's V1 Postgres path. Position 15 (1-indexed) is the version nibble;
+          -- position 20 is the RFC-4122 variant nibble.
+          AND lower(substring(instance_id, 15, 1)) = '7'
+          AND lower(substring(instance_id, 20, 1)) IN ('8', '9', 'a', 'b')
+
+          -- Clause 3: if the message exposes 'Another invocation (<uuid>)' (post-2026-04-21
+          -- log format), that stored id must be UUIDT, not uuidv7. Pre-2026-04-21 messages
+          -- don't include this clause; the extract returns empty and the row stays in via
+          -- clause 2 alone.
+          AND (
+              extract(message, 'Another invocation \(([a-fA-F0-9-]{36})\)') = ''
+              OR lower(substring(extract(message, 'Another invocation \(([a-fA-F0-9-]{36})\)'), 15, 1)) != '7'
+          )
+
+          -- Clause 4: the uuidv7's embedded ms timestamp (first 12 hex chars) must fall
+          -- within 15 minutes before the block. Real bug rewrites mint a fresh uuidv7 at
+          -- re-queue time, and wait_until_condition's re-check interval
+          -- (DEFAULT_WAIT_DURATION_SECONDS = 600s = 10 min) bounds the gap. This
+          -- proximity check guards against any non-uuidv7 id that happens to share the
+          -- version + variant nibble pattern by coincidence.
+          AND fromUnixTimestamp64Milli(
+                  reinterpretAsInt64(reverse(unhex(substring(replaceAll(instance_id, '-', ''), 1, 12))))
+              ) >= subtractMinutes(timestamp, 15)
+          AND fromUnixTimestamp64Milli(
+                  reinterpretAsInt64(reverse(unhex(substring(replaceAll(instance_id, '-', ''), 1, 12))))
+              ) <= timestamp
+
+          -- Exclude rows already queued for replay. The Node CDP API writes this marker
+          -- when bulk_replay_invocations succeeds.
           AND instance_id NOT IN (
               SELECT instance_id
               FROM log_entries
@@ -576,7 +622,6 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
                 AND log_source = 'hog_flow'
                 AND log_source_id = %(log_source_id)s
                 AND positionCaseInsensitiveUTF8(message, '[Replay] Queued') > 0
-                AND timestamp >= toDate(NOW() - INTERVAL 30 DAY)
           )
         ORDER BY timestamp DESC
     """
