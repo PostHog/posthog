@@ -35,6 +35,7 @@ class TestCheckAlertsSync(APIBaseTest):
         self.addCleanup(checkpoint_patch.stop)
         for target in (
             "products.logs.backend.temporal.activities.record_checkpoint_lag",
+            "products.logs.backend.temporal.activities.increment_checkpoint_unavailable",
             "products.logs.backend.temporal.activities.record_alerts_active",
         ):
             p = patch(target)
@@ -177,23 +178,27 @@ class TestCheckAlertsSync(APIBaseTest):
         assert checkpoint_arg == checkpoint
 
     @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.increment_checkpoint_unavailable")
     @patch("products.logs.backend.temporal.activities.record_checkpoint_lag")
     @patch("products.logs.backend.temporal.activities.fetch_live_logs_checkpoint")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
-    def test_skips_checkpoint_fetch_when_no_due_alerts(self, _mock_query_cls, mock_fetch_checkpoint, mock_record_lag):
+    def test_skips_checkpoint_fetch_when_no_due_alerts(
+        self, _mock_query_cls, mock_fetch_checkpoint, mock_record_lag, mock_unavailable
+    ):
         _check_alerts_sync()
 
         mock_fetch_checkpoint.assert_not_called()
-        # Still record the gauge with None so the sentinel fires (pipeline unavailable-ish).
-        mock_record_lag.assert_called_once()
-        _now, checkpoint_arg = mock_record_lag.call_args.args
-        assert checkpoint_arg is None
+        mock_record_lag.assert_not_called()
+        mock_unavailable.assert_called_once()
 
     @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.increment_checkpoint_unavailable")
     @patch("products.logs.backend.temporal.activities.record_checkpoint_lag")
     @patch("products.logs.backend.temporal.activities.fetch_live_logs_checkpoint", side_effect=RuntimeError("CH down"))
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
-    def test_checkpoint_fetch_failure_falls_back_to_wall_clock(self, mock_query_cls, _mock_fetch, mock_record_lag):
+    def test_checkpoint_fetch_failure_falls_back_to_wall_clock(
+        self, mock_query_cls, _mock_fetch, mock_record_lag, mock_unavailable
+    ):
         mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=5, query_duration_ms=100)
         self._make_alert()
 
@@ -201,9 +206,8 @@ class TestCheckAlertsSync(APIBaseTest):
 
         # Alert still evaluated — failed checkpoint fetch must not block alerting.
         assert result.alerts_checked == 1
-        mock_record_lag.assert_called_once()
-        _now, checkpoint_arg = mock_record_lag.call_args.args
-        assert checkpoint_arg is None
+        mock_record_lag.assert_not_called()
+        mock_unavailable.assert_called_once()
 
 
 class TestEvaluateSingleAlert(APIBaseTest):

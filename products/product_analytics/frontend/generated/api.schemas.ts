@@ -6064,10 +6064,16 @@ export const ExperimentStatsValidationFailureApi = {
 
 export interface ExperimentStatsBaseValidatedApi {
     /** @nullable */
+    covariate_sum?: number | null
+    /** @nullable */
+    covariate_sum_squares?: number | null
+    /** @nullable */
     denominator_sum?: number | null
     /** @nullable */
     denominator_sum_squares?: number | null
     key: string
+    /** @nullable */
+    main_covariate_sum_product?: number | null
     number_of_samples: number
     /** @nullable */
     numerator_denominator_sum_product?: number | null
@@ -6096,10 +6102,16 @@ export interface ExperimentVariantResultFrequentistApi {
      */
     confidence_interval?: number[] | null
     /** @nullable */
+    covariate_sum?: number | null
+    /** @nullable */
+    covariate_sum_squares?: number | null
+    /** @nullable */
     denominator_sum?: number | null
     /** @nullable */
     denominator_sum_squares?: number | null
     key: string
+    /** @nullable */
+    main_covariate_sum_product?: number | null
     method?: ExperimentVariantResultFrequentistApiMethod
     number_of_samples: number
     /** @nullable */
@@ -6128,6 +6140,10 @@ export const ExperimentVariantResultBayesianApiMethod = {
 export interface ExperimentVariantResultBayesianApi {
     /** @nullable */
     chance_to_win?: number | null
+    /** @nullable */
+    covariate_sum?: number | null
+    /** @nullable */
+    covariate_sum_squares?: number | null
     /**
      * @minItems 2
      * @maxItems 2
@@ -6139,6 +6155,8 @@ export interface ExperimentVariantResultBayesianApi {
     /** @nullable */
     denominator_sum_squares?: number | null
     key: string
+    /** @nullable */
+    main_covariate_sum_product?: number | null
     method?: ExperimentVariantResultBayesianApiMethod
     number_of_samples: number
     /** @nullable */
@@ -8357,6 +8375,25 @@ export const OrderDirection2Api = {
     Desc: 'DESC',
 } as const
 
+export interface ErrorTrackingPendingFingerprintIssueStateUpdateApi {
+    /** @nullable */
+    assigned_role_id?: string | null
+    /** @nullable */
+    assigned_user_id?: number | null
+    fingerprint: string
+    /** ISO 8601 datetime string. */
+    first_seen: string
+    is_deleted: number
+    /** @nullable */
+    issue_description?: string | null
+    issue_id: string
+    /** @nullable */
+    issue_name?: string | null
+    issue_status: string
+    /** Client-stamped monotonic version (`Date.now()` ms at mutation success). */
+    version: number
+}
+
 export interface ErrorTrackingQueryResponseApi {
     /** @nullable */
     columns?: string[] | null
@@ -8420,6 +8457,11 @@ export interface ErrorTrackingQueryApi {
     orderBy: ErrorTrackingOrderByApi
     /** Sort direction. */
     orderDirection?: OrderDirection2Api | null
+    /**
+     * Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only). The backend caps the list at 50 entries; extras are dropped silently.
+     * @nullable
+     */
+    pendingFingerprintIssueStateUpdates?: ErrorTrackingPendingFingerprintIssueStateUpdateApi[] | null
     /** @nullable */
     personId?: string | null
     response?: ErrorTrackingQueryResponseApi | null
@@ -9466,14 +9508,6 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
 }
 
-export type EffectiveRestrictionLevelEnumApi =
-    (typeof EffectiveRestrictionLevelEnumApi)[keyof typeof EffectiveRestrictionLevelEnumApi]
-
-export const EffectiveRestrictionLevelEnumApi = {
-    Number21: 21,
-    Number37: 37,
-} as const
-
 export type EffectivePrivilegeLevelEnumApi =
     (typeof EffectivePrivilegeLevelEnumApi)[keyof typeof EffectivePrivilegeLevelEnumApi]
 
@@ -9565,7 +9599,7 @@ export interface InsightApi {
     readonly last_modified_at: string
     readonly last_modified_by: UserBasicApi
     readonly is_sample: boolean
-    readonly effective_restriction_level: EffectiveRestrictionLevelEnumApi
+    readonly effective_restriction_level: EffectivePrivilegeLevelEnumApi
     readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
@@ -9683,7 +9717,7 @@ export interface PatchedInsightApi {
     readonly last_modified_at?: string
     readonly last_modified_by?: UserBasicApi
     readonly is_sample?: boolean
-    readonly effective_restriction_level?: EffectiveRestrictionLevelEnumApi
+    readonly effective_restriction_level?: EffectivePrivilegeLevelEnumApi
     readonly effective_privilege_level?: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
@@ -9908,14 +9942,14 @@ export const InsightsDestroyFormat = {
     Json: 'json',
 } as const
 
-export type InsightsActivityRetrieve2Params = {
-    format?: InsightsActivityRetrieve2Format
+export type InsightsActivityRetrieveParams = {
+    format?: InsightsActivityRetrieveFormat
 }
 
-export type InsightsActivityRetrieve2Format =
-    (typeof InsightsActivityRetrieve2Format)[keyof typeof InsightsActivityRetrieve2Format]
+export type InsightsActivityRetrieveFormat =
+    (typeof InsightsActivityRetrieveFormat)[keyof typeof InsightsActivityRetrieveFormat]
 
-export const InsightsActivityRetrieve2Format = {
+export const InsightsActivityRetrieveFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const
@@ -9956,14 +9990,14 @@ export const InsightsSuggestionsCreateFormat = {
     Json: 'json',
 } as const
 
-export type InsightsActivityRetrieveParams = {
-    format?: InsightsActivityRetrieveFormat
+export type InsightsAllActivityRetrieveParams = {
+    format?: InsightsAllActivityRetrieveFormat
 }
 
-export type InsightsActivityRetrieveFormat =
-    (typeof InsightsActivityRetrieveFormat)[keyof typeof InsightsActivityRetrieveFormat]
+export type InsightsAllActivityRetrieveFormat =
+    (typeof InsightsAllActivityRetrieveFormat)[keyof typeof InsightsAllActivityRetrieveFormat]
 
-export const InsightsActivityRetrieveFormat = {
+export const InsightsAllActivityRetrieveFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const

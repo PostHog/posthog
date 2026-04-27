@@ -38,7 +38,7 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], OAuthMi
             iconPath="/static/services/slack.png",
             featureFlag="slack-dwh",
             unreleasedSource=True,
-            betaSource=True,
+            releaseStatus="beta",
             fields=cast(
                 list[FieldType],
                 [

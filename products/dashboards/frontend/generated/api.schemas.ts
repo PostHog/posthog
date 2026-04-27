@@ -67,32 +67,6 @@ export interface UserBasicApi {
 }
 
 /**
- * * `21` - Everyone in the project can edit
- * `37` - Only those invited to this dashboard can edit
- */
-export type DashboardRestrictionLevelApi =
-    (typeof DashboardRestrictionLevelApi)[keyof typeof DashboardRestrictionLevelApi]
-
-export const DashboardRestrictionLevelApi = {
-    Number21: 21,
-    Number37: 37,
-} as const
-
-export interface DashboardCollaboratorApi {
-    readonly id: string
-    readonly dashboard_id: number
-    readonly user: UserBasicApi
-    /**
-     * @minimum 0
-     * @maximum 32767
-     */
-    level: DashboardRestrictionLevelApi
-    readonly added_at: string
-    readonly updated_at: string
-    user_uuid: string
-}
-
-/**
  * * `team` - Only team
  * `global` - Global
  * `feature_flag` - Feature Flag
@@ -171,10 +145,13 @@ export const CreationModeEnumApi = {
     Unlisted: 'unlisted',
 } as const
 
-export type EffectiveRestrictionLevelEnumApi =
-    (typeof EffectiveRestrictionLevelEnumApi)[keyof typeof EffectiveRestrictionLevelEnumApi]
+/**
+ * * `21` - Everyone in the project can edit
+ * `37` - Only those invited to this dashboard can edit
+ */
+export type RestrictionLevelEnumApi = (typeof RestrictionLevelEnumApi)[keyof typeof RestrictionLevelEnumApi]
 
-export const EffectiveRestrictionLevelEnumApi = {
+export const RestrictionLevelEnumApi = {
     Number21: 21,
     Number37: 37,
 } as const
@@ -215,8 +192,8 @@ export interface DashboardBasicApi {
 
 * `21` - Everyone in the project can edit
 * `37` - Only those invited to this dashboard can edit */
-    readonly restriction_level: DashboardRestrictionLevelApi
-    readonly effective_restriction_level: EffectiveRestrictionLevelEnumApi
+    readonly restriction_level: RestrictionLevelEnumApi
+    readonly effective_restriction_level: EffectivePrivilegeLevelEnumApi
     readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
@@ -293,8 +270,8 @@ export interface DashboardApi {
      * @minimum 0
      * @maximum 32767
      */
-    restriction_level?: DashboardRestrictionLevelApi
-    readonly effective_restriction_level: EffectiveRestrictionLevelEnumApi
+    restriction_level?: RestrictionLevelEnumApi
+    readonly effective_restriction_level: EffectivePrivilegeLevelEnumApi
     readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
@@ -326,6 +303,20 @@ export interface DashboardApi {
     /** When deleting, also delete insights that are only on this dashboard. */
     delete_insights?: boolean
     _create_in_folder?: string
+}
+
+export interface DashboardCollaboratorApi {
+    readonly id: string
+    readonly dashboard_id: number
+    readonly user: UserBasicApi
+    /**
+     * @minimum 0
+     * @maximum 32767
+     */
+    level: RestrictionLevelEnumApi
+    readonly added_at: string
+    readonly updated_at: string
+    user_uuid: string
 }
 
 export interface SharePasswordApi {
@@ -405,8 +396,8 @@ export interface PatchedDashboardApi {
      * @minimum 0
      * @maximum 32767
      */
-    restriction_level?: DashboardRestrictionLevelApi
-    readonly effective_restriction_level?: EffectiveRestrictionLevelEnumApi
+    restriction_level?: RestrictionLevelEnumApi
+    readonly effective_restriction_level?: EffectivePrivilegeLevelEnumApi
     readonly effective_privilege_level?: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object

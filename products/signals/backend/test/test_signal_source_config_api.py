@@ -9,6 +9,12 @@ from products.signals.backend.models import SignalSourceConfig
 
 
 class TestSignalSourceConfigAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # Enabling `session_analysis_cluster` gates on org-level AI consent.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+
     def _url(self, config_id: str | None = None) -> str:
         base = f"/api/projects/{self.team.id}/signals/source_configs/"
         if config_id:
@@ -65,6 +71,35 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "source_type" in str(response.json())
+
+    def test_create_session_analysis_cluster_rejected_without_ai_consent(self):
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        response = self.client.post(
+            self._url(),
+            data={
+                "source_product": "session_replay",
+                "source_type": "session_analysis_cluster",
+                "enabled": True,
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "AI data processing" in str(response.json())
+
+    def test_create_session_analysis_cluster_allowed_when_disabled_without_consent(self):
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        response = self.client.post(
+            self._url(),
+            data={
+                "source_product": "session_replay",
+                "source_type": "session_analysis_cluster",
+                "enabled": False,
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
 
     def test_create_duplicate_source_type_per_team_rejected(self):
         SignalSourceConfig.objects.create(
