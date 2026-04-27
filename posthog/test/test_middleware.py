@@ -521,7 +521,7 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         self.assertEqual(response.cookies["ph_last_login_method"].value, "password")
         self.assertEqual(response.cookies["ph_last_login_method"]["max-age"], 31536000)
 
-        response = self.client.get("/logout")
+        response = self.client.post("/logout/")
 
         # Check that the local cookies will be removed by having 'expires' in the past
         self.assertTrue(response.cookies["ph_current_project_token"]["expires"] == "Thu, 01 Jan 1970 00:00:00 GMT")
@@ -690,7 +690,7 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
             self.login_as_other_user()
 
             # Explicit logout via the main logout endpoint
-            res = self.client.get("/logout")
+            res = self.client.post("/logout/")
             assert res.status_code == 302
             assert res.headers["Location"] == f"/admin/posthog/user/{self.other_user.id}/change/"
 
@@ -841,7 +841,7 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
 
         # Explicit logout via main logout endpoint
-        response = self.client.get("/logout")
+        response = self.client.post("/logout/")
 
         assert response.status_code == 302
         assert response.headers["Location"] == f"/admin/posthog/user/{self.other_user.id}/change/"
@@ -1352,7 +1352,7 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
         self.organization.is_active = False
         self.organization.save()
 
-        response = self.client.get("/logout")
+        response = self.client.post("/logout/")
         # Logout may redirect (302 is normal), but should not redirect to organization-deactivated
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertNotIn("organization-deactivated", response.headers.get("Location", ""))

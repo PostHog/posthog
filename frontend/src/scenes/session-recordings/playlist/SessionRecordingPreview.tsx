@@ -298,11 +298,11 @@ const RecordingSummaryIcon = memo(function RecordingSummaryIcon({
             type="tertiary"
             size="xxsmall"
             noPadding
-            icon={<IconPlusSmall className="text-[var(--warning)] text-lg" />}
+            icon={<IconPlusSmall className="text-ai text-lg" />}
             tooltip="Summarize this recording"
             aria-label="Summarize this recording"
             data-attr="summarize-recording-from-list"
-            className="shrink-0 border border-dashed border-[var(--warning)] text-[var(--warning)] hover:bg-[var(--warning)]/10 mb-1"
+            className="shrink-0 border border-dashed border-ai text-ai hover:bg-ai/10 mb-1"
             onClick={(e) => {
                 e.preventDefault()
                 e.stopPropagation()

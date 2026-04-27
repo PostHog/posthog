@@ -580,6 +580,10 @@ quality:
         description: Format MCP files
 tools:
     doctor: null # Click-defined, placed here for categorization
+    tool:temporal-codec-server:
+        bin_script: temporal-codec-server
+        description: Run a local Temporal codec server to decode Fernet payloads for debugging
+        hidden: true
     tool:temporal-django-worker:
         bin_script: temporal-django-worker
         description: Start Temporal worker with graceful shutdown handling

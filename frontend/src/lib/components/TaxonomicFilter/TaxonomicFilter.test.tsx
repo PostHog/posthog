@@ -904,7 +904,7 @@ describe('TaxonomicFilter', () => {
         })
 
         it.each(['pill', 'icon'] as const)(
-            '%s variant with hideSearchInput: falls back to the categories column so users can still switch tabs',
+            '%s variant with hideSearchInput: does not render the categories column or an in-filter dropdown; the host is expected to render CategoryDropdown inside its own input',
             async (variant) => {
                 setVariant(variant)
                 renderFilter({
@@ -913,9 +913,10 @@ describe('TaxonomicFilter', () => {
                 })
 
                 await waitFor(() => {
-                    expect(screen.getByText('Categories')).toBeInTheDocument()
+                    expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
                 })
 
+                expect(screen.queryByText('Categories')).not.toBeInTheDocument()
                 expect(screen.queryByTestId(/taxonomic-category-dropdown-trigger-/)).not.toBeInTheDocument()
             }
         )
