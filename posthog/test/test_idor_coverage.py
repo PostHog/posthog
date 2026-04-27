@@ -66,6 +66,12 @@ from posthog.test.idor.skip_list import (
 
 DISCOVERED_CASES: list[IDORTestCase] = discover_idor_test_cases()
 
+# Cap pagination follow-through in `test_cross_team_list_isolation`. The list
+# parametric checks every page up to this many pages so a paginator that
+# scopes only the first slice would still trip the assertion on page 2+,
+# while bounding total test time on viewsets that surface a lot of rows.
+_LIST_PAGINATION_MAX_PAGES = 3
+
 
 def _case_params(case: IDORTestCase) -> tuple:
     # parameterized.expand requires tuples; name first so pytest test ids are readable
@@ -384,6 +390,10 @@ class TestAutomatedIDORCoverage(IDORTestMixin, APIBaseTest):
         missing team_id on list() leaks entire collections, not single
         records. Build a victim resource, hit the attacker's list URL, and
         assert the victim's pk and sentinel are absent from the response.
+
+        Follows DRF pagination `next` links up to MAX_PAGES — paginators
+        that scope the queryset only on the first slice would leak on
+        page 2+.
         """
         sentinel = reset_sentinel()
         try:
@@ -395,37 +405,44 @@ class TestAutomatedIDORCoverage(IDORTestMixin, APIBaseTest):
         if list_url is None:
             return  # skipTest already called
 
-        response = self.client.get(list_url)  # type: ignore[attr-defined]
-        if response.status_code >= 500:
-            _maybe_warn_5xx(case.name, response.status_code)
-            return
-        if response.status_code not in range(200, 300):
-            return  # 401/403/404 acceptable — denial is the safe path
-
-        self.assertSentinelNotLeaked(response, sentinel)
-
-        try:
-            payload = response.json()
-        except Exception:
-            return
-        if isinstance(payload, list):
-            results = payload
-        elif isinstance(payload, dict):
-            results = payload.get("results", [])
-        else:
-            return
-        if not isinstance(results, list):
-            return
-
         victim_pk = str(victim_instance.pk)
-        for row in results:
-            if not isinstance(row, dict):
-                continue
-            row_id = row.get("id") or row.get("pk")
-            if row_id is not None and str(row_id) == victim_pk:
-                raise AssertionError(
-                    f"IDOR list leak: {list_url} returned victim {case.model_cls.__name__}(pk={victim_pk})"
-                )
+        next_url: str | None = list_url
+        for _page_idx in range(_LIST_PAGINATION_MAX_PAGES):
+            if next_url is None:
+                return
+            response = self.client.get(next_url)  # type: ignore[attr-defined]
+            if response.status_code >= 500:
+                _maybe_warn_5xx(case.name, response.status_code)
+                return
+            if response.status_code not in range(200, 300):
+                return  # 401/403/404 acceptable — denial is the safe path
+
+            self.assertSentinelNotLeaked(response, sentinel)
+
+            try:
+                payload = response.json()
+            except Exception:
+                return
+            if isinstance(payload, list):
+                results = payload
+                next_url = None  # plain lists don't paginate
+            elif isinstance(payload, dict):
+                results = payload.get("results", [])
+                next_url = payload.get("next") if isinstance(payload.get("next"), str) else None
+            else:
+                return
+            if not isinstance(results, list):
+                return
+
+            for row in results:
+                if not isinstance(row, dict):
+                    continue
+                row_id = row.get("id") or row.get("pk")
+                if row_id is not None and str(row_id) == victim_pk:
+                    raise AssertionError(
+                        f"IDOR list leak: {next_url or list_url} returned victim "
+                        f"{case.model_cls.__name__}(pk={victim_pk})"
+                    )
 
     @parameterized.expand(FILTER_PARAM_CASES)
     def test_cross_tenant_filter_param(
