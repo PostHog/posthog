@@ -99,6 +99,11 @@ github_api_rate_limit_reset_timestamp_gauge = Gauge(
     "Most recently observed GitHub API rate limit reset timestamp by integration and resource.",
     labelnames=["integration_id", "resource"],
 )
+github_cache_access_counter = Counter(
+    "github_integration_cache_accesses",
+    "Number of GitHub integration cache accesses by cache type, repository, and result.",
+    labelnames=["integration_id", "cache", "repository", "result"],
+)
 
 PRIVATE_CHANNEL_WITHOUT_ACCESS = "PRIVATE_CHANNEL_WITHOUT_ACCESS"
 
@@ -2293,6 +2298,11 @@ class GitHubIntegration:
     def _record_github_api_exception(self, method: str, endpoint: str) -> None:
         github_api_request_counter.labels(str(self.integration.id), method, endpoint, "exception").inc()
 
+    def _record_github_cache_access(
+        self, cache_type: Literal["repositories", "branches"], result: Literal["hit", "miss"], repository: str
+    ) -> None:
+        github_cache_access_counter.labels(str(self.integration.id), cache_type, repository.casefold(), result).inc()
+
     def _github_api_get(
         self,
         url: str,
@@ -2715,6 +2725,7 @@ class GitHubIntegration:
         has_cached_snapshot = updated_at is not None
         cache_is_stale = self.repository_cache_is_stale()
         should_refresh = cached_repositories is None or cache_is_stale
+        self._record_github_cache_access("repositories", "miss" if should_refresh else "hit", "__all__")
 
         if should_refresh:
             try:
@@ -2742,6 +2753,7 @@ class GitHubIntegration:
         has_cached_snapshot = updated_at is not None
         cache_is_stale = self.repository_cache_is_stale()
         should_refresh = cached_repositories is None or cache_is_stale
+        self._record_github_cache_access("repositories", "miss" if should_refresh else "hit", "__all__")
 
         if should_refresh:
             try:
@@ -2857,6 +2869,7 @@ class GitHubIntegration:
     ) -> tuple[list[str], str | None, bool]:
         cached = self._get_branch_cache(repo)
         should_refresh = cached is None or self.branch_cache_is_stale(repo)
+        self._record_github_cache_access("branches", "miss" if should_refresh else "hit", repo)
 
         if should_refresh:
             try:

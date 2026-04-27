@@ -1116,11 +1116,20 @@ class TestGitHubIntegrationModel(BaseTest):
         integration.repository_cache_updated_at = timezone.now()
         integration.save(update_fields=["repository_cache", "repository_cache_updated_at"])
 
+        labels = {
+            "integration_id": str(integration.id),
+            "cache": "repositories",
+            "repository": "__all__",
+            "result": "hit",
+        }
+        previous_count = REGISTRY.get_sample_value("github_integration_cache_accesses_total", labels) or 0
+
         repos, has_more = GitHubIntegration(integration).list_cached_repositories(limit=1, offset=1)
 
         assert repos == [{"id": 2, "name": "posthog-js", "full_name": "PostHog/posthog-js"}]
         assert has_more is False
         mock_list_all.assert_not_called()
+        assert REGISTRY.get_sample_value("github_integration_cache_accesses_total", labels) == previous_count + 1
 
     @patch("posthog.models.integration.GitHubIntegration.list_all_repositories")
     def test_sync_repository_cache_respects_refresh_cooldown(self, mock_list_all):
@@ -1179,6 +1188,14 @@ class TestGitHubIntegrationModel(BaseTest):
         )
         mock_list_all.return_value = fetched_repositories
 
+        labels = {
+            "integration_id": str(integration.id),
+            "cache": "repositories",
+            "repository": "__all__",
+            "result": "miss",
+        }
+        previous_count = REGISTRY.get_sample_value("github_integration_cache_accesses_total", labels) or 0
+
         repos, has_more = GitHubIntegration(integration).list_cached_repositories(limit=1, offset=0)
 
         integration.refresh_from_db()
@@ -1187,6 +1204,7 @@ class TestGitHubIntegrationModel(BaseTest):
         assert integration.repository_cache == fetched_repositories
         assert integration.repository_cache_updated_at is not None
         mock_list_all.assert_called_once_with()
+        assert REGISTRY.get_sample_value("github_integration_cache_accesses_total", labels) == previous_count + 1
 
     @patch("posthog.models.integration.GitHubIntegration.list_all_repositories")
     def test_list_cached_repositories_returns_stale_cache_on_refresh_error(self, mock_list_all):
@@ -1300,6 +1318,14 @@ class TestGitHubIntegrationModel(BaseTest):
             },
         )
 
+        labels = {
+            "integration_id": str(integration.id),
+            "cache": "branches",
+            "repository": repo,
+            "result": "hit",
+        }
+        previous_count = REGISTRY.get_sample_value("github_integration_cache_accesses_total", labels) or 0
+
         branches, default_branch, has_more = GitHubIntegration(integration).list_cached_branches(
             repo, limit=2, offset=1
         )
@@ -1309,6 +1335,7 @@ class TestGitHubIntegrationModel(BaseTest):
         assert has_more is False
         mock_list_branches.assert_not_called()
         mock_default_branch.assert_not_called()
+        assert REGISTRY.get_sample_value("github_integration_cache_accesses_total", labels) == previous_count + 1
 
     @patch("posthog.models.integration.GitHubIntegration.list_branches")
     @patch("posthog.models.integration.GitHubIntegration.get_default_branch")
@@ -1353,6 +1380,14 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_list_branches.return_value = (["develop", "feature/test"], False)
         mock_default_branch.return_value = "main"
 
+        labels = {
+            "integration_id": str(integration.id),
+            "cache": "branches",
+            "repository": repo,
+            "result": "miss",
+        }
+        previous_count = REGISTRY.get_sample_value("github_integration_cache_accesses_total", labels) or 0
+
         branches, default_branch, has_more = GitHubIntegration(integration).list_cached_branches(
             repo, limit=2, offset=0
         )
@@ -1365,6 +1400,7 @@ class TestGitHubIntegrationModel(BaseTest):
         assert cached["default_branch"] == "main"
         mock_list_branches.assert_called_once_with(repo, limit=100, offset=0)
         mock_default_branch.assert_called_once_with(repo)
+        assert REGISTRY.get_sample_value("github_integration_cache_accesses_total", labels) == previous_count + 1
 
     @patch("posthog.models.integration.GitHubIntegration.list_branches")
     @patch("posthog.models.integration.GitHubIntegration.get_default_branch")
