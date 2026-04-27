@@ -821,7 +821,7 @@ class ClickHousePrinter(BasePrinter):
         else:
             return None
 
-        if isinstance(table_type, ast.TableAliasType):
+        while isinstance(table_type, ast.TableAliasType):
             table_type = table_type.table_type
         if isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable):
             return table_type
