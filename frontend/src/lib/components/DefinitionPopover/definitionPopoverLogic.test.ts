@@ -353,6 +353,31 @@ describe('definitionPopoverLogic', () => {
                     await expectChain
                 })
             })
+
+            const idLessGroups: TaxonomicFilterGroupType[] = [
+                TaxonomicFilterGroupType.Actions,
+                TaxonomicFilterGroupType.CustomEvents,
+                TaxonomicFilterGroupType.Events,
+                TaxonomicFilterGroupType.PersonProperties,
+                TaxonomicFilterGroupType.EventProperties,
+                TaxonomicFilterGroupType.NumericalEventProperties,
+                TaxonomicFilterGroupType.Cohorts,
+            ]
+
+            idLessGroups.forEach((type) => {
+                it(`returns undefined when ${type} definition has no id (e.g. pinned TaxonomicFilter items)`, async () => {
+                    logic = definitionPopoverLogic({ type })
+                    logic.mount()
+
+                    await expectLogic(logic, () => {
+                        logic.actions.setDefinition({ name: 'pinned-without-id' })
+                    })
+                        .toDispatchActions(['setDefinitionSuccess'])
+                        .toMatchValues({
+                            viewFullDetailUrl: undefined,
+                        })
+                })
+            })
         })
     })
 })

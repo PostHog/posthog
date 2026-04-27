@@ -232,18 +232,22 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
         viewFullDetailUrl: [
             (s) => [s.definition, s.isAction, s.isEvent, s.isProperty, s.isCohort],
             (definition, isAction, isEvent, isProperty, isCohort) => {
+                // Pinned TaxonomicFilter items (and other minimal hydration paths) may carry
+                // only `{ name }` without an `id`, in which case there's no detail page to
+                // link to. Returning undefined lets the caller hide the View link instead of
+                // navigating to `/data-management/.../undefined`.
                 if (isAction) {
-                    // Action Definitions
-                    return urls.action((definition as ActionType).id)
+                    const id = (definition as ActionType).id
+                    return id != null ? urls.action(id) : undefined
                 } else if (isEvent) {
-                    // Event Definitions
-                    return urls.eventDefinition((definition as EventDefinition).id)
+                    const id = (definition as EventDefinition).id
+                    return id ? urls.eventDefinition(id) : undefined
                 } else if (isProperty) {
-                    // Property Definitions
-                    return urls.propertyDefinition((definition as PropertyDefinition).id)
+                    const id = (definition as PropertyDefinition).id
+                    return id ? urls.propertyDefinition(id) : undefined
                 } else if (isCohort) {
-                    // Cohort
-                    return urls.cohort((definition as CohortType).id)
+                    const id = (definition as CohortType).id
+                    return id != null ? urls.cohort(id) : undefined
                 }
                 return undefined
             },
