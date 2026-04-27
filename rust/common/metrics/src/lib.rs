@@ -4,7 +4,7 @@ use axum::{
     body::Body, extract::MatchedPath, http::Request, middleware::Next, response::IntoResponse,
     routing::get, Router,
 };
-use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
+use metrics_exporter_prometheus::PrometheusBuilder;
 use std::sync::OnceLock;
 
 type LabelFilterFn =
@@ -61,10 +61,6 @@ fn install_metrics_routes(router: Router, product: Option<String>) -> Router {
             get(move || std::future::ready(recorder_handle.render())),
         )
         .layer(axum::middleware::from_fn(track_metrics))
-}
-
-pub fn setup_metrics_recorder() -> PrometheusHandle {
-    build_prometheus_builder(None).install_recorder().unwrap()
 }
 
 fn build_prometheus_builder(product: Option<String>) -> PrometheusBuilder {
