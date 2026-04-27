@@ -2,9 +2,8 @@ import React, { useMemo } from 'react'
 
 import { Chart } from 'lib/Chart'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
-
-import { useChart } from '../core/chart-context'
-import { computeVisibleXLabels } from './AxisLabels'
+import { useChart } from 'lib/hog-charts/core/chart-context'
+import { computeVisibleXLabels } from 'lib/hog-charts/overlays/AxisLabels'
 
 interface AnnotationsLayerProps {
     /** Numeric insight id used by the annotations logic. Pass `'new'` for unsaved insights. */
@@ -43,7 +42,7 @@ export function AnnotationsLayer({
             },
             _metasets: [{ data: points }],
         }
-    }, [labels, scales.x, dimensions.plotLeft, dimensions.plotTop, dimensions.plotHeight, xTickFormatter])
+    }, [labels, scales.x, dimensions.plotLeft, dimensions.plotTop, dimensions.plotHeight, xTickFormatter, scales])
 
     if (chartLike.scales.x.ticks.length < 2) {
         return null
