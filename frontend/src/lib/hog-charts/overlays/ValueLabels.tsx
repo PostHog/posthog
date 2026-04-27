@@ -70,7 +70,7 @@ function buildCandidates(
 
         for (let dIdx = 0; dIdx < s.data.length && dIdx < labels.length; dIdx++) {
             const value = s.data[dIdx]
-            if (typeof value !== 'number' || value === 0 || !isFinite(value)) {
+            if (typeof value !== 'number' || !isFinite(value)) {
                 continue
             }
             const x = scales.x(labels[dIdx])

@@ -366,32 +366,34 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
 
         elif validated_data["kind"] in OauthIntegration.supported_kinds:
             # Stripe marketplace installs redirect to /integrations/stripe/callback without
-            # a PostHog-minted CSRF state token — Stripe drives the OAuth flow itself. Stripe
-            # signs the redirect with `install_signature` over {state, user_id, account_id};
-            # verify it before exchanging the code so a forged URL can't link an attacker's
-            # account onto a victim's team. Conflict check is defense-in-depth on top.
+            # a PostHog-minted CSRF state token — Stripe drives the OAuth flow itself.
+            # Stripe's Connect-OAuth flow (used by stripe_api_access_type: oauth) does not
+            # include `install_signature` in the redirect; that param is only emitted for
+            # Stripe Apps install-link OAuth. If a signature is present we verify it; if
+            # absent we fall through to the conflict guard for defense-in-depth.
             if validated_data["kind"] == "stripe":
                 config = validated_data["config"]
                 stripe_user_id = config.get("stripe_user_id")
                 state = config.get("state")
                 if stripe_user_id and not state:
-                    install_signature = config.get("install_signature") or ""
-                    user_id = config.get("user_id") or ""
-                    account_id = config.get("account_id") or ""
-                    if not _verify_stripe_install_signature(
-                        state="",
-                        user_id=user_id,
-                        account_id=account_id,
-                        install_signature=install_signature,
-                    ):
-                        capture_exception(
-                            Exception("Stripe marketplace callback rejected: invalid install_signature"),
-                            {"team_id": team_id, "stripe_user_id": stripe_user_id},
-                        )
-                        raise ValidationError(
-                            "Stripe install signature could not be verified.",
-                            code="stripe_install_signature_invalid",
-                        )
+                    install_signature = config.get("install_signature")
+                    if install_signature:
+                        user_id = config.get("user_id") or ""
+                        account_id = config.get("account_id") or ""
+                        if not _verify_stripe_install_signature(
+                            state="",
+                            user_id=user_id,
+                            account_id=account_id,
+                            install_signature=install_signature,
+                        ):
+                            capture_exception(
+                                Exception("Stripe marketplace callback rejected: invalid install_signature"),
+                                {"team_id": team_id, "stripe_user_id": stripe_user_id},
+                            )
+                            raise ValidationError(
+                                "Stripe install signature could not be verified.",
+                                code="stripe_install_signature_invalid",
+                            )
 
                     conflicting = (
                         Integration.objects.filter(team_id=team_id, kind="stripe")
