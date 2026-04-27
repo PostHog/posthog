@@ -869,8 +869,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         // Tracks whether the recordings list has resolved at least once.
         // Used to avoid rendering the empty/troubleshooting state during the
         // brief gap between mount and the first loadSessionRecordings dispatch.
+        // Starts true when onlyPinned is set, since loadSessionRecordings is
+        // never dispatched in that mode (afterMount returns early).
         hasResolvedSessionRecordings: [
-            false,
+            !!props.onlyPinned,
             {
                 loadSessionRecordingsSuccess: () => true,
                 loadSessionRecordingsFailure: () => true,
