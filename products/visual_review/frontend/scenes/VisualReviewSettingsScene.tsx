@@ -199,19 +199,18 @@ function RepoCard({ repo }: { repo: RepoApi }): JSX.Element {
 }
 
 function RepoEditForm(): JSX.Element {
-    const { repoFormSubmitting, hasChanges } = useValues(visualReviewSettingsSceneLogic)
-    const { cancelEdit } = useActions(visualReviewSettingsSceneLogic)
+    const { repoForm, repoFormSubmitting, hasChanges } = useValues(visualReviewSettingsSceneLogic)
+    const { setRepoFormValue, cancelEdit } = useActions(visualReviewSettingsSceneLogic)
 
     return (
         <Form logic={visualReviewSettingsSceneLogic} formKey="repoForm" enableFormOnSubmit>
             <div className="border-2 border-primary rounded-lg p-4 space-y-4">
-                <LemonField
-                    name="baseline_file_paths"
-                    label="Baseline file paths"
-                    help="Where baseline hashes are stored for each run type."
-                >
-                    {({ value, onChange }) => <BaselinePathEditor paths={value} onChange={onChange} />}
-                </LemonField>
+                <LemonField.Pure label="Baseline file paths" help="Where baseline hashes are stored for each run type.">
+                    <BaselinePathEditor
+                        paths={repoForm.baseline_file_paths}
+                        onChange={(paths) => setRepoFormValue('baseline_file_paths', paths)}
+                    />
+                </LemonField.Pure>
 
                 <LemonField name="enable_pr_comments">
                     {({ value, onChange }) => (
