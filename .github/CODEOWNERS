@@ -17,6 +17,8 @@ posthog/clickhouse/migrations/** @PostHog/clickhouse
 
 # HogQL team owns HogQL changes
 posthog/hogql/** @PostHog/hogql
+# ...except per-table schema definitions, which product teams add and maintain for their own features
+posthog/hogql/database/schema/**
 
 # Being open source brings us unwanted problems because Github Actions are untrusted and inherently unsafe
 # so we have to be extra careful with changes here. Let's have the security team own these checks.
