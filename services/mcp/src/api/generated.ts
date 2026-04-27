@@ -21446,6 +21446,8 @@ export namespace Schemas {
       /** @nullable */
       readonly template_id: string | null;
       readonly name: string;
+      /** Lowercase key from the linked template for brand icons. Empty if custom install (no template). */
+      readonly icon_key: string;
       /** @maxLength 200 */
       display_name?: string;
       /** @maxLength 2048 */
@@ -21860,6 +21862,11 @@ export namespace Schemas {
       text_content?: string;
       /** Updated notebook title. */
       title?: string;
+      /**
+       * ProseMirror cursor head position after applying steps.
+       * @nullable
+       */
+      cursor_head?: number | null;
     }
 
     export interface NotebookMinimal {
