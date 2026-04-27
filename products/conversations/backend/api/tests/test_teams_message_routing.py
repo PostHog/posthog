@@ -214,7 +214,7 @@ class TestTeamsMentionRouting(BaseTest):
     @patch("products.conversations.backend.teams.resolve_teams_user", return_value={"name": "U", "email": None})
     def test_mention_creates_new_ticket(self, _mock_user, mock_create):
         handle_teams_mention(
-            _make_activity(bot_mention=True, channel_id="19:any@thread.tacv2"),
+            _make_activity(bot_mention=True, channel_id="19:any@thread.tacv2", text="I have an issue"),
             self.team,
             "tenant-abc",
         )
@@ -237,7 +237,7 @@ class TestTeamsMentionRouting(BaseTest):
         )
 
         handle_teams_mention(
-            _make_activity(bot_mention=True),
+            _make_activity(bot_mention=True, text="I have an issue"),
             self.team,
             "tenant-abc",
         )

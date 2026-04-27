@@ -128,6 +128,14 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         response = self.client.post("/api/personal_api_keys/", {"label": "test", "scopes": ["insight:invalid"]})
         assert response.status_code == 400
 
+    def test_rejects_internal_scope_objects(self):
+        response = self.client.post(
+            "/api/personal_api_keys/",
+            {"label": "test", "scopes": ["clickhouse_test_cluster_perf:read"]},
+        )
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Invalid scope: clickhouse_test_cluster_perf:read"
+
     def test_delete_personal_api_key(self):
         key = PersonalAPIKey.objects.create(
             label="Test",
