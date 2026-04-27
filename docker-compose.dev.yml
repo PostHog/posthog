@@ -508,6 +508,15 @@ services:
             service: opensearch-dashboards
         ports:
             - '127.0.0.1:5601:5601'
+    opensearch-init:
+        image: curlimages/curl:8.10.1
+        depends_on:
+            opensearch:
+                condition: service_healthy
+        restart: 'no'
+        volumes:
+            - ./products/llm_analytics/opensearch:/work:ro
+        entrypoint: ['sh', '/work/init.sh']
 
     temporal:
         extends:
