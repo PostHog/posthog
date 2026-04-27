@@ -33,7 +33,6 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
-from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.hogql_queries.insights.retention.retention_base_query_fixed import RetentionFixedIntervalBaseQueryBuilder
 from posthog.hogql_queries.insights.retention.retention_base_query_rolling import (
     RetentionRollingIntervalBaseQueryBuilder,
@@ -58,7 +57,7 @@ DEFAULT_TOTAL_INTERVALS = 7
 DEFAULT_ENTITY = RetentionEntity(
     **{
         "id": "$pageview",
-        "type": TREND_FILTER_TYPE_EVENTS,
+        "type": EntityType.EVENTS,
     }
 )
 
