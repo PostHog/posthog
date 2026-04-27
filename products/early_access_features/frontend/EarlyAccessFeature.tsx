@@ -234,7 +234,6 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                                         </LemonButton>
                                         <LemonButton
                                             type="primary"
-                                            htmlType="submit"
                                             data-attr="save-feature"
                                             onClick={() => {
                                                 // Check if user is promoting to General Availability
@@ -254,7 +253,6 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                                                 }
                                             }}
                                             loading={isEarlyAccessFeatureSubmitting}
-                                            form="early-access-feature"
                                             size="small"
                                         >
                                             {isNewEarlyAccessFeature ? 'Save as draft' : 'Save'}
