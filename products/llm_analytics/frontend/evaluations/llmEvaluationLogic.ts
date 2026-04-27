@@ -20,7 +20,7 @@ import { isUnhealthyProviderKeyState } from '../settings/providerKeyStateUtils'
 import { queryEvaluationRuns } from '../utils'
 import { evaluationErrorMessage } from './apiErrors'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
-import { buildDeliveryTargets, evaluationReportLogic } from './evaluationReportLogic'
+import { evaluationReportLogic, persistReportDraft } from './evaluationReportLogic'
 import type { llmEvaluationLogicType } from './llmEvaluationLogicType'
 import { EvaluationTemplateKey, defaultEvaluationTemplates } from './templates'
 import {
@@ -455,6 +455,18 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         },
 
         resetEvaluation: () => {
+            // Reset any pending report-config draft alongside the evaluation so
+            // Cancel/Back clears both forms (the report draft lives in a separate
+            // keyed logic — see evaluationReportLogic).
+            const reportLogicKey = props.evaluationId === 'new' ? 'new' : props.evaluationId
+            const reportLogic = evaluationReportLogic({ evaluationId: reportLogicKey })
+            if (reportLogic.isMounted()) {
+                if (reportLogic.values.activeReport) {
+                    reportLogic.actions.seedDraftFromReport(reportLogic.values.activeReport)
+                } else {
+                    reportLogic.actions.resetDraft()
+                }
+            }
             if (props.evaluationId === 'new') {
                 const newEvaluation: EvaluationConfig = {
                     id: '',
@@ -515,51 +527,38 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     return
                 }
 
-                if (props.evaluationId === 'new') {
-                    const response = await api.create(`/api/environments/${teamId}/evaluations/`, values.evaluation!)
-                    actions.saveEvaluationSuccess(response)
-                    // Create the pending report before navigating away. The 'new'-keyed
-                    // evaluationReportLogic unmounts when the component tears down, so
-                    // snapshot its draft now and fire the create directly. The logic is
-                    // only mounted when EvaluationReportConfig is rendered (gated on the
-                    // reports feature flag), so skip when it isn't — there's no draft to
-                    // forward and reading .values would throw a kea "path not found" error.
-                    const newReportLogic = evaluationReportLogic({ evaluationId: 'new' })
-                    if (response?.id && newReportLogic.isMounted()) {
-                        const draft = newReportLogic.values.configDraft
-                        const targets = buildDeliveryTargets(draft)
-                        if (draft.enabled && (targets.length > 0 || draft.reportPromptGuidance.trim().length > 0)) {
-                            const body: Record<string, unknown> = {
-                                evaluation: response.id,
-                                frequency: draft.frequency,
-                                delivery_targets: targets,
-                                report_prompt_guidance: draft.reportPromptGuidance,
-                                enabled: true,
-                            }
-                            if (draft.frequency === 'scheduled') {
-                                body.rrule = draft.rrule
-                                body.starts_at = draft.startsAt
-                                body.timezone_name = draft.timezoneName
-                            }
-                            if (draft.frequency === 'every_n') {
-                                body.trigger_threshold = draft.triggerThreshold
-                                body.cooldown_minutes = draft.cooldownHours * 60
-                            }
-                            try {
-                                await api.create(`api/environments/${teamId}/llm_analytics/evaluation_reports/`, body)
-                            } catch (reportError) {
-                                // Don't block navigation if the (optional) pending report fails
-                                posthog.captureException(reportError, { tag: 'eval-report-pending-create' })
-                            }
-                        }
+                const isNew = props.evaluationId === 'new'
+                const response = isNew
+                    ? await api.create(`/api/environments/${teamId}/evaluations/`, values.evaluation!)
+                    : await api.update(
+                          `/api/environments/${teamId}/evaluations/${props.evaluationId}/`,
+                          values.evaluation!
+                      )
+                actions.saveEvaluationSuccess(response)
+
+                // Piggyback the scheduled-report draft onto the main save so the single
+                // "Save changes" button at the top of the page commits both forms. The
+                // evaluationReportLogic is only mounted when EvaluationReportConfig is
+                // rendered (gated on the reports feature flag), so skip when it isn't —
+                // reading .values on an unmounted keyed logic would throw.
+                const reportLogicKey = isNew ? 'new' : props.evaluationId
+                const reportLogic = evaluationReportLogic({ evaluationId: reportLogicKey })
+                if (response?.id && reportLogic.isMounted()) {
+                    try {
+                        await persistReportDraft(
+                            teamId,
+                            response.id,
+                            reportLogic.values.configDraft,
+                            reportLogic.values.activeReport
+                        )
+                    } catch (reportError) {
+                        // Don't block navigation if the (optional) report save fails —
+                        // the eval itself already saved successfully.
+                        posthog.captureException(reportError, { tag: 'eval-report-persist-on-eval-save' })
+                        lemonToast.error('Evaluation saved, but scheduled report changes could not be saved.')
                     }
-                } else {
-                    const response = await api.update(
-                        `/api/environments/${teamId}/evaluations/${props.evaluationId}/`,
-                        values.evaluation!
-                    )
-                    actions.saveEvaluationSuccess(response)
                 }
+
                 router.actions.push(urls.llmAnalyticsEvaluations(), router.values.searchParams)
             } catch (error) {
                 const message = evaluationErrorMessage(error, 'Failed to save evaluation')

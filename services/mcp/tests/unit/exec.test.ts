@@ -215,6 +215,11 @@ describe('exec tool', () => {
         // block. Because `buildToolDomainsBlock` relies on tool-name conventions
         // (CRUD suffixes, prefix actions, plural collapsing), this snapshot is the
         // canary for any drift in naming or in the domain-extraction logic.
+        //
+        // Snapshots the Codex (`supportsInstructions: false`) wiring, where every
+        // placeholder is filled. That's the only path where `{tool_domains}` and
+        // `{query_tools}` actually appear in the `command` parameter description,
+        // so the snapshot has to follow it to keep catching drift in those blocks.
         it('matches the full exec tool schema', async () => {
             const context = createSnapshotContext()
             const v2Tools = [...(await getToolsFromContext(context, { version: 2 }))].sort((a, b) =>
