@@ -33,15 +33,17 @@ tools:
         list: true
         title: List usage metrics
         description: >
-            List usage metrics for a group type in the project. Returns each metric's
-            id, name, format, interval (days), display mode, math aggregation, and
-            filter definition. Requires `group_type_index` to target a specific group
-            type.
+            List usage metrics defined for the project. Usage metrics apply to both
+            groups and persons on Customer Analytics profile pages — they are NOT
+            scoped to a specific group type despite the legacy URL shape. Returns
+            each metric's id, name, format, interval (days), display mode, math
+            aggregation, and filter definition. Pass `group_type_index: 0`.
         param_overrides:
             group_type_index:
                 description: >
-                    Zero-based index of the group type whose usage metrics you want to list.
-                    Find available group types via the groups API or the groups system table.
+                    Legacy URL parameter retained for backward compatibility. Pass `0`.
+                    The stored value does not scope the metric — usage metrics apply
+                    to both groups and persons regardless of this value.
     usage-metrics-create:
         operation: groups_types_metrics_create
         enabled: true
@@ -53,13 +55,19 @@ tools:
             idempotent: false
         title: Create usage metric
         description: >
-            Create a new usage metric for a given group type. `filters` takes the same
-            shape as HogFunction filters (a dict with an `events` list and optional
+            Create a new usage metric for the project. The metric will surface on
+            both group and person Customer Analytics profile pages — usage metrics
+            are not scoped to a specific group type. `filters` takes the same shape
+            as HogFunction filters (a dict with an `events` list and optional
             `properties` list). When `math` is `sum`, `math_property` is required;
-            when `math` is `count`, `math_property` must be empty.
+            when `math` is `count`, `math_property` must be empty. Pass
+            `group_type_index: 0`.
         param_overrides:
             group_type_index:
-                description: Zero-based index of the group type this metric applies to.
+                description: >
+                    Legacy URL parameter retained for backward compatibility. Pass `0`.
+                    The stored value does not scope the metric — usage metrics apply
+                    to both groups and persons regardless of this value.
     usage-metrics-retrieve:
         operation: groups_types_metrics_retrieve
         enabled: true
@@ -71,10 +79,15 @@ tools:
             destructive: false
             idempotent: true
         title: Get usage metric
-        description: Fetch a single usage metric by id for a given group type.
+        description: >
+            Fetch a single usage metric by id. Pass `group_type_index: 0` — usage
+            metrics apply to both groups and persons regardless of this value.
         param_overrides:
             group_type_index:
-                description: Zero-based index of the group type this metric belongs to.
+                description: >
+                    Legacy URL parameter retained for backward compatibility. Pass `0`.
+                    The stored value does not scope the metric — usage metrics apply
+                    to both groups and persons regardless of this value.
     usage-metrics-update:
         operation: groups_types_metrics_update
         enabled: false
@@ -92,9 +105,14 @@ tools:
             Update fields on an existing usage metric. Accepts a subset of fields;
             unspecified fields are left unchanged. Changing `math` to `sum` requires
             `math_property`; changing to `count` requires clearing `math_property`.
+            Pass `group_type_index: 0` — usage metrics apply to both groups and
+            persons regardless of this value.
         param_overrides:
             group_type_index:
-                description: Zero-based index of the group type this metric belongs to.
+                description: >
+                    Legacy URL parameter retained for backward compatibility. Pass `0`.
+                    The stored value does not scope the metric — usage metrics apply
+                    to both groups and persons regardless of this value.
     usage-metrics-destroy:
         operation: groups_types_metrics_destroy
         enabled: true
@@ -105,7 +123,12 @@ tools:
             destructive: true
             idempotent: true
         title: Delete usage metric
-        description: Permanently delete a usage metric by id.
+        description: >
+            Permanently delete a usage metric by id. Pass `group_type_index: 0`
+            — usage metrics apply to both groups and persons regardless of this value.
         param_overrides:
             group_type_index:
-                description: Zero-based index of the group type this metric belongs to.
+                description: >
+                    Legacy URL parameter retained for backward compatibility. Pass `0`.
+                    The stored value does not scope the metric — usage metrics apply
+                    to both groups and persons regardless of this value.

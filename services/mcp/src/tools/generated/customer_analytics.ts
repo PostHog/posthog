@@ -19,7 +19,7 @@ const UsageMetricsListSchema = GroupsTypesMetricsListParams.omit({ project_id: t
     .extend(GroupsTypesMetricsListQueryParams.shape)
     .extend({
         group_type_index: GroupsTypesMetricsListParams.shape['group_type_index'].describe(
-            'Zero-based index of the group type whose usage metrics you want to list. Find available group types via the groups API or the groups system table.'
+            'Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope the metric — usage metrics apply to both groups and persons regardless of this value.'
         ),
     })
 
@@ -48,7 +48,7 @@ const UsageMetricsCreateSchema = GroupsTypesMetricsCreateParams.omit({ project_i
     .extend(GroupsTypesMetricsCreateBody.shape)
     .extend({
         group_type_index: GroupsTypesMetricsCreateParams.shape['group_type_index'].describe(
-            'Zero-based index of the group type this metric applies to.'
+            'Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope the metric — usage metrics apply to both groups and persons regardless of this value.'
         ),
     })
 
@@ -90,7 +90,7 @@ const usageMetricsCreate = (): ToolBase<typeof UsageMetricsCreateSchema, Schemas
 
 const UsageMetricsRetrieveSchema = GroupsTypesMetricsRetrieveParams.omit({ project_id: true }).extend({
     group_type_index: GroupsTypesMetricsRetrieveParams.shape['group_type_index'].describe(
-        'Zero-based index of the group type this metric belongs to.'
+        'Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope the metric — usage metrics apply to both groups and persons regardless of this value.'
     ),
 })
 
@@ -112,7 +112,7 @@ const UsageMetricsPartialUpdateSchema = GroupsTypesMetricsPartialUpdateParams.om
     .extend(GroupsTypesMetricsPartialUpdateBody.shape)
     .extend({
         group_type_index: GroupsTypesMetricsPartialUpdateParams.shape['group_type_index'].describe(
-            'Zero-based index of the group type this metric belongs to.'
+            'Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope the metric — usage metrics apply to both groups and persons regardless of this value.'
         ),
     })
 
@@ -154,7 +154,7 @@ const usageMetricsPartialUpdate = (): ToolBase<typeof UsageMetricsPartialUpdateS
 
 const UsageMetricsDestroySchema = GroupsTypesMetricsDestroyParams.omit({ project_id: true }).extend({
     group_type_index: GroupsTypesMetricsDestroyParams.shape['group_type_index'].describe(
-        'Zero-based index of the group type this metric belongs to.'
+        'Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope the metric — usage metrics apply to both groups and persons regardless of this value.'
     ),
 })
 

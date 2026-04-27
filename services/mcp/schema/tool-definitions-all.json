@@ -1242,7 +1242,7 @@
         }
     },
     "usage-metrics-list": {
-        "description": "List usage metrics for a group type in the project. Returns each metric's id, name, format, interval (days), display mode, math aggregation, and filter definition. Requires `group_type_index` to target a specific group type.",
+        "description": "List usage metrics defined for the project. Usage metrics apply to both groups and persons on Customer Analytics profile pages — they are NOT scoped to a specific group type despite the legacy URL shape. Returns each metric's id, name, format, interval (days), display mode, math aggregation, and filter definition. Pass `group_type_index: 0`.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "List usage metrics",
@@ -1257,7 +1257,7 @@
         }
     },
     "usage-metrics-create": {
-        "description": "Create a new usage metric for a given group type. `filters` takes the same shape as HogFunction filters (a dict with an `events` list and optional `properties` list). When `math` is `sum`, `math_property` is required; when `math` is `count`, `math_property` must be empty.",
+        "description": "Create a new usage metric for the project. The metric will surface on both group and person Customer Analytics profile pages — usage metrics are not scoped to a specific group type. `filters` takes the same shape as HogFunction filters (a dict with an `events` list and optional `properties` list). When `math` is `sum`, `math_property` is required; when `math` is `count`, `math_property` must be empty. Pass `group_type_index: 0`.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Create usage metric",
@@ -1272,7 +1272,7 @@
         }
     },
     "usage-metrics-retrieve": {
-        "description": "Fetch a single usage metric by id for a given group type.",
+        "description": "Fetch a single usage metric by id. Pass `group_type_index: 0` — usage metrics apply to both groups and persons regardless of this value.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Get usage metric",
@@ -1287,7 +1287,7 @@
         }
     },
     "usage-metrics-partial-update": {
-        "description": "Update fields on an existing usage metric. Accepts a subset of fields; unspecified fields are left unchanged. Changing `math` to `sum` requires `math_property`; changing to `count` requires clearing `math_property`.",
+        "description": "Update fields on an existing usage metric. Accepts a subset of fields; unspecified fields are left unchanged. Changing `math` to `sum` requires `math_property`; changing to `count` requires clearing `math_property`. Pass `group_type_index: 0` — usage metrics apply to both groups and persons regardless of this value.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Update usage metric",
@@ -1302,7 +1302,7 @@
         }
     },
     "usage-metrics-destroy": {
-        "description": "Permanently delete a usage metric by id.",
+        "description": "Permanently delete a usage metric by id. Pass `group_type_index: 0` — usage metrics apply to both groups and persons regardless of this value.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Delete usage metric",
