@@ -6,9 +6,12 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { urls } from 'scenes/urls'
 
 import { BlockedRun, blockedRunsLogic } from './blockedRunsLogic'
+import { workflowLogic } from './workflowLogic'
 
 export function BlockedRunsReplay({ id }: { id: string }): JSX.Element {
     const logic = blockedRunsLogic({ id })
@@ -21,6 +24,17 @@ export function BlockedRunsReplay({ id }: { id: string }): JSX.Element {
         replayAllBlockedRuns,
         loadMoreBlockedRuns,
     } = useActions(logic)
+
+    // Map action_id -> action name from the current workflow definition. The action may
+    // have been edited or removed since the run was blocked (e.g., the customer reshuffled
+    // the workflow during incident triage), so we fall back gracefully when not found.
+    const { originalWorkflow } = useValues(workflowLogic)
+    const actionNameById = new Map<string, string>(
+        (originalWorkflow?.actions ?? []).map((action: { id: string; name?: string }) => [
+            action.id,
+            action.name ?? action.id,
+        ])
+    )
 
     const selectedCount = selectedRunIds.size
     const allSelected = allBlockedRuns.length > 0 && allBlockedRuns.every((r) => selectedRunIds.has(r.instance_id))
@@ -88,7 +102,9 @@ export function BlockedRunsReplay({ id }: { id: string }): JSX.Element {
             key: 'event_uuid',
             render: (_, run) =>
                 run.event_uuid ? (
-                    <code className="text-xs">{run.event_uuid}</code>
+                    <Link to={urls.event(run.event_uuid, run.timestamp)} target="_blank">
+                        <code className="text-xs">{run.event_uuid}</code>
+                    </Link>
                 ) : (
                     <span className="text-muted">-</span>
                 ),
@@ -96,12 +112,26 @@ export function BlockedRunsReplay({ id }: { id: string }): JSX.Element {
         {
             title: 'Blocked action',
             key: 'action_id',
-            render: (_, run) =>
-                run.action_id ? (
-                    <code className="text-xs">{run.action_id}</code>
-                ) : (
-                    <span className="text-muted">-</span>
-                ),
+            render: (_, run) => {
+                if (!run.action_id) {
+                    return <span className="text-muted">-</span>
+                }
+                const name = actionNameById.get(run.action_id)
+                if (name) {
+                    return (
+                        <div className="flex flex-col">
+                            <span className="text-xs">{name}</span>
+                            <code className="text-muted text-xs">{run.action_id}</code>
+                        </div>
+                    )
+                }
+                return (
+                    <div className="flex flex-col">
+                        <span className="text-muted text-xs italic">No longer in workflow</span>
+                        <code className="text-muted text-xs">{run.action_id}</code>
+                    </div>
+                )
+            },
         },
         {
             title: 'Blocked at',
@@ -122,7 +152,7 @@ export function BlockedRunsReplay({ id }: { id: string }): JSX.Element {
         <div className="space-y-4 p-4">
             <LemonBanner type="info">
                 These workflow runs were blocked by a deduplication bug between March 30 and April 22. Replaying a run
-                will re-execute the workflow starting from the blocked action — actions that already completed (e.g.
+                will re-execute the workflow starting from the blocked action. Actions that already completed (e.g.
                 emails sent) will not be re-executed. Note that workflow variables set by prior steps will not be
                 available.
             </LemonBanner>
