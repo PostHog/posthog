@@ -197,7 +197,7 @@ class LogAttributesQueryRunner(AnalyticsQueryRunner[LogAttributesQueryResponse],
                 )
             )
 
-        total_count = response.results[0][1] + self.query.offset
+        total_count = response.results[0][1] + (self.query.offset or 0)
         return LogAttributesQueryResponse(results=formatted_results, count=total_count)
 
     def _format_value_search_response(self, response, property_filter_type: str) -> LogAttributesQueryResponse:
@@ -222,7 +222,7 @@ class LogAttributesQueryRunner(AnalyticsQueryRunner[LogAttributesQueryResponse],
         # show a "load more" affordance, so an exact count isn't required.
         return LogAttributesQueryResponse(
             results=formatted_results,
-            count=len(formatted_results) + self.query.offset,
+            count=len(formatted_results) + (self.query.offset or 0),
         )
 
     @cached_property
