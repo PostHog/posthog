@@ -8,6 +8,7 @@ from django.conf import settings
 import orjson
 from structlog.types import FilteringBoundLogger
 
+from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_client
 from posthog.temporal.data_imports.pipelines.pipeline.typings import ResumableData, SourceInputs
 
@@ -24,13 +25,18 @@ class ResumableSourceManager(Generic[ResumableData]):
 
     @contextmanager
     def _get_redis(self):
-        if not settings.DATA_WAREHOUSE_REDIS_HOST or not settings.DATA_WAREHOUSE_REDIS_PORT:
-            raise Exception(
-                "Missing env vars for dwh row tracking: DATA_WAREHOUSE_REDIS_HOST or DATA_WAREHOUSE_REDIS_PORT"
-            )
+        redis = None
+        try:
+            if not settings.DATA_WAREHOUSE_REDIS_HOST or not settings.DATA_WAREHOUSE_REDIS_PORT:
+                raise Exception(
+                    "Missing env vars for dwh row tracking: DATA_WAREHOUSE_REDIS_HOST or DATA_WAREHOUSE_REDIS_PORT"
+                )
 
-        redis = get_client(f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/")
-        redis.ping()
+            redis = get_client(f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/")
+            redis.ping()
+        except Exception as e:
+            capture_exception(e)
+            redis = None
 
         yield redis
 
@@ -62,6 +68,9 @@ class ResumableSourceManager(Generic[ResumableData]):
 
     def save_state(self, data: ResumableData) -> None:
         with self._get_redis() as redis:
+            if not redis:
+                return
+
             json_data = self._dump_json(data)
             self._logger.debug(f"Saving resumable source state. key={self._key}, data={json_data}")
 
@@ -69,6 +78,9 @@ class ResumableSourceManager(Generic[ResumableData]):
 
     def can_resume(self) -> bool:
         with self._get_redis() as redis:
+            if not redis:
+                return False
+
             exists = redis.exists(self._key) == 1
             self._logger.debug(f"Checking resumable source state. key={self._key}, exists={exists}")
 
@@ -76,6 +88,9 @@ class ResumableSourceManager(Generic[ResumableData]):
 
     def load_state(self) -> ResumableData | None:
         with self._get_redis() as redis:
+            if not redis:
+                return None
+
             data = redis.get(self._key)
             if not data:
                 self._logger.debug(f"No resumable source state found. key={self._key}")
