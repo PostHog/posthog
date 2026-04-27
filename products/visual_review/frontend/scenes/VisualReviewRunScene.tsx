@@ -232,7 +232,7 @@ export function VisualReviewRunScene(): JSX.Element {
                 <RunInProgressEmptyState
                     isProcessing={isRunProcessing}
                     createdAt={run.created_at}
-                    ciJobUrl={run.metadata?.ci_job_url}
+                    ciJobUrl={run.metadata?.ci_job_url as string | undefined}
                 />
             </SceneContent>
         )
