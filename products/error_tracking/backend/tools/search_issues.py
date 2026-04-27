@@ -404,9 +404,7 @@ class SearchErrorTrackingIssuesTool(MaxTool):
         return url if isinstance(url, str) and url else None
 
     @classmethod
-    def _detect_noise_reason(
-        cls, issue: ErrorTrackingIssue, properties: dict[str, Any]
-    ) -> str | None:
+    def _detect_noise_reason(cls, issue: ErrorTrackingIssue, properties: dict[str, Any]) -> str | None:
         """Return a human-readable reason if the issue is likely third-party noise.
 
         Mirrors `getThirdPartyNoiseReason` in the frontend so AI consumers and the

@@ -260,9 +260,7 @@ class ErrorTrackingIssueContext:
         properties = self._get_event_properties(first_event)
         event_context = self._format_event_context(properties)
         breadcrumbs = self._format_breadcrumbs(properties)
-        breadcrumbs_section = (
-            BREADCRUMBS_SECTION_TEMPLATE.format(breadcrumbs=breadcrumbs) if breadcrumbs else ""
-        )
+        breadcrumbs_section = BREADCRUMBS_SECTION_TEMPLATE.format(breadcrumbs=breadcrumbs) if breadcrumbs else ""
         session_id = properties.get("$session_id")
         replay_section = REPLAY_SECTION_TEMPLATE.format(session_id=session_id) if session_id else ""
 
