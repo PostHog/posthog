@@ -1,19 +1,16 @@
 import './JSONViewer.scss'
 
-import type { ReactJsonViewProps } from '@microlink/react-json-view'
+import ReactJson, { ReactJsonViewProps } from '@microlink/react-json-view'
 import { useValues } from 'kea'
-import { Suspense, lazy } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-
-const ReactJson = lazy(() => import('@microlink/react-json-view'))
 
 export enum JSONViewerTheme {
     DARK = 'railscasts',
     LIGHT = 'rjv-default',
 }
 
-export function JSONViewerInner({
+export function JSONViewer({
     name = null, // Don't label the root node as "root" by default
     displayDataTypes = false, // Reduce visual clutter
     displayObjectSize = false, // Reduce visual clutter
@@ -39,13 +36,5 @@ export function JSONViewerInner({
             }}
             {...props}
         />
-    )
-}
-
-export function JSONViewer(props: ReactJsonViewProps): JSX.Element {
-    return (
-        <Suspense fallback={null}>
-            <JSONViewerInner {...props} />
-        </Suspense>
     )
 }
