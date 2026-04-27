@@ -59,14 +59,14 @@ class Client:
     def complete(self, request: CompletionRequest) -> CompletionResponse:
         """Non-streaming completion."""
         self._validate_provider(request.provider)
-        provider = _get_provider(request.provider)
+        provider = _get_provider(request.provider, self.provider_key)
         api_key, base_url = self._resolve_credentials()
         return provider.complete(request, api_key, self.analytics, base_url)
 
     def stream(self, request: CompletionRequest) -> Generator[StreamChunk, None, None]:
         """Streaming completion."""
         self._validate_provider(request.provider)
-        provider = _get_provider(request.provider)
+        provider = _get_provider(request.provider, self.provider_key)
         api_key, base_url = self._resolve_credentials()
         yield from provider.stream(request, api_key, self.analytics, base_url)
 
@@ -77,14 +77,14 @@ class Client:
         return self._get_api_key(), None
 
     @classmethod
-    def validate_key(cls, provider: str, api_key: str) -> tuple[str, str | None]:
+    def validate_key(cls, provider: str, api_key: str, **kwargs: Any) -> tuple[str, str | None]:
         """Validate an API key for a provider. Returns (state, error_message)."""
-        return _get_provider(provider).validate_key(api_key)
+        return _get_provider(provider).validate_key(api_key, **kwargs)
 
     @classmethod
-    def list_models(cls, provider: str, api_key: str | None = None) -> list[str]:
+    def list_models(cls, provider: str, api_key: str | None = None, **kwargs: Any) -> list[str]:
         """List available models for a provider."""
-        return _get_provider(provider).list_models(api_key)
+        return _get_provider(provider).list_models(api_key, **kwargs)
 
     @classmethod
     def recommended_models(cls, provider: str) -> set[str]:
@@ -92,11 +92,12 @@ class Client:
         return _get_provider(provider).recommended_models()
 
 
-def _get_provider(name: str) -> "Provider":
-    """Get provider by name."""
+def _get_provider(name: str, provider_key: "LLMProviderKey | None" = None) -> "Provider":
+    """Get provider by name. For Azure, reads extra config from provider_key."""
     from typing import cast
 
     from products.llm_analytics.backend.llm.providers.anthropic import AnthropicAdapter
+    from products.llm_analytics.backend.llm.providers.azure_openai import DEFAULT_API_VERSION, AzureOpenAIAdapter
     from products.llm_analytics.backend.llm.providers.fireworks import FireworksAdapter
     from products.llm_analytics.backend.llm.providers.gemini import GeminiAdapter
     from products.llm_analytics.backend.llm.providers.openai import OpenAIAdapter
@@ -113,5 +114,14 @@ def _get_provider(name: str) -> "Provider":
             return cast("Provider", OpenRouterAdapter())
         case "fireworks":
             return cast("Provider", FireworksAdapter())
+        case "azure_openai":
+            config = provider_key.encrypted_config if provider_key else {}
+            return cast(
+                "Provider",
+                AzureOpenAIAdapter(
+                    azure_endpoint=config.get("azure_endpoint", ""),
+                    api_version=config.get("api_version", DEFAULT_API_VERSION),
+                ),
+            )
         case _:
             raise UnsupportedProviderError(name)

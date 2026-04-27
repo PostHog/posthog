@@ -24,6 +24,7 @@ import type {
     TaskApi,
     TaskAutomationApi,
     TaskAutomationsListParams,
+    TaskRepositoriesResponseApi,
     TaskRunAppendLogRequestApi,
     TaskRunArtifactPresignRequestApi,
     TaskRunArtifactPresignResponseApi,
@@ -235,7 +236,11 @@ export const getTasksCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/tasks/`
 }
 
-export const tasksCreate = async (projectId: string, taskApi: TaskApi, options?: RequestInit): Promise<TaskApi> => {
+export const tasksCreate = async (
+    projectId: string,
+    taskApi: NonReadonly<TaskApi>,
+    options?: RequestInit
+): Promise<TaskApi> => {
     return apiMutator<TaskApi>(getTasksCreateUrl(projectId), {
         ...options,
         method: 'POST',
@@ -268,7 +273,7 @@ export const getTasksUpdateUrl = (projectId: string, id: string) => {
 export const tasksUpdate = async (
     projectId: string,
     id: string,
-    taskApi: TaskApi,
+    taskApi: NonReadonly<TaskApi>,
     options?: RequestInit
 ): Promise<TaskApi> => {
     return apiMutator<TaskApi>(getTasksUpdateUrl(projectId, id), {
@@ -693,6 +698,26 @@ export const tasksRunsRelayMessageCreate = async (
 }
 
 /**
+ * Resume an existing task run in a cloud sandbox. Terminates any existing workflow and starts a new one.
+ * @summary Resume task run in cloud
+ */
+export const getTasksRunsResumeInCloudCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/resume_in_cloud/`
+}
+
+export const tasksRunsResumeInCloudCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskRunDetailApi> => {
+    return apiMutator<TaskRunDetailApi>(getTasksRunsResumeInCloudCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+/**
  * Fetch session log entries for a task run with optional filtering by timestamp, event type, and limit.
  * @summary Get filtered task run session logs
  */
@@ -790,6 +815,24 @@ export const tasksRunsStreamRetrieve = async (
     options?: RequestInit
 ): Promise<TaskRunDetailApi> => {
     return apiMutator<TaskRunDetailApi>(getTasksRunsStreamRetrieveUrl(projectId, taskId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Return the set of repositories referenced by non-deleted, non-internal tasks in the current project. Used to populate repository filter pickers without being constrained by task list pagination.
+ * @summary List distinct task repositories
+ */
+export const getTasksRepositoriesRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/repositories/`
+}
+
+export const tasksRepositoriesRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<TaskRepositoriesResponseApi> => {
+    return apiMutator<TaskRepositoriesResponseApi>(getTasksRepositoriesRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

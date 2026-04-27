@@ -11,9 +11,9 @@
  * * `api_key` - API Key
  * `oauth` - OAuth
  */
-export type AuthType9cbEnumApi = (typeof AuthType9cbEnumApi)[keyof typeof AuthType9cbEnumApi]
+export type MCPAuthTypeEnumApi = (typeof MCPAuthTypeEnumApi)[keyof typeof MCPAuthTypeEnumApi]
 
-export const AuthType9cbEnumApi = {
+export const MCPAuthTypeEnumApi = {
     ApiKey: 'api_key',
     Oauth: 'oauth',
 } as const
@@ -28,11 +28,13 @@ export interface MCPServerInstallationApi {
     /** @maxLength 2048 */
     url?: string
     description?: string
-    auth_type?: AuthType9cbEnumApi
+    auth_type?: MCPAuthTypeEnumApi
     is_enabled?: boolean
     readonly needs_reauth: boolean
     readonly pending_oauth: boolean
     readonly proxy_url: string
+    /** Number of live (non-removed) tools exposed by this installation. */
+    readonly tool_count: number
     readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
@@ -157,16 +159,39 @@ export interface InstallTemplateApi {
     posthog_code_callback_url?: string
 }
 
+/**
+ * * `business` - Business Operations
+ * `data` - Data & Analytics
+ * `design` - Design & Content
+ * `dev` - Developer Tools & APIs
+ * `infra` - Infrastructure
+ * `productivity` - Productivity & Collaboration
+ */
+export type MCPServerTemplateCategoryEnumApi =
+    (typeof MCPServerTemplateCategoryEnumApi)[keyof typeof MCPServerTemplateCategoryEnumApi]
+
+export const MCPServerTemplateCategoryEnumApi = {
+    Business: 'business',
+    Data: 'data',
+    Design: 'design',
+    Dev: 'dev',
+    Infra: 'infra',
+    Productivity: 'productivity',
+} as const
+
 export interface MCPServerTemplateApi {
     readonly id: string
     /** @maxLength 200 */
     name: string
     /** @maxLength 2048 */
     url: string
+    /** @maxLength 2048 */
+    docs_url?: string
     description?: string
-    auth_type?: AuthType9cbEnumApi
+    auth_type?: MCPAuthTypeEnumApi
     /** @maxLength 100 */
     icon_key?: string
+    category?: MCPServerTemplateCategoryEnumApi
 }
 
 export interface PaginatedMCPServerTemplateListApi {

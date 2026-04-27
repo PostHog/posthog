@@ -1,5 +1,6 @@
 import type { StorybookConfig } from '@storybook/react-vite'
 import { spawn } from 'node:child_process'
+import chokidar from 'chokidar'
 import path from 'path'
 import type { Plugin, ViteDevServer } from 'vite'
 
@@ -9,6 +10,11 @@ import type { Plugin, ViteDevServer } from 'vite'
  * full page reload. Without this plugin the tokens package only rebuilds
  * on explicit `pnpm build`, so runtime CSS custom properties stay stale
  * until the dev server is restarted.
+ *
+ * Uses a dedicated chokidar watcher instead of `server.watcher.add()`:
+ * Vite's default watcher is scoped to the storybook project root and
+ * doesn't reliably pick up changes in sibling workspace packages added
+ * via globs after server start.
  */
 function quillTokensWatcher(): Plugin {
     const tokensRoot = path.resolve(__dirname, '../../../packages/tokens')
@@ -16,6 +22,7 @@ function quillTokensWatcher(): Plugin {
     let rebuildTimer: NodeJS.Timeout | null = null
     let rebuilding = false
     let rebuildPending = false
+    let watcher: chokidar.FSWatcher | null = null
 
     const rebuild = (server: ViteDevServer): void => {
         if (rebuilding) {
@@ -24,15 +31,22 @@ function quillTokensWatcher(): Plugin {
         }
         rebuildPending = false
         rebuilding = true
+        console.log('[quill-tokens-watcher] rebuilding tokens…')
         const proc = spawn('pnpm', ['exec', 'tsx', 'src/build.ts'], {
             cwd: tokensRoot,
             stdio: 'inherit',
             shell: true,
         })
+        proc.on('error', (err) => {
+            console.error('[quill-tokens-watcher] spawn error:', err)
+        })
         proc.on('exit', (code) => {
             rebuilding = false
             if (code === 0) {
+                console.log('[quill-tokens-watcher] rebuild ok → reloading')
                 server.ws.send({ type: 'full-reload' })
+            } else {
+                console.error('[quill-tokens-watcher] rebuild failed, exit', code)
             }
             if (rebuildPending) {
                 rebuild(server)
@@ -43,9 +57,16 @@ function quillTokensWatcher(): Plugin {
     return {
         name: 'quill-tokens-watcher',
         configureServer(server) {
-            server.watcher.add(path.join(tokensSrc, '**/*.ts'))
-            server.watcher.on('change', (file) => {
-                if (!file.startsWith(tokensSrc)) {
+            watcher = chokidar.watch(tokensSrc, {
+                ignored: /node_modules/,
+                ignoreInitial: true,
+                awaitWriteFinish: { stabilityThreshold: 50, pollInterval: 20 },
+            })
+            watcher.on('all', (event, file) => {
+                if (event !== 'change' && event !== 'add') {
+                    return
+                }
+                if (!file.endsWith('.ts')) {
                     return
                 }
                 if (rebuildTimer) {
@@ -53,6 +74,12 @@ function quillTokensWatcher(): Plugin {
                 }
                 rebuildTimer = setTimeout(() => rebuild(server), 100)
             })
+            watcher.on('ready', () => {
+                console.log('[quill-tokens-watcher] watching', tokensSrc)
+            })
+        },
+        closeBundle() {
+            watcher?.close()
         },
     }
 }

@@ -260,12 +260,12 @@ jobs:
             - name: Check for changes that affect video export temporal worker
               id: check_changes_video_export_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/exports_video|^posthog/tasks/exports/video_exporter.py|^products/signals/backend/|^posthog/temporal/data_imports/workflow_activities/emit_signals|^posthog/temporal/data_imports/signals/|^nodejs/src/scripts/record-replay|^posthog/temporal/ai/video_segment_clustering|^ee/hogai/session_summaries|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/exports_video|^posthog/tasks/exports/video_exporter.py|^products/signals/backend/|^posthog/temporal/data_imports/workflow_activities/emit_signals|^posthog/temporal/data_imports/signals/|^nodejs/src/scripts/record-replay|^ee/hogai/session_summaries|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Check for changes that affect session replay temporal worker
               id: check_changes_session_replay_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/session_replay/|^ee/hogai/session_summaries|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/session_replay/|^ee/hogai/session_summaries|^posthog/temporal/common|^products/signals/backend/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Check for changes that affect weekly digest temporal worker
               id: check_changes_weekly_digest_temporal_worker
@@ -428,7 +428,7 @@ jobs:
                       }
 
             - name: Check for changes that affect temporal workers (dorny)
-              uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+              uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: check_temporal_worker_changes
               with:
                   filters: |

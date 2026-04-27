@@ -6549,6 +6549,25 @@ class ErrorTrackingIssueFilter(BaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
+class ErrorTrackingPendingFingerprintIssueStateUpdate(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    assigned_role_id: str | None = None
+    assigned_user_id: int | None = None
+    fingerprint: str
+    first_seen: str = Field(..., description="ISO 8601 datetime string.")
+    is_deleted: int
+    issue_description: str | None = None
+    issue_id: str
+    issue_name: str | None = None
+    issue_status: str
+    version: int = Field(
+        ...,
+        description=("Client-stamped monotonic version (`Date.now()` ms at mutation success)."),
+    )
+
+
 class EventMetadataPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6753,9 +6772,12 @@ class ExperimentStatsBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    covariate_sum: float | None = None
+    covariate_sum_squares: float | None = None
     denominator_sum: float | None = None
     denominator_sum_squares: float | None = None
     key: str
+    main_covariate_sum_product: float | None = None
     number_of_samples: int
     numerator_denominator_sum_product: float | None = None
     step_counts: list[int] | None = None
@@ -6768,9 +6790,12 @@ class ExperimentStatsBaseValidated(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    covariate_sum: float | None = None
+    covariate_sum_squares: float | None = None
     denominator_sum: float | None = None
     denominator_sum_squares: float | None = None
     key: str
+    main_covariate_sum_product: float | None = None
     number_of_samples: int
     numerator_denominator_sum_product: float | None = None
     step_counts: list[int] | None = None
@@ -6785,10 +6810,13 @@ class ExperimentVariantResultBayesian(BaseModel):
         extra="forbid",
     )
     chance_to_win: float | None = None
+    covariate_sum: float | None = None
+    covariate_sum_squares: float | None = None
     credible_interval: list[float] | None = Field(default=None, max_length=2, min_length=2)
     denominator_sum: float | None = None
     denominator_sum_squares: float | None = None
     key: str
+    main_covariate_sum_product: float | None = None
     method: Literal["bayesian"] = "bayesian"
     number_of_samples: int
     numerator_denominator_sum_product: float | None = None
@@ -6805,9 +6833,12 @@ class ExperimentVariantResultFrequentist(BaseModel):
         extra="forbid",
     )
     confidence_interval: list[float] | None = Field(default=None, max_length=2, min_length=2)
+    covariate_sum: float | None = None
+    covariate_sum_squares: float | None = None
     denominator_sum: float | None = None
     denominator_sum_squares: float | None = None
     key: str
+    main_covariate_sum_product: float | None = None
     method: Literal["frequentist"] = "frequentist"
     number_of_samples: int
     numerator_denominator_sum_product: float | None = None
@@ -8663,6 +8694,14 @@ class UsageMetric(BaseModel):
     interval: int
     name: str
     previous: float
+    timeseries: list[float] | None = Field(
+        default=None,
+        description=("Daily values over the current interval period. Only populated when display is 'sparkline'."),
+    )
+    timeseries_labels: list[str] | None = Field(
+        default=None,
+        description=("ISO date strings for sparkline tooltip labels. Only populated when display is 'sparkline'."),
+    )
     value: float
 
 
@@ -20051,6 +20090,14 @@ class ErrorTrackingQuery(BaseModel):
     offset: int | None = None
     orderBy: ErrorTrackingOrderBy = Field(..., description="Field to sort results by.")
     orderDirection: OrderDirection2 | None = Field(default=None, description="Sort direction.")
+    pendingFingerprintIssueStateUpdates: list[ErrorTrackingPendingFingerprintIssueStateUpdate] | None = Field(
+        default=None,
+        description=(
+            "Pending fingerprint issue state updates UNIONed into the fingerprint issue"
+            " state subquery (V3 only). The backend caps the list at 50 entries; extras"
+            " are dropped silently."
+        ),
+    )
     personId: str | None = None
     response: ErrorTrackingQueryResponse | None = None
     searchQuery: str | None = Field(

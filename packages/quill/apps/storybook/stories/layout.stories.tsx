@@ -1,5 +1,5 @@
 import React from 'react'
-import { Button, Card, CardContent, CardFooter, CardHeader, CardTitle, MenuLabel } from '../../../packages/primitives'
+import { Button, Card, CardContent, CardFooter, CardHeader, CardTitle, MenuLabel } from '../../../packages/primitives/src'
 import type { Meta, StoryObj } from '@storybook/react'
 
 const meta = {
@@ -13,12 +13,18 @@ type Story = StoryObj<typeof meta>
 const Nav = (): React.ReactElement => (
     <nav className="flex flex-col gap-2 p-2 rounded-lg w-[200px]">
         <ul className="bg-muted p-4 flex flex-col gap-px [&>li]:w-full [&_button]:w-full rounded-lg">
-            <li><Button left variant="primary">Primary</Button></li>
+            <li><MenuLabel>Menu Label</MenuLabel></li>
+            <li className="mb-1"><Button left variant="primary">Primary</Button></li>
+            <li><Button left aria-expanded>Expanded</Button></li>
             <li><Button left aria-selected>Selected</Button></li>
-            <li><Button left>Contact</Button></li>
-            <li><MenuLabel>Settings</MenuLabel></li>
-            <li><Button left>Help</Button></li>
-            <li><Button left>Logout</Button></li>
+            <li><Button left>Default</Button></li>
+        </ul>
+        <ul className="p-4 flex flex-col gap-px [&>li]:w-full [&_button]:w-full rounded-lg">
+            <li><MenuLabel>Menu Label</MenuLabel></li>
+            <li><Button left variant="primary">Primary</Button></li>
+            <li><Button left aria-expanded>Expanded</Button></li>
+            <li><Button left aria-selected>Selected</Button></li>
+            <li><Button left>Default</Button></li>
         </ul>
     </nav>
 )
@@ -43,10 +49,11 @@ const Main = (): React.ReactElement => (
 const Aside = (): React.ReactElement => (
     <aside className="p-2 rounded-lg w-[200px] [--theme-hue:570] [--theme-dark-hue:189]">
         <ul className="flex flex-col gap-px [&>li]:w-full [&_button]:w-full bg-muted p-4 rounded-lg">
-            <li><MenuLabel>Sidenav</MenuLabel></li>
-            <li><Button left variant="primary">Help</Button></li>
-            <li><Button left aria-selected>Settings</Button></li>
-            <li><Button left>Contact</Button></li>
+            <li><MenuLabel>Menu Label</MenuLabel></li>
+            <li><Button left variant="primary">Primary</Button></li>
+            <li><Button left aria-expanded>Expanded</Button></li>
+            <li><Button left aria-selected>Selected</Button></li>
+            <li><Button left>Default</Button></li>
         </ul>
     </aside>
 )
