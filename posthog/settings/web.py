@@ -69,6 +69,7 @@ PRODUCTS_APPS = [
     "products.platform_features.backend.apps.PlatformFeaturesConfig",
     "products.streamlit_apps.backend.apps.StreamlitAppsConfig",
     "products.legal_documents.backend.apps.LegalDocumentsConfig",
+    "products.query_performance_ai.backend.apps.QueryPerformanceAiConfig",
 ]
 
 INSTALLED_APPS = [
