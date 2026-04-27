@@ -8,13 +8,18 @@ import { OperatorValueSelectProps } from 'lib/components/PropertyFilters/compone
 import { taxonomicFilterGroupTypeToEntityType } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { AnyDataNode } from '~/queries/schema/schema-general'
-import { UniversalFilterValue, UniversalFiltersGroup } from '~/types'
+import { EntityTypes, UniversalFilterValue, UniversalFiltersGroup } from '~/types'
 
 import { TaxonomicPropertyFilter } from '../PropertyFilters/components/TaxonomicPropertyFilter'
 import { PropertyFilters } from '../PropertyFilters/PropertyFilters'
 import { isValidPropertyFilter } from '../PropertyFilters/utils'
 import { TaxonomicFilter } from '../TaxonomicFilter/TaxonomicFilter'
-import { TaxonomicFilterGroupType, TaxonomicFilterValue } from '../TaxonomicFilter/types'
+import {
+    TaxonomicFilterGroupType,
+    TaxonomicFilterValue,
+    isQuickFilterItem,
+    quickFilterToPropertyFilters,
+} from '../TaxonomicFilter/types'
 import { UniversalFilterButton } from './UniversalFilterButton'
 import { universalFiltersLogic } from './universalFiltersLogic'
 import { isEditableFilter, isEventFilter } from './utils'
@@ -110,8 +115,20 @@ const Value = ({
     const handleChangeEvent = (
         taxonomicGroup: { type: TaxonomicFilterGroupType },
         value: TaxonomicFilterValue,
-        item: { name?: string }
+        item: any
     ): void => {
+        // Keyword shortcut (e.g. "Click (autocapture)"): set the event AND attach its
+        // $event_type property filter, replacing any properties the previous event had.
+        if (isQuickFilterItem(item) && item.eventName) {
+            onChange({
+                id: item.eventName,
+                name: item.eventName,
+                type: EntityTypes.EVENTS,
+                properties: quickFilterToPropertyFilters(item),
+            })
+            setChangingEvent(false)
+            return
+        }
         const entityType = taxonomicFilterGroupTypeToEntityType(taxonomicGroup.type)
         if (entityType) {
             onChange({ id: value, name: item?.name ?? String(value), type: entityType, properties: [] })
@@ -136,6 +153,7 @@ const Value = ({
                                     TaxonomicFilterGroupType.Events,
                                     TaxonomicFilterGroupType.Actions,
                                 ]}
+                                enableKeywordShortcuts
                             />
                         ) : (
                             <>
@@ -200,6 +218,7 @@ const AddFilterButton = (props: Omit<LemonButtonProps, 'onClick' | 'sideAction' 
                         setDropdownOpen(false)
                     }}
                     taxonomicGroupTypes={taxonomicGroupTypes}
+                    enableKeywordShortcuts
                 />
             }
             visible={dropdownOpen}
@@ -223,12 +242,14 @@ const PureTaxonomicFilter = ({
     initialSearchQuery,
     hideSearchInput,
     searchQuery,
+    taxonomicFilterLogicKey,
 }: {
     fullWidth?: boolean
     onChange: () => void
     initialSearchQuery?: string
     hideSearchInput?: boolean
     searchQuery?: string
+    taxonomicFilterLogicKey?: string
 }): JSX.Element => {
     const { taxonomicGroupTypes } = useValues(universalFiltersLogic)
     const { addGroupFilter } = useActions(universalFiltersLogic)
@@ -236,6 +257,7 @@ const PureTaxonomicFilter = ({
     return (
         <TaxonomicFilter
             {...(fullWidth ? { width: '100%' } : {})}
+            taxonomicFilterLogicKey={taxonomicFilterLogicKey}
             onChange={(taxonomicGroup, value, item) => {
                 onChange()
                 addGroupFilter(taxonomicGroup, value, item)
@@ -244,6 +266,7 @@ const PureTaxonomicFilter = ({
             initialSearchQuery={initialSearchQuery}
             hideSearchInput={hideSearchInput}
             searchQuery={searchQuery}
+            enableKeywordShortcuts
         />
     )
 }

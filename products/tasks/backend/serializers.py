@@ -254,6 +254,11 @@ class TaskRunUpdateSerializer(serializers.Serializer):
     error_message = serializers.CharField(
         required=False, allow_null=True, allow_blank=True, help_text="Error message if execution failed"
     )
+    environment = serializers.ChoiceField(
+        choices=["local"],
+        required=False,
+        help_text="Transition a cloud run to local. Use the resume_in_cloud action to move a run into cloud.",
+    )
 
 
 class TaskRunArtifactResponseSerializer(serializers.Serializer):
@@ -416,6 +421,19 @@ class TaskRunSetOutputRequestSerializer(serializers.Serializer):
 
 class ErrorResponseSerializer(serializers.Serializer):
     error = serializers.CharField(help_text="Error message")
+
+
+class TaskRunErrorResponseSerializer(serializers.Serializer):
+    detail = serializers.CharField(required=False, help_text="Human-readable validation error")
+    error = serializers.CharField(required=False, help_text="Human-readable error message")
+    type = serializers.CharField(required=False, help_text="Machine-readable error type")
+    code = serializers.CharField(required=False, help_text="Machine-readable error code")
+    attr = serializers.CharField(required=False, help_text="Request field associated with the error")
+    missing_artifact_ids = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Artifact ids that could not be resolved for the run",
+    )
 
 
 class AgentListResponseSerializer(serializers.Serializer):
@@ -740,8 +758,25 @@ class TaskListQuerySerializer(serializers.Serializer):
         required=False, help_text="Filter by repository name (can include org/repo format)"
     )
     created_by = serializers.IntegerField(required=False, help_text="Filter by creator user ID")
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Case-insensitive substring search over task title and description. A numeric value also matches the task number. An empty value disables the filter.",
+    )
+    status = serializers.ChoiceField(
+        required=False,
+        choices=[choice.value for choice in TaskRun.Status],
+        help_text="Filter tasks by the status of their most recent run.",
+    )
     internal = serializers.BooleanField(
         required=False, help_text="Filter by internal flag. Defaults to excluding internal tasks when not specified."
+    )
+
+
+class TaskRepositoriesResponseSerializer(serializers.Serializer):
+    repositories = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Distinct repositories in use by non-deleted, non-internal tasks for the current team.",
     )
 
 

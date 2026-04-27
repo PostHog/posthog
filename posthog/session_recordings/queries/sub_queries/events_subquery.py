@@ -723,8 +723,14 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 return [], property_to_expr(p, team=team, scope="replay")
 
             events_that_have_the_property: list[str] = list(
-                EventProperty.objects.filter(team_id=team.id, property=p.key).values_list("event", flat=True)
+                EventProperty.objects.filter(team_id=team.id, property=p.key).values_list("event", flat=True)[:101]
             )
+
+            if len(events_that_have_the_property) > 100:
+                # Skip expansion when too many events have this property (e.g. $current_url).
+                # Inlining thousands of event names into WHERE event IN (...) can exceed
+                # ClickHouse's max_query_size limit without providing meaningful optimization.
+                return [], property_to_expr(p, team=team, scope="replay")
 
             return events_that_have_the_property, property_to_expr(p, team=team, scope="replay")
         except Exception as e:

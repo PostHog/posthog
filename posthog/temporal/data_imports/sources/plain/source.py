@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -32,7 +33,7 @@ class PlainSource(SimpleSource[PlainSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.PLAIN,
             label="Plain",
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.ALPHA,
             featureFlag="dwh_plain",
             caption="""Enter your Plain API key to automatically pull your Plain customer support data into the PostHog Data warehouse.
 

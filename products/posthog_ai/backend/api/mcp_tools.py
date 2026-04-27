@@ -4,6 +4,8 @@ from django.views.generic import View
 
 import pydantic
 from asgiref.sync import async_to_sync
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from posthoganalytics import capture_exception
 from rest_framework import status
 from rest_framework.decorators import action
@@ -12,6 +14,7 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 from structlog import get_logger
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 from posthog.renderers import SafeJSONRenderer
@@ -24,6 +27,7 @@ logger = get_logger(__name__)
 
 class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "project"
+    serializer_class = _FallbackSerializer
 
     renderer_classes = [SafeJSONRenderer]
 
@@ -34,6 +38,10 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             return scopes or None
         return None
 
+    @extend_schema(
+        parameters=[OpenApiParameter("tool_name", OpenApiTypes.STR, OpenApiParameter.PATH)],
+        responses={200: OpenApiTypes.OBJECT},
+    )
     @action(
         detail=False,
         methods=["POST"],

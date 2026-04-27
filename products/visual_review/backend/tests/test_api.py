@@ -222,7 +222,7 @@ class TestApproveRunAPI:
             patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay"),
         ):
             logic.complete_run(create_result.run_id)
-        logic.finalize_run(create_result.run_id)
+        logic.finish_processing(create_result.run_id)
 
         # Per-snapshot approval is DB only — no run-level finalization
         result = api.approve_run(

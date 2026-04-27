@@ -68,7 +68,7 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_list_servers_entries_match_serializer_schema(self):
         self._create_active_template()
         response = self.client.get(f"/api/environments/{self.team.id}/mcp_servers/")
-        expected_keys = {"id", "name", "url", "description", "auth_type", "icon_key"}
+        expected_keys = {"id", "name", "url", "docs_url", "description", "auth_type", "icon_key", "category"}
         results = response.json()["results"]
         assert len(results) >= 1
         for entry in results:
