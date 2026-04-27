@@ -86,6 +86,37 @@ class TestTeamsEventHandler(BaseTest):
 
         assert response.status_code == 200
 
+    @patch("products.conversations.backend.api.teams_events.send_teams_welcome")
+    @patch("products.conversations.backend.api.teams_events.validate_teams_request")
+    def test_conversation_update_with_bot_added_enqueues_welcome(self, mock_validate, mock_welcome):
+        """Cert 11.4.4.3: bot must send a proactive welcome on install."""
+        mock_validate.return_value = {}
+        activity = _make_activity(activity_type="conversationUpdate")
+        bot_id = "28:bot-app-id"
+        activity["recipient"] = {"id": bot_id, "name": "SupportHog"}
+        activity["membersAdded"] = [{"id": bot_id}]
+
+        response = self._post(activity)
+
+        assert response.status_code == 200
+        mock_welcome.delay.assert_called_once()
+        call_kwargs = mock_welcome.delay.call_args.kwargs
+        assert call_kwargs["activity"]["type"] == "conversationUpdate"
+
+    @patch("products.conversations.backend.api.teams_events.send_teams_welcome")
+    @patch("products.conversations.backend.api.teams_events.validate_teams_request")
+    def test_conversation_update_with_other_member_does_not_welcome(self, mock_validate, mock_welcome):
+        """A non-bot member joining must not trigger the welcome card."""
+        mock_validate.return_value = {}
+        activity = _make_activity(activity_type="conversationUpdate")
+        activity["recipient"] = {"id": "28:bot-app-id", "name": "SupportHog"}
+        activity["membersAdded"] = [{"id": "29:some-other-user"}]
+
+        response = self._post(activity)
+
+        assert response.status_code == 200
+        mock_welcome.delay.assert_not_called()
+
     @patch("products.conversations.backend.api.teams_events.validate_teams_request")
     def test_get_method_returns_405(self, mock_validate):
         response = self.client.get("/api/conversations/v1/teams/events")

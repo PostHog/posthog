@@ -1,5 +1,6 @@
 import typing
 import datetime as dt
+import dataclasses
 import collections.abc
 
 from django.conf import settings
@@ -18,11 +19,23 @@ from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common import config
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.sql import Column, Table
 from posthog.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
 from posthog.temporal.data_imports.sources.google_ads.schemas import FIELD_ALIASES, RESOURCE_SCHEMAS
 
 from products.data_warehouse.backend.types import IncrementalFieldType
+
+
+@dataclasses.dataclass
+class GoogleAdsResumeConfig:
+    """Resumable state for the Google Ads source.
+
+    `page_token` is the opaque continuation token returned by
+    `GoogleAdsService.search` for the next page to fetch.
+    """
+
+    page_token: str
 
 
 def clean_customer_id(s: str | None) -> str | None:
@@ -354,6 +367,7 @@ def google_ads_source(
     config: GoogleAdsSourceConfigUnion,
     resource_name: str,
     team_id: int,
+    resumable_source_manager: ResumableSourceManager[GoogleAdsResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: typing.Any = None,
     incremental_field: str | None = None,
@@ -362,7 +376,11 @@ def google_ads_source(
     """A data warehouse Google Ads source.
 
     We utilize the Google Ads gRPC API to query for the configured resource and
-    yield batches of rows as `pyarrow.Table`.
+    yield batches of rows as ``pyarrow.Table``.
+
+    The fetch loop checkpoints the next ``page_token`` after each page is
+    yielded so a restart can pick up where it left off instead of re-running
+    the full query.
     """
 
     name = NamingConvention.normalize_identifier(resource_name)
@@ -402,9 +420,15 @@ def google_ads_source(
 
         client = google_ads_client(config, team_id)
         service = client.get_service("GoogleAdsService", version="v23")
-        stream = service.search_stream(query=query, customer_id=clean_customer_id(config.customer_id))
+        customer_id = clean_customer_id(config.customer_id)
 
-        yield from _stream_as_arrow_table(stream, table)
+        yield from _search_as_arrow_tables(
+            service=service,
+            customer_id=customer_id,
+            query=query,
+            table=table,
+            resumable_source_manager=resumable_source_manager,
+        )
 
     return SourceResponse(
         name=name,
@@ -418,39 +442,62 @@ def google_ads_source(
     )
 
 
-def _stream_as_arrow_table(
-    stream: collections.abc.Iterable[ga_services.SearchGoogleAdsStreamResponse],
-    table: Table[GoogleAdsColumn],
-    table_size: int | None = None,
+def _search_as_arrow_tables(
+    service: typing.Any,
+    customer_id: str | None,
+    query: str,
+    table: GoogleAdsTable,
+    resumable_source_manager: ResumableSourceManager[GoogleAdsResumeConfig],
 ) -> collections.abc.Generator[pa.Table, None, None]:
-    """Stream response batches as `pyarrow.Table`."""
-    rows = []
+    """Paginate ``GoogleAdsService.search`` and yield each page as a ``pyarrow.Table``.
 
-    for batch in stream:
-        for dict_row in _stream_response_as_dicts(batch, table):
-            rows.append(dict_row)
+    Resumption contract:
+    * If the manager has saved state, start from ``resume.page_token``.
+    * After yielding each page, persist the token that would fetch the *next*
+      page. On restart we re-enter at that saved token, so any page that was
+      yielded but never acked by a save is simply re-yielded. Merge semantics
+      over ``primary_keys`` dedupe those repeated rows.
+    """
+    page_token = ""
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            page_token = resume.page_token
 
-            if table_size is not None and len(rows) >= table_size:
-                yield pa.Table.from_pylist(rows, schema=table.to_arrow_schema())
-                rows = []
+    while True:
+        response = service.search(
+            customer_id=customer_id,
+            query=query,
+            page_token=page_token,
+        )
 
-        if table_size is None:
+        # ``response.pages`` is a gapic pager — we only consume the first page per
+        # request and drive pagination ourselves so the saved ``page_token`` is
+        # always in lockstep with what we've yielded.
+        page = next(iter(response.pages), None)
+        if page is None:
+            break
+
+        rows = list(_response_as_dicts(page, table))
+        if rows:
             yield pa.Table.from_pylist(rows, schema=table.to_arrow_schema())
-            rows = []
 
-    if len(rows) > 0:
-        yield pa.Table.from_pylist(rows, schema=table.to_arrow_schema())
+        next_page_token = page.next_page_token
+        if not next_page_token:
+            break
+
+        resumable_source_manager.save_state(GoogleAdsResumeConfig(page_token=next_page_token))
+        page_token = next_page_token
 
 
-def _stream_response_as_dicts(
-    response: ga_services.SearchGoogleAdsStreamResponse,
+def _response_as_dicts(
+    response: ga_services.SearchGoogleAdsResponse,
     table: Table[GoogleAdsColumn],
 ) -> collections.abc.Iterable[dict[str, typing.Any]]:
-    """Stream response as dictionaries.
+    """Convert a Google Ads search response page into row dicts.
 
-    Each row from a search stream query is packaged into a single GoogleAdsRow,
-    regardless of underlying resource. This object will have a field set for the
-    resource we are querying, and everything else unset.
+    Each row is packaged into a single GoogleAdsRow regardless of the
+    underlying resource, with only the fields referenced by the query set.
     """
     field_paths = response.field_mask.paths
     path_to_column = {col.qualified_name: col for col in table}
