@@ -12,6 +12,7 @@ from django.core.cache import cache
 from django.db import connection
 from django.utils import timezone
 
+import requests
 from disposable_email_domains import blocklist as disposable_email_domains_list
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -794,20 +795,54 @@ class TestGitHubIntegrationModel(BaseTest):
 
         return _client_request
 
+    @parameterized.expand(
+        [
+            (
+                "complete_headers",
+                {
+                    "X-RateLimit-Resource": "core",
+                    "X-RateLimit-Remaining": "4998",
+                    "X-RateLimit-Limit": "5000",
+                    "X-RateLimit-Reset": "1704117600",
+                },
+                "core",
+                4998,
+                5000,
+                1704117600,
+            ),
+            ("no_headers", {}, "unknown", None, None, None),
+            (
+                "no_resource_header",
+                {
+                    "X-RateLimit-Remaining": "4997",
+                    "X-RateLimit-Limit": "5000",
+                    "X-RateLimit-Reset": "1704117601",
+                },
+                "unknown",
+                4997,
+                5000,
+                1704117601,
+            ),
+        ]
+    )
     @patch("posthog.models.integration.requests.get")
-    def test_github_api_request_metrics_include_integration_and_rate_limit_headers(self, mock_get):
+    def test_github_api_request_metrics_include_integration_and_rate_limit_headers(
+        self,
+        _name: str,
+        response_headers: dict[str, str],
+        expected_resource: str,
+        expected_remaining: int | None,
+        expected_limit: int | None,
+        expected_reset: int | None,
+        mock_get,
+    ):
         integration = self.create_integration(
             {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
             {"access_token": "ACCESS_TOKEN"},
         )
         response = MagicMock()
         response.status_code = 200
-        response.headers = {
-            "X-RateLimit-Resource": "core",
-            "X-RateLimit-Remaining": "4998",
-            "X-RateLimit-Limit": "5000",
-            "X-RateLimit-Reset": "1704117600",
-        }
+        response.headers = response_headers
         mock_get.return_value = response
 
         labels = {
@@ -828,24 +863,70 @@ class TestGitHubIntegrationModel(BaseTest):
         assert (
             REGISTRY.get_sample_value(
                 "github_integration_api_rate_limit_remaining",
-                {"integration_id": str(integration.id), "resource": "core"},
+                {"integration_id": str(integration.id), "resource": expected_resource},
             )
-            == 4998
+            == expected_remaining
         )
         assert (
             REGISTRY.get_sample_value(
                 "github_integration_api_rate_limit_limit",
-                {"integration_id": str(integration.id), "resource": "core"},
+                {"integration_id": str(integration.id), "resource": expected_resource},
             )
-            == 5000
+            == expected_limit
         )
         assert (
             REGISTRY.get_sample_value(
                 "github_integration_api_rate_limit_reset_timestamp_seconds",
-                {"integration_id": str(integration.id), "resource": "core"},
+                {"integration_id": str(integration.id), "resource": expected_resource},
             )
-            == 1704117600
+            == expected_reset
         )
+
+    @patch("posthog.models.integration.requests.get")
+    def test_github_api_request_metrics_include_request_exceptions(self, mock_get):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+        mock_get.side_effect = requests.RequestException("network failure")
+
+        labels = {
+            "integration_id": str(integration.id),
+            "method": "GET",
+            "endpoint": "/repos/{owner}/{repo}",
+            "status_code": "exception",
+        }
+        previous_count = REGISTRY.get_sample_value("github_integration_api_requests_total", labels) or 0
+
+        with pytest.raises(requests.RequestException):
+            GitHubIntegration(integration)._github_api_get(
+                "https://api.github.com/repos/PostHog/posthog",
+                endpoint="/repos/{owner}/{repo}",
+                headers={"Accept": "application/vnd.github+json"},
+            )
+
+        assert REGISTRY.get_sample_value("github_integration_api_requests_total", labels) == previous_count + 1
+
+    @patch("posthog.models.integration.GitHubIntegration.client_request")
+    def test_github_refresh_access_token_metrics_include_request_exceptions(self, mock_client_request):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+        mock_client_request.side_effect = requests.RequestException("network failure")
+
+        labels = {
+            "integration_id": str(integration.id),
+            "method": "POST",
+            "endpoint": "/app/installations/{installation_id}/access_tokens",
+            "status_code": "exception",
+        }
+        previous_count = REGISTRY.get_sample_value("github_integration_api_requests_total", labels) or 0
+
+        with pytest.raises(requests.RequestException):
+            GitHubIntegration(integration).refresh_access_token()
+
+        assert REGISTRY.get_sample_value("github_integration_api_requests_total", labels) == previous_count + 1
 
     @patch("posthog.models.integration.GitHubIntegration.client_request")
     def test_github_integration_refresh_token(self, mock_client_request):

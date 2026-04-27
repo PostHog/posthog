@@ -126,15 +126,15 @@ def _refresh_installation_token(integration: Integration) -> None:
 
 
 def _github_get(
-    integration: Integration,
+    github: GitHubIntegration,
     access_token: str,
     path: str,
     *,
     endpoint: str,
-    params: dict[str, Any] | None = None,
+    params: dict[str, str | int] | None = None,
 ) -> requests.Response:
     url = f"https://api.github.com{path}"
-    return GitHubIntegration(integration)._github_api_get(
+    return github._github_api_get(
         url,
         endpoint=endpoint,
         params=params,
@@ -148,10 +148,10 @@ def _github_get(
 
 
 def _fetch_repository_tree(
-    integration: Integration, access_token: str, repository: str
+    github: GitHubIntegration, access_token: str, repository: str
 ) -> tuple[list[str], str | None]:
     repo_response = _github_get(
-        integration,
+        github,
         access_token,
         f"/repos/{repository}",
         endpoint="/repos/{owner}/{repo}",
@@ -165,7 +165,7 @@ def _fetch_repository_tree(
         return [], None
 
     tree_response = _github_get(
-        integration,
+        github,
         access_token,
         f"/repos/{repository}/git/trees/{default_branch}",
         endpoint="/repos/{owner}/{repo}/git/trees/{tree_sha}",
@@ -217,10 +217,10 @@ def _select_candidate_paths(paths: list[str]) -> list[str]:
 
 
 def _fetch_file_content(
-    integration: Integration, access_token: str, repository: str, path: str, ref: str | None
+    github: GitHubIntegration, access_token: str, repository: str, path: str, ref: str | None
 ) -> str | None:
     response = _github_get(
-        integration,
+        github,
         access_token,
         f"/repos/{repository}/contents/{path}",
         endpoint="/repos/{owner}/{repo}/contents/{path}",
@@ -247,7 +247,8 @@ def _fetch_file_content(
 def _scan_repository(
     integration: Integration, access_token: str, repository: str
 ) -> tuple[RepositoryScanEvidence, list[str]]:
-    tree_paths, default_branch = _fetch_repository_tree(integration, access_token, repository)
+    github = GitHubIntegration(integration)
+    tree_paths, default_branch = _fetch_repository_tree(github, access_token, repository)
 
     found_posthog_init = False
     found_posthog_capture = False
@@ -264,7 +265,7 @@ def _scan_repository(
                 extra={"repository": repository, "scanned": scanned},
             )
             break
-        content = _fetch_file_content(integration, access_token, repository, path, default_branch)
+        content = _fetch_file_content(github, access_token, repository, path, default_branch)
         if content is None:
             continue
 

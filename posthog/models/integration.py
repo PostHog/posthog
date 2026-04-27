@@ -2299,7 +2299,7 @@ class GitHubIntegration:
         *,
         endpoint: str,
         headers: dict[str, str],
-        params: Mapping[str, object] | None = None,
+        params: dict[str, str | int] | None = None,
         timeout: int | None = None,
     ) -> requests.Response:
         try:
@@ -2357,8 +2357,15 @@ class GitHubIntegration:
         """
         Refresh the access token for the integration if necessary
         """
-        response = self.client_request(f"installations/{self.integration.integration_id}/access_tokens", method="POST")
-        self._record_github_api_response(response, "POST", "/app/installations/{installation_id}/access_tokens")
+        endpoint = "/app/installations/{installation_id}/access_tokens"
+        try:
+            response = self.client_request(
+                f"installations/{self.integration.integration_id}/access_tokens", method="POST"
+            )
+        except requests.RequestException:
+            self._record_github_api_exception("POST", endpoint)
+            raise
+        self._record_github_api_response(response, "POST", endpoint)
         config = response.json()
 
         if response.status_code != status.HTTP_201_CREATED or not config.get("token"):
