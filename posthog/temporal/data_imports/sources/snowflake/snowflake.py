@@ -270,19 +270,15 @@ def get_leading_clustering_columns_for_schemas(
                 if cursor is None:
                     raise Exception("Can't create cursor to Snowflake")
 
+                placeholders = ",".join(["%s"] * len(table_names))
                 cursor.execute(
-                    """
+                    f"""
                     SELECT TABLE_NAME, CLUSTERING_KEY
                     FROM INFORMATION_SCHEMA.TABLES
                     WHERE TABLE_CATALOG = %s
                       AND TABLE_SCHEMA = %s
-                      AND TABLE_NAME IN (%s)
-                    """
-                    % (
-                        "%s",
-                        "%s",
-                        ",".join(["%s"] * len(table_names)),
-                    ),
+                      AND TABLE_NAME IN ({placeholders})
+                    """,
                     (config.database, config.schema, *table_names),
                 )
 

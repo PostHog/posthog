@@ -1,8 +1,6 @@
 import pytest
 
-from posthog.temporal.data_imports.sources.snowflake.snowflake import (
-    _parse_clustering_key_leading_column,
-)
+from posthog.temporal.data_imports.sources.snowflake.snowflake import _parse_clustering_key_leading_column
 
 
 @pytest.mark.parametrize(

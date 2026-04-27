@@ -63,9 +63,19 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
             structlog.get_logger().warning("Failed to detect primary keys for BigQuery schemas", exc_info=e)
             detected_pks = {}
 
-        indexed_columns_by_table = get_bigquery_leading_indexed_columns_for_schemas(
-            config, table_names=list(bq_schemas.keys())
-        )
+        # Wrap in try/except for the same reason the PK lookup is wrapped: the
+        # helper accesses `config.use_custom_region` before its inner try block,
+        # so callers passing test stubs (mock.ANY) or partially-shaped configs
+        # would otherwise crash schema discovery entirely. Failure → no warning.
+        try:
+            indexed_columns_by_table = get_bigquery_leading_indexed_columns_for_schemas(
+                config, table_names=list(bq_schemas.keys())
+            )
+        except Exception as e:
+            structlog.get_logger().warning(
+                "Failed to detect partitioning/clustering for BigQuery schemas", exc_info=e
+            )
+            indexed_columns_by_table = None
 
         filtered_results = [
             (table_name, filter_bigquery_incremental_fields(columns)) for table_name, columns in bq_schemas.items()

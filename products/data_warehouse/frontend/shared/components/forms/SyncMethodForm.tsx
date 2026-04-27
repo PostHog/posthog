@@ -314,8 +314,8 @@ export const SyncMethodForm = ({
                                 )}
                             {radioValue === 'incremental' &&
                                 incrementalFieldValue &&
-                                schema.incremental_fields.find((n) => n.field === incrementalFieldValue)
-                                    ?.is_indexed === false && (
+                                schema.incremental_fields.find((n) => n.field === incrementalFieldValue)?.is_indexed ===
+                                    false && (
                                     <LemonBanner type="warning" className="mt-2">
                                         No index detected on <code>{incrementalFieldValue}</code>. Incremental syncs
                                         query this column on every run; without an index the source database may scan
