@@ -1577,9 +1577,11 @@ When set, the specified dashboard's filters and date range override will be appl
                 insight_name=insight.name,
                 insight_description=insight.description,
             )
-        except Exception as e:
+        except Exception:
+            # Don't echo exception text back to the client — it may include stack trace
+            # or third-party API details. Full context is captured server-side.
             logger.exception("ai_analysis_failed", insight_id=insight.id)
-            raise exceptions.APIException(f"Failed to generate analysis: {e}")
+            raise exceptions.APIException("Failed to generate analysis. Please try again later.")
 
         return Response({"result": analysis})
 

@@ -1,10 +1,11 @@
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from rest_framework import status
 
-from posthog.models import Insight
 from posthog.schema import EventsNode, InsightVizNode, TrendsQuery
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+
+from posthog.models import Insight
 
 
 class TestInsightAnalyze(ClickhouseTestMixin, APIBaseTest):
@@ -78,7 +79,7 @@ class TestInsightAnalyze(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json(), {"result": "An analysis"})
         mock_analysis.assert_called_once()
 
-    def test_analyze_propagates_llm_failure_as_api_exception(self) -> None:
+    def test_analyze_surfaces_llm_failure_as_api_exception(self) -> None:
         insight = self._create_insight_with_query()
 
         with (
@@ -86,14 +87,20 @@ class TestInsightAnalyze(ClickhouseTestMixin, APIBaseTest):
                 "posthog.api.insight.process_query_model",
                 return_value={"results": [{"data": [1, 2, 3], "label": "$pageview"}]},
             ),
-            patch("posthog.api.insight.get_insight_analysis", side_effect=RuntimeError("LLM down")),
+            patch(
+                "posthog.api.insight.get_insight_analysis",
+                side_effect=RuntimeError("internal LLM detail"),
+            ),
         ):
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}/analyze/")
 
-        # Errors must propagate so the frontend can show a real error instead of a
-        # silent "Failed to generate analysis".
+        # The frontend's analysisError reducer needs a populated `detail` to show a
+        # real error instead of an empty body, but we must not echo the underlying
+        # exception text back (CodeQL: information exposure through an exception).
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
-        self.assertIn("LLM down", response.json()["detail"])
+        body = response.json()
+        self.assertIn("Failed to generate analysis", body["detail"])
+        self.assertNotIn("internal LLM detail", body["detail"])
 
     def test_analyze_blocked_without_ai_consent(self) -> None:
         self.organization.is_ai_data_processing_approved = False
