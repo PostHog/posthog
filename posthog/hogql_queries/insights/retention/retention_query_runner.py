@@ -593,7 +593,6 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         bracket labels, date computation.
         """
         cols = {name: i for i, name in enumerate(response.columns or [])}
-        has_aggregation_value = "aggregation_value" in cols
 
         if self.has_breakdown:
             # Step 1: Calculate total cohort size for each breakdown value (size at intervals_from_base = 0)
@@ -624,7 +623,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 intervals_from_base = row[cols["intervals_from_base"]]
                 breakdown_value = row[cols["breakdown_value"]]
                 count = row[cols["count"]]
-                aggregation_value = row[cols["aggregation_value"]] if has_aggregation_value else None
+                aggregation_value = row[cols["aggregation_value"]] if self.has_property_aggregation else None
 
                 target_breakdown = breakdown_value
                 if breakdown_value in other_values:
@@ -696,7 +695,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 key = (row[cols["start_event_matching_interval"]], row[cols["intervals_from_base"]])
                 count = correct_result_for_sampling(row[cols["count"]], self.query.samplingFactor)
                 entry: dict[str, float] = {"count": count}
-                if self.has_property_aggregation and has_aggregation_value:
+                if self.has_property_aggregation:
                     entry["aggregation_value"] = (
                         correct_result_for_sampling(row[cols["aggregation_value"]], self.query.samplingFactor) or 0.0
                     )
@@ -704,7 +703,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
             labels = self.get_bracket_labels()
             default_values: dict[str, float] = {"count": 0.0}
-            if self.has_property_aggregation and has_aggregation_value:
+            if self.has_property_aggregation:
                 default_values["aggregation_value"] = 0.0
             results = [
                 {
