@@ -198,6 +198,7 @@ test.describe('Signup', () => {
     test('Can fill out all the fields on social login', async ({ page }) => {
         // Clear session cookies instead of logout for signup tests
         await page.context().clearCookies()
+        await page.reload()
         await expect(page).toHaveURL(/.*\/login/)
         await page.goto('/organization/confirm-creation?organization_name=&first_name=Test&email=test%40posthog.com')
 
@@ -233,6 +234,7 @@ test.describe('Signup', () => {
 
         // Clear session cookies instead of logout for signup tests
         await page.context().clearCookies()
+        await page.reload()
         await expect(page).toHaveURL(/.*\/login/)
 
         // Modify window object before page load
