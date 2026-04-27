@@ -17,6 +17,7 @@ from posthog.dags.data_deletion_requests import (
     DeletionRequestContext,
     PersonRemovalContext,
     data_deletion_request_event_removal,
+    data_deletion_request_person_removal,
     data_deletion_request_property_removal,
     delete_person_events_op,
     delete_person_profiles_op,
@@ -1082,3 +1083,36 @@ def test_delete_person_profiles_op_raises_on_per_person_failure():
         deleter.return_value = type("R", (), {"deleted_count": 0, "errors": [p_uuid]})()
         with pytest.raises(dagster.Failure, match="profile deletion failed"):
             delete_person_profiles_op(build_op_context(), ctx)
+
+
+@pytest.mark.django_db
+def test_data_deletion_request_person_removal_lifecycle(cluster: ClickhouseCluster):
+    p_uuid = str(uuid4())
+    Person.objects.create(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
+    request = DataDeletionRequest.objects.create(
+        team_id=TEAM_ID,
+        request_type=RequestType.PERSON_REMOVAL,
+        person_uuids=[p_uuid],
+        person_drop_profiles=True,
+        person_drop_events=True,
+        person_drop_recordings=False,
+        status=RequestStatus.APPROVED,
+    )
+
+    with (
+        patch("posthog.dags.data_deletion_requests.delete_persons_profile") as profile,
+        patch("posthog.dags.data_deletion_requests.queue_person_recording_deletion"),
+    ):
+        profile.return_value = type("R", (), {"deleted_count": 1, "errors": []})()
+        result = data_deletion_request_person_removal.execute_in_process(
+            run_config={
+                "ops": {
+                    "load_person_removal_request": {"config": {"request_id": str(request.pk)}},
+                },
+            },
+            resources={"cluster": cluster},
+        )
+
+    assert result.success
+    request.refresh_from_db()
+    assert request.status == RequestStatus.COMPLETED

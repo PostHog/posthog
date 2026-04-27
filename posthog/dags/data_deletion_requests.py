@@ -751,6 +751,22 @@ def finalize_deletion_request(
     context.log.info(f"Deletion request {deletion_request.request_id} marked as {next_status.value}.")
 
 
+@dagster.op(tags=OWNER_TAG)
+def finalize_person_removal(
+    context: dagster.OpExecutionContext,
+    person_removal: PersonRemovalContext,
+) -> None:
+    """Mark a person_removal request as COMPLETED."""
+    from django.utils import timezone
+
+    DataDeletionRequest.objects.filter(
+        pk=person_removal.request_id,
+        status=RequestStatus.IN_PROGRESS,
+    ).update(status=RequestStatus.COMPLETED, updated_at=timezone.now())
+
+    context.log.info(f"Person removal request {person_removal.request_id} marked as completed.")
+
+
 @dagster.failure_hook()
 def mark_deletion_failed(context: dagster.HookContext) -> None:
     """Mark the deletion request as failed if any op fails."""
@@ -765,10 +781,12 @@ def mark_deletion_failed(context: dagster.HookContext) -> None:
         return
 
     ops_config = run_config.get("ops", {})
-    # Check both job types
-    request_id = ops_config.get("load_deletion_request", {}).get("config", {}).get("request_id") or ops_config.get(
-        "load_property_removal_request", {}
-    ).get("config", {}).get("request_id")
+    # Check all job types
+    request_id = (
+        ops_config.get("load_deletion_request", {}).get("config", {}).get("request_id")
+        or ops_config.get("load_property_removal_request", {}).get("config", {}).get("request_id")
+        or ops_config.get("load_person_removal_request", {}).get("config", {}).get("request_id")
+    )
     if not request_id:
         return
 
@@ -821,6 +839,20 @@ def data_deletion_request_property_removal():
     request = delete_original_events(request)
     request = cleanup_temp_tables(request)
     finalize_deletion_request(request)
+
+
+@dagster.job(tags=OWNER_TAG, hooks={mark_deletion_failed})
+def data_deletion_request_person_removal():
+    """Execute an approved person_removal request: events → recordings → profiles.
+
+    Profiles are deleted last so that earlier ops can still resolve person UUIDs and
+    distinct_ids from the Postgres Person row while running.
+    """
+    request = load_person_removal_request()
+    request = delete_person_events_op(request)
+    request = delete_person_recordings_op(request)
+    request = delete_person_profiles_op(request)
+    finalize_person_removal(request)
 
 
 # ---------------------------------------------------------------------------
