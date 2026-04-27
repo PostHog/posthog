@@ -34,12 +34,13 @@ export const Metadata = ({ children, className }: PropsWithChildren<{ className?
 
     const handleRangeSelect = useCallback(
         (startDate: Date, endDate: Date) => {
+            setClickedSpike(null)
             setDateRange({
                 date_from: startDate.toISOString(),
                 date_to: endDate.toISOString(),
             })
         },
-        [setDateRange]
+        [setDateRange, setClickedSpike]
     )
 
     const handleSpikeClick = useCallback(
