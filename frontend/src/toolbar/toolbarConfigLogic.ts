@@ -589,9 +589,10 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            // Intentionally not calling captureToolbarException here: most failures are
+            // expected environmental conditions (HTTP 4xx/5xx from gated endpoints,
+            // CORS/timeouts from misconfigured ui_host) rather than client-side bugs.
+            // The analytics event below already records error_type for telemetry.
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
