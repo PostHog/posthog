@@ -35,6 +35,7 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
+from products.tasks.backend.metrics import observe_task_run_created
 from products.tasks.backend.stream.redis_stream import publish_task_run_stream_event
 
 logger = structlog.get_logger(__name__)
@@ -68,7 +69,7 @@ class Task(DeletedMetaFields, models.Model):
     title = models.CharField(max_length=255)
     title_manually_set = models.BooleanField(default=False)
     description = models.TextField()
-    origin_product = models.CharField(max_length=20, choices=OriginProduct.choices)
+    origin_product = models.CharField(max_length=20, choices=OriginProduct)
 
     # Repository configuration
     github_integration = models.ForeignKey(
@@ -223,6 +224,7 @@ class Task(DeletedMetaFields, models.Model):
             branch=branch,
         )
         task_run.publish_stream_state_event()
+        observe_task_run_created(task_run)
         self.capture_event(
             "task_run_created",
             {
@@ -461,7 +463,7 @@ class TaskRun(models.Model):
 
     environment = models.CharField(
         max_length=10,
-        choices=Environment.choices,
+        choices=Environment,
         default=Environment.CLOUD,
         help_text="Execution environment",
     )
@@ -474,7 +476,7 @@ class TaskRun(models.Model):
         help_text="Current stage for this run (e.g., 'research', 'plan', 'build')",
     )
 
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.NOT_STARTED)
+    status = models.CharField(max_length=20, choices=Status, default=Status.NOT_STARTED)
 
     error_message = models.TextField(blank=True, null=True, help_text="Error message if execution failed")
 
@@ -901,7 +903,7 @@ class SandboxSnapshot(UUIDModel):
 
     status = models.CharField(
         max_length=20,
-        choices=Status.choices,
+        choices=Status,
         default=Status.IN_PROGRESS,
     )
 
@@ -988,7 +990,7 @@ class SandboxEnvironment(UUIDModel):
 
     network_access_level = models.CharField(
         max_length=20,
-        choices=NetworkAccessLevel.choices,
+        choices=NetworkAccessLevel,
         default=NetworkAccessLevel.FULL,  # NOTE: Default should be TRUSTED once we have an egress proxy in place
     )
 

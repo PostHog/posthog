@@ -40,7 +40,7 @@ class CoreEvent(UUIDModel):
 
     category = models.CharField(
         max_length=20,
-        choices=Category.choices,
+        choices=Category,
         help_text="Lifecycle category for this core event",
     )
 

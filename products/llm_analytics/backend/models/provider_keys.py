@@ -25,9 +25,9 @@ class LLMProviderKey(UUIDTModel):
         ERROR = "error"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    provider = models.CharField(max_length=50, choices=LLMProvider.choices)
+    provider = models.CharField(max_length=50, choices=LLMProvider)
     name = models.CharField(max_length=255)
-    state = models.CharField(max_length=20, choices=State.choices, default=State.UNKNOWN)
+    state = models.CharField(max_length=20, choices=State, default=State.UNKNOWN)
     error_message = models.TextField(null=True, blank=True)
     encrypted_config = EncryptedJSONField(default=dict, ignore_decrypt_errors=True)
     created_at = models.DateTimeField(auto_now_add=True)
