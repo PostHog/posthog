@@ -200,6 +200,7 @@ def test_google_sheets_source_retries_get_all_records_on_quota_exceeded():
 
         with pytest.raises(gspread.exceptions.APIError):
             # items is a generator factory; consume it to trigger the API call
-            list(response.items())
+            for _ in response.items():
+                pass
 
         assert mock_worksheet.get_all_records.call_count == 10
