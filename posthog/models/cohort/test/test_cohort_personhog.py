@@ -109,6 +109,7 @@ class TestRemoveUserByUuid(PersonhogTestMixin, BaseTest):
 
         assert result is True
         if self.personhog:
+            assert self._fake_client is not None
             assert (cohort.id, person.id) not in self._fake_client._cohort_members
         else:
             assert not CohortPeople.objects.filter(cohort=cohort, person=person).exists()
@@ -194,6 +195,7 @@ class TestRemoveUserByUuid(PersonhogTestMixin, BaseTest):
 
         assert result is True
         if self.personhog:
+            assert self._fake_client is not None
             assert (cohort.id, person.id) not in self._fake_client._cohort_members
         else:
             assert not CohortPeople.objects.filter(cohort=cohort, person=person).exists()
@@ -552,6 +554,7 @@ class TestInsertCohortMembers(PersonhogTestMixin, BaseTest):
 
         assert inserted > 0
         if self.personhog:
+            assert self._fake_client is not None
             assert (cohort.id, p1.id) in self._fake_client._cohort_members
             assert (cohort.id, p2.id) in self._fake_client._cohort_members
         else:
