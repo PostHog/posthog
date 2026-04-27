@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { BuiltLogic, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { BuiltLogic, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
 
@@ -1632,7 +1632,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         selectItem: ({ group, value, item, meta }) => {
             if (item) {
                 const sourceGroupType = hasRecentContext(item) ? item._recentContext.sourceGroupType : group.type
@@ -1640,6 +1640,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 const wasQuickFilter = isQuickFilterItem(item)
                 const wasFromRecents = hasRecentContext(item)
                 const wasFromPinnedList = hasPinnedContext(item)
+                cache.hadSelection = true
 
                 posthog.capture('taxonomic filter item selected', {
                     groupType: values.activeTab,
@@ -1801,6 +1802,19 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 )
                 updatePropertyDefinitions(newPropertyDefinitions)
             }
+        },
+    })),
+    events(({ values, cache }) => ({
+        afterMount: () => {
+            cache.openedAt = Date.now()
+            cache.hadSelection = false
+        },
+        beforeUnmount: () => {
+            posthog.capture('taxonomic filter closed', {
+                dwellMs: Date.now() - (cache.openedAt ?? Date.now()),
+                hadSelection: !!cache.hadSelection,
+                groupType: values.activeTab,
+            })
         },
     })),
 ])
