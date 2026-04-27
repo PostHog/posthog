@@ -337,6 +337,10 @@ class Database(BaseModel):
     def has_table(self, table_name: str | list[str]) -> bool:
         if isinstance(table_name, str):
             table_name = table_name.split(".")
+
+        if isinstance(table_name, list) and len(table_name) == 1 and "." in table_name[0]:
+            table_name = table_name[0].split(".")
+
         return self.tables.has_child(table_name)
 
     def get_table_node(self, table_name: str | list[str]) -> TableNode:
@@ -351,12 +355,14 @@ class Database(BaseModel):
     def get_table(self, table_name: str | list[str]) -> Table:
         try:
             return cast(Table, self.get_table_node(table_name).get())
-        except ResolutionError as e:
+        except ResolutionError:
             if isinstance(table_name, list):
                 table_name = ".".join(table_name)
+            # `from None` suppresses the inner ResolutionError so error tracking fingerprints on
+            # the exposed QueryError, not the internal "Unknown table <segment>" cause chain.
             if table_name in self._denied_tables:
-                raise QueryError(f"You don't have access to table `{table_name}`.") from e
-            raise QueryError(f"Unknown table `{table_name}`.") from e
+                raise QueryError(f"You don't have access to table `{table_name}`.") from None
+            raise QueryError(f"Unknown table `{table_name}`.") from None
 
     def get_all_table_names(self) -> list[str]:
         warehouse_table_names: list[str] = []

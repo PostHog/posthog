@@ -37,7 +37,7 @@ from posthog.hogql.database.models import (
     TableNode,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -1037,6 +1037,75 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         prepare_and_print_ast(
             parse_select("SELECT id, timestamp, distinct_id FROM stripe.table"), context, dialect="clickhouse"
         )
+
+    def test_data_warehouse_events_modifiers_with_missing_dotted_table(self):
+        # Regression for the second-stage failure of a missing dotted warehouse table reference:
+        # PR #55598 stopped `define_mappings` from raising during `Database.create_for`, but the
+        # resolver still re-raised the inner `ResolutionError` from `TableNode.get_child` as a
+        # chained `QueryError` (`from e`), polluting error tracking with the internal cause.
+        # The chain should now be suppressed so the fingerprint is the exposed `QueryError`.
+
+        # A sibling postgres source exists with a different table — this exercises the bug's
+        # exact path: `TableNode.get_child` recurses into the `postgres` namespace and only
+        # then fails to find the `comments` leaf.
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="postgres_source_id",
+            source_type=ExternalDataSourceType.POSTGRES,
+        )
+        DataWarehouseTable.objects.create(
+            name="postgres_users",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="s3://test/*",
+            columns={"id": "String", "email": "String", "created_at": "DateTime64(3, 'UTC')"},
+        )
+
+        modifiers = HogQLQueryModifiers(
+            dataWarehouseEventsModifiers=[
+                DataWarehouseEventsModifier(
+                    table_name="postgres.comments",
+                    id_field="id",
+                    timestamp_field="created_at",
+                    distinct_id_field="user_id",
+                )
+            ]
+        )
+
+        # Database creation succeeds even though the `postgres.comments` leaf doesn't exist
+        db = Database.create_for(team=self.team, modifiers=modifiers)
+
+        # The sibling table is reachable, the missing leaf is not
+        assert db.has_table("postgres.users") is True
+        assert db.has_table("postgres.comments") is False
+        assert db.has_table(["postgres.comments"]) is False
+        assert db.has_table(["postgres", "comments"]) is False
+
+        with self.assertRaises(QueryError) as ctx:
+            db.get_table("postgres.comments")
+        assert str(ctx.exception) == "Unknown table `postgres.comments`."
+        # The inner ResolutionError must not be chained — error tracking fingerprints on the cause
+        assert ctx.exception.__cause__ is None
+        assert ctx.exception.__suppress_context__ is True
+
+        # Resolving a query that references the missing dotted table surfaces the same clean
+        # QueryError, with no chained ResolutionError leaking into reporting.
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=db,
+        )
+        with self.assertRaises(QueryError) as ctx:
+            prepare_and_print_ast(
+                parse_select("SELECT id FROM postgres.comments"), context, dialect="clickhouse"
+            )
+        assert str(ctx.exception) == "Unknown table `postgres.comments`."
+        assert ctx.exception.__cause__ is None
 
     @parameterized.expand(
         [
