@@ -90,8 +90,6 @@ def infer_interval_from_days(days: list[str]) -> str:
 
 
 def parse_dt(s: str) -> datetime | None:
-    if not isinstance(s, str):
-        return None
     s = s.replace("Z", "+00:00")
     for fmt in (None, "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
         try:
@@ -187,8 +185,9 @@ def compare_cycle_keyed(
 
 
 def report_day_cycle(label: str, days: list[str], data: list[float], tolerance: float) -> None:
-    points = [(parse_dt(d), v) for d, v in zip(days, data)]
-    points = [(dt, v) for dt, v in points if dt is not None]
+    points: list[tuple[datetime, float]] = [
+        (dt, v) for d, v in zip(days, data) if (dt := parse_dt(d)) is not None
+    ]
 
     results, in_range, out_of_range = compare_cycle_keyed(
         points, cycle_len=7, key_fn=lambda dt: dt.weekday(), tolerance=tolerance
@@ -239,8 +238,9 @@ def report_day_cycle(label: str, days: list[str], data: list[float], tolerance: 
 def report_hour_cycle(
     label: str, days: list[str], data: list[float], tolerance: float, top: int
 ) -> None:
-    points = [(parse_dt(d), v) for d, v in zip(days, data)]
-    points = [(dt, v) for dt, v in points if dt is not None]
+    points: list[tuple[datetime, float]] = [
+        (dt, v) for d, v in zip(days, data) if (dt := parse_dt(d)) is not None
+    ]
 
     results, in_range, out_of_range = compare_cycle_keyed(
         points,
