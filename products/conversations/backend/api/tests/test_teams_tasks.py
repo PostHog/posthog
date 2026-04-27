@@ -9,6 +9,7 @@ from parameterized import parameterized
 
 from products.conversations.backend.models import TeamConversationsTeamsConfig, Ticket
 from products.conversations.backend.tasks import post_reply_to_teams, process_teams_event
+from products.conversations.backend.teams import is_bot_added_event, is_command_message
 
 
 def _make_activity(
@@ -67,13 +68,22 @@ class TestProcessTeamsEvent(BaseTest):
             (
                 "bot_mention_dispatches_to_mention_handler",
                 "tenant-abc",
-                {"bot_mention": True, "channel_id": "19:any@thread.tacv2"},
+                {"bot_mention": True, "channel_id": "19:any@thread.tacv2", "text": "I have an issue"},
                 False,
                 1,
                 "teams_bot_mention",
             ),
+            (
+                "greeting_mention_replies_with_help_no_ticket",
+                "tenant-abc",
+                {"bot_mention": True, "channel_id": "19:any@thread.tacv2", "text": "Hi"},
+                False,
+                0,
+                None,
+            ),
         ]
     )
+    @patch("products.conversations.backend.teams.send_teams_help_reply")
     @patch("products.conversations.backend.teams.get_bot_from_id", return_value="28:bot-app-id")
     @patch("products.conversations.backend.teams.resolve_teams_user", return_value={"name": "U", "email": None})
     @patch("products.conversations.backend.teams._send_confirmation_card")
@@ -88,6 +98,7 @@ class TestProcessTeamsEvent(BaseTest):
         _mock_card: MagicMock,
         _mock_user: MagicMock,
         _mock_bot_id: MagicMock,
+        mock_help_reply: MagicMock,
     ):
         if disable_teams:
             self.team.conversations_settings = {"teams_enabled": False}
@@ -105,6 +116,8 @@ class TestProcessTeamsEvent(BaseTest):
             ticket = tickets.first()
             assert ticket is not None
             assert ticket.channel_detail == expected_channel_detail
+        if _name == "greeting_mention_replies_with_help_no_ticket":
+            mock_help_reply.assert_called_once()
 
     @patch("products.conversations.backend.teams.resolve_teams_user", return_value={"name": "U", "email": None})
     @patch("products.conversations.backend.teams._send_confirmation_card")
@@ -177,3 +190,61 @@ class TestPostReplyToTeams(BaseTest):
                 assert expected_bearer in mock_post.call_args.kwargs["headers"]["Authorization"]
         else:
             mock_post.assert_not_called()
+
+
+class TestTeamsActivityClassifiers:
+    """Pure-function tests for the activity-shape predicates used by the cert-required flows."""
+
+    @parameterized.expand(
+        [
+            ("plain_hi", "Hi", True),
+            ("plain_hello_caps", "HELLO", True),
+            ("trailing_punctuation", "hello!", True),
+            ("with_at_mention_html", "<at>SupportHog</at> help", True),
+            ("only_mention_no_text", "<at>SupportHog</at>", False),
+            ("real_question", "I have an issue with billing", False),
+            ("greeting_with_extra_words_falls_through", "hi there team", False),
+            ("empty", "", False),
+        ]
+    )
+    def test_is_command_message(self, _name: str, text: str, expected: bool):
+        assert is_command_message({"text": text}) is expected
+
+    @parameterized.expand(
+        [
+            (
+                "bot_added_to_team",
+                {
+                    "type": "conversationUpdate",
+                    "recipient": {"id": "28:bot-app-id"},
+                    "membersAdded": [{"id": "28:bot-app-id"}],
+                },
+                True,
+            ),
+            (
+                "user_added_not_bot",
+                {
+                    "type": "conversationUpdate",
+                    "recipient": {"id": "28:bot-app-id"},
+                    "membersAdded": [{"id": "29:some-user"}],
+                },
+                False,
+            ),
+            (
+                "wrong_activity_type",
+                {
+                    "type": "message",
+                    "recipient": {"id": "28:bot-app-id"},
+                    "membersAdded": [{"id": "28:bot-app-id"}],
+                },
+                False,
+            ),
+            (
+                "missing_members_added",
+                {"type": "conversationUpdate", "recipient": {"id": "28:bot-app-id"}},
+                False,
+            ),
+        ]
+    )
+    def test_is_bot_added_event(self, _name: str, activity: dict, expected: bool):
+        assert is_bot_added_event(activity) is expected
