@@ -137,7 +137,8 @@ tools:
         title: Get error tracking issue
         description: >
             Get a specific error tracking issue by ID. Returns full issue details including status, description, volume,
-            and metadata.
+            and metadata. After retrieving an issue, consider using `query-session-recordings-list` with an event filter
+            for `$exception` to find session recordings of users who hit this error.
         ui_app: error-issue
     error-tracking-issues-update:
         operation: error_tracking_issues_update

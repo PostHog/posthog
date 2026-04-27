@@ -37,7 +37,7 @@ class TestWidgetAPI(BaseTest):
         response = self.client.post(
             "/api/conversations/v1/widget/message",
             {"message": "Hello"},
-            HTTP_X_CONVERSATIONS_TOKEN="invalid_token",
+            headers={"x-conversations-token": "invalid_token"},
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 

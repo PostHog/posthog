@@ -338,7 +338,7 @@ def account_requests(request: Request) -> Response:
         partner_account_id = orchestrator.get("account", "")
 
     # If no partner identified, require Stripe Projects HMAC auth
-    if not partner and not request.META.get("HTTP_STRIPE_SIGNATURE"):
+    if not partner and not request.headers.get("stripe-signature"):
         return Response(
             {"type": "error", "error": {"code": "unauthorized", "message": "Authentication required"}},
             status=401,
@@ -914,7 +914,7 @@ def _exchange_authorization_code(request: Request) -> Response:
     # Auth check: PKCE codes require code_verifier, non-PKCE codes require HMAC.
     # All verification happens BEFORE cache.delete so a failed attempt doesn't consume the code.
     stored_challenge = code_data.get("code_challenge", "")
-    has_hmac = bool(request.META.get("HTTP_STRIPE_SIGNATURE"))
+    has_hmac = bool(request.headers.get("stripe-signature"))
     if stored_challenge:
         code_verifier = request.data.get("code_verifier", "")
         if not code_verifier:
@@ -1800,10 +1800,30 @@ def deep_links(request: Request) -> Response:
     if auth_error:
         return auth_error
 
-    if error := _verify_hmac_if_present(request):
+    # HMAC partners must include a valid signature on this endpoint - bearer alone
+    # is not sufficient to mint a full web session via the deep-link primitive.
+    if access_token.application.provisioning_auth_method == "hmac":
+        if not request.META.get("HTTP_STRIPE_SIGNATURE"):
+            return _error_response(
+                "hmac_signature_required",
+                "HMAC signature required for this partner",
+                status=401,
+            )
+        if error := verify_provisioning_signature(request):
+            return error
+    elif error := _verify_hmac_if_present(request):
         return error
+
     if error := verify_api_version(request):
         return error
+
+    if not access_token.application.provisioning_can_issue_deep_links:
+        _capture_provisioning_event("deep_link_created", "not_enabled")
+        return _error_response(
+            "deep_links_not_enabled",
+            "Deep links are not enabled for this partner",
+            status=403,
+        )
 
     purpose = request.data.get("purpose", "dashboard")
     if purpose not in SUPPORTED_DEEP_LINK_PURPOSES:
@@ -1993,7 +2013,7 @@ def _verify_hmac_if_present(request: Request) -> Response | None:
     For HMAC partners (Stripe), both HMAC + Bearer are required on resource endpoints.
     For non-HMAC partners (wizard, Bearer-only), skip HMAC and rely on Bearer auth alone.
     """
-    if request.META.get("HTTP_STRIPE_SIGNATURE"):
+    if request.headers.get("stripe-signature"):
         return verify_provisioning_signature(request)
     return None
 
@@ -2039,7 +2059,7 @@ def _authenticate_bearer(request: Request) -> tuple[Response | None, Any, Any]:
     then falls back to Stripe Projects HMAC auth.
     """
 
-    auth_header = request.META.get("HTTP_AUTHORIZATION", "")
+    auth_header = request.headers.get("authorization", "")
     if not auth_header.startswith("Bearer "):
         return (_error_response("unauthorized", "Missing bearer token", status=401), None, None)
 
@@ -2094,6 +2114,7 @@ def _get_legacy_stripe_oauth_app():
         authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
         redirect_uris="https://localhost",
         algorithm="RS256",
+        provisioning_can_issue_deep_links=True,
     )
 
 

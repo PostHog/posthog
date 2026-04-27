@@ -105,9 +105,23 @@ const insightsList = (): ToolBase<typeof InsightsListSchema, WithPostHogUrl<Sche
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/insights/`,
             query: {
+                created_by: params.created_by,
+                created_date_from: params.created_date_from,
+                created_date_to: params.created_date_to,
+                dashboards: params.dashboards,
+                date_from: params.date_from,
+                date_to: params.date_to,
+                favorited: params.favorited,
+                insight: params.insight,
+                last_viewed_date_from: params.last_viewed_date_from,
+                last_viewed_date_to: params.last_viewed_date_to,
                 limit: params.limit,
                 offset: params.offset,
+                saved: params.saved,
+                search: params.search,
                 short_id: params.short_id,
+                tags: params.tags,
+                user: params.user,
             },
         })
         const filtered = {
@@ -125,6 +139,7 @@ const insightsList = (): ToolBase<typeof InsightsListSchema, WithPostHogUrl<Sche
                     'created_at',
                     'created_by',
                     'last_modified_at',
+                    'last_modified_by',
                     'last_viewed_at',
                     'alerts',
                 ])
