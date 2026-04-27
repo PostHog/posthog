@@ -201,6 +201,29 @@ class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
         # All keys here match purely on value (no attribute key contains "argo-rollouts-dashboard").
         self.assertTrue(any(r["matchedOn"] == "value" for r in results))
 
+    def test_log_attributes_search_values_skipped_for_short_search(self):
+        """Searches under 4 characters should never trigger value matching, even with `search_values=true`."""
+
+        # "arg" (3 chars) is a substring of values like "argo-rollouts-dashboard", but value
+        # search is gated to >= 4 chars to avoid scanning attribute_value on broad queries.
+        query_params = {
+            "dateRange": '{"date_from": "2025-12-16T09:00:00Z", "date_to": "2025-12-16T11:00:00Z"}',
+            "attribute_type": "resource",
+            "search": "arg",
+            "search_values": "true",
+        }
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/logs/attributes", query_params)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        results = response.json()["results"]
+        for entry in results:
+            self.assertNotEqual(
+                entry.get("matchedOn"),
+                "value",
+                "value matches must not surface when search term is shorter than the minimum length",
+            )
+
     def test_log_attributes_search_values_ranks_key_matches_first(self):
         """Key matches must always rank above value matches when both exist."""
 

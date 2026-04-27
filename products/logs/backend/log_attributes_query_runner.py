@@ -20,6 +20,11 @@ from products.logs.backend.logs_query_runner import LogsQueryRunnerMixin
 # filters to narrow things down (and will likely have to anyway if we're returning thousands of attributes)
 MAX_READ_BYTES = 5_000_000_000
 
+# Value-search probes attribute_value with ILIKE %search%, which scans far more rows than
+# the key-only path. Require a meaningfully specific term so short prefixes (e.g. "id")
+# don't trigger an expensive scan.
+MIN_VALUE_SEARCH_LENGTH = 4
+
 
 class LogAttributesQueryRunner(AnalyticsQueryRunner[LogAttributesQueryResponse], LogsQueryRunnerMixin):
     query: LogAttributesQuery
@@ -46,7 +51,9 @@ class LogAttributesQueryRunner(AnalyticsQueryRunner[LogAttributesQueryResponse],
         return self._to_query_keys_only()
 
     def _should_search_values(self) -> bool:
-        return bool(self.query.searchValues) and bool(self.query.search)
+        if not self.query.searchValues or not self.query.search:
+            return False
+        return len(self.query.search) >= MIN_VALUE_SEARCH_LENGTH
 
     def _to_query_keys_only(self) -> ast.SelectQuery:
         query = parse_select(

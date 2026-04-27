@@ -1059,6 +1059,8 @@ describe('TaxonomicFilter', () => {
             const indicators = screen.queryAllByLabelText('Matched on value')
             expect(indicators).toHaveLength(1)
             const indicator = indicators[0]
+            // Badge shows the (possibly truncated) matched value
+            expect(indicator.textContent).toContain('argo-rollouts-dashboard')
             const row = indicator.closest('.taxonomic-list-row, [data-attr*="prop-filter"]') ?? indicator.parentElement
             expect(row?.textContent).toContain('k8s.deployment.name')
             expect(row?.textContent).not.toContain('service.name')

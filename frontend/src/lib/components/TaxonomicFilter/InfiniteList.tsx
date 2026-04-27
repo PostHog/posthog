@@ -107,16 +107,22 @@ const staleIndicator = (parsedLastSeen: dayjs.Dayjs | null): JSX.Element => {
     )
 }
 
+const VALUE_MATCH_MAX_LENGTH = 30
+
 const valueMatchIndicator = (matchedValue: string): JSX.Element => {
+    const truncated =
+        matchedValue.length > VALUE_MATCH_MAX_LENGTH
+            ? matchedValue.slice(0, VALUE_MATCH_MAX_LENGTH) + '…'
+            : matchedValue
     return (
         <Tooltip title={<>Matched on value: "{matchedValue}"</>}>
-            <span
+            <LemonTag
                 aria-label="Matched on value"
                 data-attr="taxonomic-value-match-indicator"
-                className="text-tertiary opacity-60 ml-1 flex items-center"
+                className="ml-1 max-w-[12rem] truncate"
             >
-                <IconSearch />
-            </span>
+                {truncated}
+            </LemonTag>
         </Tooltip>
     )
 }
