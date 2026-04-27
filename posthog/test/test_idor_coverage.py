@@ -277,6 +277,29 @@ class TestAutomatedIDORCoverage(IDORTestMixin, APIBaseTest):
             f"IDOR: DELETE {url} actually removed the victim's {case.model_cls.__name__}"
         )
 
+    @parameterized.expand([_case_params(c) for c in DISCOVERED_CASES])
+    def test_cross_team_put_detail(self, _name: str, case: IDORTestCase) -> None:
+        """Attacker cannot replace a cross-team resource via PUT + no sentinel leak.
+
+        PUT and PATCH can branch through different validation paths in DRF — a
+        viewset with overridden update() may scope correctly on partial
+        updates but not on full ones.
+        """
+        instance, url, sentinel = self._build_instance_and_url(case)
+        serializer_cls = getattr(case.viewset_cls, "serializer_class", None)
+        body: dict[str, Any] = {"name": "pwned", "title": "pwned", "description": "pwned"}
+        if serializer_cls is not None:
+            try:
+                body = build_minimal_post_body(serializer_cls, team=self.team)  # type: ignore[attr-defined]
+            except Exception:
+                # Fall back to the partial-update body — endpoints that allow
+                # partial PUTs still get exercised; strict-PUT endpoints will
+                # 400 (still a valid denial of the cross-team write).
+                pass
+        response = self.assertCrossTeamDenied(url, method="put", data=body)
+        self.assertSentinelNotLeaked(response, sentinel)
+        _assert_resource_unchanged(self, case, instance, sentinel)
+
     @parameterized.expand(TENANT_ROOT_CASES)
     def test_cross_org_root_access(self, _name: str, case: TenantRootCase) -> None:
         """Attacker cannot reach a victim's org/project/team root URL.
