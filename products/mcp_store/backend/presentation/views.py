@@ -207,7 +207,7 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "template_id", "icon_key", "created_at", "updated_at", "tool_count"]
+        read_only_fields = ["id", "template_id", "created_at", "updated_at", "tool_count"]
 
     def get_tool_count(self, obj: MCPServerInstallation) -> int:
         # Prefer the annotation to avoid N+1 on list; fall back to a direct
