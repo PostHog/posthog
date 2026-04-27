@@ -1563,8 +1563,8 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         # Because of this pgbouncer transaction pooling mode, we can't use server-side cursors.
         # We pre-filter all persons to be ones that will match the feature flag, so that we don't have to
         # iterate through all persons
+        # nosemgrep: no-direct-persons-db-orm
         queryset = (
-            # nosemgrep: no-direct-persons-db-orm
             Person.objects.db_manager(READ_DB_FOR_PERSONS)
             .filter(team_id=team_id)
             .filter(property_group_to_Q(team_id, flag_property_group, cohorts_cache=cohorts_cache))

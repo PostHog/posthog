@@ -245,14 +245,9 @@ def snapshot_actors_property_taxonomy(
 
     # Snapshot all group type mappings and person
     results: list[ActorsPropertyTaxonomySnapshot] = []
-    group_type_mappings: list[int | None] = [
-        None,
-        *(
-            # nosemgrep: no-direct-persons-db-orm
-            g.group_type_index
-            for g in GroupTypeMapping.objects.filter(team=team)
-        ),
-    ]
+    # nosemgrep: no-direct-persons-db-orm
+    group_type_indexes = [g.group_type_index for g in GroupTypeMapping.objects.filter(team=team)]
+    group_type_mappings: list[int | None] = [None, *group_type_indexes]
 
     for index in group_type_mappings:
         is_group = index is not None

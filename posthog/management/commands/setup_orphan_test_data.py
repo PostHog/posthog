@@ -179,8 +179,8 @@ class Command(BaseCommand):
         pg_uuids = list(pg_persons.values_list("uuid", flat=True))
 
         # Delete from PostgreSQL
+        # nosemgrep: no-direct-persons-db-orm
         deleted_dids = (
-            # nosemgrep: no-direct-persons-db-orm
             PersonDistinctId.objects.db_manager(PERSONS_DB_FOR_WRITE)
             .filter(
                 team=team,

@@ -324,14 +324,14 @@ def get_people(
             ).inc()
             logger.warning("personhog_get_people_failure", team_id=team.pk, exc_info=True)
 
+    # nosemgrep: no-direct-persons-db-orm
     distinct_id_subquery = Subquery(
-        # nosemgrep: no-direct-persons-db-orm
         PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
         .filter(team_id=team.pk, person_id=OuterRef("person_id"))
         .values_list("id", flat=True)[:distinct_id_limit]
     )
+    # nosemgrep: no-direct-persons-db-orm
     persons_qs: QuerySet[Person] = (
-        # nosemgrep: no-direct-persons-db-orm
         Person.objects.db_manager(READ_DB_FOR_PERSONS)
         .filter(team_id=team.pk, uuid__in=people_ids)
         .prefetch_related(

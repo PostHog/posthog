@@ -61,10 +61,8 @@ def split_person(
                 person_id=person_id,
             )
             # Lookup team_id via PersonDistinctId which has person_id FK
-            pdi = (
-                # nosemgrep: no-direct-persons-db-orm
-                PersonDistinctId.objects.filter(person_id=person_id).only("team_id").first()
-            )
+            # nosemgrep: no-direct-persons-db-orm
+            pdi = PersonDistinctId.objects.filter(person_id=person_id).only("team_id").first()
             if not pdi:
                 raise ValueError(f"Cannot find team_id for person_id={person_id}")
 
