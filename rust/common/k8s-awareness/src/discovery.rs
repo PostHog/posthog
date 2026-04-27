@@ -14,7 +14,7 @@ use crate::types::{ControllerKind, ControllerRef, PodInfo};
 /// 180s). When the API server enters a zombie state (TCP alive, no response),
 /// a single hung call can blow past those budgets. Bounding each call here
 /// turns a zombie into a quick error so the caller can retry or degrade.
-const KUBE_CALL_TIMEOUT: Duration = Duration::from_secs(30);
+pub(crate) const KUBE_CALL_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, thiserror::Error)]
 pub enum DiscoveryError {
