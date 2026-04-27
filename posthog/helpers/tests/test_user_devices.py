@@ -1,7 +1,10 @@
 import uuid
 
 from posthog.test.base import BaseTest
+from unittest.mock import MagicMock
 
+from django.contrib.sessions.backends.db import SessionStore
+from django.http import HttpResponse
 from django.test import RequestFactory
 
 from parameterized import parameterized
@@ -11,6 +14,7 @@ from posthog.helpers.user_devices import (
     build_known_device_cookie_value,
     has_valid_known_device_cookie,
 )
+from posthog.middleware import KnownLoginDeviceCookieMiddleware
 from posthog.models import User
 
 
@@ -69,3 +73,50 @@ class TestHasValidKnownDeviceCookie(BaseTest):
         user = self._make_user()
         request = self._request_with_cookies({KNOWN_DEVICE_COOKIE.format(user_id=user.id): value})
         self.assertFalse(has_valid_known_device_cookie(request, user))
+
+
+class TestKnownLoginDeviceCookieMiddleware(BaseTest):
+    def _make_request(self, user=None):
+        request = RequestFactory().get("/")
+        request.session = SessionStore()
+        if user is not None:
+            request.user = user
+            request.session["_auth_user_id"] = str(user.id)
+        return request
+
+    def _run_middleware(self, request):
+        response = HttpResponse()
+        middleware = KnownLoginDeviceCookieMiddleware(lambda r: response)
+        return middleware(request)
+
+    def test_sets_cookie_for_authenticated_user(self):
+        request = self._make_request(user=self.user)
+        request.session.accessed = True
+        response = self._run_middleware(request)
+        cookie_name = KNOWN_DEVICE_COOKIE.format(user_id=self.user.id)
+        self.assertIn(cookie_name, response.cookies)
+
+    def test_no_crash_when_user_is_none(self):
+        request = self._make_request()
+        request.user = None
+        request.session.accessed = True
+        response = self._run_middleware(request)
+        self.assertEqual(response.status_code, 200)
+
+    def test_no_crash_when_user_has_no_id(self):
+        fake_user = MagicMock(spec=[])
+        fake_user.is_authenticated = True
+        request = self._make_request()
+        request.user = fake_user
+        request.session.accessed = True
+        response = self._run_middleware(request)
+        self.assertEqual(response.status_code, 200)
+
+    def test_no_crash_when_user_attr_missing(self):
+        request = RequestFactory().get("/")
+        request.session = SessionStore()
+        if hasattr(request, "user"):
+            del request.user
+        request.session.accessed = True
+        response = self._run_middleware(request)
+        self.assertEqual(response.status_code, 200)
