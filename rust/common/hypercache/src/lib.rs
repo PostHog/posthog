@@ -707,7 +707,11 @@ impl HyperCacheReader {
     /// payload/etag TTLs drifted apart. Returns `Err` for infrastructure errors so callers can
     /// distinguish "no version available" from "couldn't reach Redis".
     pub async fn get_etag(&self, key: &KeyType) -> Result<Option<String>, HyperCacheError> {
-        let etag_key = format!("{}{}", self.config.get_redis_cache_key(key), ETAG_KEY_SUFFIX);
+        let etag_key = format!(
+            "{}{}",
+            self.config.get_redis_cache_key(key),
+            ETAG_KEY_SUFFIX
+        );
         match timeout(self.config.redis_timeout, self.redis_client.get(etag_key)).await {
             Ok(Ok(s)) if !s.is_empty() => Ok(Some(s)),
             Ok(Ok(_)) => Ok(None),
@@ -1891,10 +1895,7 @@ mod tests {
             create_test_config().get_redis_cache_key(&KeyType::int(42)),
             ETAG_KEY_SUFFIX
         );
-        mock_redis.get_ret(
-            &etag_key,
-            Err(common_redis::CustomRedisError::Timeout),
-        );
+        mock_redis.get_ret(&etag_key, Err(common_redis::CustomRedisError::Timeout));
 
         let reader = create_test_reader_with_mocks(mock_redis, create_dummy_s3_client());
         let result = reader.get_etag(&KeyType::int(42)).await;
