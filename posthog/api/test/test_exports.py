@@ -623,6 +623,55 @@ class TestExports(APIBaseTest):
 
     @parameterized.expand(
         [
+            # Image and PDF exports are CPU-bound and rarely take more than a few minutes;
+            # we surface stuck-detection at 240s so users get feedback quickly.
+            ("image/png", 300, True),
+            ("image/png", 120, False),
+            ("application/pdf", 300, True),
+            ("application/pdf", 120, False),
+            ("application/json", 300, True),
+            # Tabular formats can legitimately run close to the HogQL execution timeout,
+            # so the threshold stays at HOGQL_INCREASED_MAX_EXECUTION_TIME + 30.
+            ("text/csv", HOGQL_INCREASED_MAX_EXECUTION_TIME + 60, True),
+            ("text/csv", HOGQL_INCREASED_MAX_EXECUTION_TIME - 60, False),
+            (
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                HOGQL_INCREASED_MAX_EXECUTION_TIME + 60,
+                True,
+            ),
+            (
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                HOGQL_INCREASED_MAX_EXECUTION_TIME - 60,
+                False,
+            ),
+        ]
+    )
+    def test_stuck_export_threshold_is_format_aware(
+        self, export_format: str, age_seconds: int, expected_stuck: bool
+    ) -> None:
+        with freeze_time(now() - timedelta(seconds=age_seconds + 5)):
+            export = ExportedAsset.objects.create(
+                team=self.team,
+                dashboard_id=self.dashboard.id,
+                export_format=export_format,
+                created_by=self.user,
+                content=None,
+                content_location=None,
+                exception=None,
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/exports/{export.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        result = response.json()
+
+        if expected_stuck:
+            self.assertIsNotNone(result["exception"])
+            self.assertIn("Export failed without throwing an exception", result["exception"])
+        else:
+            self.assertIsNone(result["exception"])
+
+    @parameterized.expand(
+        [
             ("retrieve", "/api/projects/{team_id}/exports/{export_id}"),
             ("content", "/api/projects/{team_id}/exports/{export_id}/content"),
         ]

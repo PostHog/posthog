@@ -45,6 +45,25 @@ def get_full_video_exports_limit_for_organization(organization: Organization | N
     return FULL_VIDEO_EXPORTS_LIMIT_BY_TIER[tier]
 
 
+# Per-format stuck-detection thresholds. Image/PDF/JSON exports are CPU-bound and
+# should never legitimately take 10+ minutes; tabular exports paginate large
+# queries and routinely run close to HOGQL_INCREASED_MAX_EXECUTION_TIME; video
+# exports have a separate workflow with a 1-hour execution timeout.
+_DEFAULT_STUCK_THRESHOLD_SECONDS = HOGQL_INCREASED_MAX_EXECUTION_TIME + 30
+_STUCK_THRESHOLD_SECONDS_BY_FORMAT: dict[str, int] = {
+    "image/png": 240,
+    "application/pdf": 240,
+    "application/json": 240,
+    "video/mp4": 3600,
+    "video/webm": 3600,
+    "image/gif": 3600,
+}
+
+
+def _stuck_threshold_seconds(export_format: str) -> int:
+    return _STUCK_THRESHOLD_SECONDS_BY_FORMAT.get(export_format, _DEFAULT_STUCK_THRESHOLD_SECONDS)
+
+
 logger = structlog.get_logger(__name__)
 
 
@@ -74,16 +93,18 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         """Override to show stuck exports as having an exception."""
         data = super().to_representation(instance)
 
-        # Check if this export is stuck (created over HOGQL_INCREASED_MAX_EXECUTION_TIME seconds ago,
-        # has no content, and has no recorded exception)
-        timeout_threshold = now() - timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + 30)
+        # An export is considered stuck if it has produced neither content nor an
+        # exception after a per-format threshold. The threshold is format-aware
+        # because image/PDF/JSON renders complete in seconds, but CSV/XLSX may
+        # legitimately run close to HOGQL_INCREASED_MAX_EXECUTION_TIME.
+        threshold_seconds = _stuck_threshold_seconds(instance.export_format)
+        timeout_threshold = now() - timedelta(seconds=threshold_seconds)
         if (
-            timeout_threshold
-            and instance.created_at < timeout_threshold
+            instance.created_at < timeout_threshold
             and not instance.has_content
             and not instance.exception
         ):
-            timeout_message = f"Export failed without throwing an exception. Please try to rerun this export and contact support if it fails to complete multiple times."
+            timeout_message = "Export failed without throwing an exception. Please try to rerun this export and contact support if it fails to complete multiple times."
             data["exception"] = timeout_message
 
             distinct_id = (
@@ -98,6 +119,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                     **instance.get_analytics_metadata(),
                     "timeout_message": timeout_message,
                     "stuck_duration_seconds": (now() - instance.created_at).total_seconds(),
+                    "stuck_threshold_seconds": threshold_seconds,
                 },
                 groups=groups(instance.team.organization, instance.team),
             )

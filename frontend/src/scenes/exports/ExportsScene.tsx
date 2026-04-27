@@ -19,22 +19,64 @@ import { ExportedAssetType, ExporterFormat } from '~/types'
 import { exportsSceneLogic } from './exportsSceneLogic'
 
 const ROW_LIMIT_IN_THOUSANDS = 300
+// Threshold past which an in-flight export is described as "still working" with
+// a retry affordance, so users don't sit on an indefinite spinner. Backend
+// stuck-detection (see _stuck_threshold_seconds in posthog/api/exports.py) runs
+// later and ultimately surfaces an exception.
+const STILL_WORKING_THRESHOLD_SECONDS = 60
+
+function formatElapsed(seconds: number): string {
+    if (seconds < 60) {
+        return `${seconds}s`
+    }
+    const minutes = Math.floor(seconds / 60)
+    const remainder = seconds % 60
+    return remainder ? `${minutes}m ${remainder}s` : `${minutes}m`
+}
+
+function elapsedSecondsSince(createdAt: string | undefined): number {
+    if (!createdAt) {
+        return 0
+    }
+    return Math.max(0, dayjs().diff(dayjs(createdAt), 'second'))
+}
 
 export const scene: SceneExport = {
     component: ExportsScene,
     logic: exportsSceneLogic,
 }
 
+function CreatedAtCell({ asset }: { asset: ExportedAssetType }): JSX.Element {
+    const stillCalculating = !asset.has_content && !asset.exception
+
+    if (!asset.created_at) {
+        return <span>–</span>
+    }
+    if (stillCalculating) {
+        return (
+            <span className="text-secondary">
+                Still working — started {formatElapsed(elapsedSecondsSince(asset.created_at))} ago
+            </span>
+        )
+    }
+    return <span>{dayjs(asset.created_at).fromNow()}</span>
+}
+
 function ExportActions({ asset }: { asset: ExportedAssetType }): JSX.Element {
     const { freshUndownloadedExports } = useValues(exportsLogic)
-    const { removeFresh } = useActions(exportsLogic)
+    const { removeFresh, startExport } = useActions(exportsLogic)
     const { setBlob } = useActions(takeScreenshotLogic({ screenshotKey: 'exports' }))
 
     const isNotDownloaded = freshUndownloadedExports.some((fresh) => fresh.id === asset.id)
     const stillCalculating = !asset.has_content && !asset.exception
+    const elapsedSeconds = elapsedSecondsSince(asset.created_at)
+    const showRetry = stillCalculating && elapsedSeconds >= STILL_WORKING_THRESHOLD_SECONDS
+
     let disabledReason: string | undefined = undefined
     if (asset.exception) {
         disabledReason = asset.exception
+    } else if (stillCalculating) {
+        disabledReason = `Still working — started ${formatElapsed(elapsedSeconds)} ago`
     } else if (!asset.has_content) {
         disabledReason = 'Export not ready yet'
     }
@@ -48,8 +90,29 @@ function ExportActions({ asset }: { asset: ExportedAssetType }): JSX.Element {
         setBlob(r)
     }
 
+    const handleRetry = (): void => {
+        startExport({
+            export_format: asset.export_format,
+            dashboard: asset.dashboard,
+            insight: asset.insight,
+            export_context: asset.export_context,
+        })
+    }
+
     return (
-        <div className="flex gap-2 justify-end">
+        <div className="flex gap-2 justify-end items-center">
+            {(showRetry || asset.exception) && (
+                <LemonButton
+                    tooltip="Start a new export with the same settings"
+                    size="xsmall"
+                    type="secondary"
+                    data-attr="export-retry"
+                    icon={<IconRefresh />}
+                    onClick={handleRetry}
+                >
+                    Retry
+                </LemonButton>
+            )}
             {asset.export_format === ExporterFormat.PNG && (
                 <LemonButton
                     tooltip="Edit"
@@ -64,7 +127,7 @@ function ExportActions({ asset }: { asset: ExportedAssetType }): JSX.Element {
                 />
             )}
             <LemonButton
-                tooltip="Download"
+                tooltip={disabledReason ? undefined : 'Download'}
                 size="xsmall"
                 type={isNotDownloaded ? 'primary' : 'secondary'}
                 data-attr="export-download"
@@ -117,7 +180,7 @@ export function ExportsScene(): JSX.Element {
         {
             title: 'Created',
             dataIndex: 'created_at',
-            render: (_, asset) => (asset.created_at ? dayjs(asset.created_at).fromNow() : '–'),
+            render: (_, asset) => <CreatedAtCell asset={asset} />,
             sorter: (a, b) => dayjs(a.created_at).unix() - dayjs(b.created_at).unix(),
         },
         {
