@@ -83,10 +83,12 @@ def main() -> None:
         print(f"Found {len(errors)} PR-triggered workflow(s) missing concurrency:\n")
         for error in errors:
             print(f"  - {error}")
-        print("\nAdd this block after `on:`:\n")
+        print("\nFix by adding this block after `on:`:\n")
         print("concurrency:")
         print("    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}")
         print("    cancel-in-progress: ${{ github.event_name == 'pull_request' }}")
+        print("\nOr, if cancelling stale runs would lose data (telemetry, schedule-only PR triggers, etc.),")
+        print(f"add the filename to the SKIP set in {Path(__file__).name} with a one-line reason.")
         sys.exit(1)
     else:
         print("All PR-triggered ci-*.yml workflows have concurrency configured.")
