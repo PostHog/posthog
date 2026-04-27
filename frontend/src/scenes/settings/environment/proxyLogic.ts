@@ -86,10 +86,7 @@ export const proxyLogic = kea<proxyLogicType>([
         setMaxProxyRecords: (maxProxyRecords: number) => ({ maxProxyRecords }),
     })),
     reducers(() => ({
-        formState: [
-            'collapsed' as FormState,
-            { showForm: () => 'active', collapseForm: () => 'collapsed' },
-        ],
+        formState: ['collapsed' as FormState, { showForm: () => 'active', collapseForm: () => 'collapsed' }],
         cloudflareOptInAcknowledged: [
             false,
             { persist: true },
