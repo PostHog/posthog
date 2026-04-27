@@ -22,7 +22,7 @@ class Migration(migrations.Migration):
                     models.UUIDField(default=uuid7, editable=False, primary_key=True, serialize=False),
                 ),
                 ("kind", models.CharField(choices=[("github", "Github")], max_length=32)),
-                ("external_id", models.TextField(blank=True, null=True)),
+                ("integration_id", models.TextField()),
                 ("config", models.JSONField(default=dict)),
                 ("sensitive_config", EncryptedJSONField(default=dict)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
@@ -38,7 +38,7 @@ class Migration(migrations.Migration):
             ],
             options={
                 "db_table": "posthog_user_integration",
-                "unique_together": {("user", "kind", "external_id")},
+                "unique_together": {("user", "kind", "integration_id")},
             },
         ),
     ]

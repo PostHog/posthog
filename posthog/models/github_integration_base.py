@@ -49,13 +49,7 @@ class GitHubIntegrationError(Exception):
 
 
 class GitHubIntegrationBase:
-    """Installation-token operations shared between team and user GitHub integrations.
-
-    Subclasses set ``self.integration`` to a model instance with ``.config``
-    and ``.sensitive_config``. The GitHub App installation ID is accessed via
-    :attr:`github_installation_id`, which subclasses override if the model
-    field has a different name (e.g. ``external_id`` on ``UserIntegration``).
-    """
+    """Installation-token operations shared between team and user GitHub integrations."""
 
     integration: Any  # Integration | UserIntegration -- subclasses narrow the type
 
@@ -141,7 +135,13 @@ class GitHubIntegrationBase:
             self._on_token_refresh_failed(response)
             raise Exception(f"Failed to refresh installation token: {response.text}")
 
-        expires_in = datetime.fromisoformat(data["expires_at"]).timestamp() - int(time.time())
+        if "expires_at" not in data:
+            raise Exception("GitHub API response missing expires_at field")
+        try:
+            expires_in = datetime.fromisoformat(data["expires_at"]).timestamp() - int(time.time())
+        except ValueError as e:
+            raise Exception(f"Invalid expires_at format from GitHub: {e}")
+
         self.integration.config = {
             **self.integration.config,
             "expires_in": expires_in,

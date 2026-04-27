@@ -29,7 +29,7 @@ class UserIntegration(UUIDModel):
     """User-scoped integration with an external service.
 
     Contents for GitHub:
-    - `external_id` holds the GitHub App installation_id
+    - `integration_id` holds the GitHub App installation_id
     - `config` holds installation metadata + user identity (login, id)
     - `sensitive_config` holds installation access token + user-to-server tokens
     """
@@ -43,7 +43,8 @@ class UserIntegration(UUIDModel):
         related_name="integrations",
     )
     kind = models.CharField(max_length=32, choices=IntegrationKind.choices)
-    external_id = models.TextField(null=True, blank=True)
+    # The ID of the integration in the external system, same as on Integration
+    integration_id = models.TextField()
     config = models.JSONField(default=dict)
     sensitive_config = EncryptedJSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -51,7 +52,7 @@ class UserIntegration(UUIDModel):
 
     class Meta:
         db_table = "posthog_user_integration"
-        unique_together = [("user", "kind", "external_id")]
+        unique_together = [("user", "kind", "integration_id")]
 
 
 class ReauthorizationRequired(Exception):
@@ -98,10 +99,6 @@ class UserGitHubIntegration(GitHubIntegrationBase):
         if integration.kind != "github":
             raise Exception("UserGitHubIntegration initialized with non-github integration")
         self.integration = integration
-
-    @property
-    def github_installation_id(self) -> str | None:
-        return self.integration.external_id
 
     # --- Token refresh hooks ---
 
