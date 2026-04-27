@@ -2379,7 +2379,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 FROM events
 WHERE \`$virt_is_bot\` = true
     AND \`$virt_bot_name\` != ''
-    AND event IN ('$pageview', '$screen', '$http_log')
+    AND event IN (${BOT_ANALYTICS_EVENTS.map((e) => `'${e}'`).join(', ')})
     AND {filters}
 GROUP BY "Crawler", "Category"
 ORDER BY "Requests" DESC
