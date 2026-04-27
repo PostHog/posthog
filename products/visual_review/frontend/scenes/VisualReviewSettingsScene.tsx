@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { Form, Group } from 'kea-forms'
+import { Form } from 'kea-forms'
 
 import { IconArrowRight, IconCopy, IconGear, IconGithub, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonSkeleton, LemonSwitch, Spinner } from '@posthog/lemon-ui'
@@ -54,10 +54,11 @@ function GitHubConnectPrompt(): JSX.Element {
 
 interface BaselinePathEditorProps {
     paths: Record<string, string>
+    errors?: Record<string, string>
     onChange: (paths: Record<string, string>) => void
 }
 
-function BaselinePathEditor({ paths, onChange }: BaselinePathEditorProps): JSX.Element {
+function BaselinePathEditor({ paths, errors, onChange }: BaselinePathEditorProps): JSX.Element {
     const entries = Object.entries(paths)
 
     const addEntry = (): void => {
@@ -85,27 +86,30 @@ function BaselinePathEditor({ paths, onChange }: BaselinePathEditorProps): JSX.E
     return (
         <div className="space-y-2">
             {entries.map(([key, value], index) => (
-                <div key={index} className="flex gap-2 items-start">
-                    <LemonInput
-                        value={key}
-                        onChange={(newKey) => updateKey(key, newKey)}
-                        placeholder="Run type (e.g. storybook)"
-                        className="flex-1"
-                    />
-                    <LemonField name={key} className="flex-[2]">
+                <div key={index}>
+                    <div className="flex gap-2 items-center">
+                        <LemonInput
+                            value={key}
+                            onChange={(newKey) => updateKey(key, newKey)}
+                            placeholder="Run type (e.g. storybook)"
+                            className="flex-1"
+                            status={errors?.[key] ? 'danger' : undefined}
+                        />
                         <LemonInput
                             value={value}
                             onChange={(newValue) => updateValue(key, newValue)}
                             placeholder="Path (e.g. .snapshots.yml)"
+                            className="flex-[2]"
+                            status={errors?.[key] ? 'danger' : undefined}
                         />
-                    </LemonField>
-                    <LemonButton
-                        icon={<IconTrash />}
-                        type="secondary"
-                        size="small"
-                        className="mt-1"
-                        onClick={() => removeEntry(key)}
-                    />
+                        <LemonButton
+                            icon={<IconTrash />}
+                            type="secondary"
+                            size="small"
+                            onClick={() => removeEntry(key)}
+                        />
+                    </div>
+                    {errors?.[key] && typeof errors[key] === 'string' ? <LemonField.Error error={errors[key]} /> : null}
                 </div>
             ))}
             <LemonButton icon={<IconPlus />} type="secondary" size="small" onClick={addEntry}>
@@ -206,23 +210,21 @@ function RepoCard({ repo }: { repo: RepoApi }): JSX.Element {
 }
 
 function RepoEditForm(): JSX.Element {
-    const { repoForm, repoFormSubmitting, hasChanges } = useValues(visualReviewSettingsSceneLogic)
+    const { repoForm, repoFormErrors, repoFormSubmitting, hasChanges } = useValues(visualReviewSettingsSceneLogic)
     const { setRepoFormValue, cancelEdit } = useActions(visualReviewSettingsSceneLogic)
+
+    const pathErrors = repoFormErrors?.baseline_file_paths as Record<string, string> | undefined
 
     return (
         <Form logic={visualReviewSettingsSceneLogic} formKey="repoForm" enableFormOnSubmit>
             <div className="border-2 border-primary rounded-lg p-4 space-y-4">
-                <Group name="baseline_file_paths">
-                    <LemonField.Pure
-                        label="Baseline file paths"
-                        help="Where baseline hashes are stored for each run type."
-                    >
-                        <BaselinePathEditor
-                            paths={repoForm.baseline_file_paths}
-                            onChange={(paths) => setRepoFormValue('baseline_file_paths', paths)}
-                        />
-                    </LemonField.Pure>
-                </Group>
+                <LemonField.Pure label="Baseline file paths" help="Where baseline hashes are stored for each run type.">
+                    <BaselinePathEditor
+                        paths={repoForm.baseline_file_paths}
+                        errors={pathErrors}
+                        onChange={(paths) => setRepoFormValue('baseline_file_paths', paths)}
+                    />
+                </LemonField.Pure>
 
                 <LemonField name="enable_pr_comments">
                     {({ value, onChange }) => (

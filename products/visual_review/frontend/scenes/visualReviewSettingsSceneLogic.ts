@@ -23,7 +23,9 @@ export interface RepoFormValues {
 }
 
 const repoFormSchema = VisualReviewReposPartialUpdateBody.extend({
-    baseline_file_paths: z.record(z.string().min(1), z.string().min(1)).default({}),
+    baseline_file_paths: z
+        .record(z.string().min(1, 'Run type is required'), z.string().min(1, 'Path is required'))
+        .default({}),
     enable_pr_comments: z.boolean().default(false),
 })
 
