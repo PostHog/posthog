@@ -281,6 +281,7 @@ class Task(DeletedMetaFields, models.Model):
             if not github_integration and not is_public_sandbox_repo(repository):
                 raise ValueError(f"Team {team.id} does not have a GitHub integration")
 
+        sandbox_env = None
         if sandbox_environment_id is not None:
             sandbox_env = SandboxEnvironment.get_accessible_for_task(
                 environment_id=sandbox_environment_id,
