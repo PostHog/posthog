@@ -47,12 +47,29 @@ import type {{ CaptureOptions, CaptureResult, PostHog as OriginalPostHog, Proper
                 event_schemas_lines.append(f"    {event_name_json}: Record<string, any>")
             else:
                 event_schemas_lines.append(f"    {event_name_json}: {{")
+                # Deduplicate by property name across all groups:
+                # - union types if the same name appears with different types
+                # - mark optional if any occurrence is optional
+                # Split compound mapped types (e.g. "string | Date") so that
+                # constituent parts are deduplicated independently.
+                seen: dict[str, dict] = {}
                 for prop in properties:
                     ts_type = self._map_property_type(prop.property_type)
-                    optional_marker = "" if (prop.is_required and not prop.is_optional_in_types) else "?"
-                    # Use orjson.dumps() for proper escaping of property names
-                    prop_name_json = orjson.dumps(prop.name).decode("utf-8")
-                    event_schemas_lines.append(f"        {prop_name_json}{optional_marker}: {ts_type}")
+                    is_optional = not prop.is_required or prop.is_optional_in_types
+                    parts = ts_type.split(" | ")
+                    if prop.name not in seen:
+                        seen[prop.name] = {"types": list(parts), "is_optional": is_optional}
+                    else:
+                        for part in parts:
+                            if part not in seen[prop.name]["types"]:
+                                seen[prop.name]["types"].append(part)
+                        if is_optional:
+                            seen[prop.name]["is_optional"] = True
+                for name, info in seen.items():
+                    optional_marker = "?" if info["is_optional"] else ""
+                    union_type = " | ".join(info["types"])
+                    prop_name_json = orjson.dumps(name).decode("utf-8")
+                    event_schemas_lines.append(f"        {prop_name_json}{optional_marker}: {union_type}")
                 event_schemas_lines.append("    }")
 
         event_schemas_lines.append("}")

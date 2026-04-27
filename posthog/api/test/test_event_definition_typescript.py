@@ -18,6 +18,7 @@ import pytest
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.event_definition_generators.typescript import TypeScriptGenerator
@@ -311,3 +312,74 @@ class TestTypeScriptGeneratorOptionalInTypes(BaseTest):
         self.assertIn('"always_required": string', code)
         self.assertNotIn('"always_required"?: string', code)
         self.assertIn('"super_prop"?: string', code)
+
+
+class TestTypeScriptGeneratorDeduplication(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.generator = TypeScriptGenerator()
+
+        self.event = MagicMock()
+        self.event.id = "1"
+        self.event.name = "test_event"
+
+    def _make_prop(self, name: str, property_type: str, is_required: bool = True, is_optional_in_types: bool = False):
+        prop = MagicMock()
+        prop.name = name
+        prop.property_type = property_type
+        prop.is_required = is_required
+        prop.is_optional_in_types = is_optional_in_types
+        return prop
+
+    @parameterized.expand(
+        [
+            (
+                "same_type",
+                [("user_id", "String", True), ("user_id", "String", True)],
+                "user_id",
+                '"user_id": string',
+            ),
+            (
+                "different_types_union",
+                [("user_id", "String", True), ("user_id", "Numeric", True)],
+                "user_id",
+                '"user_id": string | number',
+            ),
+            (
+                "triple_dedup",
+                [("user_id", "String", True), ("user_id", "Numeric", True), ("user_id", "Numeric", True)],
+                "user_id",
+                '"user_id": string | number',
+            ),
+            (
+                "optional_if_any_optional",
+                [("shared", "String", True), ("shared", "Numeric", False)],
+                "shared",
+                '"shared"?: string | number',
+            ),
+            (
+                "datetime_no_redundant_string",
+                [("created_at", "DateTime", True), ("created_at", "String", True)],
+                "created_at",
+                '"created_at": string | Date',
+            ),
+        ]
+    )
+    def test_duplicate_property(self, _, props_data, prop_name, expected_fragment):
+        props = [self._make_prop(name, ptype, is_required=req) for name, ptype, req in props_data]
+        code = self.generator.generate([self.event], {"1": props})  # type: ignore[arg-type]
+
+        self.assertIn(expected_fragment, code)
+        self.assertEqual(code.count(f'"{prop_name}"'), 1)
+
+    def test_non_duplicate_properties_unaffected(self):
+        props = [
+            self._make_prop("user_id", "String"),
+            self._make_prop("email", "String"),
+            self._make_prop("count", "Numeric"),
+        ]
+        code = self.generator.generate([self.event], {"1": props})  # type: ignore[arg-type]
+
+        self.assertIn('"user_id": string', code)
+        self.assertIn('"email": string', code)
+        self.assertIn('"count": number', code)
