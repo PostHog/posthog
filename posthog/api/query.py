@@ -251,7 +251,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
                 else status.HTTP_200_OK
             )
 
-            if request.META.get("HTTP_X_POSTHOG_CLIENT") == "mcp":
+            if request.headers.get("x-posthog-client") == "mcp":
                 formatted = self._try_format_for_llm(query, result)
                 if formatted is not None:
                     result["formatted_results"] = formatted

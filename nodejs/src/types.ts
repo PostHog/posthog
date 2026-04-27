@@ -7,11 +7,16 @@ import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { Element, PluginEvent, Properties } from '~/plugin-scaffold'
 
 import type { CdpConfig } from './cdp/config'
+import type {
+    KafkaMskProducerEnvConfig,
+    KafkaWarehouseProducerEnvConfig,
+    KafkaWarpstreamCalculatedEventsProducerEnvConfig,
+    KafkaWarpstreamCyclotronProducerEnvConfig,
+    KafkaWarpstreamIngestionProducerEnvConfig,
+} from './cdp/outputs/producers'
 import { IntegrationManagerService } from './cdp/services/managers/integration-manager.service'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import type { CommonConfig } from './common/config'
-import { InternalCaptureService } from './common/services/internal-capture'
-import { InternalFetchService } from './common/services/internal-fetch'
 import type { IngestionConsumerConfig } from './ingestion/config'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import type { ErrorTrackingConsumerConfig } from './ingestion/error-tracking/config'
@@ -115,7 +120,13 @@ export interface PluginsServerConfig
         TracesIngestionConsumerConfig,
         ErrorTrackingConsumerConfig,
         SessionRecordingConfig,
-        SessionRecordingApiConfig {}
+        SessionRecordingApiConfig,
+        // Producer envs needed by the CDP producer registry the legacy big server builds.
+        KafkaMskProducerEnvConfig,
+        KafkaWarpstreamIngestionProducerEnvConfig,
+        KafkaWarpstreamCalculatedEventsProducerEnvConfig,
+        KafkaWarpstreamCyclotronProducerEnvConfig,
+        KafkaWarehouseProducerEnvConfig {}
 
 export interface HubServices {
     postgres: PostgresRouter
@@ -123,7 +134,6 @@ export interface HubServices {
     posthogRedisPool: GenericPool<Redis>
     cookielessRedisPool: GenericPool<Redis>
     kafkaProducer: KafkaProducerWrapper
-    monitoringProducer: KafkaProducerWrapper
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     groupRepository: GroupRepository
@@ -134,8 +144,6 @@ export interface HubServices {
     pubSub: PubSub
     integrationManager: IntegrationManagerService
     quotaLimiting: QuotaLimiting
-    internalCaptureService: InternalCaptureService
-    internalFetchService: InternalFetchService
 }
 
 export interface Hub extends PluginsServerConfig, HubServices {}

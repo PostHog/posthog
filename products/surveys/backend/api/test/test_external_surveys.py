@@ -1,3 +1,4 @@
+import re
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -173,6 +174,61 @@ class TestExternalSurveys(APIBaseTest):
         # Description should not be in the response
         assert "SENSITIVE" not in response.content.decode()
         assert "Internal team feedback" not in response.content.decode()
+
+    def test_safe_translations_are_exposed_without_survey_description(self):
+        survey = self.create_external_survey(
+            description="SENSITIVE: Internal default description",
+            translations={
+                "es": {
+                    "name": "Encuesta traducida",
+                    "description": "SENSITIVE: Internal translated description",
+                    "thankYouMessageHeader": "Gracias",
+                    "thankYouMessageDescription": "Agradecemos tus comentarios",
+                    "thankYouMessageCloseButtonText": "Cerrar",
+                },
+                "fr": {
+                    "description": "SENSITIVE: Description interne uniquement",
+                },
+            },
+            questions=[
+                {
+                    "id": str(uuid.uuid4()),
+                    "type": "open",
+                    "question": "What do you think of our product?",
+                    "description": "Question description",
+                    "translations": {
+                        "es": {
+                            "question": "¿Qué opinas de nuestro producto?",
+                            "description": "Descripción de la pregunta",
+                        }
+                    },
+                }
+            ],
+        )
+
+        response = self.client.get(f"/external_surveys/{survey.id}/")
+        assert response.status_code == 200
+
+        content = response.content.decode()
+        assert "SENSITIVE" not in content
+
+        survey_match = re.search(r'<script[^>]*id="survey-data"[^>]*>(.*?)</script>', content, re.DOTALL)
+        assert survey_match is not None
+
+        survey_data = json.loads(survey_match.group(1))
+        assert "description" not in survey_data
+        assert survey_data["translations"] == {
+            "es": {
+                "name": "Encuesta traducida",
+                "thankYouMessageHeader": "Gracias",
+                "thankYouMessageDescription": "Agradecemos tus comentarios",
+                "thankYouMessageCloseButtonText": "Cerrar",
+            }
+        }
+        assert survey_data["questions"][0]["translations"]["es"] == {
+            "question": "¿Qué opinas de nuestro producto?",
+            "description": "Descripción de la pregunta",
+        }
 
     # FUNCTIONALITY TESTS
 
