@@ -79,12 +79,6 @@ MOCK_COST_DATA: dict[str, ModelCost] = {
         "supports_vision": True,
         "mode": "chat",
     },
-    "gemini-2.0-flash": {
-        "litellm_provider": "vertex_ai",
-        "max_input_tokens": 1048576,
-        "supports_vision": True,
-        "mode": "chat",
-    },
     "claude-sonnet-4-5-20260101": {
         "litellm_provider": "anthropic",
         "max_input_tokens": 200000,
@@ -118,7 +112,6 @@ def create_mock_settings() -> MagicMock:
     settings = MagicMock()
     settings.openai_api_key = "sk-test"
     settings.anthropic_api_key = "sk-ant-test"
-    settings.gemini_api_key = "gemini-test"
     settings.openrouter_api_key = "or-test"
     settings.fireworks_api_key = "fw-test"
     return settings

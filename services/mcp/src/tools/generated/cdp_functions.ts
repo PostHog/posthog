@@ -8,12 +8,16 @@ import {
     HogFunctionsInvocationsCreateBody,
     HogFunctionsInvocationsCreateParams,
     HogFunctionsListQueryParams,
+    HogFunctionsLogsRetrieveParams,
+    HogFunctionsLogsRetrieveQueryParams,
+    HogFunctionsMetricsRetrieveParams,
+    HogFunctionsMetricsRetrieveQueryParams,
     HogFunctionsPartialUpdateBody,
     HogFunctionsPartialUpdateParams,
     HogFunctionsRearrangePartialUpdateBody,
     HogFunctionsRetrieveParams,
 } from '@/generated/cdp_functions/api'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const CdpFunctionsListSchema = HogFunctionsListQueryParams
@@ -28,7 +32,7 @@ const cdpFunctionsList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedHogFunctionMinimalList>({
             method: 'GET',
-            path: `/api/projects/${projectId}/hog_functions/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/`,
             query: {
                 created_at: params.created_at,
                 created_by: params.created_by,
@@ -41,7 +45,26 @@ const cdpFunctionsList = (): ToolBase<
                 updated_at: params.updated_at,
             },
         })
-        return await withPostHogUrl(context, result, '/pipeline')
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, [
+                    'id',
+                    'type',
+                    'name',
+                    'description',
+                    'enabled',
+                    'execution_order',
+                    'icon_url',
+                    'template.id',
+                    'status',
+                    'created_at',
+                    'updated_at',
+                    'created_by',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/pipeline')
     },
 })
 
@@ -108,7 +131,7 @@ const cdpFunctionsCreate = (): ToolBase<typeof CdpFunctionsCreateSchema, Schemas
         }
         const result = await context.api.request<Schemas.HogFunction>({
             method: 'POST',
-            path: `/api/projects/${projectId}/hog_functions/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/`,
             body,
         })
         return result
@@ -124,7 +147,7 @@ const cdpFunctionsRetrieve = (): ToolBase<typeof CdpFunctionsRetrieveSchema, Sch
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.HogFunction>({
             method: 'GET',
-            path: `/api/projects/${projectId}/hog_functions/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -185,7 +208,7 @@ const cdpFunctionsPartialUpdate = (): ToolBase<typeof CdpFunctionsPartialUpdateS
         }
         const result = await context.api.request<Schemas.HogFunction>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/hog_functions/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/${encodeURIComponent(String(params.id))}/`,
             body,
         })
         return result
@@ -201,7 +224,7 @@ const cdpFunctionsDelete = (): ToolBase<typeof CdpFunctionsDeleteSchema, Schemas
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.HogFunction>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/hog_functions/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/${encodeURIComponent(String(params.id))}/`,
             body: { deleted: true },
         })
         return result
@@ -238,8 +261,62 @@ const cdpFunctionsInvocationsCreate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.HogFunctionInvocation>({
             method: 'POST',
-            path: `/api/projects/${projectId}/hog_functions/${params.id}/invocations/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/${encodeURIComponent(String(params.id))}/invocations/`,
             body,
+        })
+        return result
+    },
+})
+
+const CdpFunctionsLogsRetrieveSchema = HogFunctionsLogsRetrieveParams.omit({ project_id: true }).extend(
+    HogFunctionsLogsRetrieveQueryParams.shape
+)
+
+const cdpFunctionsLogsRetrieve = (): ToolBase<typeof CdpFunctionsLogsRetrieveSchema, unknown> => ({
+    name: 'cdp-functions-logs-retrieve',
+    schema: CdpFunctionsLogsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof CdpFunctionsLogsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/${encodeURIComponent(String(params.id))}/logs/`,
+            query: {
+                after: params.after,
+                before: params.before,
+                instance_id: params.instance_id,
+                level: params.level,
+                limit: params.limit,
+                search: params.search,
+            },
+        })
+        return result
+    },
+})
+
+const CdpFunctionsMetricsRetrieveSchema = HogFunctionsMetricsRetrieveParams.omit({ project_id: true }).extend(
+    HogFunctionsMetricsRetrieveQueryParams.shape
+)
+
+const cdpFunctionsMetricsRetrieve = (): ToolBase<
+    typeof CdpFunctionsMetricsRetrieveSchema,
+    Schemas.AppMetricsResponse
+> => ({
+    name: 'cdp-functions-metrics-retrieve',
+    schema: CdpFunctionsMetricsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof CdpFunctionsMetricsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AppMetricsResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/${encodeURIComponent(String(params.id))}/metrics/`,
+            query: {
+                after: params.after,
+                before: params.before,
+                breakdown_by: params.breakdown_by,
+                instance_id: params.instance_id,
+                interval: params.interval,
+                kind: params.kind,
+                name: params.name,
+            },
         })
         return result
     },
@@ -261,7 +338,7 @@ const cdpFunctionsRearrangePartialUpdate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.HogFunction[]>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/hog_functions/rearrange/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/rearrange/`,
             body,
         })
         return result
@@ -275,5 +352,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'cdp-functions-partial-update': cdpFunctionsPartialUpdate,
     'cdp-functions-delete': cdpFunctionsDelete,
     'cdp-functions-invocations-create': cdpFunctionsInvocationsCreate,
+    'cdp-functions-logs-retrieve': cdpFunctionsLogsRetrieve,
+    'cdp-functions-metrics-retrieve': cdpFunctionsMetricsRetrieve,
     'cdp-functions-rearrange-partial-update': cdpFunctionsRearrangePartialUpdate,
 }

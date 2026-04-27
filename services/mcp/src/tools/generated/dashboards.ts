@@ -29,7 +29,7 @@ const dashboardsGetAll = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedDashboardBasicList>({
             method: 'GET',
-            path: `/api/projects/${projectId}/dashboards/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/`,
             query: {
                 limit: params.limit,
                 offset: params.offset,
@@ -91,7 +91,7 @@ const dashboardCreate = (): ToolBase<typeof DashboardCreateSchema, WithPostHogUr
         }
         const result = await context.api.request<Schemas.Dashboard>({
             method: 'POST',
-            path: `/api/projects/${projectId}/dashboards/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/`,
             body,
         })
         const filtered = omitResponseFields(result, [
@@ -146,7 +146,7 @@ const dashboardGet = (): ToolBase<typeof DashboardGetSchema, WithPostHogUrl<Sche
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Dashboard>({
             method: 'GET',
-            path: `/api/projects/${projectId}/dashboards/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/`,
         })
         const filtered = omitResponseFields(result, [
             'effective_restriction_level',
@@ -234,7 +234,7 @@ const dashboardUpdate = (): ToolBase<typeof DashboardUpdateSchema, WithPostHogUr
         }
         const result = await context.api.request<Schemas.Dashboard>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/dashboards/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/`,
             body,
         })
         const filtered = omitResponseFields(result, [
@@ -287,7 +287,7 @@ const dashboardDelete = (): ToolBase<typeof DashboardDeleteSchema, Schemas.Dashb
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Dashboard>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/dashboards/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/`,
             body: { deleted: true },
         })
         return result
@@ -308,7 +308,7 @@ const dashboardInsightsRun = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.RunInsightsResponse>({
             method: 'GET',
-            path: `/api/projects/${projectId}/dashboards/${params.id}/run_insights/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/run_insights/`,
             query: {
                 output_format: params.output_format,
                 refresh: params.refresh,
@@ -333,7 +333,7 @@ const dashboardReorderTiles = (): ToolBase<typeof DashboardReorderTilesSchema, W
         }
         const result = await context.api.request<Schemas.Dashboard>({
             method: 'POST',
-            path: `/api/projects/${projectId}/dashboards/${params.id}/reorder_tiles/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/reorder_tiles/`,
             body,
         })
         return await withPostHogUrl(context, result, `/dashboard/${result.id}`)

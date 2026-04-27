@@ -234,7 +234,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
     if (isNotFound) {
         return (
             <div className="flex-1 w-full flex justify-center">
-                <RecordingNotFound />
+                <RecordingNotFound sessionRecordingId={sessionRecordingId} />
             </div>
         )
     }

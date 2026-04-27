@@ -1,19 +1,22 @@
 use crate::{
     api::errors::FlagError,
-    flags::flag_models::FeatureFlagList,
+    flags::flag_models::{FeatureFlagList, HypercacheFlagsWrapper},
     handler::canonical_log::with_canonical_log,
     metrics::consts::{
         DB_TEAM_READS_COUNTER, PG_TEAM_FALLBACK_SKIPPED_COUNTER, TEAM_CACHE_HIT_COUNTER,
-        TEAM_NEGATIVE_CACHE_HIT_COUNTER, TOKEN_VALIDATION_ERRORS_COUNTER,
+        TEAM_NEGATIVE_CACHE_HIT_COUNTER, TOKEN_VALIDATION_ERRORS_COUNTER, TOMBSTONE_COUNTER,
     },
     team::team_models::Team,
 };
 use common_cache::NegativeCache;
 use common_database::PostgresReader;
-use common_hypercache::{CacheSource, HyperCacheReader, KeyType};
+use common_hypercache::{
+    CacheSource, HyperCacheError, HyperCacheReader, KeyType, HYPERCACHE_COUNTER_NAME,
+};
 use common_metrics::inc;
 use common_redis::Client as RedisClient;
 use common_types::TeamId;
+use metrics::counter;
 use std::sync::Arc;
 
 /// Result of fetching feature flags, including cache source information.
@@ -105,6 +108,25 @@ impl FlagService {
         }
     }
 
+    /// Fetches a team by its database ID.
+    ///
+    /// Used when the team_id is known from authentication (e.g. a phs_ token)
+    /// but the team object is needed for cache lookups and response building.
+    pub async fn get_team_by_id(&self, team_id: i32) -> Result<Team, FlagError> {
+        with_canonical_log(|log| log.team_cache_source = Some("pg_by_id"));
+        inc(
+            DB_TEAM_READS_COUNTER,
+            &[("path".to_string(), "by_id".to_string())],
+            1,
+        );
+        Team::from_pg_by_id(self.pg_client.clone(), team_id)
+            .await
+            .map_err(|e| match e {
+                FlagError::RowNotFound => FlagError::SecretApiTokenInvalid,
+                other => other,
+            })
+    }
+
     /// Fetches the team from HyperCache or the database.
     ///
     /// Uses team_metadata HyperCache (Redis → S3 → PostgreSQL fallback).
@@ -118,7 +140,7 @@ impl FlagService {
 
         let (data, source) = self
             .team_hypercache_reader
-            .get_with_source_or_fallback(&key, || async move {
+            .get_typed_with_source_or_fallback::<Team, _, _, FlagError>(&key, || async move {
                 // This closure runs on cache miss (key not found in Redis and
                 // S3) or infrastructure errors (timeouts, connection failures)
                 // as a resilience fallback.
@@ -127,21 +149,14 @@ impl FlagService {
                     return Err(FlagError::TokenValidationError);
                 }
 
-                // Fallback: load from PostgreSQL and convert to JSON Value
                 let team = Team::from_pg(pg_client, &token_owned).await?;
                 inc(DB_TEAM_READS_COUNTER, &[], 1);
 
-                // Convert team to JSON value for consistency with cache format
-                let value = serde_json::to_value(&team).map_err(|e| {
-                    tracing::error!("Failed to serialize team from PG: {}", e);
-                    FlagError::Internal(format!("Failed to serialize team: {e}"))
-                })?;
-                Ok::<Option<serde_json::Value>, FlagError>(Some(value))
+                Ok::<Option<Team>, FlagError>(Some(team))
             })
             .await?;
 
-        // Parse the result (from cache or fallback)
-        let team = Team::from_hypercache_value(data)?;
+        let team = data.ok_or(FlagError::TokenValidationError)?;
         let cache_hit = !matches!(source, CacheSource::Fallback);
 
         with_canonical_log(|log| log.team_cache_source = Some(source.as_log_str()));
@@ -155,50 +170,68 @@ impl FlagService {
         Ok(team)
     }
 
-    /// Fetches the flags from the hypercache or falls back to the database.
-    ///
-    /// Uses HyperCacheReader's built-in fallback pattern which:
-    /// - Tries Redis first
-    /// - Falls back to S3 on Redis miss
-    /// - Falls back to PostgreSQL if both cache tiers miss
-    /// - Emits appropriate metrics for all scenarios
+    /// Fetches flags from the hypercache (Redis → S3), falling back to PostgreSQL
+    /// on cache miss or infra errors. Parse errors (`Json`/`Pickle`) hard-fail with
+    /// a tombstone rather than serving degraded single-stage PG data.
     pub async fn get_flags_from_cache_or_pg(
         &self,
         team_id: TeamId,
     ) -> Result<FlagResult, FlagError> {
         let key = KeyType::int(team_id);
-        let pg_client = self.pg_client.clone();
 
-        let (data, source) = self
+        let (data, source) = match self
             .flags_hypercache_reader
-            .get_with_source_or_fallback(&key, || async move {
-                // Fallback: load from PostgreSQL and convert to JSON Value.
-                // PG has no dependency metadata, so place all flags in a
-                // single evaluation stage — they will be evaluated but
-                // without guaranteed dependency ordering.
-                let flags = FeatureFlagList::from_pg(pg_client, team_id).await?;
+            .get_typed_with_source::<HypercacheFlagsWrapper>(&key)
+            .await
+        {
+            Ok(ok) => ok,
+            Err(e @ (HyperCacheError::Json(_) | HyperCacheError::Pickle(_))) => {
+                // Parse errors mean data corruption, not a transient issue. Hard-fail
+                // rather than fall back to PG, which lacks dependency metadata.
+                counter!(
+                    TOMBSTONE_COUNTER,
+                    "namespace" => "feature_flags",
+                    "operation" => "hypercache_parse_error",
+                    "component" => "flag_service",
+                )
+                .increment(1);
+                return Err(FlagError::DataParsingErrorWithContext(format!(
+                    "Failed to parse feature flags for team {team_id}: {e}"
+                )));
+            }
+            Err(e) => {
+                // Mirror the hit_fallback counters that `get_typed_with_source_or_fallback`
+                // would emit, so flags and team paths stay on identical instrumentation.
+                let result_label = if matches!(e, HyperCacheError::CacheMiss) {
+                    "hit_fallback"
+                } else {
+                    "hit_fallback_infra_error"
+                };
+                let hc_config = self.flags_hypercache_reader.config();
+                inc(
+                    HYPERCACHE_COUNTER_NAME,
+                    &[
+                        ("result".to_string(), result_label.to_string()),
+                        ("namespace".to_string(), hc_config.namespace.clone()),
+                        ("value".to_string(), hc_config.object_name.clone()),
+                    ],
+                    1,
+                );
+
+                // PG has no dependency metadata, so all flags go in a single stage.
+                let flags = FeatureFlagList::from_pg(self.pg_client.clone(), team_id).await?;
                 let evaluation_metadata =
                     crate::flags::flag_models::EvaluationMetadata::single_stage(&flags);
-                let wrapper = crate::flags::flag_models::HypercacheFlagsWrapper {
+                let wrapper = HypercacheFlagsWrapper {
                     flags,
                     cohorts: None,
                     evaluation_metadata,
                 };
-                let value = serde_json::to_value(&wrapper).map_err(|e| {
-                    tracing::error!(
-                        "Failed to serialize flags from PG for team {}: {}",
-                        team_id,
-                        e
-                    );
-                    FlagError::Internal(format!("Failed to serialize flags: {e}"))
-                })?;
-                Ok::<Option<serde_json::Value>, FlagError>(Some(value))
-            })
-            .await?;
+                (Some(wrapper), CacheSource::Fallback)
+            }
+        };
 
-        // Parse the result (from cache or fallback)
-        let (flags, evaluation_metadata, cohorts) =
-            FeatureFlagList::parse_hypercache_value(data, team_id)?;
+        let (flags, evaluation_metadata, cohorts) = FeatureFlagList::from_wrapper(data, team_id)?;
 
         Ok(FlagResult {
             flag_list: FeatureFlagList {
@@ -822,6 +855,86 @@ mod tests {
                 .any(|call| call.op == "set" || call.op == "set_bytes"),
             "Cache write detected after PG fallback. Rust should be read-only; \
              Django handles cache population via HyperCache. Found calls: {client_calls:?}",
+        );
+    }
+
+    /// Corrupt Redis payload must hard-fail with DataParsingErrorWithContext rather
+    /// than silently fall back to PG (which would serve single-stage data).
+    #[tokio::test]
+    async fn test_get_flags_hard_fails_on_hypercache_parse_error() {
+        use common_redis::MockRedisClient;
+
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team");
+
+        // Pickle a string that isn't the sentinel and isn't valid JSON for the wrapper.
+        let invalid_json = "not valid json {{{";
+        let pickled =
+            serde_pickle::to_vec(&invalid_json, Default::default()).expect("Failed to pickle");
+
+        let mut mock_client = MockRedisClient::new();
+        mock_client.get_raw_bytes_ret(&hypercache_test_key(team.id), Ok(pickled));
+
+        let redis_client: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_client);
+        let hypercache_reader = setup_hypercache_reader_with_mock_redis(redis_client.clone());
+        let team_redis_client = setup_redis_client(None).await;
+        let team_hypercache_reader = setup_team_hypercache_reader(team_redis_client).await;
+
+        let flag_service = FlagService::new(
+            redis_client,
+            context.non_persons_reader.clone(),
+            team_hypercache_reader,
+            hypercache_reader,
+            NegativeCache::new(100, 300),
+            false,
+        );
+
+        let result = flag_service.get_flags_from_cache_or_pg(team.id).await;
+        assert!(
+            matches!(result, Err(FlagError::DataParsingErrorWithContext(_))),
+            "parse error must hard-fail, got {result:?}"
+        );
+    }
+
+    /// Sibling of the Json parse-error test: guards the `Pickle` arm of the
+    /// `Err(e @ (Json(_) | Pickle(_)))` pattern against accidental narrowing.
+    #[tokio::test]
+    async fn test_get_flags_hard_fails_on_hypercache_pickle_error() {
+        use common_redis::MockRedisClient;
+
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team");
+
+        // Raw non-pickle bytes make serde_pickle::from_slice::<String> fail.
+        let non_pickle_bytes = b"this is not pickle data".to_vec();
+
+        let mut mock_client = MockRedisClient::new();
+        mock_client.get_raw_bytes_ret(&hypercache_test_key(team.id), Ok(non_pickle_bytes));
+
+        let redis_client: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_client);
+        let hypercache_reader = setup_hypercache_reader_with_mock_redis(redis_client.clone());
+        let team_redis_client = setup_redis_client(None).await;
+        let team_hypercache_reader = setup_team_hypercache_reader(team_redis_client).await;
+
+        let flag_service = FlagService::new(
+            redis_client,
+            context.non_persons_reader.clone(),
+            team_hypercache_reader,
+            hypercache_reader,
+            NegativeCache::new(100, 300),
+            false,
+        );
+
+        let result = flag_service.get_flags_from_cache_or_pg(team.id).await;
+        assert!(
+            matches!(result, Err(FlagError::DataParsingErrorWithContext(_))),
+            "pickle error must hard-fail, got {result:?}"
         );
     }
 

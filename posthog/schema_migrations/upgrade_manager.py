@@ -19,5 +19,6 @@ def upgrade_query(insight: "Insight") -> Iterator[None]:
 @contextmanager
 def upgrade_insight(insight: "Insight") -> Iterator[None]:
     """Upgrade the query to the latest version if needed."""
-    insight.query = upgrade(insight.query)
+    if insight.query is not None:
+        insight.query = upgrade(insight.query)
     yield

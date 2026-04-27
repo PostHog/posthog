@@ -165,6 +165,50 @@ describe('TrendsLineChartD3', () => {
         })
     })
 
+    describe('moving average overlay', () => {
+        it('adds a dashed moving-average series per result when enabled', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    trendsFilter: {
+                        showMovingAverage: true,
+                        movingAverageIntervals: 3,
+                    },
+                }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            // One data series + one moving-average overlay = 2 rendered series.
+            await waitFor(() => {
+                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+            })
+        })
+
+        it('omits the moving-average series from tooltip rows', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    trendsFilter: {
+                        showMovingAverage: true,
+                        movingAverageIntervals: 3,
+                    },
+                }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            const tooltip = await chart.hoverTooltip(2)
+
+            expect(tooltip.row('Pageview')).toContain('134')
+            expect(tooltip.element.textContent).not.toContain('Moving avg')
+        })
+
+        it('renders only the main series when disabled', async () => {
+            renderInsight({ query: buildTrendsQuery(), featureFlags: HOG_CHARTS_FLAG })
+
+            await waitFor(() => {
+                expect(screen.getByRole('img', { name: /chart with 1 data series/i })).toBeInTheDocument()
+            })
+        })
+    })
+
     describe('click → persons modal', () => {
         it('single series: direct click shows the actors for the clicked day', async () => {
             renderInsight({ query: buildTrendsQuery(), featureFlags: HOG_CHARTS_FLAG })

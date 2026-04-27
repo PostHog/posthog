@@ -11,6 +11,13 @@ class ResizeObserverMock {
     disconnect(): void {}
 }
 
+const requestAnimationFrameMock = (callback: FrameRequestCallback): number =>
+    window.setTimeout(() => callback(performance.now()), 0)
+
+const cancelAnimationFrameMock = (handle: number): void => {
+    window.clearTimeout(handle)
+}
+
 describe('LemonTree virtualization', () => {
     let requestAnimationFrameSpy: jest.SpyInstance<number, [FrameRequestCallback]>
     let cancelAnimationFrameSpy: jest.SpyInstance<void, [number]>
@@ -18,6 +25,8 @@ describe('LemonTree virtualization', () => {
     beforeAll(() => {
         ;(global as typeof globalThis & { ResizeObserver: typeof ResizeObserver }).ResizeObserver =
             ResizeObserverMock as unknown as typeof ResizeObserver
+        global.requestAnimationFrame = requestAnimationFrameMock
+        global.cancelAnimationFrame = cancelAnimationFrameMock
     })
 
     beforeEach(() => {

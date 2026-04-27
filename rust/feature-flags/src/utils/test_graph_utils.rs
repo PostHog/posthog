@@ -985,6 +985,25 @@ mod tests {
 
             assert_eq!(result.nodes_with_missing_deps, vec![1, 2, 3]);
         }
+
+        #[test]
+        fn test_pre_seeded_missing_ids_not_in_graph_are_preserved() {
+            // Node 99 isn't in the graph but is pre-seeded as missing.
+            // This simulates the cycle-removal case where IDs are added to
+            // nodes_with_missing_deps before calling compute_evaluation_metadata.
+            let nodes = vec![
+                TestItem::new(1, HashSet::new()),
+                TestItem::new(2, HashSet::from([1])),
+            ];
+            let (graph, _, _) = build_graph_from_nodes(&nodes).unwrap();
+            let pre_missing = HashSet::from([99_i64]);
+            let result = graph.compute_evaluation_metadata(&pre_missing).unwrap();
+
+            assert!(result.nodes_with_missing_deps.contains(&99));
+            assert_eq!(result.stages.len(), 2);
+            assert_eq!(result.stages[0], vec![1]);
+            assert_eq!(result.stages[1], vec![2]);
+        }
     }
 }
 

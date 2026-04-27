@@ -9,10 +9,20 @@ from products.logs.backend.alert_state_machine import (
     AlertSnapshot,
     AlertState,
     CheckResult,
+    ControlPlaneOutcome,
+    InvalidTransition,
     NotificationAction,
+    apply_disable,
+    apply_enable,
+    apply_outcome,
+    apply_snooze,
+    apply_threshold_change,
+    apply_unsnooze,
+    apply_user_reset,
     evaluate_alert_check,
 )
 
+BROKEN = AlertState.BROKEN
 ERRORED = AlertState.ERRORED
 FIRING = AlertState.FIRING
 NOT_FIRING = AlertState.NOT_FIRING
@@ -30,7 +40,7 @@ def _snapshot(
     last_notified_at: datetime | None = None,
     snooze_until: datetime | None = None,
     consecutive_failures: int = 0,
-    recent_checks_breached: tuple[bool, ...] | None = None,
+    recent_events_breached: tuple[bool, ...] | None = None,
 ) -> AlertSnapshot:
     return AlertSnapshot(
         state=state,
@@ -40,7 +50,7 @@ def _snapshot(
         last_notified_at=last_notified_at,
         snooze_until=snooze_until,
         consecutive_failures=consecutive_failures,
-        recent_checks_breached=recent_checks_breached or (),
+        recent_events_breached=recent_events_breached or (),
     )
 
 
@@ -80,7 +90,7 @@ class TestNotFiringTransitions(TestCase):
             state=NOT_FIRING,
             datapoints_to_alarm=n,
             evaluation_periods=m,
-            recent_checks_breached=recent,
+            recent_events_breached=recent,
         )
         outcome = evaluate_alert_check(snapshot, _check(breached=breached), NOW)
         assert outcome.new_state == expected_state
@@ -111,7 +121,7 @@ class TestFiringTransitions(TestCase):
             state=FIRING,
             datapoints_to_alarm=n,
             evaluation_periods=m,
-            recent_checks_breached=recent,
+            recent_events_breached=recent,
         )
         outcome = evaluate_alert_check(snapshot, _check(breached=breached), NOW)
         assert outcome.new_state == expected_state
@@ -143,7 +153,7 @@ class TestPendingResolveTransitions(TestCase):
             state=PENDING_RESOLVE,
             datapoints_to_alarm=n,
             evaluation_periods=m,
-            recent_checks_breached=recent,
+            recent_events_breached=recent,
         )
         outcome = evaluate_alert_check(snapshot, _check(breached=breached), NOW)
         assert outcome.new_state == expected_state
@@ -207,7 +217,7 @@ class TestErrorHandling(TestCase):
         snapshot = _snapshot(state=NOT_FIRING)
         outcome = evaluate_alert_check(snapshot, _check(error="ClickHouse timeout"), NOW)
         assert outcome.new_state == ERRORED
-        assert outcome.notification == NotificationAction.NONE
+        assert outcome.notification == NotificationAction.ERROR
         assert outcome.error_message == "ClickHouse timeout"
 
     def test_error_increments_consecutive_failures(self) -> None:
@@ -236,6 +246,82 @@ class TestErrorHandling(TestCase):
         outcome = evaluate_alert_check(snapshot, _check(breached=False), NOW)
         assert outcome.new_state == NOT_FIRING
         assert outcome.notification == NotificationAction.NONE
+
+
+class TestTransientErrors(TestCase):
+    def test_transient_error_does_not_increment_consecutive_failures(self) -> None:
+        snapshot = _snapshot(state=NOT_FIRING, consecutive_failures=2)
+        check = CheckResult(
+            result_count=None, threshold_breached=False, error_message="cluster busy", is_transient_error=True
+        )
+        outcome = evaluate_alert_check(snapshot, check, NOW)
+        assert outcome.consecutive_failures == 2
+
+    def test_transient_error_still_transitions_to_errored(self) -> None:
+        snapshot = _snapshot(state=NOT_FIRING)
+        check = CheckResult(
+            result_count=None, threshold_breached=False, error_message="cluster busy", is_transient_error=True
+        )
+        outcome = evaluate_alert_check(snapshot, check, NOW)
+        assert outcome.new_state == ERRORED
+        assert outcome.notification == NotificationAction.ERROR
+
+    def test_transient_error_does_not_push_counter_past_threshold(self) -> None:
+        # MAX_CONSECUTIVE_FAILURES - 1 non-transient errors → ERRORED, counter at 4.
+        # A transient error must NOT push it to 5 (BROKEN).
+        snapshot = _snapshot(state=ERRORED, consecutive_failures=4)
+        check = CheckResult(
+            result_count=None, threshold_breached=False, error_message="cancelled", is_transient_error=True
+        )
+        outcome = evaluate_alert_check(snapshot, check, NOW)
+        assert outcome.new_state == ERRORED
+        assert outcome.consecutive_failures == 4
+
+    def test_non_transient_error_still_increments_failures(self) -> None:
+        snapshot = _snapshot(state=NOT_FIRING, consecutive_failures=2)
+        check = CheckResult(
+            result_count=None, threshold_breached=False, error_message="invalid query", is_transient_error=False
+        )
+        outcome = evaluate_alert_check(snapshot, check, NOW)
+        assert outcome.consecutive_failures == 3
+
+
+class TestBrokenTransition(TestCase):
+    @parameterized.expand(
+        [
+            ("below_threshold", 3, ERRORED, 4),
+            ("one_below_threshold", 4, BROKEN, 5),
+            ("at_threshold", 5, BROKEN, 6),
+        ]
+    )
+    def test_error_trips_broken_at_max_consecutive_failures(
+        self,
+        _name: str,
+        prior_failures: int,
+        expected_state: AlertState,
+        expected_failures: int,
+    ) -> None:
+        snapshot = _snapshot(state=NOT_FIRING, consecutive_failures=prior_failures)
+        outcome = evaluate_alert_check(snapshot, _check(error="ClickHouse timeout"), NOW)
+        assert outcome.new_state == expected_state
+        assert outcome.consecutive_failures == expected_failures
+        assert outcome.error_message == "ClickHouse timeout"
+
+    # Scheduler excludes BROKEN so these shouldn't occur, but belt-and-braces:
+    # a BROKEN alert must not silently self-heal and its failure counter stays frozen
+    # until an explicit unbreak path resets it.
+    @parameterized.expand(
+        [
+            ("on_error", _check(error="still down")),
+            ("on_success", _check(breached=False)),
+        ]
+    )
+    def test_broken_stays_broken(self, _name: str, check: CheckResult) -> None:
+        snapshot = _snapshot(state=BROKEN, consecutive_failures=5)
+        outcome = evaluate_alert_check(snapshot, check, NOW)
+        assert outcome.new_state == BROKEN
+        assert outcome.notification == NotificationAction.NONE
+        assert outcome.consecutive_failures == 5
 
 
 class TestSnooze(TestCase):
@@ -287,7 +373,7 @@ class TestEdgeCases(TestCase):
             state=NOT_FIRING,
             datapoints_to_alarm=2,
             evaluation_periods=3,
-            recent_checks_breached=(True, True, True, True, True),
+            recent_events_breached=(True, True, True, True, True),
         )
         outcome = evaluate_alert_check(snapshot, _check(breached=True), NOW)
         # Window is [True, True, True] (truncated to M=3), 3 breaches >= N=2
@@ -312,3 +398,146 @@ class TestEdgeCases(TestCase):
         from products.logs.backend.models import LogsAlertConfiguration
 
         assert set(AlertState) == {s.value for s in LogsAlertConfiguration.State}
+
+
+class TestApplyUserReset(TestCase):
+    def test_broken_to_not_firing_resets_failures(self) -> None:
+        outcome = apply_user_reset(_snapshot(state=BROKEN, consecutive_failures=5))
+        assert outcome == ControlPlaneOutcome(new_state=NOT_FIRING, consecutive_failures=0)
+
+    @parameterized.expand(
+        [
+            ("not_firing", NOT_FIRING),
+            ("firing", FIRING),
+            ("pending_resolve", PENDING_RESOLVE),
+            ("errored", ERRORED),
+            ("snoozed", SNOOZED),
+        ]
+    )
+    def test_rejects_non_broken_state(self, _name: str, state: AlertState) -> None:
+        with self.assertRaises(InvalidTransition) as ctx:
+            apply_user_reset(_snapshot(state=state))
+        assert "Only broken alerts" in str(ctx.exception)
+
+
+class TestApplyDisable(TestCase):
+    @parameterized.expand(
+        [
+            ("not_firing", NOT_FIRING),
+            ("firing", FIRING),
+            ("errored", ERRORED),
+            ("snoozed", SNOOZED),
+            # BROKEN is intentionally included — disabling a broken alert is legal;
+            # it parks the alert without the user needing to reset first.
+            ("broken", BROKEN),
+        ]
+    )
+    def test_any_state_transitions_to_not_firing(self, _name: str, state: AlertState) -> None:
+        outcome = apply_disable(_snapshot(state=state, consecutive_failures=3))
+        assert outcome.new_state == NOT_FIRING
+        # consecutive_failures is preserved so a re-enable without an explicit reset
+        # doesn't silently wipe forensic information.
+        assert outcome.consecutive_failures == 3
+
+
+class TestApplyEnable(TestCase):
+    @parameterized.expand(
+        [
+            ("not_firing", NOT_FIRING),
+            ("firing", FIRING),
+            ("errored", ERRORED),
+            ("snoozed", SNOOZED),
+            ("broken", BROKEN),
+        ]
+    )
+    def test_any_state_transitions_to_not_firing_with_clean_counter(self, _name: str, state: AlertState) -> None:
+        outcome = apply_enable(_snapshot(state=state, consecutive_failures=4))
+        assert outcome == ControlPlaneOutcome(new_state=NOT_FIRING, consecutive_failures=0)
+
+
+class TestApplySnooze(TestCase):
+    @parameterized.expand(
+        [
+            ("not_firing", NOT_FIRING),
+            ("firing", FIRING),
+            ("errored", ERRORED),
+            ("broken", BROKEN),
+            ("pending_resolve", PENDING_RESOLVE),
+        ]
+    )
+    def test_preserves_failures_and_sets_snoozed(self, _name: str, state: AlertState) -> None:
+        outcome = apply_snooze(_snapshot(state=state, consecutive_failures=2))
+        assert outcome == ControlPlaneOutcome(new_state=SNOOZED, consecutive_failures=2)
+
+
+class TestApplyUnsnooze(TestCase):
+    @parameterized.expand(
+        [
+            ("snoozed", SNOOZED),
+            ("not_firing", NOT_FIRING),
+            ("firing", FIRING),
+        ]
+    )
+    def test_any_state_transitions_to_not_firing_with_clean_counter(self, _name: str, state: AlertState) -> None:
+        outcome = apply_unsnooze(_snapshot(state=state, consecutive_failures=1))
+        assert outcome == ControlPlaneOutcome(new_state=NOT_FIRING, consecutive_failures=0)
+
+
+class TestApplyThresholdChange(TestCase):
+    def test_snoozed_alert_stays_snoozed(self) -> None:
+        # Editing a snoozed alert's threshold must not wake it up — user explicitly asked
+        # for silence.
+        outcome = apply_threshold_change(_snapshot(state=SNOOZED, consecutive_failures=1))
+        assert outcome == ControlPlaneOutcome(new_state=SNOOZED, consecutive_failures=1)
+
+    @parameterized.expand(
+        [
+            ("not_firing", NOT_FIRING),
+            ("firing", FIRING),
+            ("errored", ERRORED),
+            ("broken", BROKEN),
+            ("pending_resolve", PENDING_RESOLVE),
+        ]
+    )
+    def test_non_snoozed_state_resets_to_not_firing(self, _name: str, state: AlertState) -> None:
+        outcome = apply_threshold_change(_snapshot(state=state, consecutive_failures=4))
+        assert outcome == ControlPlaneOutcome(new_state=NOT_FIRING, consecutive_failures=0)
+
+
+class TestApplyOutcome(TestCase):
+    """apply_outcome is the ONLY mutator of state/consecutive_failures — covered here so
+    the invariant is locked in by tests, not just convention."""
+
+    def test_applies_control_plane_outcome(self) -> None:
+        from products.logs.backend.models import LogsAlertConfiguration
+
+        alert = LogsAlertConfiguration(
+            state=FIRING.value,
+            consecutive_failures=2,
+            threshold_count=10,
+        )
+        outcome = ControlPlaneOutcome(new_state=NOT_FIRING, consecutive_failures=0)
+        fields = apply_outcome(alert, outcome)
+        assert alert.state == NOT_FIRING.value
+        assert alert.consecutive_failures == 0
+        assert fields == ["state", "consecutive_failures"]
+
+    def test_applies_check_outcome(self) -> None:
+        from products.logs.backend.models import LogsAlertConfiguration
+
+        alert = LogsAlertConfiguration(
+            state=NOT_FIRING.value,
+            consecutive_failures=0,
+            threshold_count=10,
+        )
+        outcome = AlertCheckOutcome(
+            new_state=FIRING,
+            notification=NotificationAction.FIRE,
+            consecutive_failures=0,
+            update_last_notified_at=True,
+            error_message=None,
+        )
+        fields = apply_outcome(alert, outcome)
+        assert alert.state == FIRING.value
+        assert alert.consecutive_failures == 0
+        assert fields == ["state", "consecutive_failures"]

@@ -22,10 +22,15 @@ export interface SlowestQuery {
     exception: string
     status: number
     team_id: number
+    team_name: string | null
+    organization_name: string | null
+    organization_mrr: number | null
     query_type: string
     experiment_name: string
     experiment_metric_name: string
     experiment_execution_path: string
+    experiment_metric_type: string
+    experiment_id: number | null
 }
 
 export const queryPerformanceLogic = kea<queryPerformanceLogicType>([

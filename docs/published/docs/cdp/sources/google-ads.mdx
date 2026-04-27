@@ -1,0 +1,44 @@
+---
+title: Linking Google Ads as a source
+sidebar: Docs
+showTitle: true
+availability:
+  free: full
+  selfServe: full
+  enterprise: full
+beta: true
+sourceId: GoogleAds
+---
+
+You can sync data from Google Ads reports by configuring it as a source in PostHog. The supported reports that can be synced include Ad, AdStats, AdGroup, AdGroupStats, Campaign, CampaignStats, GeographicStats, Keyword, KeywordStats, Video, and VideoStats, as they are described in the [Google Ads BigQuery transformation documentation](https://cloud.google.com/bigquery/docs/google-ads-transformation). Additional reports will be added based on user feedback we receive via our [in-app support form](https://app.posthog.com/#panel=support%3Afeedback%3Adata_warehouse%3Alow%3Atrue).
+
+> **Note:** The GeographicStats table is disabled by default because it can load hundreds of millions of rows for active campaigns. You can enable it manually during source configuration if you need geographic performance data.
+
+## Requirements
+
+- The [Google Ads customer ID](https://support.google.com/google-ads/answer/1704344) of the account you are trying to sync to PostHog.
+- Administrator access to the Google Ads account you want to sync. If you use manager accounts then this is often enough to connect. An manager account is an Ads account type that enables you to manage several Ads accounts under a single login – [see here for more on Google Ads manager accounts](https://support.google.com/google-ads/answer/6139186).
+- During the authentication, make sure you check the necessary scopes.
+
+<ProductScreenshot
+  imageLight="https://res.cloudinary.com/dmukukwp6/image/upload/w_500,c_limit,q_auto,f_auto/Screenshot_2025_10_02_at_1_46_13_PM_fda20371c8.png"
+  classes="rounded"
+  alt="Accept scope checkbox"
+/>
+
+<ProductScreenshot
+  imageLight="https://res.cloudinary.com/dmukukwp6/image/upload/2024_10_31_at_15_15_51_a7a003008c.png"
+  classes="rounded"
+  alt="Location of the Google Ads Customer ID"
+/>
+
+## Configuring PostHog
+
+Connect PostHog to your Google Ads account using a Google account. The Google account must have administrator access to your Google Ads account.
+
+1. In PostHog, go to the **[Data pipelines](https://app.posthog.com/data-management/sources)** tab.
+2. Open the **+ New** drop-down menu in the top-right and select **Source**.
+3. Find Google Ads in the sources list and click **Link**.
+4. Enter the **Google Ads customer ID** of the Google Ads account you want to sync.
+5. Select an existing Google Ads account, or create a new integration
+6. (Optional) Add a prefix for the table name.

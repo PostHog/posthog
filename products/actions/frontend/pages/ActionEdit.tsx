@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { BuiltLogic, Logic, LogicWrapper, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { useEffect, useMemo } from 'react'
@@ -21,6 +21,7 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
@@ -57,24 +58,33 @@ const RESOURCE_TYPE = 'action'
 
 export interface ActionEditProps extends ActionEditLogicProps {
     actionLoading?: boolean
+    attachTo?: BuiltLogic<Logic> | LogicWrapper<Logic>
 }
 
-export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEditProps): JSX.Element {
+export function ActionEdit({ action: loadedAction, id, tabId, actionLoading, attachTo }: ActionEditProps): JSX.Element {
     const logicProps: ActionEditLogicProps = {
-        id: id,
+        id,
         action: loadedAction,
+        tabId,
     }
-    const { isComplete } = useValues(actionLogic({ id }))
+    const { isComplete } = useValues(actionLogic)
     const logic = actionEditLogic(logicProps)
-    const { action, actionChanged } = useValues(logic)
-    const { submitAction, deleteAction, setActionValue, setAction } = useActions(logic)
+    // Attach to the scene-kept actionLogic so the form state persists across tab switches:
+    // sceneLogic keeps actionLogic mounted per tab, and useAttachedLogic keeps actionEditLogic
+    // alive for as long as actionLogic is mounted, even when this component unmounts.
+    useAttachedLogic(logic, attachTo)
+    const { action, actionChanged, isActionSubmitting } = useValues(logic)
+    const { submitAction, deleteAction, setActionValue, setAction, setOriginalAction } = useActions(logic)
 
-    // Sync the loaded action prop with the logic's internal state
+    // Sync the loaded action prop with the logic's internal state. This runs after load even
+    // when the logic was mounted eagerly by useAttachedLogic (before the action has finished
+    // loading), so the form and originalAction reducer both get populated once the data arrives.
     useEffect(() => {
         if (loadedAction && (!action || action.id !== loadedAction.id)) {
             setAction(loadedAction, { merge: false })
+            setOriginalAction(loadedAction)
         }
-    }, [loadedAction, action, setAction])
+    }, [loadedAction, action, setAction, setOriginalAction])
     const { tags } = useValues(tagsModel)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
@@ -234,7 +244,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                                 data-attr="save-action-button"
                                 type="primary"
                                 htmlType="submit"
-                                loading={actionLoading}
+                                loading={isActionSubmitting}
                                 onClick={(e) => {
                                     e.preventDefault()
                                     if (id) {
@@ -245,7 +255,9 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                                     }
                                 }}
                                 size="small"
-                                disabledReason={!actionChanged ? 'No changes to save' : undefined}
+                                disabledReason={
+                                    isActionSubmitting ? 'Saving…' : !actionChanged ? 'No changes to save' : undefined
+                                }
                             >
                                 {actionChanged ? 'Save' : 'No changes'}
                             </LemonButton>

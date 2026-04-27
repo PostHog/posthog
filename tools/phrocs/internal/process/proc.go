@@ -34,6 +34,7 @@ const (
 	StatusStopped
 	StatusDone
 	StatusCrashed
+	StatusStandby // in registry but not loaded — config stub only
 )
 
 func (s Status) String() string {
@@ -48,6 +49,8 @@ func (s Status) String() string {
 		return "done"
 	case StatusCrashed:
 		return "crashed"
+	case StatusStandby:
+		return "standby"
 	default:
 		return "unknown"
 	}
@@ -154,6 +157,22 @@ func NewProcess(name string, cfg config.ProcConfig, scrollback int, globalShell 
 	return p
 }
 
+// NewStandbyProcess creates a lightweight config-only process placeholder.
+// It has StatusStandby, no PTY, and no emulator — just enough to appear in the
+// sidebar and be promoted to a real process via Manager.Add when the user starts it.
+func NewStandbyProcess(name string, cfg config.ProcConfig) *Process {
+	return &Process{
+		Name:   name,
+		Cfg:    cfg,
+		status: StatusStandby,
+	}
+}
+
+// IsStandby reports whether this process is a registry-only placeholder.
+func (p *Process) IsStandby() bool {
+	return p.Status().IsStandby()
+}
+
 func (p *Process) Status() Status {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -162,6 +181,10 @@ func (p *Process) Status() Status {
 
 func (s Status) IsRunning() bool {
 	return s == StatusRunning || s == StatusPending
+}
+
+func (s Status) IsStandby() bool {
+	return s == StatusStandby
 }
 
 func (p *Process) IsRunning() bool {

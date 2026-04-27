@@ -3,6 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.plugins import plugin_server_api
 
@@ -44,6 +45,7 @@ class MessagePreferencesSerializer(serializers.ModelSerializer):
 
 class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "INTERNAL"
+    serializer_class = _FallbackSerializer
 
     @action(detail=False, methods=["get"])
     def opt_outs(self, request, **kwargs):
@@ -78,6 +80,12 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # Fallback if pagination fails for some reason
         serializer = MessagePreferencesSerializer(opt_outs, many=True)
         return Response(serializer.data)
+
+    @action(detail=False, methods=["get"])
+    def webhook_url(self, request, **kwargs):
+        """Return the webhook URL for Customer.io integration setup."""
+        base = request.build_absolute_uri("/")[:-1]
+        return Response({"url": f"{base}/api/environments/{self.team_id}/messaging/customerio/webhook/"})
 
     @action(detail=False, methods=["post"])
     def generate_link(self, request, **kwargs):

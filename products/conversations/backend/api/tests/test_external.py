@@ -239,6 +239,86 @@ class TestExternalTicketAPI(BaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_patch_sla_amount_calendar_hours(self):
+        from datetime import UTC, datetime
+
+        from unittest.mock import patch
+
+        # 2026-01-05 10:00 UTC is a Monday.
+        frozen_now = datetime(2026, 1, 5, 10, 0, tzinfo=UTC)
+        with patch("products.conversations.backend.api.external.timezone.now", return_value=frozen_now):
+            response = self.client.patch(
+                self.url,
+                {"sla_amount": 4, "sla_unit": "hour"},
+                content_type="application/json",
+                **self._auth_headers(),
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.ticket.refresh_from_db()
+        self.assertIsNotNone(self.ticket.sla_due_at)
+        self.assertEqual(self.ticket.sla_due_at.isoformat(), "2026-01-05T14:00:00+00:00")
+
+    def test_patch_sla_amount_business_hours(self):
+        from datetime import UTC, datetime
+
+        from unittest.mock import patch
+
+        frozen_now = datetime(2026, 1, 8, 16, 0, tzinfo=UTC)  # Thursday 16:00 UTC
+        with patch("products.conversations.backend.api.external.timezone.now", return_value=frozen_now):
+            response = self.client.patch(
+                self.url,
+                {
+                    "sla_amount": 10,
+                    "sla_unit": "hour",
+                    "sla_business_hours": {
+                        "days": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+                        "time": ["09:00", "17:00"],
+                        "timezone": "UTC",
+                    },
+                },
+                content_type="application/json",
+                **self._auth_headers(),
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.ticket.refresh_from_db()
+        # 1h Thursday + 8h Friday + 1h Monday -> Monday 10:00 UTC
+        self.assertEqual(self.ticket.sla_due_at.isoformat(), "2026-01-12T10:00:00+00:00")
+
+    def test_patch_sla_amount_rejects_zero(self):
+        response = self.client.patch(
+            self.url,
+            {"sla_amount": 0, "sla_unit": "hour"},
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_patch_rejects_both_sla_due_at_and_sla_amount(self):
+        response = self.client.patch(
+            self.url,
+            {"sla_due_at": "2026-03-15T14:30:00Z", "sla_amount": 5},
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @parameterized.expand(
+        [
+            ("empty_days", {"days": [], "time": ["09:00", "17:00"], "timezone": "UTC"}),
+            ("inverted_range", {"days": ["monday"], "time": ["17:00", "09:00"], "timezone": "UTC"}),
+            ("unknown_timezone", {"days": ["monday"], "time": "any", "timezone": "Mars/Olympus"}),
+            ("unknown_weekday", {"days": ["funday"], "time": "any", "timezone": "UTC"}),
+        ]
+    )
+    def test_patch_rejects_invalid_business_hours(self, _name, business_hours):
+        response = self.client.patch(
+            self.url,
+            {"sla_amount": 1, "sla_unit": "hour", "sla_business_hours": business_hours},
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_get_ticket_returns_sla_due_at(self):
         from django.utils import timezone
 
