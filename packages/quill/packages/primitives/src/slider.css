@@ -1,0 +1,107 @@
+@layer components {
+    .quill-slider[data-orientation='horizontal'] {
+        width: 100%;
+    }
+
+    .quill-slider[data-orientation='vertical'] {
+        height: 100%;
+    }
+
+    .quill-slider__control {
+        position: relative;
+        display: flex;
+        align-items: center;
+        width: 100%;
+        touch-action: none;
+        user-select: none;
+    }
+
+    .quill-slider__control[data-disabled] {
+        opacity: 0.5;
+    }
+
+    .quill-slider__control[data-orientation='vertical'] {
+        flex-direction: column;
+        width: 1rem;
+        height: 100%;
+        min-height: 10rem;
+    }
+
+    .quill-slider__track {
+        position: relative;
+        flex: 1 1 auto;
+        overflow: hidden;
+        user-select: none;
+        background-color: color-mix(in oklab, var(--input) 50%, transparent);
+        border-radius: var(--radius-md);
+    }
+
+    .quill-slider__track[data-orientation='horizontal'] {
+        width: 100%;
+        height: 1rem;
+    }
+
+    .quill-slider__track[data-orientation='vertical'] {
+        width: 1rem;
+        height: 100%;
+    }
+
+    .quill-slider__range {
+        user-select: none;
+        background-color: var(--primary);
+    }
+
+    .quill-slider__range[data-orientation='horizontal'] {
+        height: 100%;
+    }
+
+    .quill-slider__range[data-orientation='vertical'] {
+        width: 100%;
+    }
+
+    .quill-slider__thumb {
+        position: absolute;
+        flex-shrink: 0;
+        width: 1rem;
+        height: 1rem;
+        user-select: none;
+        background-color: var(--background);
+        border: 2px solid var(--primary);
+        border-radius: 9999px;
+        transition:
+            color 0.15s ease,
+            background-color 0.15s ease,
+            border-color 0.15s ease;
+    }
+
+    .quill-slider__thumb::before {
+        display: block;
+        width: 0.5rem;
+        height: 0.5rem;
+        content: '';
+        background-color: var(--background);
+        border-radius: 9999px;
+    }
+
+    .quill-slider__thumb:hover,
+    .quill-slider__thumb:focus-visible {
+        box-shadow: 0 0 0 4px color-mix(in oklab, var(--ring) 30%, transparent);
+    }
+
+    .quill-slider__thumb:focus-visible {
+        outline: none;
+    }
+
+    .quill-slider__thumb:disabled {
+        pointer-events: none;
+        opacity: 0.5;
+    }
+
+    /*
+     * Perpendicular positioning (top: 50% / left: 50%) and the centering
+     * translate are set by Base UI as inline styles via the `translate` CSS
+     * property. Do not add `transform: translate*` here — it stacks additively
+     * with Base UI's `translate` (different CSS properties) and doubles the
+     * offset, pushing the thumb off-track.
+     */
+}

@@ -9,12 +9,14 @@ from posthog.schema import (
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.clerk.clerk import (
+    ClerkResumeConfig,
     clerk_source,
     validate_credentials as validate_clerk_credentials,
 )
 from posthog.temporal.data_imports.sources.clerk.settings import ENDPOINTS
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import ClerkSourceConfig
 
@@ -22,7 +24,7 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class ClerkSource(SimpleSource[ClerkSourceConfig]):
+class ClerkSource(ResumableSource[ClerkSourceConfig, ClerkResumeConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CLERK
@@ -79,10 +81,19 @@ The secret key starts with `sk_live_`.
     ) -> tuple[bool, str | None]:
         return validate_clerk_credentials(config.secret_key)
 
-    def source_for_pipeline(self, config: ClerkSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ClerkResumeConfig]:
+        return ResumableSourceManager[ClerkResumeConfig](inputs, ClerkResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: ClerkSourceConfig,
+        resumable_source_manager: ResumableSourceManager[ClerkResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         return clerk_source(
             secret_key=config.secret_key,
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
         )

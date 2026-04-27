@@ -29,12 +29,16 @@ describe('hog-charts interaction', () => {
             expect(findNearestIndex(999, ['a'], xScale)).toBe(0)
         })
 
-        it('falls back to x=0 for undefined xScale positions and still returns a valid index', () => {
-            // The implementation treats undefined xScale as 0 via `?? 0`, so positions are
-            // still finite and findNearestIndex returns the nearest index rather than -1.
+        it('returns -1 when every label has an undefined xScale position', () => {
             const xScale = (): number | undefined => undefined
-            const result = findNearestIndex(100, ['a', 'b'], xScale)
-            expect(result).toBeGreaterThanOrEqual(0)
+            expect(findNearestIndex(100, ['a', 'b'], xScale)).toBe(-1)
+        })
+
+        it('skips labels with undefined xScale positions instead of biasing them to x=0', () => {
+            // 'a' is unknown to the scale; 'b' is at x=200. A cursor at x=10 should pick 'b'
+            // because the unknown label is dropped — not pinned at the left edge.
+            const xScale = (label: string): number | undefined => (label === 'b' ? 200 : undefined)
+            expect(findNearestIndex(10, ['a', 'b'], xScale)).toBe(1)
         })
 
         it('returns the index of the closest label when mouseX is between two points', () => {

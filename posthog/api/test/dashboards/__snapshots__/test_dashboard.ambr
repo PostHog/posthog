@@ -1061,7 +1061,7 @@
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.25
   '''
-  SELECT "posthog_dashboardtile"."dashboard_id"
+  SELECT "posthog_dashboardtile"."dashboard_id" AS "dashboard_id"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
@@ -1104,7 +1104,7 @@
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.27
   '''
-  SELECT "posthog_tag"."name"
+  SELECT "posthog_tag"."name" AS "tag__name"
   FROM "posthog_taggeditem"
   INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
   WHERE "posthog_taggeditem"."insight_id" = 99999
@@ -1527,11 +1527,11 @@
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.35
   '''
-  SELECT "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."access_level"
+  SELECT "ee_accesscontrol"."team_id" AS "team_id",
+         "ee_accesscontrol"."resource_id" AS "resource_id",
+         "ee_accesscontrol"."organization_member_id" AS "organization_member_id",
+         "ee_accesscontrol"."role_id" AS "role_id",
+         "ee_accesscontrol"."access_level" AS "access_level"
   FROM "ee_accesscontrol"
   INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   WHERE ("ee_accesscontrol"."resource" = 'project'
@@ -1540,8 +1540,8 @@
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.36
   '''
-  SELECT "ee_rolemembership"."organization_member_id",
-         "ee_rolemembership"."role_id"
+  SELECT "ee_rolemembership"."organization_member_id" AS "organization_member_id",
+         "ee_rolemembership"."role_id" AS "role_id"
   FROM "ee_rolemembership"
   WHERE "ee_rolemembership"."user_id" = 99999
   '''
@@ -1570,44 +1570,44 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared",
          recent_dashboard_views."viewed_at" AS "last_viewed_at",
-         "posthog_user"."id",
-         "posthog_user"."password",
-         "posthog_user"."last_login",
-         "posthog_user"."first_name",
-         "posthog_user"."last_name",
-         "posthog_user"."is_staff",
-         "posthog_user"."date_joined",
-         "posthog_user"."uuid",
-         "posthog_user"."current_organization_id",
-         "posthog_user"."current_team_id",
-         "posthog_user"."email",
-         "posthog_user"."pending_email",
-         "posthog_user"."distinct_id",
-         "posthog_user"."is_email_verified",
-         "posthog_user"."requested_password_reset_at",
-         "posthog_user"."requested_2fa_reset_at",
-         "posthog_user"."has_seen_product_intro_for",
-         "posthog_user"."strapi_id",
-         "posthog_user"."is_active",
-         "posthog_user"."role_at_organization",
-         "posthog_user"."theme_mode",
-         "posthog_user"."partial_notification_settings",
-         "posthog_user"."anonymize_data",
-         "posthog_user"."allow_impersonation",
-         "posthog_user"."toolbar_mode",
-         "posthog_user"."hedgehog_config",
-         "posthog_user"."allow_sidebar_suggestions",
-         "posthog_user"."shortcut_position",
-         "posthog_user"."passkeys_enabled_for_2fa",
-         "posthog_user"."events_column_config",
-         "posthog_user"."email_opt_in"
+         T6."id",
+         T6."password",
+         T6."last_login",
+         T6."first_name",
+         T6."last_name",
+         T6."is_staff",
+         T6."date_joined",
+         T6."uuid",
+         T6."current_organization_id",
+         T6."current_team_id",
+         T6."email",
+         T6."pending_email",
+         T6."distinct_id",
+         T6."is_email_verified",
+         T6."requested_password_reset_at",
+         T6."requested_2fa_reset_at",
+         T6."has_seen_product_intro_for",
+         T6."strapi_id",
+         T6."is_active",
+         T6."role_at_organization",
+         T6."theme_mode",
+         T6."partial_notification_settings",
+         T6."anonymize_data",
+         T6."allow_impersonation",
+         T6."toolbar_mode",
+         T6."hedgehog_config",
+         T6."allow_sidebar_suggestions",
+         T6."shortcut_position",
+         T6."passkeys_enabled_for_2fa",
+         T6."events_column_config",
+         T6."email_opt_in"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_filesystemviewlog" recent_dashboard_views ON ("posthog_team"."id" = recent_dashboard_views."team_id"
                                                                          AND ((recent_dashboard_views."user_id" = 99999
                                                                                AND recent_dashboard_views."type" = 'dashboard'
                                                                                AND recent_dashboard_views."ref" = ("posthog_dashboard"."id")::varchar)))
-  LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboard"."created_by_id" = "posthog_user"."id")
+  LEFT OUTER JOIN "posthog_user" T6 ON ("posthog_dashboard"."created_by_id" = T6."id")
   WHERE ("posthog_team"."project_id" = 99999
          AND NOT ("posthog_dashboard"."deleted")
          AND "posthog_dashboard"."id" = 99999)
@@ -1975,7 +1975,7 @@
   INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboard"."id" = "posthog_dashboardtile"."dashboard_id")
   WHERE (NOT ("posthog_dashboard"."deleted")
          AND "posthog_dashboard"."id" IN
-           (SELECT U0."dashboard_id"
+           (SELECT U0."dashboard_id" AS "dashboard_id"
             FROM "posthog_dashboardtile" U0
             INNER JOIN "posthog_dashboard" U1 ON (U0."dashboard_id" = U1."id")
             WHERE (NOT (U0."deleted"
@@ -2041,11 +2041,8 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
-  WHERE "posthog_dashboard"."id" IN (1,
-                                     2,
-                                     3,
-                                     4,
-                                     5 /* ... */)
+  WHERE ("posthog_dashboard"."id") IN ((1,
+                                        2)/* ... */)
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.44
@@ -2554,7 +2551,7 @@
   INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboard"."id" = "posthog_dashboardtile"."dashboard_id")
   WHERE (NOT ("posthog_dashboard"."deleted")
          AND "posthog_dashboard"."id" IN
-           (SELECT U0."dashboard_id"
+           (SELECT U0."dashboard_id" AS "dashboard_id"
             FROM "posthog_dashboardtile" U0
             INNER JOIN "posthog_dashboard" U1 ON (U0."dashboard_id" = U1."id")
             WHERE (NOT (U0."deleted"
@@ -2620,11 +2617,8 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
-  WHERE "posthog_dashboard"."id" IN (1,
-                                     2,
-                                     3,
-                                     4,
-                                     5 /* ... */)
+  WHERE ("posthog_dashboard"."id") IN ((1,
+                                        2)/* ... */)
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.54
@@ -2865,11 +2859,11 @@
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.7
   '''
-  SELECT "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."access_level"
+  SELECT "ee_accesscontrol"."team_id" AS "team_id",
+         "ee_accesscontrol"."resource_id" AS "resource_id",
+         "ee_accesscontrol"."organization_member_id" AS "organization_member_id",
+         "ee_accesscontrol"."role_id" AS "role_id",
+         "ee_accesscontrol"."access_level" AS "access_level"
   FROM "ee_accesscontrol"
   INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   WHERE ("ee_accesscontrol"."resource" = 'project'
@@ -2878,8 +2872,8 @@
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.8
   '''
-  SELECT "ee_rolemembership"."organization_member_id",
-         "ee_rolemembership"."role_id"
+  SELECT "ee_rolemembership"."organization_member_id" AS "organization_member_id",
+         "ee_rolemembership"."role_id" AS "role_id"
   FROM "ee_rolemembership"
   WHERE "ee_rolemembership"."user_id" = 99999
   '''
@@ -2911,7 +2905,7 @@
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_dashboard"."deleted")
          AND ("posthog_dashboard"."team_id" =
-                (SELECT U0."parent_team_id"
+                (SELECT U0."parent_team_id" AS "parent_team_id"
                  FROM "posthog_team" U0
                  WHERE U0."id" = 99999
                  LIMIT 1)
@@ -3895,7 +3889,7 @@
 # ---
 # name: TestDashboard.test_listing_dashboards_is_not_nplus1.24
   '''
-  SELECT "posthog_dashboardtile"."dashboard_id"
+  SELECT "posthog_dashboardtile"."dashboard_id" AS "dashboard_id"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
@@ -3938,7 +3932,7 @@
 # ---
 # name: TestDashboard.test_listing_dashboards_is_not_nplus1.26
   '''
-  SELECT "posthog_tag"."name"
+  SELECT "posthog_tag"."name" AS "tag__name"
   FROM "posthog_taggeditem"
   INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
   WHERE "posthog_taggeditem"."insight_id" = 99999
@@ -4397,44 +4391,44 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared",
          recent_dashboard_views."viewed_at" AS "last_viewed_at",
-         "posthog_user"."id",
-         "posthog_user"."password",
-         "posthog_user"."last_login",
-         "posthog_user"."first_name",
-         "posthog_user"."last_name",
-         "posthog_user"."is_staff",
-         "posthog_user"."date_joined",
-         "posthog_user"."uuid",
-         "posthog_user"."current_organization_id",
-         "posthog_user"."current_team_id",
-         "posthog_user"."email",
-         "posthog_user"."pending_email",
-         "posthog_user"."distinct_id",
-         "posthog_user"."is_email_verified",
-         "posthog_user"."requested_password_reset_at",
-         "posthog_user"."requested_2fa_reset_at",
-         "posthog_user"."has_seen_product_intro_for",
-         "posthog_user"."strapi_id",
-         "posthog_user"."is_active",
-         "posthog_user"."role_at_organization",
-         "posthog_user"."theme_mode",
-         "posthog_user"."partial_notification_settings",
-         "posthog_user"."anonymize_data",
-         "posthog_user"."allow_impersonation",
-         "posthog_user"."toolbar_mode",
-         "posthog_user"."hedgehog_config",
-         "posthog_user"."allow_sidebar_suggestions",
-         "posthog_user"."shortcut_position",
-         "posthog_user"."passkeys_enabled_for_2fa",
-         "posthog_user"."events_column_config",
-         "posthog_user"."email_opt_in"
+         T6."id",
+         T6."password",
+         T6."last_login",
+         T6."first_name",
+         T6."last_name",
+         T6."is_staff",
+         T6."date_joined",
+         T6."uuid",
+         T6."current_organization_id",
+         T6."current_team_id",
+         T6."email",
+         T6."pending_email",
+         T6."distinct_id",
+         T6."is_email_verified",
+         T6."requested_password_reset_at",
+         T6."requested_2fa_reset_at",
+         T6."has_seen_product_intro_for",
+         T6."strapi_id",
+         T6."is_active",
+         T6."role_at_organization",
+         T6."theme_mode",
+         T6."partial_notification_settings",
+         T6."anonymize_data",
+         T6."allow_impersonation",
+         T6."toolbar_mode",
+         T6."hedgehog_config",
+         T6."allow_sidebar_suggestions",
+         T6."shortcut_position",
+         T6."passkeys_enabled_for_2fa",
+         T6."events_column_config",
+         T6."email_opt_in"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_filesystemviewlog" recent_dashboard_views ON ("posthog_team"."id" = recent_dashboard_views."team_id"
                                                                          AND ((recent_dashboard_views."user_id" = 99999
                                                                                AND recent_dashboard_views."type" = 'dashboard'
                                                                                AND recent_dashboard_views."ref" = ("posthog_dashboard"."id")::varchar)))
-  LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboard"."created_by_id" = "posthog_user"."id")
+  LEFT OUTER JOIN "posthog_user" T6 ON ("posthog_dashboard"."created_by_id" = T6."id")
   WHERE ("posthog_team"."project_id" = 99999
          AND NOT ("posthog_dashboard"."deleted")
          AND NOT ("posthog_dashboard"."creation_mode" = 'unlisted'))
@@ -4738,7 +4732,7 @@
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_dashboard"."deleted")
          AND ("posthog_dashboard"."team_id" =
-                (SELECT U0."parent_team_id"
+                (SELECT U0."parent_team_id" AS "parent_team_id"
                  FROM "posthog_team" U0
                  WHERE U0."id" = 99999
                  LIMIT 1)
@@ -5111,7 +5105,7 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.102
   '''
-  SELECT "posthog_dashboardtile"."dashboard_id"
+  SELECT "posthog_dashboardtile"."dashboard_id" AS "dashboard_id"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
@@ -5154,7 +5148,7 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.104
   '''
-  SELECT "posthog_tag"."name"
+  SELECT "posthog_tag"."name" AS "tag__name"
   FROM "posthog_taggeditem"
   INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
   WHERE "posthog_taggeditem"."insight_id" = 99999
@@ -5459,7 +5453,7 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.11
   '''
-  SELECT "posthog_dashboardtile"."id"
+  SELECT "posthog_dashboardtile"."id" AS "pk"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
@@ -5541,11 +5535,11 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.112
   '''
-  SELECT "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."access_level"
+  SELECT "ee_accesscontrol"."team_id" AS "team_id",
+         "ee_accesscontrol"."resource_id" AS "resource_id",
+         "ee_accesscontrol"."organization_member_id" AS "organization_member_id",
+         "ee_accesscontrol"."role_id" AS "role_id",
+         "ee_accesscontrol"."access_level" AS "access_level"
   FROM "ee_accesscontrol"
   INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   WHERE ("ee_accesscontrol"."resource" = 'project'
@@ -5554,8 +5548,8 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.113
   '''
-  SELECT "ee_rolemembership"."organization_member_id",
-         "ee_rolemembership"."role_id"
+  SELECT "ee_rolemembership"."organization_member_id" AS "organization_member_id",
+         "ee_rolemembership"."role_id" AS "role_id"
   FROM "ee_rolemembership"
   WHERE "ee_rolemembership"."user_id" = 99999
   '''
@@ -5587,7 +5581,7 @@
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_dashboard"."deleted")
          AND ("posthog_dashboard"."team_id" =
-                (SELECT U0."parent_team_id"
+                (SELECT U0."parent_team_id" AS "parent_team_id"
                  FROM "posthog_team" U0
                  WHERE U0."id" = 99999
                  LIMIT 1)
@@ -6619,7 +6613,7 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.132
   '''
-  SELECT "posthog_dashboardtile"."dashboard_id"
+  SELECT "posthog_dashboardtile"."dashboard_id" AS "dashboard_id"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
@@ -6662,7 +6656,7 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.134
   '''
-  SELECT "posthog_tag"."name"
+  SELECT "posthog_tag"."name" AS "tag__name"
   FROM "posthog_taggeditem"
   INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
   WHERE "posthog_taggeditem"."insight_id" = 99999
@@ -7045,11 +7039,11 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.142
   '''
-  SELECT "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."access_level"
+  SELECT "ee_accesscontrol"."team_id" AS "team_id",
+         "ee_accesscontrol"."resource_id" AS "resource_id",
+         "ee_accesscontrol"."organization_member_id" AS "organization_member_id",
+         "ee_accesscontrol"."role_id" AS "role_id",
+         "ee_accesscontrol"."access_level" AS "access_level"
   FROM "ee_accesscontrol"
   INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   WHERE ("ee_accesscontrol"."resource" = 'project'
@@ -7058,8 +7052,8 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.143
   '''
-  SELECT "ee_rolemembership"."organization_member_id",
-         "ee_rolemembership"."role_id"
+  SELECT "ee_rolemembership"."organization_member_id" AS "organization_member_id",
+         "ee_rolemembership"."role_id" AS "role_id"
   FROM "ee_rolemembership"
   WHERE "ee_rolemembership"."user_id" = 99999
   '''
@@ -7091,7 +7085,7 @@
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_dashboard"."deleted")
          AND ("posthog_dashboard"."team_id" =
-                (SELECT U0."parent_team_id"
+                (SELECT U0."parent_team_id" AS "parent_team_id"
                  FROM "posthog_team" U0
                  WHERE U0."id" = 99999
                  LIMIT 1)
@@ -8127,7 +8121,7 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.162
   '''
-  SELECT "posthog_dashboardtile"."dashboard_id"
+  SELECT "posthog_dashboardtile"."dashboard_id" AS "dashboard_id"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
@@ -8170,7 +8164,7 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.164
   '''
-  SELECT "posthog_tag"."name"
+  SELECT "posthog_tag"."name" AS "tag__name"
   FROM "posthog_taggeditem"
   INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
   WHERE "posthog_taggeditem"."insight_id" = 99999
@@ -8786,11 +8780,11 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.172
   '''
-  SELECT "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."access_level"
+  SELECT "ee_accesscontrol"."team_id" AS "team_id",
+         "ee_accesscontrol"."resource_id" AS "resource_id",
+         "ee_accesscontrol"."organization_member_id" AS "organization_member_id",
+         "ee_accesscontrol"."role_id" AS "role_id",
+         "ee_accesscontrol"."access_level" AS "access_level"
   FROM "ee_accesscontrol"
   INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   WHERE ("ee_accesscontrol"."resource" = 'project'
@@ -8799,8 +8793,8 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.173
   '''
-  SELECT "ee_rolemembership"."organization_member_id",
-         "ee_rolemembership"."role_id"
+  SELECT "ee_rolemembership"."organization_member_id" AS "organization_member_id",
+         "ee_rolemembership"."role_id" AS "role_id"
   FROM "ee_rolemembership"
   WHERE "ee_rolemembership"."user_id" = 99999
   '''
@@ -8829,44 +8823,44 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared",
          recent_dashboard_views."viewed_at" AS "last_viewed_at",
-         "posthog_user"."id",
-         "posthog_user"."password",
-         "posthog_user"."last_login",
-         "posthog_user"."first_name",
-         "posthog_user"."last_name",
-         "posthog_user"."is_staff",
-         "posthog_user"."date_joined",
-         "posthog_user"."uuid",
-         "posthog_user"."current_organization_id",
-         "posthog_user"."current_team_id",
-         "posthog_user"."email",
-         "posthog_user"."pending_email",
-         "posthog_user"."distinct_id",
-         "posthog_user"."is_email_verified",
-         "posthog_user"."requested_password_reset_at",
-         "posthog_user"."requested_2fa_reset_at",
-         "posthog_user"."has_seen_product_intro_for",
-         "posthog_user"."strapi_id",
-         "posthog_user"."is_active",
-         "posthog_user"."role_at_organization",
-         "posthog_user"."theme_mode",
-         "posthog_user"."partial_notification_settings",
-         "posthog_user"."anonymize_data",
-         "posthog_user"."allow_impersonation",
-         "posthog_user"."toolbar_mode",
-         "posthog_user"."hedgehog_config",
-         "posthog_user"."allow_sidebar_suggestions",
-         "posthog_user"."shortcut_position",
-         "posthog_user"."passkeys_enabled_for_2fa",
-         "posthog_user"."events_column_config",
-         "posthog_user"."email_opt_in"
+         T6."id",
+         T6."password",
+         T6."last_login",
+         T6."first_name",
+         T6."last_name",
+         T6."is_staff",
+         T6."date_joined",
+         T6."uuid",
+         T6."current_organization_id",
+         T6."current_team_id",
+         T6."email",
+         T6."pending_email",
+         T6."distinct_id",
+         T6."is_email_verified",
+         T6."requested_password_reset_at",
+         T6."requested_2fa_reset_at",
+         T6."has_seen_product_intro_for",
+         T6."strapi_id",
+         T6."is_active",
+         T6."role_at_organization",
+         T6."theme_mode",
+         T6."partial_notification_settings",
+         T6."anonymize_data",
+         T6."allow_impersonation",
+         T6."toolbar_mode",
+         T6."hedgehog_config",
+         T6."allow_sidebar_suggestions",
+         T6."shortcut_position",
+         T6."passkeys_enabled_for_2fa",
+         T6."events_column_config",
+         T6."email_opt_in"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_filesystemviewlog" recent_dashboard_views ON ("posthog_team"."id" = recent_dashboard_views."team_id"
                                                                          AND ((recent_dashboard_views."user_id" = 99999
                                                                                AND recent_dashboard_views."type" = 'dashboard'
                                                                                AND recent_dashboard_views."ref" = ("posthog_dashboard"."id")::varchar)))
-  LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboard"."created_by_id" = "posthog_user"."id")
+  LEFT OUTER JOIN "posthog_user" T6 ON ("posthog_dashboard"."created_by_id" = T6."id")
   WHERE ("posthog_team"."project_id" = 99999
          AND NOT ("posthog_dashboard"."deleted")
          AND "posthog_dashboard"."id" = 99999)
@@ -9188,7 +9182,7 @@
   INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboard"."id" = "posthog_dashboardtile"."dashboard_id")
   WHERE (NOT ("posthog_dashboard"."deleted")
          AND "posthog_dashboard"."id" IN
-           (SELECT U0."dashboard_id"
+           (SELECT U0."dashboard_id" AS "dashboard_id"
             FROM "posthog_dashboardtile" U0
             INNER JOIN "posthog_dashboard" U1 ON (U0."dashboard_id" = U1."id")
             WHERE (NOT (U0."deleted"
@@ -9232,7 +9226,7 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.18
   '''
-  SELECT "posthog_tag"."name"
+  SELECT "posthog_tag"."name" AS "tag__name"
   FROM "posthog_taggeditem"
   INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
   WHERE "posthog_taggeditem"."dashboard_id" = 99999
@@ -9262,11 +9256,8 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
-  WHERE "posthog_dashboard"."id" IN (1,
-                                     2,
-                                     3,
-                                     4,
-                                     5 /* ... */)
+  WHERE ("posthog_dashboard"."id") IN ((1,
+                                        2)/* ... */)
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.181
@@ -9749,7 +9740,7 @@
   INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboard"."id" = "posthog_dashboardtile"."dashboard_id")
   WHERE (NOT ("posthog_dashboard"."deleted")
          AND "posthog_dashboard"."id" IN
-           (SELECT U0."dashboard_id"
+           (SELECT U0."dashboard_id" AS "dashboard_id"
             FROM "posthog_dashboardtile" U0
             INNER JOIN "posthog_dashboard" U1 ON (U0."dashboard_id" = U1."id")
             WHERE (NOT (U0."deleted"
@@ -9852,11 +9843,8 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
-  WHERE "posthog_dashboard"."id" IN (1,
-                                     2,
-                                     3,
-                                     4,
-                                     5 /* ... */)
+  WHERE ("posthog_dashboard"."id") IN ((1,
+                                        2)/* ... */)
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.191
@@ -10632,11 +10620,11 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.26
   '''
-  SELECT "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."access_level"
+  SELECT "ee_accesscontrol"."team_id" AS "team_id",
+         "ee_accesscontrol"."resource_id" AS "resource_id",
+         "ee_accesscontrol"."organization_member_id" AS "organization_member_id",
+         "ee_accesscontrol"."role_id" AS "role_id",
+         "ee_accesscontrol"."access_level" AS "access_level"
   FROM "ee_accesscontrol"
   INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   WHERE ("ee_accesscontrol"."resource" = 'project'
@@ -10645,8 +10633,8 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.27
   '''
-  SELECT "ee_rolemembership"."organization_member_id",
-         "ee_rolemembership"."role_id"
+  SELECT "ee_rolemembership"."organization_member_id" AS "organization_member_id",
+         "ee_rolemembership"."role_id" AS "role_id"
   FROM "ee_rolemembership"
   WHERE "ee_rolemembership"."user_id" = 99999
   '''
@@ -10826,7 +10814,7 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.30
   '''
-  SELECT "posthog_dashboardtile"."id"
+  SELECT "posthog_dashboardtile"."id" AS "pk"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
@@ -11146,7 +11134,7 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.37
   '''
-  SELECT "posthog_tag"."name"
+  SELECT "posthog_tag"."name" AS "tag__name"
   FROM "posthog_taggeditem"
   INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
   WHERE "posthog_taggeditem"."dashboard_id" = 99999
@@ -11568,11 +11556,11 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.45
   '''
-  SELECT "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."access_level"
+  SELECT "ee_accesscontrol"."team_id" AS "team_id",
+         "ee_accesscontrol"."resource_id" AS "resource_id",
+         "ee_accesscontrol"."organization_member_id" AS "organization_member_id",
+         "ee_accesscontrol"."role_id" AS "role_id",
+         "ee_accesscontrol"."access_level" AS "access_level"
   FROM "ee_accesscontrol"
   INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   WHERE ("ee_accesscontrol"."resource" = 'project'
@@ -11581,8 +11569,8 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.46
   '''
-  SELECT "ee_rolemembership"."organization_member_id",
-         "ee_rolemembership"."role_id"
+  SELECT "ee_rolemembership"."organization_member_id" AS "organization_member_id",
+         "ee_rolemembership"."role_id" AS "role_id"
   FROM "ee_rolemembership"
   WHERE "ee_rolemembership"."user_id" = 99999
   '''
@@ -11614,7 +11602,7 @@
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_dashboard"."deleted")
          AND ("posthog_dashboard"."team_id" =
-                (SELECT U0."parent_team_id"
+                (SELECT U0."parent_team_id" AS "parent_team_id"
                  FROM "posthog_team" U0
                  WHERE U0."id" = 99999
                  LIMIT 1)
@@ -11651,7 +11639,7 @@
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_dashboard"."deleted")
          AND ("posthog_dashboard"."team_id" =
-                (SELECT U0."parent_team_id"
+                (SELECT U0."parent_team_id" AS "parent_team_id"
                  FROM "posthog_team" U0
                  WHERE U0."id" = 99999
                  LIMIT 1)
@@ -13075,11 +13063,11 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.7
   '''
-  SELECT "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."access_level"
+  SELECT "ee_accesscontrol"."team_id" AS "team_id",
+         "ee_accesscontrol"."resource_id" AS "resource_id",
+         "ee_accesscontrol"."organization_member_id" AS "organization_member_id",
+         "ee_accesscontrol"."role_id" AS "role_id",
+         "ee_accesscontrol"."access_level" AS "access_level"
   FROM "ee_accesscontrol"
   INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   WHERE ("ee_accesscontrol"."resource" = 'project'
@@ -13129,7 +13117,7 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.72
   '''
-  SELECT "posthog_dashboardtile"."dashboard_id"
+  SELECT "posthog_dashboardtile"."dashboard_id" AS "dashboard_id"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
@@ -13172,7 +13160,7 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.74
   '''
-  SELECT "posthog_tag"."name"
+  SELECT "posthog_tag"."name" AS "tag__name"
   FROM "posthog_taggeditem"
   INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
   WHERE "posthog_taggeditem"."insight_id" = 99999
@@ -13477,8 +13465,8 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.8
   '''
-  SELECT "ee_rolemembership"."organization_member_id",
-         "ee_rolemembership"."role_id"
+  SELECT "ee_rolemembership"."organization_member_id" AS "organization_member_id",
+         "ee_rolemembership"."role_id" AS "role_id"
   FROM "ee_rolemembership"
   WHERE "ee_rolemembership"."user_id" = 99999
   '''
@@ -13556,11 +13544,11 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.82
   '''
-  SELECT "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."access_level"
+  SELECT "ee_accesscontrol"."team_id" AS "team_id",
+         "ee_accesscontrol"."resource_id" AS "resource_id",
+         "ee_accesscontrol"."organization_member_id" AS "organization_member_id",
+         "ee_accesscontrol"."role_id" AS "role_id",
+         "ee_accesscontrol"."access_level" AS "access_level"
   FROM "ee_accesscontrol"
   INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   WHERE ("ee_accesscontrol"."resource" = 'project'
@@ -13569,8 +13557,8 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.83
   '''
-  SELECT "ee_rolemembership"."organization_member_id",
-         "ee_rolemembership"."role_id"
+  SELECT "ee_rolemembership"."organization_member_id" AS "organization_member_id",
+         "ee_rolemembership"."role_id" AS "role_id"
   FROM "ee_rolemembership"
   WHERE "ee_rolemembership"."user_id" = 99999
   '''
@@ -13602,7 +13590,7 @@
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_dashboard"."deleted")
          AND ("posthog_dashboard"."team_id" =
-                (SELECT U0."parent_team_id"
+                (SELECT U0."parent_team_id" AS "parent_team_id"
                  FROM "posthog_team" U0
                  WHERE U0."id" = 99999
                  LIMIT 1)
@@ -14690,7 +14678,7 @@
 # ---
 # name: TestDashboard.test_retrieve_dashboard.1
   '''
-  SELECT "posthog_dashboardtile"."id"
+  SELECT "posthog_dashboardtile"."id" AS "pk"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
@@ -14701,8 +14689,8 @@
 # ---
 # name: TestDashboard.test_retrieve_dashboard.10
   '''
-  SELECT "ee_rolemembership"."organization_member_id",
-         "ee_rolemembership"."role_id"
+  SELECT "ee_rolemembership"."organization_member_id" AS "organization_member_id",
+         "ee_rolemembership"."role_id" AS "role_id"
   FROM "ee_rolemembership"
   WHERE "ee_rolemembership"."user_id" = 99999
   '''
@@ -14731,44 +14719,44 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared",
          recent_dashboard_views."viewed_at" AS "last_viewed_at",
-         "posthog_user"."id",
-         "posthog_user"."password",
-         "posthog_user"."last_login",
-         "posthog_user"."first_name",
-         "posthog_user"."last_name",
-         "posthog_user"."is_staff",
-         "posthog_user"."date_joined",
-         "posthog_user"."uuid",
-         "posthog_user"."current_organization_id",
-         "posthog_user"."current_team_id",
-         "posthog_user"."email",
-         "posthog_user"."pending_email",
-         "posthog_user"."distinct_id",
-         "posthog_user"."is_email_verified",
-         "posthog_user"."requested_password_reset_at",
-         "posthog_user"."requested_2fa_reset_at",
-         "posthog_user"."has_seen_product_intro_for",
-         "posthog_user"."strapi_id",
-         "posthog_user"."is_active",
-         "posthog_user"."role_at_organization",
-         "posthog_user"."theme_mode",
-         "posthog_user"."partial_notification_settings",
-         "posthog_user"."anonymize_data",
-         "posthog_user"."allow_impersonation",
-         "posthog_user"."toolbar_mode",
-         "posthog_user"."hedgehog_config",
-         "posthog_user"."allow_sidebar_suggestions",
-         "posthog_user"."shortcut_position",
-         "posthog_user"."passkeys_enabled_for_2fa",
-         "posthog_user"."events_column_config",
-         "posthog_user"."email_opt_in"
+         T6."id",
+         T6."password",
+         T6."last_login",
+         T6."first_name",
+         T6."last_name",
+         T6."is_staff",
+         T6."date_joined",
+         T6."uuid",
+         T6."current_organization_id",
+         T6."current_team_id",
+         T6."email",
+         T6."pending_email",
+         T6."distinct_id",
+         T6."is_email_verified",
+         T6."requested_password_reset_at",
+         T6."requested_2fa_reset_at",
+         T6."has_seen_product_intro_for",
+         T6."strapi_id",
+         T6."is_active",
+         T6."role_at_organization",
+         T6."theme_mode",
+         T6."partial_notification_settings",
+         T6."anonymize_data",
+         T6."allow_impersonation",
+         T6."toolbar_mode",
+         T6."hedgehog_config",
+         T6."allow_sidebar_suggestions",
+         T6."shortcut_position",
+         T6."passkeys_enabled_for_2fa",
+         T6."events_column_config",
+         T6."email_opt_in"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_filesystemviewlog" recent_dashboard_views ON ("posthog_team"."id" = recent_dashboard_views."team_id"
                                                                          AND ((recent_dashboard_views."user_id" = 99999
                                                                                AND recent_dashboard_views."type" = 'dashboard'
                                                                                AND recent_dashboard_views."ref" = ("posthog_dashboard"."id")::varchar)))
-  LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboard"."created_by_id" = "posthog_user"."id")
+  LEFT OUTER JOIN "posthog_user" T6 ON ("posthog_dashboard"."created_by_id" = T6."id")
   WHERE ("posthog_team"."project_id" = 99999
          AND NOT ("posthog_dashboard"."deleted")
          AND "posthog_dashboard"."id" = 99999)
@@ -15842,11 +15830,11 @@
 # ---
 # name: TestDashboard.test_retrieve_dashboard.9
   '''
-  SELECT "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."access_level"
+  SELECT "ee_accesscontrol"."team_id" AS "team_id",
+         "ee_accesscontrol"."resource_id" AS "resource_id",
+         "ee_accesscontrol"."organization_member_id" AS "organization_member_id",
+         "ee_accesscontrol"."role_id" AS "role_id",
+         "ee_accesscontrol"."access_level" AS "access_level"
   FROM "ee_accesscontrol"
   INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   WHERE ("ee_accesscontrol"."resource" = 'project'
@@ -15952,7 +15940,7 @@
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.11
   '''
-  SELECT "posthog_dashboardtile"."id"
+  SELECT "posthog_dashboardtile"."id" AS "pk"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
@@ -16272,7 +16260,7 @@
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.18
   '''
-  SELECT "posthog_tag"."name"
+  SELECT "posthog_tag"."name" AS "tag__name"
   FROM "posthog_taggeditem"
   INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
   WHERE "posthog_taggeditem"."dashboard_id" = 99999
@@ -16777,11 +16765,11 @@
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.26
   '''
-  SELECT "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."access_level"
+  SELECT "ee_accesscontrol"."team_id" AS "team_id",
+         "ee_accesscontrol"."resource_id" AS "resource_id",
+         "ee_accesscontrol"."organization_member_id" AS "organization_member_id",
+         "ee_accesscontrol"."role_id" AS "role_id",
+         "ee_accesscontrol"."access_level" AS "access_level"
   FROM "ee_accesscontrol"
   INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   WHERE ("ee_accesscontrol"."resource" = 'project'
@@ -16790,8 +16778,8 @@
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.27
   '''
-  SELECT "ee_rolemembership"."organization_member_id",
-         "ee_rolemembership"."role_id"
+  SELECT "ee_rolemembership"."organization_member_id" AS "organization_member_id",
+         "ee_rolemembership"."role_id" AS "role_id"
   FROM "ee_rolemembership"
   WHERE "ee_rolemembership"."user_id" = 99999
   '''
@@ -16971,7 +16959,7 @@
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.30
   '''
-  SELECT "posthog_dashboardtile"."id"
+  SELECT "posthog_dashboardtile"."id" AS "pk"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
@@ -17291,7 +17279,7 @@
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.37
   '''
-  SELECT "posthog_tag"."name"
+  SELECT "posthog_tag"."name" AS "tag__name"
   FROM "posthog_taggeditem"
   INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
   WHERE "posthog_taggeditem"."dashboard_id" = 99999
@@ -17713,11 +17701,11 @@
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.45
   '''
-  SELECT "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."access_level"
+  SELECT "ee_accesscontrol"."team_id" AS "team_id",
+         "ee_accesscontrol"."resource_id" AS "resource_id",
+         "ee_accesscontrol"."organization_member_id" AS "organization_member_id",
+         "ee_accesscontrol"."role_id" AS "role_id",
+         "ee_accesscontrol"."access_level" AS "access_level"
   FROM "ee_accesscontrol"
   INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   WHERE ("ee_accesscontrol"."resource" = 'project'
@@ -17726,8 +17714,8 @@
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.46
   '''
-  SELECT "ee_rolemembership"."organization_member_id",
-         "ee_rolemembership"."role_id"
+  SELECT "ee_rolemembership"."organization_member_id" AS "organization_member_id",
+         "ee_rolemembership"."role_id" AS "role_id"
   FROM "ee_rolemembership"
   WHERE "ee_rolemembership"."user_id" = 99999
   '''
@@ -17770,44 +17758,44 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared",
          recent_dashboard_views."viewed_at" AS "last_viewed_at",
-         "posthog_user"."id",
-         "posthog_user"."password",
-         "posthog_user"."last_login",
-         "posthog_user"."first_name",
-         "posthog_user"."last_name",
-         "posthog_user"."is_staff",
-         "posthog_user"."date_joined",
-         "posthog_user"."uuid",
-         "posthog_user"."current_organization_id",
-         "posthog_user"."current_team_id",
-         "posthog_user"."email",
-         "posthog_user"."pending_email",
-         "posthog_user"."distinct_id",
-         "posthog_user"."is_email_verified",
-         "posthog_user"."requested_password_reset_at",
-         "posthog_user"."requested_2fa_reset_at",
-         "posthog_user"."has_seen_product_intro_for",
-         "posthog_user"."strapi_id",
-         "posthog_user"."is_active",
-         "posthog_user"."role_at_organization",
-         "posthog_user"."theme_mode",
-         "posthog_user"."partial_notification_settings",
-         "posthog_user"."anonymize_data",
-         "posthog_user"."allow_impersonation",
-         "posthog_user"."toolbar_mode",
-         "posthog_user"."hedgehog_config",
-         "posthog_user"."allow_sidebar_suggestions",
-         "posthog_user"."shortcut_position",
-         "posthog_user"."passkeys_enabled_for_2fa",
-         "posthog_user"."events_column_config",
-         "posthog_user"."email_opt_in"
+         T6."id",
+         T6."password",
+         T6."last_login",
+         T6."first_name",
+         T6."last_name",
+         T6."is_staff",
+         T6."date_joined",
+         T6."uuid",
+         T6."current_organization_id",
+         T6."current_team_id",
+         T6."email",
+         T6."pending_email",
+         T6."distinct_id",
+         T6."is_email_verified",
+         T6."requested_password_reset_at",
+         T6."requested_2fa_reset_at",
+         T6."has_seen_product_intro_for",
+         T6."strapi_id",
+         T6."is_active",
+         T6."role_at_organization",
+         T6."theme_mode",
+         T6."partial_notification_settings",
+         T6."anonymize_data",
+         T6."allow_impersonation",
+         T6."toolbar_mode",
+         T6."hedgehog_config",
+         T6."allow_sidebar_suggestions",
+         T6."shortcut_position",
+         T6."passkeys_enabled_for_2fa",
+         T6."events_column_config",
+         T6."email_opt_in"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_filesystemviewlog" recent_dashboard_views ON ("posthog_team"."id" = recent_dashboard_views."team_id"
                                                                          AND ((recent_dashboard_views."user_id" = 99999
                                                                                AND recent_dashboard_views."type" = 'dashboard'
                                                                                AND recent_dashboard_views."ref" = ("posthog_dashboard"."id")::varchar)))
-  LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboard"."created_by_id" = "posthog_user"."id")
+  LEFT OUTER JOIN "posthog_user" T6 ON ("posthog_dashboard"."created_by_id" = T6."id")
   WHERE ("posthog_team"."project_id" = 99999
          AND NOT ("posthog_dashboard"."deleted")
          AND NOT ("posthog_dashboard"."creation_mode" = 'unlisted'))
@@ -17970,11 +17958,11 @@
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.7
   '''
-  SELECT "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."access_level"
+  SELECT "ee_accesscontrol"."team_id" AS "team_id",
+         "ee_accesscontrol"."resource_id" AS "resource_id",
+         "ee_accesscontrol"."organization_member_id" AS "organization_member_id",
+         "ee_accesscontrol"."role_id" AS "role_id",
+         "ee_accesscontrol"."access_level" AS "access_level"
   FROM "ee_accesscontrol"
   INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   WHERE ("ee_accesscontrol"."resource" = 'project'
@@ -17983,8 +17971,8 @@
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.8
   '''
-  SELECT "ee_rolemembership"."organization_member_id",
-         "ee_rolemembership"."role_id"
+  SELECT "ee_rolemembership"."organization_member_id" AS "organization_member_id",
+         "ee_rolemembership"."role_id" AS "role_id"
   FROM "ee_rolemembership"
   WHERE "ee_rolemembership"."user_id" = 99999
   '''

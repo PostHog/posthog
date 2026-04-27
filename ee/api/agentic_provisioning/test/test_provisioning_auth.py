@@ -115,8 +115,7 @@ class TestProvisioningAuthentication(APIBaseTest):
             "/api/agentic/provisioning/account_requests",
             data=body,
             content_type="application/json",
-            HTTP_STRIPE_SIGNATURE=sig,
-            HTTP_API_VERSION="0.1d",
+            headers={"stripe-signature": sig, "api-version": "0.1d"},
         )
         assert res.status_code == 200
         assert res.json()["type"] == "oauth"
@@ -137,7 +136,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 "code_challenge_method": "S256",
             },
             content_type="application/json",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         assert res.status_code == 200
         data = res.json()
@@ -155,7 +154,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 }
             ),
             content_type="application/x-www-form-urlencoded",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         assert res.status_code == 200
         tokens = res.json()
@@ -168,8 +167,7 @@ class TestProvisioningAuthentication(APIBaseTest):
             "/api/agentic/provisioning/resources",
             data=json.dumps({"service_id": "analytics"}),
             content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {tokens['access_token']}",
-            HTTP_API_VERSION="0.1d",
+            headers={"authorization": f"Bearer {tokens['access_token']}", "api-version": "0.1d"},
         )
         assert res.status_code == 200
         assert res.json()["status"] == "complete"
@@ -188,7 +186,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 "code_challenge_method": "S256",
             },
             content_type="application/json",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         code = res.json()["oauth"]["code"]
 
@@ -202,7 +200,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 }
             ),
             content_type="application/x-www-form-urlencoded",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         assert res.status_code == 400
         assert res.json()["error"] == "invalid_grant"
@@ -220,7 +218,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 "code_challenge_method": "S256",
             },
             content_type="application/json",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         code = res.json()["oauth"]["code"]
 
@@ -234,7 +232,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 }
             ),
             content_type="application/x-www-form-urlencoded",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         assert res.status_code == 401
 
@@ -263,7 +261,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 "client_id": "disabled-partner",
             },
             content_type="application/json",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         assert res.status_code == 403
         assert res.json()["error"]["code"] == "forbidden"
@@ -286,7 +284,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 "code_challenge_method": "S256",
             },
             content_type="application/json",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
 
         user = User.objects.get(email=email)
@@ -308,7 +306,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 "code_challenge_method": "S256",
             },
             content_type="application/json",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         code = res.json()["oauth"]["code"]
 
@@ -322,7 +320,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 }
             ),
             content_type="application/x-www-form-urlencoded",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         assert res.json()["expires_in"] == 3600
 
@@ -341,8 +339,7 @@ class TestProvisioningAuthentication(APIBaseTest):
             "/api/agentic/provisioning/account_requests",
             data=body,
             content_type="application/json",
-            HTTP_STRIPE_SIGNATURE=sig,
-            HTTP_API_VERSION="0.1d",
+            headers={"stripe-signature": sig, "api-version": "0.1d"},
         )
         assert res.status_code == 200
         assert res.json()["type"] == "oauth"
@@ -364,8 +361,7 @@ class TestProvisioningAuthentication(APIBaseTest):
             "/api/agentic/provisioning/account_requests",
             data=body,
             content_type="application/json",
-            HTTP_STRIPE_SIGNATURE=sig,
-            HTTP_API_VERSION="0.1d",
+            headers={"stripe-signature": sig, "api-version": "0.1d"},
         )
         assert res.status_code == 200
         assert res.json()["type"] == "oauth"
@@ -388,7 +384,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 "code_challenge_method": "S256",
             },
             content_type="application/json",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         code = res.json()["oauth"]["code"]
 
@@ -402,7 +398,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 }
             ),
             content_type="application/x-www-form-urlencoded",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         token = res.json()["access_token"]
 
@@ -410,8 +406,7 @@ class TestProvisioningAuthentication(APIBaseTest):
             "/api/agentic/provisioning/resources",
             data=json.dumps({"service_id": "analytics"}),
             content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {token}",
-            HTTP_API_VERSION="0.1d",
+            headers={"authorization": f"Bearer {token}", "api-version": "0.1d"},
         )
 
         from posthog.models.user import User
@@ -438,8 +433,7 @@ class TestProvisioningAuthentication(APIBaseTest):
             "/api/agentic/provisioning/account_requests",
             data=body,
             content_type="application/json",
-            HTTP_STRIPE_SIGNATURE=sig,
-            HTTP_API_VERSION="0.1d",
+            headers={"stripe-signature": sig, "api-version": "0.1d"},
         )
         # Inactive HMAC partner is filtered out of identification, falls through to legacy
         # which still works via verify_provisioning_signature (same secret in settings)
@@ -464,7 +458,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 "code_challenge_method": "S256",
             },
             content_type="application/json",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         # Inactive partner not identified -> no partner + no HMAC -> 401
         assert res.status_code == 401
@@ -500,7 +494,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 "code_challenge_method": "S256",
             },
             content_type="application/json",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         code = res.json()["oauth"]["code"]
 
@@ -508,7 +502,7 @@ class TestProvisioningAuthentication(APIBaseTest):
             "/api/agentic/oauth/token",
             data=urlencode({"grant_type": "authorization_code", "code": code, "code_verifier": verifier}),
             content_type="application/x-www-form-urlencoded",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         token = res.json()["access_token"]
 
@@ -519,8 +513,7 @@ class TestProvisioningAuthentication(APIBaseTest):
             "/api/agentic/provisioning/resources",
             data=json.dumps({"service_id": "analytics"}),
             content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {token}",
-            HTTP_API_VERSION="0.1d",
+            headers={"authorization": f"Bearer {token}", "api-version": "0.1d"},
         )
         assert res.status_code == 403
 
@@ -559,7 +552,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 "code_challenge_method": "S256",
             },
             content_type="application/json",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         assert res.status_code == 200
         assert res.json()["type"] == "oauth"
@@ -595,7 +588,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 "code_challenge_method": "S256",
             },
             content_type="application/json",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         assert res.status_code == 401
 
@@ -614,7 +607,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 "code_challenge_method": "plain",
             },
             content_type="application/json",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         assert res.status_code == 400
         assert "S256" in res.json()["error"]["message"]

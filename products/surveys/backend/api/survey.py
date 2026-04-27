@@ -90,6 +90,16 @@ CACHE_TIMEOUT_SECONDS = 300
 
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
 EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+# Keep this in sync with SurveyAPISerializer's public runtime contract.
+# Root survey description is intentionally excluded because customers have used it for internal notes.
+SURVEY_API_TRANSLATION_FIELDS = frozenset(
+    [
+        "name",
+        "thankYouMessageHeader",
+        "thankYouMessageDescription",
+        "thankYouMessageCloseButtonText",
+    ]
+)
 FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
     "linked_flag_id",
     "targeting_flag_filters",
@@ -2146,6 +2156,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             )
         },
     )
+    @extend_schema(operation_id="surveys_global_stats_retrieve")
     @action(methods=["GET"], detail=False, url_path="stats", required_scopes=["survey:read"])
     def global_stats(self, request: request.Request, **kwargs) -> Response:
         """Get aggregated response statistics across all surveys.
@@ -2163,6 +2174,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         response_data = self._get_survey_stats(date_from, date_to)
         return Response(response_data)
 
+    @extend_schema(operation_id="surveys_all_activity_retrieve")
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
@@ -2604,6 +2616,26 @@ class SurveyAPIActionSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+def get_survey_api_translations(translations: Any) -> dict[str, dict[str, str]] | None:
+    if not isinstance(translations, dict):
+        return None
+
+    safe_translations: dict[str, dict[str, str]] = {}
+    for language, translation in translations.items():
+        if not isinstance(language, str) or not isinstance(translation, dict):
+            continue
+
+        safe_translation = {
+            field: value
+            for field, value in translation.items()
+            if field in SURVEY_API_TRANSLATION_FIELDS and isinstance(value, str)
+        }
+        if safe_translation:
+            safe_translations[language] = safe_translation
+
+    return safe_translations or None
+
+
 class SurveyAPISerializer(serializers.ModelSerializer):
     """
     Serializer for the exposed /api/surveys endpoint, to be used in posthog-js and for headless APIs.
@@ -2614,6 +2646,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
     internal_targeting_flag_key = serializers.CharField(source="internal_targeting_flag.key", read_only=True)
     conditions = serializers.SerializerMethodField(method_name="get_conditions")
     enable_partial_responses = serializers.BooleanField(read_only=True)
+    translations = serializers.SerializerMethodField(method_name="get_translations")
 
     class Meta:
         model = Survey
@@ -2638,12 +2671,25 @@ class SurveyAPISerializer(serializers.ModelSerializer):
             "current_iteration_start_date",
             "schedule",
             "enable_partial_responses",
+            "translations",
         ]
         read_only_fields = fields
 
     @extend_schema_field(serializers.DictField(allow_null=True))
     def get_conditions(self, survey: Survey):
         return get_survey_conditions_with_actions(survey, SurveyAPIActionSerializer)
+
+    @extend_schema_field(
+        serializers.DictField(child=serializers.DictField(child=serializers.CharField()), allow_null=True)
+    )
+    def get_translations(self, survey: Survey) -> dict[str, dict[str, str]] | None:
+        return get_survey_api_translations(survey.translations)
+
+    def to_representation(self, instance: Survey) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        if data.get("translations") is None:
+            data.pop("translations", None)
+        return data
 
 
 def get_surveys_opt_in(team: Team) -> bool:
