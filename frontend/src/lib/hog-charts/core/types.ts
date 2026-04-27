@@ -53,13 +53,13 @@ export interface Series<Meta = unknown> {
 
 /** Data passed to the `onPointClick` callback when a user clicks a data point. */
 export interface PointClickData<Meta = unknown> {
-    /** Index of the clicked series within the original series array. */
+    /** Index of the primary series within the original series array. */
     seriesIndex: number
     /** Index along the x-axis (into the labels array) that was clicked. */
     dataIndex: number
-    /** The series that was clicked. */
+    /** Primary series at the clicked column. */
     series: Series<Meta>
-    /** The y-value at the clicked point. */
+    /** The y-value of the primary series at the clicked column. */
     value: number
     /** The x-axis label at the clicked point. */
     label: string

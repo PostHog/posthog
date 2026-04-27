@@ -56,6 +56,40 @@ export function useChartInteraction<Meta = unknown>({
 
     const isPinned = tooltipCtx?.isPinned ?? false
 
+    // Rebuild or clear the pinned tooltip when its underlying inputs change.
+    // Without this, the pin keeps stale values at stale pixel positions after the
+    // parent updates series/labels/scales/dimensions. resolveValue is read live via a
+    // ref so each render's new closure doesn't trigger a rebuild.
+    const resolveValueRef = useRef(resolveValue)
+    resolveValueRef.current = resolveValue
+    useEffect(() => {
+        if (!isPinned || !scales || !dimensions) {
+            return
+        }
+        setTooltipCtx((prev) => {
+            if (!prev || !prev.isPinned) {
+                return prev
+            }
+            if (prev.dataIndex >= labels.length) {
+                return null
+            }
+            const canvasBounds = canvasRef.current?.getBoundingClientRect() ?? new DOMRect()
+            const fresh = buildTooltipContext(
+                prev.dataIndex,
+                series,
+                labels,
+                scales.x,
+                scales.y,
+                canvasBounds,
+                resolveValueRef.current,
+                scales.yAxes
+            )
+            return fresh ? { ...fresh, isPinned: true, onUnpin: unpin } : null
+        })
+        // isPinned and tooltipCtx intentionally omitted to avoid feedback loop with setTooltipCtx.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [series, labels, scales, dimensions])
+
     // Dismiss listeners for pinned tooltip
     useEffect(() => {
         if (!isPinned) {
@@ -162,17 +196,18 @@ export function useChartInteraction<Meta = unknown>({
             return
         }
 
-        // Pin the tooltip if pinnable and there are multiple series
-        if (pinnable && tooltipCtx && tooltipCtx.seriesData.length > 1) {
-            setTooltipCtx({ ...tooltipCtx, isPinned: true, onUnpin: unpin })
-            return
-        }
-
         if (onPointClick) {
             const clickData = buildPointClickData(currentIndex, series, labels, resolveValue)
             if (clickData) {
                 onPointClick(clickData)
             }
+        }
+
+        // Pin the tooltip if pinnable and there are multiple series. This runs
+        // regardless of `onPointClick` so behavior doesn't depend on the runtime
+        // count of visible series.
+        if (pinnable && tooltipCtx && tooltipCtx.seriesData.length > 1) {
+            setTooltipCtx({ ...tooltipCtx, isPinned: true, onUnpin: unpin })
         }
     }, [onPointClick, series, labels, resolveValue, pinnable, tooltipCtx, isPinned, clearTooltip, unpin, hoverIndexRef])
 
