@@ -156,6 +156,10 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         return None
 
     @cached_property
+    def has_property_aggregation(self) -> bool:
+        return self.property_aggregation_expr is not None
+
+    @cached_property
     def group_type_index(self) -> int | None:
         return self.query.aggregation_group_type_index
 
@@ -435,7 +439,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         return self._explode_cumulative_actors(cumulative_actors_query)
 
     def _aggregation_value_expr(self) -> ast.Expr | None:
-        if not self.property_aggregation_expr:
+        if not self.has_property_aggregation:
             return None
 
         if self.query.retentionFilter.aggregationType == AggregationType.AVG:
@@ -634,7 +638,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 interval_data = breakdown_data[start_interval]
                 interval_data[intervals_from_base] = interval_data.get(intervals_from_base, 0) + corrected_count
 
-                if self.property_aggregation_expr and aggregation_value is not None:
+                if self.has_property_aggregation and aggregation_value is not None:
                     corrected_aggregation_value = correct_result_for_sampling(
                         aggregation_value, self.query.samplingFactor
                     )
@@ -666,7 +670,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                             "count": count_result_dict.get(return_interval, 0),
                             **(
                                 {"aggregation_value": value_result_dict.get(return_interval, 0.0)}
-                                if self.property_aggregation_expr
+                                if self.has_property_aggregation
                                 else {}
                             ),
                             "label": labels[return_interval],
@@ -692,7 +696,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 key = (row[cols["start_event_matching_interval"]], row[cols["intervals_from_base"]])
                 count = correct_result_for_sampling(row[cols["count"]], self.query.samplingFactor)
                 entry: dict[str, float] = {"count": count}
-                if self.property_aggregation_expr and has_aggregation_value:
+                if self.has_property_aggregation and has_aggregation_value:
                     entry["aggregation_value"] = (
                         correct_result_for_sampling(row[cols["aggregation_value"]], self.query.samplingFactor) or 0.0
                     )
@@ -700,7 +704,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
             labels = self.get_bracket_labels()
             default_values: dict[str, float] = {"count": 0.0}
-            if self.property_aggregation_expr and has_aggregation_value:
+            if self.has_property_aggregation and has_aggregation_value:
                 default_values["aggregation_value"] = 0.0
             results = [
                 {
