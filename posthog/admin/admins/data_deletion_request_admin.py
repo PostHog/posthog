@@ -11,6 +11,7 @@ from django.utils.html import format_html
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
+from posthog.event_usage import report_user_action
 from posthog.models.data_deletion_request import (
     DataDeletionRequest,
     ExecutionMode,
@@ -519,6 +520,20 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                 return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
             obj.refresh_from_db()
             self.log_change(request, obj, "Submitted: status changed from draft to pending.")
+            report_user_action(
+                request.user,
+                event="data_deletion_request:submitted",
+                properties={
+                    "request_id": str(obj.pk),
+                    "request_type": obj.request_type,
+                    "target_team_id": obj.team_id,
+                    "has_events": bool(obj.events),
+                    "delete_all_events": obj.delete_all_events,
+                    "has_hogql_predicate": bool(obj.hogql_predicate),
+                    "event_count": obj.count,
+                    "part_count": obj.part_count,
+                },
+            )
             messages.success(request, "Request submitted and is now pending.")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 

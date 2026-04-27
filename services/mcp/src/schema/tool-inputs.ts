@@ -41,12 +41,12 @@ export const DocumentationSearchSchema = z.object({
 })
 
 export const ExperimentResultsGetSchema = z.object({
-    experimentId: z.number().describe('The ID of the experiment to get comprehensive results for'),
-    refresh: z.boolean().describe('Force refresh of results instead of using cached values'),
-})
-
-export const ExperimentDeleteSchema = z.object({
-    experimentId: z.number().describe('The ID of the experiment to delete'),
+    id: z.number().describe('The ID of the experiment to get comprehensive results for'),
+    refresh: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe('Force refresh of results instead of using cached values. Defaults to false.'),
 })
 
 /**

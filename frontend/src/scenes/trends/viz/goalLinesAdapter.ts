@@ -1,5 +1,4 @@
-import type { Series } from 'lib/hog-charts'
-import type { ReferenceLineProps } from 'lib/hog-charts/overlays/ReferenceLine'
+import type { ReferenceLineProps, Series } from 'lib/hog-charts'
 
 import type { GoalLine as SchemaGoalLine } from '~/queries/schema/schema-general'
 

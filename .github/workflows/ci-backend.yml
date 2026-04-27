@@ -25,6 +25,14 @@ env:
     CLICKHOUSE_HOST: 'localhost'
     CLICKHOUSE_SECURE: 'False'
     CLICKHOUSE_VERIFY: 'False'
+    # Restricted `autoresearch` user defined in docker/clickhouse/users-dev.xml,
+    # pointed at the CI test DB (posthog_test, not `default` as in regular dev).
+    CLICKHOUSE_TEST_CLUSTER_HOST: 'localhost'
+    CLICKHOUSE_TEST_CLUSTER_DATABASE: 'posthog_test'
+    CLICKHOUSE_TEST_CLUSTER_USER: 'autoresearch'
+    CLICKHOUSE_TEST_CLUSTER_PASSWORD: 'autoresearchpass'
+    CLICKHOUSE_TEST_CLUSTER_SECURE: 'False'
+    CLICKHOUSE_TEST_CLUSTER_VERIFY: 'False'
     TEST: 1
     CLICKHOUSE_SERVER_IMAGE_VERSION: ${{ github.event.inputs.clickhouseServerVersion || '' }}
     CLICKHOUSE_COMPAT_PYTEST_TARGETS: 'posthog/clickhouse ee/clickhouse'

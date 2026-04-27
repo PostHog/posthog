@@ -44,6 +44,7 @@ from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action, format_paginated_url, get_pk_or_uuid, get_target_entity
 from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import INSIGHT_FUNNELS, LIMIT, OFFSET, FunnelVizType
 from posthog.decorators import cached_by_filters
 from posthog.event_usage import get_request_analytics_properties
@@ -771,6 +772,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 resp["Cache-Control"] = "max-age=10"
                 return resp
 
+            tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.QUERY)
             refresh = refresh_requested_by_client(request)
             runner = PropertyValuesQueryRunner(
                 team=self.team,
