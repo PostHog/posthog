@@ -1588,6 +1588,18 @@ snapshots:
         hash: v1.k794b7964.d669cc7bd939e7cd9bae4003a228e194a6c383d827feb04baf491a89dfc0b698.eD11DZ4cr8p1GMBdBaTW1doXInEVj9CIhnyMP8RNpFo
     insights-insightstable--is-legend--light:
         hash: v1.k794b7964.d9eec920b0b2f3c9ea87c9e0d2b298bc37339217e4211d0cf1a147630f09b75d.xGcJlQO8pvoNnHyoMNZ4F58uqKh5PDg_UiGlO5bAMn8
+    insights-trendslinechartd3--breakdown--dark:
+        hash: v1.k794b7964.387cc7a7d8bb6415de59aa9c83338a048f553470864229a5683d35f11cc57323.i4Iy4_K2zpwMq-fNkpJmFf7TCd0XTCdBZ0p9bMBqvyw
+    insights-trendslinechartd3--breakdown--light:
+        hash: v1.k794b7964.43f5bd8a76c37619febc27195fba8a173b021a4894078670379791da5e3729af.fIhS1KB8PUxvuvWnURlKw5yLnUB-4orulj-9zgzCgNE
+    insights-trendslinechartd3--default--dark:
+        hash: v1.k794b7964.e60c7e31c5f57da6cdb31c3ecacec19e1cc7a040f323dcd84b1aa0aa3e315f88.4bofwrOlSqFXxpJ5uXF6mce1WtZsjpwCUl56r8x54bo
+    insights-trendslinechartd3--default--light:
+        hash: v1.k794b7964.90a4e15f1ad98e1891dddf3be7abd078c2c36b136c5380143c24db7ddb780c80.4KGgMlDXwVr9a7XR-7Eby55XpSqvOj8woSU0cHB3pBo
+    insights-trendslinechartd3--single-series--dark:
+        hash: v1.k794b7964.aa944593aba5114f92c2bcf9a0d387a8127858d5a0400c1fa8fbacaf2adb632e.QUOG2kM_4XXSWCqCAiR4rx8ViIs5u9UJqtSrTHToWYg
+    insights-trendslinechartd3--single-series--light:
+        hash: v1.k794b7964.de01e8eeecd42f4ddaa8c615020d0b7ab3d5d44048f62850a9c598f2a6ea5d69.R0MZRlGXe44hOD7RlJuRlvXIxaB3vMa0OGg1Gjrqeiw
     layout-feature-previews--basic--dark:
         hash: v1.k794b7964.65cb2d154c4f630bc48a9f6b45b24e641c97b4412ca5170e0c1de8bc5c7d759d.vu2XHwyh2oLXbqNS7NdZd2tABaC8nM7J0iJps6FVYl8
     layout-feature-previews--basic--light:
