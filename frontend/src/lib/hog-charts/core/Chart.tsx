@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react'
+import React, { useCallback, useMemo, useRef } from 'react'
 
 import { AxisLabels } from '../overlays/AxisLabels'
 import { Crosshair } from '../overlays/Crosshair'
@@ -168,11 +168,19 @@ export function Chart<Meta = unknown>({
         [canvasRef]
     )
 
-    const defaultResolveValue = useCallback<ResolveValueFn>((s, i) => {
+    // Wrap resolveValue in a ref + stable callback so callers don't have to memoize it.
+    // An un-memoized arrow literal from a parent would otherwise invalidate the layout
+    // context on every render and defeat the layout/hover split.
+    const resolveValueRef = useRef<ResolveValueFn | undefined>(resolveValue)
+    resolveValueRef.current = resolveValue
+    const stableResolveValue = useCallback<ResolveValueFn>((s, i) => {
+        const fn = resolveValueRef.current
+        if (fn) {
+            return fn(s, i)
+        }
         const v = s.data[i]
         return typeof v === 'number' && Number.isFinite(v) ? v : 0
     }, [])
-    const resolveValueForContext = resolveValue ?? defaultResolveValue
 
     const layoutValue = useMemo<ChartLayoutContextValue | null>(() => {
         if (!scales || !dimensions) {
@@ -184,10 +192,10 @@ export function Chart<Meta = unknown>({
             labels,
             series: coloredSeries,
             theme,
-            resolveValue: resolveValueForContext,
+            resolveValue: stableResolveValue,
             canvasBounds,
         }
-    }, [scales, dimensions, labels, coloredSeries, theme, resolveValueForContext, canvasBounds])
+    }, [scales, dimensions, labels, coloredSeries, theme, stableResolveValue, canvasBounds])
 
     const hoverValue = useMemo<ChartHoverContextValue>(() => ({ hoverIndex }), [hoverIndex])
 

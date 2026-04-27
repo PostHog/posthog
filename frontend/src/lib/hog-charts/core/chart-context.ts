@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo } from 'react'
+import { createContext, useContext } from 'react'
 
 import type { ChartDimensions, ChartScales, ChartTheme, ResolveValueFn, Series } from './types'
 
@@ -63,5 +63,7 @@ export function useChartHover(): ChartHoverContextValue {
 export function useChart<Meta = unknown>(): BaseChartContext<Meta> {
     const layout = useChartLayout<Meta>()
     const hover = useChartHover()
-    return useMemo(() => ({ ...layout, ...hover }), [layout, hover])
+    // Plain spread — any caller of useChart() already re-renders on hover (the hover
+    // context updates), so a memo here would never short-circuit and only adds overhead.
+    return { ...layout, ...hover }
 }
