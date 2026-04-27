@@ -8,7 +8,7 @@ from temporalio import activity
 from posthog.models import Team
 from posthog.temporal.common.utils import asyncify
 
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.temporal.exceptions import TaskInvalidStateError, TaskNotFoundError
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import format_allowed_domains_for_log
@@ -35,6 +35,7 @@ class TaskProcessingContext:
     github_integration_id: int | None
     repository: str | None
     distinct_id: str
+    task_created_by_id: int | None = None
     create_pr: bool = True
     pr_loop_enabled: bool = False
     state: dict | None = None
@@ -78,14 +79,15 @@ class TaskProcessingContext:
         return value if isinstance(value, str) else None
 
     def get_sandbox_environment(self):
-        """Resolve the SandboxEnvironment, team-scoped via the TaskRun model."""
-        from products.tasks.backend.models import TaskRun
-
-        try:
-            task_run = TaskRun.objects.select_related("task").get(id=self.run_id)
-            return task_run.get_sandbox_environment()
-        except TaskRun.DoesNotExist:
+        """Resolve the SandboxEnvironment, team-scoped and respecting privacy."""
+        sandbox_environment_id = self.sandbox_environment_id
+        if not sandbox_environment_id:
             return None
+        return SandboxEnvironment.get_accessible_for_task(
+            environment_id=sandbox_environment_id,
+            team_id=self.team_id,
+            task_created_by_id=self.task_created_by_id,
+        )
 
     @property
     def branch(self) -> str | None:
@@ -200,6 +202,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         github_integration_id=task.github_integration_id,
         repository=task.repository,
         distinct_id=distinct_id,
+        task_created_by_id=task.created_by_id,
         create_pr=input.create_pr,
         pr_loop_enabled=pr_loop_enabled,
         state=state,

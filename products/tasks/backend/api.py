@@ -620,7 +620,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if sandbox_environment_id is not None:
             sandbox_environment = SandboxEnvironment.get_accessible_for_task(
                 environment_id=sandbox_environment_id,
-                team=task.team,
+                team_id=task.team_id,
                 task_created_by_id=task.created_by_id,
             )
             if sandbox_environment is None:
@@ -833,7 +833,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if sandbox_environment_id is not None:
             sandbox_environment = SandboxEnvironment.get_accessible_for_task(
                 environment_id=sandbox_environment_id,
-                team=task.team,
+                team_id=task.team_id,
                 task_created_by_id=task.created_by_id,
             )
             if sandbox_environment is None:

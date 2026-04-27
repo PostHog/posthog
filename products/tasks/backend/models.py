@@ -284,7 +284,7 @@ class Task(DeletedMetaFields, models.Model):
         if sandbox_environment_id is not None:
             sandbox_env = SandboxEnvironment.get_accessible_for_task(
                 environment_id=sandbox_environment_id,
-                team=team,
+                team_id=team.id,
                 task_created_by_id=user_id,
             )
             if sandbox_env is None:
@@ -526,7 +526,7 @@ class TaskRun(models.Model):
             return None
         return SandboxEnvironment.get_accessible_for_task(
             environment_id=env_id,
-            team=self.team,
+            team_id=self.team_id,
             task_created_by_id=self.task.created_by_id,
         )
 
@@ -1046,11 +1046,11 @@ class SandboxEnvironment(UUIDModel):
         cls,
         *,
         environment_id: str | uuid.UUID,
-        team: Team,
+        team_id: int,
         task_created_by_id: int | None,
     ) -> Optional["SandboxEnvironment"]:
         try:
-            environment = cls.objects.filter(id=environment_id, team=team).first()
+            environment = cls.objects.filter(id=environment_id, team_id=team_id).first()
         except (ValidationError, ValueError):
             return None
         if environment is None:
