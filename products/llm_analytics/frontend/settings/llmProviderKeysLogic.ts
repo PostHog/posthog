@@ -8,7 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import type { llmProviderKeysLogicType } from './llmProviderKeysLogicType'
 
 export type LLMProviderKeyState = 'unknown' | 'ok' | 'invalid' | 'error'
-export type LLMProvider = 'openai' | 'anthropic' | 'gemini' | 'openrouter' | 'fireworks' | 'azure_openai'
+export type LLMProvider = 'openai' | 'anthropic' | 'gemini' | 'openrouter' | 'fireworks' | 'azure_openai' | 'minimax'
 
 /** Default Azure OpenAI API version — keep in sync with backend DEFAULT_API_VERSION. */
 export const DEFAULT_AZURE_API_VERSION = '2024-10-21'
@@ -20,6 +20,7 @@ export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     openrouter: 'OpenRouter',
     fireworks: 'Fireworks',
     azure_openai: 'Azure OpenAI',
+    minimax: 'MiniMax',
 }
 
 const LLM_PROVIDERS = new Set<string>(Object.keys(LLM_PROVIDER_LABELS))

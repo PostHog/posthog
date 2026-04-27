@@ -100,6 +100,7 @@ def _get_provider(name: str, provider_key: "LLMProviderKey | None" = None) -> "P
     from products.llm_analytics.backend.llm.providers.azure_openai import DEFAULT_API_VERSION, AzureOpenAIAdapter
     from products.llm_analytics.backend.llm.providers.fireworks import FireworksAdapter
     from products.llm_analytics.backend.llm.providers.gemini import GeminiAdapter
+    from products.llm_analytics.backend.llm.providers.minimax import MiniMaxAdapter
     from products.llm_analytics.backend.llm.providers.openai import OpenAIAdapter
     from products.llm_analytics.backend.llm.providers.openrouter import OpenRouterAdapter
 
@@ -114,6 +115,8 @@ def _get_provider(name: str, provider_key: "LLMProviderKey | None" = None) -> "P
             return cast("Provider", OpenRouterAdapter())
         case "fireworks":
             return cast("Provider", FireworksAdapter())
+        case "minimax":
+            return cast("Provider", MiniMaxAdapter())
         case "azure_openai":
             config = provider_key.encrypted_config if provider_key else {}
             return cast(
