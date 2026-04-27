@@ -6,9 +6,10 @@ operations that are shared between :class:`GitHubIntegration` (team-scoped) and
 """
 
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from django.conf import settings
 from django.core.cache import cache
@@ -16,8 +17,35 @@ from django.core.cache import cache
 import jwt
 import requests
 import structlog
+from prometheus_client import Counter, Gauge
 
 logger = structlog.get_logger(__name__)
+
+github_api_request_counter = Counter(
+    "github_integration_api_requests",
+    "Number of GitHub API requests made through a GitHub integration.",
+    labelnames=["integration_id", "method", "endpoint", "status_code"],
+)
+github_api_rate_limit_remaining_gauge = Gauge(
+    "github_integration_api_rate_limit_remaining",
+    "Most recently observed GitHub API rate limit remaining count by integration and resource.",
+    labelnames=["integration_id", "resource"],
+)
+github_api_rate_limit_limit_gauge = Gauge(
+    "github_integration_api_rate_limit_limit",
+    "Most recently observed GitHub API rate limit limit by integration and resource.",
+    labelnames=["integration_id", "resource"],
+)
+github_api_rate_limit_reset_timestamp_gauge = Gauge(
+    "github_integration_api_rate_limit_reset_timestamp_seconds",
+    "Most recently observed GitHub API rate limit reset timestamp by integration and resource.",
+    labelnames=["integration_id", "resource"],
+)
+github_cache_access_counter = Counter(
+    "github_integration_cache_accesses",
+    "Number of GitHub integration cache accesses by cache type, repository, and result.",
+    labelnames=["integration_id", "cache", "repository", "result"],
+)
 
 # Repo cache: 1-hour staleness window, 24-hour eviction timeout.
 GITHUB_REPOSITORY_CACHE_TTL_SECONDS = 60 * 60
@@ -101,6 +129,93 @@ class GitHubIntegrationBase:
             },
         )
 
+    @staticmethod
+    def _rate_limit_header(headers: Mapping[str, str] | None, name: str) -> float | None:
+        if headers is None:
+            return None
+        value = headers.get(name)
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _record_github_api_response(self, response: requests.Response, method: str, endpoint: str) -> None:
+        integration_id = str(self.integration.id)
+        status_code = str(response.status_code)
+        github_api_request_counter.labels(integration_id, method, endpoint, status_code).inc()
+
+        headers = response.headers if isinstance(response.headers, Mapping) else None
+        resource = headers.get("X-RateLimit-Resource", "unknown") if headers is not None else "unknown"
+        remaining = self._rate_limit_header(headers, "X-RateLimit-Remaining")
+        limit = self._rate_limit_header(headers, "X-RateLimit-Limit")
+        reset_at = self._rate_limit_header(headers, "X-RateLimit-Reset")
+
+        if remaining is not None:
+            github_api_rate_limit_remaining_gauge.labels(integration_id, resource).set(remaining)
+        if limit is not None:
+            github_api_rate_limit_limit_gauge.labels(integration_id, resource).set(limit)
+        if reset_at is not None:
+            github_api_rate_limit_reset_timestamp_gauge.labels(integration_id, resource).set(reset_at)
+
+    def _record_github_api_exception(self, method: str, endpoint: str) -> None:
+        github_api_request_counter.labels(str(self.integration.id), method, endpoint, "exception").inc()
+
+    def _record_github_cache_access(
+        self, cache_type: Literal["repositories", "branches"], result: Literal["hit", "miss"], repository: str
+    ) -> None:
+        github_cache_access_counter.labels(str(self.integration.id), cache_type, repository.casefold(), result).inc()
+
+    def _github_api_get(
+        self,
+        url: str,
+        *,
+        endpoint: str,
+        headers: dict[str, str],
+        params: dict[str, str | int] | None = None,
+        timeout: int | None = None,
+    ) -> requests.Response:
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=timeout)
+        except requests.RequestException:
+            self._record_github_api_exception("GET", endpoint)
+            raise
+        self._record_github_api_response(response, "GET", endpoint)
+        return response
+
+    def _github_api_post(
+        self,
+        url: str,
+        *,
+        endpoint: str,
+        headers: dict[str, str],
+        json_body: Mapping[str, object] | None = None,
+    ) -> requests.Response:
+        try:
+            response = requests.post(url, json=json_body, headers=headers)
+        except requests.RequestException:
+            self._record_github_api_exception("POST", endpoint)
+            raise
+        self._record_github_api_response(response, "POST", endpoint)
+        return response
+
+    def _github_api_put(
+        self,
+        url: str,
+        *,
+        endpoint: str,
+        headers: dict[str, str],
+        json_body: Mapping[str, object],
+    ) -> requests.Response:
+        try:
+            response = requests.put(url, json=json_body, headers=headers)
+        except requests.RequestException:
+            self._record_github_api_exception("PUT", endpoint)
+            raise
+        self._record_github_api_response(response, "PUT", endpoint)
+        return response
+
     # --- Installation access token ---
 
     @property
@@ -128,7 +243,13 @@ class GitHubIntegrationBase:
         hook is called *before* ``save()`` so it can mutate extra fields that
         will be included in a single write.
         """
-        response = self.client_request(f"installations/{self.github_installation_id}/access_tokens", method="POST")
+        endpoint = "/app/installations/{installation_id}/access_tokens"
+        try:
+            response = self.client_request(f"installations/{self.github_installation_id}/access_tokens", method="POST")
+        except requests.RequestException:
+            self._record_github_api_exception("POST", endpoint)
+            raise
+        self._record_github_api_response(response, "POST", endpoint)
         data = response.json()
 
         if response.status_code != 201 or not data.get("token"):
@@ -179,7 +300,9 @@ class GitHubIntegrationBase:
 
     # --- Authenticated API helpers ---
 
-    def _installation_authenticated_get(self, url: str, *, timeout: int = 10) -> requests.Response | None:
+    def _installation_authenticated_get(
+        self, url: str, *, endpoint: str, timeout: int = 10
+    ) -> requests.Response | None:
         """GET with installation token; refreshes on expiry or 401."""
         try:
             if self.access_token_expired():
@@ -189,8 +312,9 @@ class GitHubIntegrationBase:
 
         def fetch() -> requests.Response:
             access_token = (self.integration.sensitive_config or {}).get("access_token")
-            return requests.get(
+            return self._github_api_get(
                 url,
+                endpoint=endpoint,
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {access_token}",
@@ -215,7 +339,9 @@ class GitHubIntegrationBase:
 
     def installation_can_access_repository(self, repository: str) -> bool:
         """Whether this installation token can access the repo (``GET /repos/{owner}/{repo}`` returns 200)."""
-        response = self._installation_authenticated_get(f"https://api.github.com/repos/{repository}")
+        response = self._installation_authenticated_get(
+            f"https://api.github.com/repos/{repository}", endpoint="/repos/{owner}/{repo}"
+        )
         if response is None:
             return False
         return response.status_code == 200
@@ -227,7 +353,10 @@ class GitHubIntegrationBase:
 
     def get_commit_author_info(self, repository: str, sha: str) -> GitHubCommitAuthor | None:
         """Resolve a commit SHA to author metadata via the GitHub API."""
-        response = self._installation_authenticated_get(f"https://api.github.com/repos/{repository}/commits/{sha}")
+        response = self._installation_authenticated_get(
+            f"https://api.github.com/repos/{repository}/commits/{sha}",
+            endpoint="/repos/{owner}/{repo}/commits/{sha}",
+        )
         if response is None:
             return None
         if response.status_code != 200:
@@ -274,8 +403,9 @@ class GitHubIntegrationBase:
 
         def fetch(page: int) -> requests.Response:
             access_token = (self.integration.sensitive_config or {}).get("access_token")
-            return requests.get(
+            return self._github_api_get(
                 f"https://api.github.com/installation/repositories?page={page}&per_page={GITHUB_PER_PAGE}",
+                endpoint="/installation/repositories",
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {access_token}",
@@ -453,8 +583,9 @@ class GitHubIntegrationBase:
 
         def fetch(page: int) -> requests.Response:
             access_token = (self.integration.sensitive_config or {}).get("access_token")
-            return requests.get(
+            return self._github_api_get(
                 f"https://api.github.com/repos/{repo}/branches?per_page={GITHUB_PER_PAGE}&page={page}",
+                endpoint="/repos/{owner}/{repo}/branches",
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {access_token}",
@@ -560,6 +691,62 @@ class GitHubIntegrationBase:
 
             offset += len(branches)
 
+    def get_top_starred_repository(self) -> str | None:
+        """Get the repository with the most stars from the GitHub integration.
+
+        Returns the full repository name in format 'org/repo', or None if no repos available.
+        """
+        try:
+            if self.access_token_expired():
+                self.refresh_access_token()
+        except Exception:
+            logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
+
+        def fetch(page: int = 1) -> requests.Response:
+            access_token = (self.integration.sensitive_config or {}).get("access_token")
+            return self._github_api_get(
+                f"https://api.github.com/installation/repositories?page={page}&per_page=100",
+                endpoint="/installation/repositories",
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {access_token}",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+            )
+
+        response = fetch()
+
+        if response.status_code == 401:
+            try:
+                self.refresh_access_token()
+            except Exception:
+                logger.warning("GitHubIntegration: token refresh after 401 failed", exc_info=True)
+            else:
+                response = fetch()
+
+        try:
+            body = response.json()
+        except Exception:
+            logger.warning(
+                "GitHubIntegration: get_top_starred_repository non-JSON response",
+                status_code=response.status_code,
+            )
+            return None
+
+        repositories = body.get("repositories")
+        if response.status_code != 200 or not isinstance(repositories, list) or not repositories:
+            return None
+
+        top_repo = max(repositories, key=lambda r: r.get("stargazers_count", 0) if isinstance(r, dict) else 0)
+        if not isinstance(top_repo, dict):
+            return None
+
+        full_name = top_repo.get("full_name")
+        if isinstance(full_name, str):
+            return full_name.lower()
+
+        return None
+
     def get_default_branch(self, repository: str) -> str:
         """Get the default branch for a repository."""
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
@@ -573,8 +760,9 @@ class GitHubIntegrationBase:
         if not access_token:
             raise ValueError("GitHub access token not configured")
 
-        response = requests.get(
+        response = self._github_api_get(
             f"https://api.github.com/repos/{repo_path}",
+            endpoint="/repos/{owner}/{repo}",
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
@@ -653,6 +841,7 @@ class GitHubIntegrationBase:
         cached = self._get_repository_cache()
         has_cached_snapshot = cached is not None
         should_refresh = cached is None or self.repository_cache_is_stale()
+        self._record_github_cache_access("repositories", "miss" if should_refresh else "hit", "__all__")
 
         if should_refresh:
             try:
@@ -677,6 +866,7 @@ class GitHubIntegrationBase:
         cached = self._get_repository_cache()
         has_cached_snapshot = cached is not None
         should_refresh = cached is None or self.repository_cache_is_stale()
+        self._record_github_cache_access("repositories", "miss" if should_refresh else "hit", "__all__")
 
         if should_refresh:
             try:
@@ -731,7 +921,7 @@ class GitHubIntegrationBase:
     def sync_branch_cache(self, repo: str) -> tuple[list[str], str | None]:
         branches = self.list_all_branches(repo)
         cached = self._get_branch_cache(repo)
-        cached_default_branch = None if cached is None else cached.get("default_branch")
+        cached_default_branch = None if cached is None else cast(str | None, cached.get("default_branch"))
 
         default_branch: str | None
         try:
@@ -766,6 +956,7 @@ class GitHubIntegrationBase:
     ) -> tuple[list[str], str | None, bool]:
         cached = self._get_branch_cache(repo)
         should_refresh = cached is None or self.branch_cache_is_stale(repo)
+        self._record_github_cache_access("branches", "miss" if should_refresh else "hit", repo)
 
         if should_refresh:
             try:
