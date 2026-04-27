@@ -36,7 +36,7 @@ import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clamp, downloadFile, findLastIndex, objectsEqual, uuid } from 'lib/utils'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
-import { ReplayIframeData } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
+import type { ReplayIframeData } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import {
@@ -55,8 +55,11 @@ import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLo
 import { playerCommentOverlayLogic } from './commenting/playerFrameCommentOverlayLogic'
 import { playerCommentOverlayLogicType } from './commenting/playerFrameCommentOverlayLogicType'
 import { playerSettingsLogic } from './playerSettingsLogic'
+import { ReplayIframeDatakeyPrefix, removeFromLocalStorageWithPrefix } from './replay-iframe-storage'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { snapshotDataLogic } from './snapshotDataLogic'
+
+export { removeReplayIframeDataFromLocalStorage } from './replay-iframe-storage'
 import {
     addAssetError,
     DoctorDiagnostics,
@@ -142,8 +145,6 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataCo
     playNextRecording?: (automatic: boolean) => void
 }
 
-const ReplayIframeDatakeyPrefix = 'ph_replay_fixed_heatmap_'
-
 // weights should add up to 1
 const smoothingWeights = [
     0.07,
@@ -170,19 +171,6 @@ const trackingStateMap: Record<SessionPlayerState, PlayerTimeTracking['state']> 
 
 const isMediaElementPlaying = (element: HTMLMediaElement): boolean =>
     !!(element.currentTime > 0 && !element.paused && !element.ended && element.readyState > 2)
-
-function removeFromLocalStorageWithPrefix(prefix: string): void {
-    for (let i = localStorage.length - 1; i >= 0; i--) {
-        const key = localStorage.key(i)
-        if (key?.startsWith(prefix)) {
-            localStorage.removeItem(key)
-        }
-    }
-}
-
-export function removeReplayIframeDataFromLocalStorage(): void {
-    removeFromLocalStorageWithPrefix(ReplayIframeDatakeyPrefix)
-}
 
 /**
  * returns the relative second in the recording

@@ -15,7 +15,7 @@ import { CommonFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps
 import { PostHogAppToolbarEvent, calculateViewportRange } from 'lib/components/IframedToolbarBrowser/utils'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
 import { objectsEqual } from 'lib/utils'
-import { removeReplayIframeDataFromLocalStorage } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { removeReplayIframeDataFromLocalStorage } from 'scenes/session-recordings/player/replay-iframe-storage'
 
 import { hogql } from '~/queries/utils'
 
