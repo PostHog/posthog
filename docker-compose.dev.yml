@@ -495,6 +495,20 @@ services:
         expose:
             - 9200
 
+    # OpenSearch (LLM trace reverse index). 9201 to avoid Elasticsearch's 9200.
+    opensearch:
+        extends:
+            file: docker-compose.base.yml
+            service: opensearch
+        ports:
+            - '127.0.0.1:9201:9200'
+    opensearch-dashboards:
+        extends:
+            file: docker-compose.base.yml
+            service: opensearch-dashboards
+        ports:
+            - '127.0.0.1:5601:5601'
+
     temporal:
         extends:
             file: docker-compose.base.yml
