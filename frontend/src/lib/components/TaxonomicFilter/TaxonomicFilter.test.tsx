@@ -364,20 +364,12 @@ describe('TaxonomicFilter', () => {
             expect(value).toBe(3)
         })
 
-        it('captures `taxonomic filter item selected` with groupType, sourceGroupType, position and orthogonal source booleans on click', async () => {
-            const captureSpy = jest.spyOn(posthog, 'capture')
-            renderFilter()
-
-            await waitFor(() => {
-                expect(screen.getByTestId('prop-filter-events-1')).toBeInTheDocument()
-            })
-
-            await userEvent.click(screen.getByTestId('prop-filter-events-1'))
-
-            await waitFor(() => {
-                const call = captureSpy.mock.calls.find((c) => c[0] === 'taxonomic filter item selected')
-                expect(call).not.toBeUndefined()
-                expect(call?.[1]).toMatchObject({
+        it.each([
+            {
+                name: 'browse — clicking a row in the events tab with no search query',
+                searchQuery: null,
+                rowIndex: 1,
+                expected: {
                     groupType: TaxonomicFilterGroupType.Events,
                     sourceGroupType: TaxonomicFilterGroupType.Events,
                     wasFromPinnedList: false,
@@ -385,34 +377,43 @@ describe('TaxonomicFilter', () => {
                     wasQuickFilter: false,
                     hadSearchInput: false,
                     position: 1,
-                })
-            })
-        })
-
-        it('captures hadSearchInput=true when a search query is active at selection time', async () => {
+                },
+            },
+            {
+                name: 'search_result — typing a query then clicking the top match',
+                searchQuery: 'event',
+                rowIndex: 0,
+                expected: {
+                    groupType: TaxonomicFilterGroupType.Events,
+                    sourceGroupType: TaxonomicFilterGroupType.Events,
+                    wasFromPinnedList: false,
+                    wasFromRecents: false,
+                    wasQuickFilter: false,
+                    hadSearchInput: true,
+                    position: 0,
+                },
+            },
+        ])('captures `taxonomic filter item selected`: $name', async ({ searchQuery, rowIndex, expected }) => {
             const captureSpy = jest.spyOn(posthog, 'capture')
             renderFilter()
 
             await waitFor(() => {
-                expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
+                expect(screen.getByTestId(`prop-filter-events-${rowIndex}`)).toBeInTheDocument()
             })
 
-            await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'event')
+            if (searchQuery) {
+                await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), searchQuery)
+                await waitFor(() => {
+                    expect(screen.getByTestId(`prop-filter-events-${rowIndex}`)).toBeInTheDocument()
+                })
+            }
 
-            await waitFor(() => {
-                expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
-            })
-
-            await userEvent.click(screen.getByTestId('prop-filter-events-0'))
+            await userEvent.click(screen.getByTestId(`prop-filter-events-${rowIndex}`))
 
             await waitFor(() => {
                 const call = captureSpy.mock.calls.find((c) => c[0] === 'taxonomic filter item selected')
-                expect(call?.[1]).toMatchObject({
-                    hadSearchInput: true,
-                    wasFromPinnedList: false,
-                    wasFromRecents: false,
-                    wasQuickFilter: false,
-                })
+                expect(call).not.toBeUndefined()
+                expect(call?.[1]).toMatchObject(expected)
             })
         })
 
