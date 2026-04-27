@@ -930,7 +930,8 @@ export interface ExternalDataSourceCreateApi {
 * `BuildBetter` - BuildBetter
 * `Convex` - Convex
 * `ClickHouse` - ClickHouse
-* `Plain` - Plain */
+* `Plain` - Plain
+* `Resend` - Resend */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
     payload: ExternalDataSourceCreateApiPayload
@@ -1216,7 +1217,8 @@ export interface DatabaseSchemaRequestApi {
 * `BuildBetter` - BuildBetter
 * `Convex` - Convex
 * `ClickHouse` - ClickHouse
-* `Plain` - Plain */
+* `Plain` - Plain
+* `Resend` - Resend */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
