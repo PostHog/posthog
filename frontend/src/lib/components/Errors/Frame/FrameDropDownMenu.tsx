@@ -54,9 +54,11 @@ const PROVIDER_ICON_MAP: Record<string, React.ComponentType<{ className?: string
 export function SourceDataLink({ sourceData }: { sourceData: SourceData }): JSX.Element {
     const ProviderIcon = sourceData.provider ? PROVIDER_ICON_MAP[sourceData.provider] : null
     const Icon = ProviderIcon || IconExternal
+    // asChild makes the Link itself the menu item, so the click reaches the anchor
+    // instead of being swallowed by Radix's default DropdownMenuItem onSelect.
     return (
-        <DropdownMenuItem>
-            <Link to={sourceData.url} target="_blank" className="inline-flex items-center">
+        <DropdownMenuItem asChild>
+            <Link to={sourceData.url} target="_blank" buttonProps={{ menuItem: true }}>
                 <Icon className="w-3.5 h-3.5" />
                 Open in {sourceData.provider}
             </Link>
