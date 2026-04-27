@@ -1463,7 +1463,7 @@ class OrderBy(StrEnum):
     TIMESTAMP = "timestamp"
 
 
-class OrderDirection2(StrEnum):
+class OrderDirection1(StrEnum):
     ASC = "asc"
     DESC = "desc"
 
@@ -1704,7 +1704,7 @@ class ErrorTrackingIssueCohort(BaseModel):
     name: str
 
 
-class OrderDirection3(StrEnum):
+class OrderDirection2(StrEnum):
     ASC = "ASC"
     DESC = "DESC"
 
@@ -13664,7 +13664,7 @@ class ErrorTrackingIssueFilteringToolOutput(BaseModel):
         | None
     ) = None
     orderBy: ErrorTrackingOrderBy = Field(..., description="Field to sort results by.")
-    orderDirection: OrderDirection3 | None = Field(default=None, description="Sort direction.")
+    orderDirection: OrderDirection2 | None = Field(default=None, description="Sort direction.")
     removedFilterIndexes: list[int] | None = None
     searchQuery: str | None = Field(
         default=None,
@@ -18820,7 +18820,7 @@ class DocumentSimilarityQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     order_by: OrderBy
-    order_direction: OrderDirection2
+    order_direction: OrderDirection1
     origin: EmbeddedDocument
     products: list[str]
     renderings: list[str]
@@ -20088,7 +20088,7 @@ class ErrorTrackingQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     orderBy: ErrorTrackingOrderBy = Field(..., description="Field to sort results by.")
-    orderDirection: OrderDirection3 | None = Field(default=None, description="Sort direction.")
+    orderDirection: OrderDirection2 | None = Field(default=None, description="Sort direction.")
     pendingFingerprintIssueStateUpdates: list[ErrorTrackingPendingFingerprintIssueStateUpdate] | None = Field(
         default=None,
         description=(
