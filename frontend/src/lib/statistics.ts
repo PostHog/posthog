@@ -25,13 +25,14 @@ export function ciRanges(values: number[], ci: number = 0.95): [number[], number
     return [lower, upper]
 }
 
-export function trendLine(values: number[]): number[] {
+export function trendLine(values: number[], fitUpTo?: number): number[] {
     const n = values.length
     if (n < 2) {
         return values
     }
 
-    const coordinates: [number, number][] = values.map((y, x) => [x, y])
+    const fitEnd = fitUpTo != null ? Math.max(2, Math.min(fitUpTo, n)) : n
+    const coordinates: [number, number][] = values.slice(0, fitEnd).map((y, x) => [x, y])
     const { m, b } = linearRegression(coordinates)
 
     return values.map((_, x) => m * x + b)

@@ -1,6 +1,6 @@
 @layer components {
     .quill-popover__content {
-        z-index: 50;
+        z-index: var(--quill-z-popover, 50);
         width: 18rem;
         padding: 0.625rem;
         font-size: var(--text-xs, 0.75rem);

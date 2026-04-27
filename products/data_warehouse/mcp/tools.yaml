@@ -233,23 +233,11 @@ tools:
         enabled: false
     external-data-sources-db-schema:
         operation: external_data_sources_database_schema_create
-        enabled: true
-        scopes:
-            - external_data_source:write
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Discover tables and sync methods for a source
-        description: >
-            Validate credentials against a remote source and return the list of tables available to sync. Each table
-            entry includes: table name, incremental_available, append_available, cdc_available, supports_webhooks,
-            detected_primary_keys, available_columns (name/type/nullable), rows estimate, and incremental_fields
-            (candidate timestamp/integer columns for incremental sync). Use this BEFORE external-data-sources-create so
-            the user can pick a sync_type per table. Returns 400 with a message if credentials are invalid.
-        param_overrides:
-            source_type:
-                input_schema: ExternalDataSourceTypeSchema
+        # Hand-written tool at services/mcp/src/tools/posthogAiTools/externalDataSourcesDbSchema.ts —
+        # the backend endpoint takes flat credential fields alongside source_type, which the codegen
+        # can't express (the serializer only declares source_type; remaining fields are validated
+        # dynamically per source_type). Manual entry lives in schema/tool-definitions.json.
+        enabled: false
     external-data-sources-source-prefix-create:
         operation: external_data_sources_source_prefix_create
         enabled: false

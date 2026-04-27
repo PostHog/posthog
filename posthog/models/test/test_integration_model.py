@@ -546,6 +546,61 @@ class TestOauthIntegrationModel(BaseTest):
 
         mock_reload.assert_called_once_with(self.team.id, [integration.id])
 
+    @patch("posthog.models.integration.requests.post")
+    def test_stripe_integration_from_oauth_response_uses_apps_endpoint_and_basic_auth(self, mock_post):
+        # Stripe Apps OAuth (api.stripe.com/v1/oauth/token) is a different system from
+        # Stripe Connect OAuth (connect.stripe.com/oauth/token): it authenticates the
+        # token exchange with HTTP Basic (secret as username, no password) and accepts
+        # only `code` + `grant_type` in the body. Codes minted by `marketplace.stripe.com`
+        # cannot be redeemed at the Connect endpoint.
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "FAKE_ACCESS",
+            "refresh_token": "FAKE_REFRESH",
+            "stripe_user_id": "acct_123",
+            "account_name": "Test Account",
+            "expires_in": 3600,
+        }
+
+        with self.settings(
+            STRIPE_APP_CLIENT_ID="ca_test_clientid",
+            STRIPE_APP_SECRET_KEY="sk_test_secret",
+        ):
+            OauthIntegration.integration_from_oauth_response(
+                "stripe",
+                self.team.id,
+                self.user,
+                {"code": "ac_real_code"},
+            )
+
+        call = mock_post.call_args
+        assert call.args[0] == "https://api.stripe.com/v1/oauth/token"
+        assert call.kwargs["data"] == {"code": "ac_real_code", "grant_type": "authorization_code"}
+        assert call.kwargs["auth"].username == "sk_test_secret"
+        assert call.kwargs["auth"].password == ""
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_stripe_refresh_access_token_uses_apps_endpoint_and_basic_auth(self, mock_post, mock_reload):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "REFRESHED", "expires_in": 1000}
+
+        integration = self.create_integration(kind="stripe", config={"expires_in": 1000})
+
+        with self.settings(
+            STRIPE_APP_CLIENT_ID="ca_test_clientid",
+            STRIPE_APP_SECRET_KEY="sk_test_secret",
+        ):
+            OauthIntegration(integration).refresh_access_token()
+
+        call = mock_post.call_args
+        assert call.args[0] == "https://api.stripe.com/v1/oauth/token"
+        assert call.kwargs["data"] == {"refresh_token": "REFRESH", "grant_type": "refresh_token"}
+        assert call.kwargs["auth"].username == "sk_test_secret"
+        assert call.kwargs["auth"].password == ""
+
+        mock_reload.assert_called_once_with(self.team.id, [integration.id])
+
 
 class TestGoogleCloudIntegrationModel(BaseTest):
     mock_keyfile = {
