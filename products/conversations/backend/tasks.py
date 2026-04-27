@@ -534,17 +534,26 @@ def send_email_reply(
     )
 
 
-@shared_task(ignore_result=True, max_retries=2, default_retry_delay=5)
-def send_teams_welcome(activity: dict[str, Any]) -> None:
+@shared_task(bind=True, ignore_result=True, max_retries=2, default_retry_delay=5)
+def send_teams_welcome(self, activity: dict[str, Any]) -> None:
     """Post the proactive welcome card after the bot is added to a team.
 
-    Required by Microsoft Teams Store certification policy 11.4.4.3.
-    Runs in Celery so the Bot Framework webhook can ack within its 15s budget.
+    Required by Microsoft Teams Store certification policy 11.4.4.3. Runs in
+    Celery so the Bot Framework webhook can ack within its 15s budget. We
+    actually use the configured ``max_retries`` budget for transient transport
+    failures (5xx, timeouts) — cert validators install and watch for the
+    welcome card to appear, so silently dropping it would re-fail the review.
+    Permanent failures (malformed activity, bot config missing) are not
+    retried; ``send_teams_welcome_card`` returns ``True`` for those so we
+    don't burn the retry budget on something a retry can't fix.
     """
     try:
-        send_teams_welcome_card(activity)
-    except Exception as e:
-        logger.exception("supporthog_teams_welcome_failed", error=str(e))
+        ok = send_teams_welcome_card(activity)
+    except Exception as exc:
+        logger.exception("supporthog_teams_welcome_failed", error=str(exc))
+        raise cast(Any, self).retry(exc=exc)
+    if not ok:
+        raise cast(Any, self).retry(exc=Exception("teams_welcome_card_post_failed"))
 
 
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)

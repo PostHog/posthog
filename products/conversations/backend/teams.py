@@ -303,18 +303,24 @@ def is_command_message(activity: dict) -> bool:
     return normalized in _GREETING_COMMANDS
 
 
-def send_teams_welcome_card(activity: dict) -> None:
-    """Proactively greet the team when SupportHog is first added (cert 11.4.4.3)."""
+def _send_help_card(activity: dict, *, log_prefix: str, reply: bool) -> bool:
+    """Post the help card to a conversation, optionally as a thread reply.
+
+    Returns ``True`` when the card was posted *or* when retrying would not
+    help (malformed activity, bot config missing). Returns ``False`` only on
+    transient transport failures (5xx, timeouts) so callers that care
+    (the Celery welcome task) can retry.
+    """
     service_url = activity.get("serviceUrl", "")
     conversation_id = _extract_conversation_id(activity)
     if not (service_url and conversation_id):
-        return
+        return True
 
     try:
         bot_from_id = get_bot_from_id()
     except ValueError:
-        logger.warning("teams_welcome_no_bot_id")
-        return
+        logger.warning(f"{log_prefix}_no_bot_id")
+        return True
 
     payload: dict[str, Any] = {
         "type": "message",
@@ -322,43 +328,27 @@ def send_teams_welcome_card(activity: dict) -> None:
         "conversation": {"id": conversation_id},
         "attachments": [_build_help_card(open_url=settings.SITE_URL)],
     }
-    _post_activity_to_conversation(
+    if reply:
+        activity_id = activity.get("id", "")
+        if activity_id:
+            payload["replyToId"] = activity_id
+
+    return _post_activity_to_conversation(
         service_url=service_url,
         conversation_id=conversation_id,
         payload=payload,
-        log_prefix="teams_welcome",
+        log_prefix=log_prefix,
     )
+
+
+def send_teams_welcome_card(activity: dict) -> bool:
+    """Proactively greet the team when SupportHog is first added (cert 11.4.4.3)."""
+    return _send_help_card(activity, log_prefix="teams_welcome", reply=False)
 
 
 def send_teams_help_reply(activity: dict) -> None:
     """Reply to a greeting/help @mention with the help card (cert 11.4.4.3)."""
-    service_url = activity.get("serviceUrl", "")
-    conversation_id = _extract_conversation_id(activity)
-    activity_id = activity.get("id", "")
-    if not (service_url and conversation_id):
-        return
-
-    try:
-        bot_from_id = get_bot_from_id()
-    except ValueError:
-        logger.warning("teams_help_no_bot_id")
-        return
-
-    payload: dict[str, Any] = {
-        "type": "message",
-        "from": {"id": bot_from_id},
-        "conversation": {"id": conversation_id},
-        "attachments": [_build_help_card(open_url=settings.SITE_URL)],
-    }
-    if activity_id:
-        payload["replyToId"] = activity_id
-
-    _post_activity_to_conversation(
-        service_url=service_url,
-        conversation_id=conversation_id,
-        payload=payload,
-        log_prefix="teams_help",
-    )
+    _send_help_card(activity, log_prefix="teams_help", reply=True)
 
 
 def _send_confirmation_card(
