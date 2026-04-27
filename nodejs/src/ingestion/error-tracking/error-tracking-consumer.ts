@@ -11,6 +11,7 @@ import { KafkaConsumer } from '../../kafka/consumer'
 import { HealthCheckResult, IngestionLane, PluginServerService } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { logger } from '../../utils/logger'
+import { MaterializedColumnSlotManager } from '../../utils/materialized-column-slot-manager'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
@@ -68,6 +69,7 @@ export interface ErrorTrackingHogTransformer {
 export interface ErrorTrackingConsumerDeps {
     outputs: ErrorTrackingOutputs
     teamManager: TeamManager
+    materializedColumnSlotManager: MaterializedColumnSlotManager
     hogTransformer: ErrorTrackingHogTransformer
     groupTypeManager: GroupTypeManager
     redisPool: GenericPool<Redis>
@@ -198,6 +200,7 @@ export class ErrorTrackingConsumer {
             groupId: this.config.groupId,
             promiseScheduler: this.promiseScheduler,
             teamManager: this.deps.teamManager,
+            materializedColumnSlotManager: this.deps.materializedColumnSlotManager,
             personRepository: this.deps.personRepository,
             hogTransformer: this.deps.hogTransformer,
             cymbalClient: this.cymbalClient,

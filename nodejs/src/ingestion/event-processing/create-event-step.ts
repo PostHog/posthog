@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { EventHeaders, Person, PreIngestionEvent } from '../../types'
+import { MaterializedColumnSlotManager } from '../../utils/materialized-column-slot-manager'
 import { createEvent } from '../../worker/ingestion/create-event'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
@@ -23,13 +24,19 @@ export interface CreateEventStepResult<O extends string> {
 }
 
 export function createCreateEventStep<O extends string, T extends CreateEventStepInput>(
-    output: O
+    output: O,
+    materializedColumnSlotManager: MaterializedColumnSlotManager
 ): ProcessingStep<T, CreateEventStepResult<O>> {
-    return function createEventStep(input) {
+    return async function createEventStep(input) {
         const { person, preparedEvent, processPerson, historicalMigration, headers, message } = input
 
         const capturedAt = headers.now ?? null
-        const rawEvent = createEvent(preparedEvent, person, processPerson, historicalMigration, capturedAt)
+        // Cache hit on the warm path — the prefetch step has already populated this team's
+        // entry for the current batch. On a cold cache the loader does a single Postgres
+        // round-trip and other in-flight events for the same team await the same promise.
+        const slots = await materializedColumnSlotManager.getSlots(preparedEvent.teamId)
+
+        const rawEvent = createEvent(preparedEvent, person, processPerson, historicalMigration, capturedAt, slots)
         const result: CreateEventStepResult<O> = {
             eventsToEmit: [{ event: rawEvent, output }],
             teamId: preparedEvent.teamId,
@@ -37,6 +44,6 @@ export function createCreateEventStep<O extends string, T extends CreateEventSte
             message,
         }
 
-        return Promise.resolve(ok(result, []))
+        return ok(result, [])
     }
 }

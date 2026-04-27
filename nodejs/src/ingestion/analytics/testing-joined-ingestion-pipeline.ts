@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { Team } from '../../types'
+import { MaterializedColumnSlotManager } from '../../utils/materialized-column-slot-manager'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
 import { DlqOutput, IngestionWarningsOutput } from '../common/outputs'
@@ -29,6 +30,7 @@ export interface TestingJoinedIngestionPipelineConfig {
 export interface TestingJoinedIngestionPipelineDeps {
     promiseScheduler: PromiseScheduler
     teamManager: TeamManager
+    materializedColumnSlotManager: MaterializedColumnSlotManager
 }
 
 export interface TestingJoinedIngestionPipelineInput {
@@ -84,7 +86,7 @@ export function createTestingJoinedIngestionPipeline<
 ) {
     const { groupId, outputs } = config
 
-    const { promiseScheduler } = deps
+    const { promiseScheduler, materializedColumnSlotManager } = deps
 
     const pipelineConfig: PipelineConfig = {
         outputs,
@@ -94,6 +96,7 @@ export function createTestingJoinedIngestionPipeline<
     const perEventConfig: TestingPerDistinctIdPipelineConfig = {
         outputs,
         groupId,
+        materializedColumnSlotManager,
     }
 
     // Compared to joined-ingestion-pipeline.ts:

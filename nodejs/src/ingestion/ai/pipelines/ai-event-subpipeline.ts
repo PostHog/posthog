@@ -5,6 +5,7 @@ import { PluginEvent } from '~/plugin-scaffold'
 
 import { HogTransformerService } from '../../../cdp/hog-transformations/hog-transformer.service'
 import { EventHeaders, Team } from '../../../types'
+import { MaterializedColumnSlotManager } from '../../../utils/materialized-column-slot-manager'
 import { TeamManager } from '../../../utils/team-manager'
 import { GroupTypeManager } from '../../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../../worker/ingestion/groups/batch-writing-group-store'
@@ -41,6 +42,7 @@ export interface AiEventSubpipelineConfig {
         EventOutput | AiEventOutput | IngestionWarningsOutput | PersonsOutput | PersonDistinctIdsOutput
     >
     teamManager: TeamManager
+    materializedColumnSlotManager: MaterializedColumnSlotManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
     personsStore: PersonsStore
@@ -58,6 +60,7 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
         options,
         outputs,
         teamManager,
+        materializedColumnSlotManager,
         groupTypeManager,
         hogTransformer,
         personsStore,
@@ -112,7 +115,7 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
         )
         .pipe(createPrepareEventStep())
         .pipe(createProcessGroupsStep(teamManager, groupTypeManager, groupStore, options))
-        .pipe(createCreateEventStep(EVENTS_OUTPUT))
+        .pipe(createCreateEventStep(EVENTS_OUTPUT, materializedColumnSlotManager))
         .pipe(createSplitAiEventsStep(splitAiEventsConfig))
         .pipe(
             topHog(

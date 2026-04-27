@@ -18,6 +18,7 @@ import { PostgresPersonRepository } from '../../worker/ingestion/persons/reposit
 import { isTestEnv } from '../env-utils'
 import { GeoIPService } from '../geoip'
 import { logger } from '../logger'
+import { MaterializedColumnSlotManager } from '../materialized-column-slot-manager'
 import { PubSub } from '../pubsub'
 import { TeamManager } from '../team-manager'
 import { PostgresRouter, installPostgresTypeParsers } from './postgres'
@@ -73,6 +74,7 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
     logger.info('👍', `Cookieless Redis ready`)
 
     const teamManager = new TeamManager(postgres)
+    const materializedColumnSlotManager = new MaterializedColumnSlotManager(postgres)
     logger.info('🤔', `Connecting to PostHog Redis...`)
     const posthogRedisPool = createRedisPoolFromConfig({
         connection: createPosthogRedisConnectionConfig(serverConfig),
@@ -126,6 +128,7 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
         kafkaProducer,
         groupTypeManager,
         teamManager,
+        materializedColumnSlotManager,
         groupRepository,
         personRepository,
         geoipService,

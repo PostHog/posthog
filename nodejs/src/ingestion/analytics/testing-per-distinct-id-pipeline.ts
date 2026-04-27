@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { Team } from '../../types'
+import { MaterializedColumnSlotManager } from '../../utils/materialized-column-slot-manager'
 import { AI_EVENT_TYPES } from '../ai'
 import { IngestionWarningsOutput } from '../common/outputs'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
@@ -22,6 +23,7 @@ export type TestingPerDistinctIdPipelineInput = TestingEventSubpipelineInput &
 export interface TestingPerDistinctIdPipelineConfig {
     outputs: IngestionOutputs<EventOutput | HeatmapsOutput | IngestionWarningsOutput>
     groupId: string
+    materializedColumnSlotManager: MaterializedColumnSlotManager
 }
 
 export interface TestingPerDistinctIdPipelineContext {
@@ -45,7 +47,7 @@ export function createTestingPerDistinctIdPipeline<TInput extends TestingPerDist
     builder: StartPipelineBuilder<TInput, TContext>,
     config: TestingPerDistinctIdPipelineConfig
 ): PipelineBuilder<TInput, void, TContext> {
-    const { outputs, groupId } = config
+    const { outputs, groupId, materializedColumnSlotManager } = config
 
     return builder.retry(
         (e) =>
@@ -61,12 +63,14 @@ export function createTestingPerDistinctIdPipeline<TInput extends TestingPerDist
                         createTestingAiEventSubpipeline(b, {
                             outputs,
                             groupId,
+                            materializedColumnSlotManager,
                         })
                     )
                     .branch('event', (b) =>
                         createTestingEventSubpipeline(b, {
                             outputs,
                             groupId,
+                            materializedColumnSlotManager,
                         })
                     )
             ),

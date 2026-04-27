@@ -48,6 +48,7 @@ import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisPoolFromConfig } from '../utils/db/redis'
 import { GeoIPService } from '../utils/geoip'
 import { logger } from '../utils/logger'
+import { MaterializedColumnSlotManager } from '../utils/materialized-column-slot-manager'
 import { PubSub } from '../utils/pubsub'
 import { TeamManager } from '../utils/team-manager'
 import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
@@ -151,6 +152,7 @@ export class IngestionGeneralServer implements NodeServer {
         await this.pubsub.start()
 
         const teamManager = new TeamManager(this.postgres)
+        const materializedColumnSlotManager = new MaterializedColumnSlotManager(this.postgres)
 
         // 2. Ingestion + CDP shared services (geoip, repos, encryption)
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
@@ -209,6 +211,7 @@ export class IngestionGeneralServer implements NodeServer {
                 const consumer = new IngestionTestingConsumer(this.config, {
                     kafkaProducer: kafkaWarpStreamProducer,
                     teamManager,
+                    materializedColumnSlotManager,
                 })
                 await consumer.start()
                 return consumer.service
@@ -238,6 +241,7 @@ export class IngestionGeneralServer implements NodeServer {
                 redisPool: this.redisPool,
                 outputs: ingestionOutputs,
                 teamManager,
+                materializedColumnSlotManager,
                 groupTypeManager,
                 groupRepository,
                 clickhouseGroupRepository,

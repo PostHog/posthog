@@ -2,6 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { Team } from '../../types'
+import { MaterializedColumnSlotManager } from '../../utils/materialized-column-slot-manager'
 import { TeamManager } from '../../utils/team-manager'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
@@ -41,6 +42,7 @@ export interface PerDistinctIdPipelineConfig {
     >
     splitAiEventsConfig: SplitAiEventsStepConfig
     teamManager: TeamManager
+    materializedColumnSlotManager: MaterializedColumnSlotManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
     personsStore: PersonsStore
@@ -75,6 +77,7 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
         outputs,
         splitAiEventsConfig,
         teamManager,
+        materializedColumnSlotManager,
         groupTypeManager,
         hogTransformer,
         personsStore,
@@ -102,6 +105,7 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
                             options,
                             outputs,
                             teamManager,
+                            materializedColumnSlotManager,
                             groupTypeManager,
                             hogTransformer,
                             personsStore,
@@ -116,6 +120,7 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
                             options,
                             outputs,
                             teamManager,
+                            materializedColumnSlotManager,
                             groupTypeManager,
                             hogTransformer,
                             personsStore,

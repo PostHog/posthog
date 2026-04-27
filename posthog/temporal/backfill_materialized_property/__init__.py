@@ -10,13 +10,17 @@ from posthog.temporal.backfill_materialized_property.activities import (
     AssignPendingSlotsInputs,
     AssignPendingSlotsResult,
     BackfillMaterializedColumnInputs,
+    ClearCompactionTargetsInputs,
     FailSlotsInputs,
+    FinalizeCompactionInputs,
     RunBatchedMutationInputs,
     UpdateSlotStateInputs,
     activate_slots,
     assign_pending_slots,
     backfill_materialized_column,
+    clear_compaction_targets,
     fail_slots,
+    finalize_compaction,
     run_batched_mutation,
     update_slot_state,
 )
@@ -34,6 +38,8 @@ ACTIVITIES = [
     run_batched_mutation,
     activate_slots,
     fail_slots,
+    finalize_compaction,
+    clear_compaction_targets,
 ]
 
 __all__ = [
@@ -55,4 +61,8 @@ __all__ = [
     "ActivateSlotsInputs",
     "fail_slots",
     "FailSlotsInputs",
+    "finalize_compaction",
+    "FinalizeCompactionInputs",
+    "clear_compaction_targets",
+    "ClearCompactionTargetsInputs",
 ]

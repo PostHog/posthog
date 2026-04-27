@@ -105,6 +105,9 @@ export function serializeEvent(event: ProcessedEvent): RawKafkaEvent {
         person_created_at: castTimestampOrNow(event.person_created_at, TimestampFormat.ClickHouseSecondPrecision),
         person_mode: event.person_mode,
         ...(event.historical_migration ? { historical_migration: true } : {}),
+        // Spread dmat columns (e.g. `dmat_string_3`) directly into the Kafka payload so the
+        // events_json materialized view writes them to the correct ClickHouse columns.
+        ...(event.dmat_columns ?? {}),
     }
 }
 

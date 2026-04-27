@@ -43,6 +43,7 @@ class TestBackfillMaterializedPropertiesBatchWorkflow:
             return AssignPendingSlotsResult(
                 assignments=sample_assignments,
                 assigned_slot_ids=["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"],
+                compacted_slot_ids=[],
             )
 
         @activity.defn(name="run_batched_mutation")
@@ -85,7 +86,7 @@ class TestBackfillMaterializedPropertiesBatchWorkflow:
 
         @activity.defn(name="assign_pending_slots")
         async def mock_assign(inputs: AssignPendingSlotsInputs) -> AssignPendingSlotsResult:
-            return AssignPendingSlotsResult(assignments=[], assigned_slot_ids=[])
+            return AssignPendingSlotsResult(assignments=[], assigned_slot_ids=[], compacted_slot_ids=[])
 
         @activity.defn(name="run_batched_mutation")
         async def mock_run(inputs: RunBatchedMutationInputs) -> None:
@@ -135,6 +136,7 @@ class TestBackfillMaterializedPropertiesBatchWorkflow:
             return AssignPendingSlotsResult(
                 assignments=sample_assignments,
                 assigned_slot_ids=["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"],
+                compacted_slot_ids=[],
             )
 
         @activity.defn(name="run_batched_mutation")

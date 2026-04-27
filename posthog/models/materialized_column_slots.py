@@ -16,6 +16,12 @@ MAX_SLOTS_PER_TEAM = 5
 # numbered 0..99 — see DMAT_STRING_COLUMN_COUNT in posthog/models/event/sql.py.
 MAX_SLOT_INDEX = 99
 
+# Compaction triggers when fewer than this many free string columns remain across all teams.
+# Picked to match a single weekly cycle's worst-case demand: every onboarded team uses up to
+# MAX_SLOTS_PER_TEAM columns. Below the threshold the workflow re-packs all existing
+# assignments into a small dense range, freeing the rest for the next ~19 weeks.
+COMPACTION_FREE_COLUMN_THRESHOLD = 5
+
 
 class MaterializedColumnSlotState(models.TextChoices):
     # PENDING: queued for the next weekly backfill cycle. No ingestion writes, no query reads.
@@ -51,6 +57,12 @@ class MaterializedColumnSlot(UUIDTModel):
     # to BACKFILL. The unique constraint on (team, property_type, slot_index) only applies to rows
     # with a non-null slot_index, so multiple PENDING slots can coexist without conflict.
     slot_index = models.PositiveSmallIntegerField(null=True, blank=True)
+    # Set during compaction — the slot is being repacked into a smaller column index so the old
+    # one can be freed. While this is set, ingestion writes to BOTH columns (slot_index AND
+    # compaction_target_slot_index) so HogQL reads stay correct on the old column until the
+    # weekly mutation finishes backfilling the new column. After the mutation completes, the
+    # workflow swaps slot_index ← compaction_target_slot_index and clears this field.
+    compaction_target_slot_index = models.PositiveSmallIntegerField(null=True, blank=True)
     state = models.CharField(
         max_length=20,
         choices=MaterializedColumnSlotState,
@@ -81,6 +93,14 @@ class MaterializedColumnSlot(UUIDTModel):
                     models.Q(state=MaterializedColumnSlotState.PENDING)
                     | models.Q(state=MaterializedColumnSlotState.ERROR)
                     | models.Q(slot_index__isnull=False)
+                ),
+            ),
+            models.CheckConstraint(
+                name="valid_compaction_target_slot_index",
+                condition=models.Q(compaction_target_slot_index__isnull=True)
+                | (
+                    models.Q(compaction_target_slot_index__gte=0)
+                    & models.Q(compaction_target_slot_index__lte=MAX_SLOT_INDEX)
                 ),
             ),
         ]

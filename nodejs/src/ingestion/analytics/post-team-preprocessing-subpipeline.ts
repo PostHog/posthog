@@ -7,6 +7,7 @@ import { HogTransformerService } from '../../cdp/hog-transformations/hog-transfo
 import { EventHeaders, Team } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
+import { MaterializedColumnSlotManager } from '../../utils/materialized-column-slot-manager'
 import { prefetchPersonsStep } from '../../worker/ingestion/event-pipeline/prefetchPersonsStep'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { EventFilterManager } from '../common/event-filters'
@@ -23,6 +24,7 @@ import {
     createValidateEventSchemaStep,
 } from '../event-preprocessing'
 import { createDropOldEventsStep } from '../event-processing/drop-old-events-step'
+import { createPrefetchDmatSlotsStep } from '../event-processing/prefetch-dmat-slots-step'
 import { createPrefetchHogFunctionsStep } from '../event-processing/prefetch-hog-functions-step'
 import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
@@ -48,6 +50,7 @@ export interface PostTeamPreprocessingSubpipelineConfig {
     personsPrefetchEnabled: boolean
     hogTransformer: HogTransformerService
     cdpHogWatcherSampleRate: number
+    materializedColumnSlotManager: MaterializedColumnSlotManager
 }
 
 export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPreprocessingSubpipelineInput, TContext>(
@@ -67,6 +70,7 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
         personsPrefetchEnabled,
         hogTransformer,
         cdpHogWatcherSampleRate,
+        materializedColumnSlotManager,
     } = config
 
     return (
@@ -100,5 +104,8 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
             .pipeBatch(processPersonlessDistinctIdsBatchStep(personsStore, personsPrefetchEnabled))
             // Prefetch hog functions for all teams in the batch
             .pipeBatch(createPrefetchHogFunctionsStep(hogTransformer, cdpHogWatcherSampleRate))
+            // Prefetch dmat slot configuration for all teams in the batch — collapses N
+            // per-event Postgres lookups into one batched call when the cache is cold.
+            .pipeBatch(createPrefetchDmatSlotsStep(materializedColumnSlotManager))
     )
 }

@@ -24,13 +24,17 @@ from posthog.temporal.backfill_materialized_property.activities import (
     AssignPendingSlotsInputs,
     AssignPendingSlotsResult,
     BackfillMaterializedColumnInputs,
+    ClearCompactionTargetsInputs,
     FailSlotsInputs,
+    FinalizeCompactionInputs,
     RunBatchedMutationInputs,
     UpdateSlotStateInputs,
     activate_slots,
     assign_pending_slots,
     backfill_materialized_column,
+    clear_compaction_targets,
     fail_slots,
+    finalize_compaction,
     run_batched_mutation,
     update_slot_state,
 )
@@ -211,67 +215,102 @@ class BackfillMaterializedPropertiesBatchWorkflow(PostHogWorkflow):
             ),
         )
 
-        if not assignment.assigned_slot_ids:
-            logger.info("No PENDING slots — workflow exits early", workflow_id=workflow_id)
+        if not assignment.assigned_slot_ids and not assignment.compacted_slot_ids:
+            logger.info("Nothing to do — no PENDING slots and no compaction needed", workflow_id=workflow_id)
             return
 
         if inputs.cache_refresh_wait_seconds > 0:
             logger.info(
                 "Waiting for ingestion cache refresh",
                 wait_seconds=inputs.cache_refresh_wait_seconds,
-                slot_count=len(assignment.assigned_slot_ids),
+                pending_count=len(assignment.assigned_slot_ids),
+                compacted_count=len(assignment.compacted_slot_ids),
             )
             await workflow.sleep(dt.timedelta(seconds=inputs.cache_refresh_wait_seconds))
 
-        try:
-            await workflow.execute_activity(
-                run_batched_mutation,
-                RunBatchedMutationInputs(assignments=assignment.assignments),
-                # Mutations on sharded_events can run for hours at production scale. The
-                # activity polls system.mutations rather than blocking on a single client
-                # connection, so this timeout bounds wall-clock duration, not connection life.
-                start_to_close_timeout=dt.timedelta(hours=12),
-                heartbeat_timeout=dt.timedelta(minutes=5),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(minutes=2),
-                    maximum_interval=dt.timedelta(minutes=10),
-                    maximum_attempts=3,
-                ),
-            )
-        except Exception as e:
-            logger.exception("Batched mutation failed; marking slots as ERROR", workflow_id=workflow_id)
+        if assignment.assignments:
             try:
                 await workflow.execute_activity(
-                    fail_slots,
-                    FailSlotsInputs(slot_ids=assignment.assigned_slot_ids, error_message=str(e)),
-                    start_to_close_timeout=dt.timedelta(minutes=5),
+                    run_batched_mutation,
+                    RunBatchedMutationInputs(assignments=assignment.assignments),
+                    # Mutations on sharded_events can run for hours at production scale. The
+                    # activity polls system.mutations rather than blocking on a single client
+                    # connection, so this timeout bounds wall-clock duration, not connection life.
+                    start_to_close_timeout=dt.timedelta(hours=12),
+                    heartbeat_timeout=dt.timedelta(minutes=5),
                     retry_policy=RetryPolicy(
-                        initial_interval=dt.timedelta(seconds=10),
-                        maximum_interval=dt.timedelta(minutes=1),
-                        maximum_attempts=5,
+                        initial_interval=dt.timedelta(minutes=2),
+                        maximum_interval=dt.timedelta(minutes=10),
+                        maximum_attempts=3,
                     ),
                 )
-            except Exception:
-                logger.exception(
-                    "Failed to mark slots as ERROR after mutation failure",
-                    workflow_id=workflow_id,
-                )
-            raise
+            except Exception as e:
+                logger.exception("Batched mutation failed; rolling back slot transitions", workflow_id=workflow_id)
+                try:
+                    # PENDING slots that were promoted to BACKFILL get marked ERROR so an operator
+                    # can retry them. Compacted slots stay READY — their old column still has
+                    # correct data — but we clear `compaction_target_slot_index` so the cancelled
+                    # column is freed and the next workflow run picks fresh targets.
+                    if assignment.assigned_slot_ids:
+                        await workflow.execute_activity(
+                            fail_slots,
+                            FailSlotsInputs(
+                                slot_ids=assignment.assigned_slot_ids,
+                                error_message=str(e),
+                            ),
+                            start_to_close_timeout=dt.timedelta(minutes=5),
+                            retry_policy=RetryPolicy(
+                                initial_interval=dt.timedelta(seconds=10),
+                                maximum_interval=dt.timedelta(minutes=1),
+                                maximum_attempts=5,
+                            ),
+                        )
+                    if assignment.compacted_slot_ids:
+                        await workflow.execute_activity(
+                            clear_compaction_targets,
+                            ClearCompactionTargetsInputs(slot_ids=assignment.compacted_slot_ids),
+                            start_to_close_timeout=dt.timedelta(minutes=5),
+                            retry_policy=RetryPolicy(
+                                initial_interval=dt.timedelta(seconds=10),
+                                maximum_interval=dt.timedelta(minutes=1),
+                                maximum_attempts=5,
+                            ),
+                        )
+                except Exception:
+                    logger.exception(
+                        "Failed to roll back slot transitions after mutation failure",
+                        workflow_id=workflow_id,
+                    )
+                raise
 
-        await workflow.execute_activity(
-            activate_slots,
-            ActivateSlotsInputs(slot_ids=assignment.assigned_slot_ids),
-            start_to_close_timeout=dt.timedelta(minutes=10),
-            retry_policy=RetryPolicy(
-                initial_interval=dt.timedelta(seconds=10),
-                maximum_interval=dt.timedelta(minutes=1),
-                maximum_attempts=5,
-            ),
-        )
+        if assignment.assigned_slot_ids:
+            await workflow.execute_activity(
+                activate_slots,
+                ActivateSlotsInputs(slot_ids=assignment.assigned_slot_ids),
+                start_to_close_timeout=dt.timedelta(minutes=10),
+                retry_policy=RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(minutes=1),
+                    maximum_attempts=5,
+                ),
+            )
+
+        if assignment.compacted_slot_ids:
+            await workflow.execute_activity(
+                finalize_compaction,
+                FinalizeCompactionInputs(slot_ids=assignment.compacted_slot_ids),
+                start_to_close_timeout=dt.timedelta(minutes=10),
+                retry_policy=RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(minutes=1),
+                    maximum_attempts=5,
+                ),
+            )
 
         logger.info(
             "Batched dmat workflow completed",
             workflow_id=workflow_id,
-            slot_count=len(assignment.assigned_slot_ids),
+            pending_count=len(assignment.assigned_slot_ids),
+            compacted_count=len(assignment.compacted_slot_ids),
             column_count=len(assignment.assignments),
         )

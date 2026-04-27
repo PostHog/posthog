@@ -26,6 +26,7 @@ import type { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from 
 import type { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'
+import { MaterializedColumnSlotManager } from './utils/materialized-column-slot-manager'
 import { PubSub } from './utils/pubsub'
 import { TeamManager } from './utils/team-manager'
 import { GroupTypeManager } from './worker/ingestion/group-type-manager'
@@ -135,6 +136,7 @@ export interface HubServices {
     cookielessRedisPool: GenericPool<Redis>
     kafkaProducer: KafkaProducerWrapper
     teamManager: TeamManager
+    materializedColumnSlotManager: MaterializedColumnSlotManager
     groupTypeManager: GroupTypeManager
     groupRepository: GroupRepository
     personRepository: PersonRepository
@@ -374,6 +376,13 @@ export interface RawClickHouseEvent extends BaseEvent {
     group4_created_at?: ClickHouseTimestamp
     person_mode: PersonMode
     historical_migration?: boolean
+    /**
+     * Optional dmat (dynamic materialized) column values, keyed by ClickHouse column name
+     * (e.g. `dmat_string_3`). Spread into the Kafka payload by `serializeEvent` for any team
+     * that has READY/BACKFILL slots configured. Index signature is permissive because the
+     * exact column set is data-driven rather than static.
+     */
+    [dmatColumn: `dmat_${string}_${number}`]: string | number | null | undefined
 }
 
 export interface RawKafkaEvent extends RawClickHouseEvent {
@@ -401,6 +410,36 @@ export interface ProcessedEvent {
     person_created_at: DateTime | null
     person_mode: PersonMode
     historical_migration?: boolean
+    /**
+     * Materialized column values to write alongside the event, keyed by ClickHouse column name
+     * (e.g. `dmat_string_3`). Only populated for properties present in the team's dmat slot
+     * configuration with state READY or BACKFILL. Spread directly into the serialized Kafka
+     * payload so the events_json materialized view writes them to the correct columns.
+     */
+    dmat_columns?: Record<string, string | number | null>
+}
+
+/**
+ * One row of the team's dmat slot configuration, as loaded by MaterializedColumnSlotManager.
+ *
+ * `state === 'BACKFILL'` means the historical backfill mutation is still running but ingestion
+ * should already be writing to the column so there is no gap between "mutation completes" and
+ * "queries start using the column". `state === 'READY'` means the slot is fully active.
+ *
+ * Only slots with `slot_index !== null` are loaded — PENDING slots have not been assigned a
+ * column yet and would have `slot_index === null`.
+ *
+ * `compaction_target_slot_index`, when present, marks a slot being repacked into a smaller
+ * column index. While set, ingestion writes to BOTH `slot_index` and
+ * `compaction_target_slot_index` so HogQL keeps reading the old column until the weekly
+ * mutation backfills the new one and the workflow swaps them.
+ */
+export interface MaterializedColumnSlot {
+    property_name: string
+    slot_index: number
+    property_type: 'String' | 'Numeric' | 'Boolean' | 'DateTime'
+    state: 'READY' | 'BACKFILL'
+    compaction_target_slot_index: number | null
 }
 
 /** Parsed event row from ClickHouse. */

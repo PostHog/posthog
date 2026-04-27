@@ -183,6 +183,7 @@ describe('ErrorTrackingConsumer', () => {
                 tophog: new SingleIngestionOutput('tophog', 'clickhouse_tophog_test', hub.kafkaProducer, 'test'),
             }),
             teamManager: hub.teamManager,
+            materializedColumnSlotManager: hub.materializedColumnSlotManager,
             hogTransformer: mockHogTransformer,
             groupTypeManager: hub.groupTypeManager,
             redisPool: hub.redisPool,

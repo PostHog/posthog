@@ -4,6 +4,7 @@ import { HogTransformerService } from '../../cdp/hog-transformations/hog-transfo
 import { Team } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
+import { MaterializedColumnSlotManager } from '../../utils/materialized-column-slot-manager'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
@@ -80,6 +81,7 @@ export interface JoinedIngestionPipelineDeps {
     overflowRedirectService?: OverflowRedirectService
     overflowLaneTTLRefreshService?: OverflowRedirectService
     teamManager: TeamManager
+    materializedColumnSlotManager: MaterializedColumnSlotManager
     cookielessManager: CookielessManager
     groupTypeManager: GroupTypeManager
     topHog: TopHogRegistry
@@ -138,6 +140,7 @@ export function createJoinedIngestionPipeline<
         overflowRedirectService,
         overflowLaneTTLRefreshService,
         teamManager,
+        materializedColumnSlotManager,
         cookielessManager,
         groupTypeManager,
         topHog,
@@ -163,6 +166,7 @@ export function createJoinedIngestionPipeline<
         personsPrefetchEnabled,
         hogTransformer,
         cdpHogWatcherSampleRate,
+        materializedColumnSlotManager,
     }
 
     const perEventConfig: PerDistinctIdPipelineConfig = {
@@ -170,6 +174,7 @@ export function createJoinedIngestionPipeline<
         outputs,
         splitAiEventsConfig,
         teamManager,
+        materializedColumnSlotManager,
         groupTypeManager,
         hogTransformer,
         personsStore,
