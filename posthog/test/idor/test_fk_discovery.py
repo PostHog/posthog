@@ -256,6 +256,30 @@ class TestDiscoverWritableTenantFks:
         result = discover_writable_tenant_fks(_SelfReferentialSerializer)
         assert isinstance(result, list)
 
+    def test_recurses_into_plain_serializer_subclass(self) -> None:
+        """Plain `serializers.Serializer` nested fields are walked the same as
+        ModelSerializer ones — name-pattern detection picks up FKs without
+        needing a parent Meta.model. Mirrors the production
+        EvaluationSerializer.model_configuration.provider_key_id shape."""
+        from products.dashboards.backend.models.dashboard import Dashboard as _Dashboard
+
+        class _InnerNonModelSerializer(serializers.Serializer):
+            dashboard_id = serializers.IntegerField(required=False, allow_null=True)
+
+        class _OuterModelSerializer(serializers.ModelSerializer):
+            inner = _InnerNonModelSerializer(required=False)
+
+            class Meta:
+                model = Insight
+                fields = ["id", "inner"]
+
+        result = discover_writable_tenant_fks(_OuterModelSerializer)
+        nested = [fk for fk in result if fk.nested_path == ("inner",)]
+        assert len(nested) == 1
+        assert nested[0].serializer_field_name == "dashboard_id"
+        assert nested[0].target_model is _Dashboard
+        assert nested[0].is_name_pattern is True
+
     def test_non_tenant_target_skipped(self) -> None:
         assert discover_writable_tenant_fks(_NonTenantFKSerializer) == []
 

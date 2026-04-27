@@ -29,6 +29,7 @@
         "EnterpriseExperimentsViewSet.holdout_id.ExperimentHoldout",
         "EnterpriseInsightsViewSet.dashboards.Dashboard",
         "EvaluationReportViewSet.evaluation.Evaluation",
+        "EvaluationViewSet.model_configuration.provider_key_id.LLMProviderKey",
         "EventSchemaViewSet.event_definition.EventDefinition",
         "EventSchemaViewSet.property_group_id.SchemaPropertyGroup",
         "ExportedAssetViewSet.dashboard.Dashboard",

@@ -144,10 +144,14 @@ def _walk_fields(
                 records = [_with_create_only(r) for r in records]
             out.extend(records)
             continue
-        # Recurse into nested ModelSerializer fields up to MAX_NESTING deep.
+        # Recurse into any nested Serializer (ModelSerializer or plain
+        # Serializer) up to MAX_NESTING deep. Plain Serializer subclasses
+        # are common for action bodies and JSON-shaped subfields — e.g.
+        # ModelConfigurationSerializer wraps `provider_key_id` (a
+        # name-pattern FK to LLMProviderKey). Without this, those FKs hide.
         # Cycle detection via the visited-set prevents infinite recursion
         # on self-referential serializer graphs.
-        if not isinstance(drf_field, serializers.ModelSerializer):
+        if not isinstance(drf_field, serializers.Serializer):
             continue
         if len(nested_path) + 1 >= MAX_NESTING:
             continue
