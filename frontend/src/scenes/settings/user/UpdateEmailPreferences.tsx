@@ -5,17 +5,12 @@ import { useEffect, useRef, useState } from 'react'
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonSwitch, LemonTag, Spinner } from '@posthog/lemon-ui'
 
-import api, { ApiRequest, CountedPaginatedResponse, PaginatedResponse } from 'lib/api'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import {
-    BatchExportConfiguration,
-    HogFunctionType,
-    NotificationSettings,
-    OrganizationBasicType,
-    TeamBasicType,
-} from '~/types'
+import { NotificationSettings, OrganizationBasicType, TeamBasicType } from '~/types'
+
+import { PIPELINE_KIND_LABELS, pipelineNotificationsLogic } from './pipelineNotificationsLogic'
 
 enum NotificationBlock {
     Security = 'security',
@@ -210,128 +205,12 @@ function OrganizationMemberJoinSelector(): JSX.Element {
     )
 }
 
-type PipelineItem = {
-    id: string
-    name: string
-    teamId: number
-    teamName: string
-}
-
-async function fetchAllResults<T>(initial: CountedPaginatedResponse<T> | PaginatedResponse<T>): Promise<T[]> {
-    let all: T[] = [...initial.results]
-    let next = initial.next
-    while (next) {
-        const page: PaginatedResponse<T> = await api.get(next)
-        all = all.concat(page.results)
-        next = page.next
-    }
-    return all
-}
-
 function PipelineNotificationSelector(): JSX.Element {
-    const { user, userLoading } = useValues(userLogic)
+    const { userLoading } = useValues(userLogic)
     const { updatePipelineNotification, updatePipelineNotificationForAll } = useActions(userLogic)
-    const { currentOrganization } = useValues(organizationLogic)
+    const { pipelines, pipelinesLoading, pipelinesByTeam, allPipelineIds, isPipelineDisabled } =
+        useValues(pipelineNotificationsLogic)
     const [expanded, setExpanded] = useState(true)
-    const [pipelines, setPipelines] = useState<PipelineItem[]>([])
-    const [loading, setLoading] = useState(false)
-    const [loaded, setLoaded] = useState(false)
-    const orgId = currentOrganization?.id
-
-    useEffect(() => {
-        // Reset cache when org changes — the previous fetch is for a different org.
-        setLoaded(false)
-        setPipelines([])
-    }, [orgId])
-
-    useEffect(() => {
-        if (!expanded || loaded || !currentOrganization?.teams) {
-            return
-        }
-
-        let cancelled = false
-        const teams = currentOrganization.teams
-
-        const fetchPipelines = async (): Promise<void> => {
-            setLoading(true)
-            const perTeamResults = await Promise.all(
-                teams.map(async (team) => {
-                    try {
-                        const [hogFunctionsPage, batchExportsPage] = await Promise.all([
-                            new ApiRequest()
-                                .hogFunctions(team.id)
-                                .withQueryString({
-                                    type: ['destination', 'site_destination'].join(','),
-                                    limit: 100,
-                                })
-                                .get() as Promise<CountedPaginatedResponse<HogFunctionType>>,
-                            new ApiRequest().batchExports(team.id).withQueryString({ limit: 100 }).get() as Promise<
-                                CountedPaginatedResponse<BatchExportConfiguration>
-                            >,
-                        ])
-                        const [hogFunctions, batchExports] = await Promise.all([
-                            fetchAllResults(hogFunctionsPage),
-                            fetchAllResults(batchExportsPage),
-                        ])
-                        const teamItems: PipelineItem[] = []
-                        for (const hf of hogFunctions) {
-                            teamItems.push({
-                                id: `hog_function:${hf.id}`,
-                                name: hf.name,
-                                teamId: team.id,
-                                teamName: team.name,
-                            })
-                        }
-                        for (const be of batchExports) {
-                            teamItems.push({
-                                id: `batch_export:${be.id}`,
-                                name: be.name,
-                                teamId: team.id,
-                                teamName: team.name,
-                            })
-                        }
-                        return teamItems
-                    } catch {
-                        // Skip teams the user doesn't have access to
-                        return []
-                    }
-                })
-            )
-
-            if (cancelled) {
-                return
-            }
-
-            const items = perTeamResults.flat()
-            setPipelines(items.sort((a, b) => a.teamName.localeCompare(b.teamName) || a.name.localeCompare(b.name)))
-            setLoading(false)
-            setLoaded(true)
-        }
-
-        void fetchPipelines()
-
-        return () => {
-            cancelled = true
-        }
-    }, [expanded, loaded, currentOrganization?.teams])
-
-    const isPipelineDisabled = (pipelineId: string): boolean =>
-        !!user?.notification_settings?.pipeline_notifications_disabled?.[pipelineId]
-
-    const allPipelineIds = pipelines.map((p) => p.id)
-
-    // Group pipelines by team
-    const pipelinesByTeam = pipelines.reduce(
-        (acc, pipeline) => {
-            const key = `${pipeline.teamId}`
-            if (!acc[key]) {
-                acc[key] = { teamName: pipeline.teamName, items: [] }
-            }
-            acc[key].items.push(pipeline)
-            return acc
-        },
-        {} as Record<string, { teamName: string; items: PipelineItem[] }>
-    )
 
     return (
         <div>
@@ -347,16 +226,16 @@ function PipelineNotificationSelector(): JSX.Element {
 
             {expanded && (
                 <div className="mt-3 ml-6 space-y-2">
-                    <span className="text-muted text-xs">
+                    <p className="text-muted text-xs">
                         All pipelines are enabled by default. Uncheck any pipeline you no longer want notifications for.
-                    </span>
-                    {loading ? (
+                    </p>
+                    {pipelinesLoading ? (
                         <div className="flex items-center gap-2 py-2">
                             <Spinner className="text-lg" />
                             <span className="text-muted text-sm">Loading pipelines...</span>
                         </div>
-                    ) : pipelines.length === 0 && loaded ? (
-                        <span className="text-muted text-sm">No pipelines found in your projects.</span>
+                    ) : pipelines.length === 0 ? (
+                        <p className="text-muted text-sm">No pipelines found in your projects.</p>
                     ) : (
                         <div className="flex flex-col gap-2">
                             <div className="flex flex-row items-center gap-4">
@@ -376,20 +255,32 @@ function PipelineNotificationSelector(): JSX.Element {
                                 </LemonButton>
                             </div>
 
-                            {Object.entries(pipelinesByTeam).map(([teamId, { teamName, items }]) => (
-                                <div key={teamId} className="space-y-1">
-                                    <span className="text-xs font-medium text-muted">{teamName}</span>
-                                    {items.map((pipeline) => (
-                                        <LemonCheckbox
-                                            key={pipeline.id}
-                                            id={`pipeline-${pipeline.id}`}
-                                            data-attr={`pipeline_notification_${pipeline.id}`}
-                                            onChange={(checked) => updatePipelineNotification(pipeline.id, checked)}
-                                            checked={!isPipelineDisabled(pipeline.id)}
-                                            disabled={userLoading}
-                                            label={<span>{pipeline.name}</span>}
-                                        />
-                                    ))}
+                            {Object.entries(pipelinesByTeam).map(([key, { teamId, teamName, items }]) => (
+                                <div key={key} className="flex flex-col gap-2">
+                                    <div className="flex items-center gap-2">
+                                        <span className="font-medium">{teamName}</span>
+                                        <LemonTag type="muted">id: {teamId}</LemonTag>
+                                    </div>
+                                    <div className="ml-4 flex flex-col gap-1">
+                                        {items.map((pipeline) => (
+                                            <LemonCheckbox
+                                                key={pipeline.id}
+                                                id={`pipeline-${pipeline.id}`}
+                                                data-attr={`pipeline_notification_${pipeline.id}`}
+                                                onChange={(checked) => updatePipelineNotification(pipeline.id, checked)}
+                                                checked={!isPipelineDisabled(pipeline.id)}
+                                                disabled={userLoading}
+                                                label={
+                                                    <div className="flex items-center gap-2">
+                                                        <span>{pipeline.name}</span>
+                                                        <LemonTag type="default">
+                                                            {PIPELINE_KIND_LABELS[pipeline.kind]}
+                                                        </LemonTag>
+                                                    </div>
+                                                }
+                                            />
+                                        ))}
+                                    </div>
                                 </div>
                             ))}
                         </div>
