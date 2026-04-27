@@ -3,7 +3,7 @@ import { useMemo, useRef, useState } from 'react'
 
 import { Popover } from '@posthog/lemon-ui'
 
-import { ScaleOptions, TooltipModel } from 'lib/Chart'
+import type { ScaleOptions, TooltipModel } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
 import { useChart } from 'lib/hooks/useChart'
 import { useEventListener } from 'lib/hooks/useEventListener'

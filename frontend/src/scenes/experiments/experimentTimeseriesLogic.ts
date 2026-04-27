@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, listeners, path, props, selectors } 
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { ChartDataset as ChartJsDataset } from 'lib/Chart'
+import type { ChartDataset as ChartJsDataset } from 'lib/Chart'
 import { getSeriesColor } from 'lib/colors'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { hexToRGBA, pluralize } from 'lib/utils'

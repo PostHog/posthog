@@ -1,6 +1,6 @@
 import { cleanup } from '@testing-library/react'
 
-import { ChartEvent, InteractionItem } from 'lib/Chart'
+import type { ChartEvent, InteractionItem } from 'lib/Chart'
 
 import { NodeKind, TrendsQueryResponse } from '~/queries/schema/schema-general'
 import {

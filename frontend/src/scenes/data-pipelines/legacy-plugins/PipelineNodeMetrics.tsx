@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { IconCalendar, IconCollapse, IconExpand, IconInfo } from '@posthog/icons'
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 
-import { ChartDataset } from 'lib/Chart'
+import type { ChartDataset } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
