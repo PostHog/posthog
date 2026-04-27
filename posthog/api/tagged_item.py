@@ -168,8 +168,8 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
         )
 
     def filter_queryset(self, queryset: QuerySet) -> QuerySet | models.query.RawQuerySet:  # type: ignore[override]
-        queryset = super().filter_queryset(queryset)
-        return self.prefetch_tagged_items_if_available(queryset)
+        filtered = super().filter_queryset(queryset)
+        return self.prefetch_tagged_items_if_available(filtered)
 
     def paginate_queryset(self, queryset):
         page = super().paginate_queryset(queryset)

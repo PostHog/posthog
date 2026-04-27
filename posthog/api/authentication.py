@@ -10,7 +10,6 @@ from django.contrib.auth import (
     authenticate,
     login,
     logout as auth_logout,
-    views as auth_views,
 )
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.signals import user_logged_in
@@ -24,8 +23,6 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
-from django.views.decorators.csrf import csrf_protect
-from django.views.decorators.http import require_http_methods
 
 import structlog
 from axes.exceptions import AxesBackendPermissionDenied
@@ -116,10 +113,7 @@ def post_login(sender, user, request: HttpRequest, **kwargs):
         check_and_cache_login_device(user.id, country, short_user_agent)
 
 
-@require_http_methods(["POST"])
-@csrf_protect
 def logout(request):
-    # Django 5 requires logout to be POST for security reasons
     clear_two_factor_session_flags(request)
 
     request.session.pop("reauth", None)
@@ -129,13 +123,13 @@ def logout(request):
         restore_original_login(request)
         return redirect(f"/admin/posthog/user/{impersonated_user_pk}/change/")
 
-    # Preserve any safe `next` param
+    auth_logout(request)
+
     next_param = request.GET.get("next")
     if next_param and url_has_allowed_host_and_scheme(next_param, allowed_hosts={request.get_host()}):
-        auth_logout(request)
         return redirect_to_login(next_param, login_url=settings.LOGIN_URL)
 
-    return auth_views.logout_then_login(request)
+    return redirect(settings.LOGIN_URL)
 
 
 def axes_locked_out(*args, **kwargs):
