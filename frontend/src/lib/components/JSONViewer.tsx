@@ -7,21 +7,21 @@ import { ComponentType, Suspense, lazy } from 'react'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 // Some bundler/interop combinations resolve `import('@microlink/react-json-view')`
-// to a module namespace whose `default` is the namespace itself, which makes
-// `React.lazy` render `[object Module]` (React error #306). Unwrap to the real
-// component, falling back to the namespace if it's already the component.
+// to a module namespace whose `default` may be a re-wrapped namespace (or even
+// point back to itself), which makes `React.lazy` render `[object Module]`
+// (React error #306). Walk `.default` chains until we land on a callable
+// component, stopping on cycles or after a small bound.
 const ReactJson = lazy(() =>
     import('@microlink/react-json-view').then((m) => {
-        const mod = m as unknown as { default?: unknown }
-        const candidate = mod.default ?? m
-        const resolved =
-            typeof candidate === 'object' &&
-            candidate !== null &&
-            'default' in candidate &&
-            typeof (candidate as { default?: unknown }).default !== 'undefined'
-                ? (candidate as { default: unknown }).default
-                : candidate
-        return { default: resolved as ComponentType<ReactJsonViewProps> }
+        let candidate: unknown = m
+        for (let i = 0; i < 3 && candidate && typeof candidate !== 'function'; i++) {
+            const next = (candidate as { default?: unknown }).default
+            if (!next || next === candidate) {
+                break
+            }
+            candidate = next
+        }
+        return { default: candidate as ComponentType<ReactJsonViewProps> }
     })
 )
 
