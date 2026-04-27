@@ -1,0 +1,106 @@
+/*
+ * Layer strategy for quill primitives.
+ *
+ * BEM rules sit inside Tailwind's `@layer components` — one layer above base
+ * (so preflight `*{border-width:0}` does not strip our borders) and one layer
+ * below utilities (so Tailwind utility classes in JSX still override BEM
+ * defaults and consumer `className` overrides work as expected).
+ *
+ * Layer priority (low → high):
+ *   theme → base → components (BEM) → utilities → unlayered
+ */
+
+/*
+ * `@theme inline` in quill-tokens resolves these vars only during Tailwind
+ * utility generation; it does NOT emit them on `:root`. Primitive CSS files
+ * reference them via `var()`, so we must materialize them here.
+ *
+ * Radius vars are emitted by @posthog/quill-tokens directly (see
+ * `generateStylesCSS` in packages/tokens/src/colors.ts). Do not re-declare
+ * them here — tokens is the single source of truth for radius values.
+ */
+:root {
+    --text-xxs: 0.625rem;
+    --text-xxs--line-height: 0.75rem;
+    --text-xs--line-height: 1rem;
+    --text-sm--line-height: 1.25rem;
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 30%);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 30%), 0 2px 4px -2px rgb(0 0 0 / 30%);
+    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 30%), 0 4px 6px -4px rgb(0 0 0 / 30%);
+    --animate-spin: spin 1s linear infinite;
+    --animate-pulse: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    --animate-skeleton: skeleton 2s -1s infinite linear;
+    --animate-pulse-glow: pulse-glow 2s -1s infinite linear;
+    --animate-horizontal-shake: horizontal-shake 0.3s ease-out;
+    --animate-radar: radar 2s ease-out infinite;
+}
+
+/*
+ * Tailwind v4 emits `@keyframes` from `@theme` only when the corresponding
+ * `animate-*` utility is statically used in JSX. BEM CSS references these
+ * animations via `var(--animate-*)`, which the scanner can't detect, so we
+ * emit the keyframes here ourselves.
+ */
+/* stylelint-disable keyframes-name-pattern -- matches Tailwind's builtin names referenced via var(--animate-*) */
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes pulse {
+    50% {
+        opacity: 0.5;
+    }
+}
+
+@keyframes skeleton {
+    to {
+        background-position: -200% 0;
+    }
+}
+
+@keyframes pulse-glow {
+    0%,
+    100% {
+        box-shadow: 0 0 2px 1px var(--pulse-glow-color, var(--color-accent));
+    }
+
+    50% {
+        box-shadow: 0 0 6px 2px var(--pulse-glow-color, var(--color-accent));
+    }
+}
+
+@keyframes horizontal-shake {
+    0% {
+        transform: translateX(0);
+    }
+
+    25% {
+        transform: translateX(5px);
+    }
+
+    50% {
+        transform: translateX(-5px);
+    }
+
+    75% {
+        transform: translateX(2px);
+    }
+
+    100% {
+        transform: translateX(0);
+    }
+}
+
+@keyframes radar {
+    0% {
+        opacity: 0.5;
+        transform: scale(1);
+    }
+
+    100% {
+        opacity: 0;
+        transform: scale(1.5);
+    }
+}

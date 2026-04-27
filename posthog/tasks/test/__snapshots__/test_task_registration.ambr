@@ -97,6 +97,7 @@
     'posthog.tasks.tasks.background_delete_model_task',
     'posthog.tasks.tasks.calculate_cohort',
     'posthog.tasks.tasks.calculate_decide_usage',
+    'posthog.tasks.tasks.capture_task_run_state_metrics',
     'posthog.tasks.tasks.check_async_migration_health',
     'posthog.tasks.tasks.check_flags_to_rollback',
     'posthog.tasks.tasks.clean_stale_partials',

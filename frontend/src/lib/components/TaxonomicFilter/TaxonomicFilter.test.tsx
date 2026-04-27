@@ -4,6 +4,9 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -866,5 +869,149 @@ describe('TaxonomicFilter', () => {
             await waitFor(() => expect(searchInput).toHaveValue('click'))
             expect(document.querySelector('[data-attr="taxonomic-shortcut-click-series"]')).toBeNull()
         })
+    })
+
+    describe('category dropdown A/B test', () => {
+        let unmountFeatureFlagLogic: (() => void) | null = null
+
+        beforeEach(() => {
+            unmountFeatureFlagLogic = featureFlagLogic.mount()
+        })
+
+        afterEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            unmountFeatureFlagLogic?.()
+            unmountFeatureFlagLogic = null
+        })
+
+        function setVariant(variant: string): void {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: variant,
+            })
+        }
+
+        it('control variant: renders the categories column and no in-input affordance', async () => {
+            setVariant('control')
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+            })
+
+            await waitFor(() => {
+                expect(screen.getByText('Categories')).toBeInTheDocument()
+            })
+
+            expect(screen.queryByTestId(/taxonomic-category-dropdown-trigger-/)).not.toBeInTheDocument()
+        })
+
+        it.each(['pill', 'icon'] as const)(
+            '%s variant with hideSearchInput: falls back to the categories column so users can still switch tabs',
+            async (variant) => {
+                setVariant(variant)
+                renderFilter({
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+                    hideSearchInput: true,
+                })
+
+                await waitFor(() => {
+                    expect(screen.getByText('Categories')).toBeInTheDocument()
+                })
+
+                expect(screen.queryByTestId(/taxonomic-category-dropdown-trigger-/)).not.toBeInTheDocument()
+            }
+        )
+
+        it('control variant: default suggested-filters label is "Suggestions"', async () => {
+            setVariant('control')
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+            })
+
+            await waitFor(() => {
+                expect(screen.getByTestId('taxonomic-tab-suggested_filters')).toHaveTextContent('Suggestions')
+            })
+        })
+
+        it.each(['pill', 'icon'] as const)(
+            '%s variant: default suggested-filters label is "All" (seen in the dropdown items)',
+            async (variant) => {
+                setVariant(variant)
+                renderFilter({
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+                })
+
+                await waitFor(() => {
+                    expect(screen.getByTestId(`taxonomic-category-dropdown-trigger-${variant}`)).toBeInTheDocument()
+                })
+
+                await userEvent.click(screen.getByTestId(`taxonomic-category-dropdown-trigger-${variant}`))
+
+                const item = await screen.findByTestId('taxonomic-category-dropdown-item-suggested_filters')
+                expect(item).toHaveTextContent('All')
+            }
+        )
+
+        it.each(['pill', 'icon'] as const)(
+            '%s variant: hides the categories column and renders the in-input affordance',
+            async (variant) => {
+                setVariant(variant)
+                renderFilter({
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+                })
+
+                await waitFor(() => {
+                    expect(screen.getByTestId(`taxonomic-category-dropdown-trigger-${variant}`)).toBeInTheDocument()
+                })
+
+                expect(screen.queryByText('Categories')).not.toBeInTheDocument()
+            }
+        )
+
+        it.each(['pill', 'icon'] as const)(
+            '%s variant: opening the dropdown and picking a category switches the visible results',
+            async (variant) => {
+                setVariant(variant)
+                renderFilter({
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+                })
+
+                await waitFor(() => {
+                    expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
+                })
+
+                await userEvent.click(screen.getByTestId(`taxonomic-category-dropdown-trigger-${variant}`))
+
+                await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-item-actions'))
+
+                await waitFor(() => {
+                    expect(screen.getByTestId('prop-filter-actions-0')).toBeInTheDocument()
+                })
+            }
+        )
+
+        it.each(['pill', 'icon'] as const)(
+            '%s variant: pressing Tab in the search input does not switch category',
+            async (variant) => {
+                setVariant(variant)
+                renderFilter({
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+                })
+
+                await waitFor(() => {
+                    expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
+                })
+
+                const trigger = screen.getByTestId(`taxonomic-category-dropdown-trigger-${variant}`)
+                expect(trigger).toHaveAttribute('aria-label', expect.stringContaining('Events'))
+
+                const input = screen.getByTestId('taxonomic-filter-searchfield') as HTMLInputElement
+                input.focus()
+                await userEvent.keyboard('{Tab}')
+
+                expect(screen.getByTestId(`taxonomic-category-dropdown-trigger-${variant}`)).toHaveAttribute(
+                    'aria-label',
+                    expect.stringContaining('Events')
+                )
+            }
+        )
     })
 })

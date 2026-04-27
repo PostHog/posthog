@@ -560,7 +560,7 @@ class OauthIntegration:
             )
             return OauthConfig(
                 authorize_url=authorize_url,
-                token_url="https://connect.stripe.com/oauth/token",
+                token_url="https://api.stripe.com/v1/oauth/token",
                 client_id=settings.STRIPE_APP_CLIENT_ID,
                 client_secret=settings.STRIPE_APP_SECRET_KEY,
                 scope="",
@@ -648,14 +648,27 @@ class OauthIntegration:
                 },
                 headers={"Content-Type": "application/json"},
             )
+        elif kind == "stripe":
+            # Stripe Apps OAuth authenticates with the developer secret key as HTTP Basic
+            # username and does not accept client_id/redirect_uri in the token-exchange body.
+            # Connect OAuth (client_id+client_secret in body) is a different system.
+            res = requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(oauth_config.client_secret, ""),
+                data={
+                    "code": params["code"],
+                    "grant_type": "authorization_code",
+                },
+            )
         else:
+            redirect_uri = OauthIntegration.redirect_uri(kind)
             res = requests.post(
                 oauth_config.token_url,
                 data={
                     "client_id": oauth_config.client_id,
                     "client_secret": oauth_config.client_secret,
                     "code": params["code"],
-                    "redirect_uri": OauthIntegration.redirect_uri(kind),
+                    "redirect_uri": redirect_uri,
                     "grant_type": "authorization_code",
                 },
             )
@@ -690,7 +703,17 @@ class OauthIntegration:
                     logger.error(f"Oauth error for {kind}", response=res.text)
                     raise Exception(f"Oauth error for {kind}. Status code = {res.status_code}")
             else:
-                logger.error(f"Oauth error for {kind}", response=res.text)
+                # Include request context so on-call can compare what we sent against what
+                # the merchant authorized with in Stripe. Code prefix only, full grant is
+                # short-lived but still a credential during its TTL. Never log client_secret.
+                logger.error(
+                    f"Oauth error for {kind}",
+                    response=res.text,
+                    status_code=res.status_code,
+                    client_id=oauth_config.client_id,
+                    redirect_uri=OauthIntegration.redirect_uri(kind),
+                    code_prefix=str(params.get("code", ""))[:12],
+                )
                 raise Exception(f"Oauth error. Status code = {res.status_code}")
 
         if oauth_config.token_info_url:
@@ -925,6 +948,16 @@ class OauthIntegration:
                     "refresh_token": self.integration.sensitive_config["refresh_token"],
                     "grant_type": "refresh_token",
                     "scope": oauth_config.scope,
+                },
+            )
+        elif self.integration.kind == "stripe":
+            # Stripe Apps OAuth: secret as HTTP Basic username, no client_id/client_secret in body.
+            res = requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(oauth_config.client_secret, ""),
+                data={
+                    "refresh_token": self.integration.sensitive_config["refresh_token"],
+                    "grant_type": "refresh_token",
                 },
             )
         else:

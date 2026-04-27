@@ -90,7 +90,7 @@ tools:
         operation: notebooks_activity_retrieve
         enabled: false
     notebooks-activity-retrieve-2:
-        operation: notebooks_activity_retrieve_2
+        operation: notebooks_activity_retrieve
         enabled: false
     notebooks-hogql-execute-create:
         operation: notebooks_hogql_execute_create
@@ -124,4 +124,7 @@ tools:
         enabled: false
     notebooks-collab-save-create:
         operation: notebooks_collab_save_create
+        enabled: false
+    notebooks-all-activity-retrieve:
+        operation: notebooks_all_activity_retrieve
         enabled: false

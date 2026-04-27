@@ -16,6 +16,7 @@ from drf_spectacular.utils import (
     OpenApiParameter,
     extend_schema,
     extend_schema_field,
+    extend_schema_serializer,
     extend_schema_view,
 )
 from loginas.utils import is_impersonated_session
@@ -43,6 +44,7 @@ from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action, format_paginated_url, get_pk_or_uuid, get_target_entity
 from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import INSIGHT_FUNNELS, LIMIT, OFFSET, FunnelVizType
 from posthog.decorators import cached_by_filters
 from posthog.event_usage import get_request_analytics_properties
@@ -261,6 +263,7 @@ class DeletionStatusPagination(LimitOffsetPagination):
     default_limit = 100
 
 
+@extend_schema_serializer(component_name="PersonRecord")
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
     name = serializers.SerializerMethodField(
         help_text="Display name derived from person properties (email, name, or username)."
@@ -309,6 +312,7 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
 
 # person distinct ids can grow to be a very large list
 # in the UI we don't need all of them, so we can limit the number of distinct ids we return
+@extend_schema_serializer(component_name="MinimalPerson")
 class MinimalPersonSerializer(PersonSerializer):
     distinct_ids = serializers.SerializerMethodField()
 
@@ -768,6 +772,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 resp["Cache-Control"] = "max-age=10"
                 return resp
 
+            tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.QUERY)
             refresh = refresh_requested_by_client(request)
             runner = PropertyValuesQueryRunner(
                 team=self.team,
@@ -799,7 +804,33 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         person: Person = self.get_object()
         distinct_ids = person.distinct_ids
 
-        split_person.delay(person.id, person.team_id, request.data.get("main_distinct_id", None), None)
+        main_distinct_id = request.data.get("main_distinct_id")
+        distinct_ids_to_split = request.data.get("distinct_ids_to_split")
+
+        if distinct_ids_to_split is not None:
+            if not isinstance(distinct_ids_to_split, list) or not all(
+                isinstance(did, str) for did in distinct_ids_to_split
+            ):
+                raise ValidationError({"distinct_ids_to_split": "must be a list of strings"})
+            if not distinct_ids_to_split:
+                raise ValidationError({"distinct_ids_to_split": "must not be empty"})
+            if main_distinct_id is not None:
+                raise ValidationError("main_distinct_id cannot be combined with distinct_ids_to_split")
+            unknown = set(distinct_ids_to_split) - set(distinct_ids)
+            if unknown:
+                raise ValidationError({"distinct_ids_to_split": f"not on this person: {sorted(unknown)}"})
+
+        split_person.delay(
+            person.id,
+            person.team_id,
+            main_distinct_id,
+            None,
+            distinct_ids_to_split=distinct_ids_to_split,
+        )
+
+        activity_after: dict = {"distinct_ids": distinct_ids}
+        if distinct_ids_to_split is not None:
+            activity_after["distinct_ids_to_split"] = list(distinct_ids_to_split)
 
         log_activity(
             organization_id=self.organization.id,
@@ -815,7 +846,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     Change(
                         type="Person",
                         action="split",
-                        after={"distinct_ids": distinct_ids},
+                        after=activity_after,
                     )
                 ],
             ),
@@ -953,6 +984,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response({"results": CohortMinimalSerializer(cohorts, many=True).data})
 
+    @extend_schema(operation_id="persons_all_activity_retrieve")
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
