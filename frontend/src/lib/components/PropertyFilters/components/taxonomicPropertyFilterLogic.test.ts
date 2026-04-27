@@ -181,6 +181,29 @@ describe('taxonomicPropertyFilterLogic', () => {
             logic.actions.selectItem(group, undefined)
             expect(setFilterSpy).not.toHaveBeenCalled()
         })
+
+        it('pre-fills the filter value when the row matched on a property value', () => {
+            selectAndExpect(
+                TaxonomicFilterGroupType.EventProperties,
+                'user.email',
+                PropertyFilterType.Event,
+                {
+                    key: 'user.email',
+                    type: PropertyFilterType.Event,
+                    value: ['frank@posthog.com'],
+                    operator: PropertyOperator.Exact,
+                },
+                { matchedOn: 'value', matchedValue: 'frank@posthog.com' }
+            )
+        })
+
+        it('does not pre-fill the value when the row matched on key', () => {
+            const group = logic.values.taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.EventProperties)!
+            logic.actions.selectItem(group, 'user.email', PropertyFilterType.Event, {
+                matchedOn: 'key',
+            })
+            expect(setFilterSpy).toHaveBeenCalledWith(0, expect.objectContaining({ key: 'user.email', value: null }))
+        })
     })
 
     it('restores a complete property filter from a recent filter item', async () => {

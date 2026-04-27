@@ -28,6 +28,7 @@ import {
     EventPropertyFilter,
     FlagPropertyFilter,
     PropertyFilterType,
+    PropertyFilterValue,
     PropertyOperator,
 } from '~/types'
 
@@ -182,6 +183,13 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                 if (propertyType === PropertyFilterType.EventMetadata && item.id.startsWith('$group_')) {
                     const eventMetadataFilter = filter as EventMetadataPropertyFilter
                     eventMetadataFilter.label = item.name
+                }
+
+                // If the row was surfaced because the search matched on a property *value*
+                // (rather than a key), pre-fill the filter with that value so the user
+                // doesn't need to retype what they just searched for.
+                if (item?.matchedOn === 'value' && typeof item?.matchedValue === 'string' && item.matchedValue) {
+                    ;(filter as AnyPropertyFilter & { value?: PropertyFilterValue }).value = [item.matchedValue]
                 }
 
                 props.setFilter(props.filterIndex, filter)

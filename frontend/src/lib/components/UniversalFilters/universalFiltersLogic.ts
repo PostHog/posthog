@@ -329,6 +329,18 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
                         taxonomicGroup,
                         values.describeProperty
                     )
+
+                    // If the row was surfaced because the search matched on a value rather
+                    // than a key, pre-fill the filter with that value so the user doesn't
+                    // have to retype what they just searched for.
+                    const matchedValue =
+                        item && (item as { matchedOn?: string; matchedValue?: string }).matchedOn === 'value'
+                            ? (item as { matchedValue?: string }).matchedValue
+                            : undefined
+                    if (matchedValue) {
+                        ;(newPropertyFilter as { value?: unknown }).value = [matchedValue]
+                    }
+
                     newValues.push(newPropertyFilter)
                 } else {
                     const entityType = taxonomicFilterGroupTypeToEntityType(taxonomicGroup.type)
