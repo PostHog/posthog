@@ -4,6 +4,7 @@ from posthog.test.base import APIBaseTest
 
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
@@ -119,24 +120,32 @@ class TestFileSystemShortcutAPI(APIBaseTest):
         ids = [row["id"] for row in list_response.json()["results"]]
         self.assertEqual(ids, [str(existing.id), new_id])
 
-    def test_reorder_sets_positions_and_returns_new_order(self):
-        s1 = FileSystemShortcut.objects.create(team=self.team, path="One", type="t", user=self.user, order=0)
-        s2 = FileSystemShortcut.objects.create(team=self.team, path="Two", type="t", user=self.user, order=0)
-        s3 = FileSystemShortcut.objects.create(team=self.team, path="Three", type="t", user=self.user, order=0)
+    @parameterized.expand(
+        [
+            ("reverse", [2, 1, 0]),
+            ("move_first_to_back", [1, 2, 0]),
+            ("move_last_to_front", [2, 0, 1]),
+            ("identity", [0, 1, 2]),
+        ]
+    )
+    def test_reorder_sets_positions_and_returns_new_order(self, _name: str, permutation: list[int]):
+        shortcuts = [
+            FileSystemShortcut.objects.create(team=self.team, path=name, type="t", user=self.user, order=0)
+            for name in ("One", "Two", "Three")
+        ]
+        ordered = [shortcuts[i] for i in permutation]
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/file_system_shortcut/reorder/",
-            {"ordered_ids": [str(s3.id), str(s1.id), str(s2.id)]},
+            {"ordered_ids": [str(s.id) for s in ordered]},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        ids = [row["id"] for row in response.json()]
-        self.assertEqual(ids, [str(s3.id), str(s1.id), str(s2.id)])
+        self.assertEqual([row["id"] for row in response.json()], [str(s.id) for s in ordered])
 
-        s1.refresh_from_db()
-        s2.refresh_from_db()
-        s3.refresh_from_db()
-        self.assertEqual((s3.order, s1.order, s2.order), (0, 1, 2))
+        for expected_order, shortcut in enumerate(ordered):
+            shortcut.refresh_from_db()
+            self.assertEqual(shortcut.order, expected_order)
 
     def test_reorder_rejects_foreign_user_shortcuts(self):
         other_user = self._create_user("other")

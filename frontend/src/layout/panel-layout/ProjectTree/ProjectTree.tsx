@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { RefObject, useCallback, useEffect, useRef, useState } from 'react'
 
 import {
     IconCheckbox,
@@ -130,8 +130,8 @@ export function ProjectTree({
     onItemCheckedOverride,
 }: ProjectTreeProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
-    const { viableItems, shortcutData } = useValues(projectTreeDataLogic)
-    const { reorderShortcuts } = useActions(projectTreeDataLogic)
+    const { viableItems, shortcutEntryIdMap } = useValues(projectTreeDataLogic)
+    const { reorderShortcutByDrag } = useActions(projectTreeDataLogic)
     const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root }
     const {
         fullFileSystemFiltered,
@@ -359,21 +359,6 @@ export function ProjectTree({
         [seenCustomProducts, setSeenCustomProducts]
     )
 
-    // Map of shortcut tree item id → underlying FileSystemEntry id, for drag-and-drop reorder
-    // of the top-level Starred list. Children inside an expanded folder-shortcut use the
-    // `project://` protocol and are intentionally excluded.
-    const shortcutEntryIdMap = useMemo(() => {
-        const map = new Map<string, string>()
-        for (const shortcut of shortcutData) {
-            if (!shortcut.id) {
-                continue
-            }
-            const treeId = shortcut.type === 'folder' ? `shortcuts://${shortcut.path}` : `shortcuts/${shortcut.id}`
-            map.set(treeId, shortcut.id)
-        }
-        return map
-    }, [shortcutData])
-
     const tree = (
         <LemonTree
             ref={treeRef}
@@ -462,30 +447,17 @@ export function ProjectTree({
                     return false
                 }
 
-                // Sibling reorder within the Starred (shortcuts://) list.
-                const oldShortcutEntryId = typeof oldId === 'string' ? shortcutEntryIdMap.get(oldId) : undefined
-                const newShortcutEntryId = typeof newId === 'string' ? shortcutEntryIdMap.get(newId) : undefined
-                if (isStarredReorderEnabled && oldShortcutEntryId && newShortcutEntryId) {
-                    if (oldShortcutEntryId === newShortcutEntryId) {
-                        return false
-                    }
-                    const currentIds = shortcutData.map((s) => s.id).filter((id): id is string => !!id)
-                    const fromIndex = currentIds.indexOf(oldShortcutEntryId)
-                    let toIndex = currentIds.indexOf(newShortcutEntryId)
-                    if (fromIndex < 0 || toIndex < 0) {
-                        return false
-                    }
-                    // `position` describes which side of the target row the pointer was over.
-                    // Treat 'after' as "insert below the target," otherwise insert above it.
-                    if (dragEvent.position === 'after') {
-                        toIndex += 1
-                    }
-                    const next = [...currentIds]
-                    next.splice(fromIndex, 1)
-                    // After removing `fromIndex`, anything that was at a higher index shifts down by one.
-                    const adjustedToIndex = fromIndex < toIndex ? toIndex - 1 : toIndex
-                    next.splice(adjustedToIndex, 0, oldShortcutEntryId)
-                    reorderShortcuts(next)
+                // Sibling reorder within the Starred (shortcuts://) list. All the index/position
+                // math lives in the kea logic so the component can stay focused on rendering.
+                if (
+                    isStarredReorderEnabled &&
+                    typeof oldId === 'string' &&
+                    typeof newId === 'string' &&
+                    shortcutEntryIdMap.has(oldId) &&
+                    shortcutEntryIdMap.has(newId)
+                ) {
+                    const position = dragEvent.position === 'after' ? 'after' : 'before'
+                    reorderShortcutByDrag(oldId, newId, position)
                     return
                 }
 
