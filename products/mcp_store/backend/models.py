@@ -80,7 +80,9 @@ class MCPServerTemplate(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     is_active = models.BooleanField(default=False)
 
     def save(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
-        self.icon_key = normalize_mcp_template_icon_key(self.icon_key or "")
+        update_fields = kwargs.get("update_fields")
+        if update_fields is None or "icon_key" in update_fields:
+            self.icon_key = normalize_mcp_template_icon_key(self.icon_key or "")
         super().save(*args, **kwargs)
 
     class Meta:
