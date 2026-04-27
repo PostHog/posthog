@@ -97,6 +97,11 @@ import type { insightVizDataLogicType } from './insightVizDataLogicType'
 
 const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
 
+const isResultCustomizationsOnlyChange = (insightFilter: InsightFilter): boolean => {
+    const keys = Object.keys(insightFilter)
+    return keys.length > 0 && keys.every((key) => key === 'resultCustomizations')
+}
+
 export type QuerySourceUpdate = Omit<Partial<InsightQueryNode>, 'kind'>
 
 export const insightVizDataLogic = kea<insightVizDataLogicType>([
@@ -632,7 +637,14 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
         // insight filter
         updateInsightFilter: async ({ insightFilter }, breakpoint) => {
-            await breakpoint(300)
+            // Visibility/color toggles (resultCustomizations) drive UI state directly — the legend
+            // and table checkboxes derive `checked` from the filter. The 300 ms debounce makes
+            // those clicks feel unresponsive even though the change is visualization-only and
+            // never triggers a refetch. Skip the breakpoint for that case so toggles apply
+            // immediately.
+            if (!isResultCustomizationsOnlyChange(insightFilter)) {
+                await breakpoint(300)
+            }
 
             if (isWebAnalyticsInsightQuery(values.localQuerySource)) {
                 return

@@ -468,6 +468,39 @@ describe('insightVizDataLogic', () => {
             })
         })
 
+        it('applies result customizations changes without the debounce', async () => {
+            // Visibility/color toggles drive UI state directly (e.g. the legend checkbox derives
+            // `checked` from the filter), so they must not be debounced like other filter changes.
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateInsightFilter({
+                    resultCustomizations: {
+                        'Chrome|0': { assignmentBy: 'value' as any, hidden: true },
+                    },
+                })
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: {
+                            ...trendsQueryDefault,
+                            trendsFilter: {
+                                resultCustomizations: {
+                                    'Chrome|0': { assignmentBy: 'value', hidden: true },
+                                },
+                            },
+                            version: 2,
+                        },
+                    },
+                })
+
+            expect(builtInsightVizDataLogic.values.insightFilter).toEqual({
+                resultCustomizations: {
+                    'Chrome|0': { assignmentBy: 'value', hidden: true },
+                },
+            })
+        })
+
         it('updates the insight filter for other insight query kinds', async () => {
             builtInsightVizDataLogic.actions.updateQuerySource(funnelsQueryDefault)
 
