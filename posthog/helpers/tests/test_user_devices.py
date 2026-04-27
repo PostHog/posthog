@@ -89,34 +89,63 @@ class TestKnownLoginDeviceCookieMiddleware(BaseTest):
         middleware = KnownLoginDeviceCookieMiddleware(lambda r: response)
         return middleware(request)
 
+    def _cookie_name(self) -> str:
+        return KNOWN_DEVICE_COOKIE.format(user_id=self.user.id)
+
     def test_sets_cookie_for_authenticated_user(self):
         request = self._make_request(user=self.user)
-        request.session.accessed = True
         response = self._run_middleware(request)
-        cookie_name = KNOWN_DEVICE_COOKIE.format(user_id=self.user.id)
-        self.assertIn(cookie_name, response.cookies)
+        self.assertIn(self._cookie_name(), response.cookies)
 
-    def test_no_crash_when_user_is_none(self):
+    def test_does_not_set_cookie_when_session_has_no_auth_user_id(self):
+        # API-key style requests: request.user is set by DRF auth, but no session login happened.
+        request = RequestFactory().get("/")
+        request.session = SessionStore()
+        request.user = self.user
+        response = self._run_middleware(request)
+        self.assertNotIn(self._cookie_name(), response.cookies)
+
+    def test_does_not_set_cookie_when_user_is_none(self):
         request = self._make_request()
         request.user = None
-        request.session.accessed = True
         response = self._run_middleware(request)
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.cookies), 0)
 
-    def test_no_crash_when_user_has_no_id(self):
-        fake_user = MagicMock(spec=[])
-        fake_user.is_authenticated = True
-        request = self._make_request()
-        request.user = fake_user
-        request.session.accessed = True
-        response = self._run_middleware(request)
-        self.assertEqual(response.status_code, 200)
-
-    def test_no_crash_when_user_attr_missing(self):
+    def test_does_not_set_cookie_when_user_attr_missing(self):
         request = RequestFactory().get("/")
         request.session = SessionStore()
         if hasattr(request, "user"):
             del request.user
-        request.session.accessed = True
         response = self._run_middleware(request)
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.cookies), 0)
+
+    def test_does_not_set_cookie_for_anonymous_user(self):
+        from django.contrib.auth.models import AnonymousUser
+
+        request = RequestFactory().get("/")
+        request.session = SessionStore()
+        request.user = AnonymousUser()
+        response = self._run_middleware(request)
+        self.assertEqual(len(response.cookies), 0)
+
+    def test_does_not_set_cookie_for_non_user_types(self):
+        # Things like ProjectSecretAPIKeyUser / InternalAPIUser set request.user directly to a
+        # non-User type. The gate must reject these without crashing on missing attributes.
+        fake_user = MagicMock(spec=[])
+        fake_user.is_authenticated = True
+        request = self._make_request()
+        request.user = fake_user
+        response = self._run_middleware(request)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.cookies), 0)
+
+    def test_does_not_set_cookie_when_session_attr_missing(self):
+        request = RequestFactory().get("/")
+        if hasattr(request, "session"):
+            del request.session
+        request.user = self.user
+        response = self._run_middleware(request)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.cookies), 0)

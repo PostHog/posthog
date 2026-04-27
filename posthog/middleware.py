@@ -12,7 +12,6 @@ from urllib.parse import urlencode
 
 from django.conf import settings
 from django.contrib.auth import logout
-from django.contrib.sessions.middleware import SessionMiddleware
 from django.core.cache import cache
 from django.core.exceptions import MiddlewareNotUsed
 from django.db import connection
@@ -537,14 +536,25 @@ class CustomPrometheusMetrics(Metrics):
         return super().register_metric(metric_cls, name, documentation, labelnames=labelnames, **kwargs)
 
 
-class PostHogTokenCookieMiddleware(SessionMiddleware):
+class PostHogTokenCookieMiddleware:
     """
-    Adds two secure cookies to enable auto-filling the current project token on the docs.
+    Adds secure cookies that let the website auto-fill the current project token / login method on docs.
+
+    Note: this used to subclass SessionMiddleware, which had the side effect of running a second
+    SessionMiddleware.process_request mid-chain — replacing request.session with a fresh SessionStore.
+    That caused subtle bugs when downstream code relied on session state populated earlier (notably,
+    Django's separate _cached_user / _acached_user caches across sync vs ASGI auth). The session is
+    already saved by the SessionMiddleware higher in the stack; we only need to set response cookies.
     """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        return self.process_response(request, response)
 
     def process_response(self, request, response):
-        response = super().process_response(request, response)
-
         if settings.TEST:
             pass
         elif is_dev_mode():
@@ -655,7 +665,16 @@ class SessionAgeMiddleware:
 
 
 class KnownLoginDeviceCookieMiddleware:
-    """(Re)issues the known-device cookie on every session-authenticated response"""
+    """(Re)issues the known-device cookie on every session-authenticated response.
+
+    Gate is a positive check on the session for an auth user id, plus an isinstance(User) guard
+    on request.user. We deliberately do not use request.session.accessed: it's a leaky proxy that
+    flips True/False depending on whether earlier middleware happened to read the session, and
+    Django keeps separate auth caches for sync (request._cached_user) vs ASGI (request._acached_user)
+    so the proxy is asymmetric across transports. Endpoints authenticated via API key (e.g.
+    ProjectSecretAPIKeyUser, InternalAPIUser) set request.user directly and never have an auth user
+    in the session — this gate excludes them cleanly.
+    """
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -663,11 +682,11 @@ class KnownLoginDeviceCookieMiddleware:
     def __call__(self, request: HttpRequest):
         response = self.get_response(request)
         user = getattr(request, "user", None)
+        session = getattr(request, "session", None)
         if (
-            user
-            and getattr(user, "id", None)
-            and request.session.accessed
-            and user.is_authenticated
+            isinstance(user, User)
+            and session is not None
+            and session.get("_auth_user_id")
             and not is_impersonated_session(request)
         ):
             set_known_device_cookie(response, user)
