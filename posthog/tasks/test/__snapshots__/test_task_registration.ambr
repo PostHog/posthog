@@ -110,6 +110,7 @@
     'posthog.tasks.tasks.clickhouse_part_count',
     'posthog.tasks.tasks.clickhouse_row_count',
     'posthog.tasks.tasks.clickhouse_send_license_usage',
+    'posthog.tasks.tasks.delete_expired_delegation_invites',
     'posthog.tasks.tasks.delete_expired_exported_assets',
     'posthog.tasks.tasks.delete_organization_data_and_notify_task',
     'posthog.tasks.tasks.delete_project_data_and_notify_task',
