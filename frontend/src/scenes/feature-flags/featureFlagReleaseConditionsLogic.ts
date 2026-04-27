@@ -463,13 +463,10 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 group.aggregation_group_type_index ?? values.filters?.aggregation_group_type_index ?? null
             let response: UserBlastRadiusType
             try {
-                response = await api.create(
-                    `api/projects/${values.currentProjectId}/feature_flags/user_blast_radius`,
-                    {
-                        condition: { properties: newProperties },
-                        group_type_index: groupTypeIndex,
-                    }
-                )
+                response = await api.create(`api/projects/${values.currentProjectId}/feature_flags/user_blast_radius`, {
+                    condition: { properties: newProperties },
+                    group_type_index: groupTypeIndex,
+                })
             } catch {
                 response = { affected: -1, total: -1 }
             }
