@@ -65,6 +65,27 @@ describe('monitor-github-rate-limit', () => {
         expect(core.setOutput).toHaveBeenCalledWith('emitted', '2')
     })
 
+    test('counts capture failures without aborting later emissions', async () => {
+        process.env.POSTHOG_DEVEX_PROJECT_API_TOKEN = 'devex-key'
+        let calls = 0
+        const fetchMock = jest.fn(() =>
+            ++calls === 1
+                ? Promise.resolve({ ok: false, status: 500, text: () => Promise.resolve('boom') })
+                : fetchOk()
+        )
+        const github = createGithubMock({
+            core: snapshot({ remaining: 3000, limit: 15000 }),
+            graphql: snapshot({ remaining: 4000, limit: 5000 }),
+        })
+        const core = createCore()
+
+        await monitor({ github, context, core }, { now: () => T_BASE, fetch: fetchMock })
+
+        expect(core.setOutput).toHaveBeenCalledWith('emitted', '1')
+        expect(core.setOutput).toHaveBeenCalledWith('failures', '1')
+        expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('capture 500'))
+    })
+
     test('skips emission when devex token is not configured', async () => {
         const fetchMock = jest.fn(fetchOk)
         const github = createGithubMock({ core: snapshot({ remaining: 1, limit: 15000 }) })
