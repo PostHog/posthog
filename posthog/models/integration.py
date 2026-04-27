@@ -2101,13 +2101,54 @@ class GitHubIntegrationError(Exception):
     pass
 
 
-class GitHubRateLimitError(Exception):
+class GitHubRateLimitError(GitHubIntegrationError):
     """GitHub API rate limit exhausted for this installation."""
 
     def __init__(self, message: str, reset_at: int | None = None, retry_after: int | None = None):
         super().__init__(message)
         self.reset_at = reset_at
         self.retry_after = retry_after
+
+
+def raise_if_github_rate_limited(response: requests.Response) -> None:
+    """Raise GitHubRateLimitError when the response signals a GitHub rate limit.
+
+    Handles both primary (403 + body) and secondary (429) rate limit formats.
+    Safe to call unconditionally after every GitHub API response.
+    """
+    if response.status_code == 429:
+        is_rate_limited = True
+    elif response.status_code == 403:
+        try:
+            body = response.text
+        except Exception:
+            body = ""
+        is_rate_limited = "rate limit" in body.lower()
+    else:
+        return
+
+    if not is_rate_limited:
+        return
+
+    def _int_header(name: str) -> int | None:
+        val = response.headers.get(name)
+        if not val:
+            return None
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            return None
+
+    reset_at = _int_header("x-ratelimit-reset")
+    retry_after = _int_header("retry-after")
+    if retry_after is None and reset_at is not None:
+        retry_after = max(1, reset_at - int(time.time()))
+
+    raise GitHubRateLimitError(
+        f"GitHub API rate limit exceeded (resets at {reset_at})",
+        reset_at=reset_at,
+        retry_after=retry_after,
+    )
 
 
 class GitHubIntegration:
@@ -2307,6 +2348,8 @@ class GitHubIntegration:
         if reset_at is not None:
             github_api_rate_limit_reset_timestamp_gauge.labels(integration_id, resource).set(reset_at)
 
+        raise_if_github_rate_limited(response)
+
     def _record_github_api_exception(self, method: str, endpoint: str) -> None:
         github_api_request_counter.labels(str(self.integration.id), method, endpoint, "exception").inc()
 
@@ -2449,6 +2492,8 @@ class GitHubIntegration:
                     return None
                 response = fetch()
             return response
+        except GitHubRateLimitError:
+            raise
         except Exception:
             logger.warning("GitHubIntegration: installation GET failed", url=url, exc_info=True)
             return None
