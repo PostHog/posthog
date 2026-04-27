@@ -366,26 +366,23 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="oauthgrant",
             constraint=models.CheckConstraint(
-                condition=models.Q(("code_challenge_method", "S256")), name="enforce_supported_code_challenge_method"
+                check=models.Q(("code_challenge_method", "S256")), name="enforce_supported_code_challenge_method"
             ),
         ),
         migrations.AddConstraint(
             model_name="oauthapplication",
             constraint=models.CheckConstraint(
-                condition=models.Q(("skip_authorization", False)), name="enforce_skip_authorization_false"
+                check=models.Q(("skip_authorization", False)), name="enforce_skip_authorization_false"
             ),
         ),
         migrations.AddConstraint(
             model_name="oauthapplication",
-            constraint=models.CheckConstraint(
-                condition=models.Q(("algorithm", "RS256")), name="enforce_rs256_algorithm"
-            ),
+            constraint=models.CheckConstraint(check=models.Q(("algorithm", "RS256")), name="enforce_rs256_algorithm"),
         ),
         migrations.AddConstraint(
             model_name="oauthapplication",
             constraint=models.CheckConstraint(
-                condition=models.Q(("authorization_grant_type", "authorization-code")),
-                name="enforce_supported_grant_types",
+                check=models.Q(("authorization_grant_type", "authorization-code")), name="enforce_supported_grant_types"
             ),
         ),
     ]

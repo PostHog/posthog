@@ -177,7 +177,7 @@ class TestAccountRequests(ProvisioningTestBase):
             "/api/agentic/provisioning/account_requests",
             data=payload,
             content_type="application/json",
-            headers={"api-version": "0.1d"},
+            HTTP_API_VERSION="0.1d",
         )
         assert res.status_code == 401
 

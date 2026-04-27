@@ -1,9 +1,7 @@
 import dataclasses
-from collections.abc import Sequence
 from typing import Any, Literal, Optional, cast
 
-from django.db import models
-from django.db.models import Prefetch, Q, QuerySet, prefetch_related_objects
+from django.db.models import Prefetch, Q, QuerySet
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import response, serializers, status, viewsets
@@ -71,10 +69,8 @@ class TaggedItemSerializerMixin(serializers.Serializer):
         ret = super().to_representation(obj)
         if hasattr(obj, "prefetched_tags"):
             ret["tags"] = [p.tag.name for p in obj.prefetched_tags]
-        elif obj.pk:
-            ret["tags"] = list(obj.tagged_items.values_list("tag__name", flat=True)) if obj.tagged_items else []
         else:
-            ret["tags"] = []
+            ret["tags"] = list(obj.tagged_items.values_list("tag__name", flat=True)) if obj.tagged_items else []
         return ret
 
     def create(self, validated_data):
@@ -129,34 +125,8 @@ class BulkUpdateTagsResponseSerializer(serializers.Serializer):
     skipped = BulkUpdateTagsErrorSerializer(many=True)
 
 
-def _prefetch_tags_for_instances(instances: Sequence) -> None:
-    """Manually prefetch tagged_items for a list of model instances.
-
-    Handles RawQuerySet results that may have NULL PKs (e.g., from FULL OUTER JOINs)
-    by only prefetching for instances with valid PKs and setting empty tags on the rest.
-    Django 5 raises ValueError when unsaved instances are passed to related filters.
-    """
-    valid_instances = [obj for obj in instances if obj.pk is not None]
-    null_pk_instances = [obj for obj in instances if obj.pk is None]
-
-    if valid_instances:
-        prefetch_related_objects(
-            valid_instances,
-            Prefetch(
-                "tagged_items",
-                queryset=TaggedItem.objects.select_related("tag"),
-                to_attr="prefetched_tags",
-            ),
-        )
-
-    for obj in null_pk_instances:
-        obj.prefetched_tags = []
-
-
 class TaggedItemViewSetMixin(viewsets.GenericViewSet):
-    def prefetch_tagged_items_if_available(self, queryset: QuerySet | models.query.RawQuerySet) -> QuerySet:
-        if isinstance(queryset, models.query.RawQuerySet):
-            return queryset  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
+    def prefetch_tagged_items_if_available(self, queryset: QuerySet) -> QuerySet:
         return queryset.prefetch_related(
             Prefetch(
                 "tagged_items",
@@ -168,12 +138,6 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
     def filter_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = super().filter_queryset(queryset)
         return self.prefetch_tagged_items_if_available(queryset)
-
-    def paginate_queryset(self, queryset):
-        page = super().paginate_queryset(queryset)
-        if page is not None and isinstance(queryset, models.query.RawQuerySet):
-            _prefetch_tags_for_instances(page)
-        return page
 
     @extend_schema(
         request=BulkUpdateTagsRequestSerializer,

@@ -846,7 +846,6 @@ class Database(BaseModel):
                         id=connection_id,
                         access_method=ExternalDataSource.AccessMethod.DIRECT,
                     )
-                    .select_related(None)
                     .only("connection_metadata")
                     .first()
                 )

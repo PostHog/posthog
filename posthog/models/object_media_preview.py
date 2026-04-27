@@ -48,14 +48,14 @@ class ObjectMediaPreview(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         ]
         constraints = [
             models.CheckConstraint(
-                condition=(
+                check=(
                     models.Q(uploaded_media__isnull=False, exported_asset__isnull=True)
                     | models.Q(uploaded_media__isnull=True, exported_asset__isnull=False)
                 ),
                 name="exactly_one_media",
             ),
             models.CheckConstraint(
-                condition=models.Q(event_definition__isnull=False),
+                check=models.Q(event_definition__isnull=False),
                 name="exactly_one_object",
             ),
         ]

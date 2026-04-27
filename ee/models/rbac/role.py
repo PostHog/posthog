@@ -29,7 +29,7 @@ class Role(UUIDTModel):
     # DEPRECATED - do not use
     feature_flags_access_level = models.PositiveSmallIntegerField(
         default=OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT,
-        choices=OrganizationResourceAccess.AccessLevel,
+        choices=OrganizationResourceAccess.AccessLevel.choices,
     )
 
     members = models.ManyToManyField(

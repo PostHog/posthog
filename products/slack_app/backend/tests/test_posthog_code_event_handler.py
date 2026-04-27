@@ -56,7 +56,9 @@ class TestPostHogCodeEventHandler(TestCase):
             "/slack/event-callback/",
             data=body,
             content_type="application/json",
-            headers={"x-slack-signature": signature, "x-slack-request-timestamp": ts, "x-slack-retry-num": "1"},
+            HTTP_X_SLACK_SIGNATURE=signature,
+            HTTP_X_SLACK_REQUEST_TIMESTAMP=ts,
+            HTTP_X_SLACK_RETRY_NUM="1",
         )
         assert response.status_code == 200
 

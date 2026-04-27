@@ -10,7 +10,7 @@ class OrganizationIntegration(UUIDModel):
         VERCEL = "vercel"
 
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
-    kind = models.CharField(max_length=50, choices=OrganizationIntegrationKind)
+    kind = models.CharField(max_length=50, choices=OrganizationIntegrationKind.choices)
     # The ID of the integration in the external system
     integration_id = models.TextField(null=True, blank=True)
     # Any config that COULD be passed to the frontend

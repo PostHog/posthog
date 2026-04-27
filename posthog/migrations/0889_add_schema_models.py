@@ -100,7 +100,7 @@ class Migration(migrations.Migration):
                 (
                     "property_type",
                     models.CharField(
-                        choices=posthog_models_property_definition.PropertyType,
+                        choices=posthog_models_property_definition.PropertyType.choices,
                         max_length=50,
                     ),
                 ),
@@ -135,7 +135,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="schemapropertygroupproperty",
             constraint=models.CheckConstraint(
-                condition=models.Q(("property_type__in", posthog_models_property_definition.PropertyType.values)),
+                check=models.Q(("property_type__in", posthog_models_property_definition.PropertyType.values)),
                 name="property_type_is_valid_schema",
             ),
         ),

@@ -19,7 +19,7 @@ class MessageCategory(UUIDTModel):
     description = models.TextField(blank=True, default="")
     public_description = models.TextField(blank=True, default="")
     category_type = models.CharField(
-        max_length=32, choices=MessageCategoryType, default=MessageCategoryType.MARKETING.value
+        max_length=32, choices=MessageCategoryType.choices, default=MessageCategoryType.MARKETING.value
     )
 
     class Meta:

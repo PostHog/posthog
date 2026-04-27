@@ -63,7 +63,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="node",
             constraint=models.CheckConstraint(
-                condition=models.Q(("type", "table"), ("saved_query__isnull", False), _connector="OR"),
+                check=models.Q(("type", "table"), ("saved_query__isnull", False), _connector="OR"),
                 name="saved_query_required_on_non_table_node_type",
             ),
         ),

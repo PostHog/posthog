@@ -76,7 +76,7 @@ class GroupTypeMapping(RootTeamMixin, models.Model):
                 fields=("project", "group_type_index"), name="unique event column indexes for project"
             ),
             models.CheckConstraint(
-                condition=models.Q(group_type_index__lte=5),
+                check=models.Q(group_type_index__lte=5),
                 name="group_type_index is less than or equal 5",
             ),
             models.CheckConstraint(
@@ -84,7 +84,7 @@ class GroupTypeMapping(RootTeamMixin, models.Model):
                 # We have this as a constraint rather than IS NOT NULL on the field, because setting IS NOT NULL cannot
                 # be done without locking the table. By adding this constraint using Postgres's `NOT VALID` option
                 # (via Django `AddConstraintNotValid()`) and subsequent `VALIDATE CONSTRAINT`, we avoid locking.
-                condition=models.Q(project_id__isnull=False),
+                check=models.Q(project_id__isnull=False),
             ),
         ]
 

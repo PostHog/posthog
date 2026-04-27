@@ -388,7 +388,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="propertydefinition",
             constraint=models.CheckConstraint(
-                condition=models.Q(
+                check=models.Q(
                     (
                         "property_type__in",
                         ["DateTime", "String", "Numeric", "Boolean", "Duration"],
@@ -400,7 +400,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="propertydefinition",
             constraint=models.CheckConstraint(
-                condition=models.Q(
+                check=models.Q(
                     models.Q(("type", 3), _negated=True),
                     ("group_type_index__isnull", False),
                     _connector="OR",

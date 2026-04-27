@@ -66,7 +66,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="taggeditem",
             constraint=models.CheckConstraint(
-                condition=models.Q(models.Q(("action__isnull", False)), _connector="OR"),
+                check=models.Q(models.Q(("action__isnull", False)), _connector="OR"),
                 name="exactly_one_related_object",
             ),
         ),

@@ -43,7 +43,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="personoverride",
             constraint=models.CheckConstraint(
-                condition=models.Q(
+                check=models.Q(
                     (
                         "old_person_id__exact",
                         django.db.models.expressions.F("override_person_id"),
@@ -56,7 +56,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="personoverride",
             constraint=models.CheckConstraint(
-                condition=models.Q(
+                check=models.Q(
                     django.db.models.expressions.Func(
                         django.db.models.expressions.F("team_id"),
                         django.db.models.expressions.F("override_person_id"),

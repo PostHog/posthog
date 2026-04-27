@@ -103,7 +103,7 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
                 for related_field in RELATED_OBJECTS
             ],
             models.CheckConstraint(
-                condition=build_unique_relationship_check(RELATED_OBJECTS), name="exactly_one_related_object"
+                check=build_unique_relationship_check(RELATED_OBJECTS), name="exactly_one_related_object"
             ),
         ]
 

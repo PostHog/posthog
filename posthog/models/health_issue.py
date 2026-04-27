@@ -28,12 +28,12 @@ class HealthIssue(UUIDModel):
 
     severity = models.CharField(
         max_length=20,
-        choices=Severity,
+        choices=Severity.choices,
     )
 
     status = models.CharField(
         max_length=20,
-        choices=Status,
+        choices=Status.choices,
         default=Status.ACTIVE,
     )
 

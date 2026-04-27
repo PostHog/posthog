@@ -264,7 +264,7 @@ class Team(UUIDTClassicModel):
                 # We have this as a constraint rather than IS NOT NULL on the field, because setting IS NOT NULL cannot
                 # be done without locking the table. By adding this constraint using Postgres's `NOT VALID` option
                 # (via Django `AddConstraintNotValid()`) and subsequent `VALIDATE CONSTRAINT`, we avoid locking.
-                condition=models.Q(project_id__isnull=False),
+                check=models.Q(project_id__isnull=False),
             )
         ]
 
@@ -386,7 +386,7 @@ class Team(UUIDTClassicModel):
     session_recording_retention_period = field_access_control(
         models.CharField(
             max_length=3,
-            choices=SessionRecordingRetentionPeriod,
+            choices=SessionRecordingRetentionPeriod.choices,
             default=SessionRecordingRetentionPeriod.THIRTY_DAYS,
         ),
         "project",
@@ -492,7 +492,7 @@ class Team(UUIDTClassicModel):
     access_control = models.BooleanField(default=False)
 
     week_start_day = field_access_control(
-        models.SmallIntegerField(null=True, blank=True, choices=WeekStartDay), "project", "admin"
+        models.SmallIntegerField(null=True, blank=True, choices=WeekStartDay.choices), "project", "admin"
     )
     # This is not a manual setting. It's updated automatically to reflect if the team uses site apps or not.
     inject_web_apps = models.BooleanField(null=True)
@@ -527,7 +527,7 @@ class Team(UUIDTClassicModel):
     cookieless_server_hash_mode = field_access_control(
         models.SmallIntegerField(
             default=CookielessServerHashMode.DISABLED,
-            choices=CookielessServerHashMode,
+            choices=CookielessServerHashMode.choices,
             null=True,
         ),
         "project",
@@ -638,7 +638,7 @@ class Team(UUIDTClassicModel):
     default_experiment_stats_method = field_access_control(
         models.CharField(
             max_length=20,
-            choices=Organization.DefaultExperimentStatsMethod,
+            choices=Organization.DefaultExperimentStatsMethod.choices,
             default=Organization.DefaultExperimentStatsMethod.BAYESIAN,
             help_text="Default statistical method for new experiments in this environment.",
             null=True,
@@ -651,7 +651,7 @@ class Team(UUIDTClassicModel):
     business_model = field_access_control(
         models.CharField(
             max_length=10,
-            choices=BusinessModel,
+            choices=BusinessModel.choices,
             null=True,
             blank=True,
             help_text="Whether this project serves B2B or B2C customers, used to optimize the UI layout.",

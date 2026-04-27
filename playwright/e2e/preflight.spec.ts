@@ -26,8 +26,7 @@ test.describe('Preflight', () => {
             await route.fulfill({ json: preflightSuccessResponse })
         })
 
-        // Clear session cookies instead of logout for preflight tests
-        await page.context().clearCookies()
+        await page.goto('/logout')
         await page.goto('/preflight')
 
         await page.locator('[data-attr=preflight-experimentation]').click()
@@ -48,8 +47,7 @@ test.describe('Preflight', () => {
             await route.fulfill({ json: preflightSuccessResponse })
         })
 
-        // Clear session cookies instead of logout for preflight tests
-        await page.context().clearCookies()
+        await page.goto('/logout')
         await page.goto('/preflight')
 
         await page.locator('[data-attr=preflight-live]').click()
@@ -67,8 +65,7 @@ test.describe('Preflight', () => {
             await route.fulfill({ json: { ...preflightSuccessResponse, celery: false } })
         })
 
-        // Clear session cookies instead of logout for preflight tests
-        await page.context().clearCookies()
+        await page.goto('/logout')
         await page.goto('/preflight')
 
         await page.locator('[data-attr=preflight-live]').click()

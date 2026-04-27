@@ -122,7 +122,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         DeltaS3Wrapper = "DeltaS3Wrapper", "DeltaS3Wrapper"
 
     name = models.CharField(max_length=128)
-    format = models.CharField(max_length=128, choices=TableFormat)
+    format = models.CharField(max_length=128, choices=TableFormat.choices)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 
     url_pattern = models.CharField(max_length=500)
