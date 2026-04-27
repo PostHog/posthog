@@ -114,11 +114,11 @@ const appendPathLinks = (svg: any, links: SankeyLink<PathNodeData, {}>[], handle
         .data(links)
         .join('g')
         .attr('stroke', 'var(--paths-link)')
-        .attr('opacity', 0.35)
 
     link.append('path')
         .attr('d', sankeyLinkHorizontal())
         .attr('id', (d: PathNodeData) => `path-${d.index}`)
+        .attr('stroke-opacity', 0.35)
         .attr('stroke-width', (d: PathNodeData) => {
             return Math.max(1, d.width)
         })

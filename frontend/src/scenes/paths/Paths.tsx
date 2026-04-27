@@ -4,6 +4,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { lightenDarkenColor } from 'lib/utils'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -67,12 +68,12 @@ export function Paths(): JSX.Element {
     )
 
     useLayoutEffect(() => {
+        const hasActive = activeIndices.linkIndices.size > 0
         canvasRef.current?.querySelectorAll<SVGPathElement>('path[id^="path-"]').forEach((el) => {
             const pathIndex = Number(el.id.replace('path-', ''))
-            el.setAttribute(
-                'stroke',
-                activeIndices.linkIndices.has(pathIndex) ? 'var(--paths-link-hover)' : 'var(--paths-link)'
-            )
+            const isActive = activeIndices.linkIndices.has(pathIndex)
+            el.setAttribute('stroke', isActive ? 'var(--paths-link-hover)' : 'var(--paths-link)')
+            el.setAttribute('stroke-opacity', hasActive ? (isActive ? '0.85' : '0.15') : '0.35')
         })
     }, [activeIndices])
 
@@ -156,7 +157,7 @@ export function Paths(): JSX.Element {
                         '--paths-node': theme?.['preset-1'] || '#000000',
                         '--paths-node-start-or-end': theme?.['preset-2'] || '#000000',
                         '--paths-link': theme?.['preset-1'] || '#000000',
-                        '--paths-link-hover': theme?.['preset-2'] || '#000000',
+                        '--paths-link-hover': lightenDarkenColor(theme?.['preset-1'] || '#000000', -20),
                         '--paths-dropoff': 'rgba(220,53,69,0.7)',
                     } as React.CSSProperties
                 }
