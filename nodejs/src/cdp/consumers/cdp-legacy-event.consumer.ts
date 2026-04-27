@@ -5,7 +5,6 @@ import { LegacyPluginAppMetrics } from '~/cdp/legacy-plugins/app-metrics'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 
 import { KafkaConsumer } from '../../kafka/consumer'
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import {
     HealthCheckResult,
     ISOTimestamp,
@@ -69,7 +68,6 @@ export type CdpLegacyEventsConsumerConfig = CdpConsumerBaseConfig &
     >
 
 export interface CdpLegacyEventsConsumerDeps extends CdpConsumerBaseDeps {
-    kafkaProducer: KafkaProducerWrapper
     groupTypeManager: GroupTypeManager
 }
 
@@ -118,7 +116,7 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
         })
 
         this.appMetrics = new LegacyPluginAppMetrics(
-            deps.kafkaProducer,
+            this.outputs,
             config.APP_METRICS_FLUSH_FREQUENCY_MS,
             config.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
         )

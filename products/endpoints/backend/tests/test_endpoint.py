@@ -794,13 +794,13 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         # Execute the endpoints using API key to generate query_log entries with is_personal_api_key_request=true
         response1 = self.client.get(
             f"/api/environments/{self.team.id}/endpoints/test_query_1/run/",
-            HTTP_AUTHORIZATION=f"Bearer {self.api_key}",
+            headers={"authorization": f"Bearer {self.api_key}"},
         )
         self.assertEqual(response1.status_code, status.HTTP_200_OK)
 
         response2 = self.client.get(
             f"/api/environments/{self.team.id}/endpoints/test_query_2/run/",
-            HTTP_AUTHORIZATION=f"Bearer {self.api_key}",
+            headers={"authorization": f"Bearer {self.api_key}"},
         )
         self.assertEqual(response2.status_code, status.HTTP_200_OK)
 

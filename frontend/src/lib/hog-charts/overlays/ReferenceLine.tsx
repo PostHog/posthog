@@ -1,8 +1,6 @@
 /* eslint-disable react/forbid-dom-props -- dynamic pixel positions from d3 scales */
 import React, { useMemo } from 'react'
 
-import { resolveVariableColor } from 'lib/charts/utils/color'
-
 import { useChart } from '../core/chart-context'
 
 export type ReferenceLineOrientation = 'horizontal' | 'vertical'
@@ -65,7 +63,7 @@ const LABEL_PADDING = 4
 function resolveStyle(variant: ReferenceLineVariant, style: ReferenceLineStyle | undefined): ResolvedStyle {
     const defaults = VARIANT_DEFAULTS[variant]
     return {
-        color: resolveVariableColor(style?.color) ?? resolveVariableColor(defaults.color) ?? defaults.color,
+        color: style?.color ?? defaults.color,
         stroke: style?.stroke ?? defaults.stroke,
         width: style?.width ?? defaults.width,
     }
@@ -96,7 +94,7 @@ export function ReferenceLine(props: ReferenceLineProps): React.ReactElement | n
     const common: ResolvedProps = {
         resolved,
         fillSide: props.fillSide,
-        fillColor: resolveVariableColor(style?.fillColor) ?? resolved.color,
+        fillColor: style?.fillColor ?? resolved.color,
         fillOpacity: style?.fillOpacity ?? 0.1,
         label: props.label,
         labelPosition: props.labelPosition ?? 'end',
@@ -145,7 +143,9 @@ function HorizontalReferenceLine({
         top: y - resolved.width / 2,
         width: plotWidth,
         height: 0,
-        borderTop: `${resolved.width}px ${resolved.stroke} ${resolved.color}`,
+        borderTopWidth: resolved.width,
+        borderTopStyle: resolved.stroke,
+        borderTopColor: resolved.color,
     }
     const labelStyle: React.CSSProperties = {
         top: y - LABEL_OFFSET,
@@ -198,7 +198,9 @@ function VerticalReferenceLine({
         top: plotTop,
         width: 0,
         height: plotHeight,
-        borderLeft: `${resolved.width}px ${resolved.stroke} ${resolved.color}`,
+        borderLeftWidth: resolved.width,
+        borderLeftStyle: resolved.stroke,
+        borderLeftColor: resolved.color,
     }
     const labelStyle: React.CSSProperties = {
         left: x + LABEL_PADDING,

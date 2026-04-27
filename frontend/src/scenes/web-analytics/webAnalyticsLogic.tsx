@@ -25,6 +25,7 @@ import {
 } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -126,8 +127,6 @@ export interface DateFilterState {
     isIntervalManuallySet: boolean
 }
 
-const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
-const persistConfig = { persist: true, prefix: `${teamId}__` }
 export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     path(['scenes', 'webAnalytics', 'webAnalyticsSceneLogic']),
     connect(() => ({
@@ -275,242 +274,245 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         },
     })),
-    reducers({
-        surveyModalPath: [
-            null as string | null,
-            {
-                openSurveyModal: (_, { path }) => path,
-                closeSurveyModal: () => null,
-            },
-        ],
-        _graphsTab: [
-            null as string | null,
-            persistConfig,
-            {
-                setGraphsTab: (_, { tab }) => tab,
-                togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.graphsTab || oldTab,
-                setConversionGoal: (oldTab, { conversionGoal }) => {
-                    if (conversionGoal) {
-                        return GraphsTab.UNIQUE_CONVERSIONS
-                    }
-                    return oldTab
+    reducers(() => {
+        const persistConfig = { persist: true, prefix: `${getCurrentTeamId()}__` }
+        return {
+            surveyModalPath: [
+                null as string | null,
+                {
+                    openSurveyModal: (_, { path }) => path,
+                    closeSurveyModal: () => null,
                 },
-            },
-        ],
-        _sourceTab: [
-            null as string | null,
-            persistConfig,
-            {
-                setSourceTab: (_, { tab }) => tab,
-                togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.sourceTab || oldTab,
-            },
-        ],
-        _deviceTab: [
-            null as string | null,
-            persistConfig,
-            {
-                setDeviceTab: (_, { tab }) => tab,
-                togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.deviceTab || oldTab,
-            },
-        ],
-        _pathTab: [
-            null as string | null,
-            persistConfig,
-            {
-                setPathTab: (_, { tab }) => tab,
-                togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.pathTab || oldTab,
-            },
-        ],
-        _geographyTab: [
-            null as string | null,
-            persistConfig,
-            {
-                setGeographyTab: (_, { tab }) => tab,
-                togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.geographyTab || oldTab,
-            },
-        ],
-        _activeHoursTab: [
-            null as string | null,
-            persistConfig,
-            {
-                setActiveHoursTab: (_, { tab }) => tab,
-            },
-        ],
-        _isPathCleaningEnabled: [
-            true as boolean,
-            persistConfig,
-            {
-                setIsPathCleaningEnabled: (_, { isPathCleaningEnabled }) => isPathCleaningEnabled,
-                clearFilters: () => true,
-            },
-        ],
-        tablesOrderBy: [
-            null as WebAnalyticsOrderBy | null,
-            persistConfig,
-            {
-                setTablesOrderBy: (_, { orderBy, direction }) => [orderBy, direction],
-                clearTablesOrderBy: () => null,
+            ],
+            _graphsTab: [
+                null as string | null,
+                persistConfig,
+                {
+                    setGraphsTab: (_, { tab }) => tab,
+                    togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.graphsTab || oldTab,
+                    setConversionGoal: (oldTab, { conversionGoal }) => {
+                        if (conversionGoal) {
+                            return GraphsTab.UNIQUE_CONVERSIONS
+                        }
+                        return oldTab
+                    },
+                },
+            ],
+            _sourceTab: [
+                null as string | null,
+                persistConfig,
+                {
+                    setSourceTab: (_, { tab }) => tab,
+                    togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.sourceTab || oldTab,
+                },
+            ],
+            _deviceTab: [
+                null as string | null,
+                persistConfig,
+                {
+                    setDeviceTab: (_, { tab }) => tab,
+                    togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.deviceTab || oldTab,
+                },
+            ],
+            _pathTab: [
+                null as string | null,
+                persistConfig,
+                {
+                    setPathTab: (_, { tab }) => tab,
+                    togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.pathTab || oldTab,
+                },
+            ],
+            _geographyTab: [
+                null as string | null,
+                persistConfig,
+                {
+                    setGeographyTab: (_, { tab }) => tab,
+                    togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.geographyTab || oldTab,
+                },
+            ],
+            _activeHoursTab: [
+                null as string | null,
+                persistConfig,
+                {
+                    setActiveHoursTab: (_, { tab }) => tab,
+                },
+            ],
+            _isPathCleaningEnabled: [
+                true as boolean,
+                persistConfig,
+                {
+                    setIsPathCleaningEnabled: (_, { isPathCleaningEnabled }) => isPathCleaningEnabled,
+                    clearFilters: () => true,
+                },
+            ],
+            tablesOrderBy: [
+                null as WebAnalyticsOrderBy | null,
+                persistConfig,
+                {
+                    setTablesOrderBy: (_, { orderBy, direction }) => [orderBy, direction],
+                    clearTablesOrderBy: () => null,
 
-                // Reset the order by when the conversion goal changes because most of the columns are different
-                setConversionGoal: () => null,
-            },
-        ],
-        dateFilter: [
-            {
-                dateFrom: INITIAL_DATE_FROM,
-                dateTo: INITIAL_DATE_TO,
-                interval: INITIAL_INTERVAL,
-                isIntervalManuallySet: false,
-            } as DateFilterState,
-            persistConfig,
-            {
-                setDates: ({ interval, isIntervalManuallySet }, { dateTo, dateFrom }) => {
-                    if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
-                        dateTo = INITIAL_DATE_TO
-                    }
-                    if (dateFrom && !isValidRelativeOrAbsoluteDate(dateFrom)) {
-                        dateFrom = INITIAL_DATE_FROM
-                    }
-                    return {
-                        dateTo,
-                        dateFrom,
-                        interval: isIntervalManuallySet ? interval : getDefaultInterval(dateFrom, dateTo),
-                        isIntervalManuallySet,
-                    }
+                    // Reset the order by when the conversion goal changes because most of the columns are different
+                    setConversionGoal: () => null,
                 },
-                setDateInterval: ({ dateFrom, dateTo }, { interval }) => ({
-                    dateTo,
-                    dateFrom,
-                    interval,
-                    isIntervalManuallySet: true,
-                }),
-                setDatesAndInterval: (_, { dateTo, dateFrom, interval }) => {
-                    if (!dateFrom && !dateTo) {
-                        dateFrom = INITIAL_DATE_FROM
-                        dateTo = INITIAL_DATE_TO
-                    }
-                    if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
-                        dateTo = INITIAL_DATE_TO
-                    }
-                    if (dateFrom && !isValidRelativeOrAbsoluteDate(dateFrom)) {
-                        dateFrom = INITIAL_DATE_FROM
-                    }
-                    return {
-                        dateTo,
-                        dateFrom,
-                        interval: interval || getDefaultInterval(dateFrom, dateTo),
-                        isIntervalManuallySet: !!interval,
-                    }
-                },
-                clearFilters: () => ({
+            ],
+            dateFilter: [
+                {
                     dateFrom: INITIAL_DATE_FROM,
                     dateTo: INITIAL_DATE_TO,
                     interval: INITIAL_INTERVAL,
                     isIntervalManuallySet: false,
-                }),
-            },
-        ],
-        preZoomDateFilter: [
-            null as { dateFrom: string | null; dateTo: string | null; interval: IntervalType } | null,
-            {
-                setPreZoomDateFilter: (_, { filter }) => filter,
-                setDates: () => null,
-                setDateInterval: () => null,
-                clearFilters: () => null,
-            },
-        ],
-        shouldFilterTestAccounts: [
-            false as boolean,
-            persistConfig,
-            {
-                setShouldFilterTestAccounts: (_, { shouldFilterTestAccounts }) => shouldFilterTestAccounts,
-                clearFilters: () => false,
-            },
-        ],
-        botTrafficFilter: [
-            'regular' as BotTrafficFilter,
-            persistConfig,
-            {
-                setBotTrafficFilter: (_, { botTrafficFilter }) => botTrafficFilter,
-                clearFilters: () => 'regular' as BotTrafficFilter,
-            },
-        ],
-        _botTrendsTab: [
-            null as string | null,
-            persistConfig,
-            {
-                setBotTrendsTab: (_, { tab }) => tab,
-            },
-        ],
-        shouldStripQueryParams: [
-            false as boolean,
-            persistConfig,
-            {
-                setShouldStripQueryParams: (_, { shouldStripQueryParams }) => shouldStripQueryParams,
-            },
-        ],
-        includeHostPath: [
-            false as boolean,
-            persistConfig,
-            {
-                setIncludeHostPath: (_, { includeHostPath }) => includeHostPath,
-            },
-        ],
-        conversionGoal: [
-            null as WebAnalyticsConversionGoal | null,
-            persistConfig,
-            {
-                setConversionGoal: (_, { conversionGoal }) => conversionGoal,
-                clearFilters: () => null,
-            },
-        ],
-        conversionGoalWarning: [
-            null as ConversionGoalWarning | null,
-            {
-                setConversionGoalWarning: (_, { warning }) => warning,
-            },
-        ],
-        productTab: [
-            ProductTab.ANALYTICS as ProductTab,
-            {
-                setProductTab: (_, { tab }) => tab,
-            },
-        ],
-        webVitalsPercentile: [
-            PropertyMathType.P90 as WebVitalsPercentile,
-            persistConfig,
-            {
-                setWebVitalsPercentile: (_, { percentile }) => percentile,
-            },
-        ],
-        webVitalsTab: [
-            'INP' as WebVitalsMetric,
-            {
-                setWebVitalsTab: (_, { tab }) => tab,
-            },
-        ],
-        tileVisualizations: [
-            {} as Record<TileId, TileVisualizationOption>,
-            {
-                setTileVisualization: (state, { tileId, visualization }) => ({
-                    ...state,
-                    [tileId]: visualization,
-                }),
-            },
-        ],
-        hiddenTiles: [
-            [] as TileId[],
-            persistConfig,
-            {
-                setTileVisibility: (state, { tileId, visible }) => {
-                    if (visible) {
-                        return state.filter((id) => id !== tileId)
-                    }
-                    return state.includes(tileId) ? state : [...state, tileId]
+                } as DateFilterState,
+                persistConfig,
+                {
+                    setDates: ({ interval, isIntervalManuallySet }, { dateTo, dateFrom }) => {
+                        if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
+                            dateTo = INITIAL_DATE_TO
+                        }
+                        if (dateFrom && !isValidRelativeOrAbsoluteDate(dateFrom)) {
+                            dateFrom = INITIAL_DATE_FROM
+                        }
+                        return {
+                            dateTo,
+                            dateFrom,
+                            interval: isIntervalManuallySet ? interval : getDefaultInterval(dateFrom, dateTo),
+                            isIntervalManuallySet,
+                        }
+                    },
+                    setDateInterval: ({ dateFrom, dateTo }, { interval }) => ({
+                        dateTo,
+                        dateFrom,
+                        interval,
+                        isIntervalManuallySet: true,
+                    }),
+                    setDatesAndInterval: (_, { dateTo, dateFrom, interval }) => {
+                        if (!dateFrom && !dateTo) {
+                            dateFrom = INITIAL_DATE_FROM
+                            dateTo = INITIAL_DATE_TO
+                        }
+                        if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
+                            dateTo = INITIAL_DATE_TO
+                        }
+                        if (dateFrom && !isValidRelativeOrAbsoluteDate(dateFrom)) {
+                            dateFrom = INITIAL_DATE_FROM
+                        }
+                        return {
+                            dateTo,
+                            dateFrom,
+                            interval: interval || getDefaultInterval(dateFrom, dateTo),
+                            isIntervalManuallySet: !!interval,
+                        }
+                    },
+                    clearFilters: () => ({
+                        dateFrom: INITIAL_DATE_FROM,
+                        dateTo: INITIAL_DATE_TO,
+                        interval: INITIAL_INTERVAL,
+                        isIntervalManuallySet: false,
+                    }),
                 },
-                resetTileVisibility: () => [],
-            },
-        ],
+            ],
+            preZoomDateFilter: [
+                null as { dateFrom: string | null; dateTo: string | null; interval: IntervalType } | null,
+                {
+                    setPreZoomDateFilter: (_, { filter }) => filter,
+                    setDates: () => null,
+                    setDateInterval: () => null,
+                    clearFilters: () => null,
+                },
+            ],
+            shouldFilterTestAccounts: [
+                false as boolean,
+                persistConfig,
+                {
+                    setShouldFilterTestAccounts: (_, { shouldFilterTestAccounts }) => shouldFilterTestAccounts,
+                    clearFilters: () => false,
+                },
+            ],
+            botTrafficFilter: [
+                'regular' as BotTrafficFilter,
+                persistConfig,
+                {
+                    setBotTrafficFilter: (_, { botTrafficFilter }) => botTrafficFilter,
+                    clearFilters: () => 'regular' as BotTrafficFilter,
+                },
+            ],
+            _botTrendsTab: [
+                null as string | null,
+                persistConfig,
+                {
+                    setBotTrendsTab: (_, { tab }) => tab,
+                },
+            ],
+            shouldStripQueryParams: [
+                false as boolean,
+                persistConfig,
+                {
+                    setShouldStripQueryParams: (_, { shouldStripQueryParams }) => shouldStripQueryParams,
+                },
+            ],
+            includeHostPath: [
+                false as boolean,
+                persistConfig,
+                {
+                    setIncludeHostPath: (_, { includeHostPath }) => includeHostPath,
+                },
+            ],
+            conversionGoal: [
+                null as WebAnalyticsConversionGoal | null,
+                persistConfig,
+                {
+                    setConversionGoal: (_, { conversionGoal }) => conversionGoal,
+                    clearFilters: () => null,
+                },
+            ],
+            conversionGoalWarning: [
+                null as ConversionGoalWarning | null,
+                {
+                    setConversionGoalWarning: (_, { warning }) => warning,
+                },
+            ],
+            productTab: [
+                ProductTab.ANALYTICS as ProductTab,
+                {
+                    setProductTab: (_, { tab }) => tab,
+                },
+            ],
+            webVitalsPercentile: [
+                PropertyMathType.P90 as WebVitalsPercentile,
+                persistConfig,
+                {
+                    setWebVitalsPercentile: (_, { percentile }) => percentile,
+                },
+            ],
+            webVitalsTab: [
+                'INP' as WebVitalsMetric,
+                {
+                    setWebVitalsTab: (_, { tab }) => tab,
+                },
+            ],
+            tileVisualizations: [
+                {} as Record<TileId, TileVisualizationOption>,
+                {
+                    setTileVisualization: (state, { tileId, visualization }) => ({
+                        ...state,
+                        [tileId]: visualization,
+                    }),
+                },
+            ],
+            hiddenTiles: [
+                [] as TileId[],
+                persistConfig,
+                {
+                    setTileVisibility: (state, { tileId, visible }) => {
+                        if (visible) {
+                            return state.filter((id) => id !== tileId)
+                        }
+                        return state.includes(tileId) ? state : [...state, tileId]
+                    },
+                    resetTileVisibility: () => [],
+                },
+            ],
+        }
     }),
     windowValues({
         isGreaterThanMd: (window: Window) => window.innerWidth > 768,

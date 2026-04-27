@@ -18,7 +18,7 @@ logger = structlog.get_logger(__name__)
 
 
 def _build_posthog_props(trigger_session_id: str | None) -> dict[str, str]:
-    props: dict[str, str] = {"ai_product": "signals"}
+    props: dict[str, str] = {"ai_product": "session_replay"}
     if trigger_session_id:
         props["$session_id"] = trigger_session_id
     return props

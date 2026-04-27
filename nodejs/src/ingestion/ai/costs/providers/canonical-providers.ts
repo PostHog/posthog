@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-04-22 10:29:19 UTC
+// Generated at: 2026-04-24 20:12:06 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -23,6 +23,7 @@ export type CanonicalProvider =
     | 'baseten-fp4'
     | 'cerebras-fp16'
     | 'chutes-bf16'
+    | 'chutes-fp4'
     | 'chutes-fp8'
     | 'chutes-int4'
     | 'clarifai-bf16'
@@ -38,6 +39,7 @@ export type CanonicalProvider =
     | 'deepinfra-fp8'
     | 'deepinfra-turbo'
     | 'deepseek'
+    | 'dekallm-bf16'
     | 'dekallm-fp8'
     | 'featherless'
     | 'fireworks'
@@ -55,9 +57,9 @@ export type CanonicalProvider =
     | 'inceptron-int4'
     | 'infermatic-bf16'
     | 'inflection'
+    | 'io-net'
     | 'io-net-bf16'
     | 'io-net-fp16'
-    | 'io-net-fp8'
     | 'io-net-int4'
     | 'ionstream-bf16'
     | 'ionstream-fp8'
@@ -105,6 +107,7 @@ export type CanonicalProvider =
     | 'sambanova-high-throughput'
     | 'sambanova-turbo'
     | 'seed-fp8'
+    | 'siliconflow'
     | 'siliconflow-fp8'
     | 'siliconflow-int4'
     | 'stepfun-fp8'
@@ -117,10 +120,12 @@ export type CanonicalProvider =
     | 'upstage'
     | 'venice'
     | 'venice-beta'
+    | 'venice-bf16'
     | 'venice-e2ee'
     | 'venice-fp16'
     | 'venice-fp4'
     | 'venice-fp8'
+    | 'venice-int4'
     | 'wandb-bf16'
     | 'wandb-fp16'
     | 'wandb-fp4'
