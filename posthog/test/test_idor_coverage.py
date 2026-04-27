@@ -300,6 +300,57 @@ class TestAutomatedIDORCoverage(IDORTestMixin, APIBaseTest):
         self.assertSentinelNotLeaked(response, sentinel)
         _assert_resource_unchanged(self, case, instance, sentinel)
 
+    @parameterized.expand([_case_params(c) for c in DISCOVERED_CASES])
+    def test_cross_team_list_isolation(self, _name: str, case: IDORTestCase) -> None:
+        """Listing on attacker's tenant must not include victim's resource.
+
+        Detail parametrics catch unscoped retrieve(); a queryset that's
+        missing team_id on list() leaks entire collections, not single
+        records. Build a victim resource, hit the attacker's list URL, and
+        assert the victim's pk and sentinel are absent from the response.
+        """
+        sentinel = reset_sentinel()
+        try:
+            victim_instance = build_minimal_instance(case.model_cls, team=self.victim_team)  # type: ignore[attr-defined]
+        except Exception as exc:
+            self.skipTest(f"{case.model_cls.__name__}: could not build victim ({type(exc).__name__}: {exc})")
+
+        list_url = self._build_list_url_for_attacker(case)
+        if list_url is None:
+            return  # skipTest already called
+
+        response = self.client.get(list_url)  # type: ignore[attr-defined]
+        if response.status_code >= 500:
+            _maybe_warn_5xx(case.name, response.status_code)
+            return
+        if response.status_code not in range(200, 300):
+            return  # 401/403/404 acceptable — denial is the safe path
+
+        self.assertSentinelNotLeaked(response, sentinel)
+
+        try:
+            payload = response.json()
+        except Exception:
+            return
+        if isinstance(payload, list):
+            results = payload
+        elif isinstance(payload, dict):
+            results = payload.get("results", [])
+        else:
+            return
+        if not isinstance(results, list):
+            return
+
+        victim_pk = str(victim_instance.pk)
+        for row in results:
+            if not isinstance(row, dict):
+                continue
+            row_id = row.get("id") or row.get("pk")
+            if row_id is not None and str(row_id) == victim_pk:
+                raise AssertionError(
+                    f"IDOR list leak: {list_url} returned victim {case.model_cls.__name__}(pk={victim_pk})"
+                )
+
     @parameterized.expand(TENANT_ROOT_CASES)
     def test_cross_org_root_access(self, _name: str, case: TenantRootCase) -> None:
         """Attacker cannot reach a victim's org/project/team root URL.
