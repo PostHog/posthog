@@ -22,8 +22,8 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { FixedReplayHeatmapBrowser } from 'scenes/heatmaps/components/FixedReplayHeatmapBrowser'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
+import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/settings/sidePanelSettingsLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import { FilterPanel } from './FilterPanel'
@@ -324,13 +324,15 @@ function Warnings(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const heatmapsEnabled = currentTeam?.heatmaps_opt_in
 
+    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
+
     return !heatmapsEnabled ? (
         <LemonBanner
             type="warning"
             action={{
                 type: 'secondary',
                 icon: <IconGear />,
-                to: urls.settings('environment-heatmaps', 'heatmaps'),
+                onClick: () => openSettingsPanel({ sectionId: 'environment-heatmaps', settingId: 'heatmaps' }),
                 children: 'Configure',
             }}
             dismissKey="heatmaps-might-be-disabled-warning"
