@@ -3527,6 +3527,136 @@ class TestExperimentService(APIBaseTest):
         )
         assert experiment.metrics == []
 
+    @parameterized.expand(
+        [
+            (
+                "empty_mean",
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": ""},
+                },
+            ),
+            (
+                "whitespace_ratio",
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "ratio",
+                    "numerator": {"kind": "EventsNode", "event": "   "},
+                    "denominator": {"kind": "EventsNode", "event": ""},
+                },
+            ),
+            (
+                "empty_funnel_step",
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "funnel",
+                    "series": [{"kind": "EventsNode", "event": ""}],
+                },
+            ),
+        ]
+    )
+    def test_blank_event_names_pass_validation(self, name: str, metric: dict) -> None:
+        # Regression: pydantic permits event="" but it's not a queryable event name.
+        # Treat blank/whitespace events like None / "All events" instead of producing
+        # the misleading "Event(s) '' not found" error customers were hitting.
+        service = self._service()
+        experiment = service.create_experiment(
+            name=f"Blank Event {name}",
+            feature_flag_key=f"blank-event-{name.replace('_', '-')}-flag",
+            metrics=[metric],
+        )
+        assert experiment.metrics is not None and len(experiment.metrics) == 1
+
+    def test_empty_string_event_name_passes_validation_on_update(self):
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Update Empty Event",
+            feature_flag_key="update-empty-event-flag",
+        )
+        # Should not raise
+        service.update_experiment(
+            experiment,
+            {
+                "metrics": [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": ""},
+                    },
+                ],
+            },
+        )
+
+    @parameterized.expand(
+        [
+            ("int", 42, "int"),
+            ("json_object", {"kind": "EventsNode", "event": "nested"}, "dict"),
+            ("list", ["a", "b"], "list"),
+        ]
+    )
+    def test_unexpected_event_shape_is_skipped_and_logged(
+        self, _: str, malformed_event: object, expected_type_name: str
+    ) -> None:
+        # Pydantic should reject anything other than str/None for the `event` field
+        # in the incoming payload. If a malformed payload (e.g. int, dict, list)
+        # bypasses that check, we want to skip the value (don't crash, don't add a
+        # non-string to the lookup set) and log so we can find the offending caller.
+        # This is purely about the *incoming* payload shape — no DB lookup happens
+        # in `_extract_entity_nodes`.
+        from products.experiments.backend.experiment_service import logger as service_logger
+
+        service = self._service()
+        with patch.object(service_logger, "warning") as mock_warning:
+            event_names = service._extract_entity_nodes(
+                [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": malformed_event},
+                    },
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    },
+                ]
+            )[0]
+
+        # Malformed value was skipped, "$pageview" kept
+        assert event_names == {"$pageview"}
+        mock_warning.assert_called_once()
+        kwargs = mock_warning.call_args.kwargs
+        assert kwargs.get("event_type") == expected_type_name
+
+    def test_event_validation_uses_project_scope(self):
+        # Regression: the frontend event picker queries EventDefinition by project_id
+        # (see posthog/api/event_definition.py), so users in multi-team projects see
+        # events ingested by sibling teams. Validation must match that scope or it
+        # rejects legitimate selections (e.g. "$pageview not found" reports).
+        sibling_team = Team.objects.create(
+            organization=self.organization,
+            project=self.project,
+            name="Sibling team in same project",
+        )
+        EventDefinition.objects.create(team=sibling_team, project=self.project, name="purchase_v2")
+        # Note: NOT creating purchase_v2 on self.team — only the sibling team has it,
+        # but they share a project so the picker would show it.
+
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Cross-team Event",
+            feature_flag_key="cross-team-event-flag",
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "purchase_v2"},
+                },
+            ],
+        )
+        assert experiment.metrics is not None and len(experiment.metrics) == 1
+
     def test_action_nodes_not_checked_for_event_existence(self):
         action = Action.objects.create(team=self.team, name="valid action for event test")
         service = self._service()
