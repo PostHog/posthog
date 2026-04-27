@@ -203,6 +203,40 @@ def get_primary_key_columns(conn: psycopg.Connection, schema: str, table_names: 
     return result
 
 
+def get_leading_index_columns(
+    conn: psycopg.Connection, schema: str, table_names: list[str]
+) -> dict[str, set[str]]:
+    """Return the set of columns that are the leading column of any index per table.
+
+    Used to surface a UI warning when a user picks an incremental field that isn't
+    indexed — those would force a full scan on every sync. Includes the primary key
+    (since PKs back an implicit index in Postgres). `indkey[0] = 0` means the leading
+    index entry is an expression (e.g. a functional index), not a plain column —
+    those are excluded since we can't tell whether they accelerate `WHERE col >= …`.
+    """
+    if not table_names:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT c.relname AS table_name,
+                   a.attname AS column_name
+            FROM pg_index i
+            JOIN pg_class c ON c.oid = i.indrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = i.indkey[0]
+            WHERE i.indkey[0] <> 0
+              AND n.nspname = %s
+              AND c.relname = ANY(%s)
+            """,
+            (schema, table_names),
+        )
+        result: dict[str, set[str]] = {}
+        for row in cur:
+            result.setdefault(row[0], set()).add(row[1])
+    return result
+
+
 def _normalize_function_names(function_names: list[Any]) -> list[str]:
     return sorted(
         {

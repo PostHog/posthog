@@ -246,6 +246,63 @@ def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: Filterin
         logger.debug(f"EXPLAIN raised an exception: {e}")
 
 
+def get_leading_sortkey_columns_for_schemas(
+    host: str,
+    database: str,
+    user: str,
+    password: str,
+    schema: str,
+    port: int,
+    table_names: list[str],
+) -> dict[str, set[str]] | None:
+    """Return the leading SORTKEY column per table for the requested tables.
+
+    Redshift is columnar with no traditional B-tree indexes; SORTKEYs are the
+    structure that accelerates `WHERE col >= …` predicate pushdown. For compound
+    sortkeys the column where `sortkey = 1` is the leading column; for interleaved
+    sortkeys Redshift uses negative values, with `sortkey = -1` being the leading
+    entry. Tables without sortkeys map to an empty set so the UI warning fires.
+
+    Returns None when discovery fails so the caller can default to no-warning.
+    """
+    if not table_names:
+        return {table: set() for table in table_names}
+
+    result: dict[str, set[str]] = {table: set() for table in table_names}
+
+    try:
+        with psycopg.connect(
+            host=host,
+            port=port,
+            dbname=database,
+            user=user,
+            password=password,
+            sslmode="require",
+            connect_timeout=15,
+            sslrootcert="/tmp/no.txt",
+            sslcert="/tmp/no.txt",
+            sslkey="/tmp/no.txt",
+            options="-c client_encoding=UTF8",
+        ) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL("""
+                        SELECT tablename, "column"
+                        FROM pg_table_def
+                        WHERE schemaname = {schema}
+                          AND tablename = ANY({names})
+                          AND sortkey IN (1, -1)
+                    """).format(schema=sql.Literal(schema), names=sql.Literal(table_names))
+                )
+                for table_name, column_name in cursor.fetchall():
+                    result.setdefault(table_name, set()).add(column_name)
+    except Exception as e:
+        structlog.get_logger().warning("Failed to detect sortkeys for Redshift schemas", exc_info=e)
+        return None
+
+    return result
+
+
 def get_primary_keys_for_schemas(
     host: str,
     database: str,

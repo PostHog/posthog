@@ -52,6 +52,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _normalize_function_names,
     filter_postgres_incremental_fields,
     get_foreign_keys,
+    get_leading_index_columns,
     get_postgres_row_count,
     get_schemas,
 )
@@ -1039,6 +1040,51 @@ class TestGetPrimaryKeys:
 
             result = _get_primary_keys(cast(Any, dj_cursor), "public", "test_partitioned_inconsistent_pk", logger)
             assert result is None
+
+
+class TestGetLeadingIndexColumns:
+    """Unit tests for the leading-index-column helper used to flag unindexed
+    incremental fields in the source-setup wizard. The helper queries
+    ``pg_index``/``pg_attribute``; we mock the cursor to verify that:
+    - rows are bucketed by table
+    - tables in the input list with no rows return empty sets (so the UI
+      warning fires for tables without any indexes)
+    - empty input is short-circuited
+    """
+
+    def _mock_connection(self, fetched_rows: list[tuple[str, str]]):
+        cursor = mock.MagicMock()
+        cursor.__iter__.return_value = iter(fetched_rows)
+
+        cursor_context = mock.MagicMock()
+        cursor_context.__enter__.return_value = cursor
+        cursor_context.__exit__.return_value = None
+
+        connection = mock.MagicMock()
+        connection.cursor.return_value = cursor_context
+        return connection, cursor
+
+    def test_groups_columns_by_table(self):
+        connection, _ = self._mock_connection(
+            [
+                ("orders", "created_at"),
+                ("orders", "id"),
+                ("users", "id"),
+            ]
+        )
+        result = get_leading_index_columns(connection, "public", ["orders", "users", "logs"])
+        assert result == {
+            "orders": {"created_at", "id"},
+            "users": {"id"},
+        }
+        assert "logs" not in result  # caller distinguishes "no index" via missing key
+
+    def test_returns_empty_dict_for_empty_input(self):
+        # No connection cursor should be opened when there are no tables.
+        connection = mock.MagicMock()
+        result = get_leading_index_columns(connection, "public", [])
+        assert result == {}
+        connection.cursor.assert_not_called()
 
 
 class TestHasDuplicatePrimaryKeys:

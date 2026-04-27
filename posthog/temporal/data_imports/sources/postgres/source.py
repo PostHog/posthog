@@ -23,6 +23,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     filter_postgres_incremental_fields,
     get_connection_metadata as get_postgres_connection_metadata,
     get_foreign_keys as get_postgres_foreign_keys,
+    get_leading_index_columns,
     get_postgres_row_count,
     get_primary_key_columns,
     get_schemas as get_postgres_schemas,
@@ -197,6 +198,11 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             # advertising for this listing instead of breaking schema discovery for
             # everyone — including non-CDC users.
             pk_columns_by_table: dict[str, list[str]] = {}
+            # `indexed_columns_by_table` is None when discovery failed (so we default
+            # `is_indexed=True` and never warn), and a dict[table -> set] when it
+            # succeeded. A successful lookup returns an empty set for tables without
+            # indexes — that's how we tell "no indexes" apart from "couldn't check".
+            indexed_columns_by_table: dict[str, set[str]] | None = {}
             try:
                 table_names_by_schema: dict[str, list[str]] = {}
                 table_names_by_source_location: dict[tuple[str, str], str] = {}
@@ -225,14 +231,29 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                             if display_name is not None:
                                 pk_columns_by_table[display_name] = pk_columns
 
+                        source_indexed_by_table = get_leading_index_columns(conn, source_schema, source_table_names)
+                        for source_table_name in source_table_names:
+                            display_name = table_names_by_source_location.get((source_schema, source_table_name))
+                            if display_name is not None:
+                                # Use an empty set when the table has no indexes, so the
+                                # frontend warning fires for those tables.
+                                assert indexed_columns_by_table is not None
+                                indexed_columns_by_table[display_name] = source_indexed_by_table.get(
+                                    source_table_name, set()
+                                )
+
                 tables_with_pks = set(pk_columns_by_table.keys())
             except Exception as e:
                 capture_exception(e)
                 pk_columns_by_table = {}
+                indexed_columns_by_table = None
                 tables_with_pks = set()
 
         for table_name, discovered_schema in db_schemas.items():
             incremental_field_tuples = filter_postgres_incremental_fields(discovered_schema.columns)
+            # None when index discovery failed for the whole listing — default to True so
+            # a transient permission/query error never produces a misleading warning.
+            indexed_cols = indexed_columns_by_table.get(table_name) if indexed_columns_by_table is not None else None
             incremental_fields: list[IncrementalField] = [
                 {
                     "label": field_name,
@@ -240,6 +261,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     "field": field_name,
                     "field_type": field_type,
                     "nullable": nullable,
+                    "is_indexed": True if indexed_cols is None else field_name in indexed_cols,
                 }
                 for field_name, field_type, nullable in incremental_field_tuples
             ]
