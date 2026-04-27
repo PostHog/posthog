@@ -51,6 +51,9 @@ import {
     FeatureFlagEvaluationRuntime,
     FeatureFlagFilters,
     FeatureFlagGroupType,
+    FeatureFlagReleaseConditionType,
+    FeatureFlagV2Variant,
+    FeatureFlagValueType,
     GroupType,
     GroupTypeIndex,
     MultivariateFlagVariant,
@@ -62,12 +65,13 @@ import { INTENT_METADATA } from 'products/feature_flags/frontend/featureFlagTemp
 import { FeatureFlagConditionDragHandle } from './FeatureFlagConditionDragHandle'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { FlagIntent, featureFlagIntentWarningLogic } from './featureFlagIntentWarningLogic'
-import { FeatureFlagLogicProps } from './featureFlagLogic'
+import { defaultValueForFeatureFlagValueType, FeatureFlagLogicProps } from './featureFlagLogic'
 import {
     FeatureFlagReleaseConditionsLogicProps,
     FeatureFlagGroupTypeWithSortKey,
     featureFlagReleaseConditionsLogic,
 } from './featureFlagReleaseConditionsLogic'
+import { FeatureFlagValueInput } from './FeatureFlagValueInput'
 
 interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleaseConditionsLogicProps {
     flagId?: FeatureFlagLogicProps['id']
@@ -298,6 +302,7 @@ interface ConditionProps {
         variant?: string | null,
         description?: string
     ) => void
+    updateConditionDraft: (index: number, patch: Partial<FeatureFlagGroupType>) => void
     filtersTaxonomicOptions: TaxonomicFilterProps['optionsFromProp']
     releaseFilters: FeatureFlagFilters
     variants?: MultivariateFlagVariant[]
@@ -361,6 +366,7 @@ const ConditionContent = ({
     onDuplicate,
     onRemove,
     updateConditionSet,
+    updateConditionDraft,
     filtersTaxonomicOptions,
     releaseFilters,
     variants,
@@ -389,6 +395,67 @@ const ConditionContent = ({
 }): JSX.Element => {
     const [originalWidth, setOriginalWidth] = useState<number | undefined>(undefined)
     const realtimeCohortFlagTargeting = useFeatureFlag('REALTIME_COHORT_FLAG_TARGETING')
+    const isV2Config = releaseFilters.schema_version === 2
+    const valueType = releaseFilters.value_type ?? FeatureFlagValueType.BOOLEAN
+    const defaultFlagValue = releaseFilters.default_value ?? defaultValueForFeatureFlagValueType(valueType)
+
+    const getReleaseConditionType = (): FeatureFlagReleaseConditionType => {
+        if (group.release_condition_type) {
+            return group.release_condition_type
+        }
+        if (group.variants?.length) {
+            return FeatureFlagReleaseConditionType.EXPERIMENT
+        }
+        return group.rollout_percentage === 100
+            ? FeatureFlagReleaseConditionType.TARGETED
+            : FeatureFlagReleaseConditionType.ROLLOUT
+    }
+
+    const currentReleaseConditionType = getReleaseConditionType()
+    const defaultVariants = (): FeatureFlagV2Variant[] => [
+        {
+            key: 'control',
+            name: '',
+            rollout_percentage: 50,
+            value: valueType === FeatureFlagValueType.BOOLEAN ? false : defaultValueForFeatureFlagValueType(valueType),
+        },
+        {
+            key: 'test',
+            name: '',
+            rollout_percentage: 50,
+            value: defaultValueForFeatureFlagValueType(valueType),
+        },
+    ]
+    const conditionVariants = group.variants?.length ? group.variants : defaultVariants()
+
+    const updateConditionVariant = (variantIndex: number, patch: Partial<FeatureFlagV2Variant>): void => {
+        const variants = [...conditionVariants]
+        variants[variantIndex] = {
+            ...variants[variantIndex],
+            ...patch,
+        }
+        updateConditionDraft(index, { variants })
+    }
+
+    const addConditionVariant = (): void => {
+        updateConditionDraft(index, {
+            variants: [
+                ...conditionVariants,
+                {
+                    key: '',
+                    name: '',
+                    rollout_percentage: 0,
+                    value: defaultValueForFeatureFlagValueType(valueType),
+                },
+            ],
+        })
+    }
+
+    const removeConditionVariant = (variantIndex: number): void => {
+        const variants = [...conditionVariants]
+        variants.splice(variantIndex, 1)
+        updateConditionDraft(index, { variants })
+    }
 
     // Combined ref callback
     const combinedRef = (element: HTMLDivElement | null): void => {
@@ -535,6 +602,64 @@ const ConditionContent = ({
                                         </div>
                                     )}
 
+                                    {isV2Config && (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            <div>
+                                                <LemonLabel className="mb-1">Release type</LemonLabel>
+                                                <LemonSelect
+                                                    value={currentReleaseConditionType}
+                                                    onChange={(value) => {
+                                                        const releaseType = value as FeatureFlagReleaseConditionType
+                                                        updateConditionDraft(index, {
+                                                            release_condition_type: releaseType,
+                                                            rollout_percentage:
+                                                                releaseType === FeatureFlagReleaseConditionType.TARGETED
+                                                                    ? 100
+                                                                    : (group.rollout_percentage ?? 0),
+                                                            value:
+                                                                releaseType ===
+                                                                FeatureFlagReleaseConditionType.EXPERIMENT
+                                                                    ? undefined
+                                                                    : (group.value ?? defaultFlagValue),
+                                                            variants:
+                                                                releaseType ===
+                                                                FeatureFlagReleaseConditionType.EXPERIMENT
+                                                                    ? conditionVariants
+                                                                    : undefined,
+                                                        })
+                                                    }}
+                                                    options={[
+                                                        {
+                                                            label: 'Targeted release',
+                                                            value: FeatureFlagReleaseConditionType.TARGETED,
+                                                        },
+                                                        {
+                                                            label: 'Percentage rollout',
+                                                            value: FeatureFlagReleaseConditionType.ROLLOUT,
+                                                        },
+                                                        {
+                                                            label: 'Experiment',
+                                                            value: FeatureFlagReleaseConditionType.EXPERIMENT,
+                                                        },
+                                                    ]}
+                                                    data-attr={`release-condition-type-${index}`}
+                                                />
+                                            </div>
+
+                                            {currentReleaseConditionType !==
+                                                FeatureFlagReleaseConditionType.EXPERIMENT && (
+                                                <div>
+                                                    <LemonLabel className="mb-1">Value</LemonLabel>
+                                                    <FeatureFlagValueInput
+                                                        valueType={valueType}
+                                                        value={group.value ?? defaultFlagValue}
+                                                        onChange={(value) => updateConditionDraft(index, { value })}
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
                                     <div>
                                         <LemonLabel className="mb-1">Match filters</LemonLabel>
                                         <PropertyFilters
@@ -557,105 +682,198 @@ const ConditionContent = ({
                                         />
                                     </div>
 
-                                    <div>
-                                        <LemonLabel className="mb-1">Rollout percentage</LemonLabel>
-                                        <div className="flex items-start gap-6">
-                                            <LemonSlider
-                                                value={group.rollout_percentage ?? 100}
-                                                onChange={(value) => updateConditionSet(index, Math.round(value))}
-                                                min={0}
-                                                max={100}
-                                                step={1}
-                                                className="w-80"
-                                                ticks={[
-                                                    { value: 0, label: '0%' },
-                                                    { value: 10, label: '10%' },
-                                                    { value: 25, label: '25%' },
-                                                    { value: 50, label: '50%' },
-                                                    { value: 75, label: '75%' },
-                                                    { value: 100, label: '100%' },
-                                                ]}
-                                            />
-                                            <LemonInput
-                                                type="number"
-                                                min={0}
-                                                max={100}
-                                                value={group.rollout_percentage ?? 100}
-                                                step={0.01}
-                                                onChange={(value) => {
-                                                    const raw = value ? parseFloat(value.toString()) : 0
-                                                    const numValue = Math.round(raw * 100) / 100
-                                                    updateConditionSet(index, Math.min(100, Math.max(0, numValue)))
-                                                }}
-                                                suffix={<span>%</span>}
-                                                className="w-20"
-                                            />
-                                        </div>
-                                        {group.sort_key && affectedCounts[group.sort_key] !== undefined ? (
-                                            <div className="text-xs text-muted mt-2">
-                                                {(() => {
-                                                    const affected = group.sort_key
-                                                        ? affectedCounts[group.sort_key]
-                                                        : undefined
-                                                    const total = group.sort_key
-                                                        ? totalCounts[group.sort_key]
-                                                        : undefined
-                                                    const rolloutPct = Number.isNaN(group.rollout_percentage)
-                                                        ? 0
-                                                        : (group.rollout_percentage ?? 100)
+                                    {(!isV2Config ||
+                                        currentReleaseConditionType !== FeatureFlagReleaseConditionType.TARGETED) && (
+                                        <div>
+                                            <LemonLabel className="mb-1">
+                                                {currentReleaseConditionType ===
+                                                FeatureFlagReleaseConditionType.EXPERIMENT
+                                                    ? 'Experiment rollout'
+                                                    : 'Rollout percentage'}
+                                            </LemonLabel>
+                                            <div className="flex items-start gap-6">
+                                                <LemonSlider
+                                                    value={group.rollout_percentage ?? 100}
+                                                    onChange={(value) => updateConditionSet(index, Math.round(value))}
+                                                    min={0}
+                                                    max={100}
+                                                    step={1}
+                                                    className="w-80"
+                                                    ticks={[
+                                                        { value: 0, label: '0%' },
+                                                        { value: 10, label: '10%' },
+                                                        { value: 25, label: '25%' },
+                                                        { value: 50, label: '50%' },
+                                                        { value: 75, label: '75%' },
+                                                        { value: 100, label: '100%' },
+                                                    ]}
+                                                />
+                                                <LemonInput
+                                                    type="number"
+                                                    min={0}
+                                                    max={100}
+                                                    value={group.rollout_percentage ?? 100}
+                                                    step={0.01}
+                                                    onChange={(value) => {
+                                                        const raw = value ? parseFloat(value.toString()) : 0
+                                                        const numValue = Math.round(raw * 100) / 100
+                                                        updateConditionSet(index, Math.min(100, Math.max(0, numValue)))
+                                                    }}
+                                                    suffix={<span>%</span>}
+                                                    className="w-20"
+                                                />
+                                            </div>
+                                            {group.sort_key && affectedCounts[group.sort_key] !== undefined ? (
+                                                <div className="text-xs text-muted mt-2">
+                                                    {(() => {
+                                                        const affected = group.sort_key
+                                                            ? affectedCounts[group.sort_key]
+                                                            : undefined
+                                                        const total = group.sort_key
+                                                            ? totalCounts[group.sort_key]
+                                                            : undefined
+                                                        const rolloutPct = Number.isNaN(group.rollout_percentage)
+                                                            ? 0
+                                                            : (group.rollout_percentage ?? 100)
 
-                                                    if (affected === undefined || affected < 0 || total === undefined) {
-                                                        return null
-                                                    }
+                                                        if (
+                                                            affected === undefined ||
+                                                            affected < 0 ||
+                                                            total === undefined
+                                                        ) {
+                                                            return null
+                                                        }
 
-                                                    const receivingFlag = Math.floor(
-                                                        (affected * clamp(rolloutPct, 0, 100)) / 100
-                                                    )
-                                                    if (rolloutPct === 100) {
+                                                        const receivingFlag = Math.floor(
+                                                            (affected * clamp(rolloutPct, 0, 100)) / 100
+                                                        )
+                                                        if (rolloutPct === 100) {
+                                                            return (
+                                                                <>
+                                                                    <b>{humanFriendlyNumber(affected)}</b> of{' '}
+                                                                    {humanFriendlyNumber(total)} {resolvedTargetName}{' '}
+                                                                    match these filters
+                                                                </>
+                                                            )
+                                                        }
                                                         return (
                                                             <>
-                                                                <b>{humanFriendlyNumber(affected)}</b> of{' '}
-                                                                {humanFriendlyNumber(total)} {resolvedTargetName} match
-                                                                these filters
+                                                                Will match ~<b>{humanFriendlyNumber(receivingFlag)}</b>{' '}
+                                                                of {humanFriendlyNumber(total)} {resolvedTargetName} (
+                                                                {rolloutPct}% of {humanFriendlyNumber(affected)}{' '}
+                                                                matching the filters)
                                                             </>
                                                         )
-                                                    }
-                                                    return (
-                                                        <>
-                                                            Will match ~<b>{humanFriendlyNumber(receivingFlag)}</b> of{' '}
-                                                            {humanFriendlyNumber(total)} {resolvedTargetName} (
-                                                            {rolloutPct}% of {humanFriendlyNumber(affected)} matching
-                                                            the filters)
-                                                        </>
-                                                    )
-                                                })()}
-                                                {(group.aggregation_group_type_index ??
-                                                    releaseFilters.aggregation_group_type_index) == null && (
-                                                    <Tooltip
-                                                        title={
-                                                            <>
-                                                                A user may have{' '}
-                                                                <Link
-                                                                    to="https://posthog.com/docs/data/persons#duplicate-person-profiles"
-                                                                    target="_blank"
-                                                                >
-                                                                    multiple profiles
-                                                                </Link>
-                                                            </>
-                                                        }
-                                                        interactive
+                                                    })()}
+                                                    {(group.aggregation_group_type_index ??
+                                                        releaseFilters.aggregation_group_type_index) == null && (
+                                                        <Tooltip
+                                                            title={
+                                                                <>
+                                                                    A user may have{' '}
+                                                                    <Link
+                                                                        to="https://posthog.com/docs/data/persons#duplicate-person-profiles"
+                                                                        target="_blank"
+                                                                    >
+                                                                        multiple profiles
+                                                                    </Link>
+                                                                </>
+                                                            }
+                                                            interactive
+                                                        >
+                                                            <IconInfo className="text-muted text-xs ml-0.5" />
+                                                        </Tooltip>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                <div className="text-xs text-muted mt-2 flex items-center gap-1">
+                                                    <Spinner className="text-sm" /> Calculating affected{' '}
+                                                    {resolvedTargetName}…
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {isV2Config &&
+                                        currentReleaseConditionType === FeatureFlagReleaseConditionType.EXPERIMENT && (
+                                            <div className="flex flex-col gap-3">
+                                                <LemonLabel>Experiment variants</LemonLabel>
+                                                {conditionVariants.map((variant, variantIndex) => (
+                                                    <div
+                                                        key={variantIndex}
+                                                        className="grid grid-cols-1 md:grid-cols-[1fr_8rem_1fr_auto] gap-2 items-start"
                                                     >
-                                                        <IconInfo className="text-muted text-xs ml-0.5" />
-                                                    </Tooltip>
-                                                )}
-                                            </div>
-                                        ) : (
-                                            <div className="text-xs text-muted mt-2 flex items-center gap-1">
-                                                <Spinner className="text-sm" /> Calculating affected{' '}
-                                                {resolvedTargetName}…
+                                                        <div>
+                                                            <LemonLabel className="mb-1">Variant key</LemonLabel>
+                                                            <EditableField
+                                                                name={`variant-${variantIndex}-key`}
+                                                                value={variant.key}
+                                                                placeholder="control"
+                                                                onSave={(value) =>
+                                                                    updateConditionVariant(variantIndex, {
+                                                                        key: value,
+                                                                    })
+                                                                }
+                                                                saveOnBlur
+                                                                compactButtons
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <LemonLabel className="mb-1">Split</LemonLabel>
+                                                            <LemonInput
+                                                                type="number"
+                                                                min={0}
+                                                                max={100}
+                                                                value={variant.rollout_percentage}
+                                                                step={0.01}
+                                                                onChange={(value) => {
+                                                                    const raw = value ? parseFloat(value.toString()) : 0
+                                                                    const rollout_percentage =
+                                                                        Math.round(raw * 100) / 100
+                                                                    updateConditionVariant(variantIndex, {
+                                                                        rollout_percentage: Math.min(
+                                                                            100,
+                                                                            Math.max(0, rollout_percentage)
+                                                                        ),
+                                                                    })
+                                                                }}
+                                                                suffix={<span>%</span>}
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <LemonLabel className="mb-1">Value</LemonLabel>
+                                                            <FeatureFlagValueInput
+                                                                valueType={valueType}
+                                                                value={variant.value}
+                                                                onChange={(value) =>
+                                                                    updateConditionVariant(variantIndex, { value })
+                                                                }
+                                                            />
+                                                        </div>
+                                                        <div className="pt-6">
+                                                            {conditionVariants.length > 1 && (
+                                                                <LemonButton
+                                                                    icon={<IconTrash />}
+                                                                    noPadding
+                                                                    tooltip="Remove variant"
+                                                                    onClick={() => removeConditionVariant(variantIndex)}
+                                                                />
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                                <div>
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        size="small"
+                                                        icon={<IconPlus />}
+                                                        onClick={addConditionVariant}
+                                                    >
+                                                        Add variant
+                                                    </LemonButton>
+                                                </div>
                                             </div>
                                         )}
-                                    </div>
 
                                     {variants && variants.length > 0 && (
                                         <div className="flex items-center gap-2 flex-wrap text-sm text-muted">
@@ -805,10 +1023,25 @@ export function FeatureFlagReleaseConditionsCollapsible({
         setMixedGroupTypeIndex,
         setIsAnyItemDragging,
         setDraggedGroup,
+        setFilters,
     } = useActions(releaseConditionsLogic)
 
     const handleAddConditionSet = (): void => {
         addConditionSet(uuidv4())
+    }
+
+    const updateConditionDraft = (index: number, patch: Partial<FeatureFlagGroupType>): void => {
+        setFilters({
+            ...releaseFilters,
+            groups: filterGroups.map((group: FeatureFlagGroupType, groupIndex: number) =>
+                groupIndex === index
+                    ? {
+                          ...group,
+                          ...patch,
+                      }
+                    : group
+            ),
+        })
     }
 
     const sensors = useSensors(
@@ -1231,6 +1464,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                 onDuplicate={() => duplicateConditionSet(index)}
                                                 onRemove={() => removeConditionSet(index)}
                                                 updateConditionSet={updateConditionSet}
+                                                updateConditionDraft={updateConditionDraft}
                                                 filtersTaxonomicOptions={filtersTaxonomicOptions}
                                                 releaseFilters={releaseFilters}
                                                 variants={variants}
@@ -1305,6 +1539,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         onDuplicate={() => duplicateConditionSet(index)}
                                         onRemove={() => removeConditionSet(index)}
                                         updateConditionSet={updateConditionSet}
+                                        updateConditionDraft={updateConditionDraft}
                                         filtersTaxonomicOptions={filtersTaxonomicOptions}
                                         releaseFilters={releaseFilters}
                                         variants={variants}
@@ -1355,6 +1590,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         onDuplicate={() => duplicateConditionSet(index)}
                                         onRemove={() => removeConditionSet(index)}
                                         updateConditionSet={updateConditionSet}
+                                        updateConditionDraft={updateConditionDraft}
                                         filtersTaxonomicOptions={filtersTaxonomicOptions}
                                         releaseFilters={releaseFilters}
                                         variants={variants}
@@ -1387,6 +1623,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                 onDuplicate={() => duplicateConditionSet(index)}
                                 onRemove={() => removeConditionSet(index)}
                                 updateConditionSet={updateConditionSet}
+                                updateConditionDraft={updateConditionDraft}
                                 filtersTaxonomicOptions={filtersTaxonomicOptions}
                                 releaseFilters={releaseFilters}
                                 variants={variants}
