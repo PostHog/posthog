@@ -80,13 +80,32 @@ def build_task_run_artifact_size_error(
 
 
 class TaskSerializer(serializers.ModelSerializer):
-    repository = serializers.CharField(max_length=255, required=False, allow_blank=True, allow_null=True)
+    repository = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).",
+    )
     latest_run = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
 
-    title = serializers.CharField(max_length=255, required=False, allow_blank=True)
-    description = serializers.CharField(required=False, allow_blank=True)
-    origin_product = serializers.ChoiceField(choices=Task.OriginProduct.choices, required=False)
+    title = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text="Short human-readable title. Auto-generated from `description` when omitted.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Free-form description of the work to be done. Used as the prompt passed to the agent.",
+    )
+    origin_product = serializers.ChoiceField(
+        choices=Task.OriginProduct.choices,
+        required=False,
+        help_text="PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).",
+    )
     # Write-only: which SignalReportTask row to create when linking a task to a report from the
     # public task API (e.g. PostHog Code inbox). Only implementation is supported; research/repo
     # selection links are created by server-side flows.
@@ -99,6 +118,7 @@ class TaskSerializer(serializers.ModelSerializer):
         ],
         required=False,
         write_only=True,
+        help_text="When linking a task to a signal report, which SignalReportTask relationship row to create. Only `implementation` is supported via the public API.",
     )
 
     class Meta:
@@ -132,6 +152,21 @@ class TaskSerializer(serializers.ModelSerializer):
             "created_by",
             "latest_run",
         ]
+        extra_kwargs = {
+            "task_number": {
+                "help_text": "Per-team sequential task number, assigned on creation.",
+            },
+            "title_manually_set": {
+                "help_text": (
+                    "True when the title was provided by the caller; False when auto-generated from `description`."
+                ),
+            },
+            "github_integration": {
+                "help_text": (
+                    "GitHub integration the agent uses to clone and open pull requests against `repository`."
+                ),
+            },
+        }
 
     @extend_schema_field(serializers.DictField(allow_null=True, help_text="Latest run details for this task"))
     def get_latest_run(self, obj):

@@ -23,6 +23,7 @@ from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 
@@ -130,6 +131,33 @@ TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS = 60 * 60
 TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
 
 
+class _SchemaAwareLimitOffsetPagination(LimitOffsetPagination):
+    """LimitOffsetPagination subclass that surfaces `default_limit`/`max_limit` in the OpenAPI schema."""
+
+    def get_schema_operation_parameters(self, view):
+        parameters = super().get_schema_operation_parameters(view)
+        for parameter in parameters:
+            if parameter.get("name") == self.limit_query_param:
+                parameter["schema"]["default"] = self.default_limit
+                if self.max_limit is not None:
+                    parameter["schema"]["maximum"] = self.max_limit
+                parameter["schema"]["minimum"] = 1
+            elif parameter.get("name") == self.offset_query_param:
+                parameter["schema"]["default"] = 0
+                parameter["schema"]["minimum"] = 0
+        return parameters
+
+
+class TasksPagination(_SchemaAwareLimitOffsetPagination):
+    default_limit = 50
+    max_limit = 100
+
+
+class SandboxPagination(_SchemaAwareLimitOffsetPagination):
+    default_limit = 100
+    max_limit = 100
+
+
 class TasksAccessPermission(BasePermission):
     message = "You need a valid invite code to access this feature."
 
@@ -169,6 +197,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     ]
     permission_classes = [IsAuthenticated, APIScopePermission, TasksAccessPermission]
     scope_object = "task"
+    pagination_class = TasksPagination
     queryset = Task.objects.all()
 
     @validated_request(
@@ -681,12 +710,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(TaskSerializer(task, context=self.get_serializer_context()).data)
 
 
-@extend_schema(tags=["task-automations"])
+@extend_schema(tags=["task-automations", "tasks"])
 class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = TaskAutomationSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission, TasksAccessPermission]
     scope_object = "task"
+    pagination_class = TasksPagination
     queryset = TaskAutomation.objects.all()
     filter_rewrite_rules = {"team_id": "task__team_id"}
 
@@ -709,6 +739,10 @@ class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         delete_automation_schedule(automation)
         automation.delete()
 
+    @extend_schema(
+        request=None,
+        responses={200: OpenApiResponse(response=TaskAutomationSerializer, description="Task automation")},
+    )
     @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
     def run(self, request, pk=None, **kwargs):
         automation = cast(TaskAutomation, self.get_object())
@@ -717,7 +751,7 @@ class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(TaskAutomationSerializer(automation, context=self.get_serializer_context()).data)
 
 
-@extend_schema(tags=["task-runs"])
+@extend_schema(tags=["task-runs", "tasks"])
 class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     API for managing task runs. Each run represents an execution of a task.
@@ -749,7 +783,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ]
     }
     http_method_names = ["get", "post", "patch", "head", "options"]
-    filter_rewrite_rules = {"team_id": "team_id"}
 
     @validated_request(
         responses={
@@ -1126,6 +1159,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team, "team_id": self.team.id}
+
+    pagination_class = TasksPagination
+    filter_rewrite_rules = {"team_id": "team_id"}
 
     def perform_create(self, serializer):
         task_id = self.kwargs.get("parent_lookup_task_id")
@@ -2298,7 +2334,7 @@ class CodeInviteViewSet(viewsets.ViewSet):
         return Response({"has_access": has_redeemed})
 
 
-@extend_schema(tags=["sandbox-environments"])
+@extend_schema(tags=["sandbox-environments", "tasks"])
 class SandboxEnvironmentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """API for managing sandbox environments that control network access for task runs."""
 
@@ -2310,6 +2346,7 @@ class SandboxEnvironmentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     ]
     permission_classes = [IsAuthenticated, APIScopePermission, TasksAccessPermission]
     scope_object = "task"
+    pagination_class = SandboxPagination
     queryset = SandboxEnvironment.objects.all()
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
     filter_rewrite_rules = {"team_id": "team_id"}
