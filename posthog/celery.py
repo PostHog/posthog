@@ -1,5 +1,6 @@
 import os
 import time
+import errno
 
 from django.dispatch import receiver
 
@@ -18,7 +19,7 @@ from celery.signals import (
 )
 from django_structlog.celery import signals
 from django_structlog.celery.steps import DjangoStructLogInitStep
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter, Histogram, start_http_server
 
 # When PROMETHEUS_MULTIPROC_DIR is set (by bin/docker-worker-celery),
 # prometheus_client uses file-backed storage so all prefork children's
@@ -148,12 +149,16 @@ def on_celeryd_init(**kwargs) -> None:
     """Clean stale prometheus multiproc files from a previous run."""
     if not _PROMETHEUS_MULTIPROC_DIR:
         return
+    logger.info("prometheus_multiproc_cleanup_start", directory=_PROMETHEUS_MULTIPROC_DIR)
+    removed = 0
     try:
         for entry in os.scandir(_PROMETHEUS_MULTIPROC_DIR):
             if entry.is_file(follow_symlinks=False) and entry.name.endswith(".db"):
                 os.unlink(entry.path)
+                removed += 1
     except OSError as e:
         logger.warning("prometheus_multiproc_cleanup_failed", error=str(e))
+    logger.info("prometheus_multiproc_cleanup_done", removed=removed)
 
 
 @worker_process_init.connect
@@ -165,18 +170,14 @@ def on_worker_start(**kwargs) -> None:
     port = int(os.getenv("CELERY_METRICS_PORT", "8001"))
     try:
         if _PROMETHEUS_MULTIPROC_DIR:
-            from prometheus_client import CollectorRegistry, multiprocess, start_http_server
+            from prometheus_client import CollectorRegistry, multiprocess
 
             registry = CollectorRegistry()
             multiprocess.MultiProcessCollector(registry)
             start_http_server(port, registry=registry)
         else:
-            from prometheus_client import start_http_server
-
             start_http_server(port)
     except OSError as exc:
-        import errno
-
         if exc.errno != errno.EADDRINUSE:
             logger.warning("metrics_server_start_failed", port=port, error=str(exc))
 
