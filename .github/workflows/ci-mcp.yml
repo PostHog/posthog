@@ -407,6 +407,14 @@ jobs:
                   # Ensure common event definitions exist for MCP integration tests
                   for event_name in ['\$pageview', '\$pageleave', '\$autocapture', '\$screen']:
                       EventDefinition.objects.get_or_create(name=event_name, team=team)
+                  # Grant the test user PostHog Code (tasks) access via invite redemption.
+                  # The 'tasks' feature flag path can't unlock this in CI because the
+                  # posthoganalytics SDK is disabled by OPT_OUT_CAPTURE=1.
+                  from products.tasks.backend.models import CodeInvite, CodeInviteRedemption
+                  invite, _ = CodeInvite.objects.get_or_create(
+                      code='MCP_CI', defaults={'description': 'MCP CI bootstrap', 'created_by': user}
+                  )
+                  CodeInviteRedemption.objects.get_or_create(invite_code=invite, user=user, defaults={'organization': org})
                   print(f'TEST_ORG_ID={org.id}')
                   print(f'TEST_PROJECT_ID={team.id}')
                   " >> $GITHUB_ENV
