@@ -1,3 +1,4 @@
+import { SessionFeatureStore } from '../../session-replay/shared/features/session-feature-store'
 import { SessionMetadataStore } from '../../session-replay/shared/metadata/session-metadata-store'
 import { createMockEncryptor, createMockKeyStore } from '../../session-replay/shared/test-helpers'
 import { KeyStore, RecordingEncryptor } from '../../session-replay/shared/types'
@@ -20,6 +21,7 @@ describe('SessionBatchManager', () => {
     let mockWriter: jest.Mocked<SessionBatchFileWriter>
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
     let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
+    let mockFeatureStore: jest.Mocked<SessionFeatureStore>
     let mockSessionTracker: jest.Mocked<SessionTracker>
     let mockSessionFilter: jest.Mocked<SessionFilter>
     let mockKeyStore: jest.Mocked<KeyStore>
@@ -64,6 +66,10 @@ describe('SessionBatchManager', () => {
             storeSessionConsoleLogs: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionConsoleLogStore>
 
+        mockFeatureStore = {
+            storeSessionFeatures: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<SessionFeatureStore>
+
         mockSessionTracker = {
             trackSession: jest.fn().mockResolvedValue(false),
         } as unknown as jest.Mocked<SessionTracker>
@@ -84,6 +90,7 @@ describe('SessionBatchManager', () => {
             fileStorage: mockFileStorage,
             metadataStore: mockMetadataStore,
             consoleLogStore: mockConsoleLogStore,
+            featureStore: mockFeatureStore,
             sessionTracker: mockSessionTracker,
             sessionFilter: mockSessionFilter,
             keyStore: mockKeyStore,
@@ -105,6 +112,7 @@ describe('SessionBatchManager', () => {
             mockFileStorage,
             mockMetadataStore,
             mockConsoleLogStore,
+            mockFeatureStore,
             mockSessionTracker,
             mockSessionFilter,
             mockKeyStore,
@@ -187,6 +195,7 @@ describe('SessionBatchManager', () => {
                 fileStorage: mockFileStorage,
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
+                featureStore: mockFeatureStore,
                 sessionTracker: mockSessionTracker,
                 sessionFilter: mockSessionFilter,
                 keyStore: mockKeyStore,
@@ -198,6 +207,7 @@ describe('SessionBatchManager', () => {
                 mockFileStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockFeatureStore,
                 mockSessionTracker,
                 mockSessionFilter,
                 mockKeyStore,
@@ -215,6 +225,7 @@ describe('SessionBatchManager', () => {
                 fileStorage: mockFileStorage,
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
+                featureStore: mockFeatureStore,
                 sessionTracker: mockSessionTracker,
                 sessionFilter: mockSessionFilter,
                 keyStore: mockKeyStore,
@@ -228,6 +239,7 @@ describe('SessionBatchManager', () => {
                 mockFileStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockFeatureStore,
                 mockSessionTracker,
                 mockSessionFilter,
                 mockKeyStore,
@@ -245,6 +257,7 @@ describe('SessionBatchManager', () => {
                 fileStorage: mockFileStorage,
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
+                featureStore: mockFeatureStore,
                 sessionTracker: mockSessionTracker,
                 sessionFilter: mockSessionFilter,
                 keyStore: mockKeyStore,
@@ -256,6 +269,7 @@ describe('SessionBatchManager', () => {
                 mockFileStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockFeatureStore,
                 mockSessionTracker,
                 mockSessionFilter,
                 mockKeyStore,
@@ -273,6 +287,7 @@ describe('SessionBatchManager', () => {
                 fileStorage: mockFileStorage,
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
+                featureStore: mockFeatureStore,
                 sessionTracker: mockSessionTracker,
                 sessionFilter: mockSessionFilter,
                 keyStore: mockKeyStore,
@@ -284,6 +299,7 @@ describe('SessionBatchManager', () => {
                 mockFileStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockFeatureStore,
                 mockSessionTracker,
                 mockSessionFilter,
                 mockKeyStore,

@@ -252,7 +252,7 @@ def team_enterprise_api_test_factory():
     return TestTeamEnterpriseAPI
 
 
-class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):
+class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):  # type: ignore[misc]
     def test_cannot_create_team_not_under_project(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()

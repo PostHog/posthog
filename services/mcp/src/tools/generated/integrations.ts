@@ -4,25 +4,25 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import {
     IntegrationsDestroyParams,
-    IntegrationsList2QueryParams,
-    IntegrationsRetrieve2Params,
+    IntegrationsListQueryParams,
+    IntegrationsRetrieveParams,
 } from '@/generated/integrations/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const IntegrationsListSchema = IntegrationsList2QueryParams
+const IntegrationsListSchema = IntegrationsListQueryParams
 
 const integrationsList = (): ToolBase<
     typeof IntegrationsListSchema,
-    WithPostHogUrl<Schemas.PaginatedIntegrationList>
+    WithPostHogUrl<Schemas.PaginatedIntegrationConfigList>
 > => ({
     name: 'integrations-list',
     schema: IntegrationsListSchema,
     handler: async (context: Context, params: z.infer<typeof IntegrationsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedIntegrationList>({
+        const result = await context.api.request<Schemas.PaginatedIntegrationConfigList>({
             method: 'GET',
-            path: `/api/projects/${projectId}/integrations/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/`,
             query: {
                 limit: params.limit,
                 offset: params.offset,
@@ -32,16 +32,16 @@ const integrationsList = (): ToolBase<
     },
 })
 
-const IntegrationGetSchema = IntegrationsRetrieve2Params.omit({ project_id: true })
+const IntegrationGetSchema = IntegrationsRetrieveParams.omit({ project_id: true })
 
-const integrationGet = (): ToolBase<typeof IntegrationGetSchema, Schemas.Integration> => ({
+const integrationGet = (): ToolBase<typeof IntegrationGetSchema, Schemas.IntegrationConfig> => ({
     name: 'integration-get',
     schema: IntegrationGetSchema,
     handler: async (context: Context, params: z.infer<typeof IntegrationGetSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.Integration>({
+        const result = await context.api.request<Schemas.IntegrationConfig>({
             method: 'GET',
-            path: `/api/projects/${projectId}/integrations/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -56,7 +56,7 @@ const integrationDelete = (): ToolBase<typeof IntegrationDeleteSchema, unknown> 
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
-            path: `/api/projects/${projectId}/integrations/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },

@@ -477,6 +477,7 @@ def _group_aggregation_filter(filter: dict):
 
 
 def _insight_filter(filter: dict, allow_variables: bool = False):
+    insight_filter: dict[str, Any]
     if _insight_type(filter) == "TRENDS":
         insight_filter = {
             "trendsFilter": TrendsFilter(
@@ -561,7 +562,7 @@ def _insight_filter(filter: dict, allow_variables: bool = False):
                 minEdgeWeight=filter.get("min_edge_weight"),
                 maxEdgeWeight=filter.get("max_edge_weight"),
             ),
-            "funnelPathsFilter": filters_to_funnel_paths_query(filter),  # type: ignore
+            "funnelPathsFilter": filters_to_funnel_paths_query(filter),
         }
     elif _insight_type(filter) == "LIFECYCLE":
         insight_filter = {

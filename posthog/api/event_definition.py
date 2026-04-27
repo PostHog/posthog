@@ -9,7 +9,7 @@ from django.db.models import Manager
 import orjson
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_serializer
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, request, response, serializers, status, viewsets
 
@@ -87,6 +87,7 @@ def create_event_definitions_sql(
         """
 
 
+@extend_schema_serializer(component_name="EventDefinitionRecord")
 class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     is_action = serializers.SerializerMethodField(read_only=True)
     action_id = serializers.IntegerField(read_only=True)
@@ -188,7 +189,7 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
 
         return event_definition
 
-    def get_is_action(self, obj):
+    def get_is_action(self, obj) -> bool:
         return hasattr(obj, "action_id") and obj.action_id is not None
 
 

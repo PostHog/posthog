@@ -7,7 +7,9 @@ import { LemonButton, LemonCard, LemonSelect, LemonTag, Link, Spinner } from '@p
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -62,6 +64,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         hasUnsavedChanges,
         draftContent,
         draftIsPrivate,
+        snoozedUntil,
         suggesting,
     } = useValues(logic)
     const {
@@ -69,6 +72,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         setPriority,
         setAssignee,
         setTags,
+        setSnoozedUntil,
         sendMessage,
         updateTicket,
         loadOlderMessages,
@@ -366,6 +370,20 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     <SlaDisplay slaDueAt={ticket.sla_due_at} />
                                 </div>
                             )}
+                            <div className="flex justify-between items-center">
+                                <span className="text-muted-alt">Snooze</span>
+                                <LemonCalendarSelectInput
+                                    value={snoozedUntil ? dayjs(snoozedUntil) : null}
+                                    onChange={(date) =>
+                                        setSnoozedUntil(date ? date.startOf('minute').toISOString() : null)
+                                    }
+                                    granularity="minute"
+                                    selectionPeriod="upcoming"
+                                    clearable
+                                    placeholder="Not snoozed"
+                                    buttonProps={{ size: 'small', type: 'secondary', fullWidth: false }}
+                                />
+                            </div>
                             <div className="flex justify-between items-center">
                                 <span className="text-muted-alt">Tags</span>
                                 <TicketTags tags={tags} onChange={setTags} saving={false} />

@@ -265,6 +265,23 @@ class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
 
         return response.Response(serializer.data, status=201)
 
+    def _capture_domain_setting_event(self, request: Request) -> None:
+        data = request.data
+        if any(f.startswith("saml_") for f in data):
+            event_type = "saml configured"
+        elif "sso_enforcement" in data:
+            event_type = "sso enforcement updated"
+        elif data.get("jit_provisioning_enabled") is True:
+            event_type = "jit provisioning enabled"
+        else:
+            return
+
+        _capture_domain_event(request, self.get_object(), event_type)
+
+    def update(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        self._capture_domain_setting_event(request)
+        return super().update(request, *args, **kwargs)
+
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance = self.get_object()
 

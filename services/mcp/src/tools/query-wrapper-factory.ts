@@ -1,18 +1,41 @@
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import {
+    POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
+    POSTHOG_META_KEY,
+    type Context,
+    type ToolBase,
+    type ZodObjectAny,
+} from '@/tools/types'
 
 interface QueryWrapperConfig<T extends ZodObjectAny> {
     name: string
     schema: T
     kind: string
     uiResourceUri?: string
-    /** Return JSON instead of TOON-encoded text. */
-    responseFormat?: 'json'
-    /** When set, `_posthogUrl` uses `{baseUrl}{urlPrefix}` instead of `/insights/new?q=...`. */
+    /**
+     * Output format for the tool response. `'optimized'` surfaces the backend formatter output
+     * (`formatted_results`) as the text content when available; `'json'` skips the formatter
+     * override entirely and returns raw JSON. Omit to fall back to the default TOON encoding.
+     */
+    outputFormat?: 'optimized' | 'json'
+    /** When set, `_posthogUrl` uses `{baseUrl}{urlPrefix}` instead of `/insights/new#q=...`. */
     urlPrefix?: string
     /** When set, the tool is only available in this MCP version (1 = v1 only, 2 = v2 only). */
     mcpVersion?: number
+}
+
+function buildInsightUrl(
+    kind: 'InsightVizNode' | 'DataTableNode',
+    query: Record<string, unknown>,
+    baseUrl: string,
+    urlPrefix?: string
+): string {
+    if (urlPrefix) {
+        return `${baseUrl}${urlPrefix}`
+    }
+    const q = encodeURIComponent(JSON.stringify({ kind, source: query }))
+    return `${baseUrl}/insights/new#q=${q}`
 }
 
 export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperConfig<T>): () => ToolBase<T> {
@@ -23,41 +46,34 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
         handler: async (context: Context, rawParams: z.infer<T>) => {
             const projectId = await context.stateManager.getProjectId()
             const params = config.schema.parse(rawParams)
-            const query: Record<string, unknown> = { ...params, kind: config.kind }
+            // `output_format` is a tool-level control, not part of the query body. Strip it before
+            // POSTing so it doesn't leak into the backend `kind: ...Query` payload.
+            const { output_format: callerOutputFormat, ...queryParams } = params as typeof params & {
+                output_format?: 'optimized' | 'json'
+            }
+            const query: Record<string, unknown> = { ...queryParams, kind: config.kind }
+            const baseUrl = context.api.getProjectBaseUrl(projectId)
+            const effectiveOutputFormat = callerOutputFormat ?? config.outputFormat
 
-            // Convert flat filterGroup arrays (from assistant schemas) into the nested
-            // PropertyGroupFilter structure the query API expects.
-            if (Array.isArray(query.filterGroup)) {
-                if (query.filterGroup.length > 0) {
-                    query.filterGroup = {
-                        type: 'AND',
-                        values: [{ type: 'AND', values: query.filterGroup }],
-                    }
-                } else {
-                    delete query.filterGroup
+            if (config.kind.endsWith('ActorsQuery')) {
+                const data = await context.api.query({ projectId }).trendsActors({ query })
+                return {
+                    ...data,
+                    _posthogUrl: buildInsightUrl('DataTableNode', data.query, baseUrl, config.urlPrefix),
                 }
             }
-            const result = await context.api.request<{
-                results: unknown
-                columns?: unknown
-                formatted_results?: string
-            }>({
-                method: 'POST',
-                path: `/api/environments/${projectId}/query/`,
-                body: { query },
-            })
-            const baseUrl = context.api.getProjectBaseUrl(projectId)
-            const posthogUrl = config.urlPrefix
-                ? `${baseUrl}${config.urlPrefix}`
-                : `${baseUrl}/insights/new#q=${encodeURIComponent(JSON.stringify({ kind: 'InsightVizNode', source: query }))}`
+
+            const data = await context.api.query({ projectId }).runQuery({ query })
+            const shouldSurfaceFormatted = effectiveOutputFormat !== 'json' && data.formatted_results
             return {
-                results: result.formatted_results ?? result.results,
-                _posthogUrl: posthogUrl,
+                results: data.results,
+                _posthogUrl: buildInsightUrl('InsightVizNode', query, baseUrl, config.urlPrefix),
+                ...(shouldSurfaceFormatted ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: data.formatted_results } : {}),
             }
         },
         _meta: {
             ...(config.uiResourceUri ? { ui: { resourceUri: config.uiResourceUri } } : {}),
-            ...(config.responseFormat ? { responseFormat: config.responseFormat } : {}),
+            ...(config.outputFormat ? { [POSTHOG_META_KEY]: { outputFormat: config.outputFormat } } : {}),
         },
     })
 }

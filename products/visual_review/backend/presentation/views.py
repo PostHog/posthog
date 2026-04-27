@@ -13,6 +13,7 @@ No business logic here - that belongs in logic.py via the facade.
 from typing import cast
 from uuid import UUID
 
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -29,9 +30,11 @@ from ..facade.contracts import (
     ApproveRunRequestInput,
     CreateRepoInput,
     CreateRunInput,
+    QuarantineInput,
     UpdateRepoInput,
     UpdateRepoRequestInput,
 )
+from ..facade.enums import ReviewDecision
 from .serializers import (
     AddSnapshotsInputSerializer,
     AddSnapshotsResultSerializer,
@@ -40,11 +43,16 @@ from .serializers import (
     CreateRepoInputSerializer,
     CreateRunInputSerializer,
     CreateRunResultSerializer,
+    MarkToleratedInputSerializer,
+    QuarantinedIdentifierEntrySerializer,
+    QuarantineInputSerializer,
+    RecomputeResultSerializer,
     RepoSerializer,
     ReviewStateCountsSerializer,
     RunSerializer,
     SnapshotHistoryEntrySerializer,
     SnapshotSerializer,
+    ToleratedHashEntrySerializer,
     UpdateRepoInputSerializer,
 )
 
@@ -60,8 +68,8 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
 
     scope_object = "visual_review"
-    scope_object_write_actions = ["create", "partial_update"]
-    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_write_actions = ["create", "partial_update", "quarantine", "unquarantine"]
+    scope_object_read_actions = ["list", "retrieve", "list_quarantined"]
 
     @extend_schema(responses={200: RepoSerializer(many=True)})
     def list(self, request: Request, **kwargs) -> Response:
@@ -89,7 +97,10 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         return Response(RepoSerializer(instance=repo).data, status=status.HTTP_201_CREATED)
 
-    @extend_schema(responses={200: RepoSerializer})
+    @extend_schema(
+        parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],
+        responses={200: RepoSerializer},
+    )
     def retrieve(self, request: Request, pk: str, **kwargs) -> Response:
         """Get a repo by ID."""
         try:
@@ -98,6 +109,7 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(RepoSerializer(instance=repo).data)
 
+    @extend_schema(parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)])
     @validated_request(
         request_serializer=UpdateRepoInputSerializer,
         responses={200: OpenApiResponse(response=RepoSerializer)},
@@ -117,6 +129,64 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(RepoSerializer(instance=repo).data)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="identifier", type=str, required=False, description="Filter by identifier (returns full history)"
+            ),
+            OpenApiParameter(name="run_type", type=str, required=False, description="Filter by run type"),
+        ],
+        responses={200: QuarantinedIdentifierEntrySerializer(many=True)},
+    )
+    @action(detail=True, methods=["get"], url_path="quarantine")
+    def list_quarantined(self, request: Request, pk: str, **kwargs) -> Response:
+        """List quarantined identifiers. Without filter: active only. With identifier: full history."""
+        identifier = request.query_params.get("identifier")
+        run_type = request.query_params.get("run_type")
+        entries = api.list_quarantined(UUID(pk), team_id=self.team_id, identifier=identifier, run_type=run_type)
+        page = self.paginate_queryset(entries)
+        if page is not None:
+            serializer = QuarantinedIdentifierEntrySerializer(instance=page, many=True)
+            return self.get_paginated_response(serializer.data)
+        return Response(QuarantinedIdentifierEntrySerializer(instance=entries, many=True).data)
+
+    @validated_request(
+        request_serializer=QuarantineInputSerializer,
+        responses={201: OpenApiResponse(response=QuarantinedIdentifierEntrySerializer)},
+    )
+    @action(detail=True, methods=["post"], url_path=r"quarantine/(?P<run_type>[^/]+)")
+    def quarantine(self, request: TypedRequest[QuarantineInput], pk: str, run_type: str, **kwargs) -> Response:
+        """Quarantine a snapshot identifier for a specific run type."""
+        try:
+            entry = api.quarantine_identifier(
+                repo_id=UUID(pk),
+                run_type=run_type,
+                input=request.validated_data,
+                user_id=cast(int, request.user.id),
+                team_id=self.team_id,
+            )
+        except api.RepoNotFoundError:
+            return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(QuarantinedIdentifierEntrySerializer(instance=entry).data, status=status.HTTP_201_CREATED)
+
+    @validated_request(
+        request_serializer=QuarantineInputSerializer,
+        responses={204: None},
+    )
+    @action(detail=True, methods=["post"], url_path=r"quarantine/(?P<run_type>[^/]+)/expire")
+    def unquarantine(self, request: TypedRequest[QuarantineInput], pk: str, run_type: str, **kwargs) -> Response:
+        """Expire all active quarantine entries for an identifier."""
+        try:
+            api.unquarantine_identifier(
+                repo_id=UUID(pk),
+                identifier=request.validated_data.identifier,
+                run_type=run_type,
+                team_id=self.team_id,
+            )
+        except api.RepoNotFoundError:
+            return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 @extend_schema(tags=[VISUAL_REVIEW_TAG])
 class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -127,8 +197,9 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
 
     scope_object = "visual_review"
-    scope_object_write_actions = ["create", "complete", "approve", "auto_approve", "add_snapshots"]
+    scope_object_write_actions = ["create", "complete", "approve", "auto_approve", "add_snapshots", "recompute"]
     scope_object_read_actions = ["list", "retrieve", "snapshots", "counts"]
+    serializer_class = RunSerializer
 
     @extend_schema(
         parameters=[OpenApiParameter("review_state", str, required=False, description="Filter by review state")],
@@ -159,7 +230,10 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         result = api.create_run(request.validated_data, team_id=self.team_id)
         return Response(CreateRunResultSerializer(instance=result).data, status=status.HTTP_201_CREATED)
 
-    @extend_schema(responses={200: RunSerializer})
+    @extend_schema(
+        parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],
+        responses={200: RunSerializer},
+    )
     def retrieve(self, request: Request, pk: str, **kwargs) -> Response:
         """Get run status and summary."""
         try:
@@ -181,6 +255,46 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             serializer = SnapshotSerializer(instance=page, many=True)
             return self.get_paginated_response(serializer.data)
         return Response(SnapshotSerializer(instance=snapshots, many=True).data)
+
+    @validated_request(
+        request_serializer=MarkToleratedInputSerializer,
+        responses={200: OpenApiResponse(response=SnapshotSerializer)},
+    )
+    @action(detail=True, methods=["post"], url_path="tolerate")
+    def mark_tolerated(self, request: TypedRequest, pk: str, **kwargs) -> Response:
+        """Mark a changed snapshot as a known tolerated alternate."""
+        try:
+            snapshot = api.mark_snapshot_as_tolerated(
+                run_id=UUID(pk),
+                snapshot_id=request.validated_data["snapshot_id"],
+                user_id=cast(int, request.user.id),
+                team_id=self.team_id,
+            )
+        except api.RunNotFoundError:
+            return Response({"detail": "Snapshot or run not found"}, status=status.HTTP_404_NOT_FOUND)
+        except ValueError:
+            return Response({"detail": "Snapshot cannot be marked as tolerated"}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(SnapshotSerializer(instance=snapshot).data)
+
+    @extend_schema(
+        parameters=[OpenApiParameter("identifier", str, required=True, description="Snapshot identifier")],
+        responses={200: ToleratedHashEntrySerializer(many=True)},
+    )
+    @action(detail=True, methods=["get"], url_path="tolerated-hashes")
+    def tolerated_hashes(self, request: Request, pk: str, **kwargs) -> Response:
+        """List known tolerated hashes for a snapshot identifier."""
+        identifier = request.query_params.get("identifier")
+        if not identifier:
+            return Response({"detail": "identifier query param required"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            run = api.get_run(UUID(pk), team_id=self.team_id)
+        except api.RunNotFoundError:
+            return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+        entries = api.get_tolerated_hashes(run.repo_id, identifier)
+        page = self.paginate_queryset(entries)
+        if page is not None:
+            return self.get_paginated_response(ToleratedHashEntrySerializer(instance=page, many=True).data)
+        return Response(ToleratedHashEntrySerializer(instance=entries, many=True).data)
 
     @extend_schema(request=AddSnapshotsInputSerializer, responses={200: AddSnapshotsResultSerializer})
     @action(detail=True, methods=["post"], url_path="add-snapshots")
@@ -218,7 +332,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         history = api.get_snapshot_history(run.repo_id, identifier)
         return Response(SnapshotHistoryEntrySerializer(instance=history, many=True).data)
 
-    @extend_schema(responses={200: RunSerializer})
+    @extend_schema(request=None, responses={200: RunSerializer})
     @action(detail=True, methods=["post"])
     def complete(self, request: Request, pk: str, **kwargs) -> Response:
         """Complete a run: detect removals, verify uploads, trigger diff processing."""
@@ -245,7 +359,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         try:
             if body.approve_all:
-                result = api.auto_approve_run(run_id=run_id, user_id=user_id, team_id=self.team_id)
+                result = api.approve_all(run_id=run_id, user_id=user_id, team_id=self.team_id)
                 return Response(AutoApproveResultSerializer(instance=result).data)
 
             input_dto = ApproveRunInput(
@@ -272,22 +386,37 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         except api.PRSHAMismatchError as e:
             return Response({"detail": str(e), "code": "sha_mismatch"}, status=status.HTTP_409_CONFLICT)
-        except api.GitHubCommitError as e:
-            return Response({"detail": f"GitHub commit failed: {e}"}, status=status.HTTP_502_BAD_GATEWAY)
-        except api.BaselineFilePathNotConfiguredError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-        except ValueError:
-            return Response({"detail": "Invalid request"}, status=status.HTTP_400_BAD_REQUEST)
+        except api.GitHubCommitError:
+            return Response({"detail": "GitHub commit failed"}, status=status.HTTP_502_BAD_GATEWAY)
 
-    @extend_schema(responses={200: AutoApproveResultSerializer}, deprecated=True)
+    @extend_schema(
+        request=None,
+        responses={200: RecomputeResultSerializer},
+        description="Re-evaluate quarantine and counts, update commit status, and optionally rerun the CI job.",
+    )
+    @action(detail=True, methods=["post"], url_path="recompute")
+    def recompute(self, request: Request, pk: str, **kwargs) -> Response:
+        try:
+            result = api.recompute_run(UUID(pk), team_id=self.team_id)
+        except api.RunNotFoundError:
+            return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+        except ValueError:
+            return Response(
+                {"detail": "Run must be completed and not yet approved"}, status=status.HTTP_400_BAD_REQUEST
+            )
+        return Response(RecomputeResultSerializer(instance=result).data)
+
+    @extend_schema(request=None, responses={200: AutoApproveResultSerializer}, deprecated=True)
     @action(detail=True, methods=["post"], url_path="auto-approve")
     def auto_approve(self, request: Request, pk: str, **kwargs) -> Response:
-        """Deprecated: use POST /approve/ with approve_all=true instead."""
+        """CLI auto-approve: approve all and return baseline YAML for local write."""
         try:
-            result = api.auto_approve_run(
+            result = api.approve_all(
                 run_id=UUID(pk),
                 user_id=cast(int, request.user.id),
                 team_id=self.team_id,
+                review_decision=ReviewDecision.AUTO_APPROVED,
+                commit_to_github=False,
             )
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)

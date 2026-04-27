@@ -2,10 +2,20 @@
 
 from __future__ import annotations
 
+import os
+
 import click
 
 from .checks import CHECKS, CheckContext, is_isolated_product
 from .paths import PRODUCTS_DIR, load_structure
+
+_IN_GH_ACTIONS = os.environ.get("GITHUB_ACTIONS") == "true"
+
+
+def _gh_annotation(level: str, product: str, check_label: str, message: str, file: str | None = None) -> None:
+    if _IN_GH_ACTIONS:
+        file_part = f" file={file}" if file else ""
+        click.echo(f"::{level}{file_part} title=product:lint ({product} / {check_label})::{message}")
 
 
 def lint_product(name: str, verbose: bool = True, detailed: bool = False, structure: dict | None = None) -> list[str]:
@@ -53,6 +63,10 @@ def lint_product(name: str, verbose: bool = True, detailed: bool = False, struct
             for line in result.lines:
                 click.echo(f"    {line}")
         issues.extend(result.issues)
+        for issue in result.issues:
+            _gh_annotation("error", name, check.label, issue, file=result.file)
+        for warning in result.warnings:
+            _gh_annotation("warning", name, check.label, warning, file=result.file)
 
     return issues
 

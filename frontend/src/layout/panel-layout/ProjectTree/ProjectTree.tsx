@@ -1,5 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 import { RefObject, useCallback, useEffect, useRef, useState } from 'react'
 
 import {
@@ -14,6 +15,7 @@ import {
     IconStar,
 } from '@posthog/icons'
 
+import { commandLogic } from 'lib/components/Command/commandLogic'
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -31,12 +33,14 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { isMobile } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
@@ -70,9 +74,9 @@ export const PROJECT_TREE_KEY = 'project-tree'
 let counter = 0
 
 const SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY = 'shortcut-dismissal'
-const CUSTOM_PRODUCT_DISMISSAL_LOCAL_STORAGE_KEY = 'custom-product-dismissal'
+const CUSTOM_PRODUCT_DISMISSAL_LOCAL_STORAGE_KEY = 'custom-product-dismissal-v2'
+const CMD_K_HELPER_DISMISSAL_LOCAL_STORAGE_KEY = 'cmd-k-helper-dismissal'
 const SEEN_CUSTOM_PRODUCTS_LOCAL_STORAGE_KEY = 'seen-custom-products'
-const DATA_PIPELINES_CLICKED_LOCAL_STORAGE_KEY = 'data-pipelines-clicked'
 
 const USER_PRODUCT_LIST_REASON_DEFAULTS: { [key in UserProductListReason]?: string } = {
     [UserProductListReason.USED_BY_COLLEAGUES]:
@@ -105,9 +109,6 @@ const isItemActive = (item: TreeDataItem): boolean => {
 
     // Special handling for products with child pages on distinct paths (e.g., /replay/home and /replay/playlists)
     if (item.name === 'Session replay' && currentPath.startsWith('/replay/')) {
-        return true
-    }
-    if (item.name === 'Data pipelines' && currentPath.startsWith('/pipeline/')) {
         return true
     }
     if (item.name === 'Workflows' && currentPath.startsWith('/workflows')) {
@@ -175,6 +176,7 @@ export function ProjectTree({
 
     const { customProducts, customProductsLoading } = useValues(customProductsLogic)
     const { seed } = useActions(customProductsLogic)
+    const { toggleCommand } = useActions(commandLogic)
 
     const [shortcutHelperDismissed, setShortcutHelperDismissed] = useLocalStorage<boolean>(
         SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY,
@@ -184,15 +186,18 @@ export function ProjectTree({
         CUSTOM_PRODUCT_DISMISSAL_LOCAL_STORAGE_KEY,
         false
     )
+    const [cmdKHelperDismissed, setCmdKHelperDismissed] = useLocalStorage<boolean>(
+        CMD_K_HELPER_DISMISSAL_LOCAL_STORAGE_KEY,
+        false
+    )
+    // Capture the original-banner dismissal state once on mount so the Cmd+K hint only appears
+    // on subsequent sessions — dismissing the first banner shouldn't swap in the second immediately.
+    const [originalDismissedOnMount] = useState<boolean>(() => customProductHelperDismissed === true)
+
     const [seenCustomProducts, setSeenCustomProducts] = useLocalStorage<string[]>(
         `${currentTeamId ?? '*'}-${SEEN_CUSTOM_PRODUCTS_LOCAL_STORAGE_KEY}`,
         []
     )
-    const [dataPipelinesClicked, setDataPipelinesClicked] = useLocalStorage<boolean>(
-        `${currentTeamId ?? '*'}-${DATA_PIPELINES_CLICKED_LOCAL_STORAGE_KEY}`,
-        false
-    )
-
     const isCustomProductsExperiment = useFeatureFlag('CUSTOM_PRODUCTS_SIDEBAR', 'test')
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
@@ -210,11 +215,6 @@ export function ProjectTree({
                 children: item.children ? applyChecked(item.children) : undefined,
             }))
         treeData = applyChecked(treeData)
-    }
-
-    // Filter out Data pipelines item if it's been clicked
-    if (dataPipelinesClicked) {
-        treeData = treeData.filter((item) => item.record?.path !== 'Data pipelines')
     }
 
     if (fullFileSystemFiltered.length <= 5) {
@@ -264,8 +264,12 @@ export function ProjectTree({
                     item.reason === UserProductListReason.USED_ON_SEPARATE_TEAM
             )
 
-            if ((fullFileSystemFiltered.length === 0 || !customProductHelperDismissed) && !isAIFirst) {
-                const CustomIcon = isCustomProductsExperiment ? IconGear : IconPencil
+            const showOriginalBanner = fullFileSystemFiltered.length === 0 || !customProductHelperDismissed
+            const showCmdKBanner =
+                !showOriginalBanner && originalDismissedOnMount && !cmdKHelperDismissed && !isMobile()
+
+            if (showOriginalBanner) {
+                const CustomIcon = !isAIFirst && isCustomProductsExperiment ? IconGear : IconPencil
                 treeData.push({
                     id: 'products/custom-products-helper-category',
                     name: 'Example custom products',
@@ -273,7 +277,7 @@ export function ProjectTree({
                     displayName: (
                         <div
                             className={cn('border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1', {
-                                'mt-6': fullFileSystemFiltered.length === 0,
+                                'mt-6': fullFileSystemFiltered.length === 0 && !isAIFirst,
                             })}
                         >
                             You can display your preferred apps here. You can configure what items show up in here by
@@ -288,13 +292,36 @@ export function ProjectTree({
                                     Dismiss.
                                 </span>
                             )}
-                            <br />
-                            <br />
                             {!hasRecommendedProducts && fullFileSystemFiltered.length <= 3 && (
-                                <span className="cursor-pointer underline" onClick={seed}>
-                                    {customProductsLoading ? 'Adding...' : 'Add recommended products?'}
-                                </span>
+                                <>
+                                    <br />
+                                    <br />
+                                    <span className="cursor-pointer underline" onClick={seed}>
+                                        {customProductsLoading ? 'Adding...' : 'Add recommended products?'}
+                                    </span>
+                                </>
                             )}
+                        </div>
+                    ),
+                })
+            } else if (showCmdKBanner) {
+                treeData.push({
+                    id: 'products/cmd-k-helper-category',
+                    name: 'Quick search tip',
+                    type: 'category',
+                    displayName: (
+                        <div className="border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1">
+                            Want to browse all apps or jump back into something recent? Press{' '}
+                            <span
+                                className="cursor-pointer inline-flex items-center gap-1"
+                                onClick={() => toggleCommand()}
+                            >
+                                <KeyboardShortcut command k />
+                            </span>{' '}
+                            to open search. It's faster than hunting through the sidebar.{' '}
+                            <span className="cursor-pointer underline" onClick={() => setCmdKHelperDismissed(true)}>
+                                Dismiss.
+                            </span>
                         </div>
                     ),
                 })
@@ -357,10 +384,13 @@ export function ProjectTree({
                     return
                 }
 
-                // Track when Data pipelines button is clicked
-                if (item?.record?.path === 'Data pipelines' && !dataPipelinesClicked) {
-                    setDataPipelinesClicked(true)
-                }
+                posthog.capture('project tree item clicked', {
+                    root: root ?? null,
+                    item_type: item?.type ?? null,
+                    record_type: item?.record?.type ?? null,
+                    has_href: !!item?.record?.href,
+                    name: item?.name ?? null,
+                })
 
                 if (item?.record?.href) {
                     router.actions.push(
@@ -385,6 +415,11 @@ export function ProjectTree({
             }}
             onFolderClick={(folder, isExpanded) => {
                 if (folder) {
+                    posthog.capture('project tree folder toggled', {
+                        root: root ?? null,
+                        is_expanded: isExpanded,
+                        name: folder.name ?? null,
+                    })
                     toggleFolderOpen(folder?.id || '', isExpanded)
                 }
             }}

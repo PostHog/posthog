@@ -88,7 +88,7 @@ class ProxyRecordSerializer(serializers.ModelSerializer):
     )
     created_at = serializers.DateTimeField(read_only=True, help_text="When this proxy record was created.")
     updated_at = serializers.DateTimeField(read_only=True, help_text="When this proxy record was last updated.")
-    created_by: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(
+    created_by: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(  # ty: ignore[invalid-assignment]
         read_only=True, help_text="ID of the user who created this proxy record."
     )
 

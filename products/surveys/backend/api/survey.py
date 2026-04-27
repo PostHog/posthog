@@ -2146,6 +2146,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             )
         },
     )
+    @extend_schema(operation_id="surveys_global_stats_retrieve")
     @action(methods=["GET"], detail=False, url_path="stats", required_scopes=["survey:read"])
     def global_stats(self, request: request.Request, **kwargs) -> Response:
         """Get aggregated response statistics across all surveys.
@@ -2163,6 +2164,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         response_data = self._get_survey_stats(date_from, date_to)
         return Response(response_data)
 
+    @extend_schema(operation_id="surveys_all_activity_retrieve")
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
@@ -2876,13 +2878,15 @@ def create_flag_with_survey_errors():
     except serializers.ValidationError as e:
         # get the full details of the error to figure out if it's a behavioural cohort error
         error_details = e.get_full_details()
+        raw_filters = error_details.get("filters", [{}]) if isinstance(error_details, dict) else [{}]
+        filters = raw_filters if isinstance(raw_filters, list) else [raw_filters]
         matching_errors = [
             detail
-            for detail in error_details.get("filters", [{}])
-            if detail.get("code") == BEHAVIOURAL_COHORT_FOUND_ERROR_CODE
+            for detail in filters
+            if isinstance(detail, dict) and detail.get("code") == BEHAVIOURAL_COHORT_FOUND_ERROR_CODE
         ]
         if matching_errors:
-            original_detail = matching_errors[0].get("message")
+            original_detail = str(matching_errors[0].get("message"))
             raise serializers.ValidationError(
                 detail=original_detail.replace("feature flags", "surveys"),
                 code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,

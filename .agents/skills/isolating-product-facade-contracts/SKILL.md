@@ -93,5 +93,6 @@ Treat migration as complete only when:
 - Tests cover facade and presentation boundaries.
 - A global `[[interfaces]]` block in `tach.toml` restricts imports to facade + presentation views.
 - `tach check --interfaces` passes with no violations for this product.
+- `lint-imports` passes (import-linter verifies presentation doesn't bypass the facade internally).
 - `hogli product:lint <name>` shows no legacy leak warning.
 - `backend:contract-check` is present in `package.json` (enables isolated testing in CI).

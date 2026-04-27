@@ -1,4 +1,7 @@
+import datetime
+import dataclasses
 from decimal import Decimal
+from uuid import UUID
 
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
@@ -222,6 +225,45 @@ class TestEmail(BaseTest):
 
         # Check that utm_tags are not sanitized (to preserve valid URL query parameters)
         self.assertEqual(sanitized["utm_tags"], "utm_source=posthog&utm_medium=email&utm_campaign=test")
+
+    def test_sanitize_email_properties_handles_dataclasses(self) -> None:
+        # Regression test: facade contracts (frozen dataclasses) used to raise TypeError,
+        # silently killing tasks like send_error_tracking_issue_assigned via autoretry.
+        # Mirror the real ErrorTrackingIssueAssignmentNotification shape — in particular
+        # include a datetime field, since dataclasses.asdict() does not recurse into
+        # datetime and the naive fix missed that.
+        @dataclasses.dataclass(frozen=True)
+        class Inner:
+            id: UUID
+            name: str | None
+            description: str | None
+
+        @dataclasses.dataclass(frozen=True)
+        class Outer:
+            id: UUID
+            created_at: datetime.datetime
+            issue: Inner
+
+        outer = Outer(
+            id=UUID("00000000-0000-0000-0000-000000000001"),
+            created_at=datetime.datetime(2024, 1, 1, 12, 0, 0),
+            issue=Inner(
+                id=UUID("00000000-0000-0000-0000-000000000002"),
+                name='<script>alert("xss")</script>',
+                description=None,
+            ),
+        )
+
+        sanitized = sanitize_email_properties({"assignment": outer})
+
+        self.assertEqual(sanitized["assignment"]["id"], "00000000-0000-0000-0000-000000000001")
+        self.assertEqual(sanitized["assignment"]["created_at"], "2024-01-01T12:00:00")
+        self.assertEqual(sanitized["assignment"]["issue"]["id"], "00000000-0000-0000-0000-000000000002")
+        self.assertEqual(
+            sanitized["assignment"]["issue"]["name"],
+            "&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;",
+        )
+        self.assertIsNone(sanitized["assignment"]["issue"]["description"])
 
     def test_sanitize_email_properties_raises_for_unsupported_types(self) -> None:
         # Test that sanitize_email_properties raises TypeError for unsupported types

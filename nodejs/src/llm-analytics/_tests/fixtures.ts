@@ -5,14 +5,17 @@ import { insertRow } from '~/tests/helpers/sql'
 
 import { ClickHouseTimestamp, ProjectId, RawClickHouseEvent, Team } from '../../types'
 import { PostgresRouter } from '../../utils/db/postgres'
-import { Evaluation, EvaluationConditionSet } from '../types'
+import { Evaluation, EvaluationConditionSet, EvaluationStatus } from '../types'
 
 export const createEvaluation = (evaluation: Partial<Evaluation>): Evaluation => {
+    const enabled = evaluation.enabled !== undefined ? evaluation.enabled : true
+    const defaultStatus: EvaluationStatus = enabled ? 'active' : 'paused'
     return {
         id: randomUUID(),
         team_id: 1,
         name: 'Test Evaluation',
-        enabled: true,
+        enabled,
+        status: defaultStatus,
         evaluation_type: 'llm_judge',
         evaluation_config: { prompt: 'Test prompt' },
         output_type: 'boolean',
