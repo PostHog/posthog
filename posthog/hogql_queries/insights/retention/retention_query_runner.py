@@ -380,7 +380,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
         return refresh_frequency
 
-    def base_query(
+    def _base_query(
         self,
         start_interval_index_filter: Optional[int] = None,
         selected_breakdown_value: str | list[str] | int | None = None,
@@ -398,7 +398,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         with self.timings.measure("retention_query"):
             if not self.has_cohort_breakdown:
-                base_query = self.base_query()
+                base_query = self._base_query()
             else:
                 base_query = self._base_query_union_for_cohort_breakdown()
             base_query = self._wrap_base_query_for_cumulative_retention(base_query)
@@ -420,7 +420,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             temp_runner = RetentionQueryRunner(
                 query=temp_query, team=self.team, timings=self.timings, modifiers=self.modifiers
             )
-            base_queries.append(temp_runner.base_query())
+            base_queries.append(temp_runner._base_query())
 
         return ast.SelectSetQuery.create_from_queries(base_queries, "UNION ALL")
 
@@ -749,7 +749,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 runner = RetentionQueryRunner(
                     query=temp_query, team=self.team, timings=self.timings, modifiers=self.modifiers
                 )
-                base_query = runner.base_query(start_interval_index_filter=interval)
+                base_query = runner._base_query(start_interval_index_filter=interval)
 
             else:
                 selected_breakdown_value = None
@@ -760,7 +760,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                         )
                     selected_breakdown_value = "::".join(breakdown_values)
 
-                base_query = self.base_query(
+                base_query = self._base_query(
                     start_interval_index_filter=interval, selected_breakdown_value=selected_breakdown_value
                 )
 
@@ -861,7 +861,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                     {base_query}
                 """,
                     {
-                        "base_query": self.base_query(
+                        "base_query": self._base_query(
                             selected_breakdown_value=breakdown_value,
                             start_interval_index_filter=interval,
                         ),
