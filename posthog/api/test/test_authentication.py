@@ -2381,7 +2381,7 @@ class TestKnownLoginDeviceCookieMiddleware(APIBaseTest):
         request = RequestFactory().get("/api/internal/hog_flows/process_due_schedules")
         SessionMiddleware(lambda r: HttpResponse()).process_request(request)
         request.session["touched"] = True
-        request.user = InternalAPIUser()  # ty: ignore[invalid-assignment]
+        request.__dict__["user"] = InternalAPIUser()
 
         response = KnownLoginDeviceCookieMiddleware(lambda r: HttpResponse())(request)
 
