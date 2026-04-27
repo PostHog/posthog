@@ -1,3 +1,4 @@
+import uuid as uuid_lib
 from datetime import datetime, timedelta
 
 import pytest
@@ -174,3 +175,56 @@ def test_rendered_count_query_includes_hogql_predicate(team):
     assert "AND (" in rendered
     assert "'Chrome'" in rendered
     assert "%(" not in rendered
+
+
+def _person_kwargs(**overrides) -> dict:
+    kwargs = {
+        "team_id": TEAM_ID,
+        "request_type": RequestType.PERSON_REMOVAL,
+        "start_time": None,
+        "end_time": None,
+        "person_uuids": [str(uuid_lib.uuid4())],
+        "person_distinct_ids": [],
+        "person_drop_profiles": True,
+        "person_drop_events": False,
+        "person_drop_recordings": False,
+    }
+    kwargs.update(overrides)
+    return kwargs
+
+
+def test_person_removal_clean_passes_minimal():
+    request = DataDeletionRequest(**_person_kwargs())
+    request.clean()
+
+
+def test_person_removal_requires_at_least_one_selector():
+    request = DataDeletionRequest(**_person_kwargs(person_uuids=[], person_distinct_ids=[]))
+    with pytest.raises(ValidationError, match="person_uuids"):
+        request.clean()
+
+
+def test_person_removal_requires_at_least_one_action():
+    request = DataDeletionRequest(
+        **_person_kwargs(person_drop_profiles=False, person_drop_events=False, person_drop_recordings=False)
+    )
+    with pytest.raises(ValidationError, match="At least one of person_drop"):
+        request.clean()
+
+
+def test_person_removal_caps_total_selectors_at_1000():
+    request = DataDeletionRequest(**_person_kwargs(person_uuids=[str(uuid_lib.uuid4()) for _ in range(1001)]))
+    with pytest.raises(ValidationError, match="1000"):
+        request.clean()
+
+
+def test_person_removal_rejects_event_only_fields():
+    request = DataDeletionRequest(**_person_kwargs(events=["$pageview"]))
+    with pytest.raises(ValidationError, match="events"):
+        request.clean()
+
+
+def test_event_removal_rejects_person_fields():
+    request = DataDeletionRequest(**_base_kwargs(events=["$pageview"], person_uuids=[str(uuid_lib.uuid4())]))
+    with pytest.raises(ValidationError, match="person_uuids"):
+        request.clean()
