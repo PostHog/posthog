@@ -74,7 +74,6 @@ _DEFAULT_TOPIC_ROUTING: dict[str, KafkaClusterProfile] = {
     KAFKA_DOCUMENT_EMBEDDINGS_TOPIC: KafkaClusterProfile.DEFAULT,
     KAFKA_NOTIFICATION_EVENTS: KafkaClusterProfile.DEFAULT,
     KAFKA_SIGNALS_REPORT_COMPLETED: KafkaClusterProfile.DEFAULT,
-    # DLQ topic (KAFKA_FLAGS_CACHE_INVALIDATION_DLQ) is consumer-only — added to routing in PR 2.
     KAFKA_FLAGS_CACHE_INVALIDATION: KafkaClusterProfile.DEFAULT,
     # --- WAREHOUSE_SOURCES (Warpstream warehouse-pipelines) ---
     KAFKA_WAREHOUSE_SOURCES_JOBS: KafkaClusterProfile.WAREHOUSE_SOURCES,

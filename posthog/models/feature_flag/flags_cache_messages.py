@@ -1,7 +1,7 @@
 """Wire schema for flags_cache_invalidation Kafka messages.
 
 Producer: Django signal handlers in posthog/models/feature_flag/flags_cache.py.
-Consumer: rust/feature-flags flags-cache-builder (PR 2).
+Consumer: rust/feature-flags flags-cache-builder.
 
 The fixture at rust/feature-flags/tests/fixtures/flags_cache_invalidation_v1.json
 is the contract — both sides round-trip against it in CI so schema drift fails

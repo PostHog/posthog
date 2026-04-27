@@ -76,7 +76,7 @@ KAFKA_NOTIFICATION_EVENTS = f"{KAFKA_PREFIX}notification_events{SUFFIX}"
 KAFKA_SIGNALS_REPORT_COMPLETED = f"{KAFKA_PREFIX}signals_report_completed{SUFFIX}"
 
 # Producer: Django signal handlers in posthog/models/feature_flag/flags_cache.py.
-# Consumer: rust/feature-flags flags-cache-builder bin (PR 2). Not a plugin-server
+# Consumer: rust/feature-flags flags-cache-builder bin. Not a plugin-server
 # concern — no Node-side mirror needed.
 KAFKA_FLAGS_CACHE_INVALIDATION = f"{KAFKA_PREFIX}flags_cache_invalidation{SUFFIX}"
 KAFKA_FLAGS_CACHE_INVALIDATION_DLQ = f"{KAFKA_PREFIX}flags_cache_invalidation_dlq{SUFFIX}"

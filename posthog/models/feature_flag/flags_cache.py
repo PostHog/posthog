@@ -821,9 +821,8 @@ def get_cache_stats() -> dict[str, Any]:
 # Signal handlers for automatic cache invalidation
 
 
-# Per-team gate for the Kafka producer side of dual-write. Rollout starts at 0% and
-# ramps from there; the Celery task is authoritative until cutover (architecture
-# step 5).
+# Per-team gate for the Kafka producer side of dual-write. Celery remains the
+# authoritative path until cutover; the Kafka produce is fire-and-forget.
 DUAL_WRITE_FLAG = "flags-cache-kafka-dual-write"
 
 
@@ -854,38 +853,39 @@ def _kafka_dual_write_enabled(team_id: int) -> bool:
 def _produce_invalidation(team_id: int) -> None:
     """Produce a single invalidation message; swallow Kafka errors.
 
-    During dual-write the Celery task is the source of truth — a Kafka produce
-    failure here must not break flag editing. Errors are logged; per-message
-    delivery success/failure is also counted in KAFKA_PRODUCER_MESSAGES_COUNTER
-    (wired in `_KafkaProducer.produce`).
+    Celery is the source of truth during dual-write — a Kafka produce failure
+    here must not break flag editing. Per-message delivery success/failure is
+    also counted in KAFKA_PRODUCER_MESSAGES_COUNTER (wired in `_KafkaProducer.produce`).
 
-    `flush_timeout=0` keeps the signal-handler hot path non-blocking — librdkafka's
-    background thread keeps draining the singleton producer's queue, and the next
-    produce call will flush again. With `flush_timeout=5.0` an unhealthy cluster
-    would stall every flag-edit on-commit hook for up to 5s.
+    `data` must be a dict (not pre-encoded bytes): `_KafkaProducer.produce`
+    runs it through `json_serializer` (`json.dumps` + utf-8 encode). Passing
+    bytes would `TypeError` inside `json.dumps` and silently fail the swallow
+    path. `mode="json"` converts `datetime` to ISO string.
+
+    `flush_timeout=0` keeps this off the request hot path — librdkafka's
+    background thread drains the singleton's queue, and the next call flushes
+    again. A blocking flush would stall every flag-edit on-commit hook on an
+    unhealthy cluster.
     """
     msg = FlagsCacheInvalidation(team_id=team_id, emitted_at=datetime.now(UTC))
     try:
         with producer_scope(topic=KAFKA_FLAGS_CACHE_INVALIDATION, flush_timeout=0) as producer:
-            # `data` is a dict, not bytes — `_KafkaProducer.produce` runs it through
-            # `json_serializer` (json.dumps + utf-8 encode). Passing pre-encoded bytes
-            # would `TypeError` at json.dumps and silently fail the swallow path.
-            # `mode="json"` ensures `datetime` becomes an ISO string the Rust side parses.
             producer.produce(
                 topic=KAFKA_FLAGS_CACHE_INVALIDATION,
                 data=msg.model_dump(mode="json"),
                 key=str(team_id).encode("utf-8"),
             )
     except Exception as e:
-        logger.warning("flags_cache_invalidation_produce_failed", team_id=team_id, error=str(e))
+        logger.warning("flags_cache_invalidation_produce_failed", team_id=team_id, error=str(e), exc_info=True)
 
 
 def _enqueue_invalidation(team_id: int) -> None:
-    """Run inside `transaction.on_commit`: fire Celery, then dual-write to Kafka if enabled.
+    """Run from `transaction.on_commit`: fire Celery, then dual-write to Kafka if enabled.
 
-    Shared by all three wired signal handlers so they don't drift as the rollout
-    progresses. The cohort handler does not call this — cohort invalidation gets
-    its own topic in a follow-up PR.
+    Deferring until commit avoids race conditions where the Celery worker reads
+    pre-commit state. Shared by all three wired signal handlers so they don't
+    drift. The cohort handler is not wired — cohort invalidation gets its own
+    topic in a follow-up.
     """
     from posthog.tasks.feature_flags import update_team_service_flags_cache
 
@@ -907,8 +907,6 @@ def feature_flag_changed_flags_cache(sender, instance: "FeatureFlag", **kwargs):
         return
 
     team_id = instance.team_id
-    # Defer task execution until after the transaction commits to avoid race conditions.
-    # Metric tracking happens inside the Celery task to capture actual success/failure.
     transaction.on_commit(lambda: _enqueue_invalidation(team_id))
 
 
