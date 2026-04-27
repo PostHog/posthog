@@ -28,6 +28,7 @@ from posthog.models.data_deletion_request import (
     jsonhas_expr,
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.person.bulk_delete import queue_person_recording_deletion, resolve_persons_for_deletion
 
 from ee.clickhouse.materialized_columns.columns import MaterializedColumnDetails
 
@@ -626,8 +627,6 @@ def delete_person_events_op(
     if not person_removal.person_uuids:
         # Person UUIDs are resolved up front in delete_person_profiles_op; if we get here without
         # any UUIDs (e.g. only distinct_ids supplied) we resolve them now.
-        from posthog.models.person.bulk_delete import resolve_persons_for_deletion
-
         persons = resolve_persons_for_deletion(
             person_removal.team_id,
             uuids=None,
@@ -658,6 +657,30 @@ def delete_person_events_op(
         context.log.info(f"Shard {shard_num} complete in {time.monotonic() - shard_start:.1f}s")
 
     context.add_output_metadata({"shards_processed": dagster.MetadataValue.int(len(shards))})
+    return person_removal
+
+
+@dagster.op(tags=OWNER_TAG)
+def delete_person_recordings_op(
+    context: dagster.OpExecutionContext,
+    person_removal: PersonRemovalContext,
+) -> PersonRemovalContext:
+    """Queue recording deletion via Temporal for the targeted persons."""
+    if not person_removal.drop_recordings:
+        context.log.info("drop_recordings=False, skipping recording deletion")
+        return person_removal
+
+    persons = resolve_persons_for_deletion(
+        person_removal.team_id,
+        uuids=person_removal.person_uuids or None,
+        distinct_ids=person_removal.person_distinct_ids or None,
+    )
+    if not persons:
+        context.log.info("No persons resolved; nothing to delete")
+        return person_removal
+
+    queue_person_recording_deletion(person_removal.team_id, persons, actor=None)
+    context.add_output_metadata({"recording_workflows": dagster.MetadataValue.int(len(persons))})
     return person_removal
 
 
