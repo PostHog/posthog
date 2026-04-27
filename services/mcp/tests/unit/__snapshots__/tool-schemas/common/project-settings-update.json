@@ -96,6 +96,10 @@
             ],
             "description": "Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.\n\n* `b2b` - B2B\n* `b2c` - B2C\n* `other` - Other"
         },
+        "can_query_across_organization_projects": {
+            "description": "Whether this project can run HogQL queries against other projects in the same organization.",
+            "type": "boolean"
+        },
         "capture_console_log_opt_in": {
             "anyOf": [
                 {
