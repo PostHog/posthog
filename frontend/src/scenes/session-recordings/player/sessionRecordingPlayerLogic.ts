@@ -1406,17 +1406,24 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     actions.setPlayer({ replayer, windowId })
 
                     return () => {
-                        canvasPlugin.destroy()
-                        hlsPlugin.destroy()
+                        const safeTeardown = (step: () => void): void => {
+                            try {
+                                step()
+                            } catch (error) {
+                                posthog.captureException(error)
+                            }
+                        }
 
                         if (replayer) {
                             for (const cleanup of iframeCleanups) {
-                                cleanup()
+                                safeTeardown(cleanup)
                             }
                             iframeCleanups.length = 0
 
                             const iframe = replayer.iframe
-                            replayer.destroy()
+                            // Destroy the replayer before plugins so rrweb internals don't re-enter plugin
+                            // state that's already been torn down.
+                            safeTeardown(() => replayer.destroy())
 
                             if (iframe?.contentDocument?.body) {
                                 iframe.contentDocument.body.innerHTML = ''
@@ -1425,6 +1432,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                                 iframe.contentDocument.head.innerHTML = ''
                             }
                         }
+
+                        safeTeardown(() => canvasPlugin?.destroy?.())
+                        safeTeardown(() => hlsPlugin?.destroy?.())
                     }
                 },
                 `replayer-${props.mode}`,

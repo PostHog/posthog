@@ -134,7 +134,14 @@ export function createHLSPlayerPlugin(): ReplayPlugin & { destroy: () => void } 
             destroyed = true
 
             for (const hls of instances) {
-                hls.destroy()
+                if (!hls || typeof hls.destroy !== 'function') {
+                    continue
+                }
+                try {
+                    hls.destroy()
+                } catch {
+                    // swallow per-instance teardown errors so one bad instance can't block the rest
+                }
             }
             instances.clear()
         },
