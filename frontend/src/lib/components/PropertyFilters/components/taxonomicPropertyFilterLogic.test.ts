@@ -182,7 +182,8 @@ describe('taxonomicPropertyFilterLogic', () => {
             expect(setFilterSpy).not.toHaveBeenCalled()
         })
 
-        it('pre-fills the filter value when the row matched on a property value', () => {
+        // The full matchedOn/matchedValue matrix is covered in utils.test.ts.
+        it('forwards matchedValue to the new filter when the row matched on value', () => {
             selectAndExpect(
                 TaxonomicFilterGroupType.EventProperties,
                 'user.email',
@@ -195,14 +196,6 @@ describe('taxonomicPropertyFilterLogic', () => {
                 },
                 { matchedOn: 'value', matchedValue: 'frank@posthog.com' }
             )
-        })
-
-        it('does not pre-fill the value when the row matched on key', () => {
-            const group = logic.values.taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.EventProperties)!
-            logic.actions.selectItem(group, 'user.email', PropertyFilterType.Event, {
-                matchedOn: 'key',
-            })
-            expect(setFilterSpy).toHaveBeenCalledWith(0, expect.objectContaining({ key: 'user.email', value: null }))
         })
     })
 
