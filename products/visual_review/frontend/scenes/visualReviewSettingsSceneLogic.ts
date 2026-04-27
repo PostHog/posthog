@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { z } from 'zod'
 
 import { parseWithStandardSchema, standardSchemaToKeaErrors } from 'lib/forms/standard-schema'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -21,7 +22,10 @@ export interface RepoFormValues {
     enable_pr_comments: boolean
 }
 
-const repoFormSchema = VisualReviewReposPartialUpdateBody
+const repoFormSchema = VisualReviewReposPartialUpdateBody.extend({
+    baseline_file_paths: z.record(z.string().min(1), z.string().min(1)).default({}),
+    enable_pr_comments: z.boolean().default(false),
+})
 
 const EMPTY_FORM: RepoFormValues = {
     baseline_file_paths: {},
