@@ -276,7 +276,7 @@ def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> Http
         **auth_headers,
     }
 
-    mcp_session_id = request.META.get("HTTP_MCP_SESSION_ID")
+    mcp_session_id = request.headers.get("mcp-session-id")
     if mcp_session_id:
         headers["Mcp-Session-Id"] = mcp_session_id
 

@@ -288,6 +288,48 @@ function getChunks(result) {
     return chunks
 }
 
+function formatMegabytes(bytes) {
+    return `${(bytes / 1_000_000).toFixed(2)} MB`
+}
+
+function shortenInputPath(inputPath) {
+    const pnpmMatch = inputPath.match(/node_modules\/\.pnpm\/([^/]+)\/node_modules\/(.+)$/)
+    if (pnpmMatch) {
+        const pkg = pnpmMatch[1].replace(/_.*$/, '')
+        return `${pkg} (${pnpmMatch[2]})`
+    }
+    return inputPath
+}
+
+export function reportTopChunks(outputs, { topChunks = 10, topContributors = 5, label = 'chunks' } = {}) {
+    if (!outputs) {
+        return
+    }
+    const chunkEntries = Object.entries(outputs)
+        .filter(([outputPath]) => /\/chunk-[A-Z0-9]+\.js$/.test(outputPath))
+        .sort((a, b) => b[1].bytes - a[1].bytes)
+        .slice(0, topChunks)
+    if (chunkEntries.length === 0) {
+        return
+    }
+    const lines = [`Top ${chunkEntries.length} ${label} by uncompressed size:`]
+    for (const [outputPath, output] of chunkEntries) {
+        const inputCount = Object.keys(output.inputs || {}).length
+        lines.push(
+            `  ${formatMegabytes(output.bytes).padStart(9)}  ${path.basename(outputPath)}  (${inputCount} inputs)`
+        )
+        const contributors = Object.entries(output.inputs || {})
+            .sort((a, b) => b[1].bytesInOutput - a[1].bytesInOutput)
+            .slice(0, topContributors)
+        for (const [inputPath, info] of contributors) {
+            lines.push(
+                `               ${formatMegabytes(info.bytesInOutput).padStart(9)}  ${shortenInputPath(inputPath)}`
+            )
+        }
+    }
+    console.info(lines.join('\n'))
+}
+
 export async function buildInParallel(configs, { onBuildStart, onBuildComplete } = {}) {
     try {
         await Promise.all(
