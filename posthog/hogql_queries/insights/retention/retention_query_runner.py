@@ -389,220 +389,144 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         with self.timings.measure("retention_query"):
-            base_query: ast.SelectQuery | ast.SelectSetQuery
+            base_query = self._base_actor_activity_query()
+            base_query = self._apply_cumulative_actor_activity(base_query)
+            return self._outer_retention_query(base_query)
 
-            # is cohort breakdown
-            if (
-                self.query.breakdownFilter is not None
-                and self.query.breakdownFilter.breakdowns is not None
-                and any(b.type == "cohort" for b in self.query.breakdownFilter.breakdowns)
-            ):
-                base_queries = []
-                cohort_breakdowns = [b for b in self.query.breakdownFilter.breakdowns if b.type == "cohort"]
+    def _base_actor_activity_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        if (
+            self.query.breakdownFilter is None
+            or self.query.breakdownFilter.breakdowns is None
+            or not any(b.type == "cohort" for b in self.query.breakdownFilter.breakdowns)
+        ):
+            return self.base_query()
 
-                for breakdown in cohort_breakdowns:
-                    temp_query = self.query.model_copy(deep=True)
-                    if temp_query.breakdownFilter:
-                        temp_query.breakdownFilter.breakdowns = [breakdown]
-                        temp_query.breakdownFilter.breakdown = str(breakdown.property)
-                        temp_query.breakdownFilter.breakdown_type = breakdown.type  # type: ignore
+        base_queries: list[ast.SelectQuery | ast.SelectSetQuery] = []
+        cohort_breakdowns = [b for b in self.query.breakdownFilter.breakdowns if b.type == "cohort"]
 
-                    temp_runner = RetentionQueryRunner(
-                        query=temp_query, team=self.team, timings=self.timings, modifiers=self.modifiers
-                    )
-                    base_queries.append(temp_runner.base_query())
+        for breakdown in cohort_breakdowns:
+            temp_query = self.query.model_copy(deep=True)
+            if temp_query.breakdownFilter:
+                temp_query.breakdownFilter.breakdowns = [breakdown]
+                temp_query.breakdownFilter.breakdown = str(breakdown.property)
+                temp_query.breakdownFilter.breakdown_type = breakdown.type  # type: ignore
 
-                if len(base_queries) == 1:
-                    base_query = base_queries[0]
-                else:
-                    base_query = ast.SelectSetQuery.create_from_queries(base_queries, "UNION ALL")
-            else:
-                base_query = self.base_query()
+            temp_runner = RetentionQueryRunner(
+                query=temp_query, team=self.team, timings=self.timings, modifiers=self.modifiers
+            )
+            base_queries.append(temp_runner.base_query())
 
-            if self.query.retentionFilter.cumulative:
-                # For cumulative, we need to calculate the max interval and then explode it
-                cumulative_actors_query = self._build_cumulative_actors_query(base_query)
-                base_query = self._explode_cumulative_actors(cumulative_actors_query)
+        return ast.SelectSetQuery.create_from_queries(base_queries, "UNION ALL")
 
-            # count_expr always represents the number of distinct actors
-            count_expr = parse_expr("COUNT(DISTINCT actor_activity.actor_id)")
+    def _apply_cumulative_actor_activity(
+        self, base_query: ast.SelectQuery | ast.SelectSetQuery
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        if not self.query.retentionFilter.cumulative:
+            return base_query
 
-            # aggregation_value_expr is only used when property_aggregation_expr is set
-            aggregation_value_expr: ast.Expr | None = None
-            if self.property_aggregation_expr:
-                if self.query.retentionFilter.aggregationType == AggregationType.AVG:
-                    aggregation_value_expr = parse_expr(
-                        "sum(actor_activity.retention_value) / COUNT(DISTINCT actor_activity.actor_id)"
-                    )
-                else:
-                    aggregation_value_expr = parse_expr("sum(actor_activity.retention_value)")
-                assert aggregation_value_expr is not None
+        cumulative_actors_query = self._build_cumulative_actors_query(base_query)
+        return self._explode_cumulative_actors(cumulative_actors_query)
 
-            # Add breakdown if needed
-            if self.breakdowns_in_query:
-                if self.property_aggregation_expr:
-                    assert aggregation_value_expr is not None
-                    retention_query = parse_select(
-                        """
-                        SELECT
-                            actor_activity.start_interval_index AS start_event_matching_interval,
-                            actor_activity.intervals_from_base AS intervals_from_base,
-                            actor_activity.breakdown_value AS breakdown_value,
-                            {count_expr} AS count,
-                            {aggregation_value_expr} AS aggregation_value
+    def _aggregation_value_expr(self) -> ast.Expr | None:
+        if not self.property_aggregation_expr:
+            return None
 
-                        FROM {base_query} AS actor_activity
+        if self.query.retentionFilter.aggregationType == AggregationType.AVG:
+            return parse_expr("sum(actor_activity.retention_value) / COUNT(DISTINCT actor_activity.actor_id)")
 
-                        GROUP BY
-                            start_event_matching_interval,
-                            intervals_from_base,
-                            breakdown_value
+        return parse_expr("sum(actor_activity.retention_value)")
 
-                        ORDER BY
-                            breakdown_value,
-                            start_event_matching_interval,
-                            intervals_from_base
+    def _outer_retention_query(self, base_query: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery:
+        select: list[ast.Expr] = [
+            ast.Alias(
+                alias="start_event_matching_interval",
+                expr=ast.Field(chain=["actor_activity", "start_interval_index"]),
+            ),
+            ast.Alias(
+                alias="intervals_from_base",
+                expr=ast.Field(chain=["actor_activity", "intervals_from_base"]),
+            ),
+        ]
+        group_by: list[ast.Expr] = [
+            ast.Field(chain=["start_event_matching_interval"]),
+            ast.Field(chain=["intervals_from_base"]),
+        ]
+        order_by: list[ast.OrderExpr] = [
+            ast.OrderExpr(expr=ast.Field(chain=["start_event_matching_interval"])),
+            ast.OrderExpr(expr=ast.Field(chain=["intervals_from_base"])),
+        ]
 
-                        LIMIT 100000
-                        """,
-                        {
-                            "base_query": base_query,
-                            "count_expr": count_expr,
-                            "aggregation_value_expr": aggregation_value_expr,
-                        },
-                        timings=self.timings,
-                    )
-                else:
-                    retention_query = parse_select(
-                        """
-                        SELECT
-                            actor_activity.start_interval_index AS start_event_matching_interval,
-                            actor_activity.intervals_from_base AS intervals_from_base,
-                            actor_activity.breakdown_value AS breakdown_value,
-                            {count_expr} AS count
+        if self.breakdowns_in_query:
+            select.append(
+                ast.Alias(
+                    alias="breakdown_value",
+                    expr=ast.Field(chain=["actor_activity", "breakdown_value"]),
+                )
+            )
+            group_by.append(ast.Field(chain=["breakdown_value"]))
+            order_by.insert(0, ast.OrderExpr(expr=ast.Field(chain=["breakdown_value"])))
 
-                        FROM {base_query} AS actor_activity
+        select.append(
+            ast.Alias(
+                alias="count",
+                expr=parse_expr("COUNT(DISTINCT actor_activity.actor_id)"),
+            )
+        )
 
-                        GROUP BY
-                            start_event_matching_interval,
-                            intervals_from_base,
-                            breakdown_value
+        aggregation_value_expr = self._aggregation_value_expr()
+        if aggregation_value_expr:
+            select.append(ast.Alias(alias="aggregation_value", expr=aggregation_value_expr))
 
-                        ORDER BY
-                            breakdown_value,
-                            start_event_matching_interval,
-                            intervals_from_base
-
-                        LIMIT 100000
-                        """,
-                        {"base_query": base_query, "count_expr": count_expr},
-                        timings=self.timings,
-                    )
-            else:
-                if self.property_aggregation_expr:
-                    assert aggregation_value_expr is not None
-                    retention_query = parse_select(
-                        """
-                            SELECT actor_activity.start_interval_index     AS start_event_matching_interval,
-                                   actor_activity.intervals_from_base      AS intervals_from_base,
-                                   {count_expr} AS count,
-                                   {aggregation_value_expr} AS aggregation_value
-
-                            FROM {base_query} AS actor_activity
-
-                            GROUP BY start_event_matching_interval,
-                                     intervals_from_base
-
-                            ORDER BY start_event_matching_interval,
-                                     intervals_from_base
-
-                            LIMIT 100000
-                        """,
-                        {
-                            "base_query": base_query,
-                            "count_expr": count_expr,
-                            "aggregation_value_expr": aggregation_value_expr,
-                        },
-                        timings=self.timings,
-                    )
-                else:
-                    retention_query = parse_select(
-                        """
-                            SELECT actor_activity.start_interval_index     AS start_event_matching_interval,
-                                   actor_activity.intervals_from_base      AS intervals_from_base,
-                                   {count_expr} AS count
-
-                            FROM {base_query} AS actor_activity
-
-                            GROUP BY start_event_matching_interval,
-                                     intervals_from_base
-
-                            ORDER BY start_event_matching_interval,
-                                     intervals_from_base
-
-                            LIMIT 100000
-                        """,
-                        {"base_query": base_query, "count_expr": count_expr},
-                        timings=self.timings,
-                    )
-        return retention_query
+        return ast.SelectQuery(
+            select=select,
+            select_from=ast.JoinExpr(table=base_query, alias="actor_activity"),
+            group_by=group_by,
+            order_by=order_by,
+            limit=ast.Constant(value=100000),
+        )
 
     def _build_cumulative_actors_query(
         self, base_query: ast.SelectQuery | ast.SelectSetQuery
     ) -> ast.SelectQuery | ast.SelectSetQuery:
-        # We need to calculate the max interval from the base query
+        select: list[ast.Expr] = [
+            ast.Field(chain=["actor_id"]),
+            ast.Alias(alias="max_interval", expr=parse_expr("max(intervals_from_base)")),
+            ast.Field(chain=["start_interval_index"]),
+        ]
+        group_by: list[ast.Expr] = [
+            ast.Field(chain=["actor_id"]),
+            ast.Field(chain=["start_interval_index"]),
+        ]
+
         if self.breakdowns_in_query:
-            return parse_select(
-                """
-                SELECT
-                    actor_id,
-                    max(intervals_from_base) as max_interval,
-                    start_interval_index,
-                    breakdown_value
-                FROM {base_query}
-                GROUP BY actor_id, start_interval_index, breakdown_value
-                """,
-                {"base_query": base_query},
-            )
-        else:
-            return parse_select(
-                """
-                SELECT
-                    actor_id,
-                    max(intervals_from_base) as max_interval,
-                    start_interval_index
-                FROM {base_query}
-                GROUP BY actor_id, start_interval_index
-                """,
-                {"base_query": base_query},
-            )
+            select.append(ast.Field(chain=["breakdown_value"]))
+            group_by.append(ast.Field(chain=["breakdown_value"]))
+
+        return ast.SelectQuery(
+            select=select,
+            select_from=ast.JoinExpr(table=base_query),
+            group_by=group_by,
+        )
 
     def _explode_cumulative_actors(
         self, cumulative_actors_query: ast.SelectQuery | ast.SelectSetQuery
     ) -> ast.SelectQuery | ast.SelectSetQuery:
+        select: list[ast.Expr] = [
+            ast.Field(chain=["actor_id"]),
+            ast.Alias(
+                alias="intervals_from_base",
+                expr=parse_expr("arrayJoin(range(0, max_interval + 1))"),
+            ),
+            ast.Field(chain=["start_interval_index"]),
+        ]
+
         if self.breakdowns_in_query:
-            return parse_select(
-                """
-                SELECT
-                    actor_id,
-                    arrayJoin(range(0, max_interval + 1)) as intervals_from_base,
-                    start_interval_index,
-                    breakdown_value
-                FROM {cumulative_actors_query}
-                """,
-                {"cumulative_actors_query": cumulative_actors_query},
-            )
-        else:
-            return parse_select(
-                """
-                SELECT
-                    actor_id,
-                    arrayJoin(range(0, max_interval + 1)) as intervals_from_base,
-                    start_interval_index
-                FROM {cumulative_actors_query}
-                """,
-                {"cumulative_actors_query": cumulative_actors_query},
-            )
+            select.append(ast.Field(chain=["breakdown_value"]))
+
+        return ast.SelectQuery(
+            select=select,
+            select_from=ast.JoinExpr(table=cumulative_actors_query),
+        )
 
     def get_date(self, interval: int):
         date = self.query_date_range.date_from() + self.query_date_range.determine_time_delta(
