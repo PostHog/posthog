@@ -14,6 +14,7 @@ from django.utils import timezone
 
 from disposable_email_domains import blocklist as disposable_email_domains_list
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.instance_setting import set_instance_setting
@@ -792,6 +793,59 @@ class TestGitHubIntegrationModel(BaseTest):
             return mock_response
 
         return _client_request
+
+    @patch("posthog.models.integration.requests.get")
+    def test_github_api_request_metrics_include_integration_and_rate_limit_headers(self, mock_get):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+        response = MagicMock()
+        response.status_code = 200
+        response.headers = {
+            "X-RateLimit-Resource": "core",
+            "X-RateLimit-Remaining": "4998",
+            "X-RateLimit-Limit": "5000",
+            "X-RateLimit-Reset": "1704117600",
+        }
+        mock_get.return_value = response
+
+        labels = {
+            "integration_id": str(integration.id),
+            "method": "GET",
+            "endpoint": "/repos/{owner}/{repo}",
+            "status_code": "200",
+        }
+        previous_count = REGISTRY.get_sample_value("github_integration_api_requests_total", labels) or 0
+
+        GitHubIntegration(integration)._github_api_get(
+            "https://api.github.com/repos/PostHog/posthog",
+            endpoint="/repos/{owner}/{repo}",
+            headers={"Accept": "application/vnd.github+json"},
+        )
+
+        assert REGISTRY.get_sample_value("github_integration_api_requests_total", labels) == previous_count + 1
+        assert (
+            REGISTRY.get_sample_value(
+                "github_integration_api_rate_limit_remaining",
+                {"integration_id": str(integration.id), "resource": "core"},
+            )
+            == 4998
+        )
+        assert (
+            REGISTRY.get_sample_value(
+                "github_integration_api_rate_limit_limit",
+                {"integration_id": str(integration.id), "resource": "core"},
+            )
+            == 5000
+        )
+        assert (
+            REGISTRY.get_sample_value(
+                "github_integration_api_rate_limit_reset_timestamp_seconds",
+                {"integration_id": str(integration.id), "resource": "core"},
+            )
+            == 1704117600
+        )
 
     @patch("posthog.models.integration.GitHubIntegration.client_request")
     def test_github_integration_refresh_token(self, mock_client_request):
