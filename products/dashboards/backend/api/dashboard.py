@@ -243,6 +243,7 @@ class DashboardTileSerializer(serializers.ModelSerializer):
     class Meta:
         model = DashboardTile
         exclude = [
+            "team",
             "dashboard",
             "deleted",
             "filters_hash",

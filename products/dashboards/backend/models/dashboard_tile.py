@@ -58,6 +58,7 @@ class DashboardTileManager(models.Manager):
 
 class DashboardTile(models.Model):
     # Relations
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True, blank=True)
     dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE, related_name="tiles")
     insight = models.ForeignKey(
         "posthog.Insight",
@@ -123,6 +124,8 @@ class DashboardTile(models.Model):
         db_table = "posthog_dashboardtile"
 
     def save(self, *args, **kwargs) -> None:
+        self.team_id = self.dashboard.team_id
+
         if self.insight is not None:
             has_no_filters_hash = self.filters_hash is None
             if has_no_filters_hash and self.insight.filters != {}:

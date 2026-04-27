@@ -154,6 +154,41 @@ dashboards: PostgresTable = PostgresTable(
     },
 )
 
+dashboard_items: PostgresTable = PostgresTable(
+    name="dashboard_items",
+    postgres_table_name="posthog_dashboardtile",
+    access_scope="dashboard",
+    fields={
+        "id": IntegerDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "dashboard_id": IntegerDatabaseField(name="dashboard_id"),
+        "insight_id": IntegerDatabaseField(name="insight_id", nullable=True),
+        "text_id": IntegerDatabaseField(name="text_id", nullable=True),
+        "button_tile_id": StringDatabaseField(name="button_tile_id", nullable=True),
+        "layouts": StringJSONDatabaseField(name="layouts"),
+        "color": StringDatabaseField(name="color", nullable=True),
+        "filters_hash": StringDatabaseField(name="filters_hash", nullable=True),
+        "last_refresh": DateTimeDatabaseField(name="last_refresh", nullable=True),
+        "_refreshing": BooleanDatabaseField(name="refreshing", hidden=True, nullable=True),
+        "refreshing": ExpressionField(
+            name="refreshing", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_refreshing"])])
+        ),
+        "refresh_attempt": IntegerDatabaseField(name="refresh_attempt", nullable=True),
+        "filters_overrides": StringJSONDatabaseField(name="filters_overrides", nullable=True),
+        "_show_description": BooleanDatabaseField(name="show_description", hidden=True, nullable=True),
+        "show_description": ExpressionField(
+            name="show_description", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_show_description"])])
+        ),
+        "_transparent_background": BooleanDatabaseField(name="transparent_background", hidden=True, nullable=True),
+        "transparent_background": ExpressionField(
+            name="transparent_background",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_transparent_background"])]),
+        ),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True, nullable=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+    },
+)
+
 insights: PostgresTable = PostgresTable(
     name="insights",
     postgres_table_name="posthog_dashboarditem",
@@ -935,6 +970,7 @@ class SystemTables(TableNode):
         "cohort_calculation_history": TableNode(name="cohort_calculation_history", table=cohort_calculation_history),
         "cohorts": TableNode(name="cohorts", table=cohorts),
         "dashboards": TableNode(name="dashboards", table=dashboards),
+        "dashboard_items": TableNode(name="dashboard_items", table=dashboard_items),
         "data_modeling_jobs": TableNode(name="data_modeling_jobs", table=data_modeling_jobs),
         "data_modeling_views": TableNode(name="data_modeling_views", table=data_modeling_views),
         "data_modeling_endpoint_versions": TableNode(name="data_modeling_endpoint_versions", table=endpoint_versions),
