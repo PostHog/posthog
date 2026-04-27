@@ -10,6 +10,7 @@ from posthog.clickhouse.query_tagging import tag_queries
 class Feature(StrEnum):
     COHORT = "cohort"
     DASHBOARD = "dashboard"
+    DEBUG_QUERY = "debug_query"
     INSIGHT = "insight"
     QUERY = "query"
 

@@ -24,7 +24,13 @@ export function DebugSceneQuery({ query, setQuery, queryKey }: DebugSceneQueryPr
     } catch {
         // do nothing
     }
+    if (parsed) {
+        parsed.tags = { ...parsed.tags, scene: 'DebugQuery' }
+    }
     const dataNode = parsed && (isInsightVizNode(parsed) || isDataTableNode(parsed)) ? parsed.source : (parsed as Node)
+    if (dataNode && dataNode !== parsed) {
+        dataNode.tags = { ...dataNode.tags, scene: 'DebugQuery' }
+    }
 
     const dataNodeKey = insightVizDataNodeKey({ dashboardItemId: queryKey })
     const modifiers = { debug: true, timings: true }

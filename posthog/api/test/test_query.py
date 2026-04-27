@@ -1401,3 +1401,12 @@ class TestInferQueryTags(APIBaseTest):
             tags=QueryLogTags(scene="Cohort"),
         )
         assert _infer_query_tags(query) == {"product": ProductKey.COHORTS, "feature": Feature.COHORT}
+
+    def test_debug_query_scene_infers_internal_product_and_debug_query_feature(self):
+        from posthog.clickhouse.query_tagging import Product
+
+        query = ActorsQuery(
+            select=["id"],
+            tags=QueryLogTags(scene="DebugQuery"),
+        )
+        assert _infer_query_tags(query) == {"product": Product.INTERNAL, "feature": Feature.DEBUG_QUERY}
