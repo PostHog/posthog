@@ -364,6 +364,35 @@ def _create_survey(team: Team, label: str) -> Survey:
     return Survey.objects.create(team=team, name=f"survey_{label}", type="popover")
 
 
+def _create_task(team: Team, label: str):
+    from products.tasks.backend.models import Task
+
+    return Task.objects.create(
+        team=team,
+        title=f"task_{label}",
+        description="x",
+        origin_product=Task.OriginProduct.USER_CREATED,
+    )
+
+
+def _create_task_run(team: Team, label: str):
+    from products.tasks.backend.models import Task, TaskRun
+
+    task = Task.objects.create(
+        team=team,
+        title=f"task_for_run_{label}",
+        description="x",
+        origin_product=Task.OriginProduct.USER_CREATED,
+    )
+    return TaskRun.objects.create(task=task, team=team, status=TaskRun.Status.QUEUED)
+
+
+def _create_sandbox_environment(team: Team, label: str):
+    from products.tasks.backend.models import SandboxEnvironment
+
+    return SandboxEnvironment.objects.create(team=team, name=f"env_{label}")
+
+
 def _create_team(team: Team, label: str) -> Team:
     return team
 
@@ -405,11 +434,14 @@ SYSTEM_TABLE_FACTORIES = [
     ("logs_alerts", _create_logs_alert),
     ("logs_views", _create_logs_view),
     ("notebooks", _create_notebook),
+    ("sandbox_environments", _create_sandbox_environment),
     ("session_recording_playlists", _create_session_recording_playlist),
     ("session_recordings", _create_session_recording),
     ("source_schemas", _create_source_schema),
     ("support_tickets", _create_support_ticket),
     ("surveys", _create_survey),
+    ("task_runs", _create_task_run),
+    ("tasks", _create_task),
     ("teams", _create_team),
 ]
 
