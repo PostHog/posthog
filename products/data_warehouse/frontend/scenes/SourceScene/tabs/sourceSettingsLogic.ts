@@ -168,7 +168,7 @@ function hasOptimisticSchemaChanges(
 }
 
 const isSensitiveCredentialField = (field: SourceFieldConfig): boolean => {
-    return field.type === 'password' || field.name === 'private_key'
+    return ('secret' in field && !!field.secret) || field.type === 'password'
 }
 
 const removeEmptySensitiveValues = (fields: SourceFieldConfig[], valueObj: Record<string, any>): void => {

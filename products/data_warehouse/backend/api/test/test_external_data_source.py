@@ -722,6 +722,58 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["auth_method"]["stripe_secret_key"] == "sk_test_123"
 
     @patch(
+        "posthog.temporal.data_imports.sources.snowflake.source.SnowflakeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_after_get_preserves_snowflake_keypair_private_key(self, _mock_validate):
+        """Regression: Snowflake's keypair auth uses `auth_type` (not `auth_method`).
+        After redaction, a PATCH that doesn't re-supply private_key must not wipe it.
+        """
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Snowflake",
+            created_by=self.user,
+            prefix="snowflake-test",
+            job_inputs={
+                "account_id": "abc-123",
+                "database": "MY_DB",
+                "warehouse": "COMPUTE_WH",
+                "schema": "PUBLIC",
+                "auth_type": {
+                    "selection": "keypair",
+                    "user": "myuser",
+                    "private_key": "-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY-----",
+                    "passphrase": "secret-passphrase",
+                },
+            },
+        )
+
+        # GET strips private_key and passphrase from auth_type
+        get_response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+        assert get_response.status_code == 200
+        get_data = get_response.json()
+        assert "private_key" not in get_data["job_inputs"]["auth_type"]
+        assert "passphrase" not in get_data["job_inputs"]["auth_type"]
+        assert get_data["job_inputs"]["auth_type"]["user"] == "myuser"
+
+        # PATCH with the redacted data (simulating a save without re-pasting credentials)
+        patch_response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": get_data["job_inputs"]},
+        )
+        assert patch_response.status_code == 200, patch_response.json()
+
+        # Sensitive fields nested in auth_type must still be in the DB
+        source.refresh_from_db()
+        assert source.job_inputs["auth_type"]["selection"] == "keypair"
+        assert source.job_inputs["auth_type"]["user"] == "myuser"
+        assert source.job_inputs["auth_type"]["private_key"].startswith("-----BEGIN PRIVATE KEY-----")
+        assert source.job_inputs["auth_type"]["passphrase"] == "secret-passphrase"
+
+    @patch(
         "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )

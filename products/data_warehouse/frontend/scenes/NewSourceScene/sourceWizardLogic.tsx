@@ -1618,14 +1618,9 @@ export const getErrorsForFields = (
         // All other types - check if required property exists on this field type
         if (
             options?.allowBlankSensitiveFields &&
-            'type' in field &&
-            field.type === 'password' &&
+            (('secret' in field && field.secret) || ('type' in field && field.type === 'password')) &&
             !valueObj[field.name]
         ) {
-            return
-        }
-
-        if (options?.allowBlankSensitiveFields && field.name === 'private_key' && !valueObj[field.name]) {
             return
         }
 
