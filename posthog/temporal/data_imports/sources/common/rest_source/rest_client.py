@@ -28,7 +28,7 @@ def _retry_wait_seconds(state: RetryCallState) -> float:
         return float(fallback)
     exc = state.outcome.exception()
     if isinstance(exc, RESTClientRetryableError) and exc.retry_after is not None:
-        return exc.retry_after
+        return min(exc.retry_after, 300.0)
     return float(fallback)
 
 
@@ -127,9 +127,19 @@ class RESTClient:
             retry_after_header = response.headers.get("Retry-After")
             if retry_after_header:
                 try:
-                    retry_after = float(retry_after_header)
+                    retry_after = min(float(retry_after_header), 300.0)
                 except ValueError:
-                    pass
+                    import datetime
+                    from email.utils import parsedate_to_datetime
+
+                    try:
+                        dt = parsedate_to_datetime(retry_after_header)
+                        retry_after = min(
+                            max(0.0, (dt - datetime.datetime.now(datetime.UTC)).total_seconds()),
+                            300.0,
+                        )
+                    except Exception:
+                        pass
             raise RESTClientRetryableError(
                 f"HTTP {response.status_code} for {response.url}",
                 retry_after=retry_after,
