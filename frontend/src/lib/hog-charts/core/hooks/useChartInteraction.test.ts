@@ -269,7 +269,10 @@ describe('useChartInteraction — tooltip pinning', () => {
         expect(result.current.tooltipCtx?.onUnpin).toBeInstanceOf(Function)
     })
 
-    it('calls onPointClick even when pinning fires (multi-series + pinnable)', () => {
+    it('does not fire onPointClick when pinning engages (multi-series + pinnable)', () => {
+        // Pinning is the consumer's first-click action; drilling-in is reserved for the
+        // follow-up tooltip-row click. Firing onPointClick on the pin would open the
+        // drill-in modal immediately and skip the row-selection step.
         const onPointClick = jest.fn()
         const { result } = renderInteraction(true, onPointClick)
 
@@ -280,7 +283,7 @@ describe('useChartInteraction — tooltip pinning', () => {
             result.current.handlers.onClick()
         })
 
-        expect(onPointClick).toHaveBeenCalledTimes(1)
+        expect(onPointClick).not.toHaveBeenCalled()
         expect(result.current.tooltipCtx?.isPinned).toBe(true)
     })
 

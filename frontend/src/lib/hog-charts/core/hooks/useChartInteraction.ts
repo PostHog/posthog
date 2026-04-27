@@ -198,18 +198,20 @@ export function useChartInteraction<Meta = unknown>({
             return
         }
 
+        // Pin the tooltip if pinnable and there are multiple series — first click pins,
+        // a follow-up click on a tooltip row drills into a specific series via the
+        // consumer's own row handler. With a single series there's nothing to pin, so
+        // onPointClick fires immediately instead.
+        if (pinnable && tooltipCtx && tooltipCtx.seriesData.length > 1) {
+            setTooltipCtx({ ...tooltipCtx, isPinned: true, onUnpin: unpin })
+            return
+        }
+
         if (onPointClick) {
             const clickData = buildPointClickData(currentIndex, series, labels, resolveValue)
             if (clickData) {
                 onPointClick(clickData)
             }
-        }
-
-        // Pin the tooltip if pinnable and there are multiple series. This runs
-        // regardless of `onPointClick` so behavior doesn't depend on the runtime
-        // count of visible series.
-        if (pinnable && tooltipCtx && tooltipCtx.seriesData.length > 1) {
-            setTooltipCtx({ ...tooltipCtx, isPinned: true, onUnpin: unpin })
         }
     }, [onPointClick, series, labels, resolveValue, pinnable, tooltipCtx, isPinned, clearTooltip, unpin, hoverIndexRef])
 
