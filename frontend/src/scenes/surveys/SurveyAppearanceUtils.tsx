@@ -1,6 +1,5 @@
 import clsx from 'clsx'
 import { toHtml } from 'hast-util-to-html'
-import xml from 'highlight.js/lib/languages/xml'
 import { useValues } from 'kea'
 import { common, createLowlight } from 'lowlight'
 import { useMemo, useRef } from 'react'
@@ -11,7 +10,6 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SurveyQuestionDescriptionContentType } from '~/types'
 
 const lowlight = createLowlight(common)
-lowlight.register({ xml })
 
 const CODE_FONT_FAMILY = 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace'
 
