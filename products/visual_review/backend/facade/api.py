@@ -31,6 +31,7 @@ RunNotFoundError = logic.RunNotFoundError
 ArtifactNotFoundError = logic.ArtifactNotFoundError
 GitHubIntegrationNotFoundError = logic.GitHubIntegrationNotFoundError
 GitHubCommitError = logic.GitHubCommitError
+GitHubRateLimitError = logic.GitHubRateLimitError
 PRSHAMismatchError = logic.PRSHAMismatchError
 StaleRunError = logic.StaleRunError
 BaselineFilePathNotConfiguredError = logic.BaselineFilePathNotConfiguredError
