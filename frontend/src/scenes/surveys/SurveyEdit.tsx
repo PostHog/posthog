@@ -294,8 +294,14 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const surveyTranslationsEnabled = !!featureFlags[FEATURE_FLAGS.SURVEYS_TRANSLATIONS]
     const activeEditingLanguage = surveyTranslationsEnabled ? editingLanguage : null
+    const surveyTranslations = survey.translations ?? {}
+    const hasActualTranslations = !!(
+        (survey.translations && Object.keys(survey.translations).length > 0) ||
+        (survey.questions && survey.questions.some((q) => q.translations && Object.keys(q.translations).length > 0))
+    )
     const hasActiveTranslationValidationErrors = surveyTranslationsEnabled && hasTranslationValidationErrors
     const activeTranslationValidationErrors = surveyTranslationsEnabled ? translationValidationErrors : []
+    const hasVisibleTranslationValidationErrors = hasActiveTranslationValidationErrors && hasActualTranslations
     const previewSurvey = useMemo(() => {
         if (!activeEditingLanguage || !survey.translations?.[activeEditingLanguage]) {
             return survey
@@ -422,7 +428,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
         <SceneContent>
             <div
                 className={`flex flex-col gap-y-4 ${
-                    activeEditingLanguage || hasActiveTranslationValidationErrors ? 'mt-1' : ''
+                    activeEditingLanguage || hasVisibleTranslationValidationErrors ? 'mt-1' : ''
                 }`}
             >
                 <SceneTitleSection
@@ -437,7 +443,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                     onNameChange={(name) => {
                         if (activeEditingLanguage) {
                             setSurveyValue('translations', {
-                                ...survey.translations,
+                                ...surveyTranslations,
                                 [activeEditingLanguage]: {
                                     ...survey.translations?.[activeEditingLanguage],
                                     name,
@@ -482,7 +488,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                 form="survey"
                                 size="small"
                                 disabledReason={
-                                    hasActiveTranslationValidationErrors
+                                    hasVisibleTranslationValidationErrors
                                         ? 'Cannot save: please fix translation validation errors below'
                                         : undefined
                                 }
@@ -494,14 +500,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                 />
                 <div className="sticky top-[34px] z-[100] bg-bg-3000">
                     {(() => {
-                        // Only show translation validation errors if the survey actually has translations
-                        const hasActualTranslations = !!(
-                            (survey.translations && Object.keys(survey.translations).length > 0) ||
-                            (survey.questions &&
-                                survey.questions.some((q) => q.translations && Object.keys(q.translations).length > 0))
-                        )
-                        const shouldShowValidationErrors =
-                            surveyTranslationsEnabled && hasActiveTranslationValidationErrors && hasActualTranslations
+                        const shouldShowValidationErrors = hasVisibleTranslationValidationErrors
 
                         if (shouldShowValidationErrors) {
                             return (
@@ -543,6 +542,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                             ([lang, errors]) => (
                                                                 <div key={lang} className="mb-2">
                                                                     <button
+                                                                        type="button"
                                                                         onClick={(e) => {
                                                                             e.preventDefault()
                                                                             setEditingLanguage(
@@ -593,6 +593,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                         </strong>
                                         . Only user-facing text can be translated - all other fields are editable in the{' '}
                                         <button
+                                            type="button"
                                             onClick={() => setEditingLanguage(null)}
                                             className="font-semibold hover:underline cursor-pointer"
                                         >
@@ -667,7 +668,10 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                 description="Set up a survey based on your own custom button or our prebuilt feedback tab"
                                                                 value={SurveyType.Widget}
                                                             >
-                                                                <button className="bg-black py-2 px-3 min-w-[40px] absolute right-3 -bottom-16 text-white opacity-30 rounded scale-[2]">
+                                                                <button
+                                                                    type="button"
+                                                                    className="bg-black py-2 px-3 min-w-[40px] absolute right-3 -bottom-16 text-white opacity-30 rounded scale-[2]"
+                                                                >
                                                                     Feedback
                                                                 </button>
                                                             </PresentationTypeCard>
@@ -961,7 +965,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                                               setSurveyValue(
                                                                                                                   'translations',
                                                                                                                   {
-                                                                                                                      ...survey.translations,
+                                                                                                                      ...surveyTranslations,
                                                                                                                       [activeEditingLanguage]:
                                                                                                                           {
                                                                                                                               ...survey
@@ -1039,7 +1043,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                                               setSurveyValue(
                                                                                                                   'translations',
                                                                                                                   {
-                                                                                                                      ...survey.translations,
+                                                                                                                      ...surveyTranslations,
                                                                                                                       [activeEditingLanguage]:
                                                                                                                           {
                                                                                                                               ...survey
@@ -1146,7 +1150,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                                               setSurveyValue(
                                                                                                                   'translations',
                                                                                                                   {
-                                                                                                                      ...survey.translations,
+                                                                                                                      ...surveyTranslations,
                                                                                                                       [activeEditingLanguage]:
                                                                                                                           {
                                                                                                                               ...survey
@@ -1879,7 +1883,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                     <div className="h-full">
                         <div
                             className={`sticky ${
-                                activeEditingLanguage || hasActiveTranslationValidationErrors ? 'top-28' : 'top-16'
+                                activeEditingLanguage || hasVisibleTranslationValidationErrors ? 'top-28' : 'top-16'
                             }`}
                         >
                             <SurveyFormAppearance

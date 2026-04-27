@@ -2344,21 +2344,35 @@ export const surveyLogic = kea<surveyLogicType>([
                         })
 
                         // Check link field
-                        if (trans.link) {
-                            if (trans.link === '[Translation needed]') {
+                        if ('link' in trans) {
+                            const linkDefaultHasValue = typeof question.link === 'string' && question.link.trim() !== ''
+                            const linkValue = trans.link
+
+                            if (linkValue === '[Translation needed]') {
                                 errors.push({
                                     language: lang,
                                     questionIndex: qIndex,
                                     field: 'link',
                                     error: 'Contains placeholder "[Translation needed]"',
                                 })
-                            } else if (!trans.link.match(/^(https:\/\/|mailto:)/)) {
-                                errors.push({
-                                    language: lang,
-                                    questionIndex: qIndex,
-                                    field: 'link',
-                                    error: 'Must start with https:// or mailto:',
-                                })
+                            } else if (typeof linkValue === 'string') {
+                                const trimmedLink = linkValue.trim()
+
+                                if (linkDefaultHasValue && trimmedLink === '') {
+                                    errors.push({
+                                        language: lang,
+                                        questionIndex: qIndex,
+                                        field: 'link',
+                                        error: 'Cannot be empty',
+                                    })
+                                } else if (trimmedLink !== '' && !trimmedLink.match(/^(https:\/\/|mailto:)/)) {
+                                    errors.push({
+                                        language: lang,
+                                        questionIndex: qIndex,
+                                        field: 'link',
+                                        error: 'Must start with https:// or mailto:',
+                                    })
+                                }
                             }
                         }
 
@@ -2388,7 +2402,8 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 // Also validate default question links
                 survey.questions.forEach((question, qIndex) => {
-                    if (question.link && !question.link.match(/^(https:\/\/|mailto:)/)) {
+                    const link = typeof question.link === 'string' ? question.link.trim() : ''
+                    if (link && !link.match(/^(https:\/\/|mailto:)/)) {
                         errors.push({
                             language: 'default',
                             questionIndex: qIndex,

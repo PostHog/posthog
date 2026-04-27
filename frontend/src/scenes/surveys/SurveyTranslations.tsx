@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import type { KeyboardEvent } from 'react'
 
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInputSelect } from '@posthog/lemon-ui'
@@ -40,19 +41,32 @@ export function SurveyTranslations(): JSX.Element {
     const { survey, editingLanguage } = useValues(surveyLogic)
     const { setSurveyValue, setEditingLanguage } = useActions(surveyLogic)
 
-    const addedLanguages = Object.keys(survey.translations || {})
+    const surveyTranslations = survey.translations ?? {}
+    const addedLanguages = Object.keys(surveyTranslations)
+    const getLanguageLabel = (lang: string): string => COMMON_LANGUAGES.find((l) => l.value === lang)?.label || lang
+    const selectLanguage = (lang: string | null): void => setEditingLanguage(lang)
+    const onLanguageKeyDown = (event: KeyboardEvent<HTMLDivElement>, lang: string | null): void => {
+        if (event.currentTarget !== event.target) {
+            return
+        }
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            selectLanguage(lang)
+        }
+    }
 
     const addLanguage = (lang: string): void => {
         if (!lang) {
             return
         }
-        const currentTranslations = survey.translations || {}
+        const currentTranslations = surveyTranslations
         if (currentTranslations[lang]) {
             return
         }
 
         // Initialize each question's translation with all translatable fields from defaults
         const updatedQuestions = survey.questions.map((question) => {
+            const questionTranslations = question.translations ?? {}
             const baseTranslation = {
                 question: question.question || '',
                 description: question.description || '',
@@ -72,9 +86,9 @@ export function SurveyTranslations(): JSX.Element {
             return {
                 ...question,
                 translations: {
-                    ...question.translations,
+                    ...questionTranslations,
                     [lang]: {
-                        ...question.translations?.[lang],
+                        ...questionTranslations[lang],
                         ...newTranslation,
                     },
                 },
@@ -96,7 +110,7 @@ export function SurveyTranslations(): JSX.Element {
 
     const removeLanguage = (lang: string): void => {
         // Remove survey-level translations
-        const currentTranslations = { ...survey.translations }
+        const currentTranslations = { ...surveyTranslations }
         delete currentTranslations[lang]
         setSurveyValue('translations', currentTranslations)
 
@@ -145,26 +159,34 @@ export function SurveyTranslations(): JSX.Element {
             <div className="space-y-2">
                 {addedLanguages.length > 0 && (
                     <div
+                        role="button"
+                        tabIndex={0}
                         className={`flex items-center justify-between px-2 py-1.5 border rounded cursor-pointer ${editingLanguage === null ? 'border-warning bg-warning-highlight' : 'border-border'}`}
-                        onClick={() => setEditingLanguage(null)}
+                        onClick={() => selectLanguage(null)}
+                        onKeyDown={(event) => onLanguageKeyDown(event, null)}
                     >
-                        <span>Default (Original)</span>
+                        <span>Default (original)</span>
                     </div>
                 )}
 
                 {addedLanguages.map((lang) => (
                     <div
                         key={lang}
+                        role="button"
+                        tabIndex={0}
                         className={`flex items-center justify-between px-2 py-1 border rounded cursor-pointer ${editingLanguage === lang ? 'border-warning bg-warning-highlight' : 'border-border'}`}
-                        onClick={() => setEditingLanguage(lang)}
+                        onClick={() => selectLanguage(lang)}
+                        onKeyDown={(event) => onLanguageKeyDown(event, lang)}
                     >
                         <div className="flex items-center gap-2">
-                            <span>{COMMON_LANGUAGES.find((l) => l.value === lang)?.label || lang}</span>
+                            <span>{getLanguageLabel(lang)}</span>
                         </div>
                         <LemonButton
                             icon={<IconTrash />}
                             status="danger"
                             size="xsmall"
+                            aria-label={`Delete translation for ${getLanguageLabel(lang)}`}
+                            title={`Delete translation for ${getLanguageLabel(lang)}`}
                             onClick={(e) => {
                                 e.stopPropagation()
                                 LemonDialog.open({
@@ -172,10 +194,8 @@ export function SurveyTranslations(): JSX.Element {
                                     description: (
                                         <p className="py-2">
                                             Are you sure you want to delete the translation for{' '}
-                                            <strong>
-                                                {COMMON_LANGUAGES.find((l) => l.value === lang)?.label || lang}
-                                            </strong>
-                                            ? All translated content for this language will be permanently lost.
+                                            <strong>{getLanguageLabel(lang)}</strong>? All translated content for this
+                                            language will be permanently lost.
                                         </p>
                                     ),
                                     primaryButton: {
