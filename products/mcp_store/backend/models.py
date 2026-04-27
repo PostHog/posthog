@@ -79,7 +79,7 @@ class MCPServerTemplate(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     oauth_credentials = EncryptedJSONField(default=dict, blank=True)
     is_active = models.BooleanField(default=False)
 
-    def save(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+    def save(self, *args, **kwargs) -> None:
         update_fields = kwargs.get("update_fields")
         if update_fields is None or "icon_key" in update_fields:
             self.icon_key = normalize_mcp_template_icon_key(self.icon_key or "")
