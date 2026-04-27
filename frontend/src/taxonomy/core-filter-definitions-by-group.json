@@ -2906,6 +2906,11 @@
             "description": "A user has clicked on something that is probably not clickable.",
             "label": "Dead click"
         },
+        "$element_viewed": {
+            "description": "When an element wrapped in `<PostHogCaptureOnViewed>` becomes visible in the viewport.",
+            "ignored_in_assistant": true,
+            "label": "Element viewed"
+        },
         "$exception": {
             "description": "An unexpected error or unhandled exception in your application.",
             "label": "Exception"
