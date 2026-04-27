@@ -161,9 +161,7 @@ class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatab
 
         for table_name, columns in db_schemas.items():
             incremental_field_tuples = filter_mysql_incremental_fields(columns)
-            indexed_cols = (
-                indexed_columns_by_table.get(table_name) if indexed_columns_by_table is not None else None
-            )
+            indexed_cols = indexed_columns_by_table.get(table_name) if indexed_columns_by_table is not None else None
             incremental_fields: list[IncrementalField] = [
                 {
                     "label": field_name,

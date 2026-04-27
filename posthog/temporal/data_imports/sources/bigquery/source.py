@@ -72,9 +72,7 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
                 config, table_names=list(bq_schemas.keys())
             )
         except Exception as e:
-            structlog.get_logger().warning(
-                "Failed to detect partitioning/clustering for BigQuery schemas", exc_info=e
-            )
+            structlog.get_logger().warning("Failed to detect partitioning/clustering for BigQuery schemas", exc_info=e)
             indexed_columns_by_table = None
 
         filtered_results = [
@@ -82,9 +80,7 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
         ]
 
         def _build_incremental_fields(table_name: str, columns: list[tuple[str, str, bool]]) -> list:
-            indexed_cols = (
-                indexed_columns_by_table.get(table_name) if indexed_columns_by_table is not None else None
-            )
+            indexed_cols = indexed_columns_by_table.get(table_name) if indexed_columns_by_table is not None else None
             return [
                 {
                     "label": column_name,

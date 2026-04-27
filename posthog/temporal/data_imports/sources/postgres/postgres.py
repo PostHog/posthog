@@ -203,9 +203,7 @@ def get_primary_key_columns(conn: psycopg.Connection, schema: str, table_names: 
     return result
 
 
-def get_leading_index_columns(
-    conn: psycopg.Connection, schema: str, table_names: list[str]
-) -> dict[str, set[str]]:
+def get_leading_index_columns(conn: psycopg.Connection, schema: str, table_names: list[str]) -> dict[str, set[str]]:
     """Return the set of columns that are the leading column of any index per table.
 
     Used to surface a UI warning when a user picks an incremental field that isn't
