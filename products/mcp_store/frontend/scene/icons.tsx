@@ -18,7 +18,7 @@ import IconFiretigerService from 'public/services/firetiger.svg'
 import IconGitHubService from 'public/services/github.svg'
 import IconGitLabService from 'public/services/gitlab.svg'
 import IconHexService from 'public/services/hex.svg'
-import IconHubSpotService from 'public/services/hubspot.svg'
+import IconHubSpotService from 'public/services/hubspot.png'
 import IconLaunchDarklyService from 'public/services/launchdarkly.png'
 import IconLinearService from 'public/services/linear.svg'
 import IconMondayService from 'public/services/monday.svg'
@@ -93,7 +93,7 @@ export function ServerIcon({ iconKey, size = 32, className }: ServerIconProps): 
     if (src) {
         return (
             <div
-                className={`flex items-center justify-center ${className ?? ''}`}
+                className={`flex items-center justify-center overflow-hidden rounded-[4px] ${className ?? ''}`}
                 // Fixed dimensions prevent layout shift during icon load.
                 style={{ width: dimension, height: dimension }}
             >
@@ -103,7 +103,7 @@ export function ServerIcon({ iconKey, size = 32, className }: ServerIconProps): 
     }
     return (
         <div
-            className={`flex items-center justify-center rounded bg-surface-secondary ${className ?? ''}`}
+            className={`flex items-center justify-center rounded-[4px] bg-surface-secondary ${className ?? ''}`}
             style={{ width: dimension, height: dimension }}
         >
             <IconServer className="text-secondary" style={{ fontSize: size * 0.55 }} />
