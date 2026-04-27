@@ -46,19 +46,17 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 
     # Deprecated, use `ExternalDataSchema.sync_frequency_interval`
-    sync_frequency = models.CharField(
-        max_length=128, choices=SyncFrequency.choices, default=SyncFrequency.DAILY, blank=True
-    )
+    sync_frequency = models.CharField(max_length=128, choices=SyncFrequency, default=SyncFrequency.DAILY, blank=True)
 
     # `status` is deprecated in favour of external_data_schema.status
     status = models.CharField(max_length=400)
-    source_type = models.CharField(max_length=128, choices=ExternalDataSourceType.choices)
+    source_type = models.CharField(max_length=128, choices=ExternalDataSourceType)
     job_inputs = EncryptedJSONField(null=True, blank=True)
     connection_metadata = models.JSONField(default=dict, blank=True, null=True)
     are_tables_created = models.BooleanField(default=False)
     prefix = models.CharField(max_length=100, null=True, blank=True)
     description = models.CharField(max_length=400, null=True, blank=True)
-    access_method = models.CharField(max_length=32, choices=AccessMethod.choices, default=AccessMethod.WAREHOUSE)
+    access_method = models.CharField(max_length=32, choices=AccessMethod, default=AccessMethod.WAREHOUSE)
 
     # DEPRECATED: Check inside `revenue_analytics_config` instead
     revenue_analytics_enabled = models.BooleanField(default=False, blank=True, null=True)

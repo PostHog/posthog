@@ -139,6 +139,66 @@ export const DualYAxes: Story = {
     },
 }
 
+export const HiddenOnAuxiliarySeries: Story = {
+    render: () => {
+        const theme = buildTheme()
+        const base: Series = {
+            key: 'visits',
+            label: 'Visits',
+            color: 'var(--brand-blue)',
+            data: [20, 35, 28, 60, 45, 70, 52],
+            pointRadius: 3,
+        }
+        const trendline: Series = {
+            key: 'visits__trendline',
+            label: 'Visits',
+            color: 'var(--brand-blue)',
+            data: [22, 30, 38, 46, 54, 62, 70],
+            dashPattern: [1, 3],
+            pointRadius: 0,
+            hideFromTooltip: true,
+            hideValueLabels: true,
+        }
+        return (
+            <Stage>
+                <LineChart series={[base, trendline]} labels={LABELS} config={CONFIG} theme={theme}>
+                    <ValueLabels />
+                </LineChart>
+            </Stage>
+        )
+    },
+}
+
+export const CrossSeriesOverlapRemoval: Story = {
+    render: () => {
+        const theme = buildTheme()
+        const series: Series[] = [
+            {
+                key: 'main',
+                label: 'Main',
+                color: 'var(--brand-blue)',
+                data: [500, 480, 460, 450, 440, 430, 420],
+                pointRadius: 3,
+            },
+            {
+                key: 'moving-avg',
+                label: 'Moving avg',
+                color: 'var(--brand-blue)',
+                data: [490, 475, 463, 452, 443, 435, 428],
+                dashPattern: [10, 3],
+                pointRadius: 0,
+            },
+        ]
+        return (
+            <Stage>
+                <LineChart series={series} labels={LABELS} config={CONFIG} theme={theme}>
+                    <ValueLabels />
+                </LineChart>
+            </Stage>
+        )
+    },
+}
+
 export const WithCustomFormatter: Story = {
     render: () => {
         const theme = buildTheme()

@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-04-23 20:17:10 UTC
+// Generated at: 2026-04-24 20:12:06 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -23,6 +23,7 @@ export type CanonicalProvider =
     | 'baseten-fp4'
     | 'cerebras-fp16'
     | 'chutes-bf16'
+    | 'chutes-fp4'
     | 'chutes-fp8'
     | 'chutes-int4'
     | 'clarifai-bf16'
@@ -56,9 +57,9 @@ export type CanonicalProvider =
     | 'inceptron-int4'
     | 'infermatic-bf16'
     | 'inflection'
+    | 'io-net'
     | 'io-net-bf16'
     | 'io-net-fp16'
-    | 'io-net-fp8'
     | 'io-net-int4'
     | 'ionstream-bf16'
     | 'ionstream-fp8'

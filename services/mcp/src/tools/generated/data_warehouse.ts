@@ -19,7 +19,6 @@ import {
     ExternalDataSourcesCreateBody,
     ExternalDataSourcesCreateWebhookCreateBody,
     ExternalDataSourcesCreateWebhookCreateParams,
-    ExternalDataSourcesDatabaseSchemaCreateBody,
     ExternalDataSourcesDeleteWebhookCreateBody,
     ExternalDataSourcesDeleteWebhookCreateParams,
     ExternalDataSourcesDestroyParams,
@@ -52,17 +51,7 @@ import {
     WarehouseSavedQueriesRunCreateParams,
     WarehouseSavedQueriesRunHistoryRetrieveParams,
 } from '@/generated/data_warehouse/api'
-import {
-    ExternalDataSchemaCdcTableModeSchema,
-    ExternalDataSchemaIncrementalFieldSchema,
-    ExternalDataSchemaIncrementalFieldTypeSchema,
-    ExternalDataSchemaPrimaryKeyColumnsSchema,
-    ExternalDataSchemaSyncFrequencySchema,
-    ExternalDataSchemaSyncTimeOfDaySchema,
-    ExternalDataSchemaSyncTypeSchema,
-    ExternalDataSourcePayloadSchema,
-    ExternalDataSourceTypeSchema,
-} from '@/schema/tool-inputs'
+import { ExternalDataSourcePayloadSchema, ExternalDataSourceTypeSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -268,28 +257,6 @@ const externalDataSourcesReload = (): ToolBase<typeof ExternalDataSourcesReloadS
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/reload/`,
-        })
-        return result
-    },
-})
-
-const ExternalDataSourcesDbSchemaSchema = ExternalDataSourcesDatabaseSchemaCreateBody.extend({
-    source_type: ExternalDataSourceTypeSchema,
-})
-
-const externalDataSourcesDbSchema = (): ToolBase<typeof ExternalDataSourcesDbSchemaSchema, unknown> => ({
-    name: 'external-data-sources-db-schema',
-    schema: ExternalDataSourcesDbSchemaSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesDbSchemaSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.source_type !== undefined) {
-            body['source_type'] = params.source_type
-        }
-        const result = await context.api.request<unknown>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/database_schema/`,
-            body,
         })
         return result
     },
@@ -866,17 +833,9 @@ const externalDataSchemasRetrieve = (): ToolBase<
     },
 })
 
-const ExternalDataSchemasPartialUpdateSchema = ExternalDataSchemasPartialUpdateParams.omit({ project_id: true })
-    .extend(ExternalDataSchemasPartialUpdateBody.shape)
-    .extend({
-        sync_type: ExternalDataSchemaSyncTypeSchema.optional(),
-        sync_frequency: ExternalDataSchemaSyncFrequencySchema.optional(),
-        sync_time_of_day: ExternalDataSchemaSyncTimeOfDaySchema.optional(),
-        incremental_field: ExternalDataSchemaIncrementalFieldSchema.optional(),
-        incremental_field_type: ExternalDataSchemaIncrementalFieldTypeSchema.optional(),
-        primary_key_columns: ExternalDataSchemaPrimaryKeyColumnsSchema.optional(),
-        cdc_table_mode: ExternalDataSchemaCdcTableModeSchema.optional(),
-    })
+const ExternalDataSchemasPartialUpdateSchema = ExternalDataSchemasPartialUpdateParams.omit({ project_id: true }).extend(
+    ExternalDataSchemasPartialUpdateBody.shape
+)
 
 const externalDataSchemasPartialUpdate = (): ToolBase<
     typeof ExternalDataSchemasPartialUpdateSchema,
@@ -1120,7 +1079,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'external-data-sources-destroy': externalDataSourcesDestroy,
     'external-data-sources-refresh-schemas': externalDataSourcesRefreshSchemas,
     'external-data-sources-reload': externalDataSourcesReload,
-    'external-data-sources-db-schema': externalDataSourcesDbSchema,
     'external-data-sources-wizard': externalDataSourcesWizard,
     'sql-variables-create': sqlVariablesCreate,
     'sql-variables-update': sqlVariablesUpdate,

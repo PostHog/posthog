@@ -39,6 +39,19 @@ export const VisualReviewReposQuarantineCreateBody = /* @__PURE__ */ zod.object(
 })
 
 /**
+ * Expire all active quarantine entries for an identifier.
+ */
+export const visualReviewReposQuarantineExpireCreateBodyIdentifierMax = 512
+
+export const visualReviewReposQuarantineExpireCreateBodyReasonMax = 255
+
+export const VisualReviewReposQuarantineExpireCreateBody = /* @__PURE__ */ zod.object({
+    identifier: zod.string().max(visualReviewReposQuarantineExpireCreateBodyIdentifierMax),
+    reason: zod.string().max(visualReviewReposQuarantineExpireCreateBodyReasonMax),
+    expires_at: zod.iso.datetime({}).nullish(),
+})
+
+/**
  * Create a new run from a CI manifest.
  */
 export const VisualReviewRunsCreateBody = /* @__PURE__ */ zod.object({

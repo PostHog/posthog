@@ -43,6 +43,7 @@ from posthog.tasks.surveys import sync_all_surveys_cache
 from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
+    capture_task_run_state_metrics,
     check_async_migration_health,
     check_flags_to_rollback,
     clean_stale_partials,
@@ -168,6 +169,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     # These are fine because they run more frequently than beat restarts.
     if not settings.DEBUG:
         sender.add_periodic_task(10, redis_celery_queue_depth.s(), name="10 sec queue probe")
+
+    sender.add_periodic_task(
+        60,
+        capture_task_run_state_metrics.s(),
+        name="tasks run state metrics",
+    )
 
     sender.add_periodic_task(10, redis_heartbeat.s(), name="10 sec heartbeat")
     sender.add_periodic_task(
