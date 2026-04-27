@@ -97,70 +97,58 @@ class TestBuildEvalReportSignalPrompt:
         assert "Cost cap check" in prompt
 
 
+async def _setup_no_source_config(ateam):
+    del ateam
+
+
+async def _setup_evaluation_not_in_allowlist(ateam):
+    await sync_to_async(SignalSourceConfig.objects.create)(
+        team=ateam,
+        source_product=SignalSourceConfig.SourceProduct.LLM_ANALYTICS,
+        source_type=SignalSourceConfig.SourceType.EVALUATION,
+        enabled=True,
+        config={"evaluation_ids": ["other-eval"]},
+    )
+
+
+async def _setup_config_disabled(ateam):
+    await sync_to_async(SignalSourceConfig.objects.create)(
+        team=ateam,
+        source_product=SignalSourceConfig.SourceProduct.LLM_ANALYTICS,
+        source_type=SignalSourceConfig.SourceType.EVALUATION,
+        enabled=False,
+        config={"evaluation_ids": ["eval-123"]},
+    )
+
+
+async def _setup_org_not_ai_approved(ateam):
+    org = ateam.organization
+    org.is_ai_data_processing_approved = False
+    await sync_to_async(org.save)()
+    await sync_to_async(SignalSourceConfig.objects.create)(
+        team=ateam,
+        source_product=SignalSourceConfig.SourceProduct.LLM_ANALYTICS,
+        source_type=SignalSourceConfig.SourceType.EVALUATION,
+        enabled=True,
+        config={"evaluation_ids": ["eval-123"]},
+    )
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 class TestEmitEvalReportSignalActivity:
-    async def test_skips_when_no_source_config(self, ateam):
-        inputs = _make_inputs(team_id=ateam.id)
-        with (
-            patch(
-                "products.signals.backend.temporal.emit_eval_report_signal.summarize_report_for_signal"
-            ) as mock_summarize,
-            patch("products.signals.backend.api.emit_signal", new_callable=AsyncMock) as mock_emit,
-        ):
-            await emit_eval_report_signal_activity(inputs)
-        mock_summarize.assert_not_called()
-        mock_emit.assert_not_called()
-
-    async def test_skips_when_evaluation_not_in_allowlist(self, ateam):
-        await sync_to_async(SignalSourceConfig.objects.create)(
-            team=ateam,
-            source_product=SignalSourceConfig.SourceProduct.LLM_ANALYTICS,
-            source_type=SignalSourceConfig.SourceType.EVALUATION,
-            enabled=True,
-            config={"evaluation_ids": ["other-eval"]},
-        )
-        inputs = _make_inputs(team_id=ateam.id, evaluation_id="eval-123")
-        with (
-            patch(
-                "products.signals.backend.temporal.emit_eval_report_signal.summarize_report_for_signal"
-            ) as mock_summarize,
-            patch("products.signals.backend.api.emit_signal", new_callable=AsyncMock) as mock_emit,
-        ):
-            await emit_eval_report_signal_activity(inputs)
-        mock_summarize.assert_not_called()
-        mock_emit.assert_not_called()
-
-    async def test_skips_when_config_disabled(self, ateam):
-        await sync_to_async(SignalSourceConfig.objects.create)(
-            team=ateam,
-            source_product=SignalSourceConfig.SourceProduct.LLM_ANALYTICS,
-            source_type=SignalSourceConfig.SourceType.EVALUATION,
-            enabled=False,
-            config={"evaluation_ids": ["eval-123"]},
-        )
-        inputs = _make_inputs(team_id=ateam.id, evaluation_id="eval-123")
-        with (
-            patch(
-                "products.signals.backend.temporal.emit_eval_report_signal.summarize_report_for_signal"
-            ) as mock_summarize,
-            patch("products.signals.backend.api.emit_signal", new_callable=AsyncMock) as mock_emit,
-        ):
-            await emit_eval_report_signal_activity(inputs)
-        mock_summarize.assert_not_called()
-        mock_emit.assert_not_called()
-
-    async def test_skips_when_org_not_ai_approved(self, ateam):
-        org = ateam.organization
-        org.is_ai_data_processing_approved = False
-        await sync_to_async(org.save)()
-        await sync_to_async(SignalSourceConfig.objects.create)(
-            team=ateam,
-            source_product=SignalSourceConfig.SourceProduct.LLM_ANALYTICS,
-            source_type=SignalSourceConfig.SourceType.EVALUATION,
-            enabled=True,
-            config={"evaluation_ids": ["eval-123"]},
-        )
+    @pytest.mark.parametrize(
+        "setup_fn",
+        [
+            _setup_no_source_config,
+            _setup_evaluation_not_in_allowlist,
+            _setup_config_disabled,
+            _setup_org_not_ai_approved,
+        ],
+        ids=["no_source_config", "evaluation_not_in_allowlist", "config_disabled", "org_not_ai_approved"],
+    )
+    async def test_skips_when_gate_fails(self, ateam, setup_fn):
+        await setup_fn(ateam)
         inputs = _make_inputs(team_id=ateam.id, evaluation_id="eval-123")
         with (
             patch(
