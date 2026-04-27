@@ -162,6 +162,8 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
             "MFA authentication is required": None,
             "invalid credentials": "Snowflake authentication failed. Please check your username, password, and account details.",
             "authentication failed": "Snowflake authentication failed. Please check your username, password, and account details.",
+            "View columns mismatch with view definition": "One of the views you're syncing has a stale definition. In Snowflake, recreate the view (or run ALTER VIEW <name> RECOMPILE) so its columns match its definition, then retry the sync.",
+            "please re-create the view": "One of the views you're syncing has a stale definition. In Snowflake, recreate the view (or run ALTER VIEW <name> RECOMPILE) so its columns match its definition, then retry the sync.",
         }
 
     def get_schemas(
