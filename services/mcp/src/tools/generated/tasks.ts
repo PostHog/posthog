@@ -89,7 +89,9 @@ const tasksRetrieve = (): ToolBase<typeof TasksRetrieveSchema, WithPostHogUrl<Sc
     },
 })
 
-const TasksCreateSchema = TasksCreateBody
+const TasksCreateSchema = TasksCreateBody.extend({
+    origin_product: TasksCreateBody.shape['origin_product'].default('mcp').optional(),
+})
 
 const tasksCreate = (): ToolBase<typeof TasksCreateSchema, WithPostHogUrl<Schemas.Task>> => ({
     name: 'tasks-create',

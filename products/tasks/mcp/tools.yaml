@@ -64,7 +64,10 @@ tools:
         title: Create task
         description: >
             Create a new agent task in the current project. Provide `title`, `description`, and an optional `repository`
-            (owner/repo format) plus `origin_product` metadata.
+            (owner/repo format). The `origin_product` is automatically set to `mcp`.
+        param_overrides:
+            origin_product:
+                default: mcp
     tasks-partial-update:
         operation: tasks_partial_update
         enabled: true

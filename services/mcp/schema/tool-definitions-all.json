@@ -4011,7 +4011,7 @@
         }
     },
     "tasks-create": {
-        "description": "Create a new agent task in the current project. Provide `title`, `description`, and an optional `repository` (owner/repo format) plus `origin_product` metadata.",
+        "description": "Create a new agent task in the current project. Provide `title`, `description`, and an optional `repository` (owner/repo format). The `origin_product` is automatically set to `mcp`.",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "Create task",
