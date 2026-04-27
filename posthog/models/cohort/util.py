@@ -1265,7 +1265,14 @@ def _insert_cohort_members_via_personhog(cohort_id: int, person_ids: list[int], 
     return resp.inserted_count
 
 
-def insert_cohort_members(team_id: int, cohort_id: int, person_ids: list[int], version: int | None) -> int:
+def insert_cohort_members(
+    team_id: int,
+    cohort_id: int,
+    person_ids: list[int],
+    version: int | None,
+    *,
+    _skip_ownership_check: bool = False,
+) -> int:
     """Insert person IDs into a static cohort's PG membership table.
 
     Routes through personhog when the gate is enabled, falling back to a raw
@@ -1280,7 +1287,7 @@ def insert_cohort_members(team_id: int, cohort_id: int, person_ids: list[int], v
     from posthog.models.cohort.cohort import Cohort, CohortPeople
     from posthog.models.person import Person
 
-    if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
+    if not _skip_ownership_check and not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
         return 0
 
     def orm_fn() -> int:

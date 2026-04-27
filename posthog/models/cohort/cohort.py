@@ -831,7 +831,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
         from posthog.models.cohort.util import insert_cohort_members
 
-        insert_cohort_members(team_id, self.pk, person_ids, self.version)
+        insert_cohort_members(team_id, self.pk, person_ids, self.version, _skip_ownership_check=True)
 
     def _get_existing_ch_member_uuids(
         self,

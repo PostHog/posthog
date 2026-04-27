@@ -597,6 +597,19 @@ class TestInsertCohortMembers(PersonhogTestMixin, BaseTest):
         assert not CohortPeople.objects.filter(cohort=other_cohort).exists()
         self._assert_personhog_not_called("insert_cohort_members")
 
+    def test_skip_ownership_check_bypasses_team_validation(self):
+        from posthog.models.cohort.util import insert_cohort_members
+
+        other_team = Team.objects.create(organization=self.organization)
+        person = self._seed_person(team=self.team, distinct_ids=["d1"])
+        cohort = Cohort.objects.create(team=other_team, groups=[], is_static=True, name="other")
+        self._seed_cohort_membership(person_id=person.id, cohort_id=cohort.id, is_member=False)
+
+        inserted = insert_cohort_members(self.team.id, cohort.id, [person.id], version=1, _skip_ownership_check=True)
+
+        assert inserted > 0
+        self._assert_personhog_called("insert_cohort_members")
+
 
 class TestInsertCohortMembersFallback(BaseTest):
     def test_falls_back_to_orm_when_personhog_disabled(self):
