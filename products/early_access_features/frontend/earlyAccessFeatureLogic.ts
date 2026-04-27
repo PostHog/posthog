@@ -85,7 +85,6 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                     result = await api.earlyAccessFeatures.create(
                         updatedEarlyAccessFeature as NewEarlyAccessFeatureType
                     )
-                    router.actions.replace(urls.earlyAccessFeature(result.id))
                 } else {
                     result = await api.earlyAccessFeatures.update(
                         props.id,
@@ -131,7 +130,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             },
         ],
     })),
-    forms(({ actions, props }) => ({
+    forms(({ actions, props, values }) => ({
         earlyAccessFeature: {
             defaults: { ...NEW_EARLY_ACCESS_FEATURE } as NewEarlyAccessFeatureType | EarlyAccessFeatureType,
             errors: ({ name, payload }) =>
@@ -154,6 +153,45 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 const parsedPayload = {
                     ...payload,
                     payload: payload.payload && typeof payload.payload === 'string' ? JSON.parse(payload.payload) : {},
+                }
+
+                // If promoting to General Availability, show confirmation dialog
+                const isPromotingToGA =
+                    parsedPayload.stage === EarlyAccessFeatureStage.GeneralAvailability &&
+                    values.originalEarlyAccessFeatureStage !== EarlyAccessFeatureStage.GeneralAvailability
+
+                if (isPromotingToGA) {
+                    const rolloutToAll = await new Promise<boolean | null>((resolve) => {
+                        let rollout = false
+                        LemonDialog.open({
+                            title: 'Promote to General Availability?',
+                            description:
+                                'Once promoted to General Availability, this feature cannot be edited anymore. Users will have access to the stable version.',
+                            content: React.createElement(GAPromotionDialogContent, {
+                                onChange: (checked: boolean) => {
+                                    rollout = checked
+                                },
+                            }),
+                            primaryButton: {
+                                children: 'Promote to GA',
+                                type: 'primary',
+                                onClick: () => resolve(rollout),
+                            },
+                            secondaryButton: {
+                                children: 'Cancel',
+                                type: 'tertiary',
+                                onClick: () => resolve(null),
+                            },
+                        })
+                    })
+
+                    if (rolloutToAll === null) {
+                        return // User cancelled
+                    }
+
+                    if (rolloutToAll) {
+                        parsedPayload.rollout_to_all = true
+                    }
                 }
 
                 if (props.id && props.id !== 'new') {
