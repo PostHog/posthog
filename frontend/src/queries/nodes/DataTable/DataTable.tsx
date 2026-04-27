@@ -46,6 +46,7 @@ import {
     getDataNodeDefaultColumns,
     removeExpressionComment,
 } from '~/queries/nodes/DataTable/utils'
+import { WidenTimeRangeSuggestion } from '~/queries/nodes/DataTable/WidenTimeRangeSuggestion'
 import { EventName } from '~/queries/nodes/EventsNode/EventName'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
 import { EventsFilter } from '~/queries/nodes/EventsNode/EventsFilter'
@@ -865,29 +866,32 @@ export function DataTable({
                                 sorting={null}
                                 useURLForSorting={false}
                                 emptyState={
-                                    responseError ? (
-                                        sourceFeatures.has(QueryFeature.displayResponseError) ? (
-                                            <InsightErrorState
-                                                query={query}
-                                                excludeDetail
-                                                title={
-                                                    queryCancelled
-                                                        ? 'The query was cancelled'
-                                                        : response && 'error' in response
-                                                          ? response.error
-                                                          : responseError
-                                                }
-                                            />
+                                    <div className="flex flex-col items-center gap-3 w-full">
+                                        {responseError ? (
+                                            sourceFeatures.has(QueryFeature.displayResponseError) ? (
+                                                <InsightErrorState
+                                                    query={query}
+                                                    excludeDetail
+                                                    title={
+                                                        queryCancelled
+                                                            ? 'The query was cancelled'
+                                                            : response && 'error' in response
+                                                              ? response.error
+                                                              : responseError
+                                                    }
+                                                />
+                                            ) : (
+                                                <InsightErrorState query={query} />
+                                            )
                                         ) : (
-                                            <InsightErrorState query={query} />
-                                        )
-                                    ) : (
-                                        <InsightEmptyState
-                                            heading={context?.emptyStateHeading}
-                                            detail={context?.emptyStateDetail}
-                                            icon={context?.emptyStateIcon}
-                                        />
-                                    )
+                                            <InsightEmptyState
+                                                heading={context?.emptyStateHeading}
+                                                detail={context?.emptyStateDetail}
+                                                icon={context?.emptyStateIcon}
+                                            />
+                                        )}
+                                        {!isReadOnly && <WidenTimeRangeSuggestion query={query} setQuery={setQuery} />}
+                                    </div>
                                 }
                                 expandable={
                                     context?.expandable

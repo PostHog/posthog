@@ -9,7 +9,7 @@ import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { identifierToHuman } from 'lib/utils'
+import { identifierToHuman, isAbortedRequest } from 'lib/utils'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { getTabsSnapshotForHistory, sceneLogic } from 'scenes/sceneLogic'
 
@@ -100,6 +100,11 @@ export function initKea({
         formsPlugin,
         loadersPlugin({
             onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
+                // Aborted requests are expected when navigating away from a page or switching tabs while a query
+                // is in flight — they're not real failures, so don't surface them to users or to error tracking.
+                if (isAbortedRequest(error)) {
+                    return
+                }
                 // Toast if it's a fetch error or a specific API update error
                 const isLoadAction = typeof actionKey === 'string' && /^(load|get|fetch)[A-Z]/.test(actionKey)
                 if (
