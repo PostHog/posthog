@@ -1,6 +1,7 @@
 import time
 import random
-from typing import Any, Optional
+from collections.abc import Callable
+from typing import Any, Optional, TypeVar
 
 from django.conf import settings
 
@@ -34,23 +35,20 @@ max_attempts = 10
 jitter_in_seconds = 10
 sleep_per_attempt_in_seconds = 30
 
+T = TypeVar("T")
 
-@cached(cache)
-def _get_worksheet(spreadsheet_url: str, worksheet_id: int) -> gspread.Worksheet:
-    """Attempt to get a worksheet with linear backoff. Google Sheets has a 300
-    request quota per minute. We add a +- 10s jitter to the sleep per attempt so
-    that multiple jobs blocked by quota limits dont all retry at the same time"""
 
-    def execute():
-        client = google_sheets_client()
-        spreadsheet = client.open_by_url(spreadsheet_url)
-        return spreadsheet.get_worksheet_by_id(worksheet_id)
+def _retry_on_quota_exceeded(operation: Callable[[], T]) -> T:
+    """Run a gspread API call with linear backoff on 429 quota-exceeded errors.
 
+    Google Sheets enforces per-minute read/write quotas at the Google Cloud project
+    level, shared across all customer syncs. We add a +- 10s jitter to the sleep per
+    attempt so that multiple jobs blocked by quota limits don't all retry at the
+    same time."""
     attempts = 1
-
     while True:
         try:
-            return execute()
+            return operation()
         except gspread.exceptions.APIError as e:
             if e.code != 429 or attempts >= max_attempts:
                 raise
@@ -62,12 +60,25 @@ def _get_worksheet(spreadsheet_url: str, worksheet_id: int) -> gspread.Worksheet
             attempts = attempts + 1
 
 
+@cached(cache)
+def _get_worksheet(spreadsheet_url: str, worksheet_id: int) -> gspread.Worksheet:
+    def execute() -> gspread.Worksheet:
+        client = google_sheets_client()
+        spreadsheet = client.open_by_url(spreadsheet_url)
+        return spreadsheet.get_worksheet_by_id(worksheet_id)
+
+    return _retry_on_quota_exceeded(execute)
+
+
 def get_schemas(config: GoogleSheetsSourceConfig) -> list[tuple[str, int]]:
     """Returns a tuple of worksheets in the form of (title, id)"""
 
-    client = google_sheets_client()
-    spreadsheet = client.open_by_url(config.spreadsheet_url)
-    worksheets = spreadsheet.worksheets()
+    def execute() -> list[gspread.Worksheet]:
+        client = google_sheets_client()
+        spreadsheet = client.open_by_url(config.spreadsheet_url)
+        return spreadsheet.worksheets()
+
+    worksheets = _retry_on_quota_exceeded(execute)
 
     return [(NamingConvention.normalize_identifier(worksheet.title), worksheet.id) for worksheet in worksheets]
 
@@ -82,7 +93,7 @@ def get_schema_incremental_fields(config: GoogleSheetsSourceConfig, worksheet_na
 
     worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id)
 
-    rows = worksheet.get_all_values("1:2")  # Get the first two rows
+    rows = _retry_on_quota_exceeded(lambda: worksheet.get_all_values("1:2"))  # Get the first two rows
 
     if len(rows) > 1 and "id" in rows[0]:
         index_of_id = rows[0].index("id")
@@ -115,7 +126,7 @@ def google_sheets_source(
 
     worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id)
 
-    headers = worksheet.get_all_values("1:1")  # Get the first row
+    headers = _retry_on_quota_exceeded(lambda: worksheet.get_all_values("1:1"))  # Get the first row
     primary_keys = None
     if len(headers) > 0 and "id" in headers[0]:
         primary_keys = ["id"]
@@ -123,7 +134,7 @@ def google_sheets_source(
     def get_rows():
         worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id)
 
-        values = worksheet.get_all_records()
+        values = _retry_on_quota_exceeded(worksheet.get_all_records)
 
         if should_use_incremental_field and db_incremental_field_last_value is not None:
             values = [value for value in values if value.get("id", 0) > db_incremental_field_last_value]
