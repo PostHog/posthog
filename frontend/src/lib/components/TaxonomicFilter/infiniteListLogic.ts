@@ -1,6 +1,7 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { combineUrl } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
@@ -944,6 +945,19 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         },
         loadRemoteItemsSuccess: ({ remoteItems }) => {
             actions.infiniteListResultsReceived(props.listGroupType, remoteItems)
+
+            const trimmedQuery = (remoteItems.searchQuery ?? '').trim()
+            const queryReachedBackend = trimmedQuery.length >= values.minSearchQueryLength
+            if (trimmedQuery.length > 0 && queryReachedBackend && remoteItems.results.length === 0) {
+                const dedupeKey = `${props.listGroupType}::${trimmedQuery}`
+                if (cache.lastEmptyResultDedupeKey !== dedupeKey) {
+                    cache.lastEmptyResultDedupeKey = dedupeKey
+                    posthog.capture('taxonomic filter empty result', {
+                        groupType: props.listGroupType,
+                        searchQuery: trimmedQuery,
+                    })
+                }
+            }
         },
         infiniteListResultsReceived: () => {
             actions.reconcilePinnedRowState()
