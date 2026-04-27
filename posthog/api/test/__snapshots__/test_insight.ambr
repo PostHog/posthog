@@ -1024,6 +1024,7 @@
 # name: TestInsight.test_listing_insights_does_not_nplus1.15
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
@@ -1372,6 +1373,7 @@
 # name: TestInsight.test_listing_insights_does_not_nplus1.20
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
@@ -2243,6 +2245,7 @@
 # name: TestInsight.test_listing_insights_does_not_nplus1.35
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",

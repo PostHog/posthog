@@ -673,6 +673,7 @@
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.18
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
@@ -1021,6 +1022,7 @@
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.23
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
@@ -1638,6 +1640,7 @@
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.39
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
@@ -1991,6 +1994,7 @@
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.42
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
@@ -2236,6 +2240,7 @@
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.49
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
@@ -2570,6 +2575,7 @@
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.52
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
@@ -3372,6 +3378,7 @@
 # name: TestDashboard.test_listing_dashboards_is_not_nplus1.15
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
@@ -3855,6 +3862,7 @@
 # name: TestDashboard.test_listing_dashboards_is_not_nplus1.22
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
@@ -5071,6 +5079,7 @@
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.100
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
@@ -6208,6 +6217,7 @@
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.123
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
@@ -6579,6 +6589,7 @@
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.130
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
@@ -7717,6 +7728,7 @@
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.153
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
@@ -8087,6 +8099,7 @@
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.160
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
@@ -8476,6 +8489,7 @@
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.17
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
@@ -8897,6 +8911,7 @@
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.176
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
@@ -9204,6 +9219,7 @@
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.179
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
@@ -9457,6 +9473,7 @@
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.186
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
@@ -9765,6 +9782,7 @@
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.189
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
@@ -10907,6 +10925,7 @@
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.36
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
@@ -12286,6 +12305,7 @@
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.57
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
@@ -12722,6 +12742,7 @@
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.63
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
@@ -13089,6 +13110,7 @@
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.70
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
@@ -14315,6 +14337,7 @@
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.93
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
@@ -14799,6 +14822,7 @@
 # name: TestDashboard.test_retrieve_dashboard.13
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
@@ -15229,6 +15253,7 @@
 # name: TestDashboard.test_retrieve_dashboard.19
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
@@ -16033,6 +16058,7 @@
 # name: TestDashboard.test_retrieve_dashboard_list.17
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
@@ -17052,6 +17078,7 @@
 # name: TestDashboard.test_retrieve_dashboard_list.36
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",

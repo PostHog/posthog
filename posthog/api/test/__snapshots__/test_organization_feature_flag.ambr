@@ -1191,6 +1191,7 @@
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.40
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
@@ -1216,6 +1217,7 @@
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.41
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
@@ -2024,6 +2026,7 @@
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.54
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
@@ -2617,6 +2620,7 @@
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.63
   '''
   SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."team_id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
