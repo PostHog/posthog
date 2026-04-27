@@ -866,6 +866,16 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 loadPrev: () => false,
             },
         ],
+        // Tracks whether the recordings list has resolved at least once.
+        // Used to avoid rendering the empty/troubleshooting state during the
+        // brief gap between mount and the first loadSessionRecordings dispatch.
+        hasResolvedSessionRecordings: [
+            false,
+            {
+                loadSessionRecordingsSuccess: () => true,
+                loadSessionRecordingsFailure: () => true,
+            },
+        ],
         selectedRecordingsIds: [
             [] as string[],
             {

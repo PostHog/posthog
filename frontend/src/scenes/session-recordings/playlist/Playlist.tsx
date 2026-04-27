@@ -91,6 +91,7 @@ export function Playlist({
         activeSessionRecordingId,
         totalFiltersCount,
         sessionRecordingsResponseLoading,
+        hasResolvedSessionRecordings,
         visiblePinnedRecordings: pinnedRecordings,
         otherRecordings,
         hasNext,
@@ -218,6 +219,10 @@ export function Playlist({
 
     const activeItemId = activeSessionRecordingId === undefined ? controlledActiveItemId : activeSessionRecordingId
 
+    // Treat the pre-first-load window as "loading" so we render the skeleton
+    // instead of briefly flashing the troubleshooting empty state on mount.
+    const isLoadingOrPending = !!sessionRecordingsResponseLoading || !hasResolvedSessionRecordings
+
     const listEmptyState =
         type === 'collection' ? (
             <CollectionEmptyState isSynthetic={isSynthetic} description={description} />
@@ -312,7 +317,7 @@ export function Playlist({
                                             content: (
                                                 <SectionContent
                                                     section={s}
-                                                    loading={!!sessionRecordingsResponseLoading}
+                                                    loading={isLoadingOrPending}
                                                     setActiveItemId={onChangeActiveItem}
                                                     activeItemId={activeItemId}
                                                     emptyState={listEmptyState}
@@ -329,12 +334,12 @@ export function Playlist({
                             ) : sectionCount === 1 ? (
                                 <SectionContent
                                     section={sections[0]}
-                                    loading={!!sessionRecordingsResponseLoading}
+                                    loading={isLoadingOrPending}
                                     setActiveItemId={onChangeActiveItem}
                                     activeItemId={activeItemId}
                                     emptyState={listEmptyState}
                                 />
-                            ) : sessionRecordingsResponseLoading ? (
+                            ) : isLoadingOrPending ? (
                                 <LoadingState />
                             ) : (
                                 listEmptyState
