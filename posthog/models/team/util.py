@@ -178,7 +178,7 @@ def _delete_cohort_members_for_teams(team_ids: list[int], cohort_ids: list[int])
     Routes per-team for consistent gate/metrics/fallback behavior.
     """
     from posthog.models.cohort import Cohort
-    from posthog.models.person.util import delete_cohort_members_bulk
+    from posthog.models.cohort.util import delete_cohort_members_bulk
 
     for team_id in team_ids:
         team_cohort_ids = list(Cohort.objects.filter(team_id=team_id, id__in=cohort_ids).values_list("id", flat=True))

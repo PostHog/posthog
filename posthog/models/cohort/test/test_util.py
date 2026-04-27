@@ -399,22 +399,22 @@ class TestCohortUtils(BaseTest):
         self.assertIn("allow_experimental_object_type=1", sql)
         self.assertIn("optimize_min_equality_disjunction_chain_length=4294967295", sql)
 
-    def test_get_static_cohort_size_uses_specified_database(self):
+    def test_get_static_cohort_size_with_strong_consistency(self):
         cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
 
-        with patch("posthog.models.person.util.count_cohort_members", return_value=42) as mock_count:
-            result = get_static_cohort_size(cohort_id=cohort.id, team_id=self.team.id, using_database="test_db")
+        with patch("posthog.models.cohort.util.count_cohort_members", return_value=42) as mock_count:
+            result = get_static_cohort_size(cohort_id=cohort.id, team_id=self.team.id, consistency="strong")
 
-        mock_count.assert_called_once_with(team_id=self.team.id, cohort_id=cohort.id, using_database="test_db")
+        mock_count.assert_called_once_with(team_id=self.team.id, cohort_id=cohort.id, consistency="strong")
         self.assertEqual(result, 42)
 
-    def test_get_static_cohort_size_without_database_does_not_call_using(self):
+    def test_get_static_cohort_size_defaults_to_eventual_consistency(self):
         cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
 
-        with patch("posthog.models.person.util.count_cohort_members", return_value=10) as mock_count:
+        with patch("posthog.models.cohort.util.count_cohort_members", return_value=10) as mock_count:
             result = get_static_cohort_size(cohort_id=cohort.id, team_id=self.team.id)
 
-        mock_count.assert_called_once_with(team_id=self.team.id, cohort_id=cohort.id, using_database=None)
+        mock_count.assert_called_once_with(team_id=self.team.id, cohort_id=cohort.id, consistency="eventual")
         self.assertEqual(result, 10)
 
     def test_print_cohort_hogql_query_raises_error_on_mixed_id_types_in_union(self):
