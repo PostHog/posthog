@@ -82,21 +82,13 @@ export const botDetailLogic = kea<botDetailLogicType>([
                                 kind: NodeKind.TrendsQuery,
                                 dateRange,
                                 interval: interval ?? 'hour',
-                                series: [
-                                    {
-                                        event: null as unknown as string,
-                                        kind: NodeKind.EventsNode,
-                                        math: BaseMathType.TotalCount,
-                                        name: 'All events',
-                                        custom_name: 'Requests',
-                                        properties: [
-                                            {
-                                                type: PropertyFilterType.HogQL,
-                                                key: `event IN (${BOT_ANALYTICS_EVENTS.map((e) => `'${e}'`).join(', ')})`,
-                                            },
-                                        ],
-                                    },
-                                ],
+                                series: BOT_ANALYTICS_EVENTS.map((event) => ({
+                                    event,
+                                    kind: NodeKind.EventsNode,
+                                    math: BaseMathType.TotalCount,
+                                    name: event,
+                                    custom_name: 'Requests',
+                                })),
                                 trendsFilter: {
                                     display: ChartDisplayType.ActionsLineGraph,
                                 },

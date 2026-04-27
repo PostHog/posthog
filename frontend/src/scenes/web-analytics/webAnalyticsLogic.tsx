@@ -2303,22 +2303,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                     const botTiles: (WebAnalyticsTile | null)[] = [
                         (() => {
-                            const botEventFilter = `event IN (${BOT_ANALYTICS_EVENTS.map((e) => `'${e}'`).join(', ')})`
-                            const botTrendsSeries = [
-                                {
-                                    event: null as unknown as string,
-                                    kind: NodeKind.EventsNode as const,
-                                    math: BaseMathType.TotalCount,
-                                    name: 'All events',
-                                    custom_name: 'Requests',
-                                    properties: [
-                                        {
-                                            type: PropertyFilterType.HogQL,
-                                            key: botEventFilter,
-                                        },
-                                    ],
-                                },
-                            ]
+                            const botTrendsSeries = BOT_ANALYTICS_EVENTS.map((event) => ({
+                                event,
+                                kind: NodeKind.EventsNode as const,
+                                math: BaseMathType.TotalCount,
+                                name: event,
+                                custom_name: 'Requests',
+                            }))
                             const createBotTrendsTab = (
                                 id: string,
                                 title: string,
