@@ -35,8 +35,14 @@ export function useAIData(eventData: EventData | undefined): UseAIDataResult {
     const cached = eventId ? aiDataCache[eventId] : undefined
     const loading = eventId ? isEventLoading(eventId) : false
 
+    // Only fire the loader when a real fetch is possible. If we fired it with the flag
+    // off (or before flags resolve, when useFeatureFlag returns false), the loader would
+    // passthrough and cache `{ input: undefined, output: undefined }` — and once the flag
+    // later resolves to true the effect would short-circuit on `cached` and never refetch.
+    const canFetch = aiEventsRolloutEnabled && !!traceId && !!timestamp
+
     useEffect(() => {
-        if (!eventId || cached || loading) {
+        if (!eventId || cached || loading || !canFetch) {
             return
         }
 
@@ -49,7 +55,19 @@ export function useAIData(eventData: EventData | undefined): UseAIDataResult {
             timestamp,
             aiEventsRolloutEnabled,
         })
-    }, [cached, loading, loadAIDataForEvent, eventId, input, output, tools, traceId, timestamp, aiEventsRolloutEnabled])
+    }, [
+        cached,
+        loading,
+        canFetch,
+        loadAIDataForEvent,
+        eventId,
+        input,
+        output,
+        tools,
+        traceId,
+        timestamp,
+        aiEventsRolloutEnabled,
+    ])
 
     if (!eventId) {
         return {
@@ -60,10 +78,12 @@ export function useAIData(eventData: EventData | undefined): UseAIDataResult {
         }
     }
 
+    // When we can't fetch, fall back to whatever was passed in — there's nothing to wait
+    // for. Once the flag flips on, the effect re-runs and `cached` takes over.
     return {
-        input: cached?.input,
-        output: cached?.output,
-        tools: cached?.tools,
-        isLoading: loading || !cached,
+        input: cached?.input ?? input,
+        output: cached?.output ?? output,
+        tools: cached?.tools ?? tools,
+        isLoading: canFetch && (loading || !cached),
     }
 }

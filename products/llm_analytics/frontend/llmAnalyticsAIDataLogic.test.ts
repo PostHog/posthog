@@ -128,7 +128,11 @@ describe('llmAnalyticsAIDataLogic', () => {
             })
     })
 
-    it('skips the fetch entirely when traceId or timestamp is missing', async () => {
+    it.each([
+        ['traceId missing', { traceId: undefined, timestamp: '2026-04-30T10:00:00Z' }],
+        ['timestamp missing', { traceId: 'trace-1', timestamp: undefined }],
+        ['both missing', { traceId: undefined, timestamp: undefined }],
+    ])('skips the fetch when trace coordinates are incomplete (%s)', async (_label, coords) => {
         const querySpy = jest.spyOn(mockApi, 'query')
 
         const logic = llmAnalyticsAIDataLogic()
@@ -141,6 +145,7 @@ describe('llmAnalyticsAIDataLogic', () => {
                 output: undefined,
                 tools: undefined,
                 aiEventsRolloutEnabled: true,
+                ...coords,
             })
         }).toFinishAllListeners()
 
