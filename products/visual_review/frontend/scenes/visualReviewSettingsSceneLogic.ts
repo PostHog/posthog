@@ -22,10 +22,20 @@ export interface RepoFormValues {
     enable_pr_comments: boolean
 }
 
+const baselinePathKey = z
+    .string()
+    .trim()
+    .min(1, 'Run type is required')
+    .regex(/^[a-z][a-z0-9_-]*$/i, 'Run type must be alphanumeric (e.g. storybook, playwright)')
+
+const baselinePathValue = z
+    .string()
+    .trim()
+    .min(1, 'Path is required')
+    .regex(/\.\w+$/, 'Path must include a file extension (e.g. .yml)')
+
 const repoFormSchema = VisualReviewReposPartialUpdateBody.extend({
-    baseline_file_paths: z
-        .record(z.string().trim().min(1, 'Run type is required'), z.string().trim().min(1, 'Path is required'))
-        .default({}),
+    baseline_file_paths: z.record(baselinePathKey, baselinePathValue).default({}),
     enable_pr_comments: z.boolean().default(false),
 })
 
