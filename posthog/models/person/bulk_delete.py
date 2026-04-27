@@ -6,6 +6,7 @@ from datetime import timedelta
 from typing import cast
 
 from django.conf import settings
+from django.db.models import Prefetch
 
 import structlog
 from loginas.utils import is_impersonated_session
@@ -45,7 +46,11 @@ def resolve_persons_for_deletion(
         )
     if not person_ids:
         return []
-    return list(Person.objects.filter(id__in=person_ids, team_id=team_id).defer("properties"))
+    return list(
+        Person.objects.filter(id__in=person_ids, team_id=team_id)
+        .defer("properties")
+        .prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+    )
 
 
 def delete_persons_profile(

@@ -474,6 +474,16 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         if obj.request_type == RequestType.EVENT_REMOVAL and obj.properties:
             obj.properties = []
             messages.info(request, "Properties cleared — event removal requests do not use properties.")
+        if obj.request_type == RequestType.PERSON_REMOVAL and (
+            obj.events or obj.delete_all_events or obj.hogql_predicate
+        ):
+            obj.events = []
+            obj.delete_all_events = False
+            obj.hogql_predicate = ""
+            messages.info(
+                request,
+                "Event filters cleared — person removal requests do not use events/hogql_predicate.",
+            )
         if obj.request_type != RequestType.PERSON_REMOVAL and (
             obj.person_uuids
             or obj.person_distinct_ids
