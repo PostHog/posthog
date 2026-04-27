@@ -13,8 +13,10 @@ from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.dags.data_deletion_requests import (
     DataDeletionRequestConfig,
     DeletionRequestContext,
+    PersonRemovalContext,
     data_deletion_request_event_removal,
     data_deletion_request_property_removal,
+    delete_person_events_op,
     execute_event_deletion,
     finalize_deletion_request,
     load_deletion_request,
@@ -47,6 +49,25 @@ def _count_events_by_name(team_id: int, event_name: str, client: Client) -> int:
         {"team_id": team_id, "event": event_name},
     )
     return result[0][0]
+
+
+def _insert_events_with_person(events: list[tuple], client: Client) -> None:
+    client.execute(
+        "INSERT INTO writable_events (team_id, event, uuid, timestamp, person_id) VALUES",
+        events,
+    )
+
+
+def _count_events_for_person(team_id: int, person_uuid: str, client: Client) -> int:
+    result = client.execute(
+        "SELECT count() FROM writable_events WHERE team_id = %(team_id)s AND person_id = %(p)s",
+        {"team_id": team_id, "p": person_uuid},
+    )
+    return result[0][0]
+
+
+def _truncate_writable_events(client: Client) -> None:
+    client.execute("TRUNCATE TABLE IF EXISTS sharded_events")
 
 
 def _truncate_adhoc_events_deletion(client: Client) -> None:
@@ -919,3 +940,50 @@ def test_load_person_removal_rejects_wrong_type():
     config = DataDeletionRequestConfig(request_id=str(request.pk))
     with pytest.raises(Exception, match="not an approved person_removal request"):
         load_person_removal_request(build_op_context(), config)
+
+
+@pytest.mark.django_db
+def test_delete_person_events_op_runs_lightweight_delete_per_shard(cluster: ClickhouseCluster):
+    person_uuid = str(uuid4())
+    other_uuid = str(uuid4())
+    now = datetime.now()
+
+    cluster.any_host(_truncate_writable_events).result()
+    cluster.any_host(
+        partial(
+            _insert_events_with_person,
+            [
+                (TEAM_ID, "$pageview", str(uuid4()), now, person_uuid),
+                (TEAM_ID, "$pageview", str(uuid4()), now, other_uuid),
+            ],
+        )
+    ).result()
+
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[person_uuid],
+        person_distinct_ids=[],
+        drop_profiles=False,
+        drop_events=True,
+        drop_recordings=False,
+    )
+
+    delete_person_events_op(build_op_context(), cluster, ctx)
+
+    assert cluster.any_host(partial(_count_events_for_person, TEAM_ID, person_uuid)).result() == 0
+    assert cluster.any_host(partial(_count_events_for_person, TEAM_ID, other_uuid)).result() == 1
+
+
+@pytest.mark.django_db
+def test_delete_person_events_op_noop_when_disabled(cluster: ClickhouseCluster):
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[str(uuid4())],
+        person_distinct_ids=[],
+        drop_profiles=False,
+        drop_events=False,
+        drop_recordings=False,
+    )
+    delete_person_events_op(build_op_context(), cluster, ctx)

@@ -602,6 +602,65 @@ def load_person_removal_request(
     )
 
 
+def _person_event_predicate(ctx: PersonRemovalContext) -> tuple[str, dict]:
+    """Build WHERE predicate + params for events linked to the targeted persons."""
+    parts = ["team_id = %(team_id)s AND person_id IN %(person_ids)s"]
+    params: dict = {"team_id": ctx.team_id, "person_ids": ctx.person_uuids}
+    if ctx.start_time is not None and ctx.end_time is not None:
+        parts.append("AND timestamp >= %(start_time)s AND timestamp < %(end_time)s")
+        params["start_time"] = ctx.start_time
+        params["end_time"] = ctx.end_time
+    return " ".join(parts), params
+
+
+@dagster.op(tags=OWNER_TAG)
+def delete_person_events_op(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    person_removal: PersonRemovalContext,
+) -> PersonRemovalContext:
+    """Per-shard lightweight delete of events for the targeted persons."""
+    if not person_removal.drop_events:
+        context.log.info("drop_events=False, skipping event deletion")
+        return person_removal
+    if not person_removal.person_uuids:
+        # Person UUIDs are resolved up front in delete_person_profiles_op; if we get here without
+        # any UUIDs (e.g. only distinct_ids supplied) we resolve them now.
+        from posthog.models.person.bulk_delete import resolve_persons_for_deletion
+
+        persons = resolve_persons_for_deletion(
+            person_removal.team_id,
+            uuids=None,
+            distinct_ids=person_removal.person_distinct_ids,
+        )
+        person_removal.person_uuids = [str(p.uuid) for p in persons]
+        if not person_removal.person_uuids:
+            context.log.info("No persons resolved; nothing to delete")
+            return person_removal
+
+    table = EVENTS_DATA_TABLE()
+    predicate, params = _person_event_predicate(person_removal)
+    shards = sorted(cluster.shards)
+    context.log.info(f"Deleting events for {len(person_removal.person_uuids)} persons across {len(shards)} shards")
+
+    for idx, shard_num in enumerate(shards, 1):
+        context.log.info(f"Processing shard {shard_num} ({idx}/{len(shards)})")
+        shard_start = time.monotonic()
+        runner = LightweightDeleteMutationRunner(
+            table=table,
+            predicate=predicate,
+            parameters=params,
+            settings={"lightweight_deletes_sync": 0},
+        )
+        shard_result = cluster.map_any_host_in_shards({shard_num: runner}).result()
+        _host, waiter = next(iter(shard_result.items()))
+        cluster.map_all_hosts_in_shard(shard_num, waiter.wait).result()
+        context.log.info(f"Shard {shard_num} complete in {time.monotonic() - shard_start:.1f}s")
+
+    context.add_output_metadata({"shards_processed": dagster.MetadataValue.int(len(shards))})
+    return person_removal
+
+
 # ---------------------------------------------------------------------------
 # Shared ops
 # ---------------------------------------------------------------------------
