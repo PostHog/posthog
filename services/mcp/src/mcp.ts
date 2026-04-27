@@ -605,8 +605,9 @@ export class MCP extends McpAgent<Env> {
                       groupTypes,
                       metadata,
                       toolInfos,
-                      queryToolInfos
-                  )
+                      queryToolInfos,
+                      { compact: true }
+                  ).trim()
                 : ''
 
         let instructions = ''
