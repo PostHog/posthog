@@ -146,6 +146,7 @@ const appendPathLinks = (svg: any, links: SankeyLink<PathNodeData, {}>[], handle
             return roundedRect(0, 0, 30, _height, Math.min(25, _height), false, true, false, false)
         })
         .attr('fill', 'url(#dropoff-gradient)')
+        .attr('fill-opacity', 0.35)
         .attr('stroke-width', 0)
         .attr('transform', (data: PathNodeData) => {
             return (
