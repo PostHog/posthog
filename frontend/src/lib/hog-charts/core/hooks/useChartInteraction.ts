@@ -128,7 +128,16 @@ export function useChartInteraction<Meta = unknown>({
                 const canvasBounds = canvasRef.current?.getBoundingClientRect() ?? new DOMRect()
                 // Always propagate the result (including null) so tooltipCtx stays in sync with hoverIndex.
                 setTooltipCtx(
-                    buildTooltipContext(index, series, labels, scales.x, scales.y, canvasBounds, resolveValue)
+                    buildTooltipContext(
+                        index,
+                        series,
+                        labels,
+                        scales.x,
+                        scales.y,
+                        canvasBounds,
+                        resolveValue,
+                        scales.yAxes
+                    )
                 )
             }
         },

@@ -26,12 +26,14 @@ from posthog.temporal.session_replay.export_recording import WORKFLOWS as EXPORT
 from posthog.temporal.session_replay.import_recording import WORKFLOWS as IMPORT_RECORDING_WORKFLOWS
 from posthog.temporal.session_replay.rasterize_recording import WORKFLOWS as RASTERIZE_RECORDING_WORKFLOWS
 from posthog.temporal.session_replay.replay_count_metrics import WORKFLOWS as REPLAY_COUNT_METRICS_WORKFLOWS
+from posthog.temporal.session_replay.summarization_sweep import SUMMARIZATION_SWEEP_WORKFLOWS
 from posthog.temporal.sync_person_distinct_ids import WORKFLOWS as SYNC_PERSON_DISTINCT_IDS_WORKFLOWS
 from posthog.temporal.tests.utils.workflow import WORKFLOWS as TEST_WORKFLOWS
 from posthog.temporal.usage_reports import WORKFLOWS as USAGE_REPORTS_WORKFLOWS
 from posthog.temporal.weekly_digest import WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS
 
 from products.batch_exports.backend.temporal import WORKFLOWS as BATCH_EXPORT_WORKFLOWS
+from products.web_analytics.backend.temporal import WORKFLOWS as WA_DIGEST_WORKFLOWS
 
 
 class Command(BaseCommand):
@@ -153,9 +155,11 @@ class Command(BaseCommand):
             + IMPORT_RECORDING_WORKFLOWS
             + RASTERIZE_RECORDING_WORKFLOWS
             + REPLAY_COUNT_METRICS_WORKFLOWS
+            + SUMMARIZATION_SWEEP_WORKFLOWS
             + WEEKLY_DIGEST_WORKFLOWS
             + EVENT_SCREENSHOTS_WORKFLOWS
             + HEALTH_CHECK_WORKFLOWS
+            + WA_DIGEST_WORKFLOWS
         )
         try:
             workflow = next(workflow for workflow in WORKFLOWS if workflow.is_named(workflow_name))

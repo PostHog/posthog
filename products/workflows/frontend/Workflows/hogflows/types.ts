@@ -62,10 +62,9 @@ export const HogFlowTemplateSchema = HogFlowSchema.omit({ status: true }).extend
 export const HogFlowBatchJobSchema = z.object({
     id: z.string(),
     hog_flow: z.string(),
-    variables: z.record(z.any()),
+    variables: z.record(z.string(), z.any()),
     status: z.enum(['waiting', 'queued', 'active', 'completed', 'cancelled', 'failed']),
     filters: z.any(),
-    scheduled_at: z.string().nullable(),
     created_at: z.string(),
     updated_at: z.string(),
 })

@@ -28,6 +28,10 @@ the safety judge first, then calls into this flow via a Temporal activity if the
     The repository used for research is tracked separately via the `repo_selection` artefact.
 - `fixtures/analyze_report_funnel_research_output.json`
   Saved previous research output used by local `update` testing.
+- `fixtures/insight_scene_logic_mode_property_bug.json`
+  Saved research output for a single-signal, `immediately_actionable` P1 report.
+  Used by the `ingest_report_json` management command to exercise the autostart
+  path without running the sandbox research flow.
 
 ## Mental model
 

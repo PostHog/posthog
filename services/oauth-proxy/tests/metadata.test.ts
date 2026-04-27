@@ -93,7 +93,7 @@ describe('handleMetadata', () => {
         vi.useRealTimers()
     })
 
-    it('throws when authoritative metadata fetch fails', async () => {
+    it('returns 502 when authoritative metadata fetch fails and no cache exists', async () => {
         vi.stubGlobal(
             'fetch',
             vi.fn().mockResolvedValue({
@@ -105,6 +105,38 @@ describe('handleMetadata', () => {
         const { handleMetadata } = await import('@/handlers/metadata')
         const request = new Request('https://oauth.posthog.com/.well-known/oauth-authorization-server')
 
-        await expect(handleMetadata(request)).rejects.toThrow('Failed to fetch authoritative metadata')
+        const response = await handleMetadata(request)
+        expect(response.status).toBe(502)
+        const data = (await response.json()) as Record<string, unknown>
+        expect(data.error).toBe('server_error')
+    })
+
+    it('returns 502 when metadata refresh fails after cache expires', async () => {
+        vi.useFakeTimers()
+        const { handleMetadata } = await import('@/handlers/metadata')
+        const request = new Request('https://oauth.posthog.com/.well-known/oauth-authorization-server')
+
+        // Populate cache with a successful fetch
+        const response1 = await handleMetadata(request)
+        expect(response1.status).toBe(200)
+
+        // Expire cache
+        vi.advanceTimersByTime(601 * 1000)
+
+        // Make fetch fail
+        vi.stubGlobal(
+            'fetch',
+            vi.fn().mockResolvedValue({
+                ok: false,
+                statusText: 'Service Unavailable',
+            })
+        )
+
+        const response2 = await handleMetadata(request)
+        expect(response2.status).toBe(502)
+        const data = (await response2.json()) as Record<string, unknown>
+        expect(data.error).toBe('server_error')
+
+        vi.useRealTimers()
     })
 })

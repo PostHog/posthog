@@ -61,6 +61,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                                             scrollBeyondLastLine: !!props.originalValue,
                                             automaticLayout: true,
                                             fixedOverflowWidgets: true,
+                                            glyphMargin: true,
                                             suggest: {
                                                 showInlineDetails: true,
                                             },

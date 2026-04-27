@@ -41,7 +41,7 @@ To connect to a pod, follow this runbook: [https://runbooks.posthog.com/EKS/acce
 The following code snippet will both disable billing and reset the table - which means deleting all existing table files (other than query files). Make sure to run this on a `temporal-worker-data-warehouse` pod - they have all the correct env vars set up for this:
 
 ```python
-from dlt.common.normalizers.naming.snake_case import NamingConvention
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 import os
 import s3fs
 import time
@@ -55,7 +55,7 @@ for index, schema_id in enumerate(schema_ids):
     team_id = schema.team_id
     schema_id = schema.id
     source_id = schema.source.id
-    schema_name = NamingConvention().normalize_identifier(schema.name)
+    schema_name = NamingConvention.normalize_identifier(schema.name)
     s3_folder = f"{os.environ['BUCKET_URL']}/{schema.folder_path()}/{schema_name}"
     print(f"Deleting {s3_folder}")
     try:
@@ -73,7 +73,7 @@ for index, schema_id in enumerate(schema_ids):
 If you want to sync a table without resetting it - then the below snippet is for you instead:
 
 ```python
-from dlt.common.normalizers.naming.snake_case import NamingConvention
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 import os
 import s3fs
 import time
@@ -87,7 +87,7 @@ for index, schema_id in enumerate(schema_ids):
     team_id = schema.team_id
     schema_id = schema.id
     source_id = schema.source.id
-    schema_name = NamingConvention().normalize_identifier(schema.name)
+    schema_name = NamingConvention.normalize_identifier(schema.name)
     print("Starting temporal worker...")
     try:
         os.system('python manage.py start_temporal_workflow external-data-job "{\\"team_id\\": ' + str(team_id) + ',\\"external_data_source_id\\":\\"' + str(source_id) + '\\",\\"external_data_schema_id\\":\\"' + str(schema_id) + '\\",\\"billable\\":false,\\"reset_pipeline\\":false}" --workflow-id ' + str(schema_id) + '-resync-' + str(time.time()) + ' --task-queue data-warehouse-task-queue')
@@ -104,30 +104,51 @@ Run this on a `temporal-worker-data-warehouse` pod via `manage.py shell_plus`:
 
 ```python
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3 import list_parquet_files, read_parquet
-from posthog.temporal.data_imports.pipelines.pipeline_v3.s3.common import get_base_folder, get_data_folder
+from posthog.temporal.data_imports.pipelines.pipeline_v3.s3.common import get_base_folder, get_data_folder, strip_s3_protocol
 from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.common import ExportSignalMessage, get_warpstream_kafka_producer
 from posthog.temporal.data_imports.pipelines.pipeline_v3.load.retry_tracker import clear_retry_info
 from posthog.temporal.data_imports.pipelines.pipeline_v3.load.idempotency import is_batch_already_processed
 from posthog.kafka_client.topics import KAFKA_WAREHOUSE_SOURCES_JOBS
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema
+from products.data_warehouse.backend.s3 import get_s3_client
 
 schema_id = '...'  # UUID of the schema to replay
 dry_run = True  # Set to False to actually send messages
+skip_job_check = False  # If True, ignore job status in DB and replay whatever is in S3
 
 schema = ExternalDataSchema.objects.select_related('source').get(id=schema_id)
 source = schema.source
 team_id = schema.team_id
 
-# Find the latest failed or running job for this schema
-job = (
-    ExternalDataJob.objects
-    .filter(schema_id=schema_id, status__in=[ExternalDataJob.Status.FAILED, ExternalDataJob.Status.RUNNING])
-    .order_by('-created_at')
-    .first()
-)
+if skip_job_check:
+    # Discover the latest run_uuid folder directly from S3 — strip the trailing run_uuid
+    # segment from get_base_folder to get the schema-level prefix
+    schema_base = get_base_folder(team_id, str(schema.id), '').rstrip('/')
+    schema_prefix = strip_s3_protocol(schema_base)
+    s3 = get_s3_client()
+    try:
+        run_folders = sorted(f.rstrip('/').split('/')[-1] for f in s3.ls(schema_prefix))
+    except FileNotFoundError:
+        run_folders = []
+    if not run_folders:
+        print(f"No S3 run folders found under {schema_prefix}")
+        job = None
+    else:
+        run_uuid = run_folders[-1]
+        job = ExternalDataJob.objects.filter(schema_id=schema_id, workflow_run_id=run_uuid).order_by('-created_at').first()
+        if job is None:
+            print(f"Found S3 run_uuid={run_uuid} but no matching ExternalDataJob")
+else:
+    # Find the latest failed or running job for this schema
+    job = (
+        ExternalDataJob.objects
+        .filter(schema_id=schema_id, status__in=[ExternalDataJob.Status.FAILED, ExternalDataJob.Status.RUNNING])
+        .order_by('-created_at')
+        .first()
+    )
 
 if job is None:
-    print(f"No failed/running job found for schema {schema_id}")
+    print(f"No job available for schema {schema_id}")
 else:
     run_uuid = job.workflow_run_id
     print(f"Found job {job.id} (status={job.status}, run_uuid={run_uuid})")

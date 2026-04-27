@@ -4,9 +4,10 @@ import dts from 'vite-plugin-dts'
 
 /**
  * Builds the JavaScript entry for @posthog/quill. The CSS pipeline is
- * handled separately by `scripts/build-css.ts` so vite never touches
- * Tailwind or the pre-compiled stylesheet — it only bundles the thin
- * re-export layer that ties primitives + components + blocks together.
+ * handled separately by `scripts/build-css.ts` which just emits the
+ * tokens / base / tailwind.css metadata files — vite never runs
+ * Tailwind. It only bundles the thin re-export layer that ties
+ * primitives + components + blocks together.
  *
  * IMPORTANT: `@posthog/quill-primitives`, `@posthog/quill-components`,
  * and `@posthog/quill-blocks` are **not** externalized. They are
@@ -61,6 +62,8 @@ export default defineConfig({
                 'vaul',
             ],
         },
-        emptyOutDir: false, // dist/quill.css is written by build-css.ts before vite runs
+        // scripts/build-css.ts writes dist/{tokens,base,tailwind,color-system}.css
+        // before vite runs — don't let vite wipe them.
+        emptyOutDir: false,
     },
 })

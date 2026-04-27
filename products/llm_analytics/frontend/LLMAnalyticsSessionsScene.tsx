@@ -16,13 +16,13 @@ import { isHogQLQuery } from '~/queries/utils'
 
 import { LLMAnalyticsTraceEvents } from './components/LLMAnalyticsTraceEvents'
 import { useSortableColumns } from './hooks/useSortableColumns'
-import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+import { buildApplyUrlStatePayload, llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmAnalyticsSessionsViewLogic } from './tabs/llmAnalyticsSessionsViewLogic'
 import { formatLLMCost, getTraceTimestamp, sanitizeTraceUrlSearchParams } from './utils'
 
 export function LLMAnalyticsSessionsScene(): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
-    const { dateFilter } = useValues(llmAnalyticsSharedLogic)
+    const { applyUrlState } = useActions(llmAnalyticsSharedLogic)
+    const { dateFilter, propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
     const { searchParams } = useValues(router)
     const traceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
 
@@ -56,9 +56,16 @@ export function LLMAnalyticsSessionsScene(): JSX.Element {
                 }
                 const { filters = {} } = query.source
                 const { dateRange = {} } = filters
-                setDates(dateRange.date_from || null, dateRange.date_to || null)
-                setShouldFilterTestAccounts(filters.filterTestAccounts || false)
-                setPropertyFilters(filters.properties || [])
+                applyUrlState(
+                    buildApplyUrlStatePayload({
+                        dateFrom: dateRange.date_from || null,
+                        dateTo: dateRange.date_to || null,
+                        shouldFilterTestAccounts: filters.filterTestAccounts || false,
+                        propertyFilters: filters.properties || [],
+                        currentDateFilter: dateFilter,
+                        currentPropertyFilters,
+                    })
+                )
             }}
             context={{
                 emptyStateHeading: 'There were no AI sessions in this period',

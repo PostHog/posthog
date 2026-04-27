@@ -414,6 +414,59 @@ insight_variables: PostgresTable = PostgresTable(
     },
 )
 
+session_recording_playlists: PostgresTable = PostgresTable(
+    name="session_recording_playlists",
+    postgres_table_name="posthog_sessionrecordingplaylist",
+    access_scope="session_recording_playlist",
+    fields={
+        "id": IntegerDatabaseField(name="id"),
+        "short_id": StringDatabaseField(name="short_id"),
+        "name": StringDatabaseField(name="name"),
+        "derived_name": StringDatabaseField(name="derived_name"),
+        "description": StringDatabaseField(name="description"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "_pinned": BooleanDatabaseField(name="pinned", hidden=True),
+        "pinned": ExpressionField(name="pinned", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_pinned"])])),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "filters": StringJSONDatabaseField(name="filters"),
+        "type": StringDatabaseField(name="type"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "created_by_id": IntegerDatabaseField(name="created_by_id"),
+        "last_modified_at": DateTimeDatabaseField(name="last_modified_at"),
+        "last_modified_by_id": IntegerDatabaseField(name="last_modified_by_id"),
+    },
+)
+
+session_recordings: PostgresTable = PostgresTable(
+    name="session_recordings",
+    postgres_table_name="posthog_sessionrecording",
+    access_scope="session_recording",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "session_id": StringDatabaseField(name="session_id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "distinct_id": StringDatabaseField(name="distinct_id"),
+        "duration": IntegerDatabaseField(name="duration"),
+        "active_seconds": IntegerDatabaseField(name="active_seconds"),
+        "inactive_seconds": IntegerDatabaseField(name="inactive_seconds"),
+        "start_time": DateTimeDatabaseField(name="start_time"),
+        "end_time": DateTimeDatabaseField(name="end_time"),
+        "click_count": IntegerDatabaseField(name="click_count"),
+        "keypress_count": IntegerDatabaseField(name="keypress_count"),
+        "mouse_activity_count": IntegerDatabaseField(name="mouse_activity_count"),
+        "console_log_count": IntegerDatabaseField(name="console_log_count"),
+        "console_warn_count": IntegerDatabaseField(name="console_warn_count"),
+        "console_error_count": IntegerDatabaseField(name="console_error_count"),
+        "start_url": StringDatabaseField(name="start_url"),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "retention_period_days": IntegerDatabaseField(name="retention_period_days"),
+        "storage_version": StringDatabaseField(name="storage_version"),
+    },
+)
+
 surveys: PostgresTable = PostgresTable(
     name="surveys",
     postgres_table_name="posthog_survey",
@@ -632,6 +685,56 @@ error_tracking_issue_fingerprints: PostgresTable = PostgresTable(
     },
 )
 
+error_tracking_assignment_rules: PostgresTable = PostgresTable(
+    name="error_tracking_assignment_rules",
+    postgres_table_name="posthog_errortrackingassignmentrule",
+    access_scope="error_tracking",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "user_id": IntegerDatabaseField(name="user_id", nullable=True),
+        "role_id": StringDatabaseField(name="role_id", nullable=True),
+        "order_key": IntegerDatabaseField(name="order_key"),
+        "filters": StringJSONDatabaseField(name="filters"),
+        "bytecode": StringJSONDatabaseField(name="bytecode"),
+        "disabled_data": StringJSONDatabaseField(name="disabled_data", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
+error_tracking_suppression_rules: PostgresTable = PostgresTable(
+    name="error_tracking_suppression_rules",
+    postgres_table_name="posthog_errortrackingsuppressionrule",
+    access_scope="error_tracking",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "order_key": IntegerDatabaseField(name="order_key"),
+        "sampling_rate": FloatDatabaseField(name="sampling_rate"),
+        "filters": StringJSONDatabaseField(name="filters"),
+        "bytecode": StringJSONDatabaseField(name="bytecode", nullable=True),
+        "disabled_data": StringJSONDatabaseField(name="disabled_data", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
+error_tracking_releases: PostgresTable = PostgresTable(
+    name="error_tracking_releases",
+    postgres_table_name="posthog_errortrackingrelease",
+    access_scope="error_tracking",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "hash_id": StringDatabaseField(name="hash_id"),
+        "version": StringDatabaseField(name="version"),
+        "project": StringDatabaseField(name="project"),
+        "metadata": StringJSONDatabaseField(name="metadata", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+    },
+)
+
 logs_views: PostgresTable = PostgresTable(
     name="logs_views",
     postgres_table_name="logs_logsview",
@@ -678,6 +781,41 @@ logs_alerts: PostgresTable = PostgresTable(
     },
 )
 
+support_tickets: PostgresTable = PostgresTable(
+    name="support_tickets",
+    postgres_table_name="posthog_conversations_ticket",
+    access_scope="ticket",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "ticket_number": IntegerDatabaseField(name="ticket_number"),
+        "channel_source": StringDatabaseField(name="channel_source"),
+        "channel_detail": StringDatabaseField(name="channel_detail", nullable=True),
+        "distinct_id": StringDatabaseField(name="distinct_id"),
+        "status": StringDatabaseField(name="status"),
+        "priority": StringDatabaseField(name="priority", nullable=True),
+        "anonymous_traits": StringJSONDatabaseField(name="anonymous_traits"),
+        "_ai_resolved": BooleanDatabaseField(name="ai_resolved", hidden=True),
+        "ai_resolved": ExpressionField(
+            name="ai_resolved",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_ai_resolved"])]),
+        ),
+        "escalation_reason": StringDatabaseField(name="escalation_reason", nullable=True),
+        "message_count": IntegerDatabaseField(name="message_count"),
+        "unread_customer_count": IntegerDatabaseField(name="unread_customer_count"),
+        "unread_team_count": IntegerDatabaseField(name="unread_team_count"),
+        "last_message_at": DateTimeDatabaseField(name="last_message_at", nullable=True),
+        "last_message_text": StringDatabaseField(name="last_message_text", nullable=True),
+        "email_subject": StringDatabaseField(name="email_subject", nullable=True),
+        "email_from": StringDatabaseField(name="email_from", nullable=True),
+        "session_id": StringDatabaseField(name="session_id", nullable=True),
+        "session_context": StringJSONDatabaseField(name="session_context"),
+        "sla_due_at": DateTimeDatabaseField(name="sla_due_at", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
 early_access_features: PostgresTable = PostgresTable(
     name="early_access_features",
     postgres_table_name="posthog_earlyaccessfeature",
@@ -713,6 +851,9 @@ class SystemTables(TableNode):
         "data_modeling_endpoints": TableNode(name="data_modeling_endpoints", table=endpoints),
         "data_warehouse_sources": TableNode(name="data_warehouse_sources", table=data_warehouse_sources),
         "data_warehouse_tables": TableNode(name="data_warehouse_tables", table=data_warehouse_tables),
+        "error_tracking_assignment_rules": TableNode(
+            name="error_tracking_assignment_rules", table=error_tracking_assignment_rules
+        ),
         "error_tracking_issue_assignments": TableNode(
             name="error_tracking_issue_assignments", table=error_tracking_issue_assignments
         ),
@@ -720,6 +861,10 @@ class SystemTables(TableNode):
             name="error_tracking_issue_fingerprints", table=error_tracking_issue_fingerprints
         ),
         "error_tracking_issues": TableNode(name="error_tracking_issues", table=error_tracking_issues),
+        "error_tracking_releases": TableNode(name="error_tracking_releases", table=error_tracking_releases),
+        "error_tracking_suppression_rules": TableNode(
+            name="error_tracking_suppression_rules", table=error_tracking_suppression_rules
+        ),
         "early_access_features": TableNode(name="early_access_features", table=early_access_features),
         "experiments": TableNode(name="experiments", table=experiments),
         "exports": TableNode(name="exports", table=exports),
@@ -735,8 +880,11 @@ class SystemTables(TableNode):
         "logs_views": TableNode(name="logs_views", table=logs_views),
         "insights": TableNode(name="insights", table=insights),
         "notebooks": TableNode(name="notebooks", table=notebooks),
+        "session_recording_playlists": TableNode(name="session_recording_playlists", table=session_recording_playlists),
+        "session_recordings": TableNode(name="session_recordings", table=session_recordings),
         "source_schemas": TableNode(name="source_schemas", table=source_schemas),
         "source_sync_jobs": TableNode(name="source_sync_jobs", table=source_sync_jobs),
+        "support_tickets": TableNode(name="support_tickets", table=support_tickets),
         "surveys": TableNode(name="surveys", table=surveys),
         "teams": TableNode(name="teams", table=teams),
     }

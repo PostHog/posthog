@@ -632,12 +632,14 @@ describe('insightLogic', () => {
         }).toDispatchActions(['updateInsightSuccess'])
     })
 
-    test('save as new insight', async () => {
+    test('after save as from a dashboard tile, the editor state stays on the tile insight until navigation opens the copy', async () => {
         savedInsightsLogic({ tabId: '1' }).mount()
 
         const insightProps: InsightLogicProps = {
             dashboardItemId: Insight42,
             cachedInsight: {
+                id: 42,
+                short_id: Insight42,
                 query: examples.InsightFunnels,
             },
         }
@@ -650,14 +652,11 @@ describe('insightLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.saveAsConfirmation('New Insight (copy)')
         })
-            .toDispatchActions(['setInsight'])
             .toDispatchActions(savedInsightsLogic({ tabId: '1' }), ['loadInsights'])
             .toMatchValues({
                 savedInsight: partial({ query: partial({ source: partial({ kind: NodeKind.FunnelsQuery }) }) }),
                 insight: partial({
-                    id: 12,
-                    short_id: Insight12,
-                    name: 'New Insight (copy)',
+                    short_id: Insight42,
                     query: partial({ source: partial({ kind: NodeKind.FunnelsQuery }) }),
                 }),
                 insightChanged: false,

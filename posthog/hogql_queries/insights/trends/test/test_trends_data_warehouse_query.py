@@ -348,43 +348,6 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         assert response.results[3][1] == [0, 0, 0, 1, 0, 0, 0]
         assert response.results[3][2] == "d"
 
-    def test_trends_breakdown_with_events_join_experiments_optimized(self):
-        table_name = self.setup_data_warehouse()
-
-        DataWarehouseJoin.objects.create(
-            team=self.team,
-            source_table_name=table_name,
-            source_table_key="prop_1",
-            joining_table_name="events",
-            joining_table_key="distinct_id",
-            field_name="events",
-            configuration={"experiments_optimized": True, "experiments_timestamp_key": "created"},
-        )
-
-        trends_query = TrendsQuery(
-            kind="TrendsQuery",
-            dateRange=DateRange(date_from="2023-01-01"),
-            series=[
-                DataWarehouseNode(
-                    id=table_name,
-                    table_name=table_name,
-                    id_field="id",
-                    distinct_id_field="prop_1",
-                    timestamp_field="created",
-                )
-            ],
-            filterTestAccounts=True,
-            interval="day",
-            trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
-        )
-
-        with freeze_time("2023-01-07"):
-            response = self.get_response(trends_query=trends_query)
-
-        assert response.columns is not None
-        assert set(response.columns).issubset({"date", "total"})
-        assert response.results[0][1] == [1, 1, 1, 1, 0, 0, 0]
-
     @snapshot_clickhouse_queries
     def test_trends_breakdown_on_view(self):
         from products.data_warehouse.backend.models import DataWarehouseSavedQuery
@@ -560,7 +523,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
                 DataWarehousePropertyFilter(key="prop_1", value="a", operator=PropertyOperator.EXACT),
                 DataWarehousePropertyFilter(key="prop_2", value="e", operator=PropertyOperator.EXACT),
                 EventPropertyFilter(key="prop_1", value="a", operator=PropertyOperator.EXACT),
-                # This should be ignored for DW queries
+                # TODO: This should raise a validation error
             ],
         )
 

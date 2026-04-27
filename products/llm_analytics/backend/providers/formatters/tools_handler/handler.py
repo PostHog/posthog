@@ -38,7 +38,8 @@ class LLMToolsHandler:
             return None
         # Some people store tools in a dictionary mapped by id or name, so we extract the values
         if isinstance(tools_data, dict):
-            return list(tools_data.values())
+            result: list[dict[str, Any]] = [v for v in tools_data.values() if isinstance(v, dict)]
+            return result
         if isinstance(tools_data, list):
             return tools_data
         raise ValueError(f"Tools data is an unknown format: {type(tools_data)}")

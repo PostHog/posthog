@@ -1,12 +1,3 @@
-import api from 'lib/api'
-import { Dayjs, dayjs } from 'lib/dayjs'
-import { TimeTree } from 'lib/utils/time-tree'
-
-import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
-import { HogQLQueryString, hogql } from '~/queries/utils'
-
-import { ItemLoader, TimelineItem } from '..'
-
 export function BasePreview({
     name,
     description,
@@ -28,158 +19,129 @@ export function BasePreview({
     )
 }
 
-export abstract class QueryLoader<T extends TimelineItem> implements ItemLoader<T> {
-    private cache: TimeTree<T>
-    private afterCursor: Dayjs
-    private previousCursor: Dayjs
-    private _hasNext: boolean = true
-    private _hasPrevious: boolean = true
+const MAX_PREVIEW_TEXT_LENGTH = 300
+const MIN_PREVIEW_TEXT_SECTION_LENGTH = 20
+const PREFERRED_PRIMARY_TEXT_SHARE = 0.65
 
-    constructor(timestamp: Dayjs) {
-        this.afterCursor = timestamp
-        this.previousCursor = timestamp
-        this.cache = new TimeTree<T>()
+function truncateText(value: string, maxLength: number): string {
+    if (maxLength <= 0) {
+        return ''
     }
 
-    hasPrevious(to: Dayjs): boolean {
-        if (this.cache.previous(to)) {
-            return true
-        }
-        return this._hasPrevious
+    if (value.length <= maxLength) {
+        return value
     }
 
-    hasNext(from: Dayjs): boolean {
-        if (this.cache.next(from)) {
-            return true
-        }
-        return this._hasNext
+    if (maxLength === 1) {
+        return '…'
     }
 
-    async previous(to: Dayjs, limit: number): Promise<T | null> {
-        const item = this.cache.previous(to)
-        if (item) {
-            return item
-        } else if (this._hasPrevious) {
-            const items = await this.queryTo(this.previousCursor, limit)
-            if (items.length === 0) {
-                this._hasPrevious = false
-            } else if (items.length > 0) {
-                this.previousCursor = items[items.length - 1].timestamp
-            }
-            this.cache.add(items)
-            return this.cache.previous(to) ?? null
-        }
-        return null
-    }
-
-    async next(from: Dayjs, limit: number): Promise<T | null> {
-        const item = this.cache.next(from)
-        if (item) {
-            return item
-        } else if (this._hasNext) {
-            const items = await this.queryFrom(this.afterCursor, limit)
-            if (items.length === 0) {
-                this._hasNext = false
-            } else if (items.length > 0) {
-                this.afterCursor = items[items.length - 1].timestamp
-            }
-            this.cache.add(items)
-            return this.cache.next(from) ?? null
-        }
-        return null
-    }
-
-    abstract queryFrom(from: Dayjs, limit: number): Promise<T[]>
-    abstract queryTo(to: Dayjs, limit: number): Promise<T[]>
-    abstract buildItem(data: any): T
+    return `${value.slice(0, maxLength - 1)}…`
 }
 
-export abstract class EventLoader<T extends TimelineItem> extends QueryLoader<T> implements ItemLoader<T> {
-    constructor(
-        private sessionId: string,
-        timestamp: Dayjs
-    ) {
-        super(timestamp)
-    }
+export function truncatePreviewTexts({
+    primaryText,
+    secondaryText,
+    maxTotalLength = MAX_PREVIEW_TEXT_LENGTH,
+}: {
+    primaryText: string
+    secondaryText?: string
+    maxTotalLength?: number
+}): { primaryText: string; secondaryText?: string } {
+    const normalizedSecondaryText = secondaryText ? secondaryText : undefined
 
-    async queryFrom(from: Dayjs, limit: number): Promise<T[]> {
-        const query = this.buildQueryFrom(from, limit)
-        const response = await api.query(query)
-        return response.results.map(this.buildItem)
-    }
-
-    async queryTo(to: Dayjs, limit: number): Promise<T[]> {
-        const query = this.buildQueryTo(to, limit)
-        const response = await api.query(query)
-        return response.results.map(this.buildItem)
-    }
-
-    private buildQuery(limit: number): Partial<EventsQuery> {
+    if (!normalizedSecondaryText) {
         return {
-            kind: NodeKind.EventsQuery,
-            select: this.select(),
-            where: [`equals($session_id, '${this.sessionId}')`, ...this.where()],
-            limit: limit,
+            primaryText: truncateText(primaryText, maxTotalLength),
         }
     }
 
-    buildQueryFrom(from: Dayjs, limit: number): EventsQuery {
+    const totalLength = primaryText.length + normalizedSecondaryText.length
+    if (totalLength <= maxTotalLength) {
         return {
-            ...this.buildQuery(limit),
-            after: from.toISOString(),
-            before: from.add(6, 'hours').toISOString(),
-            orderBy: ['timestamp ASC'],
-        } as EventsQuery
+            primaryText,
+            secondaryText: normalizedSecondaryText,
+        }
     }
 
-    buildQueryTo(to: Dayjs, limit: number): EventsQuery {
-        return {
-            ...this.buildQuery(limit),
-            after: to.subtract(6, 'hours').toISOString(),
-            before: to.toISOString(),
-            orderBy: ['timestamp DESC'],
-        } as EventsQuery
+    const minimumSectionLength = Math.min(MIN_PREVIEW_TEXT_SECTION_LENGTH, Math.floor(maxTotalLength / 2))
+
+    let primaryBudget = Math.max(minimumSectionLength, Math.round(maxTotalLength * PREFERRED_PRIMARY_TEXT_SHARE))
+    let secondaryBudget = maxTotalLength - primaryBudget
+
+    if (secondaryBudget < minimumSectionLength) {
+        secondaryBudget = minimumSectionLength
+        primaryBudget = maxTotalLength - secondaryBudget
     }
 
-    abstract select(): string[]
-    abstract where(): string[]
-    abstract buildItem(data: any): T
+    if (primaryBudget < minimumSectionLength) {
+        primaryBudget = minimumSectionLength
+        secondaryBudget = maxTotalLength - primaryBudget
+    }
+
+    if (primaryText.length < primaryBudget) {
+        const extra = primaryBudget - primaryText.length
+        primaryBudget = primaryText.length
+        secondaryBudget = Math.min(maxTotalLength - primaryBudget, secondaryBudget + extra)
+    }
+
+    if (normalizedSecondaryText.length < secondaryBudget) {
+        const extra = secondaryBudget - normalizedSecondaryText.length
+        secondaryBudget = normalizedSecondaryText.length
+        primaryBudget = Math.min(maxTotalLength - secondaryBudget, primaryBudget + extra)
+    }
+
+    return {
+        primaryText: truncateText(primaryText, primaryBudget),
+        secondaryText: truncateText(normalizedSecondaryText, secondaryBudget),
+    }
 }
 
-export abstract class LogEntryLoader<T extends TimelineItem> extends QueryLoader<T> implements ItemLoader<T> {
-    async queryFrom(from: Dayjs, limit: number): Promise<T[]> {
-        const query = this.buildQueryFrom(from, limit)
-        const response = await api.queryHogQL(query, { scene: 'ReplaySingle', productKey: 'session_replay' })
-        return response.results.map((row) =>
-            this.buildItem({
-                timestamp: dayjs.utc(row[0]),
-                level: row[1],
-                message: row[2],
-            })
-        )
-    }
+export function StandardizedPreview({
+    primaryText,
+    secondaryText,
+    secondaryMuted = true,
+}: {
+    primaryText: string
+    secondaryText?: string
+    secondaryMuted?: boolean
+}): JSX.Element {
+    const { primaryText: truncatedPrimaryText, secondaryText: truncatedSecondaryText } = truncatePreviewTexts({
+        primaryText,
+        secondaryText,
+    })
 
-    async queryTo(to: Dayjs, limit: number): Promise<T[]> {
-        const query = this.buildQueryTo(to, limit)
-        const response = await api.queryHogQL(query, { scene: 'ReplaySingle', productKey: 'session_replay' })
-        return response.results.map((row) =>
-            this.buildItem({
-                timestamp: dayjs.utc(row[0]),
-                level: row[1],
-                message: row[2],
-            })
-        )
-    }
+    const primary = <span className="truncate block">{truncatedPrimaryText}</span>
 
-    buildQueryFrom(from: Dayjs, limit: number): HogQLQueryString {
-        return hogql`SELECT timestamp, level, message FROM log_entries WHERE log_source = ${this.logSource()} AND log_source_id = ${this.logSourceId()} AND timestamp >= ${from} and timestamp <= ${from.add(6, 'hours')} ORDER BY timestamp ASC LIMIT ${limit}`
-    }
+    const secondary = (
+        <span className={secondaryMuted ? 'text-tertiary truncate block' : 'truncate block'}>
+            {truncatedSecondaryText}
+        </span>
+    )
 
-    buildQueryTo(to: Dayjs, limit: number): HogQLQueryString {
-        return hogql`SELECT timestamp, level, message FROM log_entries WHERE log_source = ${this.logSource()} AND log_source_id = ${this.logSourceId()} AND timestamp <= ${to} and timestamp >= ${to.subtract(6, 'hours')} ORDER BY timestamp DESC LIMIT ${limit}`
-    }
-
-    abstract logSource(): string
-    abstract logSourceId(): string
-    abstract buildItem(item: { timestamp: Dayjs; level: 'info' | 'warn' | 'error'; message: string }): T
+    return (
+        <div className="w-full min-w-0 pr-2 overflow-hidden">
+            <div className="flex items-center min-w-0 overflow-hidden w-full">
+                <div
+                    className={`font-medium min-w-0 truncate ${truncatedSecondaryText ? 'max-w-[70%]' : 'w-full'}`}
+                    title={truncatedPrimaryText !== primaryText ? primaryText : undefined}
+                >
+                    {primary}
+                </div>
+                {truncatedSecondaryText ? (
+                    <>
+                        <span aria-hidden className="text-tertiary text-[10px] leading-none shrink-0 mx-1">
+                            •
+                        </span>
+                        <div
+                            className="text-xs min-w-0 flex-1 truncate"
+                            title={truncatedSecondaryText !== secondaryText ? secondaryText : undefined}
+                        >
+                            {secondary}
+                        </div>
+                    </>
+                ) : null}
+            </div>
+        </div>
+    )
 }

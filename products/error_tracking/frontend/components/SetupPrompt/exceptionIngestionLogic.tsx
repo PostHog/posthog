@@ -11,13 +11,12 @@ export const exceptionIngestionLogic = kea<exceptionIngestionLogicType>([
         hasSentExceptionEvent: {
             __default: undefined as boolean | undefined,
             loadExceptionIngestionState: async (): Promise<boolean> => {
-                const issues = await new ApiRequest()
-                    .errorTrackingIssues()
-                    .withQueryString({ limit: 1 })
+                const response = await new ApiRequest()
+                    .errorTrackingIssuesExists()
                     .get()
                     .catch(() => null)
 
-                return Array.isArray(issues?.results) && issues.results.length > 0
+                return response?.exists === true
             },
         },
     }),

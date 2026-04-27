@@ -254,6 +254,11 @@ def is_any_external_data_schema_paused(team_id: int) -> bool:
 
 def is_cdc_enabled_for_team(team: Team) -> bool:
     """Check if the CDC feature flag is enabled for a team."""
+    from django.conf import settings
+
+    if settings.DEBUG:
+        return True
+
     import posthoganalytics
 
     return posthoganalytics.feature_enabled(

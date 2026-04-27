@@ -20,9 +20,9 @@ with workflow.unsafe.imports_passed_through():
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS
-from posthog.temporal.ai.video_segment_clustering import (
-    VIDEO_SEGMENT_CLUSTERING_ACTIVITIES,
-    VIDEO_SEGMENT_CLUSTERING_WORKFLOWS,
+from posthog.temporal.alerts import (
+    ACTIVITIES as ALERT_ACTIVITIES,
+    WORKFLOWS as ALERT_WORKFLOWS,
 )
 from posthog.temporal.cleanup_property_definitions import (
     ACTIVITIES as CLEANUP_PROPDEFS_ACTIVITIES,
@@ -65,10 +65,6 @@ from posthog.temporal.experiments import (
 from posthog.temporal.exports import (
     ACTIVITIES as EXPORT_ACTIVITIES,
     WORKFLOWS as EXPORT_WORKFLOWS,
-)
-from posthog.temporal.exports_video import (
-    ACTIVITIES as VIDEO_EXPORT_ACTIVITIES,
-    WORKFLOWS as VIDEO_EXPORT_WORKFLOWS,
 )
 from posthog.temporal.health_checks import (
     ACTIVITIES as HEALTH_CHECK_ACTIVITIES,
@@ -135,6 +131,10 @@ from posthog.temporal.session_replay.replay_count_metrics import (
     WORKFLOWS as REPLAY_COUNT_METRICS_WORKFLOWS,
 )
 from posthog.temporal.session_replay.session_summary import SESSION_SUMMARY_ACTIVITIES, SESSION_SUMMARY_WORKFLOWS
+from posthog.temporal.session_replay.summarization_sweep import (
+    SUMMARIZATION_SWEEP_ACTIVITIES,
+    SUMMARIZATION_SWEEP_WORKFLOWS,
+)
 from posthog.temporal.subscriptions import (
     ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
     WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
@@ -171,6 +171,10 @@ from products.signals.backend.temporal import (
 from products.tasks.backend.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
     WORKFLOWS as TASKS_WORKFLOWS,
+)
+from products.web_analytics.backend.temporal import (
+    ACTIVITIES as WA_DIGEST_ACTIVITIES,
+    WORKFLOWS as WA_DIGEST_WORKFLOWS,
 )
 
 # When adding modules to a queue, also update the corresponding CI trigger
@@ -239,8 +243,8 @@ _task_queue_specs = [
     ),
     (
         settings.ANALYTICS_PLATFORM_TASK_QUEUE,
-        EXPORT_WORKFLOWS + SUBSCRIPTION_WORKFLOWS,
-        EXPORT_ACTIVITIES + SUBSCRIPTION_ACTIVITIES,
+        EXPORT_WORKFLOWS + SUBSCRIPTION_WORKFLOWS + ALERT_WORKFLOWS,
+        EXPORT_ACTIVITIES + SUBSCRIPTION_ACTIVITIES + ALERT_ACTIVITIES,
     ),
     (
         settings.TASKS_TASK_QUEUE,
@@ -264,14 +268,8 @@ _task_queue_specs = [
     ),
     (
         settings.VIDEO_EXPORT_TASK_QUEUE,
-        VIDEO_EXPORT_WORKFLOWS
-        + VIDEO_SEGMENT_CLUSTERING_WORKFLOWS
-        + SIGNALS_PRODUCT_WORKFLOWS
-        + DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS,
-        VIDEO_EXPORT_ACTIVITIES
-        + VIDEO_SEGMENT_CLUSTERING_ACTIVITIES
-        + SIGNALS_PRODUCT_ACTIVITIES
-        + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES,
+        SIGNALS_PRODUCT_WORKFLOWS + DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS,
+        SIGNALS_PRODUCT_ACTIVITIES + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES,
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
@@ -282,7 +280,8 @@ _task_queue_specs = [
         + IMPORT_RECORDING_WORKFLOWS
         + RASTERIZE_RECORDING_WORKFLOWS
         + REPLAY_COUNT_METRICS_WORKFLOWS
-        + SESSION_SUMMARY_WORKFLOWS,
+        + SESSION_SUMMARY_WORKFLOWS
+        + SUMMARIZATION_SWEEP_WORKFLOWS,
         COUNT_PLAYLIST_ITEMS_ACTIVITIES
         + DELETE_RECORDING_ACTIVITIES
         + ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES
@@ -290,12 +289,13 @@ _task_queue_specs = [
         + IMPORT_RECORDING_ACTIVITIES
         + RASTERIZE_RECORDING_ACTIVITIES
         + REPLAY_COUNT_METRICS_ACTIVITIES
-        + SESSION_SUMMARY_ACTIVITIES,
+        + SESSION_SUMMARY_ACTIVITIES
+        + SUMMARIZATION_SWEEP_ACTIVITIES,
     ),
     (
         settings.MESSAGING_TASK_QUEUE,
-        MESSAGING_WORKFLOWS,
-        MESSAGING_ACTIVITIES,
+        MESSAGING_WORKFLOWS + WA_DIGEST_WORKFLOWS,
+        MESSAGING_ACTIVITIES + WA_DIGEST_ACTIVITIES,
     ),
     (
         settings.WEEKLY_DIGEST_TASK_QUEUE,
@@ -532,8 +532,8 @@ class Command(BaseCommand):
 
         with asyncio.Runner() as runner:
             loop = runner.get_loop()
-
             configure_logger(loop=loop)
+
             logger = LOGGER.bind(
                 host=temporal_host,
                 port=temporal_port,

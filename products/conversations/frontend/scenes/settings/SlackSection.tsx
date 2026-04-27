@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonCard, LemonDivider, LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonDivider, LemonInput, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
@@ -34,7 +35,7 @@ export function SlackSection(): JSX.Element {
 function SlackChannelSection(): JSX.Element {
     const {
         slackConnected,
-        slackChannelId,
+        slackChannelIds,
         slackChannels,
         slackChannelsLoading,
         slackTicketEmoji,
@@ -46,7 +47,7 @@ function SlackChannelSection(): JSX.Element {
     } = useValues(supportSettingsLogic)
     const {
         connectSlack,
-        setSlackChannel,
+        setSlackChannels,
         loadSlackChannelsWithToken,
         setSlackTicketEmojiValue,
         saveSlackTicketEmoji,
@@ -85,28 +86,24 @@ function SlackChannelSection(): JSX.Element {
                     <LemonDivider />
                     <div className="gap-4">
                         <div>
-                            <label className="font-medium">Support channel</label>
+                            <label className="font-medium">Support channels</label>
                             <p className="text-xs text-muted-alt">
-                                Messages posted in this channel will automatically create support tickets. Thread
-                                replies become ticket messages.
+                                Messages posted in any of these channels will automatically create support tickets.
+                                Thread replies become ticket messages. Make sure the SupportHog bot is invited to every
+                                selected channel.
                             </p>
                         </div>
                         <div className="flex gap-2 items-center">
-                            <LemonSelect
-                                value={slackChannelId}
-                                options={[
-                                    { value: null, label: 'None' },
-                                    ...slackChannels.map((c: { id: string; name: string }) => ({
-                                        value: c.id,
-                                        label: `#${c.name}`,
-                                    })),
-                                ]}
-                                onChange={(value) => {
-                                    const channel = slackChannels.find((c: { id: string }) => c.id === value)
-                                    setSlackChannel(value, channel?.name ?? null)
-                                }}
+                            <LemonInputSelect
+                                mode="multiple"
+                                value={slackChannelIds}
+                                options={slackChannels.map((c: { id: string; name: string }) => ({
+                                    key: c.id,
+                                    label: `#${c.name}`,
+                                }))}
+                                onChange={(newValue: string[]) => setSlackChannels(newValue)}
                                 loading={slackChannelsLoading}
-                                placeholder="Select channel"
+                                placeholder="Select channels"
                             />
                             <LemonButton
                                 type="secondary"

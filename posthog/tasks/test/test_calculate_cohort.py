@@ -21,6 +21,7 @@ from posthog.tasks.calculate_cohort import (
     calculate_cohort_from_list,
     enqueue_cohorts_to_calculate,
     increment_version_and_enqueue_calculate_cohort,
+    insert_cohort_from_filters,
     reset_stuck_cohorts,
     update_cohort_metrics,
 )
@@ -530,6 +531,73 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             self.assertTrue(stuck_static_cohort.is_calculating)
 
             # Verify insert_cohort_from_query was NOT called
+            mock_insert_cohort_from_query.delay.assert_not_called()
+
+        @patch("posthog.tasks.calculate_cohort.insert_cohort_from_filters")
+        @patch("posthog.tasks.calculate_cohort.logger")
+        def test_reset_stuck_static_cohorts_retriggers_filters(
+            self, mock_logger: MagicMock, mock_insert_cohort_from_filters: MagicMock
+        ) -> None:
+            now = timezone.now()
+
+            stuck_static_cohort = Cohort.objects.create(
+                team_id=self.team.pk,
+                name="stuck_static_with_filters",
+                last_calculation=None,
+                deleted=False,
+                is_calculating=True,
+                errors_calculating=0,
+                is_static=True,
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [{"key": "email", "type": "person", "value": "match@example.com"}],
+                            }
+                        ],
+                    }
+                },
+            )
+            Cohort.objects.filter(pk=stuck_static_cohort.pk).update(created_at=now - relativedelta(hours=2))
+
+            reset_stuck_cohorts()
+
+            stuck_static_cohort.refresh_from_db()
+            self.assertFalse(stuck_static_cohort.is_calculating)
+            self.assertEqual(stuck_static_cohort.errors_calculating, 1)
+            mock_insert_cohort_from_filters.delay.assert_called_with(stuck_static_cohort.pk, self.team.pk)
+
+        @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query")
+        @patch("posthog.tasks.calculate_cohort.insert_cohort_from_filters")
+        @patch("posthog.tasks.calculate_cohort.logger")
+        def test_reset_stuck_static_cohorts_without_retriggerable_source(
+            self,
+            mock_logger: MagicMock,
+            mock_insert_cohort_from_filters: MagicMock,
+            mock_insert_cohort_from_query: MagicMock,
+        ) -> None:
+            now = timezone.now()
+
+            stuck_static_cohort = Cohort.objects.create(
+                team_id=self.team.pk,
+                name="stuck_static_without_source",
+                last_calculation=None,
+                deleted=False,
+                is_calculating=True,
+                errors_calculating=0,
+                is_static=True,
+                filters={"properties": {}},
+            )
+            Cohort.objects.filter(pk=stuck_static_cohort.pk).update(created_at=now - relativedelta(hours=2))
+
+            reset_stuck_cohorts()
+
+            stuck_static_cohort.refresh_from_db()
+            self.assertFalse(stuck_static_cohort.is_calculating)
+            self.assertEqual(stuck_static_cohort.errors_calculating, 1)
+            mock_insert_cohort_from_filters.delay.assert_not_called()
             mock_insert_cohort_from_query.delay.assert_not_called()
 
         @patch("posthog.tasks.calculate_cohort.increment_version_and_enqueue_calculate_cohort")
@@ -1059,8 +1127,8 @@ class TestCohortCalculationTasks(APIBaseTest):
         )
 
         with (
-            patch("posthog.api.cohort.insert_cohort_query_actors_into_ch") as mock_insert_ch,
-            patch("posthog.api.cohort.insert_cohort_people_into_pg") as mock_insert_pg,
+            patch("posthog.models.cohort.util.insert_cohort_query_actors_into_ch") as mock_insert_ch,
+            patch("posthog.models.cohort.util.insert_cohort_people_into_pg") as mock_insert_pg,
         ):
             mock_insert_ch.side_effect = Exception("Simulated query processing error")
             mock_insert_pg.side_effect = Exception("Simulated pg insert error")
@@ -1071,6 +1139,39 @@ class TestCohortCalculationTasks(APIBaseTest):
             self.assertEqual(
                 cohort.count, 0, "Count should be updated using PostgreSQL even when query processing fails"
             )
+            self.assertFalse(cohort.is_calculating, "Cohort should not be in calculating state")
+            self.assertGreater(cohort.errors_calculating, 0, "Should have recorded the processing error")
+
+    def test_insert_cohort_from_filters_count_updated_on_exception(self) -> None:
+        cohort = Cohort.objects.create(
+            team_id=self.team.pk,
+            name="test_filters_cohort",
+            is_static=True,
+            count=0,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [{"key": "email", "type": "person", "value": "match@example.com"}],
+                        }
+                    ],
+                }
+            },
+        )
+
+        with (
+            patch("posthog.models.cohort.util.insert_cohort_filter_actors_into_ch") as mock_insert_ch,
+            patch("posthog.models.cohort.util.insert_cohort_people_into_pg") as mock_insert_pg,
+        ):
+            mock_insert_ch.side_effect = Exception("Simulated filter processing error")
+            mock_insert_pg.side_effect = Exception("Simulated pg insert error")
+
+            insert_cohort_from_filters(cohort.id, self.team.pk)
+
+            cohort.refresh_from_db()
+            self.assertEqual(cohort.count, 0, "Count should remain available even when filter processing fails")
             self.assertFalse(cohort.is_calculating, "Cohort should not be in calculating state")
             self.assertGreater(cohort.errors_calculating, 0, "Should have recorded the processing error")
 

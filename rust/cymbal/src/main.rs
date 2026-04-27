@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use cymbal::consumer::start_consumer;
 use cymbal::{app_context::AppContext, config::Config, server::start_server};
 use tracing::level_filters::LevelFilter;
 use tracing::{error, info, warn};
@@ -56,8 +55,5 @@ async fn main() {
 
     let context = Arc::new(AppContext::from_config(&config).await.unwrap());
 
-    tokio::join!(
-        start_server(config.clone(), context.clone()),
-        start_consumer(&config, context.clone())
-    );
+    start_server(config.clone(), context.clone()).await;
 }

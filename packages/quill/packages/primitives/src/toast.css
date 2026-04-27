@@ -1,0 +1,77 @@
+@layer components {
+    .quill-toast-card {
+        position: relative;
+        box-sizing: border-box;
+        padding-block: 0.5rem;
+        padding-inline: 0.75rem;
+        color: var(--popover-foreground);
+        cursor: default;
+        user-select: none;
+        background-color: var(--popover);
+        background-clip: padding-box;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+    }
+
+    .quill-toast-card__title {
+        font-size: var(--text-xs, 0.75rem);
+        font-weight: 500;
+        line-height: 1.375;
+    }
+
+    .quill-toast-card__description {
+        font-size: var(--text-xs, 0.75rem);
+        line-height: var(--text-xs--line-height, 1rem);
+        color: var(--muted-foreground);
+    }
+
+    .quill-toast-card__action {
+        padding-block: 0.25rem;
+        padding-inline: 0.5rem;
+        font-size: var(--text-xs, 0.75rem);
+        font-weight: 500;
+        background-color: var(--popover);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        transition: background-color 0.15s ease;
+    }
+
+    .quill-toast-card__action:hover {
+        background-color: var(--accent);
+    }
+
+    /* Toast icon tiles by type */
+    .quill-toast-card__icon--success {
+        padding: 0.25rem;
+        color: var(--success-foreground);
+        background-color: color-mix(in oklab, var(--success) 50%, transparent);
+        border-radius: var(--radius-sm);
+    }
+
+    .quill-toast-card__icon--info {
+        padding: 0.25rem;
+        color: var(--info-foreground);
+        background-color: color-mix(in oklab, var(--info) 50%, transparent);
+        border-radius: var(--radius-sm);
+    }
+
+    .quill-toast-card__icon--warning {
+        padding: 0.25rem;
+        color: var(--warning-foreground);
+        background-color: color-mix(in oklab, var(--warning) 50%, transparent);
+        border-radius: var(--radius-sm);
+    }
+
+    .quill-toast-card__icon--error {
+        padding: 0.25rem;
+        color: var(--destructive-foreground);
+        background-color: color-mix(in oklab, var(--destructive) 50%, transparent);
+        border-radius: var(--radius-sm);
+    }
+
+    .quill-toast-card__icon--loading {
+        padding: 0.25rem;
+        color: color-mix(in oklab, var(--foreground) 60%, transparent);
+        border-radius: var(--radius-sm);
+    }
+}

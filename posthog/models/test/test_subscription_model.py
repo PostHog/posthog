@@ -7,6 +7,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.conf import settings
+from django.db import IntegrityError
 from django.utils import timezone
 
 import jwt
@@ -17,6 +18,7 @@ from posthog.models.insight import Insight
 from posthog.models.subscription import (
     UNSUBSCRIBE_TOKEN_EXP_DAYS,
     Subscription,
+    SubscriptionDelivery,
     get_unsubscribe_token,
     unsubscribe_using_token,
 )
@@ -279,6 +281,123 @@ class TestSubscription(BaseTest):
             bysetpos=bysetpos,
         )
         assert subscription.summary == expected_summary
+
+    def test_subscription_delivery_creation(self):
+        subscription = self._create_insight_subscription()
+
+        delivery = SubscriptionDelivery.objects.create(
+            subscription=subscription,
+            team=self.team,
+            temporal_workflow_id="process-subscription-1",
+            idempotency_key="test-key-1",
+            trigger_type="scheduled",
+            target_type=subscription.target_type,
+            target_value=subscription.target_value,
+            status=SubscriptionDelivery.Status.STARTING,
+        )
+
+        assert delivery.status == "starting"
+        assert delivery.subscription == subscription
+        assert delivery.error is None
+        assert delivery.recipient_results == []
+        assert delivery.exported_asset_ids == []
+        assert delivery.finished_at is None
+
+    def test_duplicate_idempotency_key_raises(self):
+        subscription = self._create_insight_subscription()
+
+        SubscriptionDelivery.objects.create(
+            subscription=subscription,
+            team=self.team,
+            temporal_workflow_id="process-subscription-1",
+            idempotency_key="same-key",
+            trigger_type="scheduled",
+            target_type="email",
+            target_value="test@posthog.com",
+        )
+
+        with pytest.raises(IntegrityError):
+            SubscriptionDelivery.objects.create(
+                subscription=subscription,
+                team=self.team,
+                temporal_workflow_id="process-subscription-1",
+                idempotency_key="same-key",
+                trigger_type="scheduled",
+                target_type="email",
+                target_value="test@posthog.com",
+            )
+
+    def test_distinct_idempotency_keys_create_two_rows(self):
+        subscription = self._create_insight_subscription()
+
+        SubscriptionDelivery.objects.create(
+            subscription=subscription,
+            team=self.team,
+            temporal_workflow_id="process-subscription-1",
+            idempotency_key="key-run-1",
+            trigger_type="scheduled",
+            target_type="email",
+            target_value="test@posthog.com",
+        )
+
+        second = SubscriptionDelivery.objects.create(
+            subscription=subscription,
+            team=self.team,
+            temporal_workflow_id="process-subscription-1",
+            idempotency_key="key-run-2",
+            trigger_type="scheduled",
+            target_type="email",
+            target_value="test@posthog.com",
+        )
+        first = SubscriptionDelivery.objects.get(idempotency_key="key-run-1")
+        assert first.id != second.id
+        assert SubscriptionDelivery.objects.filter(subscription=subscription).count() == 2
+
+    def test_subscription_delivery_get_or_create_idempotency(self):
+        subscription = self._create_insight_subscription()
+
+        delivery1, created1 = SubscriptionDelivery.objects.get_or_create(
+            idempotency_key="idem-key",
+            defaults={
+                "subscription": subscription,
+                "team": self.team,
+                "temporal_workflow_id": "wf-1",
+                "trigger_type": "scheduled",
+                "target_type": "email",
+                "target_value": "test@posthog.com",
+            },
+        )
+        delivery2, created2 = SubscriptionDelivery.objects.get_or_create(
+            idempotency_key="idem-key",
+            defaults={
+                "subscription": subscription,
+                "team": self.team,
+                "temporal_workflow_id": "wf-1",
+                "trigger_type": "scheduled",
+                "target_type": "email",
+                "target_value": "test@posthog.com",
+            },
+        )
+
+        assert created1 is True
+        assert created2 is False
+        assert delivery1.id == delivery2.id
+
+    def test_subscription_delivery_cascades_on_subscription_delete(self):
+        subscription = self._create_insight_subscription()
+        SubscriptionDelivery.objects.create(
+            subscription=subscription,
+            team=self.team,
+            temporal_workflow_id="wf-1",
+            idempotency_key="cascade-key",
+            trigger_type="scheduled",
+            target_type="email",
+            target_value="test@posthog.com",
+        )
+
+        assert SubscriptionDelivery.objects.count() == 1
+        subscription.insight.delete()  # cascades to subscription, then to delivery
+        assert SubscriptionDelivery.objects.count() == 0
 
     @parameterized.expand(
         [

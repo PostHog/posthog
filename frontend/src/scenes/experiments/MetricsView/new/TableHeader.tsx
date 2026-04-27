@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 
+import { IconInfo } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
+
 import { ExperimentStatsMethod } from '~/types'
 
 import { useSvgResizeObserver } from '../hooks/useSvgResizeObserver'
@@ -53,7 +56,16 @@ export function TableHeader({ axisRange, statsMethod }: TableHeaderProps): JSX.E
                     Delta
                 </th>
                 <th className="w-1/15 border-b-2 bg-bg-table p-3 text-center text-xs sticky top-0 z-10 metric-cell-header whitespace-nowrap">
-                    {statsMethod === ExperimentStatsMethod.Frequentist ? 'P-value' : 'Win %'}
+                    {statsMethod === ExperimentStatsMethod.Frequentist ? (
+                        'P-value'
+                    ) : (
+                        <span className="inline-flex items-center gap-1">
+                            Win %
+                            <Tooltip title="Probability of outperforming control, not a percentage lift.">
+                                <IconInfo className="text-secondary text-base" />
+                            </Tooltip>
+                        </span>
+                    )}
                 </th>
                 <th className="border-b-2 bg-bg-table p-3 z-10" />
                 <th className="border-b-2 bg-bg-table p-0 z-10">

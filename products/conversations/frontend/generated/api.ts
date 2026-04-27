@@ -9,13 +9,15 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    BulkUpdateTagsRequestApi,
+    BulkUpdateTagsResponseApi,
     ConversationApi,
     ConversationsListParams,
     ConversationsTicketsListParams,
     ConversationsViewsListParams,
     MessageApi,
     MessageMinimalApi,
-    PaginatedConversationListApi,
+    PaginatedConversationMinimalListApi,
     PaginatedTicketListApi,
     PaginatedTicketViewListApi,
     PatchedConversationApi,
@@ -62,8 +64,8 @@ export const conversationsList = async (
     projectId: string,
     params?: ConversationsListParams,
     options?: RequestInit
-): Promise<PaginatedConversationListApi> => {
-    return apiMutator<PaginatedConversationListApi>(getConversationsListUrl(projectId, params), {
+): Promise<PaginatedConversationMinimalListApi> => {
+    return apiMutator<PaginatedConversationMinimalListApi>(getConversationsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -439,6 +441,34 @@ export const conversationsTicketsSuggestReplyCreate = async (
     return apiMutator<SuggestReplyResponseApi>(getConversationsTicketsSuggestReplyCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+/**
+ * Bulk update tags on multiple objects.
+
+Accepts:
+- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+
+Actions:
+- "add": Add tags to existing tags on each object
+- "remove": Remove specific tags from each object
+- "set": Replace all tags on each object with the provided list
+ */
+export const getConversationsTicketsBulkUpdateTagsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/bulk_update_tags/`
+}
+
+export const conversationsTicketsBulkUpdateTagsCreate = async (
+    projectId: string,
+    bulkUpdateTagsRequestApi: BulkUpdateTagsRequestApi,
+    options?: RequestInit
+): Promise<BulkUpdateTagsResponseApi> => {
+    return apiMutator<BulkUpdateTagsResponseApi>(getConversationsTicketsBulkUpdateTagsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkUpdateTagsRequestApi),
     })
 }
 

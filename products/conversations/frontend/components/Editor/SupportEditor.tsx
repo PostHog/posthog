@@ -432,6 +432,32 @@ export function SupportEditor({
         setIsDragging(false)
     }
 
+    const handlePaste = useCallback(
+        (e: ClipboardEvent): void => {
+            if (!objectStorageAvailable || !e.clipboardData) {
+                return
+            }
+            const imageItem = Array.from(e.clipboardData.items).find((item) => item.type.startsWith('image/'))
+            if (imageItem) {
+                const imageFile = imageItem.getAsFile()
+                if (imageFile) {
+                    e.preventDefault()
+                    setFilesToUpload([imageFile])
+                }
+            }
+        },
+        [objectStorageAvailable, setFilesToUpload]
+    )
+
+    useEffect(() => {
+        const el = dropRef.current
+        if (!el) {
+            return
+        }
+        el.addEventListener('paste', handlePaste)
+        return () => el.removeEventListener('paste', handlePaste)
+    }, [handlePaste])
+
     return (
         <div
             ref={dropRef}

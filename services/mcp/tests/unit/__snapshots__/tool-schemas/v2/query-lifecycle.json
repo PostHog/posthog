@@ -95,6 +95,12 @@
             },
             "type": "object"
         },
+        "output_format": {
+            "default": "optimized",
+            "description": "Output format. \"optimized\" returns a human-readable summary from server-side formatters (recommended for analysis). \"json\" returns the raw query results as JSON.",
+            "enum": ["optimized", "json"],
+            "type": "string"
+        },
         "properties": {
             "default": [],
             "description": "Property filters for all series",

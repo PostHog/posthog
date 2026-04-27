@@ -2,10 +2,11 @@ import time
 import base64
 from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any, NoReturn, Optional
 
 from django.conf import settings
 
+import dagster
 from clickhouse_driver import Client
 from clickhouse_driver.errors import ErrorCodes
 from dagster import (
@@ -39,6 +40,7 @@ from posthog.models.raw_sessions.sessions_v3 import (
     RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3,
     RAW_SESSION_TABLE_BACKFILL_SQL_V3,
 )
+from posthog.redis import get_client as get_redis_client
 
 # This is the number of days to backfill in one SQL operation
 MAX_PARTITIONS_PER_RUN = 1
@@ -129,6 +131,7 @@ class ExperimentalSessionsBackfillConfig(Config):
     parts_check_poll_frequency_seconds: int = 30
     parts_check_max_wait_seconds: int = 3600
     client_overrides: dict[str, Any]
+    force_fresh_restart: bool = False
 
 
 daily_partitions = DailyPartitionsDefinition(
@@ -489,6 +492,61 @@ def _sub_chunk_where(base_where: str, sub_chunk_i: int, total_sub_chunks: int) -
     return f"({base_where}) AND cityHash64(distinct_id) >= {low} AND cityHash64(distinct_id) < {high}"
 
 
+BACKFILL_PROGRESS_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days
+
+
+def _progress_key(asset_name: str, partition_key: str) -> str:
+    return f"posthog:sessions_backfill:progress:{asset_name}:{partition_key}"
+
+
+def _get_completed_chunk(asset_name: str, partition_key: str) -> int | None:
+    """Return the last completed chunk index, or None if no progress saved."""
+    val = get_redis_client().get(_progress_key(asset_name, partition_key))
+    return int(val) if val is not None else None
+
+
+def _save_completed_chunk(asset_name: str, partition_key: str, chunk_i: int) -> None:
+    """Save progress after completing a chunk."""
+    get_redis_client().set(_progress_key(asset_name, partition_key), str(chunk_i), ex=BACKFILL_PROGRESS_TTL_SECONDS)
+
+
+def _clear_progress(asset_name: str, partition_key: str) -> None:
+    """Clear saved progress (called on successful completion)."""
+    get_redis_client().delete(_progress_key(asset_name, partition_key))
+
+
+def _raise_failure(
+    context: AssetExecutionContext,
+    chunk_i: int,
+    num_chunks: int,
+    partition_range_str: str,
+    exc: Exception,
+    *,
+    sub_chunk_i: int | None = None,
+    total_sub_chunks: int | None = None,
+) -> NoReturn:
+    """Re-raise an exception as dagster.Failure with progress metadata."""
+    if sub_chunk_i is not None:
+        description = (
+            f"Failed on sub-chunk {sub_chunk_i + 1}/{total_sub_chunks} of chunk {chunk_i + 1}/{num_chunks}: {exc}"
+        )
+    else:
+        description = f"Failed on chunk {chunk_i + 1}/{num_chunks}: {exc}"
+
+    metadata: dict[str, dagster.MetadataValue] = {
+        "failed_chunk_index": dagster.MetadataValue.int(chunk_i),
+        "resume_from_chunk": dagster.MetadataValue.int(chunk_i),
+        "total_chunks": dagster.MetadataValue.int(num_chunks),
+        "partition_range": dagster.MetadataValue.text(partition_range_str),
+        "error_message": dagster.MetadataValue.text(str(exc)),
+    }
+    if sub_chunk_i is not None:
+        metadata["failed_sub_chunk_index"] = dagster.MetadataValue.int(sub_chunk_i)
+
+    context.log.error(f"{description} To resume, restart the job — it will automatically skip completed chunks.")
+    raise dagster.Failure(description=description, metadata=metadata) from exc
+
+
 def _do_experimental_backfill(
     sql_template: Callable,
     timestamp_field: str,
@@ -510,9 +568,29 @@ def _do_experimental_backfill(
 
     num_chunks, chunk_desc, chunk_where_fn = _get_experimental_chunking(config)
 
+    # Determine start chunk from Redis progress (unless force_fresh_restart is set)
+    asset_name = context.asset_key.path[-1]
+    partition_key = partition_range.start
+
+    if config.force_fresh_restart:
+        start_chunk = 0
+        context.log.info("force_fresh_restart=True, starting from chunk 0")
+    else:
+        last_completed = _get_completed_chunk(asset_name, partition_key)
+        if last_completed is not None:
+            start_chunk = last_completed + 1
+            context.log.info(f"Resuming from chunk {start_chunk}/{num_chunks} (last completed: {last_completed})")
+        else:
+            start_chunk = 0
+
+    if start_chunk >= num_chunks:
+        context.log.info(f"All {num_chunks} chunks already completed, nothing to do")
+        _clear_progress(asset_name, partition_key)
+        return
+
     context.log.info(
         f"Running backfill for Dagster partitions {partition_range_str} "
-        f"(where='{where_clause}', chunking={num_chunks} chunks on {chunk_desc}) "
+        f"(where='{where_clause}', chunking={num_chunks} chunks on {chunk_desc}, start_chunk={start_chunk}) "
         f"using commit {get_git_commit_short() or 'unknown'}"
     )
     if debug_url := metabase_debug_query_url(context.run_id):
@@ -528,8 +606,11 @@ def _do_experimental_backfill(
     with get_http_client(**kwargs, **config.client_overrides) as client:
         tags = dagster_tags(context)
         with tags_context(kind="dagster", dagster=tags, product=ProductKey.WEB_ANALYTICS, feature=Feature.BACKFILL):
-            for chunk_i in range(num_chunks):
-                wait_for_parts_to_merge(context, config, sync_client=client, table=target_table, use_cluster=False)
+            for chunk_i in range(start_chunk, num_chunks):
+                try:
+                    wait_for_parts_to_merge(context, config, sync_client=client, table=target_table, use_cluster=False)
+                except Exception as e:
+                    _raise_failure(context, chunk_i, num_chunks, partition_range_str, e)
 
                 if num_chunks > 1:
                     chunk_condition = chunk_where_fn(chunk_i)
@@ -549,7 +630,7 @@ def _do_experimental_backfill(
                     sync_execute(backfill_sql, settings=merged_settings, sync_client=client)
                 except Exception as e:
                     if not _is_oom_error(e):
-                        raise
+                        _raise_failure(context, chunk_i, num_chunks, partition_range_str, e)
 
                     context.log.warning(
                         f"OOM error on chunk {chunk_i + 1}/{num_chunks}, "
@@ -557,9 +638,20 @@ def _do_experimental_backfill(
                     )
 
                     for sub_i in range(OOM_RETRY_SUB_CHUNKS):
-                        wait_for_parts_to_merge(
-                            context, config, sync_client=client, table=target_table, use_cluster=False
-                        )
+                        try:
+                            wait_for_parts_to_merge(
+                                context, config, sync_client=client, table=target_table, use_cluster=False
+                            )
+                        except Exception as sub_e:
+                            _raise_failure(
+                                context,
+                                chunk_i,
+                                num_chunks,
+                                partition_range_str,
+                                sub_e,
+                                sub_chunk_i=sub_i,
+                                total_sub_chunks=OOM_RETRY_SUB_CHUNKS,
+                            )
 
                         sub_where = _sub_chunk_where(chunk_where_clause, sub_i, OOM_RETRY_SUB_CHUNKS)
                         sub_sql = sql_template(
@@ -571,7 +663,18 @@ def _do_experimental_backfill(
                             f"Running sub-chunk {sub_i + 1}/{OOM_RETRY_SUB_CHUNKS} for chunk {chunk_i + 1}/{num_chunks}"
                         )
                         context.log.info(sub_sql)
-                        sync_execute(sub_sql, settings=merged_settings, sync_client=client)
+                        try:
+                            sync_execute(sub_sql, settings=merged_settings, sync_client=client)
+                        except Exception as sub_e:
+                            _raise_failure(
+                                context,
+                                chunk_i,
+                                num_chunks,
+                                partition_range_str,
+                                sub_e,
+                                sub_chunk_i=sub_i,
+                                total_sub_chunks=OOM_RETRY_SUB_CHUNKS,
+                            )
                         context.log.info(
                             f"Completed sub-chunk {sub_i + 1}/{OOM_RETRY_SUB_CHUNKS} for chunk {chunk_i + 1}/{num_chunks}"
                         )
@@ -579,4 +682,7 @@ def _do_experimental_backfill(
                 if num_chunks > 1:
                     context.log.info(f"Completed chunk {chunk_i + 1}/{num_chunks}")
 
+                _save_completed_chunk(asset_name, partition_key, chunk_i)
+
+            _clear_progress(asset_name, partition_key)
             context.log.info(f"Successfully backfilled sessions_v3 for Dagster partitions {partition_range_str}")

@@ -205,7 +205,7 @@ def get_dead_letter_queue_size(
 
 def get_dlq_last_error_timestamp(
     _offset, after_datetime: Optional[dt.datetime] = None, before_datetime: Optional[dt.datetime] = None
-) -> int:
+) -> dt.datetime | str:
     where_clause, args = _build_where_clause_and_args(after_datetime, before_datetime)
 
     # nosemgrep: clickhouse-fstring-param-audit - where_clause from internal builder, values parameterized

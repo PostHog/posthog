@@ -1,7 +1,11 @@
 from datetime import UTC, datetime
+from typing import Optional
+from uuid import uuid4
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.core.cache import cache
 
 from parameterized import parameterized
 from rest_framework import status
@@ -11,7 +15,9 @@ from posthog.models import Team
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
 from posthog.models.integration import Integration
-from posthog.models.subscription import Subscription
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.subscription import Subscription, SubscriptionDelivery
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -104,6 +110,8 @@ class TestSubscriptionTemporal(APILicensedTest):
             "integration_id": None,
             "invite_message": None,
             "summary": "sent every week",
+            "summary_enabled": False,
+            "summary_prompt_guide": "",
         }
 
         self.mock_temporal_client.start_workflow.assert_called_once()
@@ -412,6 +420,129 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "require a Slack integration" in response.json()["detail"]
 
+    def test_cannot_create_subscription_with_summary_enabled_without_ai_consent(self):
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        response = self._create_subscription(summary_enabled=True)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "AI data processing must be approved" in response.json()["detail"]
+        self.mock_temporal_client.start_workflow.assert_not_called()
+
+    def test_can_create_subscription_with_summary_enabled_when_ai_consent_given(self):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+        response = self._create_subscription(summary_enabled=True)
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["summary_enabled"] is True
+
+    def test_cannot_patch_summary_enabled_true_without_ai_consent(self):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        create_response = self._create_subscription()
+        subscription_id = create_response.json()["id"]
+
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+            {"summary_enabled": True},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "AI data processing must be approved" in response.json()["detail"]
+
+    def test_can_patch_unrelated_fields_when_summary_enabled_and_ai_consent_revoked(self):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        create_response = self._create_subscription(summary_enabled=True)
+        subscription_id = create_response.json()["id"]
+
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+            {"title": "Updated title"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["title"] == "Updated title"
+
+    def test_can_set_prompt_guide_when_feature_flag_enabled(self):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True):
+            response = self._create_subscription(summary_enabled=True, summary_prompt_guide="focus on revenue trends")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["summary_prompt_guide"] == "focus on revenue trends"
+
+    @parameterized.expand(
+        [
+            # (case_name, flag_value_during_patch, payload, expected_status, expected_fragment_or_stored_value)
+            (
+                "reject_non_empty_patch",
+                False,
+                {"summary_prompt_guide": "changed"},
+                status.HTTP_403_FORBIDDEN,
+                "AI summary context",
+            ),
+            ("allow_clear_via_empty_string", False, {"summary_prompt_guide": ""}, status.HTTP_200_OK, ""),
+            ("allow_unrelated_patch", False, {"title": "Updated title"}, status.HTTP_200_OK, "original"),
+            (
+                "allow_non_empty_patch_when_flag_on",
+                True,
+                {"summary_prompt_guide": "changed"},
+                status.HTTP_200_OK,
+                "changed",
+            ),
+            (
+                "deny_on_feature_flag_eval_error",
+                None,
+                {"summary_prompt_guide": "changed"},
+                status.HTTP_403_FORBIDDEN,
+                "AI summary context",
+            ),
+        ]
+    )
+    def test_prompt_guide_patch_behaviour(
+        self, case_name: str, flag_value: Optional[bool], payload: dict, expected_status: int, expected_body_fragment
+    ):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True):
+            create_response = self._create_subscription(summary_enabled=True, summary_prompt_guide="original")
+        subscription_id = create_response.json()["id"]
+
+        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=flag_value):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+                payload,
+            )
+
+        assert response.status_code == expected_status, response.content
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            assert expected_body_fragment in response.json()["detail"]
+        else:
+            # Read-back the stored `summary_prompt_guide` on the updated subscription.
+            if "summary_prompt_guide" in payload:
+                assert response.json()["summary_prompt_guide"] == (expected_body_fragment or "")
+            else:
+                # Unrelated PATCH — original stored value must survive untouched.
+                assert response.json()["summary_prompt_guide"] == expected_body_fragment
+
+    def test_cannot_create_subscription_with_prompt_guide_when_feature_flag_disabled(self):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=False):
+            response = self._create_subscription(summary_enabled=True, summary_prompt_guide="focus on revenue trends")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "AI summary context" in response.json()["detail"]
+
     def test_deliver_subscription(self):
         mock_client = MagicMock()
         mock_client.start_workflow = AsyncMock()
@@ -488,6 +619,53 @@ class TestSubscriptionTemporal(APILicensedTest):
 
         response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/test-delivery/")
         assert response.status_code == status.HTTP_409_CONFLICT
+
+    @patch("posthog.rate_limit.SubscriptionTestDeliveryThrottle.rate", new="3/minute")
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_test_delivery_throttled_per_team_across_subscriptions_and_keys(self, _rate_limit_enabled_mock):
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock()
+        self.mock_sync.return_value = mock_client
+
+        throttle_key = f"throttle_subscription_test_delivery_team_{self.team.id}"
+        cache.delete(throttle_key)
+        self.addCleanup(cache.delete, throttle_key)
+
+        def fresh_api_key_headers() -> dict[str, str]:
+            raw_key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label=f"throttle-{uuid4().hex[:8]}",
+                user=self.user,
+                secure_value=hash_key_value(raw_key),
+                scopes=["*"],
+            )
+            return {"authorization": f"Bearer {raw_key}"}
+
+        pat_a = fresh_api_key_headers()
+        pat_b = fresh_api_key_headers()
+
+        sub_a = self._create_subscription(invite_message=None).json()["id"]
+        sub_b = self._create_subscription(invite_message=None).json()["id"]
+        mock_client.start_workflow.reset_mock()
+
+        for sub_id, headers in [(sub_a, pat_a), (sub_b, pat_b), (sub_a, pat_b)]:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/subscriptions/{sub_id}/test-delivery/",
+                headers=headers,
+            )
+            assert response.status_code == status.HTTP_202_ACCEPTED
+
+        for headers in (pat_a, pat_b):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/subscriptions/{sub_b}/test-delivery/",
+                headers=headers,
+            )
+            assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+        session_response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_a}/test-delivery/")
+        assert session_response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+        assert mock_client.start_workflow.call_count == 3
 
     def test_backfill_picks_same_integration_as_delivery(self):
         """The data migration must assign the lowest-id Slack integration
@@ -721,3 +899,217 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert len(results) == 1
         assert results[0]["id"] == sub_id
         assert results[0]["target_type"] == target_type
+
+
+class TestSubscriptionDeliveryAPI(APILicensedTest):
+    subscription: Subscription = None  # type: ignore
+    insight: Insight = None  # type: ignore
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.insight = Insight.objects.create(
+            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            team=cls.team,
+            created_by=cls.user,
+        )
+        cls.subscription = Subscription.objects.create(
+            team=cls.team,
+            insight=cls.insight,
+            created_by=cls.user,
+            target_type="email",
+            target_value="test@posthog.com",
+            frequency="weekly",
+            interval=1,
+            start_date=datetime(2022, 1, 1, 0, 0, 0, tzinfo=UTC),
+            title="Test Sub",
+        )
+
+    def _create_delivery(self, **kwargs):
+        params = {
+            "subscription": self.subscription,
+            "team": self.team,
+            "temporal_workflow_id": f"wf-{kwargs.get('idempotency_key', 'default')}",
+            "idempotency_key": "default-key",
+            "trigger_type": "scheduled",
+            "target_type": "email",
+            "target_value": "test@posthog.com",
+            "status": SubscriptionDelivery.Status.COMPLETED,
+        }
+        params.update(kwargs)
+        return SubscriptionDelivery.objects.create(**params)
+
+    def test_can_list_deliveries(self):
+        d1 = self._create_delivery(idempotency_key="key-1")
+        d2 = self._create_delivery(idempotency_key="key-2")
+
+        response = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 2
+        ids = {r["id"] for r in results}
+        assert ids == {str(d1.id), str(d2.id)}
+
+    def test_can_retrieve_single_delivery(self):
+        delivery = self._create_delivery(
+            idempotency_key="retrieve-key",
+            recipient_results=[{"recipient": "test@posthog.com", "status": "success"}],
+            content_snapshot={
+                "dashboard": None,
+                "insights": [{"id": 1, "name": "Test", "short_id": "abc"}],
+                "total_insight_count": 1,
+            },
+            error={"message": "something failed", "type": "RuntimeError"},
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/{delivery.id}/"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["id"] == str(delivery.id)
+        assert data["status"] == "completed"
+        assert data["recipient_results"] == [{"recipient": "test@posthog.com", "status": "success"}]
+        assert data["error"]["message"] == "something failed"
+        assert data["content_snapshot"]["insights"][0]["name"] == "Test"
+
+    def test_deliveries_are_read_only(self):
+        delivery = self._create_delivery(idempotency_key="readonly-key")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/",
+            {"status": "failed"},
+        )
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/{delivery.id}/",
+            {"status": "failed"},
+        )
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+
+    def test_deliveries_scoped_to_subscription(self):
+        other_subscription = Subscription.objects.create(
+            team=self.team,
+            insight=self.insight,
+            created_by=self.user,
+            target_type="email",
+            target_value="other@posthog.com",
+            frequency="daily",
+            interval=1,
+            start_date=datetime(2022, 1, 1, 0, 0, 0, tzinfo=UTC),
+            title="Other Sub",
+        )
+        self._create_delivery(idempotency_key="this-sub")
+        self._create_delivery(
+            idempotency_key="other-sub",
+            subscription=other_subscription,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["subscription"] == self.subscription.id
+
+    def test_deliveries_ordered_by_created_at_desc(self):
+        d1 = self._create_delivery(idempotency_key="older")
+        d2 = self._create_delivery(idempotency_key="newer")
+
+        response = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/")
+        results = response.json()["results"]
+        assert results[0]["id"] == str(d2.id)
+        assert results[1]["id"] == str(d1.id)
+
+    @parameterized.expand(
+        [(s,) for s in SubscriptionDelivery.Status],
+        name_func=lambda f, _n, p: f"{f.__name__}__{p.args[0].value}",
+    )
+    def test_deliveries_filter_by_status(self, filter_status):
+        other_status = next(s for s in SubscriptionDelivery.Status if s != filter_status)
+        self._create_delivery(idempotency_key=f"other-{other_status.value}", status=other_status)
+        self._create_delivery(idempotency_key=f"match-{filter_status.value}", status=filter_status)
+
+        base = f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/"
+        response = self.client.get(base, {"status": filter_status})
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["status"] == filter_status
+
+    def test_deliveries_invalid_status_filter_returns_400(self):
+        self._create_delivery(idempotency_key="any")
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/",
+            {"status": "not-a-status"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @pytest.mark.skip_on_multitenancy
+    def test_deliveries_require_premium_feature(self):
+        self.organization.available_product_features = []
+        self.organization.save()
+        response = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/")
+        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
+
+    def test_deliveries_not_available_on_legacy_project_path(self):
+        self._create_delivery(idempotency_key="legacy-test")
+        response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_retrieve_delivery_not_found_when_row_belongs_to_different_subscription(self):
+        other = Subscription.objects.create(
+            team=self.team,
+            insight=self.insight,
+            created_by=self.user,
+            target_type="email",
+            target_value="other@posthog.com",
+            frequency="daily",
+            interval=1,
+            start_date=datetime(2022, 1, 1, 0, 0, 0, tzinfo=UTC),
+            title="Other",
+        )
+        delivery_on_other = self._create_delivery(
+            idempotency_key="other-sub-delivery",
+            subscription=other,
+        )
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/{delivery_on_other.id}/"
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_retrieve_delivery_not_found_for_unknown_primary_key(self):
+        unknown_id = uuid4()
+        while SubscriptionDelivery.objects.filter(pk=unknown_id).exists():
+            unknown_id = uuid4()
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/{unknown_id}/"
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @patch("ee.api.subscription.SubscriptionDeliveryCursorPagination.page_size", 2)
+    def test_deliveries_list_cursor_pagination(self):
+        self._create_delivery(idempotency_key="page-a")
+        self._create_delivery(idempotency_key="page-b")
+        self._create_delivery(idempotency_key="page-c")
+
+        base = f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/"
+        first = self.client.get(base)
+        assert first.status_code == status.HTTP_200_OK
+        body = first.json()
+        assert len(body["results"]) == 2
+        assert body["previous"] is None
+        assert body["next"] is not None
+
+        second = self.client.get(body["next"])
+        assert second.status_code == status.HTTP_200_OK
+        body2 = second.json()
+        assert len(body2["results"]) == 1
+        assert body2["next"] is None
+
+        first_ids = {row["id"] for row in body["results"]}
+        second_ids = {row["id"] for row in body2["results"]}
+        assert first_ids.isdisjoint(second_ids)
+        assert first_ids | second_ids == {
+            str(d.id) for d in SubscriptionDelivery.objects.filter(subscription=self.subscription)
+        }

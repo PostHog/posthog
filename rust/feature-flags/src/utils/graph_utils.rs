@@ -40,6 +40,22 @@ impl<Id> GraphError<Id> {
     }
 }
 
+/// Result of computing evaluation metadata from a dependency graph.
+/// Contains staged evaluation order, transitive dependencies, and
+/// nodes with missing or broken dependencies.
+#[derive(Debug, Clone)]
+pub struct EvaluationResult<Id: Copy + Eq + std::hash::Hash> {
+    /// Node IDs grouped by evaluation stage. Stage 0 = leaves (no deps).
+    /// Each inner Vec is sorted by ID for determinism.
+    pub stages: Vec<Vec<Id>>,
+    /// Node ID → set of all transitive dependency node IDs for nodes remaining
+    /// in the graph. Nodes removed before evaluation (e.g. cycle participants)
+    /// will be absent — callers should backfill empty entries if needed.
+    pub transitive_deps: HashMap<Id, HashSet<Id>>,
+    /// Sorted list of node IDs with missing, cyclic, or transitively broken deps.
+    pub nodes_with_missing_deps: Vec<Id>,
+}
+
 /// Trait for types that can provide their dependencies
 pub trait DependencyProvider {
     type Id: Copy + Eq + std::hash::Hash + std::fmt::Display + Into<i64>;
@@ -359,6 +375,72 @@ where
                     .collect()
             })
             .collect())
+    }
+
+    /// Computes evaluation stages, transitive dependencies, and missing-dep propagation
+    /// in a single pass over the topologically sorted stages.
+    ///
+    /// `nodes_with_missing_deps_set` contains IDs already known to have missing deps
+    /// (e.g. nodes removed during cycle detection, or nodes with external missing deps).
+    /// This method propagates that status: any node depending on a missing-dep node
+    /// is also marked as having missing deps.
+    pub fn compute_evaluation_metadata(
+        &self,
+        nodes_with_missing_deps_set: &HashSet<T::Id>,
+    ) -> Result<EvaluationResult<T::Id>, T::Error>
+    where
+        T::Id: Ord,
+    {
+        use petgraph::Direction::Outgoing;
+
+        let out_degree = self.build_evaluation_maps();
+        let stage_indices = Self::compute_stage_indices(&self.graph, out_degree)?;
+
+        // Build NodeIndex → Id lookup
+        let node_id = |idx: NodeIndex| -> T::Id { self.graph[idx].get_id() };
+
+        let mut transitive_deps: HashMap<T::Id, HashSet<T::Id>> =
+            HashMap::with_capacity(self.graph.node_count());
+        let mut has_missing: HashSet<T::Id> = nodes_with_missing_deps_set.clone();
+        let mut stages: Vec<Vec<T::Id>> = Vec::with_capacity(stage_indices.len());
+
+        for stage in &stage_indices {
+            let mut stage_ids: Vec<T::Id> = Vec::with_capacity(stage.len());
+
+            for &node_idx in stage {
+                let id = node_id(node_idx);
+                stage_ids.push(id);
+
+                // Collect transitive deps: union of {direct_dep} ∪ transitive_deps[direct_dep]
+                // This is safe because all deps appear in earlier stages.
+                let mut my_deps = HashSet::new();
+                for dep_idx in self.graph.neighbors_directed(node_idx, Outgoing) {
+                    let dep_id = node_id(dep_idx);
+                    my_deps.insert(dep_id);
+                    if let Some(dep_transitive) = transitive_deps.get(&dep_id) {
+                        my_deps.extend(dep_transitive);
+                    }
+                    // Propagate missing status
+                    if has_missing.contains(&dep_id) {
+                        has_missing.insert(id);
+                    }
+                }
+                transitive_deps.insert(id, my_deps);
+            }
+
+            // Sort each stage for determinism
+            stage_ids.sort();
+            stages.push(stage_ids);
+        }
+
+        let mut nodes_with_missing_deps: Vec<T::Id> = has_missing.into_iter().collect();
+        nodes_with_missing_deps.sort();
+
+        Ok(EvaluationResult {
+            stages,
+            transitive_deps,
+            nodes_with_missing_deps,
+        })
     }
 
     /// Returns an iterator over all nodes (items) in the graph.
