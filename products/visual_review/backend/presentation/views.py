@@ -13,6 +13,9 @@ No business logic here - that belongs in logic.py via the facade.
 from typing import cast
 from uuid import UUID
 
+from django.http import HttpResponse
+from django.utils.cache import get_conditional_response, patch_cache_control
+
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
@@ -69,7 +72,7 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     scope_object = "visual_review"
     scope_object_write_actions = ["create", "partial_update", "quarantine", "unquarantine"]
-    scope_object_read_actions = ["list", "retrieve", "list_quarantined"]
+    scope_object_read_actions = ["list", "retrieve", "list_quarantined", "thumbnail"]
 
     @extend_schema(responses={200: RepoSerializer(many=True)})
     def list(self, request: Request, **kwargs) -> Response:
@@ -128,6 +131,43 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except api.RepoNotFoundError:
             return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(RepoSerializer(instance=repo).data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH),
+            OpenApiParameter("identifier", OpenApiTypes.STR, OpenApiParameter.PATH),
+        ],
+        responses={200: OpenApiResponse(description="WebP thumbnail image")},
+    )
+    @action(detail=True, methods=["get"], url_path=r"thumbnails/(?P<identifier>.+[^/])")
+    def thumbnail(self, request: Request, pk: str, identifier: str, **kwargs) -> HttpResponse:
+        """Serve a snapshot thumbnail by identifier. Returns WebP with ETag caching."""
+        from .. import logic
+
+        try:
+            logic.get_repo(UUID(pk), team_id=self.team_id)
+        except api.RepoNotFoundError:
+            return HttpResponse(status=404)
+
+        thumb_hash = logic.get_thumbnail_hash_for_identifier(UUID(pk), identifier)
+        if thumb_hash is None:
+            resp = HttpResponse(status=404)
+            patch_cache_control(resp, no_store=True)
+            return resp
+
+        etag = f'"{thumb_hash}"'
+        not_modified = get_conditional_response(request._request, etag=etag)
+        if not_modified:
+            return not_modified
+
+        thumb_bytes = logic.read_thumbnail_bytes(UUID(pk), thumb_hash)
+        if thumb_bytes is None:
+            return HttpResponse(status=404)
+
+        response = HttpResponse(thumb_bytes, content_type="image/webp")
+        response["ETag"] = etag
+        patch_cache_control(response, public=True, max_age=300, stale_while_revalidate=3600)
+        return response
 
     @extend_schema(
         parameters=[

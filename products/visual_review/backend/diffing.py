@@ -11,11 +11,16 @@ Called by the Celery task; all business logic lives here.
 from uuid import UUID
 
 import structlog
+from blake3 import blake3
+from pixelhog import thumbnail as pixelhog_thumbnail
 
 from .diff import compute_diff
 from .facade.enums import ClassificationReason, SnapshotResult, ToleratedReason
 from .models import RunSnapshot, ToleratedHash
 from .ssim import compute_ssim
+
+THUMB_WIDTH = 200
+THUMB_HEIGHT = 140
 
 logger = structlog.get_logger(__name__)
 
@@ -30,6 +35,38 @@ logger = structlog.get_logger(__name__)
 # Only when both are below threshold is the snapshot reclassified as UNCHANGED.
 PIXEL_DIFF_THRESHOLD_PERCENT = 2.5
 SSIM_DISSIMILARITY_THRESHOLD = 0.01  # 1% structural difference
+
+
+def _generate_thumbnail(snapshot: RunSnapshot, image_bytes: bytes) -> None:
+    """Generate and store a thumbnail for the snapshot's current artifact, if missing."""
+    from . import logic
+
+    artifact = snapshot.current_artifact
+    if artifact is None or artifact.thumbnail_id is not None:
+        return
+
+    try:
+        webp_bytes = pixelhog_thumbnail(image_bytes, width=THUMB_WIDTH, height=THUMB_HEIGHT)
+    except Exception:
+        logger.warning(
+            "visual_review.thumbnail_generation_failed",
+            snapshot_id=str(snapshot.id),
+            identifier=snapshot.identifier,
+        )
+        return
+
+    thumb_hash = blake3(webp_bytes).hexdigest()
+    thumb_artifact = logic.write_artifact_bytes(
+        repo_id=snapshot.run.repo_id,
+        content_hash=thumb_hash,
+        content=webp_bytes,
+        width=THUMB_WIDTH,
+        height=THUMB_HEIGHT,
+        team_id=snapshot.team_id,
+    )
+
+    artifact.thumbnail = thumb_artifact
+    artifact.save(update_fields=["thumbnail"])
 
 
 def _store_diff(snapshot: RunSnapshot, result, *, ssim_score: float | None = None) -> None:
@@ -92,6 +129,8 @@ def _diff_snapshot(snapshot: RunSnapshot) -> None:
             has_current=current_bytes is not None,
         )
         return
+
+    _generate_thumbnail(snapshot, current_bytes)
 
     result = compute_diff(baseline_bytes, current_bytes)
 
@@ -160,6 +199,11 @@ def process_diffs(run_id: UUID) -> None:
     snapshots = logic.get_run_snapshots(run_id)
 
     for snapshot in snapshots:
+        if snapshot.result == SnapshotResult.NEW and snapshot.current_artifact:
+            current_bytes = logic.read_artifact_bytes(snapshot.run.repo_id, snapshot.current_artifact.content_hash)
+            if current_bytes:
+                _generate_thumbnail(snapshot, current_bytes)
+
         if snapshot.result != SnapshotResult.CHANGED:
             continue
 

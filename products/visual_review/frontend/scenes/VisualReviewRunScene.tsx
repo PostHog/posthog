@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import React, { useState } from 'react'
+import React from 'react'
 
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
@@ -30,11 +30,17 @@ function SnapshotThumbnail({
     snapshot,
     isSelected,
     isQuarantined,
+    thumbnailSrc,
+    fallbackSrc,
+    onThumbnailFailed,
     onClick,
 }: {
     snapshot: SnapshotApi
     isSelected: boolean
     isQuarantined: boolean
+    thumbnailSrc: string | null
+    fallbackSrc: string | null
+    onThumbnailFailed: () => void
     onClick: () => void
 }): JSX.Element {
     const parts = snapshot.identifier.split('--')
@@ -42,10 +48,11 @@ function SnapshotThumbnail({
     const isTheme = theme === 'dark' || theme === 'light'
     const shortName = parts.length > 1 ? parts.slice(1, isTheme ? -1 : undefined).join(' · ') : snapshot.identifier
 
-    const [imageLoaded, setImageLoaded] = useState(false)
     const isReviewed = snapshot.review_state === 'approved' || snapshot.review_state === 'tolerated'
     const showBadge = isReviewed || isQuarantined
     const hasDiff = snapshot.diff_percentage != null && snapshot.diff_percentage > 0
+
+    const imgSrc = thumbnailSrc ?? fallbackSrc
 
     return (
         <button
@@ -79,21 +86,17 @@ function SnapshotThumbnail({
                 </>
             )}
             <div className="w-[104px] h-[72px] rounded-sm overflow-hidden bg-bg-3000 relative">
-                {snapshot.current_artifact?.download_url ? (
-                    <>
-                        {!imageLoaded && <LemonSkeleton className="absolute inset-0" />}
-                        <img
-                            src={snapshot.current_artifact.download_url}
-                            alt=""
-                            width={104}
-                            height={72}
-                            loading="lazy"
-                            decoding="async"
-                            className={`w-full h-full object-contain transition-opacity duration-150 ${isQuarantined ? 'grayscale opacity-40' : imageLoaded ? 'opacity-100' : 'opacity-0'}`}
-                            onLoad={() => setImageLoaded(true)}
-                            onError={() => setImageLoaded(true)}
-                        />
-                    </>
+                {imgSrc ? (
+                    <img
+                        src={imgSrc}
+                        alt=""
+                        width={104}
+                        height={72}
+                        loading="lazy"
+                        decoding="async"
+                        className={`w-full h-full object-contain ${isQuarantined ? 'grayscale opacity-40' : ''}`}
+                        onError={thumbnailSrc ? onThumbnailFailed : undefined}
+                    />
                 ) : (
                     <div className="w-full h-full flex items-center justify-center">
                         <span className="text-[10px] text-muted">No image</span>
@@ -170,6 +173,8 @@ export function VisualReviewRunScene(): JSX.Element {
         isRecomputing,
         isRunInProgress,
         isRunProcessing,
+        failedThumbnails,
+        thumbnailBasePath,
     } = useValues(visualReviewRunSceneLogic)
     const {
         setSelectedSnapshotId,
@@ -179,6 +184,7 @@ export function VisualReviewRunScene(): JSX.Element {
         quarantineSnapshot,
         unquarantineSnapshot,
         recomputeRun,
+        markThumbnailFailed,
     } = useActions(visualReviewRunSceneLogic)
 
     if (runLoading || !run) {
@@ -373,15 +379,25 @@ export function VisualReviewRunScene(): JSX.Element {
 
                     {navSnapshots.length > 0 && (
                         <div className="flex gap-1.5 overflow-x-auto px-3 pb-3">
-                            {navSnapshots.map((snapshot: SnapshotApi) => (
-                                <SnapshotThumbnail
-                                    key={snapshot.id}
-                                    snapshot={snapshot}
-                                    isSelected={selectedSnapshot?.id === snapshot.id}
-                                    isQuarantined={quarantinedIdentifierSet.has(snapshot.identifier)}
-                                    onClick={() => setSelectedSnapshotId(snapshot.id)}
-                                />
-                            ))}
+                            {navSnapshots.map((snapshot: SnapshotApi) => {
+                                const hasThumbnail = thumbnailBasePath && !failedThumbnails.has(snapshot.identifier)
+                                return (
+                                    <SnapshotThumbnail
+                                        key={snapshot.id}
+                                        snapshot={snapshot}
+                                        isSelected={selectedSnapshot?.id === snapshot.id}
+                                        isQuarantined={quarantinedIdentifierSet.has(snapshot.identifier)}
+                                        thumbnailSrc={
+                                            hasThumbnail
+                                                ? `${thumbnailBasePath}/${encodeURIComponent(snapshot.identifier)}`
+                                                : null
+                                        }
+                                        fallbackSrc={snapshot.current_artifact?.download_url ?? null}
+                                        onThumbnailFailed={() => markThumbnailFailed(snapshot.identifier)}
+                                        onClick={() => setSelectedSnapshotId(snapshot.id)}
+                                    />
+                                )
+                            })}
                         </div>
                     )}
 
