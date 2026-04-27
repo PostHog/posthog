@@ -838,6 +838,9 @@ tasks: PostgresTable = PostgresTable(
     name="tasks",
     postgres_table_name="posthog_task",
     access_scope="task",
+    # Mirror the REST API's default filter: internal tasks (signals pipeline, etc.) are not
+    # exposed to end users. They are excluded entirely from HogQL.
+    predicates=[parse_expr("internal != true")],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -891,9 +894,10 @@ sandbox_environments: PostgresTable = PostgresTable(
     name="sandbox_environments",
     postgres_table_name="posthog_sandbox_environment",
     access_scope="task",
-    # Mirror the REST API's privacy filter: private envs are only visible to their creator.
-    # PostgresTable predicates have no per-user context, so private envs are excluded entirely.
-    predicates=[parse_expr("private != true")],
+    # Mirror the REST API's default filters:
+    # - private envs are only visible to their creator (no per-user context here, so excluded entirely)
+    # - internal envs (signals pipeline, etc.) are not exposed to end users
+    predicates=[parse_expr("private != true"), parse_expr("internal != true")],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),

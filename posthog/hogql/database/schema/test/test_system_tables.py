@@ -474,8 +474,8 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
 
 
 class TestSystemTablesSandboxEnvironmentPrivacy(BaseTest):
-    """Verify the sandbox_environments system table excludes private environments,
-    mirroring the REST API's per-creator visibility filter."""
+    """Verify the sandbox_environments system table excludes private and internal environments,
+    mirroring the REST API's per-creator visibility filter and internal-use exclusion."""
 
     def test_generated_sql_includes_private_predicate(self):
         db = Database.create_for(team=self.team)
@@ -484,11 +484,12 @@ class TestSystemTablesSandboxEnvironmentPrivacy(BaseTest):
             parse_select("SELECT id FROM system.sandbox_environments"), context, dialect="clickhouse"
         )
         assert "system__sandbox_environments.private" in query
+        assert "system__sandbox_environments.internal" in query
         assert f"equals(system__sandbox_environments.team_id, {self.team.pk})" in query
 
 
 class TestSystemTablesSandboxEnvironmentPrivacyIsolation(NonAtomicBaseTest):
-    """End-to-end check that private sandbox environments are never returned via HogQL,
+    """End-to-end check that private and internal sandbox environments are never returned via HogQL,
     even within the creator's own team."""
 
     CLASS_DATA_LEVEL_SETUP = False
@@ -504,3 +505,63 @@ class TestSystemTablesSandboxEnvironmentPrivacyIsolation(NonAtomicBaseTest):
 
         assert str(public_env.pk) in ids
         assert str(private_env.pk) not in ids
+
+    def test_internal_environments_excluded(self):
+        from products.tasks.backend.models import SandboxEnvironment
+
+        regular_env = SandboxEnvironment.objects.create(
+            team=self.team, name="regular_env", private=False, internal=False
+        )
+        internal_env = SandboxEnvironment.objects.create(
+            team=self.team, name="internal_env", private=False, internal=True
+        )
+
+        response = execute_hogql_query("SELECT id FROM system.sandbox_environments", team=self.team)
+        ids = {str(row[0]) for row in response.results}
+
+        assert str(regular_env.pk) in ids
+        assert str(internal_env.pk) not in ids
+
+
+class TestSystemTablesTaskInternalExclusion(BaseTest):
+    """Verify the tasks system table excludes internal tasks (signals pipeline, etc.)
+    mirroring the REST API's default filter."""
+
+    def test_generated_sql_includes_internal_predicate(self):
+        db = Database.create_for(team=self.team)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
+        query, _ = prepare_and_print_ast(
+            parse_select("SELECT id FROM system.tasks"), context, dialect="clickhouse"
+        )
+        assert "system__tasks.internal" in query
+        assert f"equals(system__tasks.team_id, {self.team.pk})" in query
+
+
+class TestSystemTablesTaskInternalExclusionIsolation(NonAtomicBaseTest):
+    """End-to-end check that internal tasks are never returned via HogQL."""
+
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_internal_tasks_excluded(self):
+        from products.tasks.backend.models import Task
+
+        regular_task = Task.objects.create(
+            team=self.team,
+            title="regular",
+            description="x",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            internal=False,
+        )
+        internal_task = Task.objects.create(
+            team=self.team,
+            title="internal",
+            description="x",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            internal=True,
+        )
+
+        response = execute_hogql_query("SELECT id FROM system.tasks", team=self.team)
+        ids = {str(row[0]) for row in response.results}
+
+        assert str(regular_task.pk) in ids
+        assert str(internal_task.pk) not in ids
