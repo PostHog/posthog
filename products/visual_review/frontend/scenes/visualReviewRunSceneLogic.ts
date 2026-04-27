@@ -9,10 +9,11 @@ import { Breadcrumb } from '~/types'
 
 import {
     visualReviewReposQuarantineCreate,
-    visualReviewReposQuarantineDestroy,
+    visualReviewReposQuarantineExpireCreate,
     visualReviewReposQuarantineList,
     visualReviewReposRetrieve,
     visualReviewRunsApproveCreate,
+    visualReviewRunsRecomputeCreate,
     visualReviewRunsTolerateCreate,
     visualReviewRunsRetrieve,
     visualReviewRunsSnapshotHistoryList,
@@ -55,6 +56,9 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             expiresAt,
         }),
         unquarantineSnapshot: (snapshot: SnapshotApi) => ({ snapshot }),
+        recomputeRun: true,
+        recomputeRunSuccess: true,
+        recomputeRunFailure: true,
     }),
     reducers({
         selectedSnapshotId: [
@@ -79,6 +83,14 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 approveSnapshotFailure: () => false,
             },
         ],
+        isRecomputing: [
+            false,
+            {
+                recomputeRun: () => true,
+                recomputeRunSuccess: () => false,
+                recomputeRunFailure: () => false,
+            },
+        ],
     }),
     loaders(({ props, values }) => ({
         run: [
@@ -93,7 +105,9 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             [] as SnapshotApi[],
             {
                 loadSnapshots: async () => {
-                    const response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), props.runId)
+                    const response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), props.runId, {
+                        limit: 10000,
+                    })
                     return response.results
                 },
             },
@@ -221,6 +235,8 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 ),
         ],
         repoFullName: [(s) => [s.repo], (repo): string | null => repo?.repo_full_name || null],
+        isRunInProgress: [(s) => [s.run], (run): boolean => run?.status === 'pending' || run?.status === 'processing'],
+        isRunProcessing: [(s) => [s.run], (run): boolean => run?.status === 'processing'],
         breadcrumbs: [
             (s) => [s.run],
             (run): Breadcrumb[] => [
@@ -343,15 +359,42 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 lemonToast.error(e?.detail || e?.message || 'Failed to quarantine')
             }
         },
+        recomputeRun: async () => {
+            try {
+                const result = await visualReviewRunsRecomputeCreate(String(values.currentProjectId), props.runId)
+                actions.recomputeRunSuccess()
+
+                if (result.ci_rerun_triggered) {
+                    lemonToast.success(
+                        result.counts_changed ? 'Counts updated, CI job re-triggered' : 'CI job re-triggered'
+                    )
+                } else if (result.ci_rerun_error) {
+                    if (result.counts_changed) {
+                        lemonToast.success('Counts updated')
+                    }
+                    lemonToast.warning(`CI re-trigger failed: ${result.ci_rerun_error}`)
+                } else {
+                    lemonToast.success(result.counts_changed ? 'Counts updated' : 'No changes needed')
+                }
+                actions.loadRun()
+                actions.loadSnapshots()
+            } catch (e: any) {
+                actions.recomputeRunFailure()
+                lemonToast.error(e?.detail || e?.message || 'Failed to recompute')
+            }
+        },
         unquarantineSnapshot: async ({ snapshot }) => {
             const { run } = values
             if (!run) {
                 return
             }
             try {
-                await visualReviewReposQuarantineDestroy(String(values.currentProjectId), run.repo_id, run.run_type, {
-                    identifier: snapshot.identifier,
-                })
+                await visualReviewReposQuarantineExpireCreate(
+                    String(values.currentProjectId),
+                    run.repo_id,
+                    run.run_type,
+                    { identifier: snapshot.identifier, reason: '' }
+                )
                 lemonToast.success('Identifier unquarantined — future runs will gate on it again')
                 actions.loadQuarantinedIdentifiers()
             } catch (e: any) {

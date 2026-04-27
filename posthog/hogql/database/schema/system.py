@@ -6,6 +6,7 @@ from posthog.hogql.database.models import (
     FieldOrTable,
     FloatDatabaseField,
     IntegerDatabaseField,
+    StringArrayDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
     Table,
@@ -833,6 +834,95 @@ early_access_features: PostgresTable = PostgresTable(
 )
 
 
+tasks: PostgresTable = PostgresTable(
+    name="tasks",
+    postgres_table_name="posthog_task",
+    access_scope="task",
+    # Mirror the REST API's default filter: internal tasks (signals pipeline, etc.) are not
+    # exposed to end users. They are excluded entirely from HogQL.
+    predicates=[parse_expr("internal != true")],
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "github_integration_id": IntegerDatabaseField(name="github_integration_id", nullable=True),
+        "task_number": IntegerDatabaseField(name="task_number", nullable=True),
+        "title": StringDatabaseField(name="title"),
+        "_title_manually_set": BooleanDatabaseField(name="title_manually_set", hidden=True),
+        "title_manually_set": ExpressionField(
+            name="title_manually_set",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_title_manually_set"])]),
+        ),
+        "description": StringDatabaseField(name="description"),
+        "origin_product": StringDatabaseField(name="origin_product"),
+        "repository": StringDatabaseField(name="repository", nullable=True),
+        "json_schema": StringJSONDatabaseField(name="json_schema", nullable=True),
+        "_internal": BooleanDatabaseField(name="internal", hidden=True),
+        "internal": ExpressionField(
+            name="internal", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_internal"])])
+        ),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "deleted_at": DateTimeDatabaseField(name="deleted_at", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
+task_runs: PostgresTable = PostgresTable(
+    name="task_runs",
+    postgres_table_name="posthog_task_run",
+    access_scope="task",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "task_id": StringDatabaseField(name="task_id"),
+        "branch": StringDatabaseField(name="branch", nullable=True),
+        "environment": StringDatabaseField(name="environment"),
+        "stage": StringDatabaseField(name="stage", nullable=True),
+        "status": StringDatabaseField(name="status"),
+        "error_message": StringDatabaseField(name="error_message", nullable=True),
+        "output": StringJSONDatabaseField(name="output", nullable=True),
+        "artifacts": StringJSONDatabaseField(name="artifacts"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+        "completed_at": DateTimeDatabaseField(name="completed_at", nullable=True),
+    },
+)
+
+sandbox_environments: PostgresTable = PostgresTable(
+    name="sandbox_environments",
+    postgres_table_name="posthog_sandbox_environment",
+    access_scope="task",
+    # Mirror the REST API's default filters:
+    # - private envs are only visible to their creator (no per-user context here, so excluded entirely)
+    # - internal envs (signals pipeline, etc.) are not exposed to end users
+    predicates=[parse_expr("private != true"), parse_expr("internal != true")],
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "name": StringDatabaseField(name="name"),
+        "network_access_level": StringDatabaseField(name="network_access_level"),
+        "allowed_domains": StringArrayDatabaseField(name="allowed_domains"),
+        "_include_default_domains": BooleanDatabaseField(name="include_default_domains", hidden=True),
+        "include_default_domains": ExpressionField(
+            name="include_default_domains",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_include_default_domains"])]),
+        ),
+        "repositories": StringArrayDatabaseField(name="repositories"),
+        "_private": BooleanDatabaseField(name="private", hidden=True),
+        "private": ExpressionField(name="private", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_private"])])),
+        "_internal": BooleanDatabaseField(name="internal", hidden=True),
+        "internal": ExpressionField(
+            name="internal", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_internal"])])
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
+
 class SystemTables(TableNode):
     name: str = "system"
     children: dict[str, TableNode] = {
@@ -880,11 +970,14 @@ class SystemTables(TableNode):
         "logs_views": TableNode(name="logs_views", table=logs_views),
         "insights": TableNode(name="insights", table=insights),
         "notebooks": TableNode(name="notebooks", table=notebooks),
+        "sandbox_environments": TableNode(name="sandbox_environments", table=sandbox_environments),
         "session_recording_playlists": TableNode(name="session_recording_playlists", table=session_recording_playlists),
         "session_recordings": TableNode(name="session_recordings", table=session_recordings),
         "source_schemas": TableNode(name="source_schemas", table=source_schemas),
         "source_sync_jobs": TableNode(name="source_sync_jobs", table=source_sync_jobs),
         "support_tickets": TableNode(name="support_tickets", table=support_tickets),
         "surveys": TableNode(name="surveys", table=surveys),
+        "task_runs": TableNode(name="task_runs", table=task_runs),
+        "tasks": TableNode(name="tasks", table=tasks),
         "teams": TableNode(name="teams", table=teams),
     }

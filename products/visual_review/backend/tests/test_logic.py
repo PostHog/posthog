@@ -319,7 +319,7 @@ class TestRunOperations:
             pr_number=None,
             snapshots=[],
         )
-        logic.finalize_run(run.id)
+        logic.finish_processing(run.id)
 
         with pytest.raises(ValueError, match="pending"):
             logic.add_snapshots_to_run(
@@ -375,7 +375,7 @@ class TestRunOperations:
             snapshots=[{"identifier": "btn", "content_hash": "h1"}],
             purpose="observe",
         )
-        logic.finalize_run(run.id)
+        logic.finish_processing(run.id)
 
         with pytest.raises(ValueError, match="Observational"):
             logic.approve_run(
@@ -422,7 +422,7 @@ class TestRunOperations:
 
         assert updated.status == RunStatus.PROCESSING
 
-    def test_finalize_run_success(self, repo, mocker):
+    def test_finish_processing_success(self, repo, mocker):
         run, _ = logic.create_run(
             repo_id=repo.id,
             team_id=repo.team_id,
@@ -446,8 +446,8 @@ class TestRunOperations:
         logic.complete_run(run.id)
 
         # complete_run leaves the run in PROCESSING when there are changes;
-        # finalize_run finalizes it
-        updated = logic.finalize_run(run.id)
+        # finish_processing completes it
+        updated = logic.finish_processing(run.id)
 
         assert updated.status == RunStatus.COMPLETED
         assert updated.completed_at is not None
@@ -455,7 +455,7 @@ class TestRunOperations:
         assert updated.new_count == 1
         assert updated.error_message == ""
 
-    def test_finalize_run_with_error(self, repo):
+    def test_finish_processing_with_error(self, repo):
         run, _ = logic.create_run(
             repo_id=repo.id,
             team_id=repo.team_id,
@@ -467,7 +467,7 @@ class TestRunOperations:
             baseline_hashes={},
         )
 
-        updated = logic.finalize_run(run.id, error_message="Something failed")
+        updated = logic.finish_processing(run.id, error_message="Something failed")
 
         assert updated.status == RunStatus.FAILED
         assert updated.error_message == "Something failed"
@@ -535,7 +535,7 @@ class TestApproveRun:
         )
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         logic.complete_run(run.id)
-        logic.finalize_run(run.id)
+        logic.finish_processing(run.id)
 
         updated = logic.approve_run(
             run_id=run.id,
@@ -581,7 +581,7 @@ class TestApproveSnapshots:
         )
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         logic.complete_run(run.id)
-        logic.finalize_run(run.id)
+        logic.finish_processing(run.id)
 
         updated = logic.approve_snapshots(
             run_id=run.id,
@@ -625,7 +625,7 @@ class TestToleratedHashes:
         )
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         logic.complete_run(run.id)
-        logic.finalize_run(run.id)
+        logic.finish_processing(run.id)
         return run
 
     def test_mark_snapshot_as_tolerated(self, repo, user, mocker):
@@ -661,7 +661,7 @@ class TestToleratedHashes:
         )
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         logic.complete_run(run.id)
-        logic.finalize_run(run.id)
+        logic.finish_processing(run.id)
 
         snapshot = run.snapshots.first()
         assert snapshot is not None
@@ -849,7 +849,7 @@ class TestCommitStatusChecks:
         )
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         logic.complete_run(run.id)
-        logic.finalize_run(run.id)
+        logic.finish_processing(run.id)
 
         statuses = mock_github_api.status_checks
         # VR is the gate — unapproved changes post failure
@@ -879,7 +879,7 @@ class TestCommitStatusChecks:
             snapshots=[{"identifier": "changed", "content_hash": "new_h"}],
             baseline_hashes={"changed": "old_h"},
         )
-        logic.finalize_run(run1.id)
+        logic.finish_processing(run1.id)
 
         run2, _ = logic.create_run(
             repo_id=github_repo.id,
@@ -891,7 +891,7 @@ class TestCommitStatusChecks:
             snapshots=[{"identifier": "changed", "content_hash": "newer_h"}],
             baseline_hashes={"changed": "old_h"},
         )
-        logic.finalize_run(run2.id)
+        logic.finish_processing(run2.id)
 
         created = [c for c in mock_github_api.issue_comments if c["action"] == "created"]
         updated = [c for c in mock_github_api.issue_comments if c["action"] == "updated"]
@@ -914,8 +914,8 @@ class TestCommitStatusChecks:
             baseline_hashes={"changed": "old_h"},
         )
 
-        logic.finalize_run(run.id)
-        logic.finalize_run(run.id)
+        logic.finish_processing(run.id)
+        logic.finish_processing(run.id)
 
         assert len(mock_github_api.issue_comments) == 1
 
@@ -970,7 +970,7 @@ class TestCommitStatusChecks:
             baseline_hashes={},
         )
 
-        logic.finalize_run(run.id, error_message="Diff processing failed")
+        logic.finish_processing(run.id, error_message="Diff processing failed")
 
         statuses = mock_github_api.status_checks
         assert statuses[-1]["state"] == "error"
@@ -1016,7 +1016,7 @@ class TestCommitStatusChecks:
             baseline_hashes={},
         )
 
-        logic.finalize_run(run.id)
+        logic.finish_processing(run.id)
 
     def test_no_status_without_repo_full_name(self, team, mock_github_integration, mock_github_api):
         """Status checks are silently skipped when repo has no repo_full_name."""
@@ -1037,7 +1037,7 @@ class TestCommitStatusChecks:
             baseline_hashes={},
         )
 
-        logic.finalize_run(run.id)
+        logic.finish_processing(run.id)
 
         assert len(mock_github_api.status_checks) == 0
 
@@ -1061,7 +1061,7 @@ class TestRunSupersession:
             snapshots=[{"identifier": "snap", "content_hash": commit_sha}],
             baseline_hashes={},
         )
-        logic.finalize_run(run.id)
+        logic.finish_processing(run.id)
         run.refresh_from_db()
         return run
 
@@ -1251,7 +1251,7 @@ class TestQuarantineStamping:
         logic.complete_run(run.id)
         return run
 
-    def test_finalize_run_stamps_quarantined_snapshots(self, repo, team, mocker):
+    def test_finish_processing_stamps_quarantined_snapshots(self, repo, team, mocker):
         from products.visual_review.backend.models import QuarantinedIdentifier
 
         run = self._create_completed_run(
@@ -1274,7 +1274,7 @@ class TestQuarantineStamping:
             reason="flaky",
         )
 
-        logic.finalize_run(run.id)
+        logic.finish_processing(run.id)
 
         snapshots = {s.identifier: s for s in run.snapshots.all()}
         assert snapshots["Button-primary"].is_quarantined is True
@@ -1301,7 +1301,7 @@ class TestQuarantineStamping:
             baseline={"Button-primary": "old1"},
         )
 
-        logic.finalize_run(run.id)
+        logic.finish_processing(run.id)
         snapshot = run.snapshots.get(identifier="Button-primary")
         assert snapshot.is_quarantined is True
 
@@ -1344,12 +1344,170 @@ class TestQuarantineStamping:
             baseline={"Button-primary": "old1", "Button-secondary": "old2"},
         )
 
-        finalized = logic.finalize_run(run.id)
+        processed = logic.finish_processing(run.id)
 
         # Button-primary is quarantined — should not count toward changed
         # Button-secondary is changed (not quarantined), Card-new is new (not quarantined)
-        assert finalized.changed_count == 1  # only Button-secondary
-        assert finalized.new_count == 1  # only Card-new
+        assert processed.changed_count == 1  # only Button-secondary
+        assert processed.new_count == 1  # only Card-new
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestRecomputeRun:
+    @pytest.fixture
+    def repo(self, team):
+        return logic.create_repo(team_id=team.id, repo_external_id=77777, repo_full_name="org/test-repo")
+
+    def _create_completed_run(self, repo, mocker, identifiers_and_hashes, baseline=None, metadata=None):
+        snapshots = [{"identifier": ident, "content_hash": h} for ident, h in identifiers_and_hashes]
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="my-branch",
+            pr_number=1,
+            snapshots=snapshots,
+            metadata=metadata or {},
+        )
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=(baseline or {}, 0),
+        )
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+        mocker.patch("products.visual_review.backend.logic._post_commit_status")
+        logic.complete_run(run.id)
+        logic.finish_processing(run.id)
+        run.refresh_from_db()
+        return run
+
+    def test_recompute_run_updates_counts_after_quarantine(self, repo, team, mocker):
+        from products.visual_review.backend.models import QuarantinedIdentifier
+
+        run = self._create_completed_run(
+            repo,
+            mocker,
+            identifiers_and_hashes=[("Button", "h1"), ("Card", "h2")],
+            baseline={"Button": "old1", "Card": "old2"},
+        )
+        assert run.changed_count == 2
+
+        QuarantinedIdentifier.objects.create(
+            repo=repo,
+            team_id=team.id,
+            identifier="Button",
+            run_type=RunType.STORYBOOK,
+            reason="flaky",
+        )
+        QuarantinedIdentifier.objects.create(
+            repo=repo,
+            team_id=team.id,
+            identifier="Card",
+            run_type=RunType.STORYBOOK,
+            reason="flaky",
+        )
+
+        result = logic.recompute_run(run.id, team_id=team.id)
+
+        assert result["counts_changed"] is True
+        run.refresh_from_db()
+        assert run.changed_count == 0
+
+    def test_recompute_run_no_change_without_quarantine(self, repo, team, mocker):
+        run = self._create_completed_run(
+            repo,
+            mocker,
+            identifiers_and_hashes=[("Button", "h1")],
+            baseline={"Button": "old1"},
+        )
+
+        result = logic.recompute_run(run.id, team_id=team.id)
+
+        assert result["counts_changed"] is False
+        assert "CI job ID not available" in result["ci_rerun_error"]
+
+    def test_recompute_run_rejects_non_completed_run(self, repo, team, mocker):
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="main",
+            pr_number=1,
+            snapshots=[],
+        )
+
+        with pytest.raises(ValueError, match="Can only recompute completed runs"):
+            logic.recompute_run(run.id, team_id=team.id)
+
+    def test_recompute_run_rejects_approved_run(self, repo, team, user, mocker):
+        logic.get_or_create_artifact(repo_id=repo.id, content_hash="h1", storage_path="p/h1")
+        run = self._create_completed_run(
+            repo,
+            mocker,
+            identifiers_and_hashes=[("Button", "h1")],
+            baseline={"Button": "old1"},
+        )
+        logic.approve_run(
+            run_id=run.id,
+            user_id=user.id,
+            approved_snapshots=[{"identifier": "Button", "new_hash": "h1"}],
+            commit_to_github=False,
+        )
+
+        with pytest.raises(ValueError, match="already approved"):
+            logic.recompute_run(run.id, team_id=team.id)
+
+    def test_recompute_run_reports_missing_ci_metadata(self, repo, team, mocker):
+        run = self._create_completed_run(
+            repo,
+            mocker,
+            identifiers_and_hashes=[("Button", "h1")],
+            baseline={"Button": "old1"},
+        )
+
+        result = logic.recompute_run(run.id, team_id=team.id)
+
+        assert result["ci_rerun_triggered"] is False
+        assert "CI job ID not available" in result["ci_rerun_error"]
+
+    def test_recompute_run_triggers_ci_rerun(self, repo, team, mocker):
+        run = self._create_completed_run(
+            repo,
+            mocker,
+            identifiers_and_hashes=[("Button", "h1")],
+            baseline={"Button": "old1"},
+            metadata={"github_check_run_id": "72855643533"},
+        )
+
+        mocker.patch(
+            "products.visual_review.backend.logic._rerun_github_job",
+            return_value=(True, None),
+        )
+
+        result = logic.recompute_run(run.id, team_id=team.id)
+
+        assert result["ci_rerun_triggered"] is True
+        assert result["ci_rerun_error"] is None
+
+    def test_recompute_run_handles_ci_rerun_failure(self, repo, team, mocker):
+        run = self._create_completed_run(
+            repo,
+            mocker,
+            identifiers_and_hashes=[("Button", "h1")],
+            baseline={"Button": "old1"},
+            metadata={"github_check_run_id": "72855643533"},
+        )
+
+        mocker.patch(
+            "products.visual_review.backend.logic._rerun_github_job",
+            return_value=(False, "GitHub API returned 403 when rerunning job"),
+        )
+
+        result = logic.recompute_run(run.id, team_id=team.id)
+
+        assert result["ci_rerun_triggered"] is False
+        assert "403" in result["ci_rerun_error"]
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

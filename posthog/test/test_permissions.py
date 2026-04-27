@@ -607,6 +607,22 @@ class TestOAuthAccessTokenAPIScopePermission(BaseTest):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()["detail"], "This action does not support Personal API Key access")
 
+    def test_forbids_wildcard_scope_for_internal_viewset(self):
+        """`*` does not satisfy INTERNAL viewsets — explicit scope required."""
+        self.access_token.scope = "*"
+        self.access_token.save()
+        response = self._do_request("/api/query_performance_proxy/execute-test/", method="POST")
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("clickhouse_test_cluster_perf:read", response.json()["detail"])
+
+    def test_allows_explicit_scope_for_internal_viewset(self):
+        self.access_token.scope = "clickhouse_test_cluster_perf:read"
+        self.access_token.save()
+        response = self._do_request(
+            "/api/query_performance_proxy/execute-test/", method="POST", data={"sql": "SELECT 1"}
+        )
+        self.assertEqual(response.status_code, 200)
+
     def test_allows_derived_scope_for_read(self):
         """OAuth token with feature_flag:read can read feature flags"""
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/")
