@@ -1408,7 +1408,7 @@ class TestEndpointMaterializationTemporal:
         assert schedule.spec.jitter == timedelta(hours=1)
 
         # Verify schedule policy
-        assert schedule.policy.overlap == ScheduleOverlapPolicy.SKIP
+        assert schedule.policy.overlap == ScheduleOverlapPolicy.CANCEL_OTHER
 
     async def test_sync_frequency_affects_schedule_interval(self, materialized_endpoint):
         """Test that different sync_frequency values create schedules with correct intervals."""

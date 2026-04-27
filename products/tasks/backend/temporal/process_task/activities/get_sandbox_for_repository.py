@@ -8,7 +8,7 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
-from products.tasks.backend.models import SandboxEnvironment, SandboxSnapshot, Task, TaskRun
+from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
 from products.tasks.backend.services.sandbox import (
     Sandbox,
@@ -172,9 +172,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
 
         sandbox_environment = None
         if ctx.sandbox_environment_id:
-            sandbox_environment = SandboxEnvironment.objects.filter(
-                id=ctx.sandbox_environment_id, team=task.team
-            ).first()
+            sandbox_environment = ctx.get_sandbox_environment()
             if sandbox_environment and sandbox_environment.environment_variables:
                 skipped_keys: list[str] = []
                 added_keys = 0
