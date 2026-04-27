@@ -141,8 +141,8 @@ jobs:
                         - 'docker/clickhouse/**'
                       legacy:
                         # Non-product backend code — when only products/ change,
-                        # turbo-discover diffs backend:test vs backend:contract-check
-                        # to detect isolated products and decide whether Django runs.
+                        # turbo-discover uses Turbo query affectedness to detect changed
+                        # products and decide whether Django runs.
                         # Everything from backend: EXCEPT products/**/backend/**/*
                         - 'ee/**/*'
                         - 'common/__init__.py'
@@ -244,7 +244,7 @@ jobs:
 
     # Fast pre-job: determines which products need testing and if Django should run
     # Only needs pnpm + node — no Python, Docker, or services
-    # Runs on depot for turbo remote cache access (cache status drives Django gating)
+    # Runs on depot to match the product-test runner environment
     turbo-discover:
         needs: changes
         if: needs.changes.outputs.backend == 'true'
@@ -257,6 +257,15 @@ jobs:
 
         steps:
             - uses: actions/checkout@v6
+              with:
+                  fetch-depth: 1000
+                  filter: blob:none
+
+            - name: Fetch current PR base for Turbo affected diff
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
 
             - name: Setup pnpm
               uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
@@ -279,17 +288,16 @@ jobs:
                   # On pushes to master, always run everything.
                   # On PRs, use the path filter to detect legacy changes.
                   LEGACY_CHANGED: ${{ github.event_name != 'pull_request' || needs.changes.outputs.legacy }}
+                  TURBO_SCM_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.event.pull_request.base.ref) || '' }}
+                  TURBO_SCM_HEAD: ${{ github.sha }}
               run: |
-                  # turbo-discover.js diffs backend:test vs backend:contract-check
-                  # to detect isolated products. Non-isolated product changes trigger
-                  # the full suite (all products + Django).
+                  # turbo-discover.js uses Turbo's Git affectedness to detect
+                  # changed products. Non-isolated product changes trigger the
+                  # full suite (all products + Django).
                   RESULT=$(node .github/scripts/turbo-discover.js)
                   echo "Result: $RESULT"
                   echo "matrix=$(echo "$RESULT" | jq -c '.matrix')" >> $GITHUB_OUTPUT
                   echo "run_legacy=$(echo "$RESULT" | jq -r '.run_legacy')" >> $GITHUB_OUTPUT
-
-                  # Keep contract-check remote cache warm for future runs
-                  ./node_modules/.bin/turbo run backend:contract-check --output-logs=errors-only 2>/dev/null || true
 
     # Runs product tests in parallel — one matrix job per group
     # Each job gets its own runner + Docker stack, so no shared DB conflicts
