@@ -6,6 +6,8 @@ from posthog.test.base import _create_event, _create_person, flush_persons_and_e
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.schema import (
     EventsNode,
     ExperimentFunnelMetric,
@@ -378,29 +380,35 @@ class TestExperimentFunnelMetricCuped(ExperimentQueryRunnerBaseTest):
         # With θ pinned to zero (no pre variance), the test still produces a p-value.
         assert variant.p_value is not None
 
+    @parameterized.expand(
+        [
+            ("frequentist", "frequentist", ExperimentVariantResultFrequentist, "confidence_interval"),
+            ("bayesian", "bayesian", ExperimentVariantResultBayesian, "credible_interval"),
+        ]
+    )
     @freeze_time("2020-01-15T12:00:00Z")
-    def test_cuped_adjusts_frequentist_statistical_result(self):
+    def test_cuped_adjusts_statistical_result(self, name, method, variant_cls, interval_attr):
         metric = self._build_single_step_metric()
 
-        no_cuped_feature_flag = self.create_feature_flag("no-cuped-funnel-experiment")
+        no_cuped_feature_flag = self.create_feature_flag(f"no-cuped-{name}-funnel-experiment")
         no_cuped_experiment = self.create_experiment(
-            name="no-cuped-funnel-experiment",
+            name=f"no-cuped-{name}-funnel-experiment",
             feature_flag=no_cuped_feature_flag,
             start_date=datetime(2020, 1, 10, 0, 0, 0),
             end_date=datetime(2020, 1, 15, 0, 0, 0),
         )
-        no_cuped_experiment.stats_config = {"method": "frequentist"}
+        no_cuped_experiment.stats_config = {"method": method}
         no_cuped_experiment.save()
 
-        cuped_feature_flag = self.create_feature_flag("cuped-funnel-experiment")
+        cuped_feature_flag = self.create_feature_flag(f"cuped-{name}-funnel-experiment")
         cuped_experiment = self.create_experiment(
-            name="cuped-funnel-experiment",
+            name=f"cuped-{name}-funnel-experiment",
             feature_flag=cuped_feature_flag,
             start_date=datetime(2020, 1, 10, 0, 0, 0),
             end_date=datetime(2020, 1, 15, 0, 0, 0),
         )
         cuped_experiment.stats_config = {
-            "method": "frequentist",
+            "method": method,
             "cuped": {"enabled": True, "lookback_days": 7},
         }
         cuped_experiment.save()
@@ -414,57 +422,12 @@ class TestExperimentFunnelMetricCuped(ExperimentQueryRunnerBaseTest):
 
         assert no_cuped_result.variant_results is not None
         assert cuped_result.variant_results is not None
-        no_cuped_variant = cast(ExperimentVariantResultFrequentist, no_cuped_result.variant_results[0])
-        cuped_variant = cast(ExperimentVariantResultFrequentist, cuped_result.variant_results[0])
+        no_cuped_variant = cast(variant_cls, no_cuped_result.variant_results[0])
+        cuped_variant = cast(variant_cls, cuped_result.variant_results[0])
 
-        assert no_cuped_variant.confidence_interval is not None
-        assert cuped_variant.confidence_interval is not None
-        no_cuped_interval_width = no_cuped_variant.confidence_interval[1] - no_cuped_variant.confidence_interval[0]
-        cuped_interval_width = cuped_variant.confidence_interval[1] - cuped_variant.confidence_interval[0]
+        no_cuped_interval = getattr(no_cuped_variant, interval_attr)
+        cuped_interval = getattr(cuped_variant, interval_attr)
+        assert no_cuped_interval is not None
+        assert cuped_interval is not None
         # Variance reduction shrinks the interval; equality only happens when θ = 0.
-        self.assertLess(cuped_interval_width, no_cuped_interval_width)
-
-    @freeze_time("2020-01-15T12:00:00Z")
-    def test_cuped_adjusts_bayesian_statistical_result(self):
-        metric = self._build_single_step_metric()
-
-        no_cuped_feature_flag = self.create_feature_flag("no-cuped-bayesian-funnel-experiment")
-        no_cuped_experiment = self.create_experiment(
-            name="no-cuped-bayesian-funnel-experiment",
-            feature_flag=no_cuped_feature_flag,
-            start_date=datetime(2020, 1, 10, 0, 0, 0),
-            end_date=datetime(2020, 1, 15, 0, 0, 0),
-        )
-        no_cuped_experiment.stats_config = {"method": "bayesian"}
-        no_cuped_experiment.save()
-
-        cuped_feature_flag = self.create_feature_flag("cuped-bayesian-funnel-experiment")
-        cuped_experiment = self.create_experiment(
-            name="cuped-bayesian-funnel-experiment",
-            feature_flag=cuped_feature_flag,
-            start_date=datetime(2020, 1, 10, 0, 0, 0),
-            end_date=datetime(2020, 1, 15, 0, 0, 0),
-        )
-        cuped_experiment.stats_config = {
-            "method": "bayesian",
-            "cuped": {"enabled": True, "lookback_days": 7},
-        }
-        cuped_experiment.save()
-
-        self._create_correlated_funnel_data(no_cuped_feature_flag)
-        self._create_correlated_funnel_data(cuped_feature_flag)
-        flush_persons_and_events()
-
-        no_cuped_result = self._run_metric(no_cuped_experiment, metric)
-        cuped_result = self._run_metric(cuped_experiment, metric)
-
-        assert no_cuped_result.variant_results is not None
-        assert cuped_result.variant_results is not None
-        no_cuped_variant = cast(ExperimentVariantResultBayesian, no_cuped_result.variant_results[0])
-        cuped_variant = cast(ExperimentVariantResultBayesian, cuped_result.variant_results[0])
-
-        assert no_cuped_variant.credible_interval is not None
-        assert cuped_variant.credible_interval is not None
-        no_cuped_interval_width = no_cuped_variant.credible_interval[1] - no_cuped_variant.credible_interval[0]
-        cuped_interval_width = cuped_variant.credible_interval[1] - cuped_variant.credible_interval[0]
-        self.assertLess(cuped_interval_width, no_cuped_interval_width)
+        self.assertLess(cuped_interval[1] - cuped_interval[0], no_cuped_interval[1] - no_cuped_interval[0])
