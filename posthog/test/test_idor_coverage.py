@@ -48,8 +48,10 @@ from posthog.test.idor.body_factory import BodyUnfillable, build_minimal_post_bo
 from posthog.test.idor.factory import reset_sentinel
 from posthog.test.idor.fk_discovery import (
     ActionSerializerCase,
+    FilterParam,
     WritableFKField,
     discover_action_serializers,
+    discover_filter_params,
     discover_writable_tenant_fks,
 )
 from posthog.test.idor.skip_list import (
@@ -179,6 +181,24 @@ def _iter_action_cases() -> list[tuple[str, IDORTestCase, ActionSerializerCase, 
 
 
 ACTION_CASES = _iter_action_cases()
+
+
+def _iter_filter_param_cases() -> list[tuple[str, IDORTestCase, FilterParam]]:
+    """Cross-product of (viewset case × filterset_fields entry pointing at a tenant-scoped model).
+
+    Phase 6 — list-endpoint query-param IDORs (`?cohort=<victim_pk>`,
+    `?dashboard__id=<victim_pk>`). Discovery only walks `filterset_fields`;
+    `search_fields` are a different shape and not covered here.
+    """
+    out: list[tuple[str, IDORTestCase, FilterParam]] = []
+    for case in DISCOVERED_CASES:
+        for filter_param in discover_filter_params(case.viewset_cls):
+            label = f"{case.name}__{filter_param.param_name}__{filter_param.target_model.__name__}"
+            out.append((label, case, filter_param))
+    return out
+
+
+FILTER_PARAM_CASES = _iter_filter_param_cases()
 
 
 def _tenant_root_params() -> list[tuple[str, TenantRootCase]]:
@@ -349,6 +369,69 @@ class TestAutomatedIDORCoverage(IDORTestMixin, APIBaseTest):
             if row_id is not None and str(row_id) == victim_pk:
                 raise AssertionError(
                     f"IDOR list leak: {list_url} returned victim {case.model_cls.__name__}(pk={victim_pk})"
+                )
+
+    @parameterized.expand(FILTER_PARAM_CASES)
+    def test_cross_tenant_filter_param(
+        self,
+        _name: str,
+        case: IDORTestCase,
+        filter_param: FilterParam,
+    ) -> None:
+        """Attacker cannot use `?<filter>=<victim_pk>` to enumerate cross-tenant rows.
+
+        DRF's `filterset_fields` accept query params that become ORM filters.
+        If the underlying queryset isn't tenant-scoped, the filter happily
+        joins across tenants and returns the victim's records. The runtime
+        check parses the JSON results and asserts the victim's pk and
+        sentinel are absent.
+        """
+        sentinel = reset_sentinel()
+        try:
+            victim_instance = build_minimal_instance(filter_param.target_model, team=self.victim_team)  # type: ignore[attr-defined]
+        except Exception as exc:
+            self.skipTest(
+                f"{case.name}.{filter_param.param_name}: could not build victim "
+                f"{filter_param.target_model.__name__} ({type(exc).__name__}: {exc})"
+            )
+
+        list_url = self._build_list_url_for_attacker(case)
+        if list_url is None:
+            return  # skipTest already called
+
+        sep = "&" if "?" in list_url else "?"
+        url = f"{list_url}{sep}{filter_param.param_name}={victim_instance.pk}"
+        response = self.client.get(url)  # type: ignore[attr-defined]
+        if response.status_code >= 500:
+            _maybe_warn_5xx(case.name, response.status_code)
+            return
+        if response.status_code not in range(200, 300):
+            return  # 400/401/403/404 acceptable
+
+        self.assertSentinelNotLeaked(response, sentinel)
+
+        try:
+            payload = response.json()
+        except Exception:
+            return
+        if isinstance(payload, list):
+            results = payload
+        elif isinstance(payload, dict):
+            results = payload.get("results", [])
+        else:
+            return
+        if not isinstance(results, list):
+            return
+
+        victim_pk = str(victim_instance.pk)
+        for row in results:
+            if not isinstance(row, dict):
+                continue
+            row_id = row.get("id") or row.get("pk")
+            if row_id is not None and str(row_id) == victim_pk:
+                raise AssertionError(
+                    f"IDOR filter leak: {url} returned a row whose id matches "
+                    f"victim {filter_param.target_model.__name__}(pk={victim_pk})"
                 )
 
     @parameterized.expand(TENANT_ROOT_CASES)

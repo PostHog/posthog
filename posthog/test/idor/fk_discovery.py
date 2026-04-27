@@ -647,3 +647,94 @@ def _extract_extend_schema_request(schema_cls: type) -> Optional[type]:
                 continue
             return value
     return None
+
+
+@dataclass(frozen=True)
+class FilterParam:
+    """A list-endpoint query-param filter that can carry a tenant-scoped FK pk.
+
+    DRF's `filterset_fields` accept query params like `?cohort=` or
+    `?dashboard__id=`. If the underlying queryset is missing a tenant
+    filter, an attacker can pass a victim's pk and enumerate cross-tenant
+    rows even when the detail and list endpoints are scoped correctly.
+    """
+
+    param_name: str
+    """The query param name as it appears in the URL (e.g. `cohort`, `dashboard__id`)."""
+
+    target_model: type[models.Model]
+    """The Django model class the param's value points at."""
+
+    scope: Scope
+    """Tenant scope of the target model."""
+
+
+def discover_filter_params(viewset_cls: type) -> list[FilterParam]:
+    """Walk `filterset_fields` and return entries pointing at tenant-scoped models.
+
+    `search_fields` are intentionally skipped — they live behind a single
+    `?search=<text>` param that takes a free-form string, not an FK pk, so
+    the IDOR shape is different (and would need a separate parametric).
+
+    Ambiguous matches (`template` → DashboardTemplate / MessageTemplate /
+    HogFlowTemplate) emit one record per candidate so the runtime fans out;
+    if any candidate's queryset is unscoped the leak surfaces.
+    """
+    raw = getattr(viewset_cls, "filterset_fields", None)
+    if not raw:
+        return []
+    if isinstance(raw, dict):
+        # filterset_fields can be `{field: ['exact', 'in']}` shape.
+        names: tuple[str, ...] = tuple(raw.keys())
+    else:
+        names = tuple(raw)
+
+    out: list[FilterParam] = []
+    seen: set[tuple[str, str]] = set()
+    for name in names:
+        for record in _classify_filter_param(name):
+            key = (record.param_name, record.target_model.__name__)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(record)
+    return out
+
+
+def _classify_filter_param(param_name: str) -> list[FilterParam]:
+    """Resolve a filter field name to one or more tenant-scoped model targets."""
+    if not param_name:
+        return []
+
+    # `dashboard__id` / `cohort__name` — first segment names the FK; the
+    # rest is a lookup or related field. The target model is determined by
+    # the head; the URL param keeps the full name so the runtime hits the
+    # exact endpoint shape DRF expects.
+    head = param_name.split("__", 1)[0]
+
+    # `cohort_id` → `cohort`. `cohort_short_id` / `cohort_key` also valid.
+    for suffix, _attr in _LOOKUP_SUFFIXES:
+        if head.endswith(suffix) and head != suffix:
+            head = head[: -len(suffix)]
+            break
+
+    # Strip role prefixes (`source_template` → `template`).
+    for prefix in _ROLE_PREFIXES:
+        if head.startswith(prefix):
+            head = head[len(prefix) :]
+            break
+
+    candidate_names = lookup_tenant_models_by_partial_name(head)
+    if not candidate_names:
+        return []
+
+    out: list[FilterParam] = []
+    for class_name in candidate_names:
+        target = _resolve_django_model_by_name(class_name)
+        if target is None:
+            continue
+        scope = classify_model_scope(target.__name__)
+        if scope is None:
+            continue
+        out.append(FilterParam(param_name=param_name, target_model=target, scope=scope))
+    return out

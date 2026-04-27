@@ -21,7 +21,12 @@ from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.insight import Insight
 from posthog.models.integration import Integration
 from posthog.models.user import User
-from posthog.test.idor.fk_discovery import discover_action_serializers, discover_writable_tenant_fks
+from posthog.test.idor.fk_discovery import (
+    FilterParam,
+    discover_action_serializers,
+    discover_filter_params,
+    discover_writable_tenant_fks,
+)
 
 from products.dashboards.backend.models.dashboard import Dashboard
 
@@ -538,3 +543,75 @@ class TestDiscoverActionSerializers:
             pass
 
         assert discover_action_serializers(_NotAViewSet) == []
+
+
+class TestDiscoverFilterParams:
+    def test_no_filterset_fields_returns_empty(self) -> None:
+        class _NoFilters:
+            pass
+
+        assert discover_filter_params(_NoFilters) == []
+
+    def test_non_tenant_param_skipped(self) -> None:
+        class _ViewSet:
+            filterset_fields = ["status", "archived", "is_staff"]
+
+        assert discover_filter_params(_ViewSet) == []
+
+    def test_param_matching_tenant_model_picked_up(self) -> None:
+        class _ViewSet:
+            filterset_fields = ["dashboard"]
+
+        result = discover_filter_params(_ViewSet)
+        assert len(result) == 1
+        record = result[0]
+        assert record.param_name == "dashboard"
+        assert record.target_model is Dashboard
+
+    def test_id_suffix_stripped(self) -> None:
+        class _ViewSet:
+            filterset_fields = ["cohort_id"]
+
+        result = discover_filter_params(_ViewSet)
+        assert len(result) == 1
+        record = result[0]
+        assert record.param_name == "cohort_id"
+        assert record.target_model is Cohort
+
+    def test_double_underscore_lookup_kept_as_param_name(self) -> None:
+        # `?dashboard__id=<pk>` is the DRF lookup syntax for a foreign-key id.
+        # The runtime test must hit the exact param shape, but the head
+        # `dashboard` is what determines the target model.
+        class _ViewSet:
+            filterset_fields = ["dashboard__id"]
+
+        result = discover_filter_params(_ViewSet)
+        assert any(r.target_model is Dashboard and r.param_name == "dashboard__id" for r in result)
+
+    def test_dict_form_filterset_fields(self) -> None:
+        class _ViewSet:
+            filterset_fields = {"cohort": ["exact", "in"]}
+
+        result = discover_filter_params(_ViewSet)
+        assert len(result) == 1
+        assert result[0].target_model is Cohort
+
+    def test_role_prefix_stripped(self) -> None:
+        class _ViewSet:
+            filterset_fields = ["source_dashboard"]
+
+        result = discover_filter_params(_ViewSet)
+        assert any(r.target_model is Dashboard for r in result)
+
+    def test_search_fields_not_included(self) -> None:
+        # search_fields drive `?search=<text>`, which is a different IDOR
+        # shape (free-form search) and is intentionally out of scope.
+        class _ViewSet:
+            search_fields = ["dashboard__name"]
+
+        assert discover_filter_params(_ViewSet) == []
+
+    def test_filterparam_carries_scope(self) -> None:
+        record = FilterParam(param_name="cohort", target_model=Cohort, scope="team")
+        assert record.scope == "team"
+        assert record.target_model is Cohort
