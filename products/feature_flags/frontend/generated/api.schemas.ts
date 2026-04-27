@@ -839,6 +839,8 @@ export interface FeatureFlagTestEvaluationResponseApi {
     payload: unknown | null
     /** Person properties at the time of evaluation (for historical evaluations) */
     person_properties: FeatureFlagTestEvaluationResponseApiPersonProperties
+    /** The distinct_id used for rollout/variant bucketing. Matches the caller-provided distinct_id when given; otherwise the lexicographically smallest distinct_id of the person. */
+    evaluation_distinct_id: string
     /** Detailed analysis of each condition in the feature flag */
     conditions: FeatureFlagConditionAnalysisApi[]
 }

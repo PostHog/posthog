@@ -17695,6 +17695,8 @@ export namespace Schemas {
       payload: unknown | null;
       /** Person properties at the time of evaluation (for historical evaluations) */
       person_properties: FeatureFlagTestEvaluationResponsePersonProperties;
+      /** The distinct_id used for rollout/variant bucketing. Matches the caller-provided distinct_id when given; otherwise the lexicographically smallest distinct_id of the person. */
+      evaluation_distinct_id: string;
       /** Detailed analysis of each condition in the feature flag */
       conditions: FeatureFlagConditionAnalysis[];
     }
@@ -30743,29 +30745,6 @@ export namespace Schemas {
     }
 
     /**
-     * The parameters passed to the query
-     */
-    export type PersonPropertiesAtTimeDebugParams = {[key: string]: unknown};
-
-    export type PersonPropertiesAtTimeDebugEventsItem = {[key: string]: unknown};
-
-    /**
-     * Serializer for the debug information (only available to staff users).
-     */
-    export interface PersonPropertiesAtTimeDebug {
-      /** The ClickHouse query that was executed */
-      query: string;
-      /** The parameters passed to the query */
-      params: PersonPropertiesAtTimeDebugParams;
-      /** Number of events found */
-      events_found: number;
-      /** Raw events that were used to build the properties */
-      events: PersonPropertiesAtTimeDebugEventsItem[];
-      /** Error message if debug query failed */
-      error?: string;
-    }
-
-    /**
      * Serializer for the point-in-time query metadata.
      */
     export interface PersonPropertiesAtTimeMetadata {
@@ -30819,8 +30798,6 @@ export namespace Schemas {
       last_seen_at: string | null;
       /** Metadata about the point-in-time query */
       point_in_time_metadata: PersonPropertiesAtTimeMetadata;
-      /** Debug information (only available when debug=true and DEBUG=True) */
-      debug?: PersonPropertiesAtTimeDebug;
     }
 
     export interface PersonUpdatePropertyRequest {
@@ -39075,10 +39052,6 @@ export namespace Schemas {
 
     export type EnvironmentsPersonsPropertiesAtTimeRetrieveParams = {
     /**
-     * Whether to include debug information with raw events (only works when DEBUG=True, default: false)
-     */
-    debug?: boolean;
-    /**
      * The distinct_id of the person (mutually exclusive with person_id)
      */
     distinct_id?: string;
@@ -43470,10 +43443,6 @@ export namespace Schemas {
     } as const;
 
     export type PersonsPropertiesAtTimeRetrieveParams = {
-    /**
-     * Whether to include debug information with raw events (only works when DEBUG=True, default: false)
-     */
-    debug?: boolean;
     /**
      * The distinct_id of the person (mutually exclusive with person_id)
      */

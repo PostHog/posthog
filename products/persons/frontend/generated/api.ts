@@ -736,7 +736,6 @@ Query parameters:
 - distinct_id: The distinct_id of the person
 - timestamp: ISO datetime string for the point in time (e.g., "2023-06-15T14:30:00Z")
 - include_set_once: Whether to handle $set_once operations (default: false)
-- debug: Whether to include debug information with raw events (default: false)
  */
 export const getPersonsPropertiesAtTimeRetrieveUrl = (
     projectId: string,

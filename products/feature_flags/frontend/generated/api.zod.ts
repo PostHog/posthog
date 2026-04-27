@@ -941,6 +941,33 @@ export const FeatureFlagsEnrichUsageDashboardCreateBody = /* @__PURE__ */ zod
     .describe('Serializer mixin that handles tags for objects.')
 
 /**
+ * Test feature flag evaluation against a specific user at an optional point in time.
+
+This endpoint allows testing how a feature flag would evaluate for a specific user,
+optionally at a historical timestamp. When a timestamp is provided, both the flag
+conditions and person properties are evaluated as they existed at that time.
+ */
+export const featureFlagsTestEvaluationCreateBodyGroupsDefault = `{}`
+
+export const FeatureFlagsTestEvaluationCreateBody = /* @__PURE__ */ zod.object({
+    distinct_id: zod
+        .string()
+        .optional()
+        .describe('User distinct ID to test against (mutually exclusive with person_id)'),
+    person_id: zod.string().optional().describe('Person ID to test against (mutually exclusive with distinct_id)'),
+    timestamp: zod.iso
+        .datetime({})
+        .nullish()
+        .describe(
+            'Optional timestamp to evaluate flag using both flag conditions and person properties as they existed at that time (ISO format)'
+        ),
+    groups: zod
+        .string()
+        .default(featureFlagsTestEvaluationCreateBodyGroupsDefault)
+        .describe('Groups for feature flag evaluation (JSON object string)'),
+})
+
+/**
  * Bulk delete feature flags by filter criteria or explicit IDs.
 
 Accepts either:
