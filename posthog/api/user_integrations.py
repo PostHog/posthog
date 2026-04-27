@@ -15,6 +15,7 @@ import re
 from typing import Any, cast
 from urllib.parse import parse_qs, urlencode
 
+from django.conf import settings
 from django.core.cache import cache
 from django.http import HttpRequest, HttpResponseRedirect
 from django.shortcuts import redirect
@@ -29,7 +30,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.integration import GitHubReposQuerySerializer
-from posthog.auth import SessionAuthentication, session_auth_required
+from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication, session_auth_required
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.integration import GitHubInstallationAccess, GitHubIntegration, Integration
 from posthog.models.user import User
@@ -47,6 +48,47 @@ GITHUB_INSTALL_STATE_TTL_SECONDS = 10 * 60
 
 # Frontend route for the personal Settings → Personal integrations section.
 PERSONAL_INTEGRATIONS_SETTINGS_PATH = "/settings/user-personal-integrations"
+# PostHog Code: personal GitHub integration complete → web → deep-link (see ``AccountConnected`` / ``github-integration``).
+ACCOUNT_CONNECTED_GITHUB_INTEGRATION_PATH = "/account-connected/github-integration"
+
+
+def _github_oauth_redirect_uri() -> str:
+    """Callback URL registered on the GitHub App; must match the authorize request."""
+    return f"{settings.SITE_URL.rstrip('/')}/complete/github-link/"
+
+
+def _connect_from_github_start(request: Request) -> str | None:
+    """Optional ``connect_from`` from JSON body (e.g. PostHog Code)."""
+    data = request.data
+    if not isinstance(data, dict):
+        return None
+    raw = data.get("connect_from")
+    if raw == "posthog_code":
+        return "posthog_code"
+    return None
+
+
+def _team_for_github_start(user: User, request: Request):
+    """Resolve which team to use for team-level GitHub install discovery.
+
+    PostHog Code passes ``team_id`` (project/team) in the JSON body because the
+    session's ``user.current_team`` may not match the app UI. The web app omits
+    it and uses ``current_team``.
+    """
+    data = request.data
+    if not isinstance(data, dict):
+        data = {}
+    raw_id = data.get("team_id")
+    if raw_id is not None and raw_id != "":
+        try:
+            tid = int(raw_id)
+        except (TypeError, ValueError):
+            raise exceptions.ValidationError("team_id must be an integer")
+        team = user.teams.filter(id=tid).first()
+        if team is None:
+            raise exceptions.ValidationError("Invalid or inaccessible team_id for this user.")
+        return team
+    return user.current_team
 
 
 def _serialize_github_integration(
@@ -57,24 +99,22 @@ def _serialize_github_integration(
     """Build the response payload for a single GitHub UserIntegration."""
     return {
         "kind": "github",
-        "installation_id": integration.external_id,
+        "installation_id": integration.integration_id,
         "repository_selection": integration.config.get("repository_selection"),
         "account": integration.config.get("account"),
-        "uses_shared_installation": (
-            integration.external_id is not None and integration.external_id in team_integration_installation_ids
-        ),
+        "uses_shared_installation": integration.integration_id in team_integration_installation_ids,
         "created_at": integration.created_at,
     }
 
 
-class LinkedAccountsViewSet(viewsets.ViewSet):
+class UserIntegrationsViewSet(viewsets.ViewSet):
     """``/api/users/@me/integrations/`` — manage the user's GitHub integrations.
 
-    Session-only: integration management is sensitive and must never be mutated
-    by personal API keys or OAuth bearer tokens. Implicitly scoped to ``request.user``.
+    Session or OAuth access token (e.g. PostHog Code). Personal API keys are not
+    accepted. Implicitly scoped to ``request.user``.
     """
 
-    authentication_classes = [SessionAuthentication]
+    authentication_classes = [SessionAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated]
     http_method_names = ["get", "post", "delete"]
 
@@ -120,7 +160,7 @@ class LinkedAccountsViewSet(viewsets.ViewSet):
     def github_destroy(self, request: Request, installation_id: str) -> Response:
         """Remove a specific GitHub installation by its installation_id."""
         user = self._get_user()
-        integration = UserIntegration.objects.filter(user=user, kind="github", external_id=installation_id).first()
+        integration = UserIntegration.objects.filter(user=user, kind="github", integration_id=installation_id).first()
         if integration is None:
             raise exceptions.NotFound("No GitHub integration found for this installation.")
         integration.delete()
@@ -136,7 +176,7 @@ class LinkedAccountsViewSet(viewsets.ViewSet):
         offset = query_serializer.validated_data["offset"]
 
         integration = UserIntegration.objects.filter(
-            user=self._get_user(), kind="github", external_id=installation_id
+            user=self._get_user(), kind="github", integration_id=installation_id
         ).first()
         if integration is None:
             raise exceptions.NotFound("No GitHub integration found for this installation.")
@@ -152,51 +192,126 @@ class LinkedAccountsViewSet(viewsets.ViewSet):
         throttle_classes=[UserAuthenticationThrottle],
     )
     def github_start(self, request: Request) -> Response:
-        """Initiate a GitHub App installation flow. Returns ``{install_url}``.
+        """Start GitHub linking: either full App install or OAuth-only (user-to-server).
 
-        The user is sent to GitHub's App installation page where they select an
-        account and repos. GitHub redirects back with ``installation_id`` and
-        ``code`` (user authorization) to our callback endpoint.
+        - If the current project has **no** team-level GitHub ``Integration``, returns
+          ``install_url`` pointing at ``/installations/new`` (configure org + repos).
+        - If the team **already** has a GitHub installation, returns ``install_url``
+          pointing at ``/login/oauth/authorize`` so the user only authorizes as
+          themselves for that installation (no repo scoping UI on GitHub).
+
+        In both cases the response key is ``install_url`` for compatibility with callers.
         """
+        from django.utils.crypto import get_random_string
+
+        token = get_random_string(48)
+        state = urlencode({"token": token, "source": "linked_accounts"})
+        user = self._get_user()
+        team = _team_for_github_start(user, self.request)
+        connect_from = _connect_from_github_start(self.request)
+
+        has_team_github = False
+        team_installation_id: str | None = None
+        if team is not None:
+            team_row = (
+                Integration.objects.filter(team=team, kind="github")
+                .exclude(integration_id__isnull=True)
+                .exclude(integration_id="")
+                .order_by("id")
+                .first()
+            )
+            if team_row is not None and team_row.integration_id:
+                has_team_github = True
+                team_installation_id = str(team_row.integration_id)
+
+        if has_team_github and team_installation_id:
+            client_id = settings.GITHUB_APP_CLIENT_ID
+            if not client_id:
+                raise exceptions.ValidationError(
+                    "GitHub App client ID is not configured (GITHUB_APP_CLIENT_ID missing)."
+                )
+            oauth_state_payload: dict[str, Any] = {
+                "user_id": user.id,
+                "installation_id": team_installation_id,
+                "flow": "oauth_authorize",
+            }
+            if connect_from:
+                oauth_state_payload["connect_from"] = connect_from
+            cache.set(
+                f"{GITHUB_INSTALL_STATE_CACHE_PREFIX}{token}",
+                oauth_state_payload,
+                timeout=GITHUB_INSTALL_STATE_TTL_SECONDS,
+            )
+            redirect_uri = _github_oauth_redirect_uri()
+            install_url = "https://github.com/login/oauth/authorize?" + urlencode(
+                {"client_id": client_id, "redirect_uri": redirect_uri, "state": state}
+            )
+            return Response({"install_url": install_url, "connect_flow": "oauth_authorize"})
+
         instance_settings = get_instance_settings(["GITHUB_APP_SLUG"])
         app_slug = instance_settings.get("GITHUB_APP_SLUG")
         if not app_slug:
             raise exceptions.ValidationError("GitHub App is not configured on this instance (missing GITHUB_APP_SLUG).")
 
-        from django.utils.crypto import get_random_string
-
-        token = get_random_string(48)
-
+        install_state_payload: dict[str, Any] = {"user_id": user.id}
+        if connect_from:
+            install_state_payload["connect_from"] = connect_from
         cache.set(
             f"{GITHUB_INSTALL_STATE_CACHE_PREFIX}{token}",
-            {"user_id": request.user.id},
+            install_state_payload,
             timeout=GITHUB_INSTALL_STATE_TTL_SECONDS,
         )
-        # Encode the state in the same format as team integrations (URL-encoded
-        # query string with `token`), plus `source=linked_accounts` so the frontend
-        # callback handler knows to redirect to the user-level backend endpoint
-        # instead of creating a team integration.
-        state = urlencode({"token": token, "source": "linked_accounts"})
         params = urlencode({"state": state})
-        return Response({"install_url": f"https://github.com/apps/{app_slug}/installations/new?{params}"})
+        return Response(
+            {
+                "install_url": f"https://github.com/apps/{app_slug}/installations/new?{params}",
+                "connect_flow": "app_install",
+            }
+        )
+
+
+def _posthog_code_flow_from_state_query(request: HttpRequest) -> bool:
+    """Best-effort: OAuth error callbacks may still include ``state``; read cache (do not delete)."""
+    state_raw = request.GET.get("state")
+    if not state_raw:
+        return False
+    state_params = parse_qs(state_raw)
+    if "token" in state_params:
+        token = state_params["token"][0]
+    else:
+        token = state_raw
+    cache_key = f"{GITHUB_INSTALL_STATE_CACHE_PREFIX}{token}"
+    state_payload = cache.get(cache_key)
+    return bool(
+        state_payload
+        and state_payload.get("user_id") == request.user.id
+        and state_payload.get("connect_from") == "posthog_code"
+    )
 
 
 @require_http_methods(["GET"])
 @session_auth_required
 def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
-    """GitHub App installation + authorization callback.
+    """GitHub App installation + user authorization callback.
 
-    After the user installs the GitHub App and authorizes it, GitHub redirects
-    here with ``installation_id``, ``code``, and ``state``. We:
+    **Install flow** (``/installations/new``): GitHub sends ``installation_id``,
+    ``code``, and ``state`` in the query string.
 
-    1. Validate the state parameter.
-    2. Fetch installation info and access token from ``installation_id``.
-    3. Exchange ``code`` for user-to-server tokens.
-    4. Create/update a ``UserIntegration`` with both token sets.
+    **OAuth-only flow** (``/login/oauth/authorize`` when the team already has the
+    app installed): GitHub sends only ``code`` and ``state``; ``installation_id``
+    is read from validated server-side state.
+
+    Steps: validate state, resolve ``installation_id``, exchange ``code`` for
+    user-to-server tokens, fetch installation token, create/update ``UserIntegration``.
     """
+
+    posthog_code_flow = False
 
     def _error(reason: str) -> HttpResponseRedirect:
         logger.warning("github_link: redirecting with error", reason=reason, user_id=request.user.id)
+        if posthog_code_flow:
+            q = urlencode({"provider": "github", "error": reason})
+            return redirect(f"{ACCOUNT_CONNECTED_GITHUB_INTEGRATION_PATH}?{q}")
         return redirect(f"{PERSONAL_INTEGRATIONS_SETTINGS_PATH}?github_link_error={reason}")
 
     # GitHub appends ?error=... when the user denied consent.
@@ -207,20 +322,15 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
             description=request.GET.get("error_description"),
             user_id=request.user.id,
         )
+        if _posthog_code_flow_from_state_query(request):
+            posthog_code_flow = True
         return _error(github_error if github_error == "access_denied" else "github_oauth_error")
 
-    # nosemgrep: python.django.security.injection.ssrf.ssrf-injection-requests.ssrf-injection-requests -- validated as digits-only below before any URL construction
-    installation_id = request.GET.get("installation_id")
     code = request.GET.get("code")
     state_raw = request.GET.get("state")
 
-    if not installation_id or not code or not state_raw:
+    if not code or not state_raw:
         return _error("missing_params")
-
-    # installation_id must be a plain positive integer (GitHub App IDs always are).
-    # Reject anything else before it touches URL construction.
-    if not re.fullmatch(r"\d{1,20}", installation_id):
-        return _error("invalid_installation_id")
 
     # The frontend extracts the raw token from the URL-encoded state before forwarding
     # here, so state_raw is normally the 48-char random token.  Handle both forms so
@@ -236,10 +346,38 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
     state_payload = cache.get(cache_key)
     if not state_payload or state_payload.get("user_id") != request.user.id:
         return _error("invalid_state")
+    if state_payload.get("connect_from") == "posthog_code":
+        posthog_code_flow = True
     cache.delete(cache_key)
 
+    oauth_flow = state_payload.get("flow") == "oauth_authorize"
+    if oauth_flow:
+        installation_id = state_payload.get("installation_id")
+        if not installation_id or not isinstance(installation_id, str):
+            return _error("missing_params")
+        # Do not require ``current_team`` to match: OAuth completes in a browser
+        # session whose active team may differ from the app that started the flow.
+        if not Integration.objects.filter(
+            kind="github", integration_id=installation_id, team__in=request.user.teams.all()
+        ).exists():
+            return _error("invalid_installation")
+    else:
+        installation_id = request.GET.get("installation_id")
+        if not installation_id:
+            return _error("missing_params")
+
+    # installation_id must be a plain positive integer (GitHub App IDs always are).
+    # Reject anything else before it touches URL construction.
+    if not re.fullmatch(r"\d{1,20}", str(installation_id)):
+        return _error("invalid_installation_id")
+
+    installation_id = str(installation_id)
+
     # Exchange code for user-to-server tokens
-    authorization = GitHubIntegration.github_user_from_code(code)
+    if oauth_flow:
+        authorization = GitHubIntegration.github_user_from_code(code, redirect_uri=_github_oauth_redirect_uri())
+    else:
+        authorization = GitHubIntegration.github_user_from_code(code)
     if authorization is None:
         return _error("exchange_failed")
 
@@ -298,4 +436,6 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
         authorization,
     )
 
+    if posthog_code_flow:
+        return redirect(f"{ACCOUNT_CONNECTED_GITHUB_INTEGRATION_PATH}?{urlencode({'provider': 'github'})}")
     return redirect(f"{PERSONAL_INTEGRATIONS_SETTINGS_PATH}?github_link_success=1")

@@ -55,7 +55,7 @@ def _create_user_integration(user: User, **overrides) -> UserIntegration:
     return UserIntegration.objects.create(user=user, **defaults)
 
 
-class TestLinkedAccountsEndpoints(APIBaseTest):
+class TestUserIntegrationsEndpoints(APIBaseTest):
     def test_list_returns_empty_when_no_integrations(self):
         response = self.client.get("/api/users/@me/integrations/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -138,23 +138,106 @@ class TestLinkedAccountsEndpoints(APIBaseTest):
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id")
     @patch(
-        "posthog.api.linked_accounts.get_instance_settings",
+        "posthog.api.user_integrations.get_instance_settings",
         return_value={"GITHUB_APP_SLUG": "posthog-dev"},
     )
-    def test_github_start_returns_install_url(self, _mock_settings):
+    def test_github_start_returns_install_url_when_no_team_github(self, _mock_settings):
         response = self.client.post("/api/users/@me/integrations/github/start/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertIn("install_url", data)
+        self.assertEqual(data.get("connect_flow"), "app_install")
         self.assertIn("github.com/apps/posthog-dev/installations/new", data["install_url"])
+
+    @override_settings(
+        GITHUB_APP_CLIENT_ID="gh_client_123", SITE_URL="https://us.posthog.com", GITHUB_APP_CLIENT_SECRET="s"
+    )
+    def test_github_start_returns_oauth_url_when_team_has_github_integration(self):
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="12345678",
+            config={"account": {"name": "acme"}},
+            sensitive_config={},
+            created_by=self.user,
+        )
+        response = self.client.post("/api/users/@me/integrations/github/start/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertIn("install_url", data)
+        self.assertEqual(data.get("connect_flow"), "oauth_authorize")
+        url = data["install_url"]
+        self.assertIn("github.com/login/oauth/authorize", url)
+        self.assertIn("client_id=gh_client_123", url)
+        self.assertIn("redirect_uri=https%3A%2F%2Fus.posthog.com%2Fcomplete%2Fgithub-link%2F", url)
 
     def test_github_start_without_app_slug_returns_400(self):
         with patch(
-            "posthog.api.linked_accounts.get_instance_settings",
+            "posthog.api.user_integrations.get_instance_settings",
             return_value={"GITHUB_APP_SLUG": ""},
         ):
             response = self.client.post("/api/users/@me/integrations/github/start/")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @override_settings(
+        GITHUB_APP_CLIENT_ID="client_id",
+        GITHUB_APP_CLIENT_SECRET="client_secret",
+        SITE_URL="https://us.posthog.com",
+    )
+    @patch("posthog.models.integration.GitHubIntegration.client_request")
+    @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
+    def test_github_link_oauth_callback_creates_user_integration_without_installation_in_query(
+        self, mock_user_from_code, mock_client_request
+    ):
+        """OAuth-only flow: GET has code + state; installation_id is only in server state cache."""
+        mock_user_from_code.return_value = _authorization()
+        mock_install_info = MagicMock()
+        mock_install_info.json.return_value = {
+            "account": {"type": "User", "login": "octocat"},
+        }
+        mock_access_token = MagicMock()
+        mock_access_token.json.return_value = {
+            "token": "ghs_install_token",
+            "expires_at": "2099-01-01T00:00:00Z",
+            "repository_selection": "selected",
+        }
+        mock_client_request.side_effect = [mock_install_info, mock_access_token]
+
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="12345",
+            config={},
+            sensitive_config={},
+            created_by=self.user,
+        )
+        state = "tok_oauth_123"
+        cache.set(
+            f"github_user_install_state:{state}",
+            {
+                "user_id": self.user.id,
+                "installation_id": "12345",
+                "flow": "oauth_authorize",
+            },
+            timeout=600,
+        )
+        from urllib.parse import urlencode
+
+        state_q = urlencode({"token": state, "source": "linked_accounts"})
+
+        response = self.client.get(
+            "/complete/github-link/",
+            {"code": "test_code", "state": state_q},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("github_link_success=1", response["Location"])
+        mock_user_from_code.assert_called_once_with(
+            "test_code", redirect_uri="https://us.posthog.com/complete/github-link/"
+        )
+
+        integration = UserIntegration.objects.get(user=self.user, kind="github")
+        self.assertEqual(integration.external_id, "12345")
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
     @patch("posthog.models.integration.GitHubIntegration.client_request")
@@ -189,6 +272,43 @@ class TestLinkedAccountsEndpoints(APIBaseTest):
         self.assertEqual(integration.config["github_user"]["login"], "octocat")
         self.assertEqual(integration.sensitive_config["user_access_token"], "gho_access")
         self.assertEqual(integration.sensitive_config["access_token"], "ghs_install_token")
+
+    @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
+    @patch("posthog.models.integration.GitHubIntegration.client_request")
+    @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
+    def test_github_link_redirects_to_account_integration_connected_when_posthog_code(
+        self, mock_user_from_code, mock_client_request
+    ):
+        """PostHog Code passes ``connect_from`` via start payload → cache; success uses return-to-app page."""
+        mock_user_from_code.return_value = _authorization()
+        mock_install_info = MagicMock()
+        mock_install_info.json.return_value = {
+            "account": {"type": "User", "login": "octocat"},
+        }
+        mock_access_token = MagicMock()
+        mock_access_token.json.return_value = {
+            "token": "ghs_install_token",
+            "expires_at": "2099-01-01T00:00:00Z",
+            "repository_selection": "selected",
+        }
+        mock_client_request.side_effect = [mock_install_info, mock_access_token]
+
+        state = "test_state_posthog_code"
+        cache.set(
+            f"github_user_install_state:{state}",
+            {"user_id": self.user.id, "connect_from": "posthog_code"},
+            timeout=600,
+        )
+
+        response = self.client.get(
+            "/complete/github-link/",
+            {"installation_id": "12345", "code": "test_code", "state": state},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        loc = response["Location"]
+        self.assertIn("/account-connected/github-integration", loc)
+        self.assertIn("provider=github", loc)
 
     def test_github_link_callback_rejects_mismatched_state(self):
         cache.set("github_user_install_state:valid_state", {"user_id": self.user.id}, timeout=600)
@@ -359,6 +479,7 @@ class TestUserGitHubIntegration(APIBaseTest):
         integration = UserIntegration.objects.create(
             user=self.user,
             kind="github",  # will override below
+            external_id="unused",
             config={},
             sensitive_config={},
         )

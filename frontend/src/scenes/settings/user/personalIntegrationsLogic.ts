@@ -98,7 +98,9 @@ export const personalIntegrationsLogic = kea<personalIntegrationsLogicType>([
         },
         connectGitHub: async () => {
             try {
-                const response = await api.create<GithubStartResponse>('api/users/@me/integrations/github/start/', {})
+                const connectFrom = readConnectFromStorage()
+                const body = connectFrom === 'posthog_code' ? { connect_from: 'posthog_code' as const } : {}
+                const response = await api.create<GithubStartResponse>('api/users/@me/integrations/github/start/', body)
                 window.location.href = response.install_url
             } catch (error: unknown) {
                 const message = error instanceof Error && 'detail' in error ? (error as any).detail : undefined
@@ -131,21 +133,8 @@ export const personalIntegrationsLogic = kea<personalIntegrationsLogicType>([
             }
 
             if (params.has('github_link_success')) {
-                const origin = readConnectFromStorage()
                 writeConnectFromStorage(null)
-                if (origin === 'posthog_code') {
-                    lemonToast.success('GitHub connected. You can return to PostHog Code.', {
-                        autoClose: false,
-                        button: {
-                            label: 'Return to PostHog Code',
-                            action: () => {
-                                window.location.href = 'posthog-code://github-linked'
-                            },
-                        },
-                    })
-                } else {
-                    lemonToast.success('GitHub connected.')
-                }
+                lemonToast.success('GitHub connected.')
             } else if (params.has('github_link_error')) {
                 writeConnectFromStorage(null)
                 const reason = params.get('github_link_error')
