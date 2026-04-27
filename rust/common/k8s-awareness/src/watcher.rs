@@ -150,7 +150,9 @@ async fn run_deployment_watcher(
     cancel: CancellationToken,
 ) {
     let api: Api<Deployment> = Api::namespaced(client.clone(), namespace);
-    let config = WatcherConfig::default().fields(&format!("metadata.name={}", controller.name));
+    let config = WatcherConfig::default()
+        .fields(&format!("metadata.name={}", controller.name))
+        .timeout(KUBE_CALL_TIMEOUT.as_secs() as u32);
 
     let stream = watcher::watcher(api, config);
     tokio::pin!(stream);
@@ -393,7 +395,9 @@ async fn run_statefulset_watcher(
     cancel: CancellationToken,
 ) {
     let api: Api<StatefulSet> = Api::namespaced(client.clone(), namespace);
-    let config = WatcherConfig::default().fields(&format!("metadata.name={}", controller.name));
+    let config = WatcherConfig::default()
+        .fields(&format!("metadata.name={}", controller.name))
+        .timeout(KUBE_CALL_TIMEOUT.as_secs() as u32);
 
     let stream = watcher::watcher(api, config);
     tokio::pin!(stream);

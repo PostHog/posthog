@@ -7,7 +7,9 @@ use kube::Client;
 
 use crate::types::{ControllerKind, ControllerRef, PodInfo};
 
-/// Per-call timeout applied to each kube API request made during discovery.
+/// Per-call timeout applied to each kube API request issued by k8s-awareness
+/// (discovery `get`s, the watcher's manual ReplicaSet `list`, and the
+/// `kube::runtime::watcher` list/watch loops via `WatcherConfig::timeout`).
 ///
 /// kube-rs / reqwest's default request timeout is ~290s, which is longer than
 /// most callers' overall budget (e.g. the kafka-assigner k3s integration test's
