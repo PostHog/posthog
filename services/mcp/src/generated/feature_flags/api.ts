@@ -838,9 +838,9 @@ export const ScheduledChangesCreateBody = /* @__PURE__ */ zod.object({
         .describe('The ID of the record to modify (e.g. the feature flag ID).'),
     model_name: zod
         .enum(['FeatureFlag'])
-        .describe('* `FeatureFlag` - FeatureFlag')
+        .describe('* `FeatureFlag` - feature flag')
         .describe(
-            'The type of record to modify. Currently only "FeatureFlag" is supported.\n\n* `FeatureFlag` - FeatureFlag'
+            'The type of record to modify. Currently only "FeatureFlag" is supported.\n\n* `FeatureFlag` - feature flag'
         ),
     payload: zod
         .unknown()
@@ -908,10 +908,10 @@ export const ScheduledChangesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('The ID of the record to modify (e.g. the feature flag ID).'),
     model_name: zod
         .enum(['FeatureFlag'])
-        .describe('* `FeatureFlag` - FeatureFlag')
+        .describe('* `FeatureFlag` - feature flag')
         .optional()
         .describe(
-            'The type of record to modify. Currently only "FeatureFlag" is supported.\n\n* `FeatureFlag` - FeatureFlag'
+            'The type of record to modify. Currently only "FeatureFlag" is supported.\n\n* `FeatureFlag` - feature flag'
         ),
     payload: zod
         .unknown()

@@ -31,12 +31,12 @@ export const SessionRecordingPlaylistsCreateBody = /* @__PURE__ */ zod.object({
         ),
     type: zod
         .union([
-            zod.enum(['collection', 'filters']).describe('* `collection` - collection\n* `filters` - filters'),
+            zod.enum(['collection', 'filters']).describe('* `collection` - Collection\n* `filters` - Filters'),
             zod.literal(null),
         ])
         .nullish()
         .describe(
-            "Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.\n\n* `collection` - collection\n* `filters` - filters"
+            "Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.\n\n* `collection` - Collection\n* `filters` - Filters"
         ),
     _create_in_folder: zod.string().optional(),
 })
@@ -63,12 +63,12 @@ export const SessionRecordingPlaylistsUpdateBody = /* @__PURE__ */ zod.object({
         ),
     type: zod
         .union([
-            zod.enum(['collection', 'filters']).describe('* `collection` - collection\n* `filters` - filters'),
+            zod.enum(['collection', 'filters']).describe('* `collection` - Collection\n* `filters` - Filters'),
             zod.literal(null),
         ])
         .nullish()
         .describe(
-            "Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.\n\n* `collection` - collection\n* `filters` - filters"
+            "Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.\n\n* `collection` - Collection\n* `filters` - Filters"
         ),
     _create_in_folder: zod.string().optional(),
 })
@@ -95,12 +95,12 @@ export const SessionRecordingPlaylistsPartialUpdateBody = /* @__PURE__ */ zod.ob
         ),
     type: zod
         .union([
-            zod.enum(['collection', 'filters']).describe('* `collection` - collection\n* `filters` - filters'),
+            zod.enum(['collection', 'filters']).describe('* `collection` - Collection\n* `filters` - Filters'),
             zod.literal(null),
         ])
         .nullish()
         .describe(
-            "Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.\n\n* `collection` - collection\n* `filters` - filters"
+            "Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.\n\n* `collection` - Collection\n* `filters` - Filters"
         ),
     _create_in_folder: zod.string().optional(),
 })
@@ -127,12 +127,12 @@ export const SessionRecordingPlaylistsRecordingsCreateBody = /* @__PURE__ */ zod
         ),
     type: zod
         .union([
-            zod.enum(['collection', 'filters']).describe('* `collection` - collection\n* `filters` - filters'),
+            zod.enum(['collection', 'filters']).describe('* `collection` - Collection\n* `filters` - Filters'),
             zod.literal(null),
         ])
         .nullish()
         .describe(
-            "Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.\n\n* `collection` - collection\n* `filters` - filters"
+            "Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.\n\n* `collection` - Collection\n* `filters` - Filters"
         ),
     _create_in_folder: zod.string().optional(),
 })

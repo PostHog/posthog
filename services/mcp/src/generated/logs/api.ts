@@ -60,10 +60,10 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
         .describe('Number of matching log entries that constitutes a threshold breach within the evaluation window.'),
     threshold_operator: zod
         .enum(['above', 'below'])
-        .describe('* `above` - above\n* `below` - below')
+        .describe('* `above` - Above\n* `below` - Below')
         .default(logsAlertsCreateBodyThresholdOperatorDefault)
         .describe(
-            'Whether the alert fires when the count is above or below the threshold.\n\n* `above` - above\n* `below` - below'
+            'Whether the alert fires when the count is above or below the threshold.\n\n* `above` - Above\n* `below` - Below'
         ),
     window_minutes: zod
         .number()
@@ -141,10 +141,10 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Number of matching log entries that constitutes a threshold breach within the evaluation window.'),
     threshold_operator: zod
         .enum(['above', 'below'])
-        .describe('* `above` - above\n* `below` - below')
+        .describe('* `above` - Above\n* `below` - Below')
         .optional()
         .describe(
-            'Whether the alert fires when the count is above or below the threshold.\n\n* `above` - above\n* `below` - below'
+            'Whether the alert fires when the count is above or below the threshold.\n\n* `above` - Above\n* `below` - Below'
         ),
     window_minutes: zod
         .number()

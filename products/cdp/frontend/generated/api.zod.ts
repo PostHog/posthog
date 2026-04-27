@@ -41,13 +41,13 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                     'transformation',
                 ])
                 .describe(
-                    '* `destination` - destination\n* `site_destination` - site_destination\n* `internal_destination` - internal_destination\n* `source_webhook` - source_webhook\n* `warehouse_source_webhook` - warehouse_source_webhook\n* `site_app` - site_app\n* `transformation` - transformation'
+                    '* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation'
                 ),
             zod.literal(null),
         ])
         .nullish()
         .describe(
-            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n* `destination` - destination\n* `site_destination` - site_destination\n* `internal_destination` - internal_destination\n* `source_webhook` - source_webhook\n* `warehouse_source_webhook` - warehouse_source_webhook\n* `site_app` - site_app\n* `transformation` - transformation'
+            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation'
         ),
     name: zod.string().max(hogFunctionsCreateBodyNameMax).nullish().describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
@@ -275,13 +275,13 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
                     'transformation',
                 ])
                 .describe(
-                    '* `destination` - destination\n* `site_destination` - site_destination\n* `internal_destination` - internal_destination\n* `source_webhook` - source_webhook\n* `warehouse_source_webhook` - warehouse_source_webhook\n* `site_app` - site_app\n* `transformation` - transformation'
+                    '* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation'
                 ),
             zod.literal(null),
         ])
         .nullish()
         .describe(
-            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n* `destination` - destination\n* `site_destination` - site_destination\n* `internal_destination` - internal_destination\n* `source_webhook` - source_webhook\n* `warehouse_source_webhook` - warehouse_source_webhook\n* `site_app` - site_app\n* `transformation` - transformation'
+            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation'
         ),
     name: zod.string().max(hogFunctionsUpdateBodyNameMax).nullish().describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
@@ -509,13 +509,13 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     'transformation',
                 ])
                 .describe(
-                    '* `destination` - destination\n* `site_destination` - site_destination\n* `internal_destination` - internal_destination\n* `source_webhook` - source_webhook\n* `warehouse_source_webhook` - warehouse_source_webhook\n* `site_app` - site_app\n* `transformation` - transformation'
+                    '* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation'
                 ),
             zod.literal(null),
         ])
         .nullish()
         .describe(
-            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n* `destination` - destination\n* `site_destination` - site_destination\n* `internal_destination` - internal_destination\n* `source_webhook` - source_webhook\n* `warehouse_source_webhook` - warehouse_source_webhook\n* `site_app` - site_app\n* `transformation` - transformation'
+            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation'
         ),
     name: zod.string().max(hogFunctionsPartialUpdateBodyNameMax).nullish().describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
@@ -743,13 +743,13 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
                     'transformation',
                 ])
                 .describe(
-                    '* `destination` - destination\n* `site_destination` - site_destination\n* `internal_destination` - internal_destination\n* `source_webhook` - source_webhook\n* `warehouse_source_webhook` - warehouse_source_webhook\n* `site_app` - site_app\n* `transformation` - transformation'
+                    '* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation'
                 ),
             zod.literal(null),
         ])
         .nullish()
         .describe(
-            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n* `destination` - destination\n* `site_destination` - site_destination\n* `internal_destination` - internal_destination\n* `source_webhook` - source_webhook\n* `warehouse_source_webhook` - warehouse_source_webhook\n* `site_app` - site_app\n* `transformation` - transformation'
+            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation'
         ),
     name: zod
         .string()
@@ -1008,13 +1008,13 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                             'transformation',
                         ])
                         .describe(
-                            '* `destination` - destination\n* `site_destination` - site_destination\n* `internal_destination` - internal_destination\n* `source_webhook` - source_webhook\n* `warehouse_source_webhook` - warehouse_source_webhook\n* `site_app` - site_app\n* `transformation` - transformation'
+                            '* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation'
                         ),
                     zod.literal(null),
                 ])
                 .nullish()
                 .describe(
-                    'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n* `destination` - destination\n* `site_destination` - site_destination\n* `internal_destination` - internal_destination\n* `source_webhook` - source_webhook\n* `warehouse_source_webhook` - warehouse_source_webhook\n* `site_app` - site_app\n* `transformation` - transformation'
+                    'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation'
                 ),
             name: zod
                 .string()

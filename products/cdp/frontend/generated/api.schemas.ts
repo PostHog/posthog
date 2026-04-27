@@ -229,13 +229,13 @@ export interface InputsItemApi {
 export type HogFunctionApiInputs = { [key: string]: InputsItemApi }
 
 /**
- * * `destination` - destination
- * `site_destination` - site_destination
- * `internal_destination` - internal_destination
- * `source_webhook` - source_webhook
- * `warehouse_source_webhook` - warehouse_source_webhook
- * `site_app` - site_app
- * `transformation` - transformation
+ * * `destination` - Destination
+ * `site_destination` - Site Destination
+ * `internal_destination` - Internal Destination
+ * `source_webhook` - Source Webhook
+ * `warehouse_source_webhook` - Warehouse Source Webhook
+ * `site_app` - Site App
+ * `transformation` - Transformation
  */
 export type HogFunctionTypeEnumApi = (typeof HogFunctionTypeEnumApi)[keyof typeof HogFunctionTypeEnumApi]
 
@@ -367,13 +367,13 @@ export interface HogFunctionApi {
     readonly id: string
     /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.
 
-* `destination` - destination
-* `site_destination` - site_destination
-* `internal_destination` - internal_destination
-* `source_webhook` - source_webhook
-* `warehouse_source_webhook` - warehouse_source_webhook
-* `site_app` - site_app
-* `transformation` - transformation */
+* `destination` - Destination
+* `site_destination` - Site Destination
+* `internal_destination` - Internal Destination
+* `source_webhook` - Source Webhook
+* `warehouse_source_webhook` - Warehouse Source Webhook
+* `site_app` - Site App
+* `transformation` - Transformation */
     type?: HogFunctionTypeEnumApi | NullEnumApi | null
     /**
      * Display name for the function.
@@ -442,13 +442,13 @@ export interface PatchedHogFunctionApi {
     readonly id?: string
     /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.
 
-* `destination` - destination
-* `site_destination` - site_destination
-* `internal_destination` - internal_destination
-* `source_webhook` - source_webhook
-* `warehouse_source_webhook` - warehouse_source_webhook
-* `site_app` - site_app
-* `transformation` - transformation */
+* `destination` - Destination
+* `site_destination` - Site Destination
+* `internal_destination` - Internal Destination
+* `source_webhook` - Source Webhook
+* `warehouse_source_webhook` - Warehouse Source Webhook
+* `site_app` - Site App
+* `transformation` - Transformation */
     type?: HogFunctionTypeEnumApi | NullEnumApi | null
     /**
      * Display name for the function.
