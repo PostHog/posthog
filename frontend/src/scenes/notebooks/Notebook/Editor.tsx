@@ -5,10 +5,9 @@ import { TaskItem, TaskList } from '@tiptap/extension-list'
 import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
 import TableOfContents, { getHierarchicalIndexes } from '@tiptap/extension-table-of-contents'
 import { Placeholder } from '@tiptap/extensions'
-import { collab, getVersion } from '@tiptap/pm/collab'
+import { collab } from '@tiptap/pm/collab'
 import StarterKit, { StarterKitOptions } from '@tiptap/starter-kit'
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
 import { useThrottledCallback } from 'use-debounce'
 
 import { IconComment } from '@posthog/icons'
@@ -79,26 +78,8 @@ export function Editor(): JSX.Element {
     const { setEditor, onEditorUpdate, onEditorSelectionUpdate, setTableOfContents, insertComment } =
         useActions(notebookLogic)
     const hasCollapsibleSections = useFeatureFlag('NOTEBOOKS_COLLAPSIBLE_SECTIONS')
-    const { bindEditor, unbindEditor } = useActions(notebookCollabLogic({ shortId }))
-    const { editors } = useValues(notebookCollabLogic({ shortId }))
-
-    // Stable per-mount clientID
-    const [clientID] = useState(() => uuid())
-
-    // If another editor for this notebook is already mounted, copy its content + version.
-    // This avoids a race where `values.content` is ahead of `notebook.version` during save.
-    const [initial] = useState(() => {
-        const existing = Object.values(editors)[0]
-        return existing
-            ? { content: existing.state.doc.toJSON(), version: getVersion(existing.state) }
-            : { content, version: notebook?.version ?? 0 }
-    })
-
-    useEffect(() => {
-        return () => {
-            unbindEditor(clientID)
-        }
-    }, [clientID, unbindEditor])
+    const { bindEditor } = useActions(notebookCollabLogic({ shortId }))
+    const { clientID } = useValues(notebookCollabLogic({ shortId }))
 
     const { resetSuggestions, setPreviousNode } = useActions(insertionSuggestionsLogic)
 
@@ -199,7 +180,7 @@ export function Editor(): JSX.Element {
             Extension.create({
                 name: 'collaboration',
                 addProseMirrorPlugins() {
-                    return [collab({ version: initial.version, clientID })]
+                    return [collab({ version: notebook.version, clientID })]
                 },
             }),
             RemotePresenceExtension
@@ -217,8 +198,8 @@ export function Editor(): JSX.Element {
             extensions={extensions}
             disabled={!isEditable}
             className="NotebookEditor flex flex-col flex-1"
-            initialContent={initial.content}
-            onUpdate={() => onEditorUpdate(clientID)}
+            initialContent={content}
+            onUpdate={onEditorUpdate}
             onSelectionUpdate={onEditorSelectionUpdate}
             onCreate={(editor) => {
                 const notebookEditor: NotebookEditor = {
@@ -231,7 +212,7 @@ export function Editor(): JSX.Element {
                 setEditor(notebookEditor)
 
                 if (useCollab) {
-                    bindEditor(clientID, editor)
+                    bindEditor(editor)
                 }
             }}
         >
