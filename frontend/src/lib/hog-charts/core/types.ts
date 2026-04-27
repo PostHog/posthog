@@ -1,5 +1,5 @@
-import type { AxisFormat, ChartTheme } from 'lib/charts/types'
-export type { AxisFormat, ChartTheme }
+import type { ChartTheme } from 'lib/charts/types'
+export type { ChartTheme }
 
 /** Default axis id used when a series doesn't specify one. */
 export const DEFAULT_Y_AXIS_ID = 'left'

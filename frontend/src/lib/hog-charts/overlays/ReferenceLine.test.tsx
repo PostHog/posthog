@@ -191,6 +191,28 @@ describe('ReferenceLine', () => {
             const line = lineDiv(container, 'top')!
             expect(line.style.borderTopWidth).toBe('4px')
         })
+
+        it.each([
+            ['hex literal', '#ff8800'],
+            ['rgb literal', 'rgb(10, 20, 30)'],
+        ])('passes %s color through to inline styles without resolving', (_name, color) => {
+            const { container } = renderInChart(<ReferenceLine value={50} style={{ color }} />)
+            const line = lineDiv(container, 'top')!
+            expect(line.style.borderTopColor).toBe(color)
+        })
+
+        it('uses style.fillColor when provided, falling back to color', () => {
+            const { container } = renderInChart(
+                <ReferenceLine
+                    value={50}
+                    fillSide="above"
+                    style={{ color: '#111', fillColor: 'rgb(50, 60, 70)', fillOpacity: 0.3 }}
+                />
+            )
+            const fill = container.querySelectorAll<HTMLDivElement>('div')[0]
+            expect(fill.style.backgroundColor).toBe('rgb(50, 60, 70)')
+            expect(fill.style.opacity).toBe('0.3')
+        })
     })
 
     describe('ReferenceLines wrapper', () => {
