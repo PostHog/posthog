@@ -4,7 +4,14 @@ import { NodeKind, WebAnalyticsPropertyFilters, WebStatsBreakdown } from '~/quer
 import { BaseMathType, ChartDisplayType, InsightLogicProps, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { botDetailLogicType } from './botDetailLogicType'
-import { QueryTile, TileId, WEB_ANALYTICS_DEFAULT_QUERY_TAGS, WebAnalyticsTile, WebTileLayout } from './common'
+import {
+    BOT_ANALYTICS_EVENTS,
+    QueryTile,
+    TileId,
+    WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+    WebAnalyticsTile,
+    WebTileLayout,
+} from './common'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
 export const botDetailLogic = kea<botDetailLogicType>([
@@ -77,11 +84,17 @@ export const botDetailLogic = kea<botDetailLogicType>([
                                 interval: interval ?? 'hour',
                                 series: [
                                     {
-                                        event: '$pageview',
+                                        event: null as unknown as string,
                                         kind: NodeKind.EventsNode,
                                         math: BaseMathType.TotalCount,
-                                        name: 'Pageview',
+                                        name: 'All events',
                                         custom_name: 'Requests',
+                                        properties: [
+                                            {
+                                                type: PropertyFilterType.HogQL,
+                                                key: `event IN (${BOT_ANALYTICS_EVENTS.map((e) => `'${e}'`).join(', ')})`,
+                                            },
+                                        ],
                                     },
                                 ],
                                 trendsFilter: {

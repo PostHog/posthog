@@ -80,6 +80,7 @@ import {
 
 import {
     ActiveHoursTab,
+    BOT_ANALYTICS_EVENTS,
     BotTrafficFilter,
     ConversionGoalWarning,
     DeviceTab,
@@ -2295,13 +2296,20 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                     const botTiles: (WebAnalyticsTile | null)[] = [
                         (() => {
+                            const botEventFilter = `event IN (${BOT_ANALYTICS_EVENTS.map((e) => `'${e}'`).join(', ')})`
                             const botTrendsSeries = [
                                 {
-                                    event: '$pageview',
+                                    event: null as unknown as string,
                                     kind: NodeKind.EventsNode as const,
                                     math: BaseMathType.TotalCount,
-                                    name: 'Pageview',
+                                    name: 'All events',
                                     custom_name: 'Requests',
+                                    properties: [
+                                        {
+                                            type: PropertyFilterType.HogQL,
+                                            key: botEventFilter,
+                                        },
+                                    ],
                                 },
                             ]
                             const createBotTrendsTab = (
@@ -2373,7 +2381,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 FROM events
 WHERE \`$virt_is_bot\` = true
     AND \`$virt_bot_name\` != ''
-    AND event IN ('$pageview', '$screen')
+    AND event IN ('$pageview', '$screen', '$http_log')
     AND {filters}
 GROUP BY "Crawler", "Category"
 ORDER BY "Requests" DESC
