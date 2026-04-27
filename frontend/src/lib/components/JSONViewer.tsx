@@ -6,7 +6,9 @@ import { Suspense, lazy } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-const ReactJson = lazy(() => import('@microlink/react-json-view'))
+const ReactJson = lazy(() =>
+    import('@microlink/react-json-view').then((m) => ({ default: (m as any).default ?? m }))
+)
 
 export enum JSONViewerTheme {
     DARK = 'railscasts',
