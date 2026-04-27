@@ -107,44 +107,19 @@ export function createScales(
 
     // DEFAULT_Y_AXIS_ID is always the left axis when present, regardless of series order.
     // Remaining axis ids keep their first-encountered order and take the right position.
-    const allOrderedAxisIds = [
+    const orderedAxisIds = [
         ...(axisIds.has(DEFAULT_Y_AXIS_ID) ? [DEFAULT_Y_AXIS_ID] : []),
         ...Array.from(axisIds).filter((id) => id !== DEFAULT_Y_AXIS_ID),
     ]
 
-    let orderedAxisIds = allOrderedAxisIds
-    let droppedAxisIds: string[] = []
-    if (allOrderedAxisIds.length > 2) {
-        droppedAxisIds = allOrderedAxisIds.slice(2)
-        // eslint-disable-next-line no-console
-        console.warn(
-            `hog-charts: only 2 y-axes are supported (left/right). Folding extras into the right axis: ${droppedAxisIds.join(', ')}.`
-        )
-        orderedAxisIds = allOrderedAxisIds.slice(0, 2)
-    }
-
     const yAxes: Record<string, { scale: D3YScale; position: 'left' | 'right' }> = {}
     orderedAxisIds.forEach((axisId, axisIndex) => {
-        // Series on dropped axis ids are folded into the right axis so their domain still contributes.
-        const ownsDroppedSeries = axisIndex === 1 && droppedAxisIds.length > 0
-        const axisSeries = series.filter((s) => {
-            if (s.hidden) {
-                return false
-            }
-            const seriesAxis = s.yAxisId ?? DEFAULT_Y_AXIS_ID
-            return seriesAxis === axisId || (ownsDroppedSeries && droppedAxisIds.includes(seriesAxis))
-        })
+        const axisSeries = series.filter((s) => !s.hidden && (s.yAxisId ?? DEFAULT_Y_AXIS_ID) === axisId)
         const scale = createYScale(axisSeries, dimensions, {
             scaleType: options.scaleType,
             percentStack: options.percentStack,
         })
-        const entry = { scale, position: (axisIndex === 0 ? 'left' : 'right') as 'left' | 'right' }
-        yAxes[axisId] = entry
-        if (ownsDroppedSeries) {
-            for (const dropped of droppedAxisIds) {
-                yAxes[dropped] = entry
-            }
-        }
+        yAxes[axisId] = { scale, position: axisIndex === 0 ? 'left' : 'right' }
     })
 
     const primaryAxis = yAxes[DEFAULT_Y_AXIS_ID] ?? yAxes[orderedAxisIds[0]]

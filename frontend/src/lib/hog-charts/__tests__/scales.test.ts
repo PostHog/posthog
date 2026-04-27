@@ -218,25 +218,6 @@ describe('hog-charts scales', () => {
             expect(result.y(10)).toBe(result.yAxes!.y1.scale(10))
         })
 
-        it('warns and folds extras into the right axis when more than two y-axes are configured', () => {
-            const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
-            try {
-                const a = makeSeries({ key: 'a', data: [1], yAxisId: DEFAULT_Y_AXIS_ID })
-                const b = makeSeries({ key: 'b', data: [10], yAxisId: 'y1' })
-                const c = makeSeries({ key: 'c', data: [100], yAxisId: 'y2' })
-                const result = createScales([a, b, c], ['x'], dimensions)
-                expect(warn).toHaveBeenCalledWith(expect.stringMatching(/only 2 y-axes.*y2/))
-                // y2 should resolve to the same right-axis entry as y1.
-                expect(result.yAxes!.y2).toBe(result.yAxes!.y1)
-                expect(result.yAxes!.y1.position).toBe('right')
-                // The right axis domain should include c's value (100), since c was folded in.
-                const [, rightMax] = result.yAxes!.y1.scale.domain() as [number, number]
-                expect(rightMax).toBeGreaterThanOrEqual(100)
-            } finally {
-                warn.mockRestore()
-            }
-        })
-
         it('excludes hidden series from per-axis domain calculation', () => {
             const visible = makeSeries({ key: 'v', data: [0, 10], yAxisId: DEFAULT_Y_AXIS_ID })
             const hiddenOnLeft = makeSeries({ key: 'h', data: [0, 9999], hidden: true, yAxisId: DEFAULT_Y_AXIS_ID })
