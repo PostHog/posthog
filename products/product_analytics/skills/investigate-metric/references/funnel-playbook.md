@@ -8,12 +8,15 @@ Steps reference [shared-patterns.md](./shared-patterns.md) for reusable recipes
 ## 1. Confirm which step regressed
 
 `posthog:query-funnel` with the user's steps. Identify the step where conversion dropped.
-Compare to a baseline window using `compareFilter: {"compare": true}`.
+`FunnelsQuery` does not support `compareFilter` — run the funnel for two date ranges
+(anomaly window and a baseline window of equal length just before it) and compare results.
+
+Anomaly window:
 
 ```json
 {
   "kind": "FunnelsQuery",
-  "dateRange": { "date_from": "-30d" },
+  "dateRange": { "date_from": "-7d" },
   "series": [
     { "kind": "EventsNode", "event": "signed up" },
     { "kind": "EventsNode", "event": "completed onboarding" },
@@ -22,6 +25,8 @@ Compare to a baseline window using `compareFilter: {"compare": true}`.
   "funnelsFilter": { "funnelWindowInterval": 7, "funnelWindowIntervalUnit": "day" }
 }
 ```
+
+Then rerun with `"dateRange": { "date_from": "-14d", "date_to": "-7d" }` for the baseline.
 
 ## 2. Is it entries or completions?
 
@@ -44,34 +49,21 @@ to get hour-level resolution.
 ## 3. Who is dropping off?
 
 `posthog:query-trends-actors` only accepts a trends source today (see **actor drilldown**
-in shared-patterns). Work around it: run a trends query for users who completed step N-1
-but did not complete step N within the funnel window, then drill into the actors of that
-trend.
+in shared-patterns). To find who dropped off, run two trends queries — one on step N-1
+completions, one on step N completions — scoped to the same window:
 
 ```json
 {
   "kind": "TrendsQuery",
-  "dateRange": { "date_from": "-30d" },
+  "dateRange": { "date_from": "-7d" },
   "interval": "day",
-  "series": [
-    {
-      "kind": "EventsNode",
-      "event": "<event at step N-1>",
-      "math": "dau",
-      "properties": [
-        {
-          "type": "hogql",
-          "key": "not exists (select 1 from events e2 where e2.person_id = events.person_id and e2.event = '<event at step N>' and e2.timestamp between events.timestamp and events.timestamp + interval 7 day)"
-        }
-      ]
-    }
-  ]
+  "series": [{ "kind": "EventsNode", "event": "<event at step N-1>", "math": "dau" }]
 }
 ```
 
-Adjust the `interval 7 day` to match the funnel window, then pass this trend to
-`posthog:query-trends-actors`. For a simpler approximation that doesn't need HogQL, run a
-trend on step-N-1 completions and one on step-N completions and diff the actor lists.
+Then run `posthog:query-trends-actors` on the step N-1 trend to get the actor list.
+Compare with the actor list from a similar trends query on step N — users present in
+the first list but not the second are the drop-offs.
 
 Apply **breakdown dimensions** from shared-patterns to the trends query to segment the
 dropped-out users. For UI/UX drop-offs, pull **session recordings** for those actors.

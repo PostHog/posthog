@@ -85,8 +85,10 @@ Record: baseline value, current value, delta (absolute and %), start of the anom
 ### 2.2 Check whether the change is variance
 
 If the query already covers enough history to see the normal range, read it from there.
-Otherwise, widen to 3–4× the user's interval (e.g., 90 days for a 7-day drop) or add
-`compareFilter: {"compare": true}` to show the prior period alongside.
+Otherwise, widen to 3–4× the user's interval (e.g., 90 days for a 7-day drop).
+For TrendsQuery or StickinessQuery, add `compareFilter: {"compare": true}` to show
+the prior period alongside. Other query kinds don't support `compareFilter` — compare
+by running the same query for two date ranges instead.
 
 Single-interval spikes or dips can be real (deploy, campaign, brief outage) — investigate them.
 If the movement looks like normal variance, flag that in the findings but continue the

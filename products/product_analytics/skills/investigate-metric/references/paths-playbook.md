@@ -11,16 +11,17 @@ Steps reference [shared-patterns.md](./shared-patterns.md) for reusable recipes.
 
 ## 1. Confirm what changed
 
-Rerun `posthog:query-paths` with the user's paths definition and `compareFilter:
-{"compare": true}` to see the current and prior periods side by side. Which specific edges
-(step-to-step transitions) gained or lost volume? Which new paths appeared, which
-disappeared?
+`PathsQuery` does not support `compareFilter`. Run `posthog:query-paths` twice — once
+for the anomaly window and once for a baseline window of equal length — and compare
+the results. Which specific edges (step-to-step transitions) gained or lost volume?
+Which new paths appeared, which disappeared?
+
+Anomaly window:
 
 ```json
 {
   "kind": "PathsQuery",
-  "dateRange": { "date_from": "-30d" },
-  "compareFilter": { "compare": true },
+  "dateRange": { "date_from": "-7d" },
   "pathsFilter": {
     "includeEventTypes": ["$pageview"],
     "startPoint": "/home",
@@ -29,6 +30,8 @@ disappeared?
   }
 }
 ```
+
+Then rerun with `"dateRange": { "date_from": "-14d", "date_to": "-7d" }` for the baseline.
 
 ## 2. Check endpoint volume in isolation
 
