@@ -64,6 +64,12 @@ class PRSHAMismatchError(Exception):
     pass
 
 
+class HashIntegrityError(Exception):
+    """Uploaded image bytes do not match the claimed content hash."""
+
+    pass
+
+
 class StaleRunError(Exception):
     """Approval blocked because a newer run exists for this PR."""
 
@@ -800,11 +806,11 @@ def complete_run(run_id: UUID) -> Run:
     run.save(using=WRITER_DB, update_fields=["total_snapshots"])
     _update_run_counts(run, using=WRITER_DB)
 
-    verify_uploads_and_create_artifacts(run_id)
-
     run = get_run(run_id)
 
-    # Optimization: if no changes, skip diff processing entirely
+    # Optimization: if no changes, skip diff processing entirely.
+    # All hashes are already known (existing Artifacts), so no
+    # integrity verification needed.
     if run.changed_count == 0 and run.new_count == 0:
         finish_processing(run_id)
         return get_run(run_id)
@@ -819,13 +825,19 @@ def complete_run(run_id: UUID) -> Run:
 
 def verify_uploads_and_create_artifacts(run_id: UUID) -> int:
     """
-    Verify S3 uploads exist and create Artifact records.
+    Verify S3 uploads, check hash integrity, and create Artifact records.
 
-    Called when run is completed. Checks S3 for each expected hash,
-    creates Artifact if present, and links to snapshots.
+    For each new upload (no existing Artifact), reads the PNG bytes from S3,
+    decodes to RGBA, and verifies the BLAKE3 hash matches the claimed
+    content_hash. This ensures the CLI cannot (accidentally or maliciously)
+    associate wrong hashes with image content.
+
+    Raises HashIntegrityError if any upload fails verification.
 
     Returns number of artifacts created.
     """
+    from .hashing import hash_image
+
     run = get_run_with_snapshots(run_id)
     repo_id = run.repo_id
     storage = ArtifactStorage(str(repo_id))
@@ -846,15 +858,25 @@ def verify_uploads_and_create_artifacts(run_id: UUID) -> int:
 
     created_count = 0
     for content_hash, metadata in expected_hashes.items():
-        # Check if artifact already exists
         if get_artifact(repo_id, content_hash):
             continue
 
-        # Check if file exists in S3
-        if not storage.exists(content_hash):
+        png_bytes = storage.read(content_hash)
+        if not png_bytes:
             continue
 
-        # Create artifact record
+        actual_hash = hash_image(png_bytes)
+        if actual_hash != content_hash:
+            logger.error(
+                "visual_review.hash_integrity_failure",
+                run_id=str(run_id),
+                claimed_hash=content_hash,
+                actual_hash=actual_hash,
+            )
+            raise HashIntegrityError(
+                f"Upload integrity check failed: claimed {content_hash[:16]}… but image hashes to {actual_hash[:16]}…"
+            )
+
         storage_path = storage._key(content_hash)
         artifact, created = get_or_create_artifact(
             repo_id=repo_id,
@@ -862,6 +884,7 @@ def verify_uploads_and_create_artifacts(run_id: UUID) -> int:
             storage_path=storage_path,
             width=metadata.get("width"),
             height=metadata.get("height"),
+            size_bytes=len(png_bytes),
             team_id=run.team_id,
         )
 
