@@ -496,29 +496,32 @@ def capture_task_run_state_metrics() -> None:
 
     try:
         with pushed_metrics_registry("tasks_run_state") as registry:
+            # NOTE: the label is named `run_environment` (not `environment`) to avoid collision with the
+            # deployment-environment label applied by the pushgateway scrape target, which would otherwise
+            # clobber the TaskRun.Environment value on ingest.
             runs_in_status_gauge = Gauge(
                 "posthog_tasks_runs_in_status",
-                "Number of open TaskRun rows by status, origin_product, and environment.",
+                "Number of open TaskRun rows by status, origin_product, and run_environment.",
                 registry=registry,
-                labelnames=["status", "origin_product", "environment"],
+                labelnames=["status", "origin_product", "run_environment"],
             )
             oldest_age_gauge = Gauge(
                 "posthog_tasks_oldest_open_run_age_seconds",
-                "Age (seconds) of the oldest TaskRun still in a given non-terminal status, by origin_product and environment.",
+                "Age (seconds) of the oldest TaskRun still in a given non-terminal status, by origin_product and run_environment.",
                 registry=registry,
-                labelnames=["status", "origin_product", "environment"],
+                labelnames=["status", "origin_product", "run_environment"],
             )
             runs_created_1h_gauge = Gauge(
                 "posthog_tasks_runs_created_1h",
-                "Number of TaskRun rows created in the last hour, by origin_product and environment.",
+                "Number of TaskRun rows created in the last hour, by origin_product and run_environment.",
                 registry=registry,
-                labelnames=["origin_product", "environment"],
+                labelnames=["origin_product", "run_environment"],
             )
             runs_terminal_1h_gauge = Gauge(
                 "posthog_tasks_runs_terminal_1h",
-                "Number of TaskRun rows that reached a terminal status in the last hour, by status, origin_product, and environment.",
+                "Number of TaskRun rows that reached a terminal status in the last hour, by status, origin_product, and run_environment.",
                 registry=registry,
-                labelnames=["status", "origin_product", "environment"],
+                labelnames=["status", "origin_product", "run_environment"],
             )
 
             counts = (
@@ -530,7 +533,7 @@ def capture_task_run_state_metrics() -> None:
                 runs_in_status_gauge.labels(
                     status=row["status"],
                     origin_product=row["task__origin_product"] or "unknown",
-                    environment=row["environment"],
+                    run_environment=row["environment"],
                 ).set(row["count"])
 
             oldest = (
@@ -544,7 +547,7 @@ def capture_task_run_state_metrics() -> None:
                 oldest_age_gauge.labels(
                     status=row["status"],
                     origin_product=row["task__origin_product"] or "unknown",
-                    environment=row["environment"],
+                    run_environment=row["environment"],
                 ).set(age_seconds)
 
             created_1h = (
@@ -555,7 +558,7 @@ def capture_task_run_state_metrics() -> None:
             for row in created_1h:
                 runs_created_1h_gauge.labels(
                     origin_product=row["task__origin_product"] or "unknown",
-                    environment=row["environment"],
+                    run_environment=row["environment"],
                 ).set(row["count"])
 
             # Terminal runs: approximated by updated_at since completed_at can be null for FAILED/CANCELLED
@@ -572,7 +575,7 @@ def capture_task_run_state_metrics() -> None:
                 runs_terminal_1h_gauge.labels(
                     status=row["status"],
                     origin_product=row["task__origin_product"] or "unknown",
-                    environment=row["environment"],
+                    run_environment=row["environment"],
                 ).set(row["count"])
 
     except Exception as err:

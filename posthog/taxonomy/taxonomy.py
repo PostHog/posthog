@@ -172,6 +172,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "When a user interacts with a feature.",
             "ignored_in_assistant": True,  # Specific to posthog-js/react, niche
         },
+        "$element_viewed": {
+            "label": "Element viewed",
+            "description": "When an element wrapped in `<PostHogCaptureOnViewed>` becomes visible in the viewport.",
+            "ignored_in_assistant": True,  # Specific to posthog-js/react, niche
+        },
         "$feature_enrollment_update": {
             "label": "Feature enrollment",
             "description": "When a user enrolls with a feature.",

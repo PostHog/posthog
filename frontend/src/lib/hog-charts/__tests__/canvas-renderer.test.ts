@@ -26,6 +26,7 @@ function mockCanvasContext(): jest.Mocked<CanvasRenderingContext2D> {
         closePath: jest.fn(),
         arc: jest.fn(),
         setLineDash: jest.fn(),
+        createPattern: jest.fn(() => ({}) as CanvasPattern),
         strokeStyle: '',
         fillStyle: '',
         lineWidth: 0,
@@ -68,13 +69,22 @@ describe('hog-charts canvas-renderer', () => {
                 expectedLineTo: 0,
             },
             {
-                name: 'skips non-finite y points without breaking the path',
+                name: 'breaks the path on a non-finite y so the gap is not bridged',
                 labels: ['a', 'b', 'c'],
                 data: [10, 50, 90],
                 gapValues: new Set([50]),
                 expectedBeginPath: 1,
-                expectedMoveTo: 1,
-                expectedLineTo: 1,
+                expectedMoveTo: 2,
+                expectedLineTo: 0,
+            },
+            {
+                name: 'rejoins after the gap with a fresh subpath when there are valid points on both sides',
+                labels: ['a', 'b', 'c', 'd', 'e'],
+                data: [10, 20, 50, 70, 90],
+                gapValues: new Set([50]),
+                expectedBeginPath: 1,
+                expectedMoveTo: 2,
+                expectedLineTo: 2,
             },
             {
                 name: 'does not draw any path segments when all values are non-finite',
@@ -146,11 +156,11 @@ describe('hog-charts canvas-renderer', () => {
                 expectedDashCalls: [[10, 10], []],
             },
             {
-                name: 'dashedFromIndex >= length → treated as unset',
+                name: 'dashedFromIndex >= length → clamped to last index (solid + trailing dashed)',
                 length: 3,
                 dashedFromIndex: 99,
-                expectedBeginPath: 1,
-                expectedDashCalls: [[], []],
+                expectedBeginPath: 2,
+                expectedDashCalls: [[], [10, 10], []],
             },
             {
                 name: 'negative dashedFromIndex → clamped to 0 (whole line dashed)',
@@ -176,11 +186,11 @@ describe('hog-charts canvas-renderer', () => {
                 expectedDashCalls: [[10, 10], []],
             },
             {
-                name: 'dashedToIndex < 0 → treated as unset',
+                name: 'dashedToIndex < 0 → clamped to 0 (single-index leading dash + solid rest)',
                 length: 3,
                 dashedToIndex: -5,
-                expectedBeginPath: 1,
-                expectedDashCalls: [[], []],
+                expectedBeginPath: 2,
+                expectedDashCalls: [[10, 10], [], []],
             },
             {
                 name: 'dashedToIndex beyond length → clamped to last index (whole line dashed)',
@@ -343,6 +353,64 @@ describe('hog-charts canvas-renderer', () => {
             // Last two lineTo calls should be at the baseline
             expect(lineToArgs[lineToArgs.length - 1]).toBe(baseline)
             expect(lineToArgs[lineToArgs.length - 2]).toBe(baseline)
+        })
+    })
+
+    describe('drawArea — partial dashing', () => {
+        it.each([
+            {
+                name: 'dashedFromIndex only → solid leading + hatched trailing',
+                labels: ['a', 'b', 'c', 'd', 'e'],
+                data: [10, 20, 30, 40, 50],
+                dashedFromIndex: 3 as number | undefined,
+                dashedToIndex: undefined as number | undefined,
+                expectedFills: 2,
+            },
+            {
+                name: 'dashedToIndex only → hatched leading + solid trailing',
+                labels: ['a', 'b', 'c', 'd', 'e'],
+                data: [10, 20, 30, 40, 50],
+                dashedFromIndex: undefined as number | undefined,
+                dashedToIndex: 1 as number | undefined,
+                expectedFills: 2,
+            },
+            {
+                name: 'both indices → hatched + solid + hatched',
+                labels: ['a', 'b', 'c', 'd', 'e', 'f', 'g'],
+                data: [10, 20, 30, 40, 50, 60, 70],
+                dashedFromIndex: 5 as number | undefined,
+                dashedToIndex: 1 as number | undefined,
+                expectedFills: 3,
+            },
+        ])('$name', ({ labels, data, dashedFromIndex, dashedToIndex, expectedFills }) => {
+            const ctx = mockCanvasContext()
+            const series = makeSeries({ key: 's', data, dashedFromIndex, dashedToIndex })
+            drawArea(makeDrawContext(ctx, labels), series)
+            expect(ctx.fill).toHaveBeenCalledTimes(expectedFills)
+        })
+    })
+
+    describe('drawArea — fillBetweenData edge cases', () => {
+        it.each([
+            {
+                name: 'shorter than data → segment breaks instead of silently baseline-filling',
+                labels: ['a', 'b', 'c', 'd'],
+                data: [10, 20, 30, 40],
+                bottomValues: [5, 5],
+                expectedFills: 1,
+            },
+            {
+                name: 'non-finite mid-segment → splits into two fills',
+                labels: ['a', 'b', 'c', 'd', 'e'],
+                data: [10, 20, 30, 40, 50],
+                bottomValues: [5, 5, NaN, 5, 5],
+                expectedFills: 2,
+            },
+        ])('$name', ({ labels, data, bottomValues, expectedFills }) => {
+            const ctx = mockCanvasContext()
+            const series = makeSeries({ key: 's', data })
+            drawArea(makeDrawContext(ctx, labels), series, undefined, bottomValues)
+            expect(ctx.fill).toHaveBeenCalledTimes(expectedFills)
         })
     })
 
