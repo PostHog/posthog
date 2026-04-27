@@ -22,6 +22,7 @@ from posthog.models.data_deletion_request import (
     ExecutionMode,
     RequestStatus,
     RequestType,
+    compile_hogql_predicate,
     event_match_params,
     event_match_sql_fragment,
     jsonhas_expr,
@@ -47,6 +48,7 @@ class DeletionRequestContext:
     properties: list[str] = field(default_factory=list)
     execution_mode: str = ExecutionMode.IMMEDIATE.value
     delete_all_events: bool = False
+    hogql_predicate: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -86,9 +88,19 @@ def _base_params(ctx: DeletionRequestContext) -> dict:
 _EVENT_REMOVAL_TIME_PREDICATE = "team_id = %(team_id)s AND timestamp >= %(start_time)s AND timestamp < %(end_time)s"
 
 
-def _event_removal_predicate(obj) -> str:
-    """Full WHERE predicate for event removal (time-bounded, optionally event-filtered)."""
-    return f"{_EVENT_REMOVAL_TIME_PREDICATE} {event_match_sql_fragment(obj)}".strip()
+def _event_removal_where(obj) -> tuple[str, dict]:
+    """Full WHERE predicate + params for event-removal queries.
+
+    Combines the mandatory team/timestamp bounds, the events filter (skipped
+    when ``delete_all_events`` is set), and any compiled HogQL predicate.
+    """
+    parts = [_EVENT_REMOVAL_TIME_PREDICATE, event_match_sql_fragment(obj)]
+    params = event_match_params(obj)
+    hogql_sql, hogql_values = compile_hogql_predicate(obj)
+    if hogql_sql:
+        parts.append(f"AND ({hogql_sql})")
+        params.update(hogql_values)
+    return " ".join(p for p in parts if p), params
 
 
 def _get_affected_mat_columns(client: Client, table: str, properties: list[str]) -> list[tuple[str, bool]]:
@@ -183,7 +195,8 @@ def load_deletion_request(
         f"Processing deletion request {request.pk}: "
         f"team_id={request.team_id}, events={events_desc}, "
         f"time_range={request.start_time} to {request.end_time}, "
-        f"execution_mode={request.execution_mode}"
+        f"execution_mode={request.execution_mode}, "
+        f"hogql_predicate={request.hogql_predicate or '<none>'}"
     )
     context.add_output_metadata(
         {
@@ -195,6 +208,7 @@ def load_deletion_request(
             "end_time": dagster.MetadataValue.text(str(request.end_time)),
             "execution_mode": dagster.MetadataValue.text(request.execution_mode),
             "delete_all_events": dagster.MetadataValue.bool(request.delete_all_events),
+            "hogql_predicate": dagster.MetadataValue.text(request.hogql_predicate or ""),
         }
     )
 
@@ -206,6 +220,7 @@ def load_deletion_request(
         events=request.events,
         execution_mode=request.execution_mode,
         delete_all_events=request.delete_all_events,
+        hogql_predicate=request.hogql_predicate or "",
     )
 
 
@@ -223,10 +238,11 @@ def _run_immediate_event_deletion(
         context.log.info(f"Processing shard {shard_num} ({idx}/{len(shards)})")
         shard_start = time.monotonic()
 
+        predicate, parameters = _event_removal_where(deletion_request)
         runner = LightweightDeleteMutationRunner(
             table=table,
-            predicate=_event_removal_predicate(deletion_request),
-            parameters=event_match_params(deletion_request),
+            predicate=predicate,
+            parameters=parameters,
             settings={"lightweight_deletes_sync": 0},
         )
 
@@ -250,8 +266,7 @@ def _queue_events_for_deferred_deletion(
     source_table = EVENTS_DATA_TABLE()
     db = django_settings.CLICKHOUSE_DATABASE
     shards = sorted(cluster.shards)
-    predicate = _event_removal_predicate(deletion_request)
-    params = event_match_params(deletion_request)
+    predicate, params = _event_removal_where(deletion_request)
     # nosemgrep: clickhouse-fstring-param-audit (all interpolated values are internal constants/settings)
     insert_sql = (
         f"INSERT INTO {db}.{ADHOC_EVENTS_DELETION_TABLE} (team_id, uuid) "
@@ -691,8 +706,7 @@ def _count_remaining_matching_events(request: DataDeletionRequest) -> int:
     from posthog.clickhouse.query_tagging import Feature, Product, tags_context
     from posthog.clickhouse.workload import Workload
 
-    predicate = _event_removal_predicate(request)
-    params = event_match_params(request)
+    predicate, params = _event_removal_where(request)
     with tags_context(
         product=Product.INTERNAL,
         feature=Feature.DATA_DELETION,

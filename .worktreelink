@@ -1,1 +1,2 @@
-.flox
+# This doesn't work currently, hardlinking the .flox directories between worktrees will break hogli scripts
+# .flox

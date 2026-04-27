@@ -139,6 +139,7 @@ def _refresh_sandbox_mcp(
         token=access_token,
         project_id=task_run.team_id,
         scopes=scopes,
+        interaction_origin=(task_run.state or {}).get("interaction_origin"),
     )
     if task.created_by_id:
         user_mcp_configs = get_user_mcp_server_configs(

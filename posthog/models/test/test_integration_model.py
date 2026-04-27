@@ -12,8 +12,10 @@ from django.core.cache import cache
 from django.db import connection
 from django.utils import timezone
 
+import requests
 from disposable_email_domains import blocklist as disposable_email_domains_list
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.instance_setting import set_instance_setting
@@ -546,6 +548,61 @@ class TestOauthIntegrationModel(BaseTest):
 
         mock_reload.assert_called_once_with(self.team.id, [integration.id])
 
+    @patch("posthog.models.integration.requests.post")
+    def test_stripe_integration_from_oauth_response_uses_apps_endpoint_and_basic_auth(self, mock_post):
+        # Stripe Apps OAuth (api.stripe.com/v1/oauth/token) is a different system from
+        # Stripe Connect OAuth (connect.stripe.com/oauth/token): it authenticates the
+        # token exchange with HTTP Basic (secret as username, no password) and accepts
+        # only `code` + `grant_type` in the body. Codes minted by `marketplace.stripe.com`
+        # cannot be redeemed at the Connect endpoint.
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "FAKE_ACCESS",
+            "refresh_token": "FAKE_REFRESH",
+            "stripe_user_id": "acct_123",
+            "account_name": "Test Account",
+            "expires_in": 3600,
+        }
+
+        with self.settings(
+            STRIPE_APP_CLIENT_ID="ca_test_clientid",
+            STRIPE_APP_SECRET_KEY="sk_test_secret",
+        ):
+            OauthIntegration.integration_from_oauth_response(
+                "stripe",
+                self.team.id,
+                self.user,
+                {"code": "ac_real_code"},
+            )
+
+        call = mock_post.call_args
+        assert call.args[0] == "https://api.stripe.com/v1/oauth/token"
+        assert call.kwargs["data"] == {"code": "ac_real_code", "grant_type": "authorization_code"}
+        assert call.kwargs["auth"].username == "sk_test_secret"
+        assert call.kwargs["auth"].password == ""
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_stripe_refresh_access_token_uses_apps_endpoint_and_basic_auth(self, mock_post, mock_reload):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "REFRESHED", "expires_in": 1000}
+
+        integration = self.create_integration(kind="stripe", config={"expires_in": 1000})
+
+        with self.settings(
+            STRIPE_APP_CLIENT_ID="ca_test_clientid",
+            STRIPE_APP_SECRET_KEY="sk_test_secret",
+        ):
+            OauthIntegration(integration).refresh_access_token()
+
+        call = mock_post.call_args
+        assert call.args[0] == "https://api.stripe.com/v1/oauth/token"
+        assert call.kwargs["data"] == {"refresh_token": "REFRESH", "grant_type": "refresh_token"}
+        assert call.kwargs["auth"].username == "sk_test_secret"
+        assert call.kwargs["auth"].password == ""
+
+        mock_reload.assert_called_once_with(self.team.id, [integration.id])
+
 
 class TestGoogleCloudIntegrationModel(BaseTest):
     mock_keyfile = {
@@ -738,6 +795,139 @@ class TestGitHubIntegrationModel(BaseTest):
 
         return _client_request
 
+    @parameterized.expand(
+        [
+            (
+                "complete_headers",
+                {
+                    "X-RateLimit-Resource": "core",
+                    "X-RateLimit-Remaining": "4998",
+                    "X-RateLimit-Limit": "5000",
+                    "X-RateLimit-Reset": "1704117600",
+                },
+                "core",
+                4998,
+                5000,
+                1704117600,
+            ),
+            ("no_headers", {}, "unknown", None, None, None),
+            (
+                "no_resource_header",
+                {
+                    "X-RateLimit-Remaining": "4997",
+                    "X-RateLimit-Limit": "5000",
+                    "X-RateLimit-Reset": "1704117601",
+                },
+                "unknown",
+                4997,
+                5000,
+                1704117601,
+            ),
+        ]
+    )
+    @patch("posthog.models.integration.requests.get")
+    def test_github_api_request_metrics_include_integration_and_rate_limit_headers(
+        self,
+        _name: str,
+        response_headers: dict[str, str],
+        expected_resource: str,
+        expected_remaining: int | None,
+        expected_limit: int | None,
+        expected_reset: int | None,
+        mock_get,
+    ):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+        response = MagicMock()
+        response.status_code = 200
+        response.headers = response_headers
+        mock_get.return_value = response
+
+        labels = {
+            "integration_id": str(integration.id),
+            "method": "GET",
+            "endpoint": "/repos/{owner}/{repo}",
+            "status_code": "200",
+        }
+        previous_count = REGISTRY.get_sample_value("github_integration_api_requests_total", labels) or 0
+
+        GitHubIntegration(integration)._github_api_get(
+            "https://api.github.com/repos/PostHog/posthog",
+            endpoint="/repos/{owner}/{repo}",
+            headers={"Accept": "application/vnd.github+json"},
+        )
+
+        assert REGISTRY.get_sample_value("github_integration_api_requests_total", labels) == previous_count + 1
+        assert (
+            REGISTRY.get_sample_value(
+                "github_integration_api_rate_limit_remaining",
+                {"integration_id": str(integration.id), "resource": expected_resource},
+            )
+            == expected_remaining
+        )
+        assert (
+            REGISTRY.get_sample_value(
+                "github_integration_api_rate_limit_limit",
+                {"integration_id": str(integration.id), "resource": expected_resource},
+            )
+            == expected_limit
+        )
+        assert (
+            REGISTRY.get_sample_value(
+                "github_integration_api_rate_limit_reset_timestamp_seconds",
+                {"integration_id": str(integration.id), "resource": expected_resource},
+            )
+            == expected_reset
+        )
+
+    @patch("posthog.models.integration.requests.get")
+    def test_github_api_request_metrics_include_request_exceptions(self, mock_get):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+        mock_get.side_effect = requests.RequestException("network failure")
+
+        labels = {
+            "integration_id": str(integration.id),
+            "method": "GET",
+            "endpoint": "/repos/{owner}/{repo}",
+            "status_code": "exception",
+        }
+        previous_count = REGISTRY.get_sample_value("github_integration_api_requests_total", labels) or 0
+
+        with pytest.raises(requests.RequestException):
+            GitHubIntegration(integration)._github_api_get(
+                "https://api.github.com/repos/PostHog/posthog",
+                endpoint="/repos/{owner}/{repo}",
+                headers={"Accept": "application/vnd.github+json"},
+            )
+
+        assert REGISTRY.get_sample_value("github_integration_api_requests_total", labels) == previous_count + 1
+
+    @patch("posthog.models.integration.GitHubIntegration.client_request")
+    def test_github_refresh_access_token_metrics_include_request_exceptions(self, mock_client_request):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+        mock_client_request.side_effect = requests.RequestException("network failure")
+
+        labels = {
+            "integration_id": str(integration.id),
+            "method": "POST",
+            "endpoint": "/app/installations/{installation_id}/access_tokens",
+            "status_code": "exception",
+        }
+        previous_count = REGISTRY.get_sample_value("github_integration_api_requests_total", labels) or 0
+
+        with pytest.raises(requests.RequestException):
+            GitHubIntegration(integration).refresh_access_token()
+
+        assert REGISTRY.get_sample_value("github_integration_api_requests_total", labels) == previous_count + 1
+
     @patch("posthog.models.integration.GitHubIntegration.client_request")
     def test_github_integration_refresh_token(self, mock_client_request):
         mock_client_request.side_effect = self.mock_github_client_request(status_code=201)
@@ -926,11 +1116,20 @@ class TestGitHubIntegrationModel(BaseTest):
         integration.repository_cache_updated_at = timezone.now()
         integration.save(update_fields=["repository_cache", "repository_cache_updated_at"])
 
+        labels = {
+            "integration_id": str(integration.id),
+            "cache": "repositories",
+            "repository": "__all__",
+            "result": "hit",
+        }
+        previous_count = REGISTRY.get_sample_value("github_integration_cache_accesses_total", labels) or 0
+
         repos, has_more = GitHubIntegration(integration).list_cached_repositories(limit=1, offset=1)
 
         assert repos == [{"id": 2, "name": "posthog-js", "full_name": "PostHog/posthog-js"}]
         assert has_more is False
         mock_list_all.assert_not_called()
+        assert REGISTRY.get_sample_value("github_integration_cache_accesses_total", labels) == previous_count + 1
 
     @patch("posthog.models.integration.GitHubIntegration.list_all_repositories")
     def test_sync_repository_cache_respects_refresh_cooldown(self, mock_list_all):
@@ -989,6 +1188,14 @@ class TestGitHubIntegrationModel(BaseTest):
         )
         mock_list_all.return_value = fetched_repositories
 
+        labels = {
+            "integration_id": str(integration.id),
+            "cache": "repositories",
+            "repository": "__all__",
+            "result": "miss",
+        }
+        previous_count = REGISTRY.get_sample_value("github_integration_cache_accesses_total", labels) or 0
+
         repos, has_more = GitHubIntegration(integration).list_cached_repositories(limit=1, offset=0)
 
         integration.refresh_from_db()
@@ -997,6 +1204,7 @@ class TestGitHubIntegrationModel(BaseTest):
         assert integration.repository_cache == fetched_repositories
         assert integration.repository_cache_updated_at is not None
         mock_list_all.assert_called_once_with()
+        assert REGISTRY.get_sample_value("github_integration_cache_accesses_total", labels) == previous_count + 1
 
     @patch("posthog.models.integration.GitHubIntegration.list_all_repositories")
     def test_list_cached_repositories_returns_stale_cache_on_refresh_error(self, mock_list_all):
@@ -1054,6 +1262,45 @@ class TestGitHubIntegrationModel(BaseTest):
         assert has_more is True
         mock_list_all.assert_called_once_with()
 
+    @parameterized.expand(
+        [
+            ("blank_search_returns_all", "   ", 10, 0, [1, 2, 3, 4], False),
+            ("no_match_returns_empty", "missing", 10, 0, [], False),
+            ("casefold_matches_owner_prefix", "POSTHOG", 10, 0, [1, 2, 3, 4], False),
+            ("pagination_applies_after_filter", "posthog", 1, 1, [2], True),
+        ]
+    )
+    @patch("posthog.models.integration.GitHubIntegration.list_all_repositories")
+    def test_list_cached_repositories_filters_search_before_pagination(
+        self,
+        _name,
+        search,
+        limit,
+        offset,
+        expected_ids,
+        expected_has_more,
+        mock_list_all,
+    ):
+        fetched_repositories = [
+            {"id": 1, "name": "posthog", "full_name": "PostHog/posthog"},
+            {"id": 2, "name": "posthog-js", "full_name": "PostHog/posthog-js"},
+            {"id": 3, "name": "code", "full_name": "PostHog/code"},
+            {"id": 4, "name": "posthog-python", "full_name": "PostHog/posthog-python"},
+        ]
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+        mock_list_all.return_value = fetched_repositories
+
+        repos, has_more = GitHubIntegration(integration).list_cached_repositories(
+            search=search, limit=limit, offset=offset
+        )
+
+        assert [repo["id"] for repo in repos] == expected_ids
+        assert has_more is expected_has_more
+        mock_list_all.assert_called_once_with()
+
     @patch("posthog.models.integration.GitHubIntegration.list_branches")
     @patch("posthog.models.integration.GitHubIntegration.get_default_branch")
     def test_list_cached_branches_uses_cached_data_when_fresh(self, mock_default_branch, mock_list_branches):
@@ -1071,6 +1318,14 @@ class TestGitHubIntegrationModel(BaseTest):
             },
         )
 
+        labels = {
+            "integration_id": str(integration.id),
+            "cache": "branches",
+            "repository": repo,
+            "result": "hit",
+        }
+        previous_count = REGISTRY.get_sample_value("github_integration_cache_accesses_total", labels) or 0
+
         branches, default_branch, has_more = GitHubIntegration(integration).list_cached_branches(
             repo, limit=2, offset=1
         )
@@ -1080,6 +1335,7 @@ class TestGitHubIntegrationModel(BaseTest):
         assert has_more is False
         mock_list_branches.assert_not_called()
         mock_default_branch.assert_not_called()
+        assert REGISTRY.get_sample_value("github_integration_cache_accesses_total", labels) == previous_count + 1
 
     @patch("posthog.models.integration.GitHubIntegration.list_branches")
     @patch("posthog.models.integration.GitHubIntegration.get_default_branch")
@@ -1124,6 +1380,14 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_list_branches.return_value = (["develop", "feature/test"], False)
         mock_default_branch.return_value = "main"
 
+        labels = {
+            "integration_id": str(integration.id),
+            "cache": "branches",
+            "repository": repo,
+            "result": "miss",
+        }
+        previous_count = REGISTRY.get_sample_value("github_integration_cache_accesses_total", labels) or 0
+
         branches, default_branch, has_more = GitHubIntegration(integration).list_cached_branches(
             repo, limit=2, offset=0
         )
@@ -1136,6 +1400,7 @@ class TestGitHubIntegrationModel(BaseTest):
         assert cached["default_branch"] == "main"
         mock_list_branches.assert_called_once_with(repo, limit=100, offset=0)
         mock_default_branch.assert_called_once_with(repo)
+        assert REGISTRY.get_sample_value("github_integration_cache_accesses_total", labels) == previous_count + 1
 
     @patch("posthog.models.integration.GitHubIntegration.list_branches")
     @patch("posthog.models.integration.GitHubIntegration.get_default_branch")

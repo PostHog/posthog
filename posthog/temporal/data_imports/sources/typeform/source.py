@@ -81,7 +81,7 @@ You can generate a personal access token in your [Typeform account settings](htt
                     ),
                 ],
             ),
-            betaSource=True,
+            releaseStatus="beta",
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:

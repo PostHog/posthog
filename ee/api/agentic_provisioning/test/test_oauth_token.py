@@ -6,11 +6,11 @@ from django.test import override_settings
 
 from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX
 from ee.api.agentic_provisioning.signature import compute_signature
-from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
 
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
-class TestOAuthTokenExchange(StripeProvisioningTestBase):
+class TestOAuthTokenExchange(ProvisioningTestBase):
     def _store_auth_code(self, code: str = "test_code", **overrides):
         data = {
             "user_id": self.user.id,
@@ -36,8 +36,7 @@ class TestOAuthTokenExchange(StripeProvisioningTestBase):
             "/api/agentic/oauth/token",
             data=body,
             content_type="application/x-www-form-urlencoded",
-            HTTP_STRIPE_SIGNATURE=f"t={ts},v1={sig}",
-            HTTP_API_VERSION="0.1d",
+            headers={"stripe-signature": f"t={ts},v1={sig}", "api-version": "0.1d"},
         )
 
     def test_valid_code_exchange_returns_tokens(self):
@@ -124,6 +123,6 @@ class TestOAuthTokenExchange(StripeProvisioningTestBase):
             "/api/agentic/oauth/token",
             data=body,
             content_type="application/x-www-form-urlencoded",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         assert res.status_code == 401

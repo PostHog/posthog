@@ -71,12 +71,6 @@ if [ -f .env ]; then
     set +o allexport
 fi
 
-if [ -f .env.local ]; then
-    set -o allexport
-    source .env.local
-    set +o allexport
-fi
-
 # Ducklake
 export DUCKLAKE_RDS_HOST=${DUCKLAKE_RDS_HOST:-db}
 export DUCKLAKE_RDS_PORT=${DUCKLAKE_RDS_PORT:-5432}

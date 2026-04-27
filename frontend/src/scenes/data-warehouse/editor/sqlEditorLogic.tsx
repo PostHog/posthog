@@ -74,6 +74,7 @@ import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics
 import { validateEndpointName } from 'products/endpoints/frontend/common'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
+import { validateSavedQueryName } from '../saved_queries/savedQueryNameValidation'
 import { dataModelingLogic } from '../scene/dataModelingLogic'
 import { draftsLogic } from './draftsLogic'
 import { editorSceneLogic } from './editorSceneLogic'
@@ -1284,12 +1285,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             </>
                         ),
                     errors: {
-                        viewName: (name) =>
-                            !name
-                                ? 'You must enter a name'
-                                : !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)
-                                  ? 'Name must be valid'
-                                  : undefined,
+                        viewName: validateSavedQueryName,
                         dagId: (dagId) => (multiDagEnabled && !dagId ? 'Please select a DAG' : undefined),
                     },
                     onSubmit: async ({ viewName, dagId, folderId, isTest }) => {
@@ -2182,8 +2178,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         ],
 
         saveAsMenuItems: [
-            (s) => [s.editorSource, s.dashboardId],
-            (editorSource, dashboardId): { primary: SaveAsMenuItem; secondary: SaveAsMenuItem[] } => {
+            (s) => [s.editorSource, s.dashboardId, s.featureFlags],
+            (editorSource, dashboardId, featureFlags): { primary: SaveAsMenuItem; secondary: SaveAsMenuItem[] } => {
+                const endpointsEnabled = !!featureFlags[FEATURE_FLAGS.ENDPOINTS]
                 const saveAsInsightItem: SaveAsMenuItem = {
                     action: 'insight',
                     label: dashboardId ? 'Save & add to dashboard' : 'Save as insight',
@@ -2198,7 +2195,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     dataAttr: 'sql-editor-save-view-button',
                 }
 
-                if (editorSource === 'endpoint') {
+                if (editorSource === 'endpoint' && endpointsEnabled) {
                     return {
                         primary: saveAsEndpointItem,
                         secondary: [saveAsInsightItem, saveAsViewItem],
@@ -2207,7 +2204,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                 return {
                     primary: saveAsInsightItem,
-                    secondary: [saveAsEndpointItem, saveAsViewItem],
+                    secondary: endpointsEnabled ? [saveAsEndpointItem, saveAsViewItem] : [saveAsViewItem],
                 }
             },
         ],

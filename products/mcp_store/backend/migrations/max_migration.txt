@@ -1,1 +1,1 @@
-0006_mcpservertemplate_installation_fields_and_tools
+0010_mcpservertemplate_category_and_docs_url

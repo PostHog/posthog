@@ -64,7 +64,7 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
                     ),
                 ],
             ),
-            betaSource=True,
+            releaseStatus="beta",
         )
 
     def validate_credentials(

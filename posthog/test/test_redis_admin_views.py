@@ -22,7 +22,7 @@ class TestRedisEditTTLView(BaseTest):
             ("key_without_ttl", "persistent:key", -1, b"No TTL set"),
         ]
     )
-    @override_settings(STATICFILES_STORAGE="django.contrib.staticfiles.storage.StaticFilesStorage")
+    @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
     @patch("posthog.views.get_client")
     def test_get_request_returns_form(
         self, _name: str, key: str, ttl_return: int, expected_content: bytes, mock_get_client: MagicMock

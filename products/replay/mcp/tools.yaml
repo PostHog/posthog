@@ -7,6 +7,10 @@
 category: Session replays
 feature: replay
 url_prefix: /replay
+ui_apps:
+    session-recording:
+        type: detail
+        view_prop: recording
 tools:
     session-recordings-list:
         operation: session_recordings_list
@@ -20,10 +24,17 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        ui_app: session-recording
+        enrich_url: '{id}'
         title: Get session recording
         description: >
             Get a specific session recording by ID. Returns full recording metadata including
             duration, interaction counts, console log counts, person info, and viewing status.
+            Session recordings are reachable from events, errors, and persons via the `$session_id`
+            property on events. Any `$session_id` value from an event can be passed as the `id`
+            parameter to this tool. Note: a `$session_id` on an event does not guarantee a recording
+            exists — session replay may not be enabled for that project or session. A 404 means no
+            recording was captured.
     session-recording-delete:
         operation: session_recordings_destroy
         enabled: true
@@ -145,6 +156,7 @@ wrappers:
         mcp_version: 2
         title: List session recordings
         description_file: ./prompts/query-session-recordings-list.md
+        system_prompt_hint: Session replay metadata and activity
         url_prefix: /replay
         exclude_properties:
             - response

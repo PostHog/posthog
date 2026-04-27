@@ -270,6 +270,9 @@ class ZendeskIncrementalEndpointPaginator(BasePaginator):
 
     def update_request(self, request: Request) -> None:
         request.url = self._next_page
+        # next_page is a full URL that already contains all query params —
+        # clear params to avoid duplicates when prepare_request merges them.
+        request.params = {}
 
 
 def zendesk_source(
