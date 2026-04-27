@@ -175,8 +175,15 @@ impl Issue {
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
-        // If this issue is already active, or permanently suppressed, we don't need to do anything
-        if matches!(self.status, IssueStatus::Active | IssueStatus::Suppressed) {
+        // Skip if already active, permanently suppressed, or explicitly resolved by the user.
+        // Resolved is a deliberate user action ("I fixed this") — silently flipping it back to
+        // Active on the next incoming event re-arms downstream alerting (notably spike alerts)
+        // and undermines trust in the resolution. Pending Release and Archived continue to
+        // auto-reactivate, since their semantics imply "reopen if errors recur".
+        if matches!(
+            self.status,
+            IssueStatus::Active | IssueStatus::Suppressed | IssueStatus::Resolved
+        ) {
             return Ok(false);
         }
 

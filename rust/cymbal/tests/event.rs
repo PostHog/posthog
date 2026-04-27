@@ -218,6 +218,24 @@ impl TestHarness {
             .expect("Should update issue status");
     }
 
+    async fn resolve_issue(&self, issue_id: Uuid) {
+        sqlx::query("UPDATE posthog_errortrackingissue SET status = 'resolved' WHERE id = $1")
+            .bind(issue_id)
+            .execute(&self.db)
+            .await
+            .expect("Should update issue status");
+    }
+
+    async fn get_issue_status(&self, issue_id: Uuid) -> String {
+        let row: (String,) =
+            sqlx::query_as("SELECT status FROM posthog_errortrackingissue WHERE id = $1")
+                .bind(issue_id)
+                .fetch_one(&self.db)
+                .await
+                .expect("Issue should exist");
+        row.0
+    }
+
     async fn get_issue_id(&self) -> Uuid {
         let row: (Uuid,) =
             sqlx::query_as("SELECT id FROM posthog_errortrackingissue WHERE team_id = 1")
@@ -421,6 +439,30 @@ async fn suppressed_issue_returns_suppressed_response(db: PgPool) {
     assert!(
         body.first_event().is_none(),
         "Suppressed event should not be present"
+    );
+}
+
+// A user marking an issue as Resolved is an explicit triage action. The next exception event
+// must not silently flip the issue back to Active — that re-arms downstream alerting (notably
+// the spike alert path) and produces hourly false positives.
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn resolved_issue_is_not_auto_reopened(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let input = make_event(vec![make_exception("ResolvedError", "was resolved")]);
+
+    let (_, created): (_, SuccessResponse) = harness.post_event(&input).await;
+    let body = created.take_properties();
+    let issue_id = body.issue_id.unwrap();
+    harness.resolve_issue(issue_id).await;
+    assert_eq!(harness.get_issue_status(issue_id).await, "resolved");
+
+    let (status, _): (_, SuccessResponse) = harness.post_event(&input).await;
+
+    assert!(status.is_success());
+    assert_eq!(
+        harness.get_issue_status(issue_id).await,
+        "resolved",
+        "resolved issue must stay resolved after a follow-up event"
     );
 }
 

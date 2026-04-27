@@ -10,11 +10,12 @@ use uuid::Uuid;
 
 use crate::app_context::AppContext;
 use crate::error::UnhandledError;
-use crate::issue_resolution::Issue;
+use crate::issue_resolution::{Issue, IssueStatus};
 use crate::metric_consts::{
     SPIKE_ACQUIRE_LOCKS_TIME, SPIKE_EMIT_EVENTS_TIME, SPIKE_GET_SPIKING_ISSUES_TIME,
     SPIKE_INCREMENT_ISSUE_BUCKETS_TIME, SPIKE_INCREMENT_TEAM_BUCKETS_TIME,
-    SPIKE_ISSUES_BLOCKED_BY_COOLDOWN, SPIKE_ISSUES_CHECKED, SPIKE_ISSUES_SPIKING,
+    SPIKE_ISSUES_BLOCKED_BY_COOLDOWN, SPIKE_ISSUES_BLOCKED_BY_STATUS, SPIKE_ISSUES_CHECKED,
+    SPIKE_ISSUES_SPIKING,
 };
 use crate::spike_config::SpikeDetectionConfig;
 use crate::types::OutputErrProps;
@@ -468,10 +469,20 @@ async fn get_spiking_issues(
     let team_baselines: HashMap<i32, f64> = compute_team_baselines(&team_buckets);
 
     let mut spiking = Vec::new();
+    let mut blocked_by_status: u64 = 0;
     for bucket in &issue_buckets {
         let Some(issue) = issues_by_id.get(&bucket.issue_id) else {
             continue;
         };
+
+        // Only Active issues can spike. Resolved/Archived/PendingRelease/Suppressed all
+        // represent states where the user has either explicitly silenced the issue or it is
+        // already being tracked through a different lifecycle. Firing spike alerts for those
+        // produces hourly false positives for users who already triaged the issue.
+        if !matches!(issue.status, IssueStatus::Active) {
+            blocked_by_status += 1;
+            continue;
+        }
 
         let current_value = bucket.values[0].unwrap_or(0);
         let historical = &bucket.values[1..];
@@ -495,6 +506,10 @@ async fn get_spiking_issues(
                 current_bucket_value: current_value,
             });
         }
+    }
+
+    if blocked_by_status > 0 {
+        metrics::counter!(SPIKE_ISSUES_BLOCKED_BY_STATUS).increment(blocked_by_status);
     }
 
     Ok(spiking)
@@ -657,6 +672,12 @@ mod tests {
             HashMap::from([(self.issue_id, self.make_issue())])
         }
 
+        fn issues_by_id_with_status(&self, status: IssueStatus) -> HashMap<Uuid, Issue> {
+            let mut issue = self.make_issue();
+            issue.status = status;
+            HashMap::from([(self.issue_id, issue)])
+        }
+
         fn make_issue(&self) -> Issue {
             Issue {
                 id: self.issue_id,
@@ -674,6 +695,19 @@ mod tests {
             get_spiking_issues(&self.redis, &self.issues_by_id(), &empty_props, &configs)
                 .await
                 .unwrap()
+        }
+
+        async fn get_spiking_with_status(&self, status: IssueStatus) -> Vec<SpikingIssue> {
+            let configs = HashMap::from([(self.team_id, SpikeDetectionConfig::default())]);
+            let empty_props = HashMap::new();
+            get_spiking_issues(
+                &self.redis,
+                &self.issues_by_id_with_status(status),
+                &empty_props,
+                &configs,
+            )
+            .await
+            .unwrap()
         }
     }
 
@@ -1170,5 +1204,118 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].computed_baseline, 10.0);
         assert_eq!(result[0].current_bucket_value, 1000);
+    }
+
+    // Resolved issues must not produce spike alerts even when bucket math says they're spiking.
+    // This protects users who explicitly resolved an issue from being paged hourly while
+    // baseline counts decay.
+    #[tokio::test]
+    async fn test_resolved_issue_does_not_spike() {
+        let mut ctx = TestContext::new();
+        ctx.setup_issue_buckets(&[Some(500), Some(10), Some(10), Some(10)]);
+        ctx.setup_team_buckets(
+            &[
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+            ],
+            &[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        );
+
+        let result = ctx.get_spiking_with_status(IssueStatus::Resolved).await;
+
+        assert!(result.is_empty(), "resolved issues must not spike");
+    }
+
+    #[tokio::test]
+    async fn test_archived_issue_does_not_spike() {
+        let mut ctx = TestContext::new();
+        ctx.setup_issue_buckets(&[Some(500), Some(10), Some(10), Some(10)]);
+        ctx.setup_team_buckets(
+            &[
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+            ],
+            &[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        );
+
+        let result = ctx.get_spiking_with_status(IssueStatus::Archived).await;
+
+        assert!(result.is_empty(), "archived issues must not spike");
+    }
+
+    #[tokio::test]
+    async fn test_pending_release_issue_does_not_spike() {
+        let mut ctx = TestContext::new();
+        ctx.setup_issue_buckets(&[Some(500), Some(10), Some(10), Some(10)]);
+        ctx.setup_team_buckets(
+            &[
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+            ],
+            &[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        );
+
+        let result = ctx
+            .get_spiking_with_status(IssueStatus::PendingRelease)
+            .await;
+
+        assert!(result.is_empty(), "pending-release issues must not spike");
+    }
+
+    #[tokio::test]
+    async fn test_suppressed_issue_does_not_spike() {
+        let mut ctx = TestContext::new();
+        ctx.setup_issue_buckets(&[Some(500), Some(10), Some(10), Some(10)]);
+        ctx.setup_team_buckets(
+            &[
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+            ],
+            &[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        );
+
+        let result = ctx.get_spiking_with_status(IssueStatus::Suppressed).await;
+
+        assert!(result.is_empty(), "suppressed issues must not spike");
     }
 }
