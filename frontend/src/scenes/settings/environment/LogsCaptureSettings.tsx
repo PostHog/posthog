@@ -106,7 +106,7 @@ export function LogsPiiScrubSettings(): JSX.Element {
                 When enabled, we scrub common sensitive patterns from the log message body before storage: email
                 addresses, Bearer-style authorization tokens, and Stripe secret key shapes. This is best-effort: values
                 that do not match these patterns, or bank card numbers, may still appear. Redaction is permanent and
-                one-way. Redacted values are replaced with {'{{ REDACTED }}'}.
+                one-way. Redacted values are replaced with {'{{REDACTED}}'}.
             </p>
         </>
     )
