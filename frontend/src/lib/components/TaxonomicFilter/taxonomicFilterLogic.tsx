@@ -1,7 +1,19 @@
 import clsx from 'clsx'
-import { BuiltLogic, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    BuiltLogic,
+    actions,
+    afterMount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    propsChanged,
+    reducers,
+    selectors,
+} from 'kea'
 import { combineUrl } from 'kea-router'
-import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { IconCursor, IconFlag, IconServer } from '@posthog/icons'
@@ -1663,17 +1675,19 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             },
         ],
     }),
-    subscriptions(({ actions }) => ({
-        // Whenever the set of in-context events changes (e.g. an insight series swaps event),
-        // ask the model to load any team-configured promoted properties for those names. The
-        // model dedupes against names already loaded and against names with a taxonomy default,
-        // so this only hits the API when there's something new to fetch.
-        eventNames: (eventNames: string[]) => {
-            if (eventNames?.length) {
-                actions.ensureLoadedForEvents(eventNames)
-            }
-        },
-    })),
+    afterMount(({ actions, props }) => {
+        // Initial fire — the model dedupes against taxonomy defaults and already-loaded names.
+        if (props.eventNames?.length) {
+            actions.ensureLoadedForEvents(props.eventNames)
+        }
+    }),
+    propsChanged(({ actions, props }, oldProps) => {
+        // When the in-context events change (e.g. an insight series swaps event), ask the model
+        // to load any team-configured promoted properties for those names.
+        if (props.eventNames !== oldProps.eventNames && props.eventNames?.length) {
+            actions.ensureLoadedForEvents(props.eventNames)
+        }
+    }),
     listeners(({ actions, values, props }) => ({
         selectItem: ({ group, value, item }) => {
             if (item) {
