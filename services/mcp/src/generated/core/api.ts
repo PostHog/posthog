@@ -46,14 +46,14 @@ export const SubscriptionsDeliveriesRetrieveParams = /* @__PURE__ */ zod.object(
 /**
  * Retrieve a project and its settings.
  */
-export const retrieve2PathIdMin = -2147483648
-export const retrieve2PathIdMax = 2147483647
+export const organizationsProjectsRetrievePathIdMin = -2147483648
+export const organizationsProjectsRetrievePathIdMax = 2147483647
 
-export const Retrieve2Params = /* @__PURE__ */ zod.object({
+export const OrganizationsProjectsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod
         .number()
-        .min(retrieve2PathIdMin)
-        .max(retrieve2PathIdMax)
+        .min(organizationsProjectsRetrievePathIdMin)
+        .max(organizationsProjectsRetrievePathIdMax)
         .describe('A unique value identifying this project.'),
     organization_id: zod.string(),
 })
@@ -61,45 +61,54 @@ export const Retrieve2Params = /* @__PURE__ */ zod.object({
 /**
  * Update one or more of a project's settings. Only the fields included in the request body are changed.
  */
-export const partialUpdate2PathIdMin = -2147483648
-export const partialUpdate2PathIdMax = 2147483647
+export const organizationsProjectsPartialUpdatePathIdMin = -2147483648
+export const organizationsProjectsPartialUpdatePathIdMax = 2147483647
 
-export const PartialUpdate2Params = /* @__PURE__ */ zod.object({
+export const OrganizationsProjectsPartialUpdateParams = /* @__PURE__ */ zod.object({
     id: zod
         .number()
-        .min(partialUpdate2PathIdMin)
-        .max(partialUpdate2PathIdMax)
+        .min(organizationsProjectsPartialUpdatePathIdMin)
+        .max(organizationsProjectsPartialUpdatePathIdMax)
         .describe('A unique value identifying this project.'),
     organization_id: zod.string(),
 })
 
-export const partialUpdate2BodyNameMax = 200
+export const organizationsProjectsPartialUpdateBodyNameMax = 200
 
-export const partialUpdate2BodyProductDescriptionMax = 1000
+export const organizationsProjectsPartialUpdateBodyProductDescriptionMax = 1000
 
-export const partialUpdate2BodyAppUrlsItemMax = 200
+export const organizationsProjectsPartialUpdateBodyAppUrlsItemMax = 200
 
-export const partialUpdate2BodyPersonDisplayNamePropertiesItemMax = 400
+export const organizationsProjectsPartialUpdateBodyPersonDisplayNamePropertiesItemMax = 400
 
-export const partialUpdate2BodySessionRecordingSampleRateRegExp = new RegExp('^-?\\d{0,1}(?:\\.\\d{0,2})?$')
-export const partialUpdate2BodySessionRecordingMinimumDurationMillisecondsMin = 0
-export const partialUpdate2BodySessionRecordingMinimumDurationMillisecondsMax = 30000
+export const organizationsProjectsPartialUpdateBodySessionRecordingSampleRateRegExp = new RegExp(
+    '^-?\\d{0,1}(?:\\.\\d{0,2})?$'
+)
+export const organizationsProjectsPartialUpdateBodySessionRecordingMinimumDurationMillisecondsMin = 0
+export const organizationsProjectsPartialUpdateBodySessionRecordingMinimumDurationMillisecondsMax = 30000
 
-export const partialUpdate2BodySessionRecordingTriggerMatchTypeConfigMax = 24
+export const organizationsProjectsPartialUpdateBodySessionRecordingTriggerMatchTypeConfigMax = 24
 
-export const partialUpdate2BodyRecordingDomainsItemMax = 200
+export const organizationsProjectsPartialUpdateBodyRecordingDomainsItemMax = 200
 
-export const PartialUpdate2Body = /* @__PURE__ */ zod
+export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
-        name: zod.string().min(1).max(partialUpdate2BodyNameMax).optional().describe('Human-readable project name.'),
+        name: zod
+            .string()
+            .min(1)
+            .max(organizationsProjectsPartialUpdateBodyNameMax)
+            .optional()
+            .describe('Human-readable project name.'),
         product_description: zod
             .string()
-            .max(partialUpdate2BodyProductDescriptionMax)
+            .max(organizationsProjectsPartialUpdateBodyProductDescriptionMax)
             .nullish()
             .describe(
                 'Short description of what the project is about. This is helpful to give our AI agents context about your project.'
             ),
-        app_urls: zod.array(zod.string().max(partialUpdate2BodyAppUrlsItemMax).nullable()).optional(),
+        app_urls: zod
+            .array(zod.string().max(organizationsProjectsPartialUpdateBodyAppUrlsItemMax).nullable())
+            .optional(),
         anonymize_ips: zod
             .boolean()
             .optional()
@@ -133,7 +142,7 @@ export const PartialUpdate2Body = /* @__PURE__ */ zod
                 "Element attributes that posthog-js should capture as action identifiers (e.g. `['data-attr']`)."
             ),
         person_display_name_properties: zod
-            .array(zod.string().max(partialUpdate2BodyPersonDisplayNamePropertiesItemMax))
+            .array(zod.string().max(organizationsProjectsPartialUpdateBodyPersonDisplayNamePropertiesItemMax))
             .nullish()
             .describe('Ordered list of person properties used to render a human-friendly display name in the UI.'),
         correlation_config: zod.unknown().nullish(),
@@ -165,15 +174,15 @@ export const PartialUpdate2Body = /* @__PURE__ */ zod
             .describe('Enables session replay recording for this project.'),
         session_recording_sample_rate: zod
             .string()
-            .regex(partialUpdate2BodySessionRecordingSampleRateRegExp)
+            .regex(organizationsProjectsPartialUpdateBodySessionRecordingSampleRateRegExp)
             .nullish()
             .describe(
                 'Fraction of sessions to record, as a decimal string between `0.00` and `1.00` (e.g. `0.1` = 10%).'
             ),
         session_recording_minimum_duration_milliseconds: zod
             .number()
-            .min(partialUpdate2BodySessionRecordingMinimumDurationMillisecondsMin)
-            .max(partialUpdate2BodySessionRecordingMinimumDurationMillisecondsMax)
+            .min(organizationsProjectsPartialUpdateBodySessionRecordingMinimumDurationMillisecondsMin)
+            .max(organizationsProjectsPartialUpdateBodySessionRecordingMinimumDurationMillisecondsMax)
             .nullish()
             .describe('Skip saving sessions shorter than this many milliseconds.'),
         session_recording_linked_flag: zod.unknown().nullish(),
@@ -184,7 +193,7 @@ export const PartialUpdate2Body = /* @__PURE__ */ zod
         session_recording_event_trigger_config: zod.array(zod.string().nullable()).nullish(),
         session_recording_trigger_match_type_config: zod
             .string()
-            .max(partialUpdate2BodySessionRecordingTriggerMatchTypeConfigMax)
+            .max(organizationsProjectsPartialUpdateBodySessionRecordingTriggerMatchTypeConfigMax)
             .nullish(),
         session_recording_trigger_groups: zod
             .unknown()
@@ -217,7 +226,7 @@ export const PartialUpdate2Body = /* @__PURE__ */ zod
             .describe("ID of the dashboard shown as the project's default landing dashboard."),
         live_events_columns: zod.array(zod.string()).nullish(),
         recording_domains: zod
-            .array(zod.string().max(partialUpdate2BodyRecordingDomainsItemMax).nullable())
+            .array(zod.string().max(organizationsProjectsPartialUpdateBodyRecordingDomainsItemMax).nullable())
             .nullish()
             .describe('Origins permitted to record session replays and heatmaps. Empty list allows all origins.'),
         inject_web_apps: zod.boolean().nullish(),

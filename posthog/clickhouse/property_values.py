@@ -26,9 +26,9 @@ PROPERTY_VALUES_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name}
 (
     `team_id` Int64 CODEC(DoubleDelta, ZSTD(1)),
-    `property_type` LowCardinality(String) CODEC(ZSTD(1)),
-    `property_key` LowCardinality(String) CODEC(ZSTD(1)),
-    `property_value` String CODEC(ZSTD(1)),
+    `property_type` LowCardinality(String),
+    `property_key` LowCardinality(String),
+    `property_value` String,
     `property_count` SimpleAggregateFunction(sum, UInt64),
     `last_seen` SimpleAggregateFunction(max, DateTime) DEFAULT now()
     {extra_fields}

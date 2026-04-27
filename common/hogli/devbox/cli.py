@@ -29,6 +29,7 @@ from .coder import (
     delete_workspace,
     ensure_coder_authenticated,
     ensure_coder_installed,
+    ensure_coder_reachable,
     ensure_runtime_ready,
     ensure_tailscale_connected,
     ensure_tailscale_routes_accepted,
@@ -443,6 +444,7 @@ def devbox_setup(
     """Prepare this machine for Coder workspaces."""
     ensure_tailscale_connected("rerun `hogli devbox:setup`.")
     ensure_tailscale_routes_accepted()
+    ensure_coder_reachable()
     ensure_coder_installed(verbose=verbose)
     ensure_coder_authenticated()
     maybe_configure_ssh(configure_ssh=configure_ssh, verbose=verbose)

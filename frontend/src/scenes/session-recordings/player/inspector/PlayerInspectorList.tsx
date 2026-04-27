@@ -5,6 +5,8 @@ import { useActions, useValues } from 'kea'
 import { CSSProperties, useCallback, useEffect, useRef } from 'react'
 import { List, useDynamicRowHeight, useListRef } from 'react-window'
 
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
@@ -13,6 +15,7 @@ import { PlayerInspectorListItem } from './components/PlayerInspectorListItem'
 import { DisplayGroup, InspectorListItem, playerInspectorLogic } from './playerInspectorLogic'
 
 export const DEFAULT_INSPECTOR_ROW_HEIGHT = 40
+const LOAD_MORE_INSET_STYLE: CSSProperties = { bottom: 36 }
 
 interface InspectorRowProps {
     items: InspectorListItem[]
@@ -69,8 +72,10 @@ export function PlayerInspectorList(): JSX.Element {
         playbackIndicatorIndex,
         playbackIndicatorIndexStop,
         syncScrollPaused,
+        logsHasMore,
+        logsLoading,
     } = useValues(inspectorLogic)
-    const { setSyncScrollPaused } = useActions(inspectorLogic)
+    const { setSyncScrollPaused, loadMoreLogs } = useActions(inspectorLogic)
 
     const dynamicRowHeight = useDynamicRowHeight({ defaultRowHeight: DEFAULT_INSPECTOR_ROW_HEIGHT })
 
@@ -109,31 +114,42 @@ export function PlayerInspectorList(): JSX.Element {
             {!snapshotsLoaded ? (
                 <div className="p-16 text-center text-secondary">Data will be shown once playback starts</div>
             ) : displayGroups.length ? (
-                <div
-                    className="absolute inset-0"
-                    onMouseEnter={() => (mouseHoverRef.current = true)}
-                    onMouseLeave={() => (mouseHoverRef.current = false)}
-                >
-                    <AutoSizer
-                        renderProp={({ height, width }) =>
-                            height && width ? (
-                                <List<InspectorRowProps>
-                                    style={{ height, width }}
-                                    overscanCount={20}
-                                    rowCount={displayGroups.length}
-                                    rowHeight={dynamicRowHeight}
-                                    rowComponent={InspectorRow}
-                                    rowProps={{ items, displayGroups, dynamicRowHeight }}
-                                    listRef={listRef}
-                                    id="PlayerInspectorList"
-                                    onScroll={handleScroll}
-                                >
-                                    <div ref={markerRef} id="PlayerInspectorListMarker" />
-                                </List>
-                            ) : null
-                        }
-                    />
-                </div>
+                <>
+                    <div
+                        className="absolute inset-0"
+                        style={logsHasMore ? LOAD_MORE_INSET_STYLE : undefined}
+                        onMouseEnter={() => (mouseHoverRef.current = true)}
+                        onMouseLeave={() => (mouseHoverRef.current = false)}
+                    >
+                        <AutoSizer
+                            renderProp={({ height, width }) =>
+                                height && width ? (
+                                    <List<InspectorRowProps>
+                                        style={{ height, width }}
+                                        overscanCount={20}
+                                        rowCount={displayGroups.length}
+                                        rowHeight={dynamicRowHeight}
+                                        rowComponent={InspectorRow}
+                                        rowProps={{ items, displayGroups, dynamicRowHeight }}
+                                        listRef={listRef}
+                                        id="PlayerInspectorList"
+                                        onScroll={handleScroll}
+                                    >
+                                        <div ref={markerRef} id="PlayerInspectorListMarker" />
+                                    </List>
+                                ) : null
+                            }
+                        />
+                    </div>
+                    {logsHasMore ? (
+                        <div className="absolute bottom-0 left-0 right-0 flex items-center justify-center gap-2 py-1.5 px-2 border-t bg-surface-primary text-xs text-secondary">
+                            <span>Not all logs are shown.</span>
+                            <LemonButton size="xsmall" type="secondary" onClick={loadMoreLogs} loading={logsLoading}>
+                                Load more
+                            </LemonButton>
+                        </div>
+                    ) : null}
+                </>
             ) : isLoading ? (
                 <div className="p-2">
                     <LemonSkeleton className="my-1 h-8" repeat={20} fade />

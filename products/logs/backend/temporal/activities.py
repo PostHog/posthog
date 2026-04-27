@@ -6,15 +6,21 @@ import dataclasses
 from datetime import UTC, datetime, timedelta
 
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import Q
 
 import structlog
 import temporalio.activity
 
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.exceptions_capture import capture_exception
+from posthog.sync import database_sync_to_async_pool
 
-from products.logs.backend.alert_check_query import AlertCheckQuery, fetch_live_logs_checkpoint, resolve_alert_date_to
+from products.logs.backend.alert_check_query import (
+    AlertCheckQuery,
+    BucketedCount,
+    fetch_live_logs_checkpoint,
+    resolve_alert_date_to,
+)
 from products.logs.backend.alert_error_classifier import (
     AlertErrorCode,
     classify as classify_alert_error,
@@ -29,9 +35,11 @@ from products.logs.backend.alert_state_machine import (
 )
 from products.logs.backend.alert_utils import advance_next_check_at
 from products.logs.backend.logs_url_params import build_logs_url_params
-from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
+from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
+from products.logs.backend.temporal.constants import MAX_CONCURRENT_ALERT_EVALS
 from products.logs.backend.temporal.metrics import (
     increment_check_errors,
+    increment_checkpoint_unavailable,
     increment_checks_total,
     increment_notification_failures,
     increment_state_transition,
@@ -42,6 +50,34 @@ from products.logs.backend.temporal.metrics import (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+def _derive_breaches(
+    buckets: list[BucketedCount],
+    threshold_count: int,
+    threshold_operator: str,
+    evaluation_periods: int,
+) -> tuple[bool, ...]:
+    """Map ASC-ordered bucketed CH counts to a newest-first breach tuple of length M.
+
+    CH's `GROUP BY` only emits buckets that have data. The state machine needs M
+    data points regardless of how sparse the underlying log volume is — so we
+    pad the result to `evaluation_periods` with the implicit count=0 outcome:
+    `False` for `above` (0 < threshold), `True` for `below` (0 < threshold given
+    the model's min_value=1 validator).
+
+    Without this pad, a `below` alert on a truly silent service would never
+    fire — CH returns no buckets, the breach tuple is empty, and the N-of-M
+    evaluator never sees the implicit "count is below threshold" signal.
+    """
+    if threshold_operator == "above":
+        actual = tuple(b.count > threshold_count for b in reversed(buckets))
+        missing_breach = False
+    else:
+        actual = tuple(b.count < threshold_count for b in reversed(buckets))
+        missing_breach = True
+    pad = (missing_breach,) * max(0, evaluation_periods - len(actual))
+    return actual + pad
 
 
 @dataclasses.dataclass(frozen=True)
@@ -59,13 +95,50 @@ class CheckAlertsOutput:
 
 @temporalio.activity.defn
 async def check_alerts_activity(input: CheckAlertsInput) -> CheckAlertsOutput:
-    """Find all due alerts and evaluate them sequentially."""
-    result = await asyncio.to_thread(_check_alerts_sync)
-    return result
+    """Find all due alerts and evaluate them with bounded concurrency."""
+    now, all_alerts, checkpoint = await database_sync_to_async_pool(_load_alerts_and_checkpoint)()
+
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT_ALERT_EVALS)
+    eval_async = database_sync_to_async_pool(_evaluate_single_alert)
+
+    async def _bounded_eval(alert: LogsAlertConfiguration) -> dict[str, int]:
+        async with semaphore:
+            local_stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
+            try:
+                await eval_async(alert, now, local_stats, checkpoint=checkpoint)
+            except Exception:
+                logger.exception(
+                    "Unexpected error evaluating alert",
+                    alert_id=str(alert.id),
+                    alert_name=alert.name,
+                    team_id=alert.team_id,
+                )
+                local_stats["errored"] += 1
+            return local_stats
+
+    tasks: list[asyncio.Task[dict[str, int]]] = []
+    async with asyncio.TaskGroup() as tg:
+        for alert in all_alerts:
+            tasks.append(tg.create_task(_bounded_eval(alert)))
+
+    aggregated = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
+    for task in tasks:
+        for k, v in task.result().items():
+            aggregated[k] += v
+
+    if aggregated["checked"] > 0:
+        logger.info("Alert check cycle complete", **aggregated)
+
+    return CheckAlertsOutput(
+        alerts_checked=aggregated["checked"],
+        alerts_fired=aggregated["fired"],
+        alerts_resolved=aggregated["resolved"],
+        alerts_errored=aggregated["errored"],
+    )
 
 
-def _check_alerts_sync() -> CheckAlertsOutput:
-    """Synchronous alert checking — runs in a thread."""
+def _load_alerts_and_checkpoint() -> tuple[datetime, list[LogsAlertConfiguration], datetime | None]:
+    """Sync setup: pin `now`, load due alerts, fetch ingestion checkpoint, emit cycle metrics."""
     now = datetime.now(UTC)
 
     all_alerts = list(
@@ -91,14 +164,22 @@ def _check_alerts_sync() -> CheckAlertsOutput:
             logger.exception("Failed to fetch logs ingestion checkpoint; falling back to wall-clock")
 
     try:
-        record_checkpoint_lag(now, checkpoint)
+        if checkpoint is None:
+            increment_checkpoint_unavailable()
+        else:
+            record_checkpoint_lag(now, checkpoint)
     except Exception:
-        logger.exception("Failed to record checkpoint lag gauge")
+        logger.exception("Failed to record checkpoint metric")
+
+    return now, all_alerts, checkpoint
+
+
+def _check_alerts_sync() -> CheckAlertsOutput:
+    """Synchronous variant kept for unit tests. Production runs through
+    `check_alerts_activity` (async + bounded concurrency)."""
+    now, all_alerts, checkpoint = _load_alerts_and_checkpoint()
 
     stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
-
-    # Sequential for now. TODO, stagger
-    # or cap concurrency to avoid bursting all ClickHouse queries at :00 each minute.
     for alert in all_alerts:
         try:
             _evaluate_single_alert(alert, now, stats, checkpoint=checkpoint)
@@ -112,10 +193,7 @@ def _check_alerts_sync() -> CheckAlertsOutput:
             stats["errored"] += 1
 
     if stats["checked"] > 0:
-        logger.info(
-            "Alert check cycle complete",
-            **stats,
-        )
+        logger.info("Alert check cycle complete", **stats)
 
     return CheckAlertsOutput(
         alerts_checked=stats["checked"],
@@ -179,32 +257,49 @@ def _evaluate_single_alert(
     *,
     checkpoint: datetime | None = None,
 ) -> None:
-    """Run the ClickHouse query, apply state machine, persist, and emit events for a single alert."""
+    """Run the ClickHouse query, apply state machine, persist, and emit events for a single alert.
+
+    Stateless eval: a single bucketed CH query returns the last M counts; the
+    N-of-M evaluator decides from those buckets directly. Anchored on
+    `next_check_at` so two evals at different actual eval times produce the
+    same query.
+    """
     start_time = time.perf_counter()
     original_next_check_at = alert.next_check_at
 
-    date_to = resolve_alert_date_to(now, checkpoint)
-    date_from = date_to - timedelta(minutes=alert.window_minutes)
+    # First-run alerts (`next_check_at` still null after enable) anchor on `now`;
+    # from the second eval onward, `next_check_at` is set and idempotence holds.
+    nca = alert.next_check_at if alert.next_check_at is not None else now
+    date_to = resolve_alert_date_to(nca, checkpoint)
+    # Each bucket represents one historical "what the alert query would have
+    # returned" — window_minutes of data. M buckets cover M * window_minutes total.
+    date_from = date_to - timedelta(minutes=alert.window_minutes * alert.evaluation_periods)
 
     check_result: CheckResult
+    recent_breaches: tuple[bool, ...] = ()
     error_category: AlertErrorCode | None = None
     try:
-        query_result = AlertCheckQuery(
+        query_start = time.perf_counter()
+        buckets = AlertCheckQuery(
             team=alert.team,
             alert=alert,
             date_from=date_from,
             date_to=date_to,
-        ).execute()
-        threshold_breached = (
-            query_result.count > alert.threshold_count
-            if alert.threshold_operator == "above"
-            else query_result.count < alert.threshold_count
-        )
+        ).execute_bucketed(interval_minutes=alert.window_minutes, limit=alert.evaluation_periods)
+        query_duration_ms = int((time.perf_counter() - query_start) * 1000)
+
+        # execute_bucketed returns ASC (oldest first); state machine wants newest first.
+        # Buckets that are entirely empty are absent from the result, so a sparse window
+        # naturally produces a shorter breaches tuple — same behavior as today's
+        # get_recent_breaches when fewer than M CHECK rows exist.
+        breaches = _derive_breaches(buckets, alert.threshold_count, alert.threshold_operator, alert.evaluation_periods)
+        latest_count = buckets[-1].count if buckets else 0
         check_result = CheckResult(
-            result_count=query_result.count,
-            threshold_breached=threshold_breached,
-            query_duration_ms=query_result.query_duration_ms,
+            result_count=latest_count,
+            threshold_breached=breaches[0] if breaches else False,
+            query_duration_ms=query_duration_ms,
         )
+        recent_breaches = breaches[1:]
     except Exception as e:
         classified = classify_alert_error(e)
         error_category = classified.code
@@ -224,7 +319,7 @@ def _evaluate_single_alert(
             is_transient_error=classified.is_transient,
         )
 
-    outcome = evaluate_alert_check(alert.to_snapshot(), check_result, now)
+    outcome = evaluate_alert_check(alert.to_snapshot(recent_events_breached=recent_breaches), check_result, now)
 
     # Attempt Kafka delivery BEFORE committing state transition.
     # If delivery fails and we needed to notify, keep old state so the
@@ -241,16 +336,22 @@ def _evaluate_single_alert(
     committed_state = committed_outcome.new_state
 
     state_before = alert.state
+    state_changed = state_before != committed_state.value
+    is_error = outcome.error_message is not None
     with transaction.atomic():
-        LogsAlertEvent.objects.create(
-            alert=alert,
-            result_count=check_result.result_count,
-            threshold_breached=check_result.threshold_breached,
-            state_before=state_before,
-            state_after=committed_state.value,
-            error_message=outcome.error_message,
-            query_duration_ms=check_result.query_duration_ms,
-        )
+        # Stateless eval: write a CHECK row only on state transition or eval error.
+        # Steady-state same-state evals don't write — the N-of-M evaluator gets its
+        # window from the bucketed CH query, not from PG.
+        if state_changed or is_error:
+            LogsAlertEvent.objects.create(
+                alert=alert,
+                result_count=check_result.result_count,
+                threshold_breached=check_result.threshold_breached,
+                state_before=state_before,
+                state_after=committed_state.value,
+                error_message=outcome.error_message,
+                query_duration_ms=check_result.query_duration_ms,
+            )
 
         # All state/consecutive_failures writes go through apply_outcome —
         # single source of truth, enforced by the semgrep rule.
@@ -268,30 +369,6 @@ def _evaluate_single_alert(
             update_fields.append("last_notified_at")
 
         alert.save(update_fields=update_fields)
-
-    # Per-alert cap on non-event rows, enforced inline so the table stays bounded between
-    # daily cleanup runs. Errored rows and state transitions survive (event-retention task).
-    # Best-effort and deliberately outside the transaction above: a missed check would skew
-    # the alert's N-of-M window, a missed prune just leaves one extra row that the next
-    # tick's prune will mop up. Prefer the eventual-consistency failure mode.
-    # Upper-bound the slice so a one-time backlog (e.g. first deploy, or a disabled alert
-    # that accumulated rows) doesn't materialize thousands of IDs in one tick — subsequent
-    # ticks finish the job.
-    try:
-        prunable_ids = list(
-            LogsAlertEvent.objects.filter(
-                alert=alert,
-                kind=LogsAlertEvent.Kind.CHECK,
-                error_message__isnull=True,
-                state_before=F("state_after"),
-            )
-            .order_by("-created_at")
-            .values_list("id", flat=True)[MAX_EVALUATION_PERIODS : MAX_EVALUATION_PERIODS + 500]
-        )
-        if prunable_ids:
-            LogsAlertEvent.objects.filter(id__in=prunable_ids).delete()
-    except Exception:
-        logger.exception("Failed to prune non-event rows", alert_id=str(alert.id))
 
     stats["checked"] += 1
 

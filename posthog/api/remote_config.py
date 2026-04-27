@@ -119,7 +119,7 @@ class RemoteConfigArrayJSAPIView(BaseRemoteConfigAPIView):
         except RemoteConfig.DoesNotExist:
             raise Http404()
 
-        if request.META.get("HTTP_IF_NONE_MATCH") == meta.etag:
+        if request.headers.get("if-none-match") == meta.etag:
             response = HttpResponse(status=304)
             return add_cache_headers(response, token, meta.etag, snippet_version=meta.requested_version)
 

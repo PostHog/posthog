@@ -583,6 +583,7 @@
   CREATE TABLE IF NOT EXISTS kafka_precalculated_events
   (
       team_id Int64,
+      date Nullable(Date),
       distinct_id String,
       person_id UUID,
       condition String,
@@ -2310,6 +2311,7 @@
   CREATE TABLE IF NOT EXISTS kafka_precalculated_events
   (
       team_id Int64,
+      date Nullable(Date),
       distinct_id String,
       person_id UUID,
       condition String,
@@ -3325,7 +3327,7 @@
   CREATE MATERIALIZED VIEW IF NOT EXISTS precalculated_events_mv TO writable_precalculated_events
   AS SELECT
       team_id,
-      toDate(_timestamp) AS date,
+      ifNull(date, toDate(_timestamp)) AS date,
       distinct_id,
       person_id,
       condition,
@@ -3375,9 +3377,9 @@
   CREATE TABLE IF NOT EXISTS property_values
   (
       `team_id` Int64 CODEC(DoubleDelta, ZSTD(1)),
-      `property_type` LowCardinality(String) CODEC(ZSTD(1)),
-      `property_key` LowCardinality(String) CODEC(ZSTD(1)),
-      `property_value` String CODEC(ZSTD(1)),
+      `property_type` LowCardinality(String),
+      `property_key` LowCardinality(String),
+      `property_value` String,
       `property_count` SimpleAggregateFunction(sum, UInt64),
       `last_seen` SimpleAggregateFunction(max, DateTime) DEFAULT now()
       ,
@@ -3398,9 +3400,9 @@
   CREATE TABLE IF NOT EXISTS property_values_distributed
   (
       `team_id` Int64 CODEC(DoubleDelta, ZSTD(1)),
-      `property_type` LowCardinality(String) CODEC(ZSTD(1)),
-      `property_key` LowCardinality(String) CODEC(ZSTD(1)),
-      `property_value` String CODEC(ZSTD(1)),
+      `property_type` LowCardinality(String),
+      `property_key` LowCardinality(String),
+      `property_value` String,
       `property_count` SimpleAggregateFunction(sum, UInt64),
       `last_seen` SimpleAggregateFunction(max, DateTime) DEFAULT now()
       
@@ -7555,9 +7557,9 @@
   CREATE TABLE IF NOT EXISTS property_values
   (
       `team_id` Int64 CODEC(DoubleDelta, ZSTD(1)),
-      `property_type` LowCardinality(String) CODEC(ZSTD(1)),
-      `property_key` LowCardinality(String) CODEC(ZSTD(1)),
-      `property_value` String CODEC(ZSTD(1)),
+      `property_type` LowCardinality(String),
+      `property_key` LowCardinality(String),
+      `property_value` String,
       `property_count` SimpleAggregateFunction(sum, UInt64),
       `last_seen` SimpleAggregateFunction(max, DateTime) DEFAULT now()
       ,

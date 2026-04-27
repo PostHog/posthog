@@ -1,9 +1,18 @@
 import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock'
 
+import { DateTime } from 'luxon'
+
 import { HogFlow } from '~/schema/hogflow'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
-import { createOrganization, createTeam, getFirstTeam, getTeam, resetTestDatabase } from '../../../tests/helpers/sql'
+import {
+    createOrganization,
+    createTeam,
+    getFirstTeam,
+    getTeam,
+    resetTestDatabase,
+    updateOrganizationAvailableFeatures,
+} from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
@@ -967,6 +976,201 @@ describe('hog flow processing', () => {
                     id: hogFlow.id,
                 },
             })
+        })
+
+        it('should load group properties before building invocations', async () => {
+            await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'event',
+                            filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                        },
+                    })
+                    .build()
+            )
+
+            const spy = jest.spyOn(processor['groupsManager'], 'addGroupsToGlobalsList')
+
+            await processor.processBatch([globals])
+
+            expect(spy).toHaveBeenCalledTimes(1)
+            expect(spy).toHaveBeenCalledWith([globals])
+        })
+    })
+
+    describe('group properties enrichment', () => {
+        let globals: HogFunctionInvocationGlobals
+
+        const setupGroups = async () => {
+            await updateOrganizationAvailableFeatures(hub.postgres, team.organization_id, [
+                { key: 'data_pipelines', name: 'Data Pipelines' },
+                { key: 'group_analytics', name: 'Group Analytics' },
+            ])
+            // Clear cached team data so the new features are picked up
+            hub.teamManager['lazyLoader'].clear()
+            processor['groupsManager'].clear()
+
+            await hub.groupRepository.insertGroupType(team.id, team.id as any, 'company', 0)
+            await hub.groupRepository.insertGroupType(team.id, team.id as any, 'project', 1)
+
+            await hub.groupRepository.insertGroup(
+                team.id,
+                0 as any,
+                'acme-inc',
+                { name: 'Acme Inc', industry: 'Tech' },
+                DateTime.now(),
+                {},
+                {}
+            )
+            await hub.groupRepository.insertGroup(
+                team.id,
+                1 as any,
+                'project-alpha',
+                { name: 'Project Alpha', status: 'active' },
+                DateTime.now(),
+                {},
+                {}
+            )
+        }
+
+        beforeEach(() => {
+            globals = createHogExecutionGlobals({
+                groups: undefined, // Must be undefined so addGroupsToGlobals actually enriches
+                project: {
+                    id: team.id,
+                } as any,
+                event: {
+                    uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
+                    event: '$pageview',
+                    properties: {
+                        $current_url: 'https://posthog.com',
+                        $lib_version: '1.0.0',
+                        $groups: { company: 'acme-inc', project: 'project-alpha' },
+                    },
+                } as any,
+            })
+        })
+
+        it('should enrich globals with group properties for hogflow invocations', async () => {
+            await setupGroups()
+
+            const hogFlow = await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'event',
+                            filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                        },
+                    })
+                    .build()
+            )
+
+            const { invocations } = await processor.processBatch([globals])
+
+            expect(invocations).toHaveLength(1)
+            expect(invocations[0].functionId).toBe(hogFlow.id)
+
+            // Verify the globals were enriched with group properties
+            expect(globals.groups).toEqual({
+                company: expect.objectContaining({
+                    id: 'acme-inc',
+                    type: 'company',
+                    index: 0,
+                    properties: { name: 'Acme Inc', industry: 'Tech' },
+                }),
+                project: expect.objectContaining({
+                    id: 'project-alpha',
+                    type: 'project',
+                    index: 1,
+                    properties: { name: 'Project Alpha', status: 'active' },
+                }),
+            })
+        })
+
+        it('should include group properties in hogflow filterGlobals', async () => {
+            await setupGroups()
+
+            await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'event',
+                            filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                        },
+                    })
+                    .build()
+            )
+
+            const { invocations } = await processor.processBatch([globals])
+
+            expect(invocations).toHaveLength(1)
+
+            // filterGlobals should have group keys and properties populated
+            const filterGlobals = (invocations[0] as any).filterGlobals
+            expect(filterGlobals.$group_0).toBe('acme-inc')
+            expect(filterGlobals.$group_1).toBe('project-alpha')
+            expect(filterGlobals.group_0).toEqual({
+                properties: { name: 'Acme Inc', industry: 'Tech' },
+            })
+            expect(filterGlobals.group_1).toEqual({
+                properties: { name: 'Project Alpha', status: 'active' },
+            })
+        })
+
+        it('should have empty groups when event has no $groups property', async () => {
+            await setupGroups()
+
+            globals.event.properties = {
+                $current_url: 'https://posthog.com',
+                $lib_version: '1.0.0',
+            }
+
+            await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'event',
+                            filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                        },
+                    })
+                    .build()
+            )
+
+            const { invocations } = await processor.processBatch([globals])
+
+            expect(invocations).toHaveLength(1)
+            expect(globals.groups).toEqual({})
+
+            // filterGlobals should have null group keys and empty properties
+            const filterGlobals = (invocations[0] as any).filterGlobals
+            expect(filterGlobals.$group_0).toBeNull()
+            expect(filterGlobals.group_0).toEqual({ properties: {} })
+        })
+
+        it('should have empty groups when team lacks group_analytics feature', async () => {
+            // Don't call setupGroups - team only has data_pipelines by default
+
+            await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'event',
+                            filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                        },
+                    })
+                    .build()
+            )
+
+            const { invocations } = await processor.processBatch([globals])
+
+            expect(invocations).toHaveLength(1)
+            expect(globals.groups).toEqual({})
         })
     })
 })

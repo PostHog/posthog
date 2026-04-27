@@ -33,6 +33,28 @@ class MCPServerTemplateAdminForm(forms.ModelForm):
             "is_active",
         )
 
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # PasswordInput(render_value=False) deliberately never echoes the existing
+        # credential back into the HTML, so the input always renders blank. Without
+        # a signal, the operator can't tell "template has shared creds I shouldn't
+        # touch" from "template is empty and needs filling." Compute help_text from
+        # the current instance so the distinction is visible.
+        # Django ModelForm always passes `instance` as a kwarg; positional args are form
+        # data, not the instance, so there's nothing to fall back to.
+        instance: MCPServerTemplate | None = kwargs.get("instance")
+        existing_creds = (instance.oauth_credentials or {}) if instance else {}
+
+        if existing_creds.get("client_id"):
+            self.fields["client_id"].help_text = "(stored — leave blank to keep, or type a new value to replace)"
+        else:
+            self.fields["client_id"].help_text = "(not set — template will use per-user DCR on install)"
+
+        if existing_creds.get("client_secret"):
+            self.fields["client_secret"].help_text = "(stored — leave blank to keep, or type a new value to replace)"
+        else:
+            self.fields["client_secret"].help_text = "(not set — fine if the provider uses PKCE-only)"
+
     def save(self, commit: bool = True) -> MCPServerTemplate:
         instance: MCPServerTemplate = super().save(commit=False)
         existing_creds = dict(instance.oauth_credentials or {})

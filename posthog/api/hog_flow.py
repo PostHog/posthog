@@ -19,6 +19,7 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
 from posthog.api.app_metrics2 import AppMetricsMixin
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.hog_flow_batch_job import HogFlowBatchJobSerializer
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -646,6 +647,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
     """
 
     scope_object = "INTERNAL"
+    serializer_class = _FallbackSerializer
     authentication_classes = [InternalAPIAuthentication]
 
     # Internal service-to-service endpoints (authenticated with INTERNAL_API_SECRET)
