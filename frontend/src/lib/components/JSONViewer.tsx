@@ -2,11 +2,28 @@ import './JSONViewer.scss'
 
 import type { ReactJsonViewProps } from '@microlink/react-json-view'
 import { useValues } from 'kea'
-import { Suspense, lazy } from 'react'
+import { ComponentType, Suspense, lazy } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-const ReactJson = lazy(() => import('@microlink/react-json-view'))
+// Some bundler/interop combinations resolve `import('@microlink/react-json-view')`
+// to a module namespace whose `default` is the namespace itself, which makes
+// `React.lazy` render `[object Module]` (React error #306). Unwrap to the real
+// component, falling back to the namespace if it's already the component.
+const ReactJson = lazy(() =>
+    import('@microlink/react-json-view').then((m) => {
+        const mod = m as unknown as { default?: unknown }
+        const candidate = mod.default ?? m
+        const resolved =
+            typeof candidate === 'object' &&
+            candidate !== null &&
+            'default' in candidate &&
+            typeof (candidate as { default?: unknown }).default !== 'undefined'
+                ? (candidate as { default: unknown }).default
+                : candidate
+        return { default: resolved as ComponentType<ReactJsonViewProps> }
+    })
+)
 
 export enum JSONViewerTheme {
     DARK = 'railscasts',
