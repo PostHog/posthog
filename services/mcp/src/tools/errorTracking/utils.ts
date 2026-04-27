@@ -64,6 +64,12 @@ export function escapeHogQLString(value: string): string {
     return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
 }
 
+export function escapeHogQLLikePattern(value: string): string {
+    // Escape LIKE wildcards first, then escape the resulting HogQL string literal.
+    const likeEscaped = value.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')
+    return escapeHogQLString(likeEscaped)
+}
+
 export function normalizeColumn(column: unknown): string {
     if (typeof column === 'string') {
         return column

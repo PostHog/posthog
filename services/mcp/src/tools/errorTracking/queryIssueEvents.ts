@@ -3,7 +3,14 @@ import { z } from 'zod'
 import type { Context, ToolBase } from '@/tools/types'
 
 import { type ExceptionVerbosity, normalizeErrorTrackingProperty } from './exceptionProperties'
-import { dateRangeSchema, escapeHogQLString, getPageInfo, normalizeColumn, propertyFilterSchema } from './utils'
+import {
+    dateRangeSchema,
+    escapeHogQLLikePattern,
+    escapeHogQLString,
+    getPageInfo,
+    normalizeColumn,
+    propertyFilterSchema,
+} from './utils'
 
 const schema = z.object({
     issueId: z
@@ -73,10 +80,6 @@ const SEARCH_PROPERTIES = [
     'properties.$current_url',
 ]
 
-function escapeLikePattern(value: string): string {
-    return escapeHogQLString(value).replace(/%/g, '\\%').replace(/_/g, '\\_')
-}
-
 function propertyName(select: string): string | null {
     return select.startsWith('properties.') ? select.slice('properties.'.length) : null
 }
@@ -108,7 +111,7 @@ function buildWhere(params: Params): string[] {
     const where = [`(issue_id = '${issueId}' OR properties.$exception_issue_id = '${issueId}')`]
 
     if (params.searchQuery) {
-        const search = escapeLikePattern(params.searchQuery)
+        const search = escapeHogQLLikePattern(params.searchQuery)
         const chunks = SEARCH_PROPERTIES.map((prop) => `ilike(toString(${prop}), '%${search}%')`)
         where.push(`(${chunks.join(' OR ')})`)
     }

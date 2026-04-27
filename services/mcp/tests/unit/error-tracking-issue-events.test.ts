@@ -69,7 +69,7 @@ describe('query-error-tracking-issue-events', () => {
         const tool = queryIssueEvents()
 
         const filterGroup = [{ type: 'event' as const, key: '$browser', operator: 'exact' as const, value: ['Chrome'] }]
-        const result = (await tool.handler(context, { issueId, searchQuery: "can't_load%_", filterGroup })) as any
+        const result = (await tool.handler(context, { issueId, searchQuery: "can't_load%_\\path", filterGroup })) as any
         const query = runQuery.mock.calls[0]![0].query
 
         expect(query).toMatchObject({
@@ -85,7 +85,7 @@ describe('query-error-tracking-issue-events', () => {
         expect(query.properties).toEqual(filterGroup)
         expect(query.select).toContain('properties.$exception_list')
         expect(query.where[0]).toContain(`issue_id = '${issueId}'`)
-        expect(query.where[1]).toContain("can\\'t\\_load\\%\\_")
+        expect(query.where[1]).toContain("can\\'t\\\\_load\\\\%\\\\_\\\\\\\\path")
         expect(result).toEqual({
             results: [
                 {
