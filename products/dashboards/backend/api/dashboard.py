@@ -662,7 +662,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 primary_dashboard=instance,
                 id=instance.team_id,
             ).update(primary_dashboard=None)
-            group_type_mapping = GroupTypeMapping.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+            # nosemgrep: no-direct-persons-db-orm
+            group_type_mapping = GroupTypeMapping.objects.filter(
                 team=instance.team, project_id=instance.team.project_id, detail_dashboard_id=instance.id
             ).first()
             if group_type_mapping:

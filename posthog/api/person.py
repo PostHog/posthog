@@ -425,7 +425,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer),
     )
     parser_classes = [JSONParser]
-    queryset = Person.objects.all()  # nosemgrep: no-direct-persons-db-orm
+    # nosemgrep: no-direct-persons-db-orm
+    queryset = Person.objects.all()
     serializer_class = PersonSerializer
     pagination_class = PersonLimitOffsetPagination
     lifecycle_class = Lifecycle
@@ -449,9 +450,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         queryset = queryset.prefetch_related(
             Prefetch(
                 "persondistinctid_set",
-                queryset=PersonDistinctId.objects.filter(team_id=self.team_id).order_by(
-                    "id"
-                ),  # nosemgrep: no-direct-persons-db-orm
+                # nosemgrep: no-direct-persons-db-orm
+                queryset=PersonDistinctId.objects.filter(team_id=self.team_id).order_by("id"),
                 to_attr="distinct_ids_cache",
             )
         )
@@ -626,7 +626,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if len(distinct_ids) > 1000:
                 raise ValidationError("You can only pass 1000 distinct_ids in one call")
             # Optimize query by avoiding expensive JOIN - first get person_ids, then fetch persons
-            person_ids = PersonDistinctId.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+            # nosemgrep: no-direct-persons-db-orm
+            person_ids = PersonDistinctId.objects.filter(
                 team_id=self.team_id, distinct_id__in=distinct_ids
             ).values_list("person_id", flat=True)
             persons_queryset = self.get_queryset().filter(id__in=person_ids, team_id=self.team_id).defer("properties")

@@ -248,8 +248,10 @@ def snapshot_actors_property_taxonomy(
     group_type_mappings: list[int | None] = [
         None,
         *(
-            g.group_type_index for g in GroupTypeMapping.objects.filter(team=team)
-        ),  # nosemgrep: no-direct-persons-db-orm
+            # nosemgrep: no-direct-persons-db-orm
+            g.group_type_index
+            for g in GroupTypeMapping.objects.filter(team=team)
+        ),
     ]
 
     for index in group_type_mappings:

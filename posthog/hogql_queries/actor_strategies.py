@@ -191,7 +191,8 @@ class GroupStrategy(ActorStrategy):
                 "properties": p["group_properties"],  # TODO: Legacy for frontend
                 **p,
             }
-            for p in Group.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+            # nosemgrep: no-direct-persons-db-orm
+            for p in Group.objects.filter(
                 team_id=self.team.pk, group_type_index=self.group_type_index, group_key__in=actor_ids
             )
             .values("group_key", "group_type_index", "created_at", "group_properties")

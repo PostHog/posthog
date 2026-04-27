@@ -115,9 +115,8 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
 
         # Handle SET_NULL for GroupTypeMapping.detail_dashboard in persons database
         # This is needed because GroupTypeMapping is in the persons database
-        GroupTypeMapping.objects.using(PERSONS_DB_FOR_WRITE).filter(
-            detail_dashboard_id=self.id
-        ).update(  # nosemgrep: no-direct-persons-db-orm
+        # nosemgrep: no-direct-persons-db-orm
+        GroupTypeMapping.objects.using(PERSONS_DB_FOR_WRITE).filter(detail_dashboard_id=self.id).update(
             detail_dashboard_id=None
         )
         return super().delete(*args, **kwargs)

@@ -1353,8 +1353,9 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         # Check if person exists and belongs to this team
         try:
             person_uuid = (
+                # nosemgrep: no-direct-persons-db-orm
                 Person.objects.db_manager(READ_DB_FOR_PERSONS).get(team_id=self.team_id, uuid=person_id).uuid
-            )  # nosemgrep: no-direct-persons-db-orm
+            )
         except Person.DoesNotExist:
             raise NotFound("Person with this UUID does not exist in the cohort's team")
 
@@ -1563,7 +1564,8 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         # We pre-filter all persons to be ones that will match the feature flag, so that we don't have to
         # iterate through all persons
         queryset = (
-            Person.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
+            # nosemgrep: no-direct-persons-db-orm
+            Person.objects.db_manager(READ_DB_FOR_PERSONS)
             .filter(team_id=team_id)
             .filter(property_group_to_Q(team_id, flag_property_group, cohorts_cache=cohorts_cache))
             .order_by("id")
@@ -1574,11 +1576,13 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         while batch_of_persons:
             # TODO: Check if this subquery bulk fetch limiting is better than just doing a join for all distinct ids
             # OR, if row by row getting single distinct id is better
+            # nosemgrep: no-direct-persons-db-orm
             # distinct_id = PersonDistinctId.objects.filter(person=person, team_id=team_id).values_list(
             #     "distinct_id", flat=True
             # )[0]
             distinct_id_subquery = Subquery(
-                PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
+                # nosemgrep: no-direct-persons-db-orm
+                PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
                 .filter(team_id=team_id, person_id=OuterRef("person_id"))
                 .values_list("id", flat=True)[:3]
             )
@@ -1587,9 +1591,8 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
                 Prefetch(
                     "persondistinctid_set",
                     to_attr="distinct_ids_cache",
-                    queryset=PersonDistinctId.objects.db_manager(
-                        READ_DB_FOR_PERSONS
-                    ).filter(  # nosemgrep: no-direct-persons-db-orm
+                    # nosemgrep: no-direct-persons-db-orm
+                    queryset=PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS).filter(
                         id__in=distinct_id_subquery
                     ),
                 ),

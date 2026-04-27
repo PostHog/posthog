@@ -79,8 +79,9 @@ def get_model_counts_for_organization(organization: Organization) -> list[dict]:
     try:
         cohort_ids = list(Cohort.objects.filter(team_id__in=team_ids).values_list("id", flat=True))
         cohort_people_count = (
+            # nosemgrep: no-direct-persons-db-orm
             CohortPeople.objects.filter(cohort_id__in=cohort_ids).count() if cohort_ids else 0
-        )  # nosemgrep: no-direct-persons-db-orm
+        )
         results.append(
             {
                 "name": "Cohort People",

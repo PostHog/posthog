@@ -344,9 +344,8 @@ def _resolve_group_type_name(team: Team, group_type_index: int) -> str:
     from posthog.models.group_type_mapping import GroupTypeMapping
 
     try:
-        mapping = GroupTypeMapping.objects.get(
-            team=team, group_type_index=group_type_index
-        )  # nosemgrep: no-direct-persons-db-orm
+        # nosemgrep: no-direct-persons-db-orm
+        mapping = GroupTypeMapping.objects.get(team=team, group_type_index=group_type_index)
         return mapping.name_plural or mapping.name_singular or mapping.group_type
     except GroupTypeMapping.DoesNotExist:
         return f"group type {group_type_index}"

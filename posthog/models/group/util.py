@@ -67,7 +67,8 @@ def create_group(
         timestamp,
         timestamp=timestamp,
     )
-    group = Group.objects.create(  # nosemgrep: no-direct-persons-db-orm
+    # nosemgrep: no-direct-persons-db-orm
+    group = Group.objects.create(
         team_id=team_id,
         group_type_index=group_type_index,
         group_key=group_key,

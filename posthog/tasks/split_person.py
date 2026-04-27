@@ -62,8 +62,9 @@ def split_person(
             )
             # Lookup team_id via PersonDistinctId which has person_id FK
             pdi = (
+                # nosemgrep: no-direct-persons-db-orm
                 PersonDistinctId.objects.filter(person_id=person_id).only("team_id").first()
-            )  # nosemgrep: no-direct-persons-db-orm
+            )
             if not pdi:
                 raise ValueError(f"Cannot find team_id for person_id={person_id}")
 
@@ -73,7 +74,8 @@ def split_person(
                 person_id=person_id,
                 team_id=resolved_team_id,
             )
-            person = Person.objects.get(team_id=resolved_team_id, pk=person_id)  # nosemgrep: no-direct-persons-db-orm
+            # nosemgrep: no-direct-persons-db-orm
+            person = Person.objects.get(team_id=resolved_team_id, pk=person_id)
             logger.info(
                 "split_person legacy path: calling split_person on model",
                 person_id=person_id,
@@ -91,7 +93,8 @@ def split_person(
                 person_id=person_id,
                 team_id=resolved_team_id,
             )
-            person = Person.objects.get(team_id=resolved_team_id, pk=person_id)  # nosemgrep: no-direct-persons-db-orm
+            # nosemgrep: no-direct-persons-db-orm
+            person = Person.objects.get(team_id=resolved_team_id, pk=person_id)
             logger.info(
                 "split_person new path: calling split_person on model",
                 person_id=person_id,

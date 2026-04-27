@@ -105,12 +105,14 @@ class Command(BaseCommand):
             distinct_id = f"{prefix}-fixable-{i}-{person_uuid[:8]}"
 
             # Create person in PostgreSQL with distinct ID
-            person = Person.objects.db_manager(PERSONS_DB_FOR_WRITE).create(  # nosemgrep: no-direct-persons-db-orm
+            # nosemgrep: no-direct-persons-db-orm
+            person = Person.objects.db_manager(PERSONS_DB_FOR_WRITE).create(
                 team=team,
                 uuid=person_uuid,
                 properties={"test_type": "fixable", "index": i},
             )
-            PersonDistinctId.objects.db_manager(PERSONS_DB_FOR_WRITE).create(  # nosemgrep: no-direct-persons-db-orm
+            # nosemgrep: no-direct-persons-db-orm
+            PersonDistinctId.objects.db_manager(PERSONS_DB_FOR_WRITE).create(
                 team=team,
                 person=person,
                 distinct_id=distinct_id,
@@ -130,7 +132,8 @@ class Command(BaseCommand):
             person_uuid = str(uuid.uuid4())
 
             # Create person in PostgreSQL WITHOUT distinct ID
-            Person.objects.db_manager(PERSONS_DB_FOR_WRITE).create(  # nosemgrep: no-direct-persons-db-orm
+            # nosemgrep: no-direct-persons-db-orm
+            Person.objects.db_manager(PERSONS_DB_FOR_WRITE).create(
                 team=team,
                 uuid=person_uuid,
                 properties={"test_type": "truly_orphaned", "index": i},
@@ -168,7 +171,8 @@ class Command(BaseCommand):
         self.stdout.write(f"\nCleaning up test data for team {team.id} with prefix '{prefix}'...")
 
         # Find test persons in PostgreSQL by properties
-        pg_persons = Person.objects.db_manager(PERSONS_DB_FOR_WRITE).filter(  # nosemgrep: no-direct-persons-db-orm
+        # nosemgrep: no-direct-persons-db-orm
+        pg_persons = Person.objects.db_manager(PERSONS_DB_FOR_WRITE).filter(
             team=team,
             properties__test_type__in=["fixable", "truly_orphaned"],
         )
@@ -176,7 +180,8 @@ class Command(BaseCommand):
 
         # Delete from PostgreSQL
         deleted_dids = (
-            PersonDistinctId.objects.db_manager(PERSONS_DB_FOR_WRITE)  # nosemgrep: no-direct-persons-db-orm
+            # nosemgrep: no-direct-persons-db-orm
+            PersonDistinctId.objects.db_manager(PERSONS_DB_FOR_WRITE)
             .filter(
                 team=team,
                 distinct_id__startswith=prefix,

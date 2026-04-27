@@ -220,7 +220,8 @@ class CreateFeatureFlagTool(MaxTool):
 
                 @database_sync_to_async
                 def get_group_mapping() -> GroupTypeMapping | None:
-                    return GroupTypeMapping.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+                    # nosemgrep: no-direct-persons-db-orm
+                    return GroupTypeMapping.objects.filter(
                         team=self._team,
                         group_type=flag_schema.group_type.lower() if flag_schema.group_type else None,
                     ).first()

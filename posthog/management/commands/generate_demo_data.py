@@ -141,9 +141,8 @@ class Command(BaseCommand):
             days_future=options["days_future"],
             n_clusters=options["n_clusters"],
             group_type_index_offset=(
-                GroupTypeMapping.objects.filter(project_id=existing_team.project_id).count()
-                if existing_team
-                else 0  # nosemgrep: no-direct-persons-db-orm
+                # nosemgrep: no-direct-persons-db-orm
+                GroupTypeMapping.objects.filter(project_id=existing_team.project_id).count() if existing_team else 0
             ),
         )
         print("Running simulation...")

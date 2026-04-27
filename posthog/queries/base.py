@@ -371,7 +371,8 @@ def property_to_Q(
 
             return Q(
                 Exists(
-                    CohortPeople.objects.db_manager(using_database)  # nosemgrep: no-direct-persons-db-orm
+                    # nosemgrep: no-direct-persons-db-orm
+                    CohortPeople.objects.db_manager(using_database)
                     .filter(
                         cohort_id=cohort_id,
                         person_id=OuterRef("id"),

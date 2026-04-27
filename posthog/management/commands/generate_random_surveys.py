@@ -277,15 +277,15 @@ class Command(BaseCommand):
 
         # Query persons with their distinct IDs
         persons = (
-            Person.objects.filter(team_id=team.id)  # nosemgrep: no-direct-persons-db-orm
+            # nosemgrep: no-direct-persons-db-orm
+            Person.objects.filter(team_id=team.id)
             .prefetch_related("persondistinctid_set")
             .order_by("-created_at")[:limit]
         )
 
         for person in persons:
-            distinct_ids = PersonDistinctId.objects.filter(
-                person=person, team_id=team.id
-            ).values_list(  # nosemgrep: no-direct-persons-db-orm
+            # nosemgrep: no-direct-persons-db-orm
+            distinct_ids = PersonDistinctId.objects.filter(person=person, team_id=team.id).values_list(
                 "distinct_id", flat=True
             )
 
