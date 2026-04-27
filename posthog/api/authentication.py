@@ -23,6 +23,8 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
+from django.views.decorators.csrf import csrf_protect
+from django.views.decorators.http import require_http_methods
 
 import structlog
 from axes.exceptions import AxesBackendPermissionDenied
@@ -113,6 +115,8 @@ def post_login(sender, user, request: HttpRequest, **kwargs):
         check_and_cache_login_device(user.id, country, short_user_agent)
 
 
+@require_http_methods(["POST"])
+@csrf_protect
 def logout(request):
     clear_two_factor_session_flags(request)
 
@@ -125,9 +129,9 @@ def logout(request):
 
     auth_logout(request)
 
-    next_param = request.GET.get("next")
-    if next_param and url_has_allowed_host_and_scheme(next_param, allowed_hosts={request.get_host()}):
-        return redirect_to_login(next_param, login_url=settings.LOGIN_URL)
+    next_url = request.POST.get("next")
+    if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        return redirect_to_login(next_url, login_url=settings.LOGIN_URL)
 
     return redirect(settings.LOGIN_URL)
 
