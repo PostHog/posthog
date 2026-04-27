@@ -154,9 +154,20 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
             null as IncidentIoSummary | null,
             {
                 loadSummary: async () => {
-                    const response = await fetch(`${INCIDENT_IO_STATUS_PAGE_BASE}/api/v1/summary`)
-                    const data: IncidentIoSummary = await response.json()
-                    return data
+                    // Third-party status page; network blips, ad-blockers, or DNS issues are
+                    // expected and must not surface as captured exceptions. On any failure
+                    // we fall back to null so `rawStatus` reports 'operational' and the
+                    // `loadSummarySuccess` listener still reschedules the next poll.
+                    try {
+                        const response = await fetch(`${INCIDENT_IO_STATUS_PAGE_BASE}/api/v1/summary`)
+                        if (!response.ok) {
+                            return null
+                        }
+                        const data: IncidentIoSummary = await response.json()
+                        return data
+                    } catch {
+                        return null
+                    }
                 },
             },
         ],
