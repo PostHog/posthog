@@ -1,9 +1,20 @@
+use std::time::Duration;
+
 use k8s_openapi::api::apps::v1::ReplicaSet;
 use k8s_openapi::api::core::v1::Pod;
 use kube::api::Api;
 use kube::Client;
 
 use crate::types::{ControllerKind, ControllerRef, PodInfo};
+
+/// Per-call timeout applied to each kube API request made during discovery.
+///
+/// kube-rs / reqwest's default request timeout is ~290s, which is longer than
+/// most callers' overall budget (e.g. the kafka-assigner k3s integration test's
+/// 180s). When the API server enters a zombie state (TCP alive, no response),
+/// a single hung call can blow past those budgets. Bounding each call here
+/// turns a zombie into a quick error so the caller can retry or degrade.
+const KUBE_CALL_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, thiserror::Error)]
 pub enum DiscoveryError {
@@ -17,6 +28,8 @@ pub enum DiscoveryError {
     ReplicaSetNoDeploymentOwner(String),
     #[error("pod {0} missing generation label")]
     MissingGenerationLabel(String),
+    #[error("kubernetes API call timed out after {0:?}: {1}")]
+    Timeout(Duration, String),
     #[error("kubernetes API error: {0}")]
     Kube(#[from] kube::Error),
 }
@@ -33,13 +46,18 @@ pub async fn discover_controller(
     pod_name: &str,
 ) -> Result<PodInfo, DiscoveryError> {
     let pods: Api<Pod> = Api::namespaced(client.clone(), namespace);
-    let pod = pods.get(pod_name).await.map_err(|e| {
-        if is_not_found(&e) {
-            DiscoveryError::PodNotFound(pod_name.to_string())
-        } else {
-            DiscoveryError::Kube(e)
-        }
-    })?;
+    let pod = tokio::time::timeout(KUBE_CALL_TIMEOUT, pods.get(pod_name))
+        .await
+        .map_err(|_| {
+            DiscoveryError::Timeout(KUBE_CALL_TIMEOUT, format!("pod.get({pod_name})"))
+        })?
+        .map_err(|e| {
+            if is_not_found(&e) {
+                DiscoveryError::PodNotFound(pod_name.to_string())
+            } else {
+                DiscoveryError::Kube(e)
+            }
+        })?;
 
     let owner_refs = pod.metadata.owner_references.as_deref().unwrap_or_default();
 
@@ -68,7 +86,14 @@ pub async fn discover_controller(
     // ReplicaSet → Deployment
     if let Some(rs_owner) = owner_refs.iter().find(|r| r.kind == "ReplicaSet") {
         let rs_api: Api<ReplicaSet> = Api::namespaced(client.clone(), namespace);
-        let rs = rs_api.get(&rs_owner.name).await?;
+        let rs = tokio::time::timeout(KUBE_CALL_TIMEOUT, rs_api.get(&rs_owner.name))
+            .await
+            .map_err(|_| {
+                DiscoveryError::Timeout(
+                    KUBE_CALL_TIMEOUT,
+                    format!("replicaset.get({})", rs_owner.name),
+                )
+            })??;
 
         let rs_owners = rs.metadata.owner_references.as_deref().unwrap_or_default();
 

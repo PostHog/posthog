@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures::StreamExt;
 use k8s_openapi::api::apps::v1::{Deployment, ReplicaSet, StatefulSet};
@@ -13,6 +14,12 @@ use tracing::{debug, info, warn};
 use crate::detection;
 use crate::discovery::{self, DiscoveryError};
 use crate::types::{ClusterIntent, ControllerKind, ControllerRef, DepartureReason, PodInfo};
+
+/// Per-call timeout for ReplicaSet list inside the deployment-event handler.
+/// Mirrors `discovery::KUBE_CALL_TIMEOUT` — a hung kube call here would
+/// otherwise block the watcher event loop on a single event for ~290s
+/// (kube-rs / reqwest default).
+const REPLICASET_LIST_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, thiserror::Error)]
 pub enum K8sAwarenessError {
@@ -238,8 +245,22 @@ async fn handle_deployment_event(
     // If this fails, skip the entire intent update to avoid mixing fresh
     // deployment fields (like rollout_in_progress) with stale generation data,
     // which would create an inconsistent ClusterIntent.
-    let owned_rses =
-        list_owned_replicasets(client, namespace, &controller.name, &label_selector).await;
+    let owned_rses = match tokio::time::timeout(
+        REPLICASET_LIST_TIMEOUT,
+        list_owned_replicasets(client, namespace, &controller.name, &label_selector),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => {
+            warn!(
+                controller = %controller,
+                timeout = ?REPLICASET_LIST_TIMEOUT,
+                "ReplicaSet list timed out, skipping intent update"
+            );
+            return;
+        }
+    };
     let rses = match owned_rses {
         Ok(rses) => rses,
         Err(e) => {
