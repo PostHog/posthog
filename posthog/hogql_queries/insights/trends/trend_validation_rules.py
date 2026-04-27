@@ -27,13 +27,24 @@ class ValidateDataWarehouseBreakdown:
         assert context.query.breakdownFilter is not None  # type checking
         breakdown_filter = context.query.breakdownFilter
 
-        if has_multi_breakdown(breakdown_filter):
+        if has_multi_breakdown(breakdown_filter) and breakdown_filter.breakdowns is not None and len(breakdown_filter.breakdowns) > 1:
             raise ValidationError(
                 f"Multi-breakdowns not supported for {get_query_insight_name(context.query).lower()} with a data warehouse series.",
                 code=self.code,
             )
 
         if has_single_breakdown(breakdown_filter) and breakdown_filter.breakdown_type != BreakdownType.DATA_WAREHOUSE:
+            raise ValidationError(
+                f"Event based breakdowns are not supported for {get_query_insight_name(context.query).lower()} with a data warehouse series.",
+                code=self.code,
+            )
+
+        if (
+            has_multi_breakdown(breakdown_filter)
+            and breakdown_filter.breakdowns is not None
+            and len(breakdown_filter.breakdowns) == 1
+            and breakdown_filter.breakdowns[0].type != BreakdownType.DATA_WAREHOUSE
+        ):
             raise ValidationError(
                 f"Event based breakdowns are not supported for {get_query_insight_name(context.query).lower()} with a data warehouse series.",
                 code=self.code,

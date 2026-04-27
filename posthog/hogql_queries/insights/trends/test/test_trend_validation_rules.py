@@ -50,6 +50,16 @@ class TestValidateDataWarehouseBreakdown(BaseTest):
 
         ValidateDataWarehouseBreakdown().validate(self._context(query))
 
+    def test_allows_data_warehouse_single_breakdown_in_multi_syntax(self) -> None:
+        query = TrendsQuery(
+            series=self._data_warehouse_series(),
+            breakdownFilter=BreakdownFilter(
+                breakdowns=[Breakdown(property="plan", type=BreakdownType.DATA_WAREHOUSE)],
+            ),
+        )
+
+        ValidateDataWarehouseBreakdown().validate(self._context(query))
+
     @parameterized.expand(
         [
             (
@@ -63,6 +73,10 @@ class TestValidateDataWarehouseBreakdown(BaseTest):
             (
                 "person_breakdown",
                 BreakdownFilter(breakdown="$geoip_country_code", breakdown_type=BreakdownType.PERSON),
+            ),
+            (
+                "event_breakdown_multi_syntax",
+                BreakdownFilter(breakdowns=[Breakdown(property="$browser", type=BreakdownType.EVENT)]),
             ),
         ]
     )
