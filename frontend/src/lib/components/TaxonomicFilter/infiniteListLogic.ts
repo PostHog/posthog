@@ -943,10 +943,22 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 }
             }
         },
+        loadRemoteItems: () => {
+            cache.lastLoadStart = performance.now()
+        },
         loadRemoteItemsSuccess: ({ remoteItems }) => {
             actions.infiniteListResultsReceived(props.listGroupType, remoteItems)
 
             const trimmedQuery = values.searchQuery.trim()
+            const loadDurationMs = cache.lastLoadStart ? Math.round(performance.now() - cache.lastLoadStart) : null
+            posthog.capture('taxonomic filter results loaded', {
+                groupType: props.listGroupType,
+                searchQuery: trimmedQuery || undefined,
+                searchQueryLength: trimmedQuery.length,
+                resultsCount: remoteItems.results.length,
+                loadDurationMs,
+            })
+
             if (trimmedQuery.length > 0 && remoteItems.results.length === 0) {
                 const dedupeKey = `${props.listGroupType}::${trimmedQuery}`
                 if (cache.lastEmptyResultDedupeKey !== dedupeKey) {
