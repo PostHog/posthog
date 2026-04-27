@@ -84,5 +84,5 @@ export function scrubLogRecord(record: LogRecord): PiiScrubStats {
         }
     }
 
-    return { piiReplacements }
+    return piiReplacements === 0 ? EMPTY_PII : { piiReplacements }
 }
