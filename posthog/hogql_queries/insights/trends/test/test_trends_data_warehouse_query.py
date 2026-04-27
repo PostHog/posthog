@@ -16,6 +16,7 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from posthog.schema import (
+    Breakdown,
     BreakdownFilter,
     BreakdownType,
     ChartDisplayType,
@@ -26,6 +27,7 @@ from posthog.schema import (
     DateRange,
     EventPropertyFilter,
     EventsNode,
+    MultipleBreakdownType,
     PropertyOperator,
     TrendsFilter,
     TrendsQuery,
@@ -271,6 +273,43 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         assert response.results[3][1] == [0, 0, 0, 1, 0, 0, 0]
         assert response.results[3][2] == "d"
+
+    def test_trends_single_item_multi_breakdown(self):
+        table_name = self.setup_data_warehouse()
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01"),
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id",
+                    distinct_id_field="customer_email",
+                    timestamp_field="created",
+                )
+            ],
+            breakdownFilter=BreakdownFilter(
+                breakdowns=[Breakdown(property="prop_1", type=MultipleBreakdownType.DATA_WAREHOUSE)],
+            ),
+        )
+
+        with freeze_time("2023-01-07"):
+            response = self.get_response(trends_query=trends_query)
+
+        assert response.columns is not None
+        assert set(response.columns).issubset({"date", "total", "breakdown_value"})
+        assert len(response.results) == 4
+
+        breakdown_results = sorted(
+            ((row[1], row[2][0] if isinstance(row[2], list) else row[2]) for row in response.results),
+            key=lambda r: r[1],
+        )
+
+        assert breakdown_results[0] == ([1, 0, 0, 0, 0, 0, 0], "a")
+        assert breakdown_results[1] == ([0, 1, 0, 0, 0, 0, 0], "b")
+        assert breakdown_results[2] == ([0, 0, 1, 0, 0, 0, 0], "c")
+        assert breakdown_results[3] == ([0, 0, 0, 1, 0, 0, 0], "d")
 
     def test_trends_breakdown_with_event_property(self):
         table_name = self.setup_data_warehouse()
