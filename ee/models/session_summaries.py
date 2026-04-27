@@ -19,7 +19,6 @@ if TYPE_CHECKING:
 @dataclass(frozen=True)
 class ExtraSummaryContext:
     focus_area: str | None = None
-    product_context: str | None = None
 
 
 @dataclass(frozen=True)

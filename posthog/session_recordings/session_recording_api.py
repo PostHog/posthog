@@ -99,7 +99,6 @@ from ee.hogai.session_summaries.llm.call import get_openai_client
 from ee.hogai.session_summaries.session.output_data import OutcomeSerializer
 from ee.hogai.session_summaries.tracking import capture_session_summary_started, generate_tracking_id
 from ee.hogai.session_summaries.utils import serialize_to_sse_event
-from ee.models.session_summaries import ExtraSummaryContext
 from ee.models.team_session_summaries_config import TeamSessionSummariesConfig
 
 from ..models.product_intent.product_intent import ProductIntent
@@ -1383,7 +1382,7 @@ class SessionRecordingViewSet(
         self,
         session_id: str,
         user: User,
-        extra_summary_context: ExtraSummaryContext | None = None,
+        product_context: str | None = None,
     ) -> AsyncGenerator[str, None]:
         """Stream video-based summarization progress events and final summary to the client.
 
@@ -1401,7 +1400,7 @@ class SessionRecordingViewSet(
                 session_id=session_id,
                 user=user,
                 team=self.team,
-                extra_summary_context=extra_summary_context,
+                product_context=product_context,
             ):
                 yield chunk
         except Exception as e:
@@ -1411,13 +1410,10 @@ class SessionRecordingViewSet(
                 event_data="Something went wrong while generating the summary. Please try again.",
             )
 
-    def _load_team_product_context(self) -> ExtraSummaryContext | None:
-        """Build an ExtraSummaryContext from the team's stored product_context, if any."""
+    def _load_team_product_context(self) -> str | None:
         team_config = get_or_create_team_extension(self.team, TeamSessionSummariesConfig)
         product_context = (team_config.product_context or "").strip()
-        if not product_context:
-            return None
-        return ExtraSummaryContext(product_context=product_context)
+        return product_context or None
 
     @extend_schema(exclude=True)
     @action(methods=["POST"], detail=True)
@@ -1453,7 +1449,7 @@ class SessionRecordingViewSet(
             raise exceptions.ValidationError("session summary is not enabled for this user")
         session_id = str(recording.session_id)
         tracking_id = generate_tracking_id()
-        extra_summary_context = self._load_team_product_context()
+        product_context = self._load_team_product_context()
 
         capture_session_summary_started(
             user=user,
@@ -1465,7 +1461,7 @@ class SessionRecordingViewSet(
             video_based=True,
         )
         response = StreamingHttpResponse(
-            self._generate_video_based_summary(session_id, user, extra_summary_context),
+            self._generate_video_based_summary(session_id, user, product_context),
             content_type=ServerSentEventRenderer.media_type,
         )
         response["Cache-Control"] = "no-cache"

@@ -78,10 +78,8 @@ async def consolidate_video_segments_activity(
         client = genai.AsyncClient(api_key=settings.GEMINI_API_KEY)
 
         product_context_section = ""
-        if inputs.extra_summary_context and inputs.extra_summary_context.product_context:
-            product_context_section = PRODUCT_CONTEXT_SECTION.format(
-                product_context=inputs.extra_summary_context.product_context
-            )
+        if inputs.product_context:
+            product_context_section = PRODUCT_CONTEXT_SECTION.format(product_context=inputs.product_context)
 
         prompt_parts = [
             types.Part(
