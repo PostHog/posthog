@@ -67,4 +67,4 @@ echo ">> FLAGS_REDIS_URL=$(redact_dsn "$FLAGS_REDIS_URL")"
 echo ">> OBJECT_STORAGE_ENDPOINT=$(redact_dsn "$OBJECT_STORAGE_ENDPOINT") (bucket=$OBJECT_STORAGE_BUCKET)"
 
 cd "$REPO_ROOT/rust"
-exec cargo run "${CARGO_PROFILE[@]}" -p feature-flags --bin warm-flags-cache -- "${BIN_ARGS[@]}"
+exec cargo run "${CARGO_PROFILE[@]}" -p feature-flags --features warm-flags-cache --bin warm-flags-cache -- "${BIN_ARGS[@]}"
