@@ -126,8 +126,8 @@ Once the query is validated, persist it with `view-create`:
 ```
 
 Naming matters — this view will be referenced by name in every downstream query for as long as it exists. Follow
-
-the conventions in `layering-warehouse-models` (`<source>_<table>`, `stg_<source>__<entity>`,
+the conventions in `layering-warehouse-models` (`stg_<source>__<entity>`,
+`int_<grain>`, `final_<domain>`).
 `int_<grain>`, `final_<domain>`).
 
 
