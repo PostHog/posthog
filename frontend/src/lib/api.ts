@@ -227,7 +227,7 @@ import type {
     SessionGroupSummaryListItemType,
     SessionGroupSummaryType,
 } from 'products/session_summaries/frontend/types'
-import type { Task, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
+import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
 import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { OptOutEntry } from 'products/workflows/frontend/OptOuts/types'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
@@ -3978,6 +3978,10 @@ const api = {
                     .withAction('bulk_delete')
                     .create({ data: { ids } })
             },
+
+            async download(id: ErrorTrackingSymbolSet['id']): Promise<{ url: string }> {
+                return await new ApiRequest().errorTrackingSymbolSet(id).withAction('download').get()
+            },
         },
 
         releases: {
@@ -4781,8 +4785,11 @@ const api = {
     },
 
     tasks: {
-        async list(): Promise<PaginatedResponse<Task>> {
-            return await new ApiRequest().tasks().get()
+        async list(params: TaskListParams = {}): Promise<PaginatedResponse<Task>> {
+            return await new ApiRequest().tasks().withQueryString(params).get()
+        },
+        async repositories(): Promise<{ repositories: string[] }> {
+            return await new ApiRequest().tasks().withAction('repositories').get()
         },
         async get(id: Task['id']): Promise<Task> {
             return await new ApiRequest().task(id).get()

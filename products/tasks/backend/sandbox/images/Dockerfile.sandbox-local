@@ -6,17 +6,20 @@ FROM posthog-sandbox-base
 
 COPY local-shared /local-shared
 COPY local-git /local-git
+COPY local-enricher /local-enricher
 COPY local-agent /local-agent
 
-# Pack shared first, then update git and agent dependencies to use the tarball
-# Git depends on shared, agent depends on both shared and git
+# Pack shared and enricher first (no workspace deps), then git (depends on shared),
+# then agent (depends on shared, git, and enricher).
 RUN cd /local-shared && pnpm pack && \
+    cd /local-enricher && pnpm pack && \
     cd /local-git && \
     sed -i 's/"@posthog\/shared": "workspace:\*"/"@posthog\/shared": "file:\/local-shared\/posthog-shared-1.0.0.tgz"/' package.json && \
     pnpm pack && \
     cd /local-agent && \
     sed -i 's/"@posthog\/shared": "workspace:\*"/"@posthog\/shared": "file:\/local-shared\/posthog-shared-1.0.0.tgz"/' package.json && \
     sed -i 's/"@posthog\/git": "workspace:\*"/"@posthog\/git": "file:\/local-git\/posthog-git-1.0.0.tgz"/' package.json && \
+    sed -i 's/"@posthog\/enricher": "workspace:\*"/"@posthog\/enricher": "file:\/local-enricher\/posthog-enricher-1.0.0.tgz"/' package.json && \
     pnpm pack && \
     cd /scripts && pnpm install /local-agent/*.tgz && \
-    rm -rf /local-agent /local-shared /local-git
+    rm -rf /local-agent /local-shared /local-git /local-enricher

@@ -14,6 +14,12 @@ import type { LogRecord } from './log-record-avro'
 
 export const PII_REDACTED = '{{REDACTED}}'
 
+export type PiiScrubStats = {
+    readonly piiReplacements: number
+}
+
+export const EMPTY_PII: Readonly<PiiScrubStats> = Object.freeze({ piiReplacements: 0 })
+
 /** Match Rust serde_json::Value::String(s).to_string() / CH kafka_logs_avro_mv JSONExtractString expectations. */
 export function encodeAttributeCell(semantic: string): string {
     return JSON.stringify(semantic)
@@ -28,28 +34,41 @@ const PII_COMBINED_RE = createTrackedRE2(
     'log-pii-scrub:combined'
 )
 
-/** Apply regex-based redaction to a single string (e.g. log body). */
-export function scrubPlainString(input: string): string {
-    return input.replace(
+/** One regex pass; `piiReplacements` counts only successful redactions (a matched capture group). */
+export function scrubPlainStringWithStats(input: string): { output: string; piiReplacements: number } {
+    let piiReplacements = 0
+    const output = input.replace(
         PII_COMBINED_RE,
-        (_match: string, bearer: string | undefined, stripe: string | undefined, email: string | undefined) => {
+        (match: string, bearer: string | undefined, stripe: string | undefined, email: string | undefined) => {
             if (bearer !== undefined) {
+                piiReplacements += 1
                 return `Bearer ${PII_REDACTED}`
             }
             if (stripe !== undefined) {
+                piiReplacements += 1
                 return PII_REDACTED
             }
             if (email !== undefined) {
+                piiReplacements += 1
                 return PII_REDACTED
             }
-            return _match
+            return match
         }
     )
+    return { output, piiReplacements }
 }
 
-/** Mutate record in place: `body` only. */
-export function scrubLogRecord(record: LogRecord): void {
-    if (record.body != null) {
-        record.body = scrubPlainString(record.body)
+/** Apply regex-based redaction to a single string (e.g. log body). */
+export function scrubPlainString(input: string): string {
+    return scrubPlainStringWithStats(input).output
+}
+
+/** Mutate record in place: `body` only. Returns PII replacement count for that record. */
+export function scrubLogRecord(record: LogRecord): PiiScrubStats {
+    if (record.body == null) {
+        return EMPTY_PII
     }
+    const { output, piiReplacements } = scrubPlainStringWithStats(record.body)
+    record.body = output
+    return { piiReplacements }
 }

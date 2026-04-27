@@ -85,6 +85,49 @@ describe('calculating tile layouts', () => {
         const result = calculateLayouts(tiles)
         expect(result.xs?.[0]?.h).toBe(expectedXsH)
     })
+
+    it('xs follows final sm row-major order when some tiles have no stored sm layout', () => {
+        const tiles: DashboardTile<QueryBasedInsightModel>[] = [
+            textTileWithLayout(
+                { sm: { i: '1', x: 0, y: 0, w: 6, h: 5 } } as Record<DashboardLayoutSize, TileLayout>,
+                1
+            ),
+            textTileWithLayout(
+                { sm: { i: '2', x: 6, y: 0, w: 6, h: 5 } } as Record<DashboardLayoutSize, TileLayout>,
+                2
+            ),
+            textTileWithLayout(
+                { sm: { i: '3', x: 0, y: 5, w: 6, h: 5 } } as Record<DashboardLayoutSize, TileLayout>,
+                3
+            ),
+            textTileWithLayout(
+                { sm: { i: '4', x: 6, y: 5, w: 6, h: 5 } } as Record<DashboardLayoutSize, TileLayout>,
+                4
+            ),
+            textTileWithLayout({} as Record<DashboardLayoutSize, TileLayout>, 5),
+            textTileWithLayout({} as Record<DashboardLayoutSize, TileLayout>, 6),
+        ]
+
+        const actual = calculateLayouts(tiles)
+
+        expect(actual.xs?.map((l) => l.i)).toEqual(['1', '2', '3', '4', '5', '6'])
+        const ys = actual.xs?.map((l) => l.y) || []
+        expect(ys.every((y, i) => i === 0 || y > ys[i - 1])).toBe(true)
+    })
+
+    it('xs follows sm dirty-placement order when no tiles have stored sm layouts', () => {
+        const tiles: DashboardTile<QueryBasedInsightModel>[] = [
+            textTileWithLayout({} as Record<DashboardLayoutSize, TileLayout>, 1),
+            textTileWithLayout({} as Record<DashboardLayoutSize, TileLayout>, 2),
+            textTileWithLayout({} as Record<DashboardLayoutSize, TileLayout>, 3),
+            textTileWithLayout({} as Record<DashboardLayoutSize, TileLayout>, 4),
+        ]
+
+        const actual = calculateLayouts(tiles)
+
+        const smOrder = [...(actual.sm || [])].sort((a, b) => (a.y === b.y ? a.x - b.x : a.y - b.y)).map((l) => l.i)
+        expect(actual.xs?.map((l) => l.i)).toEqual(smOrder)
+    })
 })
 
 describe('calculateDuplicateLayout', () => {

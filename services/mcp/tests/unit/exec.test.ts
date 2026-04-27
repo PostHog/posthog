@@ -186,7 +186,24 @@ describe('exec tool', () => {
                 name: t.name,
                 category: getToolDefinition(t.name, 2).category,
             }))
-            const commandReference = buildInstructionsV2(CLI_PROXY_COMMAND, guidelines, undefined, undefined, toolInfos)
+            const queryToolInfos = v2Tools
+                .filter((t) => t.name.startsWith('query-'))
+                .map((t) => {
+                    const def = getToolDefinition(t.name, 2)
+                    return {
+                        name: t.name,
+                        title: def.title,
+                        ...(def.system_prompt_hint ? { systemPromptHint: def.system_prompt_hint } : {}),
+                    }
+                })
+            const commandReference = buildInstructionsV2(
+                CLI_PROXY_COMMAND,
+                guidelines,
+                undefined,
+                undefined,
+                toolInfos,
+                queryToolInfos
+            )
             const execTool = createExecTool(v2Tools, context, CLI_PROXY_TOOL, commandReference, undefined)
 
             expect(execTool.description.length).toBeLessThanOrEqual(2048)
@@ -198,6 +215,11 @@ describe('exec tool', () => {
         // block. Because `buildToolDomainsBlock` relies on tool-name conventions
         // (CRUD suffixes, prefix actions, plural collapsing), this snapshot is the
         // canary for any drift in naming or in the domain-extraction logic.
+        //
+        // Snapshots the Codex (`supportsInstructions: false`) wiring, where every
+        // placeholder is filled. That's the only path where `{tool_domains}` and
+        // `{query_tools}` actually appear in the `command` parameter description,
+        // so the snapshot has to follow it to keep catching drift in those blocks.
         it('matches the full exec tool schema', async () => {
             const context = createSnapshotContext()
             const v2Tools = [...(await getToolsFromContext(context, { version: 2 }))].sort((a, b) =>
@@ -207,7 +229,24 @@ describe('exec tool', () => {
                 name: t.name,
                 category: getToolDefinition(t.name, 2).category,
             }))
-            const commandReference = buildInstructionsV2(CLI_PROXY_COMMAND, guidelines, undefined, undefined, toolInfos)
+            const queryToolInfos = v2Tools
+                .filter((t) => t.name.startsWith('query-'))
+                .map((t) => {
+                    const def = getToolDefinition(t.name, 2)
+                    return {
+                        name: t.name,
+                        title: def.title,
+                        ...(def.system_prompt_hint ? { systemPromptHint: def.system_prompt_hint } : {}),
+                    }
+                })
+            const commandReference = buildInstructionsV2(
+                CLI_PROXY_COMMAND,
+                guidelines,
+                undefined,
+                undefined,
+                toolInfos,
+                queryToolInfos
+            )
             const execTool = createExecTool(v2Tools, context, CLI_PROXY_TOOL, commandReference, undefined)
 
             const snapshot = {

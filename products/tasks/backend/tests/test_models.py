@@ -1337,6 +1337,10 @@ class TestTaskRunGetSandboxEnvironment(TestCase):
         run = self._create_run(uuid.uuid4())
         self.assertIsNone(run.get_sandbox_environment())
 
+    def test_returns_none_for_malformed_environment_id(self):
+        run = self._create_run("not-a-uuid")
+        self.assertIsNone(run.get_sandbox_environment())
+
 
 class TestCodeInvite(TestCase):
     def test_auto_generates_code_on_save(self):

@@ -28,7 +28,13 @@ from products.conversations.backend.formatting import (
     rich_content_to_markdown,
     rich_content_to_slack_payload,
 )
-from products.conversations.backend.mailgun import get_smtp_connection
+from products.conversations.backend.mailgun import (
+    MailgunDomainNotRegistered,
+    MailgunNotConfigured,
+    MailgunPermanentError,
+    MailgunTransientError,
+    send_mime,
+)
 from products.conversations.backend.models import (
     EmailMessageMapping,
     TeamConversationsSlackConfig,
@@ -49,7 +55,12 @@ from products.conversations.backend.support_teams import (
     invalidate_bot_framework_token,
     is_trusted_teams_service_url,
 )
-from products.conversations.backend.teams import _is_bot_mention, handle_teams_mention, handle_teams_message
+from products.conversations.backend.teams import (
+    _is_bot_mention,
+    handle_teams_mention,
+    handle_teams_message,
+    send_teams_welcome_card,
+)
 from products.conversations.backend.teams_formatting import rich_content_to_teams_html
 
 from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, SUPPORT_SLACK_MAX_IMAGE_BYTES
@@ -476,20 +487,31 @@ def send_email_reply(
     )
     email_message.attach_alternative(html_body, "text/html")
 
-    connection = None
+    recipients = [ticket.email_from, *(ticket.cc_participants or [])]
+    mime_bytes = email_message.message().as_bytes(linesep="\r\n")
+
     try:
-        connection = get_smtp_connection()
-        connection.open()
-        connection.send_messages([email_message])
-    except Exception as e:
-        logger.exception("email_reply_send_failed", ticket_id=ticket_id, error=str(e))
+        send_mime(config.domain, mime_bytes, recipients=recipients)
+    except MailgunTransientError as e:
+        logger.warning("email_reply_send_transient_failure", ticket_id=ticket_id, error=str(e))
         raise cast(Any, send_email_reply).retry(exc=e)
-    finally:
-        if connection:
-            try:
-                connection.close()
-            except Exception:
-                pass
+    except MailgunDomainNotRegistered:
+        logger.exception(
+            "email_reply_send_domain_not_registered",
+            ticket_id=ticket_id,
+            team_id=team_id,
+            domain=config.domain,
+        )
+        config.mark_domain_unverified()
+        return
+    except (MailgunPermanentError, MailgunNotConfigured):
+        logger.exception(
+            "email_reply_send_permanent_failure",
+            ticket_id=ticket_id,
+            team_id=team_id,
+            domain=config.domain,
+        )
+        return
 
     # Record the outbound message mapping for threading (best-effort, don't retry on failure)
     try:
@@ -510,6 +532,28 @@ def send_email_reply(
         to=ticket.email_from,
         message_id=outbound_message_id,
     )
+
+
+@shared_task(bind=True, ignore_result=True, max_retries=2, default_retry_delay=5)
+def send_teams_welcome(self, activity: dict[str, Any]) -> None:
+    """Post the proactive welcome card after the bot is added to a team.
+
+    Required by Microsoft Teams Store certification policy 11.4.4.3. Runs in
+    Celery so the Bot Framework webhook can ack within its 15s budget. We
+    actually use the configured ``max_retries`` budget for transient transport
+    failures (5xx, timeouts) — cert validators install and watch for the
+    welcome card to appear, so silently dropping it would re-fail the review.
+    Permanent failures (malformed activity, bot config missing) are not
+    retried; ``send_teams_welcome_card`` returns ``True`` for those so we
+    don't burn the retry budget on something a retry can't fix.
+    """
+    try:
+        ok = send_teams_welcome_card(activity)
+    except Exception as exc:
+        logger.exception("supporthog_teams_welcome_failed", error=str(exc))
+        raise cast(Any, self).retry(exc=exc)
+    if not ok:
+        raise cast(Any, self).retry(exc=Exception("teams_welcome_card_post_failed"))
 
 
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
