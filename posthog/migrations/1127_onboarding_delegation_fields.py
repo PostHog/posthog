@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
     """
 
     dependencies = [
-        ("posthog", "1121_add_last_realtime_cohort_calculation_at_to_cohort"),
+        ("posthog", "1126_ducklake_make_team_nullable_require_owner"),
     ]
 
     operations = [
