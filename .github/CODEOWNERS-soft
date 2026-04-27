@@ -168,3 +168,11 @@ tools/pr-approval-agent/ @PostHog/team-devex
 tools/phrocs/ @PostHog/team-devex
 greptile.json @PostHog/team-devex
 docs/published/developing-locally.md @PostHog/team-devex
+
+# OpenAPI / drf-spectacular tooling - owned by @PostHog/team-devex
+posthog/api/documentation.py @PostHog/team-devex
+posthog/api/mixins.py @PostHog/team-devex
+posthog/management/commands/find_enum_collisions.py @PostHog/team-devex
+
+# Visual Review - owned by @PostHog/team-devex
+products/visual_review/** @PostHog/team-devex

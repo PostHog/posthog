@@ -335,7 +335,7 @@
 # ---
 # name: TestPreviewList.test_early_access_features.9
   '''
-  SELECT "posthog_team"."id"
+  SELECT "posthog_team"."id" AS "id"
   FROM "posthog_team"
   WHERE ("posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_team"."receive_org_level_activity_logs")
@@ -460,7 +460,7 @@
 # ---
 # name: TestPreviewList.test_early_access_features_includes_payload_in_preview.5
   '''
-  SELECT "posthog_team"."id"
+  SELECT "posthog_team"."id" AS "id"
   FROM "posthog_team"
   WHERE ("posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_team"."receive_org_level_activity_logs")
@@ -819,7 +819,7 @@
 # ---
 # name: TestPreviewList.test_early_access_features_with_cached_team.6
   '''
-  SELECT "posthog_team"."id"
+  SELECT "posthog_team"."id" AS "id"
   FROM "posthog_team"
   WHERE ("posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_team"."receive_org_level_activity_logs")
@@ -984,7 +984,7 @@
 # ---
 # name: TestPreviewList.test_early_access_features_with_pre_env_cached_team.5
   '''
-  SELECT "posthog_team"."id"
+  SELECT "posthog_team"."id" AS "id"
   FROM "posthog_team"
   WHERE ("posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_team"."receive_org_level_activity_logs")

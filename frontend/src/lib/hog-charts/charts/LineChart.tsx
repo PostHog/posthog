@@ -176,8 +176,14 @@ export function LineChart<Meta = unknown>({
         if (!stackedData) {
             return undefined
         }
-        return (s: Series, dataIndex: number): number =>
-            stackedData.get(s.key)?.top[dataIndex] ?? s.data[dataIndex] ?? 0
+        return (s: Series, dataIndex: number): number => {
+            const stacked = stackedData.get(s.key)?.top[dataIndex]
+            if (stacked != null && Number.isFinite(stacked)) {
+                return stacked
+            }
+            const raw = s.data[dataIndex]
+            return typeof raw === 'number' && Number.isFinite(raw) ? raw : 0
+        }
     }, [stackedData])
 
     return (

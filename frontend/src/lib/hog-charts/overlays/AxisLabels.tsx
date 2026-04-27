@@ -23,7 +23,7 @@ function getMeasureCtx(): CanvasRenderingContext2D | null {
     return measureCtx
 }
 
-function computeVisibleXLabels(
+export function computeVisibleXLabels(
     labels: string[],
     xScale: (label: string) => number | undefined,
     formatter?: (value: string, index: number) => string | null
