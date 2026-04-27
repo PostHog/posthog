@@ -22255,6 +22255,42 @@
             "enum": ["campaign_groups"],
             "type": "string"
         },
+        "LlmEvalReportSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "evaluation_description": {
+                    "type": "string"
+                },
+                "evaluation_id": {
+                    "type": "string"
+                },
+                "evaluation_name": {
+                    "type": "string"
+                },
+                "period_end": {
+                    "type": "string"
+                },
+                "period_start": {
+                    "type": "string"
+                },
+                "report_id": {
+                    "type": "string"
+                },
+                "report_run_id": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "evaluation_id",
+                "evaluation_name",
+                "evaluation_description",
+                "report_id",
+                "report_run_id",
+                "period_start",
+                "period_end"
+            ],
+            "type": "object"
+        },
         "LlmEvalSignalExtra": {
             "additionalProperties": false,
             "properties": {
@@ -22278,6 +22314,33 @@
                 }
             },
             "required": ["evaluation_id", "trace_id"],
+            "type": "object"
+        },
+        "LlmEvaluationReportSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/LlmEvalReportSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "llm_analytics",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "evaluation_report",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
             "type": "object"
         },
         "LlmEvaluationSignalInput": {
@@ -34953,15 +35016,15 @@
             "type": "object"
         },
         "SignalInput": {
-            "discriminator": {
-                "propertyName": "source_product"
-            },
-            "oneOf": [
+            "anyOf": [
                 {
                     "$ref": "#/definitions/SessionProblemSignalInput"
                 },
                 {
                     "$ref": "#/definitions/LlmEvaluationSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/LlmEvaluationReportSignalInput"
                 },
                 {
                     "$ref": "#/definitions/ZendeskTicketSignalInput"
@@ -34981,9 +35044,7 @@
                 {
                     "$ref": "#/definitions/EndpointExecutionFailedSignalInput"
                 }
-            ],
-            "required": ["source_product"],
-            "type": "object"
+            ]
         },
         "SignalReviewerUserInfo": {
             "additionalProperties": false,
@@ -35025,6 +35086,7 @@
                 "session_analysis_cluster",
                 "session_problem",
                 "evaluation",
+                "evaluation_report",
                 "issue",
                 "ticket",
                 "issue_created",
