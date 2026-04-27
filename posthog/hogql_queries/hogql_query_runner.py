@@ -18,6 +18,7 @@ from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.user_query_validator import validate_user_query
 from posthog.hogql.variables import replace_variables
 
 from posthog import settings as app_settings
@@ -118,6 +119,10 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             )
 
         query = self.to_query()
+
+        if self.is_query_service:
+            validate_user_query(query, team=self.team)
+
         paginator = None
         if isinstance(query, ast.SelectQuery) and not query.limit:
             paginator = HogQLHasMorePaginator.from_limit_context(limit_context=self.limit_context)
