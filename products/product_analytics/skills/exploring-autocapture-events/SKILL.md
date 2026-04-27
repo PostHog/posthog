@@ -124,7 +124,9 @@ Each step in a `FunnelsQuery` / `TrendsQuery` is an `EventsNode` (or `ActionsNod
 
 Two distinct property `type` values matter — they are not interchangeable:
 
-- **`type: "element"`** — keys: `selector`, `tag_name`, `text`, `href`. Matched against the parsed `elements_chain`. `selector` only supports the `exact` operator; the others also accept `is_set`, `is_not_set`, and `icontains`.
+- **`type: "element"`** — keys: `selector`, `tag_name`, `text`, `href`. Matched against the parsed `elements_chain`. Operator support is split:
+  - `selector` and `tag_name` only support `exact` and `is_not` — anything else raises `NotImplementedError` in the query compiler (`posthog/hogql/property.py`).
+  - `text` and `href` accept the full string operator set (`exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`, `is_set`, `is_not_set`).
 - **`type: "event"`** — keys: any of the canonical autocapture properties (`$event_type`, `$el_text`, `$current_url`) or anything else on the event. Standard event-property operators (`exact`, `icontains`, `regex`, etc.).
 
 Example funnel from clicking one button to clicking another:
