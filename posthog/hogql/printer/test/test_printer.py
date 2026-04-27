@@ -4279,6 +4279,12 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 {"hogql_val_0": "%@gmail.com%"},
             )
 
+            self._test_materialized_column_comparison(
+                "ilike(JSONExtractString(properties, 'test_prop'), '%@gmail.com%')",
+                f"like(lower(events.{mat_col.name}), lower(%(hogql_val_0)s))",
+                {"hogql_val_0": "%@gmail.com%"},
+            )
+
     def test_materialized_column_ilike_with_tostring_not_optimized_for_numeric_property(self) -> None:
         # Numeric properties should not use the ILIKE optimization - fall back to default handling
         PropertyDefinition.objects.create(
@@ -4656,6 +4662,11 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         """
         with self.assertRaises(ImpossibleASTError):
             execute_hogql_query(team=self.team, query=query)
+
+    def test_jsonextractstring_rewrite_emits_mat_column(self) -> None:
+        with materialized("events", "test_prop", is_nullable=False) as mat_col:
+            printed = self._expr("JSONExtractString(properties, 'test_prop')")
+            assert printed == f"nullIf(nullIf(events.{mat_col.name}, ''), 'null')"
 
 
 class TestPrinted(APIBaseTest):

@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import Optional
 from uuid import uuid4
 
 import pytest
@@ -467,6 +468,80 @@ class TestSubscriptionTemporal(APILicensedTest):
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["title"] == "Updated title"
+
+    def test_can_set_prompt_guide_when_feature_flag_enabled(self):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True):
+            response = self._create_subscription(summary_enabled=True, summary_prompt_guide="focus on revenue trends")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["summary_prompt_guide"] == "focus on revenue trends"
+
+    @parameterized.expand(
+        [
+            # (case_name, flag_value_during_patch, payload, expected_status, expected_fragment_or_stored_value)
+            (
+                "reject_non_empty_patch",
+                False,
+                {"summary_prompt_guide": "changed"},
+                status.HTTP_403_FORBIDDEN,
+                "AI summary context",
+            ),
+            ("allow_clear_via_empty_string", False, {"summary_prompt_guide": ""}, status.HTTP_200_OK, ""),
+            ("allow_unrelated_patch", False, {"title": "Updated title"}, status.HTTP_200_OK, "original"),
+            (
+                "allow_non_empty_patch_when_flag_on",
+                True,
+                {"summary_prompt_guide": "changed"},
+                status.HTTP_200_OK,
+                "changed",
+            ),
+            (
+                "deny_on_feature_flag_eval_error",
+                None,
+                {"summary_prompt_guide": "changed"},
+                status.HTTP_403_FORBIDDEN,
+                "AI summary context",
+            ),
+        ]
+    )
+    def test_prompt_guide_patch_behaviour(
+        self, case_name: str, flag_value: Optional[bool], payload: dict, expected_status: int, expected_body_fragment
+    ):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True):
+            create_response = self._create_subscription(summary_enabled=True, summary_prompt_guide="original")
+        subscription_id = create_response.json()["id"]
+
+        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=flag_value):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+                payload,
+            )
+
+        assert response.status_code == expected_status, response.content
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            assert expected_body_fragment in response.json()["detail"]
+        else:
+            # Read-back the stored `summary_prompt_guide` on the updated subscription.
+            if "summary_prompt_guide" in payload:
+                assert response.json()["summary_prompt_guide"] == (expected_body_fragment or "")
+            else:
+                # Unrelated PATCH — original stored value must survive untouched.
+                assert response.json()["summary_prompt_guide"] == expected_body_fragment
+
+    def test_cannot_create_subscription_with_prompt_guide_when_feature_flag_disabled(self):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=False):
+            response = self._create_subscription(summary_enabled=True, summary_prompt_guide="focus on revenue trends")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "AI summary context" in response.json()["detail"]
 
     def test_deliver_subscription(self):
         mock_client = MagicMock()
