@@ -24592,6 +24592,10 @@
                     "description": "Issue name/title",
                     "type": ["string", "null"]
                 },
+                "noise_reason": {
+                    "description": "Reason this issue is likely third-party noise (cross-origin script, extension frame, etc.); null if not flagged",
+                    "type": ["string", "null"]
+                },
                 "occurrences": {
                     "description": "Total number of occurrences",
                     "type": "number"
@@ -24600,9 +24604,17 @@
                     "description": "Number of affected sessions",
                     "type": "number"
                 },
+                "source": {
+                    "description": "Top in-app frame source path, if available",
+                    "type": ["string", "null"]
+                },
                 "status": {
                     "description": "Issue status (active, resolved, etc.)",
                     "type": "string"
+                },
+                "url": {
+                    "description": "URL where the error was first seen, if available",
+                    "type": ["string", "null"]
                 },
                 "users": {
                     "description": "Number of affected users",
@@ -24615,6 +24627,9 @@
                 "description",
                 "status",
                 "library",
+                "url",
+                "source",
+                "noise_reason",
                 "first_seen",
                 "last_seen",
                 "occurrences",

@@ -8,7 +8,22 @@ import {
 } from '~/queries/schema/schema-assistant-error-tracking'
 import { ErrorTrackingQuery, NodeKind } from '~/queries/schema/schema-general'
 
+import { getThirdPartyNoiseReason } from 'products/error_tracking/frontend/utils'
+
 import type { maxErrorTrackingWidgetLogicType } from './maxErrorTrackingWidgetLogicType'
+
+function extractUrlFromFirstEvent(rawProperties: unknown): string | null {
+    if (typeof rawProperties !== 'string') {
+        return null
+    }
+    try {
+        const parsed = JSON.parse(rawProperties)
+        const url = parsed?.['$current_url']
+        return typeof url === 'string' && url.length > 0 ? url : null
+    } catch {
+        return null
+    }
+}
 
 export interface MaxErrorTrackingWidgetLogicProps {
     toolCallId: string
@@ -71,7 +86,9 @@ export const maxErrorTrackingWidgetLogic = kea<maxErrorTrackingWidgetLogicType>(
                         limit: limit,
                         offset: currentOffset,
                         withAggregations: true,
-                        withFirstEvent: false,
+                        // Mirrors search_issues.py: enables URL/library context and third-party
+                        // noise detection in the AI tool output.
+                        withFirstEvent: true,
                         filterTestAccounts: false,
                         volumeResolution: 1,
                     }
@@ -89,18 +106,28 @@ export const maxErrorTrackingWidgetLogic = kea<maxErrorTrackingWidgetLogicType>(
                     )
                     const results = (response.results ?? []) as any[]
 
-                    const newIssues: MaxErrorTrackingIssuePreview[] = results.map((issue) => ({
-                        id: issue.id,
-                        name: issue.name,
-                        description: issue.description,
-                        status: issue.status,
-                        library: issue.library,
-                        first_seen: issue.first_seen,
-                        last_seen: issue.last_seen,
-                        occurrences: issue.aggregations?.occurrences ?? 0,
-                        users: issue.aggregations?.users ?? 0,
-                        sessions: issue.aggregations?.sessions ?? 0,
-                    }))
+                    const newIssues: MaxErrorTrackingIssuePreview[] = results.map((issue) => {
+                        const url = extractUrlFromFirstEvent(issue.first_event?.properties)
+                        return {
+                            id: issue.id,
+                            name: issue.name,
+                            description: issue.description,
+                            status: issue.status,
+                            library: issue.library,
+                            url,
+                            source: issue.source ?? null,
+                            noise_reason: getThirdPartyNoiseReason({
+                                description: issue.description,
+                                name: issue.name,
+                                source: issue.source,
+                            }),
+                            first_seen: issue.first_seen,
+                            last_seen: issue.last_seen,
+                            occurrences: issue.aggregations?.occurrences ?? 0,
+                            users: issue.aggregations?.users ?? 0,
+                            sessions: issue.aggregations?.sessions ?? 0,
+                        }
+                    })
 
                     const hasMore = response.hasMore ?? results.length >= limit
                     const newNextCursor = hasMore ? String(currentOffset + limit) : null

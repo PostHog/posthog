@@ -1,4 +1,5 @@
 import json
+from typing import Any
 from uuid import UUID
 
 from posthog.schema import DateRange, ErrorTrackingOrderBy, ErrorTrackingQuery
@@ -12,7 +13,16 @@ from products.error_tracking.backend.facade import (
     types as error_tracking_types,
 )
 
-from .prompts import ERROR_TRACKING_ISSUE_CONTEXT_TEMPLATE
+from .prompts import (
+    BREADCRUMBS_SECTION_TEMPLATE,
+    ERROR_TRACKING_ISSUE_CONTEXT_TEMPLATE,
+    REPLAY_SECTION_TEMPLATE,
+    THIRD_PARTY_NOISE_WARNING,
+)
+
+EXTENSION_SCHEMES = ("chrome-extension://", "moz-extension://", "safari-extension://", "safari-web-extension://")
+THIRD_PARTY_SCRIPT_ERROR_VALUES = {"Script error.", "Script error"}
+MAX_BREADCRUMBS = 10
 
 
 class ErrorTrackingIssueContext:
@@ -80,17 +90,103 @@ class ErrorTrackingIssueContext:
 
         return None
 
-    def format_stacktrace(self, event: dict | None) -> str | None:
-        """Format the exception list into a readable stack trace string."""
+    @staticmethod
+    def _get_event_properties(event: dict | None) -> dict[str, Any]:
         if not event:
-            return None
-
+            return {}
         properties = event.get("properties", {})
         if isinstance(properties, str):
             try:
                 properties = json.loads(properties)
             except json.JSONDecodeError:
-                return None
+                return {}
+        return properties if isinstance(properties, dict) else {}
+
+    @classmethod
+    def _detect_third_party_noise(cls, properties: dict[str, Any]) -> str | None:
+        """Return a human-readable reason if the event is likely third-party noise."""
+        exception_list = properties.get("$exception_list", []) or []
+        if exception_list:
+            first = exception_list[0] or {}
+            value = first.get("value") if isinstance(first, dict) else None
+            if isinstance(value, str) and value.strip() in THIRD_PARTY_SCRIPT_ERROR_VALUES:
+                return "a cross-origin 'Script error.' with no usable stack frames"
+
+            stacktrace = first.get("stacktrace") if isinstance(first, dict) else None
+            frames = stacktrace.get("frames", []) if isinstance(stacktrace, dict) else []
+            if frames and all(cls._frame_is_extension(frame) for frame in frames):
+                return "frames from a browser extension (chrome-extension:// / moz-extension://)"
+        return None
+
+    @staticmethod
+    def _frame_is_extension(frame: dict[str, Any]) -> bool:
+        if not isinstance(frame, dict):
+            return False
+        for key in ("source", "abs_path", "filename"):
+            value = frame.get(key)
+            if isinstance(value, str) and value.startswith(EXTENSION_SCHEMES):
+                return True
+        return False
+
+    @staticmethod
+    def _format_event_context(properties: dict[str, Any]) -> str:
+        """Format key environment properties for the LLM."""
+
+        def concat(*keys: str) -> str | None:
+            parts = [str(properties[key]) for key in keys if properties.get(key)]
+            return " ".join(parts) if parts else None
+
+        rows: list[tuple[str, str | None]] = [
+            ("URL", properties.get("$current_url")),
+            ("Route name", properties.get("$pathname")),
+            ("Browser", concat("$browser", "$browser_version")),
+            ("OS", concat("$os", "$os_version")),
+            ("Library", concat("$lib", "$lib_version")),
+            ("App version", properties.get("$app_version")),
+            ("Device type", properties.get("$device_type")),
+            ("Level", properties.get("$level")),
+            ("Locale", properties.get("$browser_language")),
+        ]
+
+        lines = [f"- **{label}:** {value}" for label, value in rows if value]
+        return "\n".join(lines) if lines else "- _No environment properties available._"
+
+    @staticmethod
+    def _format_breadcrumbs(properties: dict[str, Any]) -> str | None:
+        """Render breadcrumbs (Sentry-compatible) so the LLM can see what the user did before the error."""
+        candidates: list[Any] = []
+        for key in ("$exception_breadcrumbs", "$breadcrumbs", "$sentry_breadcrumbs"):
+            value = properties.get(key)
+            if isinstance(value, list):
+                candidates = value
+                break
+            if isinstance(value, dict):
+                values = value.get("values")
+                if isinstance(values, list):
+                    candidates = values
+                    break
+        if not candidates:
+            return None
+
+        rendered: list[str] = []
+        for crumb in candidates[-MAX_BREADCRUMBS:]:
+            if not isinstance(crumb, dict):
+                continue
+            timestamp = crumb.get("timestamp") or ""
+            category = crumb.get("category") or crumb.get("type") or "event"
+            message = crumb.get("message") or crumb.get("data", {}) or ""
+            if isinstance(message, dict):
+                message = json.dumps(message, default=str)
+            rendered.append(f"- [{timestamp}] ({category}) {message}".rstrip())
+
+        return "\n".join(rendered) if rendered else None
+
+    def format_stacktrace(self, event: dict | None) -> str | None:
+        """Format the exception list into a readable stack trace string."""
+        if not event:
+            return None
+
+        properties = self._get_event_properties(event)
         exception_list = properties.get("$exception_list", [])
 
         if not exception_list:
@@ -114,7 +210,13 @@ class ErrorTrackingIssueContext:
                 lines.append("Stack trace (most recent call last):")
                 for frame in reversed(frames):
                     in_app = frame.get("in_app", False)
-                    marker = "[IN-APP]" if in_app else ""
+                    is_extension = self._frame_is_extension(frame)
+                    if is_extension:
+                        marker = "[EXTENSION]"
+                    elif in_app:
+                        marker = "[IN-APP]"
+                    else:
+                        marker = ""
 
                     filename = frame.get("source", "unknown")
                     lineno = frame.get("line", "?")
@@ -155,10 +257,26 @@ class ErrorTrackingIssueContext:
         if not stacktrace:
             return f"No stack trace available for issue '{issue_name}'."
 
+        properties = self._get_event_properties(first_event)
+        event_context = self._format_event_context(properties)
+        breadcrumbs = self._format_breadcrumbs(properties)
+        breadcrumbs_section = (
+            BREADCRUMBS_SECTION_TEMPLATE.format(breadcrumbs=breadcrumbs) if breadcrumbs else ""
+        )
+        session_id = properties.get("$session_id")
+        replay_section = REPLAY_SECTION_TEMPLATE.format(session_id=session_id) if session_id else ""
+
+        noise_reason = self._detect_third_party_noise(properties)
+        noise_warning = THIRD_PARTY_NOISE_WARNING.format(noise_reason=noise_reason) if noise_reason else ""
+
         return ERROR_TRACKING_ISSUE_CONTEXT_TEMPLATE.format(
             issue_id=self._issue_id,
             issue_name=issue_name,
             issue_status=issue.status,
             issue_description=issue.description or "No description available.",
+            event_context=event_context,
             stacktrace=stacktrace,
+            breadcrumbs_section=breadcrumbs_section,
+            replay_section=replay_section,
+            noise_warning=noise_warning,
         )

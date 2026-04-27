@@ -265,3 +265,119 @@ class TestErrorTrackingIssueContext(ClickhouseTestMixin, APIBaseTest):
         result = await context.execute_and_format()
 
         self.assertIn("No stack trace available", result)
+
+    @patch.object(ErrorTrackingIssueContext, "aget_first_event")
+    async def test_execute_and_format_includes_event_metadata(self, mock_get_event):
+        mock_get_event.return_value = {
+            "properties": {
+                "$current_url": "https://app.example.com/checkout",
+                "$browser": "Chrome",
+                "$browser_version": "120",
+                "$os": "Mac OS X",
+                "$os_version": "14.5",
+                "$lib": "web",
+                "$lib_version": "1.232.0",
+                "$session_id": "abc-123",
+                "$exception_list": [
+                    {
+                        "type": "TypeError",
+                        "value": "X",
+                        "stacktrace": {
+                            "frames": [
+                                {
+                                    "resolved_name": "fn",
+                                    "source": "src/index.ts",
+                                    "line": 1,
+                                    "in_app": True,
+                                }
+                            ]
+                        },
+                    }
+                ],
+            }
+        }
+
+        context = self._create_context(self.issue_id_one)
+        result = await context.execute_and_format()
+
+        self.assertIn("Event Context", result)
+        self.assertIn("URL:", result)
+        self.assertIn("https://app.example.com/checkout", result)
+        self.assertIn("Browser:", result)
+        self.assertIn("Chrome 120", result)
+        self.assertIn("OS:", result)
+        self.assertIn("Library:", result)
+        self.assertIn("web 1.232.0", result)
+        self.assertIn("Session Replay", result)
+        self.assertIn("abc-123", result)
+
+    @patch.object(ErrorTrackingIssueContext, "aget_first_event")
+    async def test_execute_and_format_renders_breadcrumbs(self, mock_get_event):
+        mock_get_event.return_value = {
+            "properties": {
+                "$exception_breadcrumbs": [
+                    {"timestamp": "t0", "category": "navigation", "message": "Visited /checkout"},
+                    {"timestamp": "t1", "category": "ui.click", "message": "Clicked submit"},
+                ],
+                "$exception_list": [
+                    {
+                        "type": "Error",
+                        "value": "boom",
+                        "stacktrace": {"frames": [{"resolved_name": "fn", "source": "a.js", "line": 1}]},
+                    }
+                ],
+            }
+        }
+
+        context = self._create_context(self.issue_id_one)
+        result = await context.execute_and_format()
+
+        self.assertIn("Breadcrumbs", result)
+        self.assertIn("Visited /checkout", result)
+        self.assertIn("Clicked submit", result)
+
+    @patch.object(ErrorTrackingIssueContext, "aget_first_event")
+    async def test_execute_and_format_flags_third_party_script_error(self, mock_get_event):
+        mock_get_event.return_value = {
+            "properties": {
+                "$exception_list": [
+                    {
+                        "type": "Error",
+                        "value": "Script error.",
+                        "stacktrace": {"frames": [{"source": "anonymous", "line": 1}]},
+                    }
+                ]
+            }
+        }
+
+        context = self._create_context(self.issue_id_one)
+        result = await context.execute_and_format()
+
+        self.assertIn("Likely third-party noise", result)
+        self.assertIn("Script error", result)
+
+    @patch.object(ErrorTrackingIssueContext, "aget_first_event")
+    async def test_execute_and_format_flags_browser_extension_frames(self, mock_get_event):
+        mock_get_event.return_value = {
+            "properties": {
+                "$exception_list": [
+                    {
+                        "type": "TypeError",
+                        "value": "Some extension error",
+                        "stacktrace": {
+                            "frames": [
+                                {"source": "chrome-extension://abc/content.js", "line": 1, "in_app": False},
+                                {"source": "chrome-extension://abc/inject.js", "line": 5, "in_app": False},
+                            ]
+                        },
+                    }
+                ]
+            }
+        }
+
+        context = self._create_context(self.issue_id_one)
+        result = await context.execute_and_format()
+
+        self.assertIn("Likely third-party noise", result)
+        self.assertIn("browser extension", result)
+        self.assertIn("[EXTENSION]", result)

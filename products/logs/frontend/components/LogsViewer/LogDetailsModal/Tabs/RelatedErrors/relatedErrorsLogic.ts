@@ -8,6 +8,8 @@ import { MaxErrorTrackingIssuePreview } from '~/queries/schema/schema-assistant-
 import { ErrorTrackingIssue, ErrorTrackingQuery, NodeKind } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { getThirdPartyNoiseReason } from 'products/error_tracking/frontend/utils'
+
 import type { relatedErrorsLogicType } from './relatedErrorsLogicType'
 
 export interface RelatedErrorsLogicProps {
@@ -77,6 +79,13 @@ export const relatedErrorsLogic = kea<relatedErrorsLogicType>([
                         name: issue.name,
                         description: issue.description,
                         library: issue.library,
+                        url: null,
+                        source: issue.source ?? null,
+                        noise_reason: getThirdPartyNoiseReason({
+                            description: issue.description,
+                            name: issue.name,
+                            source: issue.source,
+                        }),
                         status: issue.status,
                         occurrences: issue.aggregations?.occurrences ?? 0,
                         sessions: issue.aggregations?.sessions ?? 0,

@@ -14,6 +14,12 @@ export interface MaxErrorTrackingIssuePreview {
     status: string
     /** Library/runtime that generated the error */
     library: string | null
+    /** URL where the error was first seen, if available */
+    url: string | null
+    /** Top in-app frame source path, if available */
+    source: string | null
+    /** Reason this issue is likely third-party noise (cross-origin script, extension frame, etc.); null if not flagged */
+    noise_reason: string | null
     /** When the issue was first seen */
     first_seen: string | null
     /** When the issue was last seen */

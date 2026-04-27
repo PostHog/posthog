@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconChevronDown, IconChevronRight, IconMinus } from '@posthog/icons'
-import { LemonCheckbox, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonSkeleton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { ErrorTrackingRuntime } from 'lib/components/Errors/types'
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
@@ -14,7 +14,7 @@ import { ErrorTrackingCorrelatedIssue, ErrorTrackingIssue } from '~/queries/sche
 
 import { bulkSelectLogic } from '../logics/bulkSelectLogic'
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
-import { sourceDisplay } from '../utils'
+import { getThirdPartyNoiseReason, sourceDisplay } from '../utils'
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from './Assignee/AssigneeDisplay'
 import { AssigneeSelect } from './Assignee/AssigneeSelect'
 import { issueActionsLogic } from './IssueActions/issueActionsLogic'
@@ -106,11 +106,21 @@ export const IssueListTitleColumn = (props: {
         })
     }, [dateRange, filterGroup, filterTestAccounts, searchQuery, record.last_seen, record.id])
 
+    const noiseReason = getThirdPartyNoiseReason({
+        description: record.description,
+        name: record.name,
+        source: record.source,
+    })
+
     return (
-        <div className="flex items-start gap-x-2 group my-1 [--line-height:1.3rem] -ml-2">
+        <div
+            className={`flex items-start gap-x-2 group my-1 [--line-height:1.3rem] -ml-2 ${
+                noiseReason ? 'opacity-70' : ''
+            }`}
+        >
             <LemonCheckbox className="h-(--line-height) mx-1" checked={checked} onChange={handleSelectionChange} />
             <div className="flex flex-col gap-[2px]">
-                <IssueTitle record={record} issueUrl={issueUrl} runtime={runtime} />
+                <IssueTitle record={record} issueUrl={issueUrl} runtime={runtime} noiseReason={noiseReason} />
                 <div
                     title={record.description || undefined}
                     className="font-medium line-clamp-1 text-[var(--gray-8)] h-(--line-height)"
@@ -138,10 +148,12 @@ const IssueTitle = ({
     record,
     issueUrl,
     runtime,
+    noiseReason,
 }: {
     record: ErrorTrackingIssue
     issueUrl: string
     runtime: ErrorTrackingRuntime
+    noiseReason?: string | null
 }): JSX.Element => (
     <Link
         className="flex-1 pr-12 text-[0.9rem]"
@@ -158,6 +170,13 @@ const IssueTitle = ({
         <div className="flex items-center gap-2 h-(--line-height)">
             <RuntimeIcon className="shrink-0" runtime={runtime} fontSize="0.7rem" />
             <span className="font-semibold line-clamp-1">{record.name || 'Unknown Type'}</span>
+            {noiseReason && (
+                <Tooltip title={noiseReason}>
+                    <LemonTag size="small" type="muted" className="shrink-0">
+                        Likely noise
+                    </LemonTag>
+                </Tooltip>
+            )}
         </div>
     </Link>
 )

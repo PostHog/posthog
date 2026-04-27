@@ -2,7 +2,15 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 
 import { ErrorTrackingIssue, ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
 
-import { generateDateRangeLabel, mergeIssues, sourceDisplay } from './utils'
+import {
+    generateDateRangeLabel,
+    getThirdPartyNoiseReason,
+    isExtensionFrame,
+    isExtensionSource,
+    isThirdPartyScriptError,
+    mergeIssues,
+    sourceDisplay,
+} from './utils'
 
 function wrapVolumeBuckets(
     initialDate: Dayjs,
@@ -173,6 +181,68 @@ describe('date range label generation', () => {
             date_from: 'mStart',
         })
         expect(rangeLabel).toEqual('Month')
+    })
+})
+
+describe('isThirdPartyScriptError', () => {
+    it.each([
+        ['Script error.', true],
+        ['Script error', true],
+        ['  Script error.  ', true],
+        ['TypeError: foo', false],
+        ['', false],
+        [undefined, false],
+        [null, false],
+    ])('returns %p for %p', (input, expected) => {
+        expect(isThirdPartyScriptError(input as any)).toBe(expected)
+    })
+})
+
+describe('isExtensionFrame / isExtensionSource', () => {
+    it.each([
+        ['chrome-extension://abc/foo.js', true],
+        ['moz-extension://abc/foo.js', true],
+        ['safari-extension://abc/foo.js', true],
+        ['safari-web-extension://abc/foo.js', true],
+        ['https://app.example.com/static/main.js', false],
+        ['', false],
+        [null, false],
+        [undefined, false],
+    ])('isExtensionSource(%p) === %p', (input, expected) => {
+        expect(isExtensionSource(input)).toBe(expected)
+        expect(isExtensionFrame({ source: input as string | null })).toBe(expected)
+    })
+})
+
+describe('getThirdPartyNoiseReason', () => {
+    it('flags third-party script error via description', () => {
+        expect(
+            getThirdPartyNoiseReason({
+                description: 'Script error.',
+                name: 'Error',
+                source: 'src/app.ts',
+            })
+        ).toMatch(/Cross-origin/)
+    })
+
+    it('flags extension frame via source', () => {
+        expect(
+            getThirdPartyNoiseReason({
+                description: 'TypeError',
+                name: 'TypeError',
+                source: 'chrome-extension://abc/content.js',
+            })
+        ).toMatch(/extension/)
+    })
+
+    it('returns null for actionable issues', () => {
+        expect(
+            getThirdPartyNoiseReason({
+                description: "Cannot read property 'foo' of undefined",
+                name: 'TypeError',
+                source: 'src/components/Button.tsx',
+            })
+        ).toBeNull()
     })
 })
 

@@ -453,3 +453,122 @@ class TestSearchErrorTrackingIssuesToolFormatting(NonAtomicBaseTest):
         tool = await self._create_tool()
         result = tool._format_date(date_value)
         self.assertEqual(result, expected)
+
+    async def test_format_issue_includes_url_and_library(self):
+        import json as _json
+
+        tool = await self._create_tool()
+        issue = ErrorTrackingIssueSchema.model_validate(
+            {
+                "id": "01234567-89ab-cdef-0123-456789abcdef",
+                "name": "TypeError: Cannot read 'foo'",
+                "status": "active",
+                "library": "web",
+                "first_seen": "2025-01-10T10:00:00Z",
+                "last_seen": "2025-01-15T11:00:00Z",
+                "first_event": {
+                    "uuid": "abc",
+                    "distinct_id": "user-1",
+                    "timestamp": "2025-01-10T10:00:00Z",
+                    "properties": _json.dumps({"$current_url": "https://app.example.com/checkout"}),
+                },
+                "aggregations": {"occurrences": 1, "users": 1, "sessions": 0, "volume_buckets": []},
+            }
+        )
+
+        result = tool._format_issue(1, issue)
+
+        self.assertIn("Library: web", result)
+        self.assertIn("URL: https://app.example.com/checkout", result)
+        self.assertNotIn("LIKELY THIRD-PARTY NOISE", result)
+
+    @parameterized.expand(
+        [
+            ("Script error.", "Cross-origin"),
+            ("Script error", "Cross-origin"),
+        ]
+    )
+    async def test_format_issue_flags_third_party_script_error(self, description, reason_substring):
+        tool = await self._create_tool()
+        issue = ErrorTrackingIssueSchema.model_validate(
+            {
+                "id": "01234567-89ab-cdef-0123-456789abcdef",
+                "name": "Error",
+                "description": description,
+                "status": "active",
+                "first_seen": "2025-01-10T10:00:00Z",
+                "last_seen": "2025-01-15T11:00:00Z",
+                "aggregations": {"occurrences": 1, "users": 1, "sessions": 0, "volume_buckets": []},
+            }
+        )
+
+        result = tool._format_issue(1, issue)
+
+        self.assertIn("LIKELY THIRD-PARTY NOISE", result)
+        self.assertIn(reason_substring, result)
+
+    async def test_format_issue_flags_extension_frame(self):
+        tool = await self._create_tool()
+        issue = ErrorTrackingIssueSchema.model_validate(
+            {
+                "id": "01234567-89ab-cdef-0123-456789abcdef",
+                "name": "TypeError",
+                "description": "Some extension error",
+                "source": "chrome-extension://abcdef/content.js",
+                "status": "active",
+                "first_seen": "2025-01-10T10:00:00Z",
+                "last_seen": "2025-01-15T11:00:00Z",
+                "aggregations": {"occurrences": 1, "users": 1, "sessions": 0, "volume_buckets": []},
+            }
+        )
+
+        result = tool._format_issue(1, issue)
+
+        self.assertIn("LIKELY THIRD-PARTY NOISE", result)
+        self.assertIn("browser extension", result)
+
+    async def test_build_issue_previews_populates_url_source_noise(self):
+        import json as _json
+
+        tool = await self._create_tool()
+        issues = [
+            ErrorTrackingIssueSchema.model_validate(
+                {
+                    "id": "01234567-89ab-cdef-0123-456789abcdef",
+                    "name": "TypeError",
+                    "description": "Real error",
+                    "status": "active",
+                    "library": "web",
+                    "source": "src/app.ts",
+                    "first_seen": "2025-01-10T10:00:00Z",
+                    "last_seen": "2025-01-15T11:00:00Z",
+                    "first_event": {
+                        "uuid": "abc",
+                        "distinct_id": "user-1",
+                        "timestamp": "2025-01-10T10:00:00Z",
+                        "properties": _json.dumps({"$current_url": "https://app.example.com/dashboard"}),
+                    },
+                    "aggregations": {"occurrences": 1, "users": 1, "sessions": 0, "volume_buckets": []},
+                }
+            ),
+            ErrorTrackingIssueSchema.model_validate(
+                {
+                    "id": "11234567-89ab-cdef-0123-456789abcdef",
+                    "name": "Error",
+                    "description": "Script error.",
+                    "status": "active",
+                    "first_seen": "2025-01-10T10:00:00Z",
+                    "last_seen": "2025-01-15T11:00:00Z",
+                    "aggregations": {"occurrences": 1, "users": 1, "sessions": 0, "volume_buckets": []},
+                }
+            ),
+        ]
+
+        previews = tool._build_issue_previews(issues)
+
+        self.assertEqual(len(previews), 2)
+        self.assertEqual(previews[0].url, "https://app.example.com/dashboard")
+        self.assertEqual(previews[0].source, "src/app.ts")
+        self.assertIsNone(previews[0].noise_reason)
+        self.assertIsNone(previews[1].url)
+        self.assertIn("Script error", previews[1].noise_reason or "")

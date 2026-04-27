@@ -3,7 +3,7 @@ import { LogicWrapper } from 'kea'
 import { routerType } from 'kea-router/lib/routerType'
 import { MouseEvent } from 'react'
 
-import { ErrorTrackingException } from 'lib/components/Errors/types'
+import { ErrorTrackingException, ErrorTrackingStackFrame } from 'lib/components/Errors/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { componentsToDayJs, dateStringToComponents, dateStringToDayJs, isStringDateRegex } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
@@ -14,7 +14,16 @@ export const ERROR_TRACKING_LOGIC_KEY = 'errorTracking'
 export const ERROR_TRACKING_LISTING_RESOLUTION = 20
 export const ERROR_TRACKING_DETAILS_RESOLUTION = 50
 
-const THIRD_PARTY_SCRIPT_ERROR = 'Script error.'
+// Cross-origin script tags swallow their stack trace and surface as the literal "Script error."
+// (with or without the trailing period depending on the browser).
+const THIRD_PARTY_SCRIPT_ERROR_VALUES: ReadonlySet<string> = new Set(['Script error.', 'Script error'])
+
+const EXTENSION_FRAME_SCHEMES = [
+    'chrome-extension://',
+    'moz-extension://',
+    'safari-extension://',
+    'safari-web-extension://',
+] as const
 
 export const SEARCHABLE_EXCEPTION_PROPERTIES = [
     '$exception_types',
@@ -93,8 +102,55 @@ export const mergeIssues = (
     }
 }
 
-export function isThirdPartyScriptError(value: ErrorTrackingException['value']): boolean {
-    return value === THIRD_PARTY_SCRIPT_ERROR
+export function isThirdPartyScriptError(value: ErrorTrackingException['value'] | undefined | null): boolean {
+    if (typeof value !== 'string') {
+        return false
+    }
+    return THIRD_PARTY_SCRIPT_ERROR_VALUES.has(value.trim())
+}
+
+/**
+ * Frames sourced from a browser extension (chrome-extension://, moz-extension://, ...).
+ * These almost never represent issues an application owner can fix, so we treat them as noise.
+ */
+export function isExtensionFrame(frame: Pick<ErrorTrackingStackFrame, 'source'> | null | undefined): boolean {
+    const source = frame?.source
+    if (typeof source !== 'string') {
+        return false
+    }
+    return EXTENSION_FRAME_SCHEMES.some((scheme) => source.startsWith(scheme))
+}
+
+/**
+ * Returns true if the source path looks like a browser extension URL.
+ * Use when only the raw source string is available (e.g. an issue list row).
+ */
+export function isExtensionSource(source: string | null | undefined): boolean {
+    if (typeof source !== 'string') {
+        return false
+    }
+    return EXTENSION_FRAME_SCHEMES.some((scheme) => source.startsWith(scheme))
+}
+
+/**
+ * Heuristic for issue-level "this is almost certainly third-party noise" flagging.
+ * Returns the human-readable reason when the issue is likely noise, or null otherwise.
+ *
+ * Used to de-prioritise noise in the issue list and AI tool output rather than
+ * presenting cross-origin / extension errors as equal-weight to actionable issues.
+ */
+export function getThirdPartyNoiseReason(issue: {
+    description?: string | null
+    name?: string | null
+    source?: string | null
+}): string | null {
+    if (isThirdPartyScriptError(issue.description) || isThirdPartyScriptError(issue.name)) {
+        return 'Cross-origin "Script error." with no usable stack frames'
+    }
+    if (isExtensionSource(issue.source)) {
+        return 'Top frame is from a browser extension'
+    }
+    return null
 }
 
 const customOptions: Record<string, string> = {

@@ -3167,9 +3167,18 @@ class MaxErrorTrackingIssuePreview(BaseModel):
     last_seen: str | None = Field(..., description="When the issue was last seen")
     library: str | None = Field(..., description="Library/runtime that generated the error")
     name: str | None = Field(..., description="Issue name/title")
+    noise_reason: str | None = Field(
+        ...,
+        description=(
+            "Reason this issue is likely third-party noise (cross-origin script, extension frame, etc.);"
+            " null if not flagged"
+        ),
+    )
     occurrences: float = Field(..., description="Total number of occurrences")
     sessions: float = Field(..., description="Number of affected sessions")
+    source: str | None = Field(..., description="Top in-app frame source path, if available")
     status: str = Field(..., description="Issue status (active, resolved, etc.)")
+    url: str | None = Field(..., description="URL where the error was first seen, if available")
     users: float = Field(..., description="Number of affected users")
 
 

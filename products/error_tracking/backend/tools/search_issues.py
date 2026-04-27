@@ -1,7 +1,7 @@
 import json
 from datetime import UTC
 from textwrap import dedent
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 from django.utils import timezone
 
@@ -25,6 +25,15 @@ from ee.hogai.tool import MaxTool
 from ee.hogai.tool_errors import MaxToolRetryableError
 
 logger = structlog.get_logger(__name__)
+
+
+EXTENSION_FRAME_SCHEMES = (
+    "chrome-extension://",
+    "moz-extension://",
+    "safari-extension://",
+    "safari-web-extension://",
+)
+THIRD_PARTY_SCRIPT_ERROR_VALUES = {"Script error.", "Script error"}
 
 
 SEARCH_QUERY_EXAMPLES = """
@@ -191,7 +200,10 @@ class SearchErrorTrackingIssuesTool(MaxTool):
 
         # Ensure query parameters match dashboard defaults
         query.withAggregations = True
-        query.withFirstEvent = False
+        # Pull the first event so we can surface URL/library context and detect cross-origin
+        # script / extension noise. This costs a little more per row but is bounded by `limit`,
+        # and the AI agent's debugging value depends on having this context per-issue.
+        query.withFirstEvent = True
         if query.filterTestAccounts is None:
             query.filterTestAccounts = False
         # Set empty filterGroup if not provided (matches dashboard behavior)
@@ -258,6 +270,7 @@ class SearchErrorTrackingIssuesTool(MaxTool):
         previews = []
         for issue in results:
             aggregations = issue.aggregations
+            properties = self._first_event_properties(issue)
 
             previews.append(
                 MaxErrorTrackingIssuePreview(
@@ -266,6 +279,9 @@ class SearchErrorTrackingIssuesTool(MaxTool):
                     description=issue.description or self._extract_exception_message(issue),
                     status=issue.status or "unknown",
                     library=issue.library,
+                    url=self._extract_url(properties),
+                    source=getattr(issue, "source", None),
+                    noise_reason=self._detect_noise_reason(issue, properties),
                     first_seen=self._format_date(issue.first_seen) or None,
                     last_seen=self._format_date(issue.last_seen) or None,
                     occurrences=int(aggregations.occurrences) if aggregations else 0,
@@ -303,10 +319,14 @@ class SearchErrorTrackingIssuesTool(MaxTool):
         """Format a single issue for display."""
         issue_id = issue.id or ""
         name = issue.name or "Unnamed issue"
+        properties = self._first_event_properties(issue)
         description = issue.description or self._extract_exception_message(issue)
         status = issue.status or "unknown"
         first_seen = issue.first_seen
         last_seen = issue.last_seen
+        library = issue.library
+        url = self._extract_url(properties)
+        noise_reason = self._detect_noise_reason(issue, properties)
 
         aggregations = issue.aggregations
         if aggregations:
@@ -321,13 +341,25 @@ class SearchErrorTrackingIssuesTool(MaxTool):
         first_seen_str = self._format_date(first_seen)
         last_seen_str = self._format_date(last_seen)
 
-        lines = [f"{index}. {name}"]
+        title_suffix = " [LIKELY THIRD-PARTY NOISE]" if noise_reason else ""
+        lines = [f"{index}. {name}{title_suffix}"]
         if description:
             # Truncate long descriptions
             desc_display = description[:100] + "..." if len(description) > 100 else description
             lines.append(f"   {desc_display}")
         lines.append(f"   ID: {issue_id}")
         lines.append(f"   Status: {status} | Occurrences: {occurrences:,} | Users: {users:,} | Sessions: {sessions:,}")
+
+        environment_parts: list[str] = []
+        if library:
+            environment_parts.append(f"Library: {library}")
+        if url:
+            environment_parts.append(f"URL: {url}")
+        if environment_parts:
+            lines.append(f"   {' | '.join(environment_parts)}")
+
+        if noise_reason:
+            lines.append(f"   Noise: {noise_reason} — likely not actionable")
 
         if first_seen_str or last_seen_str:
             date_parts = []
@@ -343,26 +375,77 @@ class SearchErrorTrackingIssuesTool(MaxTool):
 
     def _extract_exception_message(self, issue: ErrorTrackingIssue) -> str | None:
         """Extract exception message from first_event properties."""
-        first_event = issue.first_event
+        properties = self._first_event_properties(issue)
+        exception_list = properties.get("$exception_list", []) or []
+        if exception_list and isinstance(exception_list[0], dict):
+            value = exception_list[0].get("value")
+            if value:
+                return value
+        return None
+
+    @staticmethod
+    def _first_event_properties(issue: ErrorTrackingIssue) -> dict[str, Any]:
+        """Decode `first_event.properties` (always serialized as a JSON string) safely."""
+        first_event = getattr(issue, "first_event", None)
         if not first_event:
-            return None
-
-        properties = first_event.properties
+            return {}
+        properties = getattr(first_event, "properties", None)
         if not properties:
-            return None
-
+            return {}
         try:
-            props = json.loads(properties)
-            exception_list = props.get("$exception_list", [])
-            if exception_list and len(exception_list) > 0:
-                first_exception = exception_list[0]
-                value = first_exception.get("value")
-                if value:
-                    return value
-        except (json.JSONDecodeError, TypeError, KeyError, AttributeError):
-            pass
+            decoded = json.loads(properties) if isinstance(properties, str) else properties
+        except (json.JSONDecodeError, TypeError):
+            return {}
+        return decoded if isinstance(decoded, dict) else {}
+
+    @staticmethod
+    def _extract_url(properties: dict[str, Any]) -> str | None:
+        url = properties.get("$current_url")
+        return url if isinstance(url, str) and url else None
+
+    @classmethod
+    def _detect_noise_reason(
+        cls, issue: ErrorTrackingIssue, properties: dict[str, Any]
+    ) -> str | None:
+        """Return a human-readable reason if the issue is likely third-party noise.
+
+        Mirrors `getThirdPartyNoiseReason` in the frontend so AI consumers and the
+        UI agree on what counts as noise. We check both the issue-level fields
+        (already in the listing query result) and the captured first-event frames.
+        """
+
+        def is_script_error(value: Any) -> bool:
+            return isinstance(value, str) and value.strip() in THIRD_PARTY_SCRIPT_ERROR_VALUES
+
+        if is_script_error(issue.description) or is_script_error(issue.name):
+            return "Cross-origin 'Script error.' with no usable stack frames"
+
+        source = getattr(issue, "source", None)
+        if isinstance(source, str) and source.startswith(EXTENSION_FRAME_SCHEMES):
+            return "Top frame is from a browser extension"
+
+        exception_list = properties.get("$exception_list", []) or []
+        for exception in exception_list:
+            if not isinstance(exception, dict):
+                continue
+            if is_script_error(exception.get("value")):
+                return "Cross-origin 'Script error.' with no usable stack frames"
+            stacktrace = exception.get("stacktrace") or {}
+            frames = stacktrace.get("frames", []) if isinstance(stacktrace, dict) else []
+            if frames and all(cls._frame_is_extension(frame) for frame in frames):
+                return "All stack frames are from a browser extension"
 
         return None
+
+    @staticmethod
+    def _frame_is_extension(frame: Any) -> bool:
+        if not isinstance(frame, dict):
+            return False
+        for key in ("source", "abs_path", "filename"):
+            value = frame.get(key)
+            if isinstance(value, str) and value.startswith(EXTENSION_FRAME_SCHEMES):
+                return True
+        return False
 
     def _format_date(self, date_value) -> str:
         """Format a date value for display in UTC."""
