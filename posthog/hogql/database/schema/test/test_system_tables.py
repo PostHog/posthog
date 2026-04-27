@@ -390,7 +390,10 @@ def _create_task_run(team: Team, label: str):
 def _create_sandbox_environment(team: Team, label: str):
     from products.tasks.backend.models import SandboxEnvironment
 
-    return SandboxEnvironment.objects.create(team=team, name=f"env_{label}")
+    # private=False so the row is queryable via HogQL — the privacy predicate
+    # excludes private environments. Privacy filtering itself is covered by
+    # TestSystemTablesSandboxEnvironmentPrivacy.
+    return SandboxEnvironment.objects.create(team=team, name=f"env_{label}", private=False)
 
 
 def _create_team(team: Team, label: str) -> Team:
@@ -468,3 +471,36 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
 
         assert str(obj_team1.pk) in ids
         assert str(obj_team2.pk) not in ids
+
+
+class TestSystemTablesSandboxEnvironmentPrivacy(BaseTest):
+    """Verify the sandbox_environments system table excludes private environments,
+    mirroring the REST API's per-creator visibility filter."""
+
+    def test_generated_sql_includes_private_predicate(self):
+        db = Database.create_for(team=self.team)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
+        query, _ = prepare_and_print_ast(
+            parse_select("SELECT id FROM system.sandbox_environments"), context, dialect="clickhouse"
+        )
+        assert "system__sandbox_environments.private" in query
+        assert f"equals(system__sandbox_environments.team_id, {self.team.pk})" in query
+
+
+class TestSystemTablesSandboxEnvironmentPrivacyIsolation(NonAtomicBaseTest):
+    """End-to-end check that private sandbox environments are never returned via HogQL,
+    even within the creator's own team."""
+
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_private_environments_excluded(self):
+        from products.tasks.backend.models import SandboxEnvironment
+
+        public_env = SandboxEnvironment.objects.create(team=self.team, name="public_env", private=False)
+        private_env = SandboxEnvironment.objects.create(team=self.team, name="private_env", private=True)
+
+        response = execute_hogql_query("SELECT id FROM system.sandbox_environments", team=self.team)
+        ids = {str(row[0]) for row in response.results}
+
+        assert str(public_env.pk) in ids
+        assert str(private_env.pk) not in ids

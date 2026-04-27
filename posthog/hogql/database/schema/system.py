@@ -893,6 +893,9 @@ sandbox_environments: PostgresTable = PostgresTable(
     name="sandbox_environments",
     postgres_table_name="posthog_sandbox_environment",
     access_scope="task",
+    # Mirror the REST API's privacy filter: private envs are only visible to their creator.
+    # PostgresTable predicates have no per-user context, so private envs are excluded entirely.
+    predicates=[parse_expr("private != true")],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
