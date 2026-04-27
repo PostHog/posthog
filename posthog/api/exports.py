@@ -127,6 +127,10 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         )
 
         if is_full_video_export:
+            # Reject quota-bypass attempts: mode="screenshot" is reserved for internal LLM clips.
+            if export_context.get("mode") == "screenshot":
+                raise ValidationError({"export_context": ["mode='screenshot' is not valid for video exports"]})
+
             # Calculate the start of the current month
             current_time = now()
             start_of_month = current_time.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
