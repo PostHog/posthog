@@ -157,6 +157,12 @@ def get_parents_from_model_query(team: Team, model_name: str, model_query: str) 
     resolver = CycleDetectingResolver(context=context, dialect="hogql", initial_view_name=model_name)
     prepared_ast = resolver.visit(hogql_query)
 
+    # The hogql dialect accumulates non-fatal resolution errors (e.g. unknown aliases) on the context
+    # rather than raising, so we have to opt in to fail-fast behavior here — saved queries with
+    # unresolved references must not be persisted as DAG nodes.
+    if context.errors:
+        raise QueryError(context.errors[0].message)
+
     if prepared_ast is None:
         return set()
 
