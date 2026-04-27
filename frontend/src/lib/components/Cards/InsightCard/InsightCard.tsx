@@ -226,10 +226,12 @@ function InsightCardInternal(
             const validationError = extractValidationError(apiError)
             if (validationError) {
                 return <InsightValidationError detail={validationError} />
-            } else if (apiError instanceof ApiError) {
-                return <InsightErrorState title={apiError?.detail} />
             }
-            return <InsightErrorState />
+            const onRetry = refresh && refreshEnabled ? refresh : undefined
+            if (apiError instanceof ApiError) {
+                return <InsightErrorState title={apiError?.detail} onRetry={onRetry} />
+            }
+            return <InsightErrorState onRetry={onRetry} />
         }
 
         if (timedOut) {
