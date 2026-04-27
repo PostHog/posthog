@@ -8,7 +8,7 @@ from temporalio import activity
 from posthog.models import Team
 from posthog.temporal.common.utils import asyncify
 
-from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.exceptions import TaskInvalidStateError, TaskNotFoundError
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import format_allowed_domains_for_log
@@ -145,12 +145,14 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     allowed_domains: list[str] | None = None
 
     if sandbox_environment_id:
-        sandbox_environment = SandboxEnvironment.objects.filter(id=sandbox_environment_id, team=task.team).first()
+        sandbox_environment = task_run.get_sandbox_environment()
         if sandbox_environment is None:
             raise TaskInvalidStateError(
-                f"Sandbox environment {sandbox_environment_id} not found for team {task.team_id}",
+                f"Sandbox environment {sandbox_environment_id} not accessible for team {task.team_id}",
                 {"sandbox_environment_id": sandbox_environment_id, "team_id": task.team_id},
-                cause=RuntimeError(f"Sandbox environment {sandbox_environment_id} does not exist"),
+                cause=RuntimeError(
+                    f"Sandbox environment {sandbox_environment_id} does not exist or is not accessible to the task creator"
+                ),
             )
         else:
             sandbox_environment_name = sandbox_environment.name

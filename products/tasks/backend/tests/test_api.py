@@ -135,6 +135,15 @@ class BaseTaskAPITest(TestCase):
             origin_product=Task.OriginProduct.USER_CREATED,
         )
 
+    def create_organization_user(self, email_prefix: str = "other") -> User:
+        user = User.objects.create_user(
+            email=f"{email_prefix}-{uuid.uuid4()}@example.com",
+            first_name="Other",
+            password="password",
+        )
+        self.organization.members.add(user)
+        return user
+
     def create_automation(
         self,
         name="Daily PRs",
@@ -361,7 +370,13 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_persists_sandbox_environment_id(self, mock_workflow):
-        task = self.create_task()
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Test Task",
+            description="Test Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
         sandbox_environment = SandboxEnvironment.objects.create(
             team=self.team,
             created_by=self.user,
@@ -380,6 +395,71 @@ class TestTaskAPI(BaseTaskAPITest):
         run_id = response.json()["latest_run"]["id"]
         task_run = TaskRun.objects.get(id=run_id)
         self.assertEqual(task_run.state["sandbox_environment_id"], str(sandbox_environment.id))
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_other_users_private_sandbox_environment(self, mock_workflow):
+        other_user = self.create_organization_user("victim")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Test Task",
+            description="Test Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        sandbox_environment = SandboxEnvironment.objects.create(
+            team=self.team,
+            created_by=other_user,
+            name="Victim's private env",
+            private=True,
+            environment_variables={"SECRET_KEY": "secret_value"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"sandbox_environment_id": str(sandbox_environment.id)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Invalid sandbox_environment_id")
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_drops_inaccessible_inherited_sandbox_environment_id(self, mock_workflow):
+        other_user = self.create_organization_user("victim")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Test Task",
+            description="Test Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        sandbox_environment = SandboxEnvironment.objects.create(
+            team=self.team,
+            created_by=other_user,
+            name="Victim's private env",
+            private=True,
+            environment_variables={"SECRET_KEY": "secret_value"},
+        )
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"sandbox_environment_id": str(sandbox_environment.id)},
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"resume_from_run_id": str(previous_run.id)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
+        self.assertEqual(run.state["resume_from_run_id"], str(previous_run.id))
+        self.assertNotIn("sandbox_environment_id", run.state)
         mock_workflow.assert_called_once()
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
@@ -526,6 +606,38 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(task_run.state["reasoning_effort"], "high")
         self.assertEqual(task_run.state["initial_permission_mode"], "auto")
         self.assertEqual(task_run.state["run_source"], "manual")
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_create_run_endpoint_rejects_other_users_private_sandbox_environment(self, mock_workflow):
+        other_user = self.create_organization_user("victim")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Test Task",
+            description="Test Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        sandbox_environment = SandboxEnvironment.objects.create(
+            team=self.team,
+            created_by=other_user,
+            name="Victim's private env",
+            private=True,
+            environment_variables={"SECRET_KEY": "secret_value"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {
+                "environment": "cloud",
+                "sandbox_environment_id": str(sandbox_environment.id),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Invalid sandbox_environment_id")
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
         mock_workflow.assert_not_called()
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
@@ -4917,6 +5029,7 @@ class TestSandboxEnvironmentAPI(BaseTaskAPITest):
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_task_stores_sandbox_environment_id_in_state(self, mock_workflow):
         task = self.create_task()
+        task.created_by = self.user
         task.repository = "org/repo"
         task.github_integration = Integration.objects.create(team=self.team, kind="github")
         task.save()
