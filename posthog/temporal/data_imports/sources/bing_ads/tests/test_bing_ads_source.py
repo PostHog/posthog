@@ -247,7 +247,7 @@ class TestBingAdsSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
 
         assert pattern in non_retryable_errors
-        assert any(p in raised_message for p in non_retryable_errors)
+        assert pattern in raised_message
 
     def test_get_resumable_source_manager(self):
         """Test that get_resumable_source_manager returns a manager that round-trips BingAdsResumeConfig."""
