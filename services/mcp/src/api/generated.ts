@@ -17506,6 +17506,85 @@ export namespace Schemas {
       aggregation_group_type_index?: number | null;
     }
 
+    /**
+     * * `boolean` - boolean
+    * `string` - string
+    * `json` - json
+     */
+    export type ValueTypeEnum = typeof ValueTypeEnum[keyof typeof ValueTypeEnum];
+
+
+    export const ValueTypeEnum = {
+      Boolean: 'boolean',
+      String: 'string',
+      Json: 'json',
+    } as const;
+
+    /**
+     * * `targeted` - targeted
+    * `rollout` - rollout
+    * `experiment` - experiment
+     */
+    export type FeatureFlagV2ReleaseConditionSchemaTypeEnum = typeof FeatureFlagV2ReleaseConditionSchemaTypeEnum[keyof typeof FeatureFlagV2ReleaseConditionSchemaTypeEnum];
+
+
+    export const FeatureFlagV2ReleaseConditionSchemaTypeEnum = {
+      Targeted: 'targeted',
+      Rollout: 'rollout',
+      Experiment: 'experiment',
+    } as const;
+
+    export interface FeatureFlagV2VariantSchema {
+      /** Unique key for this experiment variant. */
+      key: string;
+      /**
+       * Human-readable name for this experiment variant.
+       * @nullable
+       */
+      name?: string | null;
+      /** Percentage split allocated to this variant. */
+      rollout_percentage: number;
+      /** Typed value returned when this variant is assigned. Must match the flag's value_type. */
+      value: unknown;
+    }
+
+    export interface FeatureFlagV2ReleaseConditionSchema {
+      /** Stable release condition identifier. */
+      id: string;
+      /** Release condition behavior: targeted release, percentage rollout, or experiment.
+
+    * `targeted` - targeted
+    * `rollout` - rollout
+    * `experiment` - experiment */
+      type: FeatureFlagV2ReleaseConditionSchemaTypeEnum;
+      /** Property conditions for this release condition. */
+      properties?: FeatureFlagFilterPropertySchema[];
+      /**
+       * Group type index for this condition. None means person-level aggregation.
+       * @nullable
+       */
+      aggregation_group_type_index?: number | null;
+      /** Typed value returned by targeted and rollout conditions. Must match the flag's value_type. */
+      value?: unknown;
+      /**
+       * Overall rollout percentage for rollout and experiment conditions.
+       * @nullable
+       */
+      rollout_percentage?: number | null;
+      /** Experiment variants for experiment release conditions. */
+      variants?: FeatureFlagV2VariantSchema[];
+      /**
+       * Optional display name for this release condition.
+       * @nullable
+       */
+      name?: string | null;
+      /**
+       * Optional description for this release condition.
+       * @nullable
+       */
+      description?: string | null;
+    }
+
     export interface FeatureFlagMultivariateVariantSchema {
       /** Unique key for this variant. */
       key: string;
@@ -17528,6 +17607,18 @@ export namespace Schemas {
     export type FeatureFlagFiltersSchemaSuperGroupsItem = {[key: string]: unknown};
 
     export interface FeatureFlagFiltersSchema {
+      /** Filter schema version. Version 2 enables typed values and release_conditions. */
+      schema_version?: number;
+      /** Type of value returned by enabled evaluations: boolean, string, or JSON.
+
+    * `boolean` - boolean
+    * `string` - string
+    * `json` - json */
+      value_type?: ValueTypeEnum;
+      /** Typed value returned when the v2 flag is enabled without a matching release condition. */
+      default_value?: unknown;
+      /** Version 2 release conditions, evaluated in order. */
+      release_conditions?: FeatureFlagV2ReleaseConditionSchema[];
       /** Release condition groups for the feature flag. */
       groups?: FeatureFlagConditionGroupSchema[];
       /** Multivariate configuration for variant-based rollouts. */
