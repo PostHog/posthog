@@ -230,12 +230,12 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         return global_event_filters
 
     def convert_single_breakdown_to_multiple_breakdowns(self):
+        assert self.query.breakdownFilter is not None
         if has_single_breakdown(self.query.breakdownFilter):
-            assert self.query.breakdownFilter is not None  # type checking
             if self.query.breakdownFilter.breakdown_type == "cohort":
                 # Ensure breakdown is always a list for cohorts
                 breakdown_values = self.query.breakdownFilter.breakdown
-                assert breakdown_values is not None  # type checking
+                assert breakdown_values is not None
                 if not isinstance(breakdown_values, list):
                     breakdown_values = [breakdown_values]
 
