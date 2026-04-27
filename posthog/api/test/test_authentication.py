@@ -397,7 +397,7 @@ class TestLogoutRedirect(APIBaseTest):
         self.assertEqual(response["Location"], settings.LOGIN_URL)
 
     def test_logout_forwards_safe_next_param(self):
-        response = self.client.post("/logout", {"next": "/settings/user-notifications"})
+        response = self.client.post("/logout", {"next": "/settings/user-notifications"}, format="multipart")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertEqual(response["Location"], "/login?next=/settings/user-notifications")
 
@@ -409,7 +409,7 @@ class TestLogoutRedirect(APIBaseTest):
         ]
     )
     def test_logout_ignores_unsafe_next_param(self, _name, unsafe):
-        response = self.client.post("/logout", {"next": unsafe})
+        response = self.client.post("/logout", {"next": unsafe}, format="multipart")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertEqual(response["Location"], settings.LOGIN_URL, f"Unsafe next was preserved: {unsafe}")
 
