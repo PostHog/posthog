@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 from .classifier import SnapshotClassifier
 from .db import WRITER_DB
 from .facade.enums import ReviewDecision, ReviewState, RunPurpose, RunStatus, SnapshotResult, ToleratedReason
+from .github import GitHubRateLimitError  # noqa: F401 — re-exported for facade
 from .models import Artifact, QuarantinedIdentifier, Repo, Run, RunSnapshot, ToleratedHash
 from .signing import sign_snapshot_hash, verify_signed_hash
 from .storage import ArtifactStorage
@@ -344,15 +345,14 @@ def _get_merge_base_sha(github: GitHubIntegration, repo_full_name: str, base: st
 
     import requests
 
+    from .github import github_request
+
     access_token = github.integration.sensitive_config["access_token"]
     try:
-        response = requests.get(
+        response = github_request(
+            "GET",
             f"https://api.github.com/repos/{repo_full_name}/compare/{quote(base, safe='')}...{quote(head, safe='')}",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
+            access_token=access_token,
             timeout=10,
         )
     except requests.RequestException:
@@ -384,15 +384,14 @@ def _get_default_branch(github: GitHubIntegration, repo_full_name: str) -> str:
     """Get the repo's default branch name via the GitHub API. Falls back to 'master'."""
     import requests
 
+    from .github import github_request
+
     access_token = github.integration.sensitive_config["access_token"]
     try:
-        response = requests.get(
+        response = github_request(
+            "GET",
             f"https://api.github.com/repos/{repo_full_name}",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
+            access_token=access_token,
             timeout=10,
         )
     except requests.RequestException:
@@ -435,6 +434,9 @@ def _resolve_baselines_with_merge_base(repo: Repo, run_type: str, branch: str) -
     rewrites the full file, and git rebase replays it destructively).
 
     Branch entries win on conflict so approvals are preserved.
+    Identifiers previously approved as REMOVED on this branch are
+    tombstoned — healing would otherwise resurrect them from master
+    and re-flag them as removed on every subsequent run.
     Returns (merged_baseline, healed_count).
     """
     try:
@@ -468,10 +470,13 @@ def _resolve_baselines_with_merge_base(repo: Repo, run_type: str, branch: str) -
     if not merge_base_baseline:
         return branch_baseline, 0
 
-    healed = set(merge_base_baseline) - set(branch_baseline)
-    merged = {**merge_base_baseline, **branch_baseline}
+    tombstoned = _tombstoned_identifiers(repo, run_type, branch)
+    healable_merge_base = {k: v for k, v in merge_base_baseline.items() if k not in tombstoned}
 
-    if healed:
+    healed = set(healable_merge_base) - set(branch_baseline)
+    merged = {**healable_merge_base, **branch_baseline}
+
+    if healed or tombstoned:
         logger.info(
             "visual_review.baseline_healed",
             repo_id=str(repo.id),
@@ -480,9 +485,55 @@ def _resolve_baselines_with_merge_base(repo: Repo, run_type: str, branch: str) -
             branch_count=len(branch_baseline),
             merge_base_count=len(merge_base_baseline),
             merged_count=len(merged),
+            tombstoned_count=len(tombstoned),
         )
 
     return merged, len(healed)
+
+
+def _tombstoned_identifiers(repo: Repo, run_type: str, branch: str) -> set[str]:
+    """Identifiers whose latest approved outcome on this branch was REMOVED.
+
+    Healing pulls entries from merge-base back into the baseline when
+    they're missing from branch. Without tombstoning, an approved
+    removal keeps reappearing: the bot commit drops it from the branch
+    file, but the next run's merge-base fetch re-adds it and classifies
+    it REMOVED all over again.
+
+    Uses the most recent approved decision per identifier so that a
+    later re-addition (approved as NEW/CHANGED) clears the tombstone.
+    """
+    from django.db.models import OuterRef, Subquery
+
+    latest_approved_run = (
+        RunSnapshot.objects.using(WRITER_DB)
+        .filter(
+            run__repo=repo,
+            run__run_type=run_type,
+            run__branch=branch,
+            run__approved=True,
+            review_state=ReviewState.APPROVED,
+            identifier=OuterRef("identifier"),
+        )
+        .order_by("-run__created_at")
+        .values("run__created_at")[:1]
+    )
+
+    return set(
+        RunSnapshot.objects.using(WRITER_DB)
+        .filter(
+            run__repo=repo,
+            run__run_type=run_type,
+            run__branch=branch,
+            run__approved=True,
+            review_state=ReviewState.APPROVED,
+            result=SnapshotResult.REMOVED,
+        )
+        .annotate(latest_approved_at=Subquery(latest_approved_run))
+        .filter(run__created_at=F("latest_approved_at"))
+        .values_list("identifier", flat=True)
+        .distinct()
+    )
 
 
 def create_run(
@@ -701,7 +752,7 @@ def complete_run(run_id: UUID) -> Run:
     Idempotent: returns immediately if already processing or completed.
     """
     run = get_run(run_id)
-    if run.status in (RunStatus.PROCESSING, RunStatus.COMPLETED):
+    if run.status in (RunStatus.COMPLETED, RunStatus.PROCESSING):
         return run
 
     # Transition to PROCESSING early so late add_snapshots calls are rejected.
@@ -718,7 +769,12 @@ def complete_run(run_id: UUID) -> Run:
     # Fetch baseline merged with merge-base to heal rebase-induced drift.
     # Branch baseline tracks approvals; merge-base fills entries lost when
     # git rebase replays a full-file bot commit destructively.
-    baseline, healed_count = _resolve_baselines_with_merge_base(repo, run.run_type, run.branch)
+    try:
+        baseline, healed_count = _resolve_baselines_with_merge_base(repo, run.run_type, run.branch)
+    except GitHubRateLimitError:
+        # Roll back to PENDING so the caller can retry after the limit resets
+        Run.objects.filter(id=run_id).update(status=RunStatus.PENDING)
+        raise
     if healed_count:
         run.metadata["baseline_healed_from_merge_base"] = healed_count
         run.save(using=WRITER_DB, update_fields=["metadata"])
@@ -750,7 +806,7 @@ def complete_run(run_id: UUID) -> Run:
 
     # Optimization: if no changes, skip diff processing entirely
     if run.changed_count == 0 and run.new_count == 0:
-        finalize_run(run_id)
+        finish_processing(run_id)
         return get_run(run_id)
 
     # Mark as processing and trigger diff task
@@ -835,36 +891,41 @@ def _stamp_quarantine(run: Run) -> None:
     snapshots.filter(is_quarantined=True).exclude(identifier__in=quarantined_ids).update(is_quarantined=False)
 
 
-def finalize_run(run_id: UUID, error_message: str = "") -> Run:
-    run = get_run_with_snapshots(run_id)
+def _is_unresolved(s: RunSnapshot) -> bool:
+    """A snapshot is unresolved if it represents a change that hasn't been dealt with."""
+    if s.result == SnapshotResult.UNCHANGED:
+        return False
+    if s.is_quarantined:
+        return False
+    if s.review_state in (ReviewState.TOLERATED, ReviewState.APPROVED):
+        return False
+    return True
 
-    # Stamp quarantine state — evaluated now and frozen on each snapshot
+
+def _update_counts_and_post_status(run: Run) -> int:
+    """Re-stamp quarantine, recount snapshots, compute unresolved, and post commit status.
+
+    Counts on the run (changed_count, new_count, removed_count) reflect the raw
+    classifier output excluding quarantined snapshots. The unresolved count is
+    computed separately for the commit status and CI gate — it further excludes
+    tolerated and approved snapshots.
+
+    Returns the unresolved count.
+    """
     _stamp_quarantine(run)
 
     snapshots = list(run.snapshots.using(WRITER_DB).select_related("tolerated_hash_match").all())
 
-    # Gating counts exclude quarantined identifiers — they don't block PRs
-    changed_count = sum(1 for s in snapshots if s.result == SnapshotResult.CHANGED and not s.is_quarantined)
-    new_count = sum(1 for s in snapshots if s.result == SnapshotResult.NEW and not s.is_quarantined)
-    removed_count = sum(1 for s in snapshots if s.result == SnapshotResult.REMOVED and not s.is_quarantined)
-    tolerated_match_count = sum(
+    run.changed_count = sum(1 for s in snapshots if s.result == SnapshotResult.CHANGED and not s.is_quarantined)
+    run.new_count = sum(1 for s in snapshots if s.result == SnapshotResult.NEW and not s.is_quarantined)
+    run.removed_count = sum(1 for s in snapshots if s.result == SnapshotResult.REMOVED and not s.is_quarantined)
+    run.tolerated_match_count = sum(
         1
         for s in snapshots
         if s.tolerated_hash_match is not None and s.tolerated_hash_match.reason == ToleratedReason.HUMAN
     )
-
-    run.status = RunStatus.FAILED if error_message else RunStatus.COMPLETED
-    run.error_message = error_message
-    run.completed_at = timezone.now()
-    run.changed_count = changed_count
-    run.new_count = new_count
-    run.removed_count = removed_count
-    run.tolerated_match_count = tolerated_match_count
     run.save(
         update_fields=[
-            "status",
-            "error_message",
-            "completed_at",
             "changed_count",
             "new_count",
             "removed_count",
@@ -872,25 +933,105 @@ def finalize_run(run_id: UUID, error_message: str = "") -> Run:
         ]
     )
 
+    unresolved = sum(1 for s in snapshots if _is_unresolved(s))
+
     repo = run.repo
-    if error_message:
-        _post_commit_status(run, repo, "error", f"Visual review failed: {error_message[:100]}")
-    elif changed_count > 0 or new_count > 0 or removed_count > 0:
+    if run.error_message:
+        _post_commit_status(run, repo, "error", f"Visual review failed: {run.error_message[:100]}")
+    elif unresolved > 0:
         parts = []
-        if changed_count:
-            parts.append(f"{changed_count} changed")
-        if new_count:
-            parts.append(f"{new_count} new")
-        if removed_count:
-            parts.append(f"{removed_count} removed")
-        # During migration VR is observational — always green so drift doesn't block PRs.
-        # Flip to "failure" when VR becomes the gate.
+        if run.changed_count:
+            parts.append(f"{run.changed_count} changed")
+        if run.new_count:
+            parts.append(f"{run.new_count} new")
+        if run.removed_count:
+            parts.append(f"{run.removed_count} removed")
         _post_commit_status(run, repo, "failure", f"Visual changes detected: {', '.join(parts)}")
         _post_review_prompt_comment(run, repo)
     else:
         _post_commit_status(run, repo, "success", "No visual changes")
 
+    return unresolved
+
+
+def finish_processing(run_id: UUID, error_message: str = "") -> Run:
+    run = get_run_with_snapshots(run_id)
+
+    run.status = RunStatus.FAILED if error_message else RunStatus.COMPLETED
+    run.error_message = error_message
+    run.completed_at = timezone.now()
+    run.save(update_fields=["status", "error_message", "completed_at"])
+
+    _update_counts_and_post_status(run)
+
     return run
+
+
+@transaction.atomic(using=WRITER_DB)
+def recompute_run(run_id: UUID, team_id: int | None = None) -> dict:
+    """Re-evaluate quarantine and counts, update commit status, and optionally rerun the CI job.
+
+    Returns a dict with counts_changed, ci_rerun_triggered, and ci_rerun_error.
+    """
+    run = _get_run_for_update(run_id, team_id=team_id)
+
+    if run.status != RunStatus.COMPLETED:
+        raise ValueError(f"Can only recompute completed runs (current status: {run.status})")
+
+    if run.approved:
+        raise ValueError("Run is already approved")
+
+    old_counts = (run.changed_count, run.new_count, run.removed_count)
+    unresolved = _update_counts_and_post_status(run)
+    new_counts = (run.changed_count, run.new_count, run.removed_count)
+    counts_changed = old_counts != new_counts
+
+    ci_rerun_triggered = False
+    ci_rerun_error: str | None = None
+
+    check_run_id = (run.metadata or {}).get("github_check_run_id")
+
+    if not check_run_id:
+        ci_rerun_error = "CI job ID not available (set JOB_CHECK_RUN_ID=${{ job.check_run_id }} in workflow)"
+    else:
+        ci_rerun_triggered, ci_rerun_error = _rerun_github_job(run, check_run_id)
+
+    return {
+        "counts_changed": counts_changed,
+        "unresolved": unresolved,
+        "ci_rerun_triggered": ci_rerun_triggered,
+        "ci_rerun_error": ci_rerun_error,
+    }
+
+
+def _rerun_github_job(run: Run, check_run_id: str) -> tuple[bool, str | None]:
+    """Rerun a specific GitHub Actions job by its numeric ID. Returns (success, error_message)."""
+    if not check_run_id.isdigit():
+        return False, "Invalid check run ID"
+
+    repo = run.repo
+    if not repo.repo_full_name:
+        return False, "Repo has no GitHub full name configured"
+
+    try:
+        response = _github_api_request(
+            "POST",
+            repo,
+            f"actions/jobs/{check_run_id}/rerun",
+            timeout=10,
+        )
+    except Exception:
+        return False, "Failed to trigger job rerun"
+
+    if response.status_code == 201:
+        logger.info(
+            "visual_review.ci_job_rerun_triggered",
+            run_id=str(run.id),
+            check_run_id=check_run_id,
+        )
+        return True, None
+
+    return False, f"GitHub API returned {response.status_code} when rerunning job"
 
 
 def get_github_integration_for_repo(repo: Repo):
@@ -913,16 +1054,13 @@ def _resolve_repo_by_id(github, repo_external_id: int) -> str | None:
     latest full_name even if the repo was renamed or transferred.
     Returns None if the repo is inaccessible.
     """
-    import requests
+    from .github import github_request
 
     access_token = github.integration.sensitive_config["access_token"]
-    response = requests.get(
+    response = github_request(
+        "GET",
         f"https://api.github.com/repositories/{repo_external_id}",
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {access_token}",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
+        access_token=access_token,
         timeout=10,
     )
     if response.status_code == 200:
@@ -943,22 +1081,21 @@ def _github_api_request(
     the current full_name via /repositories/{id}. If it changed, updates
     the stored repo_full_name and retries once.
     """
-    import requests
+    from urllib.parse import quote
+
+    from .github import github_request
+
+    # Prevent path traversal — each segment must be safe
+    safe_path = "/".join(quote(segment, safe="") for segment in path.split("/"))
 
     github = get_github_integration_for_repo(repo)
     if github.access_token_expired():
         github.refresh_access_token()
 
     access_token = github.integration.sensitive_config["access_token"]
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {access_token}",
-        "X-GitHub-Api-Version": "2022-11-28",
-        **(kwargs.pop("headers", {})),
-    }
 
-    url = f"https://api.github.com/repos/{repo.repo_full_name}/{path}"
-    response = requests.request(method, url, headers=headers, **kwargs)
+    url = f"https://api.github.com/repos/{repo.repo_full_name}/{safe_path}"
+    response = github_request(method, url, access_token=access_token, **kwargs)
 
     if response.status_code == 404 and repo.repo_external_id:
         new_full_name = _resolve_repo_by_id(github, repo.repo_external_id)
@@ -972,8 +1109,8 @@ def _github_api_request(
             repo.repo_full_name = new_full_name
             repo.save(update_fields=["repo_full_name"])
 
-            url = f"https://api.github.com/repos/{new_full_name}/{path}"
-            response = requests.request(method, url, headers=headers, **kwargs)
+            url = f"https://api.github.com/repos/{new_full_name}/{safe_path}"
+            response = github_request(method, url, access_token=access_token, **kwargs)
 
     return response
 
@@ -984,17 +1121,15 @@ def _get_pr_info(github, repo_full_name: str, pr_number: int) -> dict:
 
     Returns dict with head_ref (branch) and head_sha.
     """
-    import requests
+    from .github import github_request
 
     access_token = github.integration.sensitive_config["access_token"]
 
-    response = requests.get(
+    response = github_request(
+        "GET",
         f"https://api.github.com/repos/{repo_full_name}/pulls/{pr_number}",
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {access_token}",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
+        access_token=access_token,
+        timeout=10,
     )
 
     if response.status_code != 200:
@@ -1020,18 +1155,16 @@ def _fetch_baseline_file(
     import base64
 
     import yaml
-    import requests
+
+    from .github import github_request
 
     access_token = github.integration.sensitive_config["access_token"]
 
-    response = requests.get(
+    response = github_request(
+        "GET",
         f"https://api.github.com/repos/{repo_full_name}/contents/{file_path}",
+        access_token=access_token,
         params={"ref": branch},
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {access_token}",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
         timeout=10,
     )
 
@@ -1120,7 +1253,7 @@ def _post_commit_status(
 
     from django.conf import settings
 
-    import requests
+    from .github import github_request
 
     try:
         github = get_github_integration_for_repo(repo)
@@ -1134,18 +1267,15 @@ def _post_commit_status(
     target_url = f"{settings.SITE_URL}/project/{repo.team_id}/visual_review/runs/{run.id}"
 
     try:
-        response = requests.post(
+        response = github_request(
+            "POST",
             f"https://api.github.com/repos/{repo.repo_full_name}/statuses/{run.commit_sha}",
+            access_token=access_token,
             json={
                 "state": state,
                 "description": description[:140],
                 "context": f"PostHog Visual Review / {run.run_type}",
                 "target_url": target_url,
-            },
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
             },
             timeout=10,
         )
@@ -1242,7 +1372,11 @@ def _find_existing_comment_id(repo: Repo, pr_number: int, exclude_run_id: UUID) 
         .first()
     )
     if previous_run:
-        return previous_run.metadata.get("github_comment_id")
+        value = previous_run.metadata.get("github_comment_id")
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
     return None
 
 
@@ -1666,6 +1800,23 @@ def unquarantine_identifier(repo_id: UUID, identifier: str, run_type: str, team_
         run_type=run_type,
         team_id=team_id,
     ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now())).update(expires_at=timezone.now())
+
+
+def expire_quarantine_entry(entry_id: UUID, team_id: int) -> None:
+    now = timezone.now()
+    active = Q(expires_at__isnull=True) | Q(expires_at__gt=now)
+    try:
+        entry = QuarantinedIdentifier.objects.using(WRITER_DB).filter(active).get(id=entry_id, team_id=team_id)
+    except QuarantinedIdentifier.DoesNotExist as e:
+        raise RunNotFoundError(f"Quarantine entry {entry_id} not found or already expired") from e
+
+    # Expire all active entries for the same identifier/run_type, not just this one
+    QuarantinedIdentifier.objects.using(WRITER_DB).filter(
+        repo_id=entry.repo_id,
+        identifier=entry.identifier,
+        run_type=entry.run_type,
+        team_id=team_id,
+    ).filter(active).update(expires_at=now)
 
 
 def update_snapshot_diff(

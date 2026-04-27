@@ -7,7 +7,7 @@ import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS
 
@@ -132,7 +132,7 @@ class Integration(models.Model):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
     # The integration type identifier
-    kind = field_access_control(models.CharField(max_length=32, choices=IntegrationKind.choices), "project", "admin")
+    kind = field_access_control(models.CharField(max_length=32, choices=IntegrationKind), "project", "admin")
     # The ID of the integration in the external system
     integration_id = field_access_control(models.TextField(null=True, blank=True), "project", "admin")
     # Any config that COULD be passed to the frontend
@@ -560,7 +560,7 @@ class OauthIntegration:
             )
             return OauthConfig(
                 authorize_url=authorize_url,
-                token_url="https://connect.stripe.com/oauth/token",
+                token_url="https://api.stripe.com/v1/oauth/token",
                 client_id=settings.STRIPE_APP_CLIENT_ID,
                 client_secret=settings.STRIPE_APP_SECRET_KEY,
                 scope="",
@@ -648,14 +648,27 @@ class OauthIntegration:
                 },
                 headers={"Content-Type": "application/json"},
             )
+        elif kind == "stripe":
+            # Stripe Apps OAuth authenticates with the developer secret key as HTTP Basic
+            # username and does not accept client_id/redirect_uri in the token-exchange body.
+            # Connect OAuth (client_id+client_secret in body) is a different system.
+            res = requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(oauth_config.client_secret, ""),
+                data={
+                    "code": params["code"],
+                    "grant_type": "authorization_code",
+                },
+            )
         else:
+            redirect_uri = OauthIntegration.redirect_uri(kind)
             res = requests.post(
                 oauth_config.token_url,
                 data={
                     "client_id": oauth_config.client_id,
                     "client_secret": oauth_config.client_secret,
                     "code": params["code"],
-                    "redirect_uri": OauthIntegration.redirect_uri(kind),
+                    "redirect_uri": redirect_uri,
                     "grant_type": "authorization_code",
                 },
             )
@@ -690,7 +703,17 @@ class OauthIntegration:
                     logger.error(f"Oauth error for {kind}", response=res.text)
                     raise Exception(f"Oauth error for {kind}. Status code = {res.status_code}")
             else:
-                logger.error(f"Oauth error for {kind}", response=res.text)
+                # Include request context so on-call can compare what we sent against what
+                # the merchant authorized with in Stripe. Code prefix only, full grant is
+                # short-lived but still a credential during its TTL. Never log client_secret.
+                logger.error(
+                    f"Oauth error for {kind}",
+                    response=res.text,
+                    status_code=res.status_code,
+                    client_id=oauth_config.client_id,
+                    redirect_uri=OauthIntegration.redirect_uri(kind),
+                    code_prefix=str(params.get("code", ""))[:12],
+                )
                 raise Exception(f"Oauth error. Status code = {res.status_code}")
 
         if oauth_config.token_info_url:
@@ -925,6 +948,16 @@ class OauthIntegration:
                     "refresh_token": self.integration.sensitive_config["refresh_token"],
                     "grant_type": "refresh_token",
                     "scope": oauth_config.scope,
+                },
+            )
+        elif self.integration.kind == "stripe":
+            # Stripe Apps OAuth: secret as HTTP Basic username, no client_id/client_secret in body.
+            res = requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(oauth_config.client_secret, ""),
+                data={
+                    "refresh_token": self.integration.sensitive_config["refresh_token"],
+                    "grant_type": "refresh_token",
                 },
             )
         else:
@@ -3183,6 +3216,91 @@ class GitHubIntegration:
                 "error": f"Failed to list pull requests: {response.text}",
                 "status_code": response.status_code,
             }
+
+    @staticmethod
+    def parse_pull_request_url(pr_url: str) -> tuple[str, str, int] | None:
+        """Parse a GitHub pull request URL into ``(owner, repo, pr_number)``.
+
+        Returns ``None`` if the URL does not look like a GitHub PR URL.
+        """
+        try:
+            parsed = urlparse(pr_url)
+        except Exception:
+            return None
+        if parsed.netloc not in {"github.com", "www.github.com"}:
+            return None
+        parts = [p for p in parsed.path.split("/") if p]
+        # Expected path: /{owner}/{repo}/pull/{number}[/...]
+        if len(parts) < 4 or parts[2] != "pull":
+            return None
+        owner, repo, _, pr_number_str = parts[:4]
+        try:
+            pr_number = int(pr_number_str)
+        except ValueError:
+            return None
+        return owner, repo, pr_number
+
+    def get_pull_request(self, repository: str, pr_number: int) -> dict[str, Any]:
+        """Fetch a pull request by repository (``owner/repo`` or just ``repo``) and PR number."""
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        response = self._installation_authenticated_get(f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}")
+        if response is None:
+            return {"success": False, "error": "Network error fetching pull request"}
+        if response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"Failed to fetch pull request: {response.text}",
+                "status_code": response.status_code,
+            }
+        try:
+            pr = response.json()
+        except Exception:
+            logger.warning(
+                "GitHubIntegration: get_pull_request non-JSON response",
+                repository=repo_path,
+                pr_number=pr_number,
+            )
+            return {"success": False, "error": "Failed to parse pull request JSON"}
+
+        head = pr.get("head") or {}
+        base = pr.get("base") or {}
+        user = pr.get("user") or {}
+
+        return {
+            "success": True,
+            "number": pr.get("number"),
+            "title": pr.get("title"),
+            "body": pr.get("body"),
+            "url": pr.get("html_url"),
+            "state": pr.get("state"),
+            "merged": pr.get("merged", False),
+            "draft": pr.get("draft", False),
+            "head_branch": head.get("ref"),
+            "base_branch": base.get("ref"),
+            "head_sha": head.get("sha"),
+            "base_sha": base.get("sha"),
+            "repository": repo_path,
+            "author": user.get("login"),
+            "created_at": pr.get("created_at"),
+            "updated_at": pr.get("updated_at"),
+            "merged_at": pr.get("merged_at"),
+            "closed_at": pr.get("closed_at"),
+            "comments": pr.get("comments", 0),
+            "review_comments": pr.get("review_comments", 0),
+            "commits": pr.get("commits", 0),
+            "additions": pr.get("additions", 0),
+            "deletions": pr.get("deletions", 0),
+            "changed_files": pr.get("changed_files", 0),
+        }
+
+    def get_pull_request_from_url(self, pr_url: str) -> dict[str, Any]:
+        """Fetch a pull request by its HTML URL (e.g. ``https://github.com/owner/repo/pull/123``)."""
+        parsed = self.parse_pull_request_url(pr_url)
+        if parsed is None:
+            return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
+        owner, repo, pr_number = parsed
+        return self.get_pull_request(f"{owner}/{repo}", pr_number)
 
 
 class GitLabIntegrationError(Exception):

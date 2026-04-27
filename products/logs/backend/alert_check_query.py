@@ -20,7 +20,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 
@@ -170,7 +170,13 @@ class AlertCheckQuery:
         )
 
     def _tag(self) -> None:
-        tag_queries(source="logs_alert", kind="temporal", alert_config_id=str(self.alert.id), team_id=str(self.team.id))
+        tag_queries(
+            product=Product.LOGS,
+            feature=Feature.ALERTING,
+            source="logs_alert",
+            alert_config_id=str(self.alert.id),
+            team_id=str(self.team.id),
+        )
 
     def _build_logs_query(self) -> LogsQuery:
         filters = self.alert.filters
@@ -210,6 +216,12 @@ CHECKPOINT_MAX_STALENESS = dt.timedelta(minutes=5)
 
 
 def fetch_live_logs_checkpoint(team: Team) -> dt.datetime | None:
+    tag_queries(
+        product=Product.LOGS,
+        feature=Feature.ALERTING,
+        source="logs_alert",
+        team_id=str(team.id),
+    )
     response = execute_hogql_query(
         query_type="alert_check_checkpoint",
         query=parse_select(_LIVE_LOGS_CHECKPOINT_SQL),

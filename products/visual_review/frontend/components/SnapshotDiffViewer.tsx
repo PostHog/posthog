@@ -88,7 +88,7 @@ function QuarantineAction({
 
     return (
         <div>
-            <LemonButton type="secondary" size="small" fullWidth onClick={() => setIsOpen(true)}>
+            <LemonButton type="secondary" size="small" onClick={() => setIsOpen(true)}>
                 Quarantine this identifier
             </LemonButton>
             <LemonModal
@@ -187,6 +187,10 @@ interface SnapshotDiffViewerProps {
     prNumber?: number | null
     repoFullName?: string | null
     runType?: string
+    githubRunId?: string | null
+    isRecomputing?: boolean
+    onRecompute?: () => void
+    recomputeDisabledReason?: string
 }
 
 export function SnapshotDiffViewer({
@@ -205,6 +209,10 @@ export function SnapshotDiffViewer({
     prNumber,
     repoFullName,
     runType,
+    githubRunId,
+    isRecomputing,
+    onRecompute,
+    recomputeDisabledReason,
 }: SnapshotDiffViewerProps): JSX.Element {
     const [comparisonMode, setComparisonMode] = useState<ComparisonMode>('sideBySide')
     const baselineUrl = snapshot.baseline_artifact?.download_url
@@ -402,6 +410,57 @@ export function SnapshotDiffViewer({
                         </div>
                     )}
 
+                    {/* === CI section === */}
+                    {(githubRunId || onRecompute) && (
+                        <div>
+                            <h4 className="text-xs font-semibold text-muted mb-2">CI</h4>
+                            <div className="space-y-2">
+                                {githubRunId && (
+                                    <div className="flex items-center justify-between text-xs">
+                                        <span className="text-muted">Run</span>
+                                        {repoFullName ? (
+                                            <Link
+                                                to={`https://github.com/${repoFullName}/actions/runs/${githubRunId}`}
+                                                target="_blank"
+                                                className="flex items-center gap-1 hover:text-primary"
+                                            >
+                                                {githubRunId}
+                                                <IconGithub className="text-xs" />
+                                            </Link>
+                                        ) : (
+                                            <span>{githubRunId}</span>
+                                        )}
+                                    </div>
+                                )}
+                                {onRecompute && (
+                                    <LemonButton
+                                        type="secondary"
+                                        size="xsmall"
+                                        loading={isRecomputing}
+                                        disabledReason={recomputeDisabledReason}
+                                        onClick={() => {
+                                            LemonDialog.open({
+                                                title: 'Re-trigger CI job?',
+                                                description: githubRunId
+                                                    ? `Re-evaluate quarantine rules, update snapshot counts and commit status, and re-trigger CI run ${githubRunId} so the gate reflects the current state.`
+                                                    : 'Re-evaluate quarantine rules and update snapshot counts and commit status. The CI job cannot be re-triggered automatically — upgrade the CLI to enable this.',
+                                                primaryButton: {
+                                                    children: githubRunId ? `Re-trigger ${githubRunId}` : 'Recompute',
+                                                    onClick: onRecompute,
+                                                },
+                                                secondaryButton: {
+                                                    children: 'Cancel',
+                                                },
+                                            })
+                                        }}
+                                    >
+                                        Re-trigger
+                                    </LemonButton>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
                     {/* === Identifier section === */}
                     <div>
                         <h4 className="text-xs font-semibold text-muted mb-2">Identifier</h4>
@@ -497,7 +556,6 @@ export function SnapshotDiffViewer({
                                 type="secondary"
                                 status="danger"
                                 size="small"
-                                fullWidth
                                 onClick={() => {
                                     LemonDialog.open({
                                         title: 'Unquarantine this identifier?',

@@ -117,6 +117,14 @@ export const featureFlagIntentWarningLogic = kea<featureFlagIntentWarningLogicTy
                         )
                     }
 
+                    const aggregationIndices = groups.map((g) => g.aggregation_group_type_index ?? null)
+                    if (
+                        aggregationIndices.length > 1 &&
+                        !aggregationIndices.every((a) => a === aggregationIndices[0])
+                    ) {
+                        issues.add('Mixed user and group targeting is not currently supported by local evaluation')
+                    }
+
                     for (const group of groups) {
                         for (const property of group.properties || []) {
                             if (property.type === PropertyFilterType.Cohort) {

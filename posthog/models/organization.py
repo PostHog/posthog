@@ -220,12 +220,12 @@ class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manag
     # Misc
     plugins_access_level = models.PositiveSmallIntegerField(
         default=PluginsAccessLevel.CONFIG,
-        choices=PluginsAccessLevel.choices,
+        choices=PluginsAccessLevel,
     )
     for_internal_metrics = models.BooleanField(default=False)
     default_experiment_stats_method = models.CharField(
         max_length=20,
-        choices=DefaultExperimentStatsMethod.choices,
+        choices=DefaultExperimentStatsMethod,
         default=DefaultExperimentStatsMethod.BAYESIAN,
         help_text="Default statistical method for new experiments in this organization.",
         null=True,
@@ -548,7 +548,7 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
         related_name="organization_memberships",
         related_query_name="organization_membership",
     )
-    level = models.PositiveSmallIntegerField(default=Level.MEMBER, choices=Level.choices)
+    level = models.PositiveSmallIntegerField(default=Level.MEMBER, choices=Level)
     joined_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     # Persisted at invite acceptance so the welcome dialog can attribute who invited the member —
@@ -689,7 +689,7 @@ def clean_up_alert_subscriptions_on_membership_removal(sender, instance: Organiz
 
     deleted_count, _ = AlertSubscription.objects.filter(
         user=instance.user,
-        alert_configuration__team__organization=instance.organization,
+        alert_configuration__team__organization_id=instance.organization_id,
     ).delete()
 
     if deleted_count > 0:
