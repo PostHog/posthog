@@ -1,5 +1,6 @@
 import os
 import json
+import sys
 import time
 from contextlib import suppress
 from functools import lru_cache
@@ -68,6 +69,35 @@ def postgres_config(host: str) -> dict:
     }
 
 
+def _is_manage_py_shell_command(argv: list[str]) -> bool:
+    if len(argv) < 2:
+        return False
+
+    management_commands = {"shell", "shell_plus", "dbshell"}
+    return any(command in management_commands for command in argv[1:])
+
+
+def _should_enforce_read_only_for_exec(env: dict[str, str], argv: list[str]) -> bool:
+    if not env.get("KUBERNETES_SERVICE_HOST"):
+        return False
+
+    allow_writes = str_to_bool(env.get("ALLOW_POD_SHELL_DB_WRITE", "false"))
+    if allow_writes:
+        return False
+
+    return _is_manage_py_shell_command(argv)
+
+
+def _add_default_transaction_read_only_option(database_config: dict) -> None:
+    options = database_config.setdefault("OPTIONS", {})
+    current_options = options.get("options", "")
+    read_only_option = "-c default_transaction_read_only=on"
+
+    if read_only_option not in current_options:
+        options["options"] = f"{current_options} {read_only_option}".strip()
+
+
+
 if TEST or DEBUG:
     PG_HOST: str = os.getenv("PGHOST", "db")
     PG_USER: str = os.getenv("PGUSER", "posthog")
@@ -117,6 +147,10 @@ else:
     raise ImproperlyConfigured(
         f'The environment vars "DATABASE_URL" or "POSTHOG_DB_NAME" are absolutely required to run this software'
     )
+
+
+if _should_enforce_read_only_for_exec(os.environ, sys.argv):
+    _add_default_transaction_read_only_option(DATABASES["default"])
 
 DATABASE_ROUTERS: list[str] = []
 
