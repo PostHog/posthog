@@ -1416,6 +1416,14 @@ class FeatureFlagSerializer(
         # Prevent DRF from attempting to set reverse FK relation directly
         validated_data.pop("evaluation_contexts", None)
 
+        # Capture state-at-entry for hash-key-override cleanup. We snapshot here
+        # because validated_data["key"] may be rewritten downstream (e.g. soft-delete
+        # appends ":deleted:<id>"), and we need the original key the override rows
+        # are stored under.
+        original_key_at_entry = instance.key
+        original_team_id_at_entry = instance.team_id
+        was_already_deleted = instance.deleted
+
         if "deleted" in validated_data and validated_data["deleted"] is True:
             # Check for linked early access features
             if instance.features.count() > 0:
@@ -1572,6 +1580,46 @@ class FeatureFlagSerializer(
 
             with ImpersonatedContext(request):
                 instance = super().update(instance, validated_data)
+
+            # Schedule async cleanup of FeatureFlagHashKeyOverride rows on commit.
+            # `transaction.on_commit` fires only if the outer atomic block commits — a
+            # rollback means the task never queues, so we never act on a flag change
+            # that didn't actually persist. The tasks themselves write to the persons
+            # DB via `db_manager(PERSONS_DB_FOR_WRITE)`.
+            from posthog.tasks.feature_flags import (
+                delete_hash_key_overrides_for_flag,
+                rewrite_hash_key_overrides_for_flag,
+            )
+
+            became_soft_deleted = validated_data.get("deleted") is True and not was_already_deleted
+            if became_soft_deleted:
+                # Use the key as it was at entry — soft-delete may append ":deleted:<id>"
+                # to free up the original key slot, but the override rows are still
+                # stored under the pre-rename key.
+                transaction.on_commit(
+                    functools.partial(
+                        delete_hash_key_overrides_for_flag.delay,
+                        team_id=original_team_id_at_entry,
+                        key=original_key_at_entry,
+                    )
+                )
+            else:
+                # Detect a user-initiated key rename (not the soft-delete rename).
+                new_key = validated_data.get("key")
+                is_rename = (
+                    new_key is not None
+                    and new_key != original_key_at_entry
+                    and not validated_data.get("deleted", False)
+                )
+                if is_rename:
+                    transaction.on_commit(
+                        functools.partial(
+                            rewrite_hash_key_overrides_for_flag.delay,
+                            team_id=original_team_id_at_entry,
+                            old_key=original_key_at_entry,
+                            new_key=new_key,
+                        )
+                    )
 
         # Continue with the update outside of the transaction. This is an intentional choice
         # to avoid deadlocks. Not to mention, before making the concurrency changes, these

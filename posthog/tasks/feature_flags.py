@@ -1,6 +1,7 @@
 import time
 
 from django.conf import settings
+from django.db import DatabaseError, OperationalError
 from django.db.models import Count, F, Func, IntegerField, Max, Sum, TextField
 from django.db.models.functions import Cast
 
@@ -8,7 +9,7 @@ import structlog
 from celery import shared_task
 from prometheus_client import Gauge
 
-from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagHashKeyOverride
 from posthog.models.feature_flag.flags_cache import (
     cleanup_stale_expiry_tracking,
     get_cache_stats,
@@ -21,6 +22,7 @@ from posthog.models.feature_flag.local_evaluation import (
     update_flag_caches,
 )
 from posthog.models.team import Team
+from posthog.person_db_router import PERSONS_DB_FOR_WRITE
 from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
 from posthog.tasks.utils import CeleryQueue, PushGatewayTask
 
@@ -396,3 +398,62 @@ def cleanup_stale_flag_definitions_expiry_tracking_task(self: PushGatewayTask) -
 
     entries_cleaned_gauge.set(total_removed)
     logger.info("Completed flag definitions expiry tracking cleanup", total_removed_count=total_removed)
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.FEATURE_FLAGS.value,
+    autoretry_for=(DatabaseError, OperationalError),
+    retry_kwargs={"max_retries": 3, "countdown": 60},
+)
+def rewrite_hash_key_overrides_for_flag(team_id: int, old_key: str, new_key: str) -> None:
+    """Rewrite ``FeatureFlagHashKeyOverride`` rows from ``old_key`` -> ``new_key``
+    for one team.
+
+    Fired on commit when a feature flag's key is renamed via the API. Without this,
+    override rows still reference the old key and become orphaned (silently
+    inflating the table forever).
+
+    Idempotent: re-running with the same args is a no-op (the second run finds no
+    rows under ``old_key``). Safe to retry on transient DB errors.
+    """
+    if old_key == new_key:
+        return
+
+    rows_updated = (
+        FeatureFlagHashKeyOverride.objects.db_manager(PERSONS_DB_FOR_WRITE)
+        .filter(team_id=team_id, feature_flag_key=old_key)
+        .update(feature_flag_key=new_key)
+    )
+    logger.info(
+        "rewrite_hash_key_overrides_for_flag",
+        team_id=team_id,
+        old_key=old_key,
+        new_key=new_key,
+        rows_updated=rows_updated,
+    )
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.FEATURE_FLAGS.value,
+    autoretry_for=(DatabaseError, OperationalError),
+    retry_kwargs={"max_retries": 3, "countdown": 60},
+)
+def delete_hash_key_overrides_for_flag(team_id: int, key: str) -> None:
+    """Delete ``FeatureFlagHashKeyOverride`` rows for one (team, flag key) tuple.
+
+    Fired on commit when a feature flag is soft-deleted via the API. Idempotent:
+    re-running deletes nothing extra. Safe to retry on transient DB errors.
+    """
+    deleted, _ = (
+        FeatureFlagHashKeyOverride.objects.db_manager(PERSONS_DB_FOR_WRITE)
+        .filter(team_id=team_id, feature_flag_key=key)
+        .delete()
+    )
+    logger.info(
+        "delete_hash_key_overrides_for_flag",
+        team_id=team_id,
+        key=key,
+        rows_deleted=deleted,
+    )
