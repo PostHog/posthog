@@ -47,6 +47,7 @@ export type SceneSaveCancelButtonsProps = SceneDataAttrKeyProps &
     SceneNameProps &
     SceneLoadingProps & {
         onCancel: () => void
+        onSave?: () => void
         hasChanged: boolean
         error?: string | null
     }
@@ -60,6 +61,7 @@ export type SceneSelectProps = SceneInputProps &
 export function SceneSaveCancelButtons({
     name,
     onCancel,
+    onSave,
     isLoading,
     hasChanged,
     error,
@@ -68,9 +70,10 @@ export function SceneSaveCancelButtons({
     return (
         <div className="flex gap-1">
             <ButtonPrimitive
-                type="submit"
+                type={onSave ? 'button' : 'submit'}
                 variant="outline"
                 disabled={!hasChanged || !!error}
+                onClick={onSave}
                 tooltip={hasChanged ? `Update ${dataAttrKey}` : 'No changes to update'}
                 data-attr={`${dataAttrKey}-${name}-update-button`}
                 aria-label={hasChanged ? `Update ${name}` : 'No changes to update'}

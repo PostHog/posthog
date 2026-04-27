@@ -10,11 +10,13 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import SentrySourceConfig
 from posthog.temporal.data_imports.sources.sentry.sentry import (
+    SentryResumeConfig,
     sentry_source,
     validate_credentials as validate_sentry_credentials,
 )
@@ -29,7 +31,7 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class SentrySource(SimpleSource[SentrySourceConfig]):
+class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SENTRY
@@ -129,7 +131,15 @@ Create a token in Sentry and make sure it includes the scopes below if you want 
             api_base_url=api_base_url,
         )
 
-    def source_for_pipeline(self, config: SentrySourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[SentryResumeConfig]:
+        return ResumableSourceManager[SentryResumeConfig](inputs, SentryResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: SentrySourceConfig,
+        resumable_source_manager: ResumableSourceManager[SentryResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         return sentry_source(
             auth_token=config.auth_token,
             organization_slug=config.organization_slug,
@@ -137,6 +147,7 @@ Create a token in Sentry and make sure it includes the scopes below if you want 
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
