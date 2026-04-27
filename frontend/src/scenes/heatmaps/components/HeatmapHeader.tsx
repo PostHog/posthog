@@ -12,11 +12,7 @@ export function HeatmapHeader(): JSX.Element {
         useActions(heatmapLogic)
 
     const draftIsEmpty = pageUrlDraft.trim() === ''
-    const disabledReason = !isPageUrlDraftValid
-        ? 'Enter a valid URL'
-        : draftIsEmpty && !displayUrl
-          ? 'Enter a URL'
-          : null
+    const disabledReason = !isPageUrlDraftValid ? 'Enter a valid URL' : draftIsEmpty ? 'Enter a URL' : null
 
     return (
         <>

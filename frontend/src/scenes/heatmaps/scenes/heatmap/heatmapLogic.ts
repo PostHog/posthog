@@ -275,6 +275,9 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     }
                 }
             } catch (error: any) {
+                if (values.displayUrl !== previousSavedUrl) {
+                    actions.setDisplayUrl(previousSavedUrl)
+                }
                 lemonToast.error(error.detail || 'Failed to update heatmap')
             } finally {
                 actions.setLoading(false)
@@ -284,8 +287,11 @@ export const heatmapLogic = kea<heatmapLogicType>([
             if (!values.isPageUrlDraftValid) {
                 return
             }
-            const next = values.pageUrlDraft.trim() || null
-            if (next !== (values.displayUrl || null)) {
+            const next = values.pageUrlDraft.trim()
+            if (!next) {
+                return
+            }
+            if (next !== values.displayUrl) {
                 actions.setDisplayUrl(next)
                 actions.updateHeatmap()
                 return
