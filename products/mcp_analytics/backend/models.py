@@ -20,10 +20,10 @@ class MCPAnalyticsSubmission(UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
-    kind = models.CharField(max_length=32, choices=Kind.choices)
+    kind = models.CharField(max_length=32, choices=Kind)
     goal = models.TextField()
     summary = models.TextField()
-    category = models.CharField(max_length=32, choices=FeedbackCategory.choices, blank=True, default="")
+    category = models.CharField(max_length=32, choices=FeedbackCategory, blank=True, default="")
     blocked = models.BooleanField(null=True, blank=True)
     attempted_tool = models.CharField(max_length=200, blank=True, default="")
 

@@ -69,7 +69,7 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
     threshold_count = models.PositiveIntegerField(validators=[MinValueValidator(1)])
     threshold_operator = models.CharField(
         max_length=10,
-        choices=ThresholdOperator.choices,
+        choices=ThresholdOperator,
         default=ThresholdOperator.ABOVE,
     )
 
@@ -80,7 +80,7 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
     # State
     state = models.CharField(
         max_length=20,
-        choices=State.choices,
+        choices=State,
         default=State.NOT_FIRING,
     )
 
@@ -118,8 +118,14 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
         self.next_check_at = None
         return ["next_check_at"]
 
-    def to_snapshot(self) -> AlertSnapshot:
-        """Capture the fields the state machine reads for a transition decision."""
+    def to_snapshot(self, recent_events_breached: tuple[bool, ...] | None = None) -> AlertSnapshot:
+        """Capture the fields the state machine reads for a transition decision.
+
+        `recent_events_breached` lets the caller pass in the M-of-N window directly
+        (e.g. derived from a single bucketed CH query). When omitted, falls back to
+        reading historical CHECK rows via `get_recent_breaches` — kept for back-compat
+        with code paths that haven't switched to the bucketed eval yet.
+        """
         from products.logs.backend.alert_state_machine import AlertSnapshot, AlertState
 
         return AlertSnapshot(
@@ -130,7 +136,9 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
             last_notified_at=self.last_notified_at,
             snooze_until=self.snooze_until,
             consecutive_failures=self.consecutive_failures,
-            recent_events_breached=self.get_recent_breaches(),
+            recent_events_breached=recent_events_breached
+            if recent_events_breached is not None
+            else self.get_recent_breaches(),
         )
 
     def get_recent_breaches(self) -> tuple[bool, ...]:

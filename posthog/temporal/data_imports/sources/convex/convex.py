@@ -1,5 +1,6 @@
 import re
 import logging
+import dataclasses
 from collections.abc import Generator
 from typing import Any
 from urllib.parse import urlparse
@@ -7,8 +8,16 @@ from urllib.parse import urlparse
 import requests
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 logger = logging.getLogger(__name__)
+
+
+@dataclasses.dataclass
+class ConvexResumeConfig:
+    cursor: int
+    snapshot: int | None = None
+
 
 _CONVEX_CLOUD_HOST_RE = re.compile(r"^[a-z0-9][a-z0-9-]*\.convex\.cloud$")
 
@@ -61,7 +70,12 @@ def get_json_schemas(deploy_url: str, deploy_key: str) -> dict[str, Any]:
     return response.json()
 
 
-def list_snapshot(deploy_url: str, deploy_key: str, table_name: str) -> Generator[list[dict[str, Any]], None, int]:
+def list_snapshot(
+    deploy_url: str,
+    deploy_key: str,
+    table_name: str,
+    resumable_source_manager: ResumableSourceManager[ConvexResumeConfig],
+) -> Generator[list[dict[str, Any]], None, int]:
     """Paginate through a full table snapshot.
 
     Yields batches of documents. Returns the snapshot cursor (as the generator return value)
@@ -70,6 +84,11 @@ def list_snapshot(deploy_url: str, deploy_key: str, table_name: str) -> Generato
     base_url = f"{deploy_url.rstrip('/')}/api/list_snapshot"
     cursor: int | None = None
     snapshot: int | None = None
+
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume_config is not None:
+        cursor = resume_config.cursor
+        snapshot = resume_config.snapshot
 
     while True:
         params: dict[str, Any] = {"tableName": table_name, "format": "json"}
@@ -93,6 +112,9 @@ def list_snapshot(deploy_url: str, deploy_key: str, table_name: str) -> Generato
         if not has_more:
             return snapshot or 0
 
+        if cursor is not None:
+            resumable_source_manager.save_state(ConvexResumeConfig(cursor=cursor, snapshot=snapshot))
+
 
 class InvalidWindowError(Exception):
     """Raised when the delta cursor is older than Convex's retention window."""
@@ -101,7 +123,11 @@ class InvalidWindowError(Exception):
 
 
 def document_deltas(
-    deploy_url: str, deploy_key: str, table_name: str, cursor: int
+    deploy_url: str,
+    deploy_key: str,
+    table_name: str,
+    cursor: int,
+    resumable_source_manager: ResumableSourceManager[ConvexResumeConfig],
 ) -> Generator[list[dict[str, Any]], None, int]:
     """Paginate through incremental document changes since a cursor.
 
@@ -112,6 +138,10 @@ def document_deltas(
     """
     base_url = f"{deploy_url.rstrip('/')}/api/document_deltas"
     current_cursor = cursor
+
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume_config is not None:
+        current_cursor = resume_config.cursor
 
     while True:
         params: dict[str, Any] = {"tableName": table_name, "cursor": current_cursor, "format": "json"}
@@ -137,6 +167,8 @@ def document_deltas(
 
         if not has_more:
             return current_cursor
+
+        resumable_source_manager.save_state(ConvexResumeConfig(cursor=current_cursor))
 
 
 def validate_credentials(deploy_url: str, deploy_key: str) -> tuple[bool, str | None]:
@@ -183,16 +215,17 @@ def convex_source(
     job_id: str,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any | None,
+    resumable_source_manager: ResumableSourceManager[ConvexResumeConfig],
 ) -> SourceResponse:
     clean_url = validate_deploy_url(deploy_url)
 
     def items_generator():
         if should_use_incremental_field and db_incremental_field_last_value is not None:
             cursor = int(db_incremental_field_last_value)
-            for batch in document_deltas(clean_url, deploy_key, table_name, cursor):
+            for batch in document_deltas(clean_url, deploy_key, table_name, cursor, resumable_source_manager):
                 yield _normalize_timestamps(batch)
         else:
-            for batch in list_snapshot(clean_url, deploy_key, table_name):
+            for batch in list_snapshot(clean_url, deploy_key, table_name, resumable_source_manager):
                 yield _normalize_timestamps(batch)
 
     return SourceResponse(

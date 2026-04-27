@@ -6064,10 +6064,16 @@ export const ExperimentStatsValidationFailureApi = {
 
 export interface ExperimentStatsBaseValidatedApi {
     /** @nullable */
+    covariate_sum?: number | null
+    /** @nullable */
+    covariate_sum_squares?: number | null
+    /** @nullable */
     denominator_sum?: number | null
     /** @nullable */
     denominator_sum_squares?: number | null
     key: string
+    /** @nullable */
+    main_covariate_sum_product?: number | null
     number_of_samples: number
     /** @nullable */
     numerator_denominator_sum_product?: number | null
@@ -6096,10 +6102,16 @@ export interface ExperimentVariantResultFrequentistApi {
      */
     confidence_interval?: number[] | null
     /** @nullable */
+    covariate_sum?: number | null
+    /** @nullable */
+    covariate_sum_squares?: number | null
+    /** @nullable */
     denominator_sum?: number | null
     /** @nullable */
     denominator_sum_squares?: number | null
     key: string
+    /** @nullable */
+    main_covariate_sum_product?: number | null
     method?: ExperimentVariantResultFrequentistApiMethod
     number_of_samples: number
     /** @nullable */
@@ -6128,6 +6140,10 @@ export const ExperimentVariantResultBayesianApiMethod = {
 export interface ExperimentVariantResultBayesianApi {
     /** @nullable */
     chance_to_win?: number | null
+    /** @nullable */
+    covariate_sum?: number | null
+    /** @nullable */
+    covariate_sum_squares?: number | null
     /**
      * @minItems 2
      * @maxItems 2
@@ -6139,6 +6155,8 @@ export interface ExperimentVariantResultBayesianApi {
     /** @nullable */
     denominator_sum_squares?: number | null
     key: string
+    /** @nullable */
+    main_covariate_sum_product?: number | null
     method?: ExperimentVariantResultBayesianApiMethod
     number_of_samples: number
     /** @nullable */
