@@ -28,7 +28,11 @@ from posthog.models.data_deletion_request import (
     jsonhas_expr,
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
-from posthog.models.person.bulk_delete import queue_person_recording_deletion, resolve_persons_for_deletion
+from posthog.models.person.bulk_delete import (
+    delete_persons_profile,
+    queue_person_recording_deletion,
+    resolve_persons_for_deletion,
+)
 
 from ee.clickhouse.materialized_columns.columns import MaterializedColumnDetails
 
@@ -681,6 +685,40 @@ def delete_person_recordings_op(
 
     queue_person_recording_deletion(person_removal.team_id, persons, actor=None)
     context.add_output_metadata({"recording_workflows": dagster.MetadataValue.int(len(persons))})
+    return person_removal
+
+
+@dagster.op(tags=OWNER_TAG)
+def delete_person_profiles_op(
+    context: dagster.OpExecutionContext,
+    person_removal: PersonRemovalContext,
+) -> PersonRemovalContext:
+    """Tombstone Person rows in CH and delete from Postgres, last."""
+    if not person_removal.drop_profiles:
+        context.log.info("drop_profiles=False, skipping profile deletion")
+        return person_removal
+
+    persons = resolve_persons_for_deletion(
+        person_removal.team_id,
+        uuids=person_removal.person_uuids or None,
+        distinct_ids=person_removal.person_distinct_ids or None,
+    )
+    if not persons:
+        context.log.info("No persons resolved; nothing to delete")
+        return person_removal
+
+    result = delete_persons_profile(person_removal.team_id, persons, actor=None)
+    context.add_output_metadata(
+        {
+            "deleted_count": dagster.MetadataValue.int(result.deleted_count),
+            "errors": dagster.MetadataValue.int(len(result.errors)),
+        }
+    )
+    if result.errors:
+        raise dagster.Failure(
+            description=f"Person profile deletion failed for {len(result.errors)} persons",
+            metadata={"errors": dagster.MetadataValue.text(", ".join(str(u) for u in result.errors))},
+        )
     return person_removal
 
 

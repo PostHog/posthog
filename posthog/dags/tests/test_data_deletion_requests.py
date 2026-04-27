@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 from unittest.mock import patch
 
+import dagster
 from clickhouse_driver import Client
 from dagster import build_op_context
 
@@ -18,6 +19,7 @@ from posthog.dags.data_deletion_requests import (
     data_deletion_request_event_removal,
     data_deletion_request_property_removal,
     delete_person_events_op,
+    delete_person_profiles_op,
     delete_person_recordings_op,
     execute_event_deletion,
     finalize_deletion_request,
@@ -1026,3 +1028,57 @@ def test_delete_person_recordings_op_noop_when_disabled():
     with patch("posthog.dags.data_deletion_requests.queue_person_recording_deletion") as queue:
         delete_person_recordings_op(build_op_context(), ctx)
         queue.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_delete_person_profiles_op_calls_helper_when_enabled():
+    p_uuid = str(uuid4())
+    Person.objects.create(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[p_uuid],
+        person_distinct_ids=[],
+        drop_profiles=True,
+        drop_events=False,
+        drop_recordings=False,
+    )
+    with patch("posthog.dags.data_deletion_requests.delete_persons_profile") as deleter:
+        deleter.return_value = type("R", (), {"deleted_count": 1, "errors": []})()
+        delete_person_profiles_op(build_op_context(), ctx)
+        deleter.assert_called_once()
+
+
+@pytest.mark.django_db
+def test_delete_person_profiles_op_noop_when_disabled():
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[str(uuid4())],
+        person_distinct_ids=[],
+        drop_profiles=False,
+        drop_events=False,
+        drop_recordings=False,
+    )
+    with patch("posthog.dags.data_deletion_requests.delete_persons_profile") as deleter:
+        delete_person_profiles_op(build_op_context(), ctx)
+        deleter.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_delete_person_profiles_op_raises_on_per_person_failure():
+    p_uuid = str(uuid4())
+    Person.objects.create(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[p_uuid],
+        person_distinct_ids=[],
+        drop_profiles=True,
+        drop_events=False,
+        drop_recordings=False,
+    )
+    with patch("posthog.dags.data_deletion_requests.delete_persons_profile") as deleter:
+        deleter.return_value = type("R", (), {"deleted_count": 0, "errors": [p_uuid]})()
+        with pytest.raises(dagster.Failure, match="profile deletion failed"):
+            delete_person_profiles_op(build_op_context(), ctx)
