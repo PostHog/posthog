@@ -29,7 +29,7 @@ from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import BigQuerySourceConfig
 
-from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalFieldType
 
 
 def build_destination_table_prefix(schema_id: str | None) -> str:
@@ -79,7 +79,7 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
             (table_name, filter_bigquery_incremental_fields(columns)) for table_name, columns in bq_schemas.items()
         ]
 
-        def _build_incremental_fields(table_name: str, columns: list[tuple[str, str, bool]]) -> list:
+        def _build_incremental_fields(table_name: str, columns: list[tuple[str, IncrementalFieldType, bool]]) -> list:
             indexed_cols = indexed_columns_by_table.get(table_name) if indexed_columns_by_table is not None else None
             return [
                 {
