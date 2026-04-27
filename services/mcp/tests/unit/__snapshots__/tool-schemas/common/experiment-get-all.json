@@ -30,7 +30,7 @@
             "type": "string"
         },
         "status": {
-            "description": "Filter by experiment status. Values: \"draft\" (not yet launched), \"running\" (launched, flag active), \"paused\" (launched, flag deactivated — mutually exclusive with running), \"stopped\" or \"complete\" (both mean ended), \"all\" (no filter). Defaults to all non-archived experiments.",
+            "description": "Filter by experiment status. \"running\" and \"paused\" are mutually exclusive: \"running\" returns launched experiments with an active feature flag, \"paused\" returns launched experiments whose feature flag is deactivated. \"complete\" is an alias for \"stopped\". \"all\" disables status filtering.",
             "enum": ["all", "complete", "draft", "paused", "running", "stopped"],
             "type": "string"
         }
