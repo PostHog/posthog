@@ -191,9 +191,15 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                         throw new Error('Cancelled')
                     }
 
-                    if (rolloutToAll) {
-                        parsedPayload.rollout_to_all = true
+                    const savePayload = {
+                        ...parsedPayload,
+                        ...(rolloutToAll ? { rollout_to_all: true } : {}),
+                        ...(props.id && props.id !== 'new'
+                            ? {}
+                            : { _create_in_folder: 'Unfiled/Early Access Features' }),
                     }
+                    actions.saveEarlyAccessFeature(savePayload)
+                    return
                 }
 
                 if (props.id && props.id !== 'new') {
