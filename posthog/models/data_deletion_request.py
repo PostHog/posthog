@@ -254,6 +254,7 @@ class DataDeletionRequest(UUIDModel):
             compile_hogql_predicate(self)
 
     def _clean_event_removal(self) -> None:
+        self._require_time_range()
         if self.delete_all_events and self.events:
             raise ValidationError({"events": "Events must be empty when delete_all_events is set."})
         if not self.delete_all_events and not self.events:
@@ -263,7 +264,14 @@ class DataDeletionRequest(UUIDModel):
         self._reject_person_fields()
 
     def _clean_property_removal(self) -> None:
+        self._require_time_range()
         self._reject_person_fields()
+
+    def _require_time_range(self) -> None:
+        if self.start_time is None or self.end_time is None:
+            raise ValidationError({"start_time": "start_time and end_time are required for event/property removal."})
+        if self.start_time >= self.end_time:
+            raise ValidationError({"start_time": "start_time must be before end_time."})
 
     def _clean_person_removal(self) -> None:
         total = len(self.person_uuids) + len(self.person_distinct_ids)
