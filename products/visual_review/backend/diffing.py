@@ -19,7 +19,7 @@ from .ssim import compute_ssim
 
 logger = structlog.get_logger(__name__)
 
-# Two-tier classification thresholds:
+# Two-tier classification thresholds. Dummy CI-selection probe change.
 #
 # 1. Pixel diff ratio — fast path for obvious changes. Snapshots above
 #    this are immediately classified as CHANGED.
