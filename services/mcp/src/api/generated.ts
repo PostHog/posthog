@@ -4440,10 +4440,16 @@ export namespace Schemas {
 
     export interface ExperimentStatsBaseValidated {
       /** @nullable */
+      covariate_sum?: number | null;
+      /** @nullable */
+      covariate_sum_squares?: number | null;
+      /** @nullable */
       denominator_sum?: number | null;
       /** @nullable */
       denominator_sum_squares?: number | null;
       key: string;
+      /** @nullable */
+      main_covariate_sum_product?: number | null;
       number_of_samples: number;
       /** @nullable */
       numerator_denominator_sum_product?: number | null;
@@ -4472,10 +4478,16 @@ export namespace Schemas {
        */
       confidence_interval?: number[] | null;
       /** @nullable */
+      covariate_sum?: number | null;
+      /** @nullable */
+      covariate_sum_squares?: number | null;
+      /** @nullable */
       denominator_sum?: number | null;
       /** @nullable */
       denominator_sum_squares?: number | null;
       key: string;
+      /** @nullable */
+      main_covariate_sum_product?: number | null;
       method?: ExperimentVariantResultFrequentistMethod;
       number_of_samples: number;
       /** @nullable */
@@ -4504,6 +4516,10 @@ export namespace Schemas {
     export interface ExperimentVariantResultBayesian {
       /** @nullable */
       chance_to_win?: number | null;
+      /** @nullable */
+      covariate_sum?: number | null;
+      /** @nullable */
+      covariate_sum_squares?: number | null;
       /**
        * @minItems 2
        * @maxItems 2
@@ -4515,6 +4531,8 @@ export namespace Schemas {
       /** @nullable */
       denominator_sum_squares?: number | null;
       key: string;
+      /** @nullable */
+      main_covariate_sum_product?: number | null;
       method?: ExperimentVariantResultBayesianMethod;
       number_of_samples: number;
       /** @nullable */
@@ -35961,6 +35979,21 @@ export namespace Schemas {
 
     export type TaskRunCreateRequestSchema = ClaudeTaskRunCreateSchema | CodexTaskRunCreateSchema | TaskRunResumeRequestSchema;
 
+    export interface TaskRunErrorResponse {
+      /** Human-readable validation error */
+      detail?: string;
+      /** Human-readable error message */
+      error?: string;
+      /** Machine-readable error type */
+      type?: string;
+      /** Machine-readable error code */
+      code?: string;
+      /** Request field associated with the error */
+      attr?: string;
+      /** Artifact ids that could not be resolved for the run */
+      missing_artifact_ids?: string[];
+    }
+
     export interface TaskRunRelayMessageRequest {
       /** @maxLength 10000 */
       text: string;
@@ -41508,6 +41541,17 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type ExperimentsTimeseriesResultsRetrieveParams = {
+    /**
+     * Fingerprint of the metric configuration. Available alongside metric_uuid on each metric in the experiment's metrics array.
+     */
+    fingerprint: string;
+    /**
+     * UUID of the metric to fetch timeseries for. Available on each metric in the experiment's metrics array.
+     */
+    metric_uuid: string;
     };
 
     export type ExportsListParams = {
