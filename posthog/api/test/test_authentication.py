@@ -9,6 +9,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, patch
 
 from django.conf import settings
+from django.contrib.auth import BACKEND_SESSION_KEY
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
 from django.core.cache import cache
@@ -2380,8 +2381,26 @@ class TestKnownLoginDeviceCookieMiddleware(APIBaseTest):
     def test_does_not_set_known_device_cookie_for_internal_api_user(self):
         request = RequestFactory().get("/api/internal/hog_flows/process_due_schedules")
         SessionMiddleware(lambda r: HttpResponse()).process_request(request)
-        request.session["touched"] = True
+        # Simulate a session that *looks* logged-in to prove the synthetic-user guard wins on its own
+        request.session[BACKEND_SESSION_KEY] = "django.contrib.auth.backends.ModelBackend"
         request.__dict__["user"] = InternalAPIUser()
+
+        response = KnownLoginDeviceCookieMiddleware(lambda r: HttpResponse())(request)
+
+        assert response.status_code == 200
+        assert not any(name.startswith("ph_device_") for name in response.cookies)
+
+    def test_does_not_set_known_device_cookie_when_session_accessed_without_login(self):
+        # Regression: under ASGI, posthoganalytics' middleware awaits `request.auser`, which reads
+        # the session and sets `session.accessed=True` even on requests that never went through
+        # `auth.login()`. The gate must rely on `BACKEND_SESSION_KEY`, not on `session.accessed`.
+        request = RequestFactory().get("/api/some_endpoint")
+        SessionMiddleware(lambda r: HttpResponse()).process_request(request)
+        # Touch the session the way an upstream middleware would — flips `accessed` but does not log in
+        request.session.get("anything")
+        assert request.session.accessed is True
+        assert BACKEND_SESSION_KEY not in request.session
+        request.__dict__["user"] = self.user
 
         response = KnownLoginDeviceCookieMiddleware(lambda r: HttpResponse())(request)
 

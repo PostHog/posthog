@@ -11,7 +11,7 @@ from typing import Optional, cast
 from urllib.parse import urlencode
 
 from django.conf import settings
-from django.contrib.auth import logout
+from django.contrib.auth import BACKEND_SESSION_KEY, logout
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core.cache import cache
 from django.core.exceptions import MiddlewareNotUsed
@@ -662,7 +662,14 @@ class KnownLoginDeviceCookieMiddleware:
 
     def __call__(self, request: HttpRequest):
         response = self.get_response(request)
-        if isinstance(request.user, User) and request.session.accessed and not is_impersonated_session(request):
+        # Gate on `BACKEND_SESSION_KEY` (set by `auth.login()`, removed by `auth.logout()`) rather than
+        # `request.session.accessed` — the latter flips True whenever any upstream middleware reads the
+        # session, which makes the gate dependent on middleware ordering and async/sync execution mode.
+        if (
+            isinstance(request.user, User)
+            and BACKEND_SESSION_KEY in request.session
+            and not is_impersonated_session(request)
+        ):
             set_known_device_cookie(response, request.user)
         return response
 
