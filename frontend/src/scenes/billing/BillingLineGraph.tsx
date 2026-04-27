@@ -53,6 +53,7 @@ const defaultFormatter = (value: number): string => value.toLocaleString()
 
 let sharedBillingTooltipElement: HTMLElement | null = null
 let sharedBillingTooltipRoot: Root | null = null
+let sharedBillingTooltipRefCount = 0
 
 function ensureSharedBillingTooltip(): [Root, HTMLElement] {
     if (!sharedBillingTooltipElement || !sharedBillingTooltipRoot) {
@@ -82,9 +83,14 @@ function useBillingTooltip(): {
     const hideBillingTooltip = useCallback((): void => hideSharedBillingTooltip(), [])
 
     useOnMountEffect(() => {
+        sharedBillingTooltipRefCount += 1
         return () => {
-            hideSharedBillingTooltip()
-            sharedBillingTooltipRoot?.render(null)
+            sharedBillingTooltipRefCount -= 1
+            if (sharedBillingTooltipRefCount <= 0) {
+                sharedBillingTooltipRefCount = 0
+                hideSharedBillingTooltip()
+                sharedBillingTooltipRoot?.render(null)
+            }
         }
     })
 
