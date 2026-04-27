@@ -59,7 +59,7 @@ def generate_sql_schema() -> dict:
                     ),
                 },
                 "y_axis_decimal_places": {
-                    "type": ["number", "null"],
+                    "type": ["integer", "null"],
                     "description": "Decimal places for y-axis values, or null to use the default.",
                 },
                 "y_axis_prefix": {

@@ -54,7 +54,7 @@ class RawSQLSchemaGeneratorOutput(BaseModel):
     y_axis: list[str] = Field(default_factory=list)
     series_breakdown_column: str | None = None
     y_axis_format: Style | None = None
-    y_axis_decimal_places: float | None = None
+    y_axis_decimal_places: int | None = None
     y_axis_prefix: str | None = None
     y_axis_suffix: str | None = None
     show_legend: bool | None = None
