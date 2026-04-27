@@ -218,13 +218,51 @@ def test_person_removal_caps_total_selectors_at_1000():
         request.clean()
 
 
-def test_person_removal_rejects_event_only_fields():
-    request = DataDeletionRequest(**_person_kwargs(events=["$pageview"]))
-    with pytest.raises(ValidationError, match="events"):
+@pytest.mark.parametrize(
+    "overrides, match",
+    [
+        ({"events": ["$pageview"]}, "events"),
+        ({"delete_all_events": True}, "events"),
+        ({"properties": ["$ip"]}, "properties"),
+        ({"hogql_predicate": "properties.$browser = 'Chrome'"}, "hogql_predicate"),
+    ],
+    ids=["events", "delete_all_events", "properties", "hogql_predicate"],
+)
+def test_person_removal_rejects_event_only_fields(overrides, match):
+    request = DataDeletionRequest(**_person_kwargs(**overrides))
+    with pytest.raises(ValidationError, match=match):
         request.clean()
 
 
-def test_event_removal_rejects_person_fields():
-    request = DataDeletionRequest(**_base_kwargs(events=["$pageview"], person_uuids=[str(uuid_lib.uuid4())]))
-    with pytest.raises(ValidationError, match="person_uuids"):
+def _property_kwargs(**overrides) -> dict:
+    kwargs = _base_kwargs(
+        request_type=RequestType.PROPERTY_REMOVAL,
+        properties=["$ip"],
+    )
+    kwargs.update(overrides)
+    return kwargs
+
+
+@pytest.mark.parametrize(
+    "request_type, overrides, match",
+    [
+        (RequestType.EVENT_REMOVAL, {"person_uuids": [str(uuid_lib.uuid4())]}, "person_uuids"),
+        (RequestType.EVENT_REMOVAL, {"person_distinct_ids": ["did-1"]}, "person_uuids"),
+        (RequestType.EVENT_REMOVAL, {"person_drop_profiles": True}, "person_drop_profiles"),
+        (RequestType.EVENT_REMOVAL, {"person_drop_events": True}, "person_drop_profiles"),
+        (RequestType.EVENT_REMOVAL, {"person_drop_recordings": True}, "person_drop_profiles"),
+        (RequestType.PROPERTY_REMOVAL, {"person_uuids": [str(uuid_lib.uuid4())]}, "person_uuids"),
+        (RequestType.PROPERTY_REMOVAL, {"person_distinct_ids": ["did-1"]}, "person_uuids"),
+        (RequestType.PROPERTY_REMOVAL, {"person_drop_profiles": True}, "person_drop_profiles"),
+        (RequestType.PROPERTY_REMOVAL, {"person_drop_events": True}, "person_drop_profiles"),
+        (RequestType.PROPERTY_REMOVAL, {"person_drop_recordings": True}, "person_drop_profiles"),
+    ],
+)
+def test_event_and_property_removal_rejects_person_fields(request_type, overrides, match):
+    if request_type == RequestType.EVENT_REMOVAL:
+        kwargs = _base_kwargs(events=["$pageview"], **overrides)
+    else:
+        kwargs = _property_kwargs(**overrides)
+    request = DataDeletionRequest(**kwargs)
+    with pytest.raises(ValidationError, match=match):
         request.clean()

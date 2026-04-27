@@ -243,6 +243,8 @@ class DataDeletionRequest(UUIDModel):
         elif self.request_type == RequestType.PERSON_REMOVAL:
             self._clean_person_removal()
             return  # PERSON_REMOVAL never has hogql_predicate / events / properties
+        else:
+            raise ValidationError({"request_type": f"Unknown request_type: {self.request_type}"})
 
         if self.delete_all_events and self.request_type != RequestType.EVENT_REMOVAL:
             raise ValidationError(
