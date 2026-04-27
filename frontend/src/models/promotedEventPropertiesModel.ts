@@ -20,7 +20,11 @@ export const promotedEventPropertiesModel = kea<promotedEventPropertiesModelType
                     return values.promotedProperties
                 }
                 const response = await api.eventDefinitions.promotedProperties({ names })
-                return { ...values.promotedProperties, ...response.promoted_properties }
+                const next = { ...values.promotedProperties }
+                for (const name of names) {
+                    delete next[name]
+                }
+                return { ...next, ...response.promoted_properties }
             },
         },
     })),
