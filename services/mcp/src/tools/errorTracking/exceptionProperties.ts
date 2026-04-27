@@ -13,6 +13,7 @@ function truncateText(value: unknown, options: NormalizeOptions): unknown {
 }
 
 function parseJsonish(value: unknown): unknown {
+    // HogQL property access over StringJSONDatabaseField returns arrays/objects as raw JSON strings.
     let parsed = value
 
     for (let i = 0; i < 2; i++) {
