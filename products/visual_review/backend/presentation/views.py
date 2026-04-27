@@ -332,7 +332,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         history = api.get_snapshot_history(run.repo_id, identifier)
         return Response(SnapshotHistoryEntrySerializer(instance=history, many=True).data)
 
-    @extend_schema(responses={200: RunSerializer})
+    @extend_schema(request=None, responses={200: RunSerializer})
     @action(detail=True, methods=["post"])
     def complete(self, request: Request, pk: str, **kwargs) -> Response:
         """Complete a run: detect removals, verify uploads, trigger diff processing."""
@@ -390,6 +390,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "GitHub commit failed"}, status=status.HTTP_502_BAD_GATEWAY)
 
     @extend_schema(
+        request=None,
         responses={200: RecomputeResultSerializer},
         description="Re-evaluate quarantine and counts, update commit status, and optionally rerun the CI job.",
     )
@@ -405,7 +406,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         return Response(RecomputeResultSerializer(instance=result).data)
 
-    @extend_schema(responses={200: AutoApproveResultSerializer}, deprecated=True)
+    @extend_schema(request=None, responses={200: AutoApproveResultSerializer}, deprecated=True)
     @action(detail=True, methods=["post"], url_path="auto-approve")
     def auto_approve(self, request: Request, pk: str, **kwargs) -> Response:
         """CLI auto-approve: approve all and return baseline YAML for local write."""
