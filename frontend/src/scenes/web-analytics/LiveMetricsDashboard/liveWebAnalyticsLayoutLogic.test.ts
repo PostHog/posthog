@@ -64,6 +64,8 @@ describe('mergeOrder', () => {
             'devices',
             'browsers',
             'top_countries',
+            'bot_events_chart',
+            'bot_traffic',
             'countries',
             'live_events',
         ])
@@ -105,6 +107,8 @@ describe('liveWebAnalyticsLayoutLogic', () => {
             'live_events',
             'countries',
             'top_countries',
+            'bot_events_chart',
+            'bot_traffic',
             'browsers',
             'devices',
             'top_referrers',

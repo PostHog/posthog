@@ -1,1 +1,1 @@
-1124_alter_alertconfiguration_subscribed_users
+1125_scheduledchange_timezone

@@ -39,7 +39,7 @@ import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import INSTRUCTIONS_TEMPLATE_V1 from '@/templates/instructions-v1.md'
 import INSTRUCTIONS_TEMPLATE_V2 from '@/templates/instructions-v2.md'
 import SINGLE_EXEC_INSTRUCTIONS from '@/templates/single-exec-instructions.md'
-import { createExecTool } from '@/tools/exec'
+import { createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import { type CloudRegion, type Context, type State, type Tool } from '@/tools/types'
 
@@ -645,12 +645,26 @@ export class MCP extends McpAgent<Env> {
                 supportsInstructions ? undefined : queryToolInfos
             )
 
+            const trackInnerCall: ExecInnerCallTracker = (toolName, properties) => {
+                this.ctx.waitUntil(
+                    (async () => {
+                        const freshContext = await this.getAnalyticsContextSafe(await this.getContext())
+                        await this.trackEvent(
+                            AnalyticsEvent.MCP_TOOL_CALLED,
+                            { tool_name: toolName, ...properties },
+                            freshContext ? { context: freshContext } : undefined
+                        )
+                    })()
+                )
+            }
+
             const execTool = createExecTool(
                 allTools,
                 context,
                 CLI_PROXY_TOOL,
                 commandReference,
-                this.requestProperties.mcpConsumer
+                this.requestProperties.mcpConsumer,
+                trackInnerCall
             )
             const typedExecTool = execTool as Tool<z.ZodObject>
             this.registerTool(typedExecTool, async (params) => typedExecTool.handler(context, params))

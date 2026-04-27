@@ -25,7 +25,7 @@ from posthog.redis import get_client
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
-from posthog.temporal.common.search_attributes import POSTHOG_TEAM_ID_KEY
+from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
 from posthog.temporal.session_replay.session_summary.activities import (
     CaptureTimingInputs,
@@ -562,6 +562,12 @@ async def ensure_llm_single_session_summary(
             retry_policy=RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
             execution_timeout=timedelta(minutes=30),
+            search_attributes=TypedSearchAttributes(
+                search_attributes=[
+                    SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=video_inputs.team_id),
+                    SearchAttributePair(key=POSTHOG_SESSION_RECORDING_ID_KEY, value=video_inputs.session_id),
+                ]
+            ),
         )
 
     # Activity 2: Upload full video to Gemini (single upload)
