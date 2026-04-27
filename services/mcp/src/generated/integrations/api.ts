@@ -8,7 +8,7 @@
  */
 import * as zod from 'zod'
 
-export const IntegrationsList2Params = /* @__PURE__ */ zod.object({
+export const IntegrationsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,12 +16,12 @@ export const IntegrationsList2Params = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const IntegrationsList2QueryParams = /* @__PURE__ */ zod.object({
+export const IntegrationsListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const IntegrationsRetrieve2Params = /* @__PURE__ */ zod.object({
+export const IntegrationsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this integration.'),
     project_id: zod
         .string()

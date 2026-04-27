@@ -79,6 +79,20 @@ export interface UserBasicApi {
 /**
  * Serializer for organization-level integrations.
  */
+export interface PatchedOrganizationIntegrationApi {
+    readonly id?: string
+    readonly kind?: OrganizationIntegrationKindEnumApi
+    /** @nullable */
+    readonly integration_id?: string | null
+    readonly config?: unknown
+    readonly created_at?: string
+    readonly updated_at?: string
+    readonly created_by?: UserBasicApi
+}
+
+/**
+ * Serializer for organization-level integrations.
+ */
 export interface OrganizationIntegrationApi {
     readonly id: string
     readonly kind: OrganizationIntegrationKindEnumApi
@@ -90,27 +104,52 @@ export interface OrganizationIntegrationApi {
     readonly created_by: UserBasicApi
 }
 
-export interface PaginatedOrganizationIntegrationListApi {
+export interface RoleExternalReferenceApi {
+    readonly id: string
+    /**
+     * Integration kind (e.g., github, linear, jira, slack).
+     * @maxLength 32
+     */
+    provider: string
+    /**
+     * Provider organization/workspace/site identifier.
+     * @maxLength 255
+     */
+    provider_organization_id: string
+    /**
+     * Stable provider role identifier.
+     * @maxLength 255
+     */
+    provider_role_id: string
+    /**
+     * Human-friendly provider role identifier.
+     * @maxLength 255
+     * @nullable
+     */
+    provider_role_slug?: string | null
+    /**
+     * Display name of the provider role.
+     * @maxLength 255
+     */
+    provider_role_name: string
+    /** PostHog role UUID this external role maps to. */
+    role: string
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+}
+
+export interface PaginatedRoleExternalReferenceListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: OrganizationIntegrationApi[]
+    results: RoleExternalReferenceApi[]
 }
 
-/**
- * Serializer for organization-level integrations.
- */
-export interface PatchedOrganizationIntegrationApi {
-    readonly id?: string
-    readonly kind?: OrganizationIntegrationKindEnumApi
-    /** @nullable */
-    readonly integration_id?: string | null
-    readonly config?: unknown
-    readonly created_at?: string
-    readonly updated_at?: string
-    readonly created_by?: UserBasicApi
+export interface RoleLookupResponseApi {
+    /** Matching reference, or null if none exists. */
+    reference: RoleExternalReferenceApi | null
 }
 
 /**
@@ -147,9 +186,9 @@ export interface PatchedOrganizationIntegrationApi {
  * `customerio-webhook` - Customerio Webhook
  * `customerio-track` - Customerio Track
  */
-export type KindE4eEnumApi = (typeof KindE4eEnumApi)[keyof typeof KindE4eEnumApi]
+export type IntegrationKindEnumApi = (typeof IntegrationKindEnumApi)[keyof typeof IntegrationKindEnumApi]
 
-export const KindE4eEnumApi = {
+export const IntegrationKindEnumApi = {
     Slack: 'slack',
     SlackPosthogCode: 'slack-posthog-code',
     Salesforce: 'salesforce',
@@ -187,9 +226,9 @@ export const KindE4eEnumApi = {
 /**
  * Standard Integration serializer.
  */
-export interface IntegrationApi {
+export interface IntegrationConfigApi {
     readonly id: number
-    kind: KindE4eEnumApi
+    kind: IntegrationKindEnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -197,21 +236,21 @@ export interface IntegrationApi {
     readonly display_name: string
 }
 
-export interface PaginatedIntegrationListApi {
+export interface PaginatedIntegrationConfigListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: IntegrationApi[]
+    results: IntegrationConfigApi[]
 }
 
 /**
  * Standard Integration serializer.
  */
-export interface PatchedIntegrationApi {
+export interface PatchedIntegrationConfigApi {
     readonly id?: number
-    kind?: KindE4eEnumApi
+    kind?: IntegrationKindEnumApi
     config?: unknown
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -248,7 +287,7 @@ export interface GitHubReposRefreshResponseApi {
     repositories: GitHubRepoApi[]
 }
 
-export type IntegrationsListParams = {
+export type RoleExternalReferencesListParams = {
     /**
      * Number of results to return per page.
      */
@@ -259,7 +298,30 @@ export type IntegrationsListParams = {
     offset?: number
 }
 
-export type IntegrationsList2Params = {
+export type RoleExternalReferencesLookupRetrieveParams = {
+    /**
+     * Integration kind (e.g., github, linear, jira, slack).
+     * @minLength 1
+     */
+    provider: string
+    /**
+     * Provider organization/workspace/site identifier.
+     * @minLength 1
+     */
+    provider_organization_id: string
+    /**
+     * Stable provider role identifier.
+     * @minLength 1
+     */
+    provider_role_id?: string
+    /**
+     * Human-friendly provider role identifier.
+     * @minLength 1
+     */
+    provider_role_slug?: string
+}
+
+export type IntegrationsListParams = {
     /**
      * Number of results to return per page.
      */

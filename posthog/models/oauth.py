@@ -148,6 +148,14 @@ class OAuthApplication(AbstractApplication):
     provisioning_rate_limit_resource_creates: models.IntegerField = models.IntegerField(
         null=True, blank=True, help_text="Override default rate limit for resource creates (per hour)"
     )
+    provisioning_skip_existing_user_consent: models.BooleanField = models.BooleanField(
+        default=False,
+        help_text="Skip user consent when linking existing accounts. Only enable for fully trusted partners.",
+    )
+    provisioning_can_issue_deep_links: models.BooleanField = models.BooleanField(
+        default=False,
+        help_text="Allow this app to issue deep links that mint full web sessions. Only enable for fully trusted partners.",
+    )
 
     @property
     def is_provisioning_partner(self) -> bool:
@@ -159,13 +167,13 @@ class OAuthApplication(AbstractApplication):
         swappable = "OAUTH2_PROVIDER_APPLICATION_MODEL"
         constraints = [
             models.CheckConstraint(
-                check=models.Q(skip_authorization=False),
+                condition=models.Q(skip_authorization=False),
                 name="enforce_skip_authorization_false",
             ),
             # Note: We do not support HS256 since we don't want to store the client secret in plaintext
-            models.CheckConstraint(check=models.Q(algorithm="RS256"), name="enforce_rs256_algorithm"),
+            models.CheckConstraint(condition=models.Q(algorithm="RS256"), name="enforce_rs256_algorithm"),
             models.CheckConstraint(
-                check=models.Q(authorization_grant_type=AbstractApplication.GRANT_AUTHORIZATION_CODE),
+                condition=models.Q(authorization_grant_type=AbstractApplication.GRANT_AUTHORIZATION_CODE),
                 name="enforce_supported_grant_types",
             ),
         ]
@@ -308,7 +316,7 @@ class OAuthGrant(AbstractGrant):
         # Note: We do not support plaintext code challenge methods since they are not secure
         constraints = [
             models.CheckConstraint(
-                check=models.Q(code_challenge_method=AbstractGrant.CODE_CHALLENGE_S256),
+                condition=models.Q(code_challenge_method=AbstractGrant.CODE_CHALLENGE_S256),
                 name="enforce_supported_code_challenge_method",
             )
         ]

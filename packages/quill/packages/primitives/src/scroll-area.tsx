@@ -3,6 +3,7 @@ import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp } from 'lucide-react'
 import * as React from 'react'
 
 import { cn } from './lib/utils'
+import './scroll-area.css'
 import { Button } from './button'
 
 type ScrollEdge = 'top' | 'right' | 'bottom' | 'left'
@@ -210,13 +211,13 @@ function ScrollArea({
             // Just to keep around so we know it's a scroll area in case we merge props with another component
             data-component="scroll-area"
             data-scroll-shadows={scrollShadows}
-            className={cn('group/scroll-area relative', className)}
+            className={cn('quill-scroll-area group/scroll-area', className)}
             {...props}
         >
             <ScrollAreaPrimitive.Viewport
                 ref={viewportRef}
                 data-slot="scroll-area-viewport"
-                className="size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1"
+                className="quill-scroll-area__viewport"
             >
                 {children}
             </ScrollAreaPrimitive.Viewport>
@@ -224,10 +225,7 @@ function ScrollArea({
                 <>
                     <ScrollBar orientation="horizontal" alwaysVisible={alwaysShowScrollbars} />
                     <ScrollBar orientation="vertical" alwaysVisible={alwaysShowScrollbars} />
-                    <ScrollAreaPrimitive.Corner
-                        data-slot="scroll-area-corner"
-                        className="bg-transparent rounded-br-sm z-1"
-                    />
+                    <ScrollAreaPrimitive.Corner data-slot="scroll-area-corner" className="quill-scroll-area__corner" />
                 </>
             )}
             {edges.map((edge) => (
@@ -249,20 +247,13 @@ function ScrollBar({
             data-orientation={orientation}
             orientation={orientation}
             className={cn(
-                'group/scrollbar bg-input/50 flex touch-none p-px transition-colors select-none z-1 rounded-sm',
-                'data-[orientation=horizontal]:w-full data-[orientation=horizontal]:data-[has-overflow-y]:w-[calc(100%-0.625rem)] data-[orientation=horizontal]:h-2.5 data-[orientation=horizontal]:flex-row',
-                'data-[orientation=vertical]:h-full data-[orientation=vertical]:data-[has-overflow-x]:h-[calc(100%-0.625rem)] data-[orientation=vertical]:w-2.5 data-[orientation=vertical]:flex-col',
-                alwaysVisible
-                    ? 'opacity-100 pointer-events-auto'
-                    : 'opacity-0 transition-opacity pointer-events-none data-[hovering]:opacity-100 data-[hovering]:delay-0 data-[hovering]:pointer-events-auto data-[scrolling]:opacity-100 data-[scrolling]:duration-0 data-[scrolling]:pointer-events-auto',
+                'quill-scroll-area__scrollbar group/scrollbar flex',
+                alwaysVisible ? 'quill-scroll-area__scrollbar--always' : 'quill-scroll-area__scrollbar--auto',
                 className
             )}
             {...props}
         >
-            <ScrollAreaPrimitive.Thumb
-                data-slot="scroll-area-thumb"
-                className="relative rounded-sm bg-input group-data-[orientation=vertical]/scrollbar:w-full group-data-[orientation=horizontal]/scrollbar:h-full"
-            />
+            <ScrollAreaPrimitive.Thumb data-slot="scroll-area-thumb" className="quill-scroll-area__thumb" />
         </ScrollAreaPrimitive.Scrollbar>
     )
 }

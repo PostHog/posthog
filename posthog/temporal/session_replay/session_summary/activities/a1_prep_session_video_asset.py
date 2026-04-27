@@ -101,7 +101,9 @@ async def prep_session_video_asset_activity(
                 signals_type="session-summaries",
             )
             success = True
-            return PrepSessionVideoAssetResult(asset_id=existing_asset.id, needs_export=False)
+            return PrepSessionVideoAssetResult(
+                asset_id=existing_asset.id, needs_export=False, team_api_token=team.api_token
+            )
 
         # Create ExportedAsset record (the actual video rendering happens as a child workflow)
         created_at = now()
@@ -127,7 +129,7 @@ async def prep_session_video_asset_activity(
         )
 
         success = True
-        return PrepSessionVideoAssetResult(asset_id=exported_asset.id, needs_export=True)
+        return PrepSessionVideoAssetResult(asset_id=exported_asset.id, needs_export=True, team_api_token=team.api_token)
 
     except Exception as e:
         logger.exception(

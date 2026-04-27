@@ -153,6 +153,7 @@ class RunState(BaseModel, extra="allow"):
     model: str | None = None
     reasoning_effort: ReasoningEffort | None = None
     resume_from_run_id: str | None = None
+    handoff_resumed: bool = False
     snapshot_external_id: str | None = None
     sandbox_id: str | None = None
     sandbox_url: str | None = None
