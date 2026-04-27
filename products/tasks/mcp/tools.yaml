@@ -1,0 +1,310 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Tasks
+feature: tasks
+url_prefix: /tasks
+ui_apps: {}
+tools:
+    tasks-list:
+        operation: tasks_list
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        list: true
+        title: List tasks
+        description: >
+            List agent tasks in the current project. Supports filtering by `origin_product`, `stage`, `organization`,
+            `repository`, `created_by`, and `internal`. Returns lightweight task metadata only — call tasks-retrieve
+            for the full task including its latest run, or tasks-runs-list for run history. Requires the calling
+            token's organization to have Tasks access enabled.
+        response:
+            include:
+                - id
+                - task_number
+                - title
+                - description
+                - origin_product
+                - repository
+                - internal
+                - created_at
+                - updated_at
+    tasks-retrieve:
+        operation: tasks_retrieve
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get task
+        description: >
+            Get a specific task by ID, including its description, repository, origin product, current stage, and latest
+            run summary. Use task-runs-list or task-run-get to inspect past executions.
+    tasks-create:
+        operation: tasks_create
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Create task
+        description: >
+            Create a new agent task in the current project. Provide `title`, `description`, and an optional `repository`
+            (owner/repo format) plus `origin_product` metadata.
+    tasks-partial-update:
+        operation: tasks_partial_update
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Update task
+        description: >
+            Update an existing task by ID. Supports editing title, description, repository, and metadata. Does not
+            trigger a run.
+    tasks-update:
+        operation: tasks_update
+        enabled: false
+    tasks-destroy:
+        operation: tasks_destroy
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Delete task
+        description: >
+            Soft-delete a task by ID. The task will no longer appear in tasks-list but its historical runs are preserved.
+    tasks-run-create:
+        operation: tasks_run_create
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Run task
+        description: >
+            Create a new run for a task and immediately start execution. Provide the task ID and optionally
+            configure `branch`, `sandbox_environment_id`, `pending_user_message` (initial prompt to the agent),
+            and runtime settings (`runtime_adapter`, `model`, `reasoning_effort`). Use `resume_from_run_id` to
+            continue from a previous run's state. Returns the task object with the newly created run in `latest_run`.
+        include_params:
+            - mode
+            - branch
+            - sandbox_environment_id
+            - resume_from_run_id
+            - pending_user_message
+            - pr_authorship_mode
+            - runtime_adapter
+            - model
+            - reasoning_effort
+            - initial_permission_mode
+        response:
+            include:
+                - id
+                - title
+                - latest_run
+    tasks-repository-readiness-retrieve:
+        operation: tasks_repository_readiness_retrieve
+        enabled: false
+    tasks-staged-artifacts-prepare-upload-create:
+        operation: tasks_staged_artifacts_prepare_upload_create
+        enabled: false
+    tasks-staged-artifacts-finalize-upload-create:
+        operation: tasks_staged_artifacts_finalize_upload_create
+        enabled: false
+    tasks-runs-list:
+        operation: tasks_runs_list
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List task runs
+        description: >
+            List all runs for a specific task. Returns lightweight run metadata only — call tasks-runs-retrieve
+            for full run detail including state, output, and artifacts.
+        response:
+            include:
+                - id
+                - task
+                - stage
+                - branch
+                - status
+                - environment
+                - error_message
+                - state.sandbox_environment_id
+                - created_at
+                - updated_at
+                - completed_at
+    tasks-runs-retrieve:
+        operation: tasks_runs_retrieve
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get task run
+        description: >
+            Get full details for a specific task run including status, stage, environment, branch, artifacts summary,
+            state, error message, and timestamps. The `state` object contains `sandbox_environment_id` (the UUID of the
+            sandbox environment used) — pass it to sandbox-retrieve to inspect the sandbox configuration.
+    tasks-runs-session-logs-retrieve:
+        operation: tasks_runs_session_logs_retrieve
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get task run session logs
+        description: >
+            Fetch session log events emitted by the agent for a specific run. Supports filtering by `event_types`,
+            `exclude_types`, pagination with `limit`/`offset`, and `after` cursor. Use this instead of the streaming
+            endpoint when invoking from an MCP client.
+        param_overrides:
+            limit:
+                default: 100
+    tasks-runs-create:
+        operation: tasks_runs_create
+        enabled: false
+    tasks-runs-partial-update:
+        operation: tasks_runs_partial_update
+        enabled: false
+    tasks-runs-append-log-create:
+        operation: tasks_runs_append_log_create
+        enabled: false
+    tasks-runs-artifacts-create:
+        operation: tasks_runs_artifacts_create
+        enabled: false
+    tasks-runs-artifacts-download-create:
+        operation: tasks_runs_artifacts_download_create
+        enabled: false
+    tasks-runs-artifacts-finalize-upload-create:
+        operation: tasks_runs_artifacts_finalize_upload_create
+        enabled: false
+    tasks-runs-artifacts-prepare-upload-create:
+        operation: tasks_runs_artifacts_prepare_upload_create
+        enabled: false
+    tasks-runs-artifacts-presign-create:
+        operation: tasks_runs_artifacts_presign_create
+        enabled: false
+    tasks-runs-command-create:
+        operation: tasks_runs_command_create
+        enabled: false
+    tasks-runs-connection-token-retrieve:
+        operation: tasks_runs_connection_token_retrieve
+        enabled: false
+    tasks-runs-logs-retrieve:
+        operation: tasks_runs_logs_retrieve
+        enabled: false
+    tasks-runs-relay-message-create:
+        operation: tasks_runs_relay_message_create
+        enabled: false
+    tasks-runs-set-output-partial-update:
+        operation: tasks_runs_set_output_partial_update
+        enabled: false
+    tasks-runs-start-create:
+        operation: tasks_runs_start_create
+        enabled: false
+    tasks-runs-stream-retrieve:
+        operation: tasks_runs_stream_retrieve
+        enabled: false
+    task-automations-list:
+        operation: task_automations_list
+        enabled: false
+    task-automations-create:
+        operation: task_automations_create
+        enabled: false
+    sandbox-list:
+        operation: sandbox_list
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        list: true
+        title: List sandbox environments
+        description: >
+            List sandbox environments available for running tasks in the current project. Returns id, name, and network
+            access level for each environment. The `id` identifies which sandbox a task run used — match it against
+            `sandbox_environment_id` in the run's `state` object.
+    sandbox-create:
+        operation: sandbox_create
+        enabled: false
+    code-invites-check-access-retrieve:
+        operation: code_invites_check_access_retrieve
+        enabled: false
+    code-invites-redeem-create:
+        operation: code_invites_redeem_create
+        enabled: false
+    sandbox-retrieve:
+        operation: sandbox_retrieve
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get sandbox environment
+        description: |
+            Get a specific sandbox environment by ID including its configuration and network access level.
+    sandbox-partial-update:
+        operation: sandbox_partial_update
+        enabled: false
+    sandbox-destroy:
+        operation: sandbox_destroy
+        enabled: false
+    task-automations-retrieve:
+        operation: task_automations_retrieve
+        enabled: false
+    task-automations-update:
+        operation: task_automations_update
+        enabled: false
+    task-automations-partial-update:
+        operation: task_automations_partial_update
+        enabled: false
+    task-automations-destroy:
+        operation: task_automations_destroy
+        enabled: false
+    task-automations-run-create:
+        operation: task_automations_run_create
+        enabled: false
+    tasks-runs-resume-in-cloud-create:
+        operation: tasks_runs_resume_in_cloud_create
+        enabled: false
+    tasks-repositories-retrieve:
+        operation: tasks_repositories_retrieve
+        enabled: false

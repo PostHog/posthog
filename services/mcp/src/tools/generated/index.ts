@@ -32,6 +32,7 @@ import { GENERATED_TOOLS as replay } from './replay'
 import { GENERATED_TOOLS as sdk_doctor } from './sdk_doctor'
 import { GENERATED_TOOLS as skills } from './skills'
 import { GENERATED_TOOLS as surveys } from './surveys'
+import { GENERATED_TOOLS as tasks } from './tasks'
 import { GENERATED_TOOLS as web_analytics } from './web_analytics'
 import { GENERATED_TOOLS as workflows } from './workflows'
 
@@ -67,6 +68,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...sdk_doctor,
     ...skills,
     ...surveys,
+    ...tasks,
     ...web_analytics,
     ...workflows,
 }

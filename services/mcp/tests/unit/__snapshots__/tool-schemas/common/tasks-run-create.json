@@ -1,0 +1,183 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "allOf": [
+        {
+            "additionalProperties": {},
+            "properties": {
+                "id": {
+                    "description": "A UUID string identifying this task.",
+                    "type": "string"
+                }
+            },
+            "required": ["id"],
+            "type": "object"
+        },
+        {
+            "anyOf": [
+                {
+                    "additionalProperties": {},
+                    "properties": {
+                        "branch": {
+                            "anyOf": [
+                                {
+                                    "maxLength": 255,
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Git branch to checkout in the sandbox"
+                        },
+                        "initial_permission_mode": {
+                            "description": "Initial permission mode for Claude runtimes.\n\n* `default` - default\n* `acceptEdits` - acceptEdits\n* `plan` - plan\n* `bypassPermissions` - bypassPermissions\n* `auto` - auto",
+                            "enum": ["default", "acceptEdits", "plan", "bypassPermissions", "auto"],
+                            "type": "string"
+                        },
+                        "mode": {
+                            "default": "background",
+                            "description": "Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs\n\n* `interactive` - interactive\n* `background` - background",
+                            "enum": ["interactive", "background"],
+                            "type": "string"
+                        },
+                        "model": {
+                            "description": "LLM model identifier to run in the Claude runtime.",
+                            "type": "string"
+                        },
+                        "pending_user_message": {
+                            "description": "Initial or follow-up user message to include in the run prompt.",
+                            "type": "string"
+                        },
+                        "pr_authorship_mode": {
+                            "description": "Whether pull requests for this run should be authored by the user or the bot.\n\n* `user` - user\n* `bot` - bot",
+                            "enum": ["user", "bot"],
+                            "type": "string"
+                        },
+                        "reasoning_effort": {
+                            "description": "Reasoning effort to request for models that expose an effort control.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `max` - max",
+                            "enum": ["low", "medium", "high", "max"],
+                            "type": "string"
+                        },
+                        "resume_from_run_id": {
+                            "description": "ID of a previous run to resume from. Must belong to the same task.",
+                            "type": "string"
+                        },
+                        "runtime_adapter": {
+                            "description": "Agent runtime adapter to launch for this run. Must be 'claude' for Claude runtimes.\n\n* `claude` - claude",
+                            "enum": ["claude"],
+                            "type": "string"
+                        },
+                        "sandbox_environment_id": {
+                            "description": "Optional sandbox environment to apply for this cloud run.",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["runtime_adapter", "model"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": {},
+                    "properties": {
+                        "branch": {
+                            "anyOf": [
+                                {
+                                    "maxLength": 255,
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Git branch to checkout in the sandbox"
+                        },
+                        "initial_permission_mode": {
+                            "description": "Initial permission mode for Codex runtimes.\n\n* `auto` - auto\n* `read-only` - read-only\n* `full-access` - full-access",
+                            "enum": ["auto", "read-only", "full-access"],
+                            "type": "string"
+                        },
+                        "mode": {
+                            "default": "background",
+                            "description": "Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs\n\n* `interactive` - interactive\n* `background` - background",
+                            "enum": ["interactive", "background"],
+                            "type": "string"
+                        },
+                        "model": {
+                            "description": "LLM model identifier to run in the Codex runtime.",
+                            "type": "string"
+                        },
+                        "pending_user_message": {
+                            "description": "Initial or follow-up user message to include in the run prompt.",
+                            "type": "string"
+                        },
+                        "pr_authorship_mode": {
+                            "description": "Whether pull requests for this run should be authored by the user or the bot.\n\n* `user` - user\n* `bot` - bot",
+                            "enum": ["user", "bot"],
+                            "type": "string"
+                        },
+                        "reasoning_effort": {
+                            "description": "Reasoning effort to request for models that expose an effort control.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `max` - max",
+                            "enum": ["low", "medium", "high", "max"],
+                            "type": "string"
+                        },
+                        "resume_from_run_id": {
+                            "description": "ID of a previous run to resume from. Must belong to the same task.",
+                            "type": "string"
+                        },
+                        "runtime_adapter": {
+                            "description": "Agent runtime adapter to launch for this run. Must be 'codex' for Codex runtimes.\n\n* `codex` - codex",
+                            "enum": ["codex"],
+                            "type": "string"
+                        },
+                        "sandbox_environment_id": {
+                            "description": "Optional sandbox environment to apply for this cloud run.",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["runtime_adapter", "model"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": {},
+                    "properties": {
+                        "branch": {
+                            "anyOf": [
+                                {
+                                    "maxLength": 255,
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Git branch to checkout in the sandbox"
+                        },
+                        "mode": {
+                            "default": "background",
+                            "description": "Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs\n\n* `interactive` - interactive\n* `background` - background",
+                            "enum": ["interactive", "background"],
+                            "type": "string"
+                        },
+                        "pending_user_message": {
+                            "description": "Initial or follow-up user message to include in the run prompt.",
+                            "type": "string"
+                        },
+                        "pr_authorship_mode": {
+                            "description": "Whether pull requests for this run should be authored by the user or the bot.\n\n* `user` - user\n* `bot` - bot",
+                            "enum": ["user", "bot"],
+                            "type": "string"
+                        },
+                        "resume_from_run_id": {
+                            "description": "ID of a previous run to resume from. Must belong to the same task.",
+                            "type": "string"
+                        },
+                        "sandbox_environment_id": {
+                            "description": "Optional sandbox environment to apply for this cloud run.",
+                            "type": "string"
+                        }
+                    },
+                    "type": "object"
+                }
+            ]
+        }
+    ]
+}

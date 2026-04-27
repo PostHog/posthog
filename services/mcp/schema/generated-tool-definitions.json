@@ -3653,6 +3653,171 @@
             "readOnlyHint": true
         }
     },
+    "tasks-list": {
+        "description": "List agent tasks in the current project. Supports filtering by `origin_product`, `stage`, `organization`, `repository`, `created_by`, and `internal`. Returns lightweight task metadata only — call tasks-retrieve for the full task including its latest run, or tasks-runs-list for run history. Requires the calling token's organization to have Tasks access enabled.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "List tasks",
+        "title": "List tasks",
+        "required_scopes": ["task:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "tasks-retrieve": {
+        "description": "Get a specific task by ID, including its description, repository, origin product, current stage, and latest run summary. Use task-runs-list or task-run-get to inspect past executions.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Get task",
+        "title": "Get task",
+        "required_scopes": ["task:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "tasks-create": {
+        "description": "Create a new agent task in the current project. Provide `title`, `description`, and an optional `repository` (owner/repo format) plus `origin_product` metadata.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Create task",
+        "title": "Create task",
+        "required_scopes": ["task:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "tasks-partial-update": {
+        "description": "Update an existing task by ID. Supports editing title, description, repository, and metadata. Does not trigger a run.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Update task",
+        "title": "Update task",
+        "required_scopes": ["task:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "tasks-destroy": {
+        "description": "Soft-delete a task by ID. The task will no longer appear in tasks-list but its historical runs are preserved.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Delete task",
+        "title": "Delete task",
+        "required_scopes": ["task:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "tasks-run-create": {
+        "description": "Create a new run for a task and immediately start execution. Provide the task ID and optionally configure `branch`, `sandbox_environment_id`, `pending_user_message` (initial prompt to the agent), and runtime settings (`runtime_adapter`, `model`, `reasoning_effort`). Use `resume_from_run_id` to continue from a previous run's state. Returns the task object with the newly created run in `latest_run`.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Run task",
+        "title": "Run task",
+        "required_scopes": ["task:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "tasks-runs-list": {
+        "description": "List all runs for a specific task. Returns lightweight run metadata only — call tasks-runs-retrieve for full run detail including state, output, and artifacts.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "List task runs",
+        "title": "List task runs",
+        "required_scopes": ["task:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "tasks-runs-retrieve": {
+        "description": "Get full details for a specific task run including status, stage, environment, branch, artifacts summary, state, error message, and timestamps. The `state` object contains `sandbox_environment_id` (the UUID of the sandbox environment used) — pass it to sandbox-retrieve to inspect the sandbox configuration.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Get task run",
+        "title": "Get task run",
+        "required_scopes": ["task:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "tasks-runs-session-logs-retrieve": {
+        "description": "Fetch session log events emitted by the agent for a specific run. Supports filtering by `event_types`, `exclude_types`, pagination with `limit`/`offset`, and `after` cursor. Use this instead of the streaming endpoint when invoking from an MCP client.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Get task run session logs",
+        "title": "Get task run session logs",
+        "required_scopes": ["task:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "sandbox-list": {
+        "description": "List sandbox environments available for running tasks in the current project. Returns id, name, and network access level for each environment. The `id` identifies which sandbox a task run used — match it against `sandbox_environment_id` in the run's `state` object.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "List sandbox environments",
+        "title": "List sandbox environments",
+        "required_scopes": ["task:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "sandbox-retrieve": {
+        "description": "Get a specific sandbox environment by ID including its configuration and network access level.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Get sandbox environment",
+        "title": "Get sandbox environment",
+        "required_scopes": ["task:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "web-analytics-weekly-digest": {
         "description": "Summarizes a project's web analytics over a lookback window (default 7 days): unique visitors, pageviews, sessions, bounce rate, and average session duration with period-over-period comparisons, plus the top 5 pages, top 5 traffic sources, and goal conversions. Accepts optional `days` (1–90, default 7) and `compare` (bool, default true) query params — pass `days=30` to summarize the last month, or `compare=false` to skip the period-over-period comparison for a faster response. Use this to answer questions like \"how are my web analytics?\", \"how did the site do last week?\", or \"what's my traffic looking like this month?\".",
         "category": "Web analytics",

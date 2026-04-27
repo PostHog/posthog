@@ -598,23 +598,3 @@ export const pluginConfigsLogsList = async (
         method: 'GET',
     })
 }
-
-/**
- * Fetch the logs for a task run. Returns JSONL formatted log entries.
- * @summary Get task run logs
- */
-export const getTasksRunsLogsRetrieveUrl = (projectId: string, taskId: string, id: string) => {
-    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/logs/`
-}
-
-export const tasksRunsLogsRetrieve = async (
-    projectId: string,
-    taskId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getTasksRunsLogsRetrieveUrl(projectId, taskId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
