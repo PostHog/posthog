@@ -628,18 +628,18 @@ def delete_person_events_op(
     if not person_removal.drop_events:
         context.log.info("drop_events=False, skipping event deletion")
         return person_removal
-    if not person_removal.person_uuids:
-        # Person UUIDs are resolved up front in delete_person_profiles_op; if we get here without
-        # any UUIDs (e.g. only distinct_ids supplied) we resolve them now.
+    # Profiles run *last* in this job, so when distinct_ids are supplied we resolve here so the
+    # union of uuid- and distinct_id-targeted persons all have their events deleted.
+    if person_removal.person_distinct_ids:
         persons = resolve_persons_for_deletion(
             person_removal.team_id,
-            uuids=None,
+            uuids=person_removal.person_uuids or None,
             distinct_ids=person_removal.person_distinct_ids,
         )
         person_removal.person_uuids = [str(p.uuid) for p in persons]
-        if not person_removal.person_uuids:
-            context.log.info("No persons resolved; nothing to delete")
-            return person_removal
+    if not person_removal.person_uuids:
+        context.log.info("No persons resolved; nothing to delete")
+        return person_removal
 
     table = EVENTS_DATA_TABLE()
     predicate, params = _person_event_predicate(person_removal)

@@ -997,6 +997,44 @@ def test_delete_person_events_op_noop_when_disabled(cluster: ClickhouseCluster):
 
 
 @pytest.mark.django_db
+def test_delete_person_events_op_unions_uuids_and_distinct_ids(cluster: ClickhouseCluster):
+    # Regression: when both selectors are populated they must be unioned, otherwise
+    # persons named only by distinct_id get their events left behind in CH.
+    p_by_uuid = Person.objects.create(team_id=TEAM_ID, uuid=uuid4(), distinct_ids=["uuid-only"])
+    p_by_distinct_id = Person.objects.create(team_id=TEAM_ID, uuid=uuid4(), distinct_ids=["distinct-only"])
+    bystander_uuid = str(uuid4())
+    now = datetime.now()
+
+    cluster.any_host(_truncate_writable_events).result()
+    cluster.any_host(
+        partial(
+            _insert_events_with_person,
+            [
+                (TEAM_ID, "$pageview", str(uuid4()), now, str(p_by_uuid.uuid)),
+                (TEAM_ID, "$pageview", str(uuid4()), now, str(p_by_distinct_id.uuid)),
+                (TEAM_ID, "$pageview", str(uuid4()), now, bystander_uuid),
+            ],
+        )
+    ).result()
+
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[str(p_by_uuid.uuid)],
+        person_distinct_ids=["distinct-only"],
+        drop_profiles=False,
+        drop_events=True,
+        drop_recordings=False,
+    )
+
+    delete_person_events_op(build_op_context(), cluster, ctx)
+
+    assert cluster.any_host(partial(_count_events_for_person, TEAM_ID, str(p_by_uuid.uuid))).result() == 0
+    assert cluster.any_host(partial(_count_events_for_person, TEAM_ID, str(p_by_distinct_id.uuid))).result() == 0
+    assert cluster.any_host(partial(_count_events_for_person, TEAM_ID, bystander_uuid)).result() == 1
+
+
+@pytest.mark.django_db
 def test_delete_person_recordings_op_calls_helper_when_enabled():
     p_uuid = str(uuid4())
     Person.objects.create(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
