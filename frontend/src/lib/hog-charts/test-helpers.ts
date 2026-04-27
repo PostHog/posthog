@@ -57,10 +57,13 @@ export async function clickAtIndex(wrapper: HTMLElement, index: number, totalLab
     hoverAtIndex(wrapper, index, totalLabels)
     // Wait for the hover state to flush — onClick reads tooltipCtx synchronously
     // to decide between pinning and onPointClick, and a stale null takes the wrong branch.
-    await waitFor(() => {
-        if (!document.querySelector('[data-hog-charts-tooltip]')) {
-            throw new Error('tooltip not yet rendered')
-        }
-    })
+    await waitFor(
+        () => {
+            if (!document.querySelector('[data-hog-charts-tooltip]')) {
+                throw new Error('tooltip not yet rendered')
+            }
+        },
+        { timeout: 3000 }
+    )
     fireEvent.click(wrapper)
 }
