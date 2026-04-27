@@ -74,23 +74,13 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
         ],
     })),
 
-    selectors(({ actions }) => ({
+    selectors({
         runs: [
             (s) => [s.runsResponse],
             (runsResponse: PaginatedRunListApi): PaginatedRunListApi['results'] => runsResponse.results,
         ],
         runsLoading: [(s) => [s.runsResponseLoading], (loading: boolean): boolean => loading],
-        pagination: [
-            (s) => [s.page, s.runsResponse],
-            (page: number, runsResponse: PaginatedRunListApi) => ({
-                controlled: true as const,
-                pageSize: RUNS_PAGE_SIZE,
-                currentPage: page,
-                entryCount: runsResponse.count ?? 0,
-                onBackward: () => actions.setPage(page - 1),
-                onForward: () => actions.setPage(page + 1),
-            }),
-        ],
+        totalCount: [(s) => [s.runsResponse], (runsResponse: PaginatedRunListApi): number => runsResponse.count ?? 0],
         repoFullName: [
             (s) => [s.repo],
             (repo: RepoApi | null): string | undefined => repo?.repo_full_name || undefined,
@@ -105,7 +95,7 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
                 },
             ],
         ],
-    })),
+    }),
 
     listeners(({ actions }) => ({
         setActiveTab: () => {
