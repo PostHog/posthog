@@ -833,15 +833,16 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         # Should still be logged in as original user
         assert self.client.get("/api/users/@me").json()["email"] == self.user.email
 
-    def test_read_only_impersonation_logout_redirects_to_user_admin(self):
-        """Verify explicit logout from read-only impersonation redirects to user's admin page."""
+    @parameterized.expand([("with_trailing_slash", "/logout/"), ("without_trailing_slash", "/logout")])
+    def test_read_only_impersonation_logout_redirects_to_user_admin(self, _name, logout_path):
         self.login_as_other_user_read_only()
 
         # Verify we're logged in as the other user
         assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
 
-        # Explicit logout via main logout endpoint
-        response = self.client.post("/logout/")
+        # Explicit logout via main logout endpoint — frontend submits to /logout (no slash),
+        # while server-side tooling and tests sometimes use /logout/. Both must work.
+        response = self.client.post(logout_path)
 
         assert response.status_code == 302
         assert response.headers["Location"] == f"/admin/posthog/user/{self.other_user.id}/change/"

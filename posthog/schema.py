@@ -9626,6 +9626,14 @@ class AssistantRecordingsQuery(BaseModel):
             ' "in" }`.'
         ),
     )
+    session_ids: list[str] | None = Field(
+        default=None,
+        description=(
+            "Filter to specific session recording IDs. Use this when you have known"
+            " session IDs (e.g., from $session_id on events) to fetch multiple"
+            " recordings in a single call."
+        ),
+    )
 
 
 class AssistantRetentionFilter(BaseModel):
