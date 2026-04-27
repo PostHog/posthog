@@ -470,7 +470,7 @@ class ExperimentQueryBuilder:
             placeholders["metric_events_date_from"] = self.date_range_query.date_from_as_hogql()
             placeholders["metric_events_date_to"] = self.date_range_query.date_to_as_hogql()
 
-        cuped_select = self._funnel_cuped_select_clause()
+        cuped_select = self._funnel_cuped_select_clause(num_steps_minus_1=num_steps - 1)
 
         query = parse_select(
             f"""
@@ -674,7 +674,7 @@ class ExperimentQueryBuilder:
                 exposure_alias="first_exposures",
             )
 
-        cuped_select = self._funnel_cuped_select_clause()
+        cuped_select = self._funnel_cuped_select_clause(num_steps_minus_1=num_steps - 1)
 
         query = parse_select(
             f"""
@@ -1397,7 +1397,7 @@ class ExperimentQueryBuilder:
             placeholders={"lookback_days": ast.Constant(value=self.cuped_config.lookback_days)},
         )
 
-    def _funnel_cuped_select_clause(self) -> str:
+    def _funnel_cuped_select_clause(self, num_steps_minus_1: int) -> str:
         """
         SQL fragment appended to the funnel result SELECT when CUPED is enabled.
         The cross-product term multiplies the user-level conversion indicator
@@ -1406,7 +1406,7 @@ class ExperimentQueryBuilder:
         if not self.cuped_config.enabled:
             return ""
 
-        return """,
+        return f""",
                 sum(entity_metrics.covariate_value) AS covariate_sum,
                 sum(power(entity_metrics.covariate_value, 2)) AS covariate_sum_squares,
                 sum(if(entity_metrics.value.1 = {num_steps_minus_1}, 1, 0) * entity_metrics.covariate_value) AS main_covariate_sum_product"""
