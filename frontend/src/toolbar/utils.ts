@@ -16,6 +16,10 @@ import { ActionStepPropertyKey } from './actions/ActionStep'
 export const TOOLBAR_ID = '__POSTHOG_TOOLBAR__'
 
 const elementToQueryCache = new WeakMap<HTMLElement, string | undefined>()
+
+// Beyond this ancestor depth, finder()'s recursive selector search can blow the JS
+// call stack on some pages — we skip it and use a simple fallback selector instead.
+const MAX_NESTED_DEPTH_FOR_FINDER = 50
 export const TOOLBAR_CONTAINER_CLASS = 'toolbar-global-fade-container'
 export const LOCALSTORAGE_KEY = '_postHogToolbarParams'
 export const OAUTH_LOCALSTORAGE_KEY = '_postHogToolbarOAuth'
@@ -122,6 +126,33 @@ export function elementToQuery(element: HTMLElement, dataAttributes: string[]): 
     return result
 }
 
+export function elementAncestorDepth(element: HTMLElement, limit: number = MAX_NESTED_DEPTH_FOR_FINDER + 1): number {
+    let depth = 0
+    let current: HTMLElement | null = element.parentElement
+    while (current && depth <= limit) {
+        depth += 1
+        current = current.parentElement
+    }
+    return depth
+}
+
+export function buildFallbackSelector(element: HTMLElement): string {
+    if (element.id) {
+        return `[id="${element.id}"]`
+    }
+    for (const { name, value } of Array.from(element.attributes)) {
+        if (name.startsWith('data-')) {
+            return `[${name}="${value}"]`
+        }
+    }
+    const tag = element.tagName.toLowerCase()
+    const classes = Array.from(element.classList).slice(0, 2)
+    if (classes.length > 0) {
+        return `${tag}.${classes.map(cssEscape).join('.')}`
+    }
+    return tag
+}
+
 function computeElementQuery(element: HTMLElement, dataAttributes: string[]): string | undefined {
     for (const { name, value } of Array.from(element.attributes)) {
         if (!dataAttributes.includes(name)) {
@@ -139,11 +170,20 @@ function computeElementQuery(element: HTMLElement, dataAttributes: string[]): st
         }
     }
 
+    if (elementAncestorDepth(element) > MAX_NESTED_DEPTH_FOR_FINDER) {
+        // finder()'s recursive generator can exhaust the JS call stack on deeply
+        // nested DOMs before our try/catch can catch the RangeError reliably.
+        toolbarLogger.warn('element_selector', 'Element too deeply nested for finder, using fallback selector')
+        return buildFallbackSelector(element)
+    }
+
     try {
         const foundSelector = finder(element, {
             tagName: (name) => !TAGS_TO_IGNORE.includes(name),
-            // include several selectors e.g. prefer .project-homepage > .project-header > .project-title over .project-title
-            seedMinLength: 5,
+            // Higher values produce richer selectors but make finder's internal
+            // generator enumerate exponentially more ancestor combinations, which
+            // can exhaust the call stack on deep DOMs (see MAX_NESTED_DEPTH_FOR_FINDER).
+            seedMinLength: 3,
             attr: (name) => {
                 // preference to data attributes if they exist
                 // that aren't in the PostHog preferred list - they were returned early above
@@ -154,7 +194,7 @@ function computeElementQuery(element: HTMLElement, dataAttributes: string[]): st
     } catch (error) {
         toolbarLogger.warn('element_selector', 'Error while trying to find a selector for element')
         captureToolbarException(error, 'element_selector_computation')
-        return undefined
+        return buildFallbackSelector(element)
     }
 }
 
