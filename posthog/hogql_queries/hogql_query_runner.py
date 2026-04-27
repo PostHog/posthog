@@ -55,6 +55,8 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         return last_refresh + staleness_threshold_map[ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT]["day"]
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        if not self.query.query or not self.query.query.strip():
+            raise ExposedHogQLError("HogQL query is empty")
         values: Optional[dict[str, ast.Expr]] = (
             {key: ast.Constant(value=value) for key, value in self.query.values.items()} if self.query.values else None
         )

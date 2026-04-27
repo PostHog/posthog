@@ -163,6 +163,8 @@ def parse_select(
     *,
     backend: HogQLParserBackend = DEFAULT_BACKEND,
 ) -> ast.SelectQuery | ast.SelectSetQuery:
+    if not statement or not statement.strip():
+        raise SyntaxError("Empty query")
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_select_{backend}"):

@@ -201,6 +201,18 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         with self.assertRaises(ExposedHogQLError):
             runner.calculate()
 
+    @parameterized.expand([("",), ("   ",), ("\n\t",)])
+    def test_empty_query_raises_friendly_exposed_hogql_error(self, query: str):
+        runner = self._create_runner(HogQLQuery(query=query))
+
+        with self.assertRaises(ExposedHogQLError) as cm:
+            runner.to_query()
+        self.assertEqual(str(cm.exception), "HogQL query is empty")
+
+        with self.assertRaises(ExposedHogQLError) as cm:
+            runner.calculate()
+        self.assertEqual(str(cm.exception), "HogQL query is empty")
+
     @patch("posthog.hogql_queries.hogql_query_runner.execute_hogql_query")
     def test_send_raw_query_uses_raw_query_string_for_direct_connections(self, mock_execute_hogql_query):
         source = ExternalDataSource.objects.create(

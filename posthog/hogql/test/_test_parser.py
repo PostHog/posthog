@@ -4207,4 +4207,10 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        @parameterized.expand([("",), (" ",), ("\t",), ("\n",), ("  \n  \t  ",)])
+        def test_select_empty_input_raises_clean_syntax_error(self, statement: str):
+            with self.assertRaises(SyntaxError) as cm:
+                self._select(statement)
+            self.assertEqual(str(cm.exception), "Empty query")
+
     return TestParser
