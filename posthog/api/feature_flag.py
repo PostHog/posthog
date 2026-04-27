@@ -68,6 +68,12 @@ from posthog.models.feature_flag import (
     get_user_blast_radius,
     set_feature_flags_for_team_in_cache,
 )
+from posthog.models.feature_flag.config import (
+    get_feature_flag_property_groups,
+    get_v2_release_condition_property_groups,
+    is_feature_flag_v2_config,
+    validate_feature_flag_v2_config_shape,
+)
 from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.feature_flag.flag_status import FeatureFlagStatusChecker
 from posthog.models.feature_flag.flag_validation import check_flag_evaluation_query_is_ok
@@ -258,9 +264,16 @@ def find_dependent_flags(flag_to_check: FeatureFlag) -> list[FeatureFlag]:
                         WHERE prop->>'type' = 'flag'
                         AND prop->>'key' = %s
                     )
+                    OR EXISTS (
+                        SELECT 1 FROM jsonb_array_elements(filters->'release_conditions') AS condition
+                        CROSS JOIN jsonb_array_elements(condition->'properties') AS prop
+                        WHERE filters->>'schema_version' = '2'
+                        AND prop->>'type' = 'flag'
+                        AND prop->>'key' = %s
+                    )
                     """
             ],
-            params=[str(flag_to_check.id)],
+            params=[str(flag_to_check.id), str(flag_to_check.id)],
         )
         .order_by("key")
     )
@@ -298,9 +311,16 @@ def find_dependent_flags_batch(
                         WHERE prop->>'type' = 'flag'
                         AND ({or_conditions})
                     )
+                    OR EXISTS (
+                        SELECT 1 FROM jsonb_array_elements(filters->'release_conditions') AS condition
+                        CROSS JOIN jsonb_array_elements(condition->'properties') AS prop
+                        WHERE filters->>'schema_version' = '2'
+                        AND prop->>'type' = 'flag'
+                        AND ({or_conditions})
+                    )
                     """
             ],
-            params=[str(fid) for fid in flag_ids],
+            params=[str(fid) for fid in flag_ids] + [str(fid) for fid in flag_ids],
         )
         .order_by("key")
     )
@@ -310,8 +330,7 @@ def find_dependent_flags_batch(
     flag_id_strs = {str(fid) for fid in flag_ids}
 
     for dep_flag in dependent_flags:
-        groups = dep_flag.filters.get("groups", [])
-        for group in groups:
+        for group in get_feature_flag_property_groups(dep_flag.filters or {}):
             properties = group.get("properties", [])
             for prop in properties:
                 if prop.get("type") == "flag" and prop.get("key") in flag_id_strs:
@@ -863,6 +882,9 @@ class FeatureFlagSerializer(
         return _is_realtime_cohort_flag_targeting_enabled(self.context["request"])
 
     def validate_filters(self, filters):
+        if is_feature_flag_v2_config(filters):
+            return self.validate_v2_filters(filters)
+
         # For some weird internal REST framework reason this field gets validated on a partial PATCH call, even if filters isn't being updatd
         # If we see this, just return the current filters
         if "groups" not in filters and self.context["request"].method == "PATCH":
@@ -1188,6 +1210,32 @@ class FeatureFlagSerializer(
 
         return filters
 
+    def validate_v2_filters(self, filters: dict) -> dict:
+        config_errors = validate_feature_flag_v2_config_shape(filters)
+        if config_errors:
+            raise serializers.ValidationError(config_errors)
+
+        validation_groups = get_v2_release_condition_property_groups(filters)
+        if validation_groups:
+            legacy_validation_filters = {
+                "groups": validation_groups,
+                "aggregation_group_type_index": filters.get("aggregation_group_type_index"),
+                "payloads": {},
+                "multivariate": None,
+            }
+            self.validate_filters(legacy_validation_filters)
+
+        filter_size = calculate_filter_size_bytes(filters)
+        per_flag_limit = settings.MAX_FEATURE_FLAG_FILTER_SIZE_BYTES
+        if filter_size > per_flag_limit:
+            raise serializers.ValidationError(
+                f"Feature flag filters exceed maximum size of {format_bytes(per_flag_limit)}. "
+                f"Current size: {format_bytes(filter_size)}. "
+                f"Please simplify conditions or reduce payload sizes."
+            )
+
+        return filters
+
     def _validate_flag_reference(self, flag_reference):
         """Validate and convert flag reference to flag key."""
         from posthog.utils import safe_int
@@ -1224,7 +1272,7 @@ class FeatureFlagSerializer(
         Yields:
             Property dictionaries matching the criteria
         """
-        for group in filters.get("groups", []):
+        for group in get_feature_flag_property_groups(filters):
             for prop in group.get("properties", []):
                 if property_type is None or prop.get("type") == property_type:
                     yield prop

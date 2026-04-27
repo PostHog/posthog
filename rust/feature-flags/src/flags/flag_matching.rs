@@ -16,7 +16,8 @@ use crate::flags::flag_matching_utils::{
     should_write_hash_key_override,
 };
 use crate::flags::flag_models::{
-    FeatureFlag, FeatureFlagId, FeatureFlagList, FlagFilters, FlagPropertyGroup,
+    FeatureFlag, FeatureFlagId, FeatureFlagList, FeatureFlagV2ReleaseCondition,
+    FeatureFlagV2Variant, FlagFilters, FlagPropertyGroup,
 };
 use crate::flags::flag_operations::flags_require_db_preparation;
 use crate::handler::canonical_log::{install_rayon_canonical_log, take_rayon_canonical_log};
@@ -102,6 +103,7 @@ struct SuperConditionEvaluation {
 pub struct FeatureFlagMatch {
     pub matches: bool,
     pub variant: Option<String>,
+    pub value: Option<FlagValue>,
     pub reason: FeatureFlagMatchReason,
     pub condition_index: Option<usize>,
     pub payload: Option<Value>,
@@ -109,6 +111,9 @@ pub struct FeatureFlagMatch {
 
 impl FeatureFlagMatch {
     pub fn get_flag_value(&self) -> FlagValue {
+        if let Some(value) = &self.value {
+            return value.clone();
+        }
         match (self.matches, &self.variant) {
             (true, Some(variant)) => FlagValue::String(variant.clone()),
             (true, None) => FlagValue::Boolean(true),
@@ -122,6 +127,7 @@ impl FeatureFlagMatch {
         Self {
             matches: false,
             variant: None,
+            value: None,
             reason: FeatureFlagMatchReason::MissingDependency,
             condition_index: None,
             payload: None,
@@ -1178,6 +1184,193 @@ impl FeatureFlagMatcher {
     ///
     /// The method also keeps track of the highest priority match reason and index,
     /// which are used even if no conditions ultimately match.
+    fn get_v2_match(
+        &self,
+        flag: &FeatureFlag,
+        person_property_overrides: Option<&HashMap<String, Value>>,
+        group_property_overrides: Option<&HashMap<String, HashMap<String, Value>>>,
+        hash_key_overrides: Option<&HashMap<String, String>>,
+        request_hash_key_override: &Option<String>,
+    ) -> Result<FeatureFlagMatch, FlagError> {
+        if flag.filters.release_conditions.is_empty() {
+            return Ok(FeatureFlagMatch {
+                matches: true,
+                variant: None,
+                value: flag
+                    .filters
+                    .default_value
+                    .as_ref()
+                    .map(Self::flag_value_from_json),
+                reason: FeatureFlagMatchReason::ConditionMatch,
+                condition_index: None,
+                payload: None,
+            });
+        }
+
+        let mut highest_match = FeatureFlagMatchReason::NoGroupType;
+        let mut highest_index = None;
+        let mut had_skipped_group_conditions = false;
+        let mut cached_person_properties: Option<HashMap<String, Value>> = None;
+        let mut cached_group_properties: HashMap<i32, HashMap<String, Value>> = HashMap::new();
+
+        for (index, release_condition) in flag.filters.release_conditions.iter().enumerate() {
+            let condition = release_condition.as_property_group();
+            let aggregation = condition.effective_aggregation(flag.get_group_type_index());
+
+            if aggregation.is_none() {
+                use crate::flags::flag_models::BucketingIdentifier;
+
+                if flag.get_bucketing_identifier() == BucketingIdentifier::DeviceId
+                    && self
+                        .device_id
+                        .as_ref()
+                        .is_none_or(|device_id| device_id.is_empty())
+                {
+                    let (new_highest_match, new_highest_index) = self
+                        .get_highest_priority_match_evaluation(
+                            highest_match.clone(),
+                            highest_index,
+                            FeatureFlagMatchReason::OutOfRolloutBound,
+                            Some(index),
+                        );
+                    highest_match = new_highest_match;
+                    highest_index = new_highest_index;
+                    continue;
+                }
+                if flag.get_bucketing_identifier() == BucketingIdentifier::DeviceId {
+                    with_canonical_log(|log| log.eval.flags_device_id_bucketing += 1);
+                }
+            }
+
+            if let Some(group_type_index) = aggregation {
+                let has_group_key = self
+                    .group_type_mapping
+                    .as_ref()
+                    .and_then(|m| m.group_indexes_to_types().get(&group_type_index))
+                    .and_then(|name| self.groups.get(name))
+                    .is_some_and(|v| match v {
+                        Value::String(s) => !s.is_empty(),
+                        Value::Number(_) => true,
+                        _ => false,
+                    });
+                if !has_group_key {
+                    had_skipped_group_conditions = true;
+                    let (new_highest_match, new_highest_index) = self
+                        .get_highest_priority_match_evaluation(
+                            highest_match.clone(),
+                            highest_index,
+                            FeatureFlagMatchReason::NoGroupType,
+                            Some(index),
+                        );
+                    highest_match = new_highest_match;
+                    highest_index = new_highest_index;
+                    continue;
+                }
+            }
+
+            if Self::condition_needs_properties(&condition) {
+                let (needs_person, needed_group_types) =
+                    Self::condition_property_type_needs(&condition, aggregation);
+
+                if needs_person && cached_person_properties.is_none() {
+                    cached_person_properties =
+                        Some(self.get_person_properties(person_property_overrides)?);
+                }
+
+                for &gti in &needed_group_types {
+                    if let std::collections::hash_map::Entry::Vacant(e) =
+                        cached_group_properties.entry(gti)
+                    {
+                        let group_overrides =
+                            self.resolve_group_overrides(gti, group_property_overrides);
+                        let group_props = self.get_group_properties(gti, group_overrides)?;
+                        e.insert(group_props);
+                    }
+                }
+            }
+
+            let property_context = PropertyContext {
+                person_properties: cached_person_properties.as_ref(),
+                group_properties: &cached_group_properties,
+                aggregation,
+            };
+
+            let (is_match, reason) = self.is_condition_match(
+                flag,
+                &condition,
+                &property_context,
+                hash_key_overrides,
+                request_hash_key_override,
+            )?;
+
+            let (new_highest_match, new_highest_index) = self
+                .get_highest_priority_match_evaluation(
+                    highest_match.clone(),
+                    highest_index,
+                    reason.clone(),
+                    Some(index),
+                );
+            highest_match = new_highest_match;
+            highest_index = new_highest_index;
+
+            if is_match {
+                let (variant, value) = if release_condition.condition_type == "experiment" {
+                    match self.get_matching_v2_variant(
+                        release_condition,
+                        flag,
+                        aggregation,
+                        hash_key_overrides,
+                        request_hash_key_override,
+                    )? {
+                        Some(variant) => (
+                            Some(variant.key.clone()),
+                            Some(Self::flag_value_from_json(&variant.value)),
+                        ),
+                        None => (
+                            None,
+                            flag.filters
+                                .default_value
+                                .as_ref()
+                                .map(Self::flag_value_from_json),
+                        ),
+                    }
+                } else {
+                    (
+                        None,
+                        release_condition
+                            .value
+                            .as_ref()
+                            .or(flag.filters.default_value.as_ref())
+                            .map(Self::flag_value_from_json),
+                    )
+                };
+
+                return Ok(FeatureFlagMatch {
+                    matches: true,
+                    variant,
+                    value,
+                    reason: highest_match,
+                    condition_index: highest_index,
+                    payload: None,
+                });
+            }
+        }
+
+        if highest_match == FeatureFlagMatchReason::NoConditionMatch && had_skipped_group_conditions
+        {
+            highest_match = FeatureFlagMatchReason::NoConditionMatchGroupsNotEvaluated;
+        }
+
+        Ok(FeatureFlagMatch {
+            matches: false,
+            variant: None,
+            value: None,
+            reason: highest_match,
+            condition_index: highest_index,
+            payload: None,
+        })
+    }
+
     pub fn get_match(
         &self,
         flag: &FeatureFlag,
@@ -1186,6 +1379,16 @@ impl FeatureFlagMatcher {
         hash_key_overrides: Option<&HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
     ) -> Result<FeatureFlagMatch, FlagError> {
+        if flag.has_v2_config() {
+            return self.get_v2_match(
+                flag,
+                person_property_overrides,
+                group_property_overrides,
+                hash_key_overrides,
+                request_hash_key_override,
+            );
+        }
+
         // Seed with the lowest-priority "could not evaluate" reason so any real evaluation
         // result outranks it via `get_highest_priority_match_evaluation`. NoGroupType is
         // the floor: a pure-group flag whose only condition is skipped for missing context
@@ -1219,6 +1422,7 @@ impl FeatureFlagMatcher {
                 return Ok(FeatureFlagMatch {
                     matches: is_match,
                     variant: None,
+                    value: None,
                     reason: FeatureFlagMatchReason::SuperConditionValue,
                     condition_index: Some(0),
                     payload,
@@ -1249,6 +1453,7 @@ impl FeatureFlagMatcher {
                         return Ok(FeatureFlagMatch {
                             matches: super_condition_evaluation.is_match,
                             variant: None,
+                            value: None,
                             reason: super_condition_evaluation.reason,
                             condition_index: Some(0),
                             payload,
@@ -1277,6 +1482,7 @@ impl FeatureFlagMatcher {
                 return Ok(FeatureFlagMatch {
                     matches: true,
                     variant: holdout_value,
+                    value: None,
                     reason: evaluation_reason,
                     condition_index: None,
                     payload,
@@ -1454,6 +1660,7 @@ impl FeatureFlagMatcher {
                 return Ok(FeatureFlagMatch {
                     matches: true,
                     variant,
+                    value: None,
                     reason: highest_match,
                     condition_index: highest_index,
                     payload,
@@ -1477,6 +1684,7 @@ impl FeatureFlagMatcher {
         Ok(FeatureFlagMatch {
             matches: false,
             variant: None,
+            value: None,
             reason: highest_match,
             condition_index: highest_index,
             payload: None,
@@ -1935,6 +2143,41 @@ impl FeatureFlagMatcher {
             }
         }
         Ok(None)
+    }
+
+    fn get_matching_v2_variant<'a>(
+        &self,
+        release_condition: &'a FeatureFlagV2ReleaseCondition,
+        feature_flag: &FeatureFlag,
+        aggregation_group_type_index: Option<i32>,
+        hash_key_overrides: Option<&HashMap<String, String>>,
+        request_hash_key_override: &Option<String>,
+    ) -> Result<Option<&'a FeatureFlagV2Variant>, FlagError> {
+        let salt = format!("release-condition-{}-variant", release_condition.id);
+        let hash = self.get_hash(
+            feature_flag,
+            &salt,
+            aggregation_group_type_index,
+            hash_key_overrides,
+            request_hash_key_override,
+        )?;
+        let mut cumulative_percentage = 0.0;
+
+        for variant in release_condition.variants.iter().flatten() {
+            cumulative_percentage += variant.rollout_percentage / 100.0;
+            if hash < cumulative_percentage {
+                return Ok(Some(variant));
+            }
+        }
+        Ok(None)
+    }
+
+    fn flag_value_from_json(value: &Value) -> FlagValue {
+        match value {
+            Value::Bool(value) => FlagValue::Boolean(*value),
+            Value::String(value) => FlagValue::String(value.clone()),
+            _ => FlagValue::Json(value.clone()),
+        }
     }
 
     /// Get matching payload for a feature flag.

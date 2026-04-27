@@ -372,6 +372,96 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    def test_can_create_flag_with_v2_filters(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {
+                "name": "Beta feature",
+                "key": "beta-v2",
+                "filters": {
+                    "schema_version": 2,
+                    "value_type": "boolean",
+                    "default_value": True,
+                    "release_conditions": [
+                        {
+                            "id": "beta-users",
+                            "type": "targeted",
+                            "properties": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "@posthog.com",
+                                    "operator": "icontains",
+                                }
+                            ],
+                            "aggregation_group_type_index": None,
+                            "value": True,
+                        },
+                        {
+                            "id": "homepage-test",
+                            "type": "experiment",
+                            "properties": [],
+                            "aggregation_group_type_index": None,
+                            "rollout_percentage": 100,
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 50, "value": False},
+                                {"key": "test", "rollout_percentage": 50, "value": True},
+                            ],
+                        },
+                    ],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag = FeatureFlag.objects.get(team=self.team, key="beta-v2")
+        self.assertEqual(flag.filters["schema_version"], 2)
+        self.assertEqual(len(flag.filters["release_conditions"]), 2)
+
+    def test_rejects_v2_filters_with_value_type_mismatch(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {
+                "name": "Beta feature",
+                "key": "invalid-v2",
+                "filters": {
+                    "schema_version": 2,
+                    "value_type": "boolean",
+                    "default_value": True,
+                    "release_conditions": [
+                        {
+                            "id": "beta-users",
+                            "type": "targeted",
+                            "properties": [],
+                            "aggregation_group_type_index": None,
+                            "value": "true",
+                        }
+                    ],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "filters")
+
+    def test_rejects_v2_filters_with_invalid_release_condition_shape(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {
+                "name": "Beta feature",
+                "key": "invalid-v2-shape",
+                "filters": {
+                    "schema_version": 2,
+                    "value_type": "boolean",
+                    "default_value": True,
+                    "release_conditions": ["not-an-object"],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "filters")
+
     def test_can_create_flag_with_flag_evaluates_to_operator(self) -> None:
         base_flag = FeatureFlag.objects.create(
             team=self.team,

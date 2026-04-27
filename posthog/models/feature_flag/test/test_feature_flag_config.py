@@ -45,6 +45,50 @@ def test_validates_release_condition_values_against_flag_type() -> None:
     assert errors == ["release_conditions[0].value must match value_type"]
 
 
+def test_validates_default_value_is_required() -> None:
+    errors = validate_feature_flag_v2_config_shape(
+        {
+            "schema_version": FEATURE_FLAG_V2_SCHEMA_VERSION,
+            "value_type": FeatureFlagValueType.BOOLEAN,
+            "release_conditions": [],
+        }
+    )
+
+    assert errors == ["default_value is required"]
+
+
+def test_validates_release_condition_shape_and_unique_ids() -> None:
+    errors = validate_feature_flag_v2_config_shape(
+        {
+            "schema_version": FEATURE_FLAG_V2_SCHEMA_VERSION,
+            "value_type": FeatureFlagValueType.BOOLEAN,
+            "default_value": True,
+            "release_conditions": [
+                "not-an-object",
+                {
+                    "id": "beta-users",
+                    "type": FeatureFlagReleaseConditionType.TARGETED,
+                    "properties": [],
+                    "aggregation_group_type_index": None,
+                    "value": True,
+                },
+                {
+                    "id": "beta-users",
+                    "type": FeatureFlagReleaseConditionType.TARGETED,
+                    "properties": [],
+                    "aggregation_group_type_index": None,
+                    "value": True,
+                },
+            ],
+        }
+    )
+
+    assert errors == [
+        "release_conditions[0] must be an object",
+        "release_conditions[2].id must be unique",
+    ]
+
+
 def test_validates_experiment_variant_rollout_sum() -> None:
     errors = validate_feature_flag_v2_config_shape(
         {
@@ -92,6 +136,7 @@ def test_gets_v2_release_condition_property_groups() -> None:
     assert groups == [
         {
             "properties": [{"key": "beta", "type": "person", "value": "true"}],
+            "rollout_percentage": 50,
             "aggregation_group_type_index": None,
         }
     ]

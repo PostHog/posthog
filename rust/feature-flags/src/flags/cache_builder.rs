@@ -61,13 +61,22 @@ pub async fn build_flags_cache(
 }
 
 /// Yields all property filters from an active, non-deleted flag's filter groups.
-fn active_flag_properties(flag: &FeatureFlag) -> impl Iterator<Item = &PropertyFilter> {
-    let groups = if flag.active && !flag.deleted {
-        flag.filters.groups.as_slice()
-    } else {
-        &[]
-    };
-    groups.iter().flat_map(|g| g.properties.iter().flatten())
+fn active_flag_properties(flag: &FeatureFlag) -> Vec<&PropertyFilter> {
+    if !flag.active || flag.deleted {
+        return vec![];
+    }
+
+    flag.filters
+        .groups
+        .iter()
+        .flat_map(|g| g.properties.iter().flatten())
+        .chain(
+            flag.filters
+                .release_conditions
+                .iter()
+                .flat_map(|condition| condition.properties.iter().flatten()),
+        )
+        .collect()
 }
 
 /// Extract direct flag dependency IDs from a single flag's filters.
@@ -232,6 +241,10 @@ mod tests {
             name: Some(key.to_string()),
             key: key.to_string(),
             filters: FlagFilters {
+                schema_version: None,
+                value_type: None,
+                default_value: None,
+                release_conditions: vec![],
                 groups,
                 ..Default::default()
             },

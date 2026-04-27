@@ -19,6 +19,7 @@ from rest_framework import fields, serializers
 from rest_framework.exceptions import PermissionDenied
 
 from posthog.models.entity import MathType
+from posthog.models.feature_flag.config import FeatureFlagReleaseConditionType, FeatureFlagValueType
 from posthog.models.feature_flag.types import PropertyFilterType
 from posthog.models.property import OperatorType, PropertyType
 from posthog.permissions import APIScopePermission
@@ -469,7 +470,83 @@ class FeatureFlagMultivariateSchemaSerializer(serializers.Serializer):
     )
 
 
+class FeatureFlagV2VariantSchemaSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="Unique key for this experiment variant.")
+    name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Human-readable name for this experiment variant.",
+    )
+    rollout_percentage = serializers.FloatField(help_text="Percentage split allocated to this variant.")
+    value = serializers.JSONField(
+        help_text="Typed value returned when this variant is assigned. Must match the flag's value_type.",
+    )
+
+
+class FeatureFlagV2ReleaseConditionSchemaSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Stable release condition identifier.")
+    type = serializers.ChoiceField(
+        choices=[condition_type.value for condition_type in FeatureFlagReleaseConditionType],
+        help_text="Release condition behavior: targeted release, percentage rollout, or experiment.",
+    )
+    properties = FeatureFlagFilterPropertyListSchemaField(
+        child=serializers.DictField(),
+        required=False,
+        help_text="Property conditions for this release condition.",
+    )
+    aggregation_group_type_index = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Group type index for this condition. None means person-level aggregation.",
+    )
+    value = serializers.JSONField(
+        required=False,
+        help_text="Typed value returned by targeted and rollout conditions. Must match the flag's value_type.",
+    )
+    rollout_percentage = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="Overall rollout percentage for rollout and experiment conditions.",
+    )
+    variants = FeatureFlagV2VariantSchemaSerializer(
+        many=True,
+        required=False,
+        help_text="Experiment variants for experiment release conditions.",
+    )
+    name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Optional display name for this release condition.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Optional description for this release condition.",
+    )
+
+
 class FeatureFlagFiltersSchemaSerializer(serializers.Serializer):
+    schema_version = serializers.IntegerField(
+        required=False,
+        help_text="Filter schema version. Version 2 enables typed values and release_conditions.",
+    )
+    value_type = serializers.ChoiceField(
+        choices=[value_type.value for value_type in FeatureFlagValueType],
+        required=False,
+        help_text="Type of value returned by enabled evaluations: boolean, string, or JSON.",
+    )
+    default_value = serializers.JSONField(
+        required=False,
+        help_text="Typed value returned when the v2 flag is enabled without a matching release condition.",
+    )
+    release_conditions = FeatureFlagV2ReleaseConditionSchemaSerializer(
+        many=True,
+        required=False,
+        help_text="Version 2 release conditions, evaluated in order.",
+    )
     groups = FeatureFlagConditionGroupSchemaSerializer(
         many=True,
         required=False,

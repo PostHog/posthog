@@ -24,6 +24,10 @@ impl FlagFilters {
                 .iter()
                 .any(|group| matches!(group.aggregation_group_type_index, Some(Some(_))))
             || self
+                .release_conditions
+                .iter()
+                .any(|condition| matches!(condition.aggregation_group_type_index, Some(Some(_))))
+            || self
                 .super_groups
                 .as_ref()
                 .is_some_and(|groups| groups.iter().any(|g| g.requires_db_properties(overrides)))
@@ -31,12 +35,21 @@ impl FlagFilters {
                 .groups
                 .iter()
                 .any(|group| group.requires_db_properties(overrides))
+            || self.release_conditions.iter().any(|condition| {
+                condition
+                    .as_property_group()
+                    .requires_db_properties(overrides)
+            })
     }
 
     pub fn requires_cohort_filters(&self) -> bool {
         self.groups
             .iter()
             .any(|group| group.requires_cohort_filters())
+            || self
+                .release_conditions
+                .iter()
+                .any(|condition| condition.as_property_group().requires_cohort_filters())
     }
 }
 

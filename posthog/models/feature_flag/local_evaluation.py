@@ -40,6 +40,7 @@ from posthog.models.cohort.cohort import Cohort, CohortOrEmpty, is_cohort_recalc
 from posthog.models.cohort.util import get_nested_cohort_ids
 from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from posthog.models.feature_flag import FeatureFlag
+from posthog.models.feature_flag.config import get_feature_flag_property_groups
 from posthog.models.feature_flag.flags_cache import _compare_flag_fields, get_teams_with_flags_queryset
 from posthog.models.feature_flag.types import FlagFilters, FlagProperty, PropertyFilterType
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -77,7 +78,7 @@ def _get_properties_from_filters(
     Yields:
         Property dictionaries matching the criteria
     """
-    for group in filters.get("groups", []):
+    for group in get_feature_flag_property_groups(filters):
         for prop in group.get("properties", []):
             if property_type is None or prop.get("type") == property_type:
                 yield prop

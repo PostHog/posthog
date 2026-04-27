@@ -49,6 +49,7 @@ from posthog.models.cohort.cohort import Cohort
 from posthog.models.cohort.dependencies import extract_cohort_dependencies
 from posthog.models.evaluation_context import FeatureFlagEvaluationContext
 from posthog.models.feature_flag import FeatureFlag
+from posthog.models.feature_flag.config import get_feature_flag_property_groups
 from posthog.models.feature_flag.feature_flag import get_feature_flags, serialize_feature_flags
 from posthog.models.team import Team
 from posthog.storage.cache_expiry_manager import (
@@ -81,7 +82,7 @@ def _extract_direct_dependency_ids(flag_data: dict[str, Any]) -> set[int]:
 
     dep_ids: set[int] = set()
     filters = flag_data.get("filters", {})
-    for group in filters.get("groups") or []:
+    for group in get_feature_flag_property_groups(filters):
         for prop in group.get("properties") or []:
             if prop.get("type") == "flag":
                 try:
@@ -131,7 +132,7 @@ def _extract_cohort_ids_from_flag_filters(flags_data: list[dict[str, Any]]) -> s
     for flag in flags_data:
         if not flag.get("active", True) or flag.get("deleted", False):
             continue
-        for group in flag.get("filters", {}).get("groups") or []:
+        for group in get_feature_flag_property_groups(flag.get("filters", {})):
             for prop in group.get("properties") or []:
                 if prop.get("type") == "cohort":
                     try:

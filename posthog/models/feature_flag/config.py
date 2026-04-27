@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from enum import StrEnum
-from typing import NotRequired, TypedDict, TypeGuard
+from typing import NotRequired, TypedDict, TypeGuard, cast
 
 FEATURE_FLAG_V2_SCHEMA_VERSION = 2
 
@@ -20,6 +21,12 @@ class FeatureFlagReleaseConditionType(StrEnum):
     TARGETED = "targeted"
     ROLLOUT = "rollout"
     EXPERIMENT = "experiment"
+
+
+FEATURE_FLAG_VALUE_TYPE_VALUES = {value_type.value for value_type in FeatureFlagValueType}
+FEATURE_FLAG_RELEASE_CONDITION_TYPE_VALUES = {
+    condition_type.value for condition_type in FeatureFlagReleaseConditionType
+}
 
 
 class FeatureFlagV2Variant(TypedDict):
@@ -75,15 +82,17 @@ def feature_flag_value_matches_type(value: object, value_type: str) -> bool:
     return False
 
 
-def validate_feature_flag_v2_config_shape(config: FeatureFlagV2Config) -> list[str]:
+def validate_feature_flag_v2_config_shape(config: dict[str, object]) -> list[str]:
     errors: list[str] = []
     value_type = config.get("value_type")
 
-    if value_type not in FeatureFlagValueType:
+    if not isinstance(value_type, str) or value_type not in FEATURE_FLAG_VALUE_TYPE_VALUES:
         errors.append("value_type must be one of boolean, string, or json")
         return errors
 
-    if not feature_flag_value_matches_type(config.get("default_value"), value_type):
+    if "default_value" not in config:
+        errors.append("default_value is required")
+    elif not feature_flag_value_matches_type(config.get("default_value"), value_type):
         errors.append("default_value must match value_type")
 
     release_conditions = config.get("release_conditions")
@@ -91,9 +100,22 @@ def validate_feature_flag_v2_config_shape(config: FeatureFlagV2Config) -> list[s
         errors.append("release_conditions must be a list")
         return errors
 
+    seen_condition_ids: set[str] = set()
     for index, condition in enumerate(release_conditions):
+        if not isinstance(condition, dict):
+            errors.append(f"release_conditions[{index}] must be an object")
+            continue
+
+        condition_id = condition.get("id")
+        if not isinstance(condition_id, str) or not condition_id:
+            errors.append(f"release_conditions[{index}].id is required")
+        elif condition_id in seen_condition_ids:
+            errors.append(f"release_conditions[{index}].id must be unique")
+        else:
+            seen_condition_ids.add(condition_id)
+
         condition_type = condition.get("type")
-        if condition_type not in FeatureFlagReleaseConditionType:
+        if not isinstance(condition_type, str) or condition_type not in FEATURE_FLAG_RELEASE_CONDITION_TYPE_VALUES:
             errors.append(f"release_conditions[{index}].type is invalid")
             continue
 
@@ -129,6 +151,10 @@ def validate_feature_flag_v2_config_shape(config: FeatureFlagV2Config) -> list[s
             rollout_sum = 0.0
             seen_variant_keys: set[str] = set()
             for variant_index, variant in enumerate(variants):
+                if not isinstance(variant, dict):
+                    errors.append(f"release_conditions[{index}].variants[{variant_index}] must be an object")
+                    continue
+
                 key = variant.get("key")
                 if not isinstance(key, str) or not key:
                     errors.append(f"release_conditions[{index}].variants[{variant_index}].key is required")
@@ -155,16 +181,37 @@ def validate_feature_flag_v2_config_shape(config: FeatureFlagV2Config) -> list[s
     return errors
 
 
-def get_v2_release_condition_property_groups(config: FeatureFlagV2Config) -> list[dict[str, object]]:
+def get_v2_release_condition_property_groups(config: Mapping[str, object]) -> list[dict[str, object]]:
     groups: list[dict[str, object]] = []
-    for condition in config.get("release_conditions", []):
+    release_conditions = config.get("release_conditions", [])
+    if not isinstance(release_conditions, list):
+        return groups
+
+    for condition in release_conditions:
+        if not isinstance(condition, dict):
+            continue
         groups.append(
             {
                 "properties": condition.get("properties", []),
+                "rollout_percentage": condition.get("rollout_percentage", 100),
                 "aggregation_group_type_index": condition.get("aggregation_group_type_index"),
             }
         )
     return groups
+
+
+def get_feature_flag_property_groups(filters: Mapping[str, object]) -> list[dict[str, object]]:
+    if is_feature_flag_v2_config(filters):
+        return get_v2_release_condition_property_groups(filters)
+    groups = filters.get("groups", [])
+    if not isinstance(groups, list):
+        return []
+
+    property_groups: list[dict[str, object]] = []
+    for group in groups:
+        if isinstance(group, dict):
+            property_groups.append(cast(dict[str, object], group))
+    return property_groups
 
 
 def _validate_rollout_percentage(value: object, path: str, errors: list[str]) -> None:

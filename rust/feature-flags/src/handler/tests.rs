@@ -315,6 +315,7 @@ async fn test_evaluate_feature_flags_with_errors() {
             key: "error-flag".to_string(),
             enabled: false,
             variant: None,
+            value: None,
             failed: true,
             reason: FlagEvaluationReason {
                 code: "dependency_not_found_cohort".to_string(),
@@ -776,6 +777,7 @@ async fn test_evaluate_feature_flags_details() {
             key: "flag_1".to_string(),
             enabled: true,
             variant: None,
+            value: None,
             failed: false,
             reason: FlagEvaluationReason {
                 code: "condition_match".to_string(),
@@ -796,6 +798,7 @@ async fn test_evaluate_feature_flags_details() {
             key: "flag_2".to_string(),
             enabled: false,
             variant: None,
+            value: None,
             failed: false,
             reason: FlagEvaluationReason {
                 code: "out_of_rollout_bound".to_string(),

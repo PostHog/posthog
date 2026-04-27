@@ -376,6 +376,10 @@ mod tests {
                 name: Some("Beta Feature".to_string()),
                 key: "beta_feature".to_string(),
                 filters: FlagFilters {
+                    schema_version: None,
+                    value_type: None,
+                    default_value: None,
+                    release_conditions: vec![],
                     groups: vec![FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "country".to_string(),
@@ -411,6 +415,10 @@ mod tests {
                 name: Some("New User Interface".to_string()),
                 key: "new_ui".to_string(),
                 filters: FlagFilters {
+                    schema_version: None,
+                    value_type: None,
+                    default_value: None,
+                    release_conditions: vec![],
                     groups: vec![],
                     multivariate: None,
                     aggregation_group_type_index: None,
@@ -433,6 +441,10 @@ mod tests {
                 name: Some("Premium Feature".to_string()),
                 key: "premium_feature".to_string(),
                 filters: FlagFilters {
+                    schema_version: None,
+                    value_type: None,
+                    default_value: None,
+                    release_conditions: vec![],
                     groups: vec![FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "is_premium".to_string(),
@@ -564,6 +576,10 @@ mod tests {
                     deleted: false,
                     active: i % 2 == 0,
                     filters: FlagFilters {
+                        schema_version: None,
+                        value_type: None,
+                        default_value: None,
+                        release_conditions: vec![],
                         groups: vec![FlagPropertyGroup {
                             properties: Some(vec![PropertyFilter {
                                 key: format!("property_key_{i}"),

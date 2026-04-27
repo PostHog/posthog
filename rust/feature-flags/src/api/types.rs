@@ -17,6 +17,7 @@ pub enum FlagsResponseCode {
 pub enum FlagValue {
     Boolean(bool),
     String(String),
+    Json(Value),
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -355,6 +356,8 @@ pub struct FlagDetails {
     pub key: String,
     pub enabled: bool,
     pub variant: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<FlagValue>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub failed: bool,
     pub reason: FlagEvaluationReason,
@@ -363,6 +366,9 @@ pub struct FlagDetails {
 
 impl FlagDetails {
     pub fn to_value(&self) -> FlagValue {
+        if let Some(value) = &self.value {
+            return value.clone();
+        }
         if let Some(variant) = &self.variant {
             FlagValue::String(variant.clone())
         } else {
@@ -371,6 +377,9 @@ impl FlagDetails {
     }
 
     pub fn into_value(self) -> FlagValue {
+        if let Some(value) = self.value {
+            return value;
+        }
         if let Some(variant) = self.variant {
             FlagValue::String(variant)
         } else {
@@ -407,6 +416,7 @@ impl FromFeatureAndMatch for FlagDetails {
             key: flag.key.clone(),
             enabled: flag_match.matches,
             variant: flag_match.variant.clone(),
+            value: flag_match.value.clone(),
             failed: false,
             reason: FlagEvaluationReason {
                 code: flag_match.reason.to_string(),
@@ -427,6 +437,7 @@ impl FromFeatureAndMatch for FlagDetails {
             key: flag.key.clone(),
             enabled: false,
             variant: None,
+            value: None,
             failed: true,
             reason: FlagEvaluationReason {
                 code: error.evaluation_error_code(),
@@ -603,6 +614,7 @@ mod tests {
         FeatureFlagMatch {
             matches: true,
             variant: None,
+            value: None,
             reason: FeatureFlagMatchReason::ConditionMatch,
             condition_index: Some(0),
             payload: None,
@@ -613,6 +625,7 @@ mod tests {
         FeatureFlagMatch {
             matches: true,
             variant: None,
+            value: None,
             reason: FeatureFlagMatchReason::ConditionMatch,
             condition_index: Some(2),
             payload: None,
@@ -623,6 +636,7 @@ mod tests {
         FeatureFlagMatch {
             matches: false,
             variant: None,
+            value: None,
             reason: FeatureFlagMatchReason::NoConditionMatch,
             condition_index: None,
             payload: None,
@@ -633,6 +647,7 @@ mod tests {
         FeatureFlagMatch {
             matches: false,
             variant: None,
+            value: None,
             reason: FeatureFlagMatchReason::OutOfRolloutBound,
             condition_index: Some(2),
             payload: None,
@@ -643,6 +658,7 @@ mod tests {
         FeatureFlagMatch {
             matches: false,
             variant: None,
+            value: None,
             reason: FeatureFlagMatchReason::NoGroupType,
             condition_index: None,
             payload: None,
@@ -653,6 +669,7 @@ mod tests {
         FeatureFlagMatch {
             matches: true,
             variant: None,
+            value: None,
             reason: FeatureFlagMatchReason::SuperConditionValue,
             condition_index: None,
             payload: None,
@@ -663,6 +680,7 @@ mod tests {
         FeatureFlagMatch {
             matches: true,
             variant: None,
+            value: None,
             reason: FeatureFlagMatchReason::HoldoutConditionValue,
             condition_index: None,
             payload: None,
@@ -673,6 +691,7 @@ mod tests {
         FeatureFlagMatch {
             matches: false,
             variant: None,
+            value: None,
             reason: FeatureFlagMatchReason::FlagDisabled,
             condition_index: None,
             payload: None,
@@ -683,6 +702,7 @@ mod tests {
         FeatureFlagMatch {
             matches: false,
             variant: None,
+            value: None,
             reason: FeatureFlagMatchReason::MissingDependency,
             condition_index: None,
             payload: None,
@@ -693,6 +713,7 @@ mod tests {
         FeatureFlagMatch {
             matches: false,
             variant: None,
+            value: None,
             reason: FeatureFlagMatchReason::NoConditionMatchGroupsNotEvaluated,
             condition_index: Some(0),
             payload: None,
@@ -721,6 +742,7 @@ mod tests {
                 key: "flag_with_payload".to_string(),
                 enabled: true,
                 variant: None,
+                value: None,
                 failed: false,
                 reason: FlagEvaluationReason {
                     code: "condition_match".to_string(),
@@ -743,6 +765,7 @@ mod tests {
                 key: "flag2".to_string(),
                 enabled: true,
                 variant: None,
+                value: None,
                 failed: false,
                 reason: FlagEvaluationReason {
                     code: "condition_match".to_string(),
@@ -765,6 +788,7 @@ mod tests {
                 key: "flag_with_null_payload".to_string(),
                 enabled: true,
                 variant: None,
+                value: None,
                 failed: false,
                 reason: FlagEvaluationReason {
                     code: "condition_match".to_string(),

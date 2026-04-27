@@ -1175,6 +1175,10 @@ mod tests {
             name: None,
             key: "test_flag".to_string(),
             filters: FlagFilters {
+                schema_version: None,
+                value_type: None,
+                default_value: None,
+                release_conditions: vec![],
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![
                         PropertyFilter {

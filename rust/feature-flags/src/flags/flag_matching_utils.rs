@@ -1526,6 +1526,10 @@ mod tests {
         let flag = mock!(FeatureFlag,
             team_id: team.id,
             filters: FlagFilters {
+                schema_version: None,
+                value_type: None,
+                default_value: None,
+                release_conditions: vec![],
                 groups: vec![],
                 ..Default::default()
             },

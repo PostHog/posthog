@@ -152,8 +152,52 @@ pub struct MultivariateFlagOptions {
     pub variants: Vec<MultivariateFlagVariant>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct FeatureFlagV2Variant {
+    pub key: String,
+    pub name: Option<String>,
+    pub rollout_percentage: f64,
+    pub value: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct FeatureFlagV2ReleaseCondition {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub condition_type: String,
+    #[serde(default)]
+    pub properties: Option<Vec<PropertyFilter>>,
+    #[serde(default)]
+    pub rollout_percentage: Option<f64>,
+    #[serde(default)]
+    pub value: Option<serde_json::Value>,
+    #[serde(default)]
+    pub variants: Option<Vec<FeatureFlagV2Variant>>,
+    #[serde(default, deserialize_with = "deserialize_double_option")]
+    pub aggregation_group_type_index: Option<Option<i32>>,
+}
+
+impl FeatureFlagV2ReleaseCondition {
+    pub fn as_property_group(&self) -> FlagPropertyGroup {
+        FlagPropertyGroup {
+            properties: self.properties.clone(),
+            rollout_percentage: self.rollout_percentage.or(Some(100.0)),
+            variant: None,
+            aggregation_group_type_index: self.aggregation_group_type_index,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct FlagFilters {
+    #[serde(default)]
+    pub schema_version: Option<i32>,
+    #[serde(default)]
+    pub value_type: Option<String>,
+    #[serde(default)]
+    pub default_value: Option<serde_json::Value>,
+    #[serde(default)]
+    pub release_conditions: Vec<FeatureFlagV2ReleaseCondition>,
     #[serde(default)]
     pub groups: Vec<FlagPropertyGroup>,
     #[serde(default)]
@@ -242,6 +286,10 @@ pub struct FeatureFlag {
 }
 
 impl FeatureFlag {
+    pub fn has_v2_config(&self) -> bool {
+        self.filters.schema_version == Some(2)
+    }
+
     /// Returns the bucketing identifier for this flag.
     /// Defaults to DistinctId if not specified or if an invalid value is provided.
     pub fn get_bucketing_identifier(&self) -> BucketingIdentifier {
