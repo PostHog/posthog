@@ -47,7 +47,7 @@ class TestExecuteDuckLakeQuery:
     @mock.patch("posthog.ducklake.client.is_dev_mode", return_value=True)
     @mock.patch("posthog.ducklake.client.compile_hogql_to_ducklake_sql")
     def test_query_path_compiles_and_executes(self, mock_compile, _mock_dev_mode, mock_psycopg):
-        mock_compile.return_value = ("SELECT count(*) FROM events", "SELECT count() FROM events")
+        mock_compile.return_value = ("SELECT count(*) FROM events", {}, "SELECT count() FROM events")
         mock_cursor = mock.MagicMock()
         mock_cursor.description = [mock.MagicMock(name="cnt", type_code=20)]
         mock_cursor.description[0].name = "cnt"

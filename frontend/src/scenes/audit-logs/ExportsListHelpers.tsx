@@ -61,6 +61,9 @@ export const getFilterSummary = (exportAsset: ExportedAsset): string => {
     if (filters.item_ids && filters.item_ids.length > 0) {
         activeFilters.push(`Item IDs: ${filters.item_ids.length}`)
     }
+    if (filters.clients && filters.clients.length > 0) {
+        activeFilters.push(`Clients: ${filters.clients.length}`)
+    }
 
     return activeFilters.length > 0 ? activeFilters.join(', ') : 'No filters'
 }
@@ -172,6 +175,17 @@ export const getFilterTooltip = (exportAsset: ExportedAsset): JSX.Element => {
                 <br />
                 {filters.item_ids.slice(0, 5).join(', ')}
                 {filters.item_ids.length > 5 && `... and ${filters.item_ids.length - 5} more`}
+            </div>
+        )
+    }
+
+    if (filters.clients && filters.clients.length > 0) {
+        filterSections.push(
+            <div key="clients">
+                <strong>Clients ({filters.clients.length}):</strong>
+                <br />
+                {filters.clients.slice(0, 5).join(', ')}
+                {filters.clients.length > 5 && `... and ${filters.clients.length - 5} more`}
             </div>
         )
     }

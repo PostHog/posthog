@@ -205,6 +205,36 @@ export const BasicFiltersTab = (): JSX.Element => {
                                 className="min-w-50"
                             />
                         </div>
+
+                        {(availableFilters?.static_filters?.clients?.length ?? 0) > 0 && (
+                            <div className="flex flex-col gap-1">
+                                <div className="flex items-center gap-1 mb-1">
+                                    <label className="block text-sm font-medium">Client</label>
+                                    <Tooltip title="The SDK or integration that triggered the action (e.g. MCP).">
+                                        <IconInfo className="w-4 h-4 text-muted-alt cursor-help" />
+                                    </Tooltip>
+                                </div>
+                                <LemonInputSelect
+                                    mode="multiple"
+                                    displayMode="count"
+                                    bulkActions="select-and-clear-all"
+                                    value={filters.clients || []}
+                                    onChange={(clients) => setFilters({ clients })}
+                                    options={
+                                        availableFilters?.static_filters?.clients?.map((c: any) => ({
+                                            key: c.value,
+                                            label: c.value,
+                                        })) || []
+                                    }
+                                    loading={availableFiltersLoading}
+                                    placeholder="All clients"
+                                    allowCustomValues={false}
+                                    data-attr="audit-logs-client-filter"
+                                    size="small"
+                                    className="min-w-50"
+                                />
+                            </div>
+                        )}
                     </div>
                     <div className="py-4">
                         <DetailFilters />

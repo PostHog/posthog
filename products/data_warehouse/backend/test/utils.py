@@ -82,15 +82,16 @@ def create_data_warehouse_table_from_csv(
             access_secret=OBJECT_STORAGE_SECRET_ACCESS_KEY,
         )
 
-    if any(isinstance(value, str) for value in table_columns.values()):
-        table_columns = {
-            str(key): {
-                "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(value))].__name__,
+    if all(isinstance(value, str) for value in table_columns.values()):
+        normalized_columns: dict[str, dict[str, str | bool]] = {}
+        for key, value in table_columns.items():
+            assert isinstance(value, str)
+            normalized_columns[str(key)] = {
+                "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(value)].__name__,
                 "clickhouse": value,
                 "valid": True,
             }
-            for key, value in table_columns.items()
-        }
+        table_columns = normalized_columns
 
     table = DataWarehouseTable.objects.create(
         name=table_name,

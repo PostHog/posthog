@@ -37,6 +37,14 @@
 @import '@posthog/quill-tokens/tailwind-lib.css';
 
 /*
+ * Materialize the `@theme inline` vars from tokens as real `:root` custom
+ * properties so primitive BEM CSS (which references them via `var()`) can
+ * resolve them. `@theme inline` only resolves during Tailwind utility
+ * generation; it does not emit on `:root`.
+ */
+@import '../../../packages/primitives/src/styles/layers.css';
+
+/*
  * Scan sources, not dist. Vite HMR forwards any .tsx change in these
  * trees to Tailwind's scanner and we get new utilities emitted on the
  * next tick.

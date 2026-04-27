@@ -152,3 +152,6 @@ tools:
     conversations-views-destroy:
         operation: conversations_views_destroy
         enabled: false
+    conversations-tickets-bulk-update-tags-create:
+        operation: conversations_tickets_bulk_update_tags_create
+        enabled: false

@@ -61,7 +61,7 @@ export const releasesLogic = kea<releasesLogicType>([
                     iconType: 'error_tracking',
                 },
                 {
-                    key: Scene.ErrorTrackingConfiguration,
+                    key: 'error-tracking-configuration',
                     name: 'Configuration',
                     iconType: 'error_tracking',
                 },

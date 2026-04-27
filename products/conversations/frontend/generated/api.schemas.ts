@@ -312,6 +312,7 @@ export interface PaginatedTicketViewListApi {
  * * `widget` - Widget
  * `email` - Email
  * `slack` - Slack
+ * `teams` - Microsoft Teams
  */
 export type ChannelSourceEnumApi = (typeof ChannelSourceEnumApi)[keyof typeof ChannelSourceEnumApi]
 
@@ -319,12 +320,15 @@ export const ChannelSourceEnumApi = {
     Widget: 'widget',
     Email: 'email',
     Slack: 'slack',
+    Teams: 'teams',
 } as const
 
 /**
  * * `slack_channel_message` - Channel message
  * `slack_bot_mention` - Bot mention
  * `slack_emoji_reaction` - Emoji reaction
+ * `teams_channel_message` - Teams channel message
+ * `teams_bot_mention` - Teams bot mention
  * `widget_embedded` - Widget
  * `widget_api` - API
  */
@@ -334,6 +338,8 @@ export const ChannelDetailEnumApi = {
     SlackChannelMessage: 'slack_channel_message',
     SlackBotMention: 'slack_bot_mention',
     SlackEmojiReaction: 'slack_emoji_reaction',
+    TeamsChannelMessage: 'teams_channel_message',
+    TeamsBotMention: 'teams_bot_mention',
     WidgetEmbedded: 'widget_embedded',
     WidgetApi: 'widget_api',
 } as const
@@ -553,6 +559,50 @@ export interface SuggestReplyErrorApi {
     error_type?: string
 }
 
+/**
+ * * `add` - add
+ * `remove` - remove
+ * `set` - set
+ */
+export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
+
+export const ActionEnumApi = {
+    Add: 'add',
+    Remove: 'remove',
+    Set: 'set',
+} as const
+
+export interface BulkUpdateTagsRequestApi {
+    /**
+     * List of object IDs to update tags on.
+     * @maxItems 500
+     */
+    ids: number[]
+    /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+
+* `add` - add
+* `remove` - remove
+* `set` - set */
+    action: ActionEnumApi
+    /** Tag names to add, remove, or set. */
+    tags: string[]
+}
+
+export interface BulkUpdateTagsItemApi {
+    id: number
+    tags: string[]
+}
+
+export interface BulkUpdateTagsErrorApi {
+    id: number
+    reason: string
+}
+
+export interface BulkUpdateTagsResponseApi {
+    updated: BulkUpdateTagsItemApi[]
+    skipped: BulkUpdateTagsErrorApi[]
+}
+
 export type ConversationsListParams = {
     /**
      * Number of results to return per page.
@@ -641,6 +691,8 @@ export const ConversationsTicketsListChannelDetail = {
     SlackBotMention: 'slack_bot_mention',
     SlackChannelMessage: 'slack_channel_message',
     SlackEmojiReaction: 'slack_emoji_reaction',
+    TeamsBotMention: 'teams_bot_mention',
+    TeamsChannelMessage: 'teams_channel_message',
     WidgetApi: 'widget_api',
     WidgetEmbedded: 'widget_embedded',
 } as const
@@ -651,6 +703,7 @@ export type ConversationsTicketsListChannelSource =
 export const ConversationsTicketsListChannelSource = {
     Email: 'email',
     Slack: 'slack',
+    Teams: 'teams',
     Widget: 'widget',
 } as const
 

@@ -106,7 +106,7 @@ async def run_external_data_job_workflow(
                 )
 
     # if not ignore_assertions:
-    run: ExternalDataJob = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=external_data_source.pk)
+    run = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=external_data_source.pk)
 
     assert run is not None
     assert run.status == ExternalDataJob.Status.COMPLETED
@@ -1525,3 +1525,57 @@ def chargebee_customer():
         }
         """
     )
+
+
+@pytest.fixture
+def paddle_customers():
+    return {
+        "data": [
+            {
+                "id": "ctm_01h8bx9mqw8z9k5f9v9v9v9v9v",
+                "name": "John Doe",
+                "email": "john@doe.com",
+                "status": "active",
+                "created_at": "2023-08-21T11:05:00Z",
+                "updated_at": "2023-08-21T11:05:00Z",
+                "marketing_consent": True,
+                "locale": "en",
+                "custom_data": None,
+                "import_meta": None,
+            }
+        ]
+    }
+
+
+@pytest.fixture
+def paddle_subscriptions():
+    return {
+        "data": [
+            {
+                "id": "sub_01h8bx9mqw8z9k5f9v9v9v9v9v",
+                "status": "active",
+                "customer_id": "ctm_01h8bx9mqw8z9k5f9v9v9v9v9v",
+                "address_id": "add_01h8bx9mqw8z9k5f9v9v9v9v9v",
+                "business_id": None,
+                "currency_code": "USD",
+                "created_at": "2023-08-21T11:05:00Z",
+                "updated_at": "2023-08-21T11:05:00Z",
+                "started_at": "2023-08-21T11:05:00Z",
+                "next_billed_at": "2023-09-21T11:05:00Z",
+                "collection_mode": "automatic",
+                "billing_details": None,
+                "current_billing_period": {
+                    "starts_at": "2023-08-21T11:05:00Z",
+                    "ends_at": "2023-09-21T11:05:00Z",
+                },
+                "items": [
+                    {
+                        "price_id": "pri_01h8bx9mqw8z9k5f9v9v9v9v9v",
+                        "quantity": 1,
+                        "status": "active",
+                    }
+                ],
+                "custom_data": None,
+            }
+        ]
+    }

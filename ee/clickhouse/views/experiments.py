@@ -4,7 +4,7 @@ from typing import Any, Literal, cast
 from django.conf import settings
 from django.db.models import Prefetch, QuerySet
 
-from drf_spectacular.utils import extend_schema, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from pydantic import RootModel as PydanticRootModel
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
@@ -66,7 +66,29 @@ class ExperimentMetricsField(serializers.JSONField):
 
 @extend_schema_field(ExperimentParameters)  # type: ignore[arg-type]
 class ExperimentParametersField(serializers.JSONField):
-    pass
+    def to_representation(self, value: Any) -> Any:
+        from copy import deepcopy
+
+        # Add split_percent to outside representation for each variant to simplify frontend logic. The internal representation only uses rollout_percentage to avoid redundancy, but the frontend needs split_percent to display the variant splits in the UI and to support editing the splits in a user-friendly way (editing rollout_percentage directly would be more complex since it's not variant-specific and needs to be inferred from the variants' split_percent values).
+        # Deep copy to avoid mutating the model instance's in-memory parameters dict
+        data: Any = deepcopy(super().to_representation(value))
+        if isinstance(data, dict) and "feature_flag_variants" in data:
+            for variant in data["feature_flag_variants"]:
+                if isinstance(variant, dict) and "rollout_percentage" in variant:
+                    variant["split_percent"] = variant["rollout_percentage"]
+        return data
+
+    def to_internal_value(self, data: Any) -> Any:
+        from copy import deepcopy
+
+        # Deep copy to avoid mutating the caller's dict (e.g. serializer.initial_data / request.data)
+        if isinstance(data, dict) and "feature_flag_variants" in data:
+            data = deepcopy(data)
+            for variant in data["feature_flag_variants"]:
+                if isinstance(variant, dict) and "split_percent" in variant:
+                    # split_percent wins in case both keys present, as rollout_percentage deprecated
+                    variant["rollout_percentage"] = variant.pop("split_percent")
+        return super().to_internal_value(data)
 
 
 @extend_schema_field(ExperimentApiExposureCriteria)  # type: ignore[arg-type]
@@ -105,7 +127,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         help_text="Name of the experiment.",
     )
     description = serializers.CharField(
-        max_length=400,
+        max_length=3000,
         required=False,
         allow_null=True,
         allow_blank=True,
@@ -115,9 +137,10 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         required=False,
         allow_null=True,
         help_text=(
-            "Variant definitions and statistical configuration. "
+            "Variant definitions and rollout configuration. "
             "Set feature_flag_variants to customize the split (default: 50/50 control/test). "
-            "Each variant needs a key and rollout_percentage; percentages must sum to 100. "
+            "Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. "
+            "Set rollout_percentage (0-100, default 100) to limit what fraction of users enter the experiment. "
             "Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power."
         ),
     )
@@ -332,7 +355,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         secondary_metrics_ordered_uuids = validated_data.pop("secondary_metrics_ordered_uuids", None)
         filters = validated_data.pop("filters", None)
         scheduling_config = validated_data.pop("scheduling_config", None)
-        only_count_matured_users = validated_data.pop("only_count_matured_users", False)
+        only_count_matured_users = validated_data.pop("only_count_matured_users", None)
         archived = validated_data.pop("archived", False)
         deleted = validated_data.pop("deleted", False)
         conclusion = validated_data.pop("conclusion", None)
@@ -820,6 +843,30 @@ class EnterpriseExperimentsViewSet(
             }
         )
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="metric_uuid",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "UUID of the metric to fetch timeseries for. Available on each metric in the "
+                    "experiment's metrics array."
+                ),
+                required=True,
+            ),
+            OpenApiParameter(
+                name="fingerprint",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Fingerprint of the metric configuration. Available alongside metric_uuid on "
+                    "each metric in the experiment's metrics array."
+                ),
+                required=True,
+            ),
+        ],
+    )
     @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
     def timeseries_results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment = self.get_object()

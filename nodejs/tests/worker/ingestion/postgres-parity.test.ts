@@ -18,7 +18,8 @@ import {
     fetchPersons,
 } from '../../../src/worker/ingestion/persons/repositories/test-helpers'
 import { Clickhouse } from '../../helpers/clickhouse'
-import { resetKafka } from '../../helpers/kafka'
+import { waitForExpect } from '../../helpers/expectations'
+import { ensureKafkaTopics } from '../../helpers/kafka'
 import { createUserTeamAndOrganization, resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/logger')
@@ -34,7 +35,47 @@ function createPersonOutputs(kafkaProducer: KafkaProducerWrapper) {
         ),
     })
 }
-jest.setTimeout(45000) // 45s > delayUntilEventIngested budget (300 × 100ms = 30s) to let the helper throw its actionable error before Jest fires
+/**
+ * After topic creation/recreation, ClickHouse Kafka engine consumers need to connect.
+ * With auto.offset.reset=latest, messages produced before connection are missed.
+ * We produce probe messages until ClickHouse consumes one, guaranteeing the
+ * consumer is active before tests begin.
+ */
+async function waitForClickHousePersonConsumer(clickhouse: Clickhouse): Promise<void> {
+    const producer = await KafkaProducerWrapper.create(undefined)
+    const probeTeamId = -1
+
+    try {
+        await waitForExpect(async () => {
+            await producer.queueMessages({
+                topic: KAFKA_PERSON,
+                messages: [
+                    {
+                        value: JSON.stringify({
+                            id: new UUIDT().toString(),
+                            created_at: DateTime.utc().toFormat('yyyy-MM-dd HH:mm:ss'),
+                            properties: '{}',
+                            team_id: probeTeamId,
+                            is_identified: 0,
+                            is_deleted: 0,
+                            version: 0,
+                        }),
+                    },
+                ],
+            })
+            await producer.flush()
+
+            const result = await clickhouse.query<{ count: number }>(
+                `SELECT count() as count FROM person WHERE team_id = ${probeTeamId}`
+            )
+            expect(Number(result[0]?.count ?? 0)).toBeGreaterThan(0)
+        }, 30_000)
+    } finally {
+        await producer.disconnect()
+    }
+}
+
+jest.setTimeout(60000) // 60s to accommodate warmup + delayUntilEventIngested budget
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
     LOG_LEVEL: 'info',
@@ -51,20 +92,20 @@ describe('postgres parity', () => {
 
     beforeAll(async () => {
         clickhouse = Clickhouse.create()
-        // Reset Kafka topics once before all tests. Doing this in beforeEach
-        // causes ClickHouse StorageKafka consumers to lose their partition
-        // assignments every time topics are deleted/recreated, leading to
-        // "Can't get assignment" errors and 100s+ polling hangs.
-        await resetKafka(extraServerConfig)
+        // Ensure topics exist without deleting them. Deleting and recreating
+        // topics causes ClickHouse StorageKafka consumers to lose partition
+        // assignments, leading to missed messages and polling timeouts.
+        await ensureKafkaTopics([KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID], extraServerConfig)
+        await waitForClickHousePersonConsumer(clickhouse)
     })
 
     beforeEach(async () => {
         jest.spyOn(process, 'exit').mockImplementation()
 
-        // Generate unique teamId to avoid collisions across test files
+        // Generate unique teamId to avoid collisions across test files.
+        // This provides ClickHouse isolation without truncating tables,
+        // which would be redundant and risks disrupting Kafka consumers.
         teamId = Math.floor((Date.now() % 1000000000) + Math.random() * 1000000)
-
-        await clickhouse.resetTestDatabase()
 
         await resetTestDatabase()
 
@@ -121,11 +162,11 @@ describe('postgres parity', () => {
         )
         await kafkaProducer.flush()
 
-        await clickhouse.delayUntilEventIngested(() => clickhouse.fetchPersons())
+        await clickhouse.delayUntilEventIngested(() => clickhouse.fetchPersons(teamId))
         await clickhouse.delayUntilEventIngested(() => clickhouse.fetchDistinctIdValues(person), 2)
         await clickhouse.delayUntilEventIngested(() => clickhouse.fetchDistinctIds(person), 2)
 
-        const clickHousePersons = (await clickhouse.fetchPersons()).map((row) => ({
+        const clickHousePersons = (await clickhouse.fetchPersons(teamId)).map((row) => ({
             ...row,
             properties: parseJSON(row.properties), // avoids depending on key sort order
         }))
@@ -219,7 +260,7 @@ describe('postgres parity', () => {
             )
         )
 
-        await clickhouse.delayUntilEventIngested(() => clickhouse.fetchPersons())
+        await clickhouse.delayUntilEventIngested(() => clickhouse.fetchPersons(teamId))
         await clickhouse.delayUntilEventIngested(() => clickhouse.fetchDistinctIdValues(person), 2)
 
         // update properties and set is_identified to true
@@ -237,10 +278,10 @@ describe('postgres parity', () => {
         )
 
         await clickhouse.delayUntilEventIngested(async () =>
-            (await clickhouse.fetchPersons()).filter((p) => p.is_identified)
+            (await clickhouse.fetchPersons(teamId)).filter((p) => p.is_identified)
         )
 
-        const clickHousePersons = await clickhouse.fetchPersons()
+        const clickHousePersons = await clickhouse.fetchPersons(teamId)
         const postgresPersons = await fetchPersons(postgres)
 
         expect(clickHousePersons.filter((p) => p.team_id.toString() === teamId.toString()).length).toEqual(1)
@@ -274,10 +315,10 @@ describe('postgres parity', () => {
         expect(updatedPerson.version).toEqual(2)
 
         await clickhouse.delayUntilEventIngested(async () =>
-            (await clickhouse.fetchPersons()).filter((p) => !p.is_identified)
+            (await clickhouse.fetchPersons(teamId)).filter((p) => !p.is_identified)
         )
 
-        const clickHousePersons2 = await clickhouse.fetchPersons()
+        const clickHousePersons2 = await clickhouse.fetchPersons(teamId)
         const postgresPersons2 = await fetchPersons(postgres)
 
         expect(clickHousePersons2.length).toEqual(1)
@@ -343,7 +384,7 @@ describe('postgres parity', () => {
         )
         await kafkaProducer.flush()
 
-        await clickhouse.delayUntilEventIngested(() => clickhouse.fetchPersons())
+        await clickhouse.delayUntilEventIngested(() => clickhouse.fetchPersons(teamId))
         const [postgresPerson] = await fetchPersons(postgres)
 
         await clickhouse.delayUntilEventIngested(() => clickhouse.fetchDistinctIds(postgresPerson), 1)
@@ -451,7 +492,7 @@ describe('postgres parity', () => {
         )
         await kafkaProducer.flush()
 
-        await clickhouse.delayUntilEventIngested(() => clickhouse.fetchPersons())
+        await clickhouse.delayUntilEventIngested(() => clickhouse.fetchPersons(teamId))
         const [postgresPerson] = await fetchPersons(postgres)
 
         await clickhouse.delayUntilEventIngested(() => clickhouse.fetchDistinctIdValues(postgresPerson), 1)
@@ -518,9 +559,9 @@ describe('postgres parity', () => {
         })
 
         await clickhouse.delayUntilEventIngested(async () =>
-            (await clickhouse.fetchPersons()).length === 1 ? ['deleted!'] : []
+            (await clickhouse.fetchPersons(teamId)).length === 1 ? ['deleted!'] : []
         )
-        const clickHousePersons = await clickhouse.fetchPersons()
+        const clickHousePersons = await clickhouse.fetchPersons(teamId)
         const postgresPersons = await fetchPersons(postgres)
 
         expect(clickHousePersons.length).toEqual(1)

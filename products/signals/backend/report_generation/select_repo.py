@@ -34,14 +34,11 @@ _MAX_GITHUB_REPOS = 500
 
 def _list_candidate_repos(team_id: int) -> list[str]:
     """Fetch all repositories accessible via the team's GitHub integrations."""
-    # Not cached: it's instant if 1 repo attached (should happen often). Caching the list of repos
-    # doesn't make much sense (as we would need to provide these tokens inside the prompt anyway).
-    # If >1 repo -> the research per-signal can't be cached, as we need to pick one.
     integrations = Integration.objects.filter(team_id=team_id, kind="github")
     repos: set[str] = set()
     for integration in integrations:
         github = GitHubIntegration(integration)
-        repo_entries = github.list_all_repositories(max_repos=_MAX_GITHUB_REPOS)
+        repo_entries = github.list_all_cached_repositories(max_repos=_MAX_GITHUB_REPOS)
         for repo in repo_entries:
             full_name = repo.get("full_name")
             if full_name:

@@ -71,7 +71,7 @@ Alerts that monitor log volume and notify users when thresholds are breached. Us
 ### Key Relationships
 
 - Alerts belong to a **Team** (`team_id`)
-- Alert checks are stored in `LogsAlertCheck` (not exposed as a system table)
+- Alert checks are stored in `LogsAlertEvent` (not exposed as a system table)
 
 ### Important Notes
 

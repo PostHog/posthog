@@ -1,14 +1,14 @@
 name: Master CI Alerts
 
 # Cron-based rolling window alert for sustained master failures.
-# Only alerts when master has been continuously broken for 30+ minutes,
+# Only alerts when a workflow has 5+ consecutive failures,
 # filtering out transient flakes that self-heal.
 #
 # See also: ci-master-status.yml (event-driven, alerts on first failure)
 
 on:
     schedule:
-        - cron: '*/5 * * * *'
+        - cron: '*/10 * * * *'
     workflow_dispatch: # manual trigger for testing
 
 permissions:
@@ -17,7 +17,8 @@ permissions:
 
 env:
     SLACK_CHANNEL: 'C0AS64N6DJL' # #alerts-devex
-    ALERT_THRESHOLD_MINUTES: '30'
+    WORKFLOW_FAILURE_STREAK_THRESHOLD: '5'
+    COMMIT_FAILURE_STREAK_THRESHOLD: '10'
     RATE_LIMIT_THRESHOLD_PERCENT: '10'
     # Keep in sync with ci-master-status.yml watched workflows
     WATCHED_WORKFLOWS: 'ci-backend.yml,ci-nodejs.yml,ci-frontend.yml,ci-storybook.yml,ci-security.yaml,ci-dagster.yml,ci-e2e-playwright.yml,ci-rust.yml'
@@ -57,12 +58,12 @@ jobs:
                   errors: true
                   payload: |
                       channel: "${{ env.SLACK_CHANNEL }}"
-                      text: ":red_circle: Master has been red for ${{ steps.check.outputs.duration_mins }}+ min (${{ steps.check.outputs.failing_count }} workflow(s) failing)"
+                      text: ":red_circle: Master is red — ${{ steps.check.outputs.failing_count }} workflow(s) failing (${{ steps.check.outputs.max_consecutive }}+ consecutive failures, ~${{ steps.check.outputs.duration_mins }} min)"
                       blocks:
                         - type: "section"
                           text:
                             type: "mrkdwn"
-                            text: ":red_circle: *Master has been red for ${{ steps.check.outputs.duration_mins }}+ min* (${{ steps.check.outputs.failing_count }} workflow(s) failing)"
+                            text: ":red_circle: *Master is red* — ${{ steps.check.outputs.failing_count }} workflow(s) failing (~${{ steps.check.outputs.duration_mins }} min)"
                         - type: "section"
                           text:
                             type: "mrkdwn"
@@ -93,12 +94,12 @@ jobs:
                   payload: |
                       channel: "${{ steps.check.outputs.slack_channel }}"
                       ts: "${{ steps.check.outputs.slack_ts }}"
-                      text: ":red_circle: Master has been red for ${{ steps.check.outputs.duration_mins }}+ min (${{ steps.check.outputs.failing_count }} workflow(s) failing)"
+                      text: ":red_circle: Master is red — ${{ steps.check.outputs.failing_count }} workflow(s) failing (${{ steps.check.outputs.max_consecutive }}+ consecutive failures, ~${{ steps.check.outputs.duration_mins }} min)"
                       blocks:
                         - type: "section"
                           text:
                             type: "mrkdwn"
-                            text: ":red_circle: *Master has been red for ${{ steps.check.outputs.duration_mins }}+ min* (${{ steps.check.outputs.failing_count }} workflow(s) failing)"
+                            text: ":red_circle: *Master is red* — ${{ steps.check.outputs.failing_count }} workflow(s) failing (~${{ steps.check.outputs.duration_mins }} min)"
                         - type: "section"
                           text:
                             type: "mrkdwn"
@@ -127,12 +128,16 @@ jobs:
                   payload: |
                       channel: "${{ steps.check.outputs.slack_channel }}"
                       ts: "${{ steps.check.outputs.slack_ts }}"
-                      text: "Master recovered :v: (was red for ~${{ steps.check.outputs.duration_mins }} min)"
+                      text: ":large_green_circle: Master recovered (was red for ${{ steps.check.outputs.max_consecutive }} consecutive runs, ~${{ steps.check.outputs.duration_mins }} min)"
                       blocks:
                         - type: "section"
                           text:
                             type: "mrkdwn"
-                            text: "*Master recovered* :v: (was red for ~${{ steps.check.outputs.duration_mins }} min)"
+                            text: ":large_green_circle: *Master recovered* (was red for ${{ steps.check.outputs.max_consecutive }} consecutive runs, ~${{ steps.check.outputs.duration_mins }} min)"
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: "Previously failing: ${{ steps.check.outputs.last_failing_list }}"
 
             - name: Thread reply with resolution
               if: steps.check.outputs.action == 'resolve'
@@ -144,6 +149,84 @@ jobs:
                       channel: "${{ steps.check.outputs.slack_channel }}"
                       thread_ts: "${{ steps.check.outputs.slack_ts }}"
                       text: ":white_check_mark: All watched workflows are passing again"
+
+            # ============ COMMIT FAILURE STREAK: CREATE ============
+
+            - name: Post commit-failure-streak alert to Slack
+              if: steps.check.outputs.commit_failure_streak_action == 'create'
+              id: slack_commit_streak
+              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ env.SLACK_CHANNEL }}"
+                      text: ":large_orange_circle: Master unstable — ${{ steps.check.outputs.commit_failure_streak_count }} consecutive commits had a critical workflow fail"
+                      blocks:
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: ":large_orange_circle: *Master unstable* — ${{ steps.check.outputs.commit_failure_streak_count }} consecutive commits had a critical workflow fail\nCulprit rotates across workflows, so no single workflow crosses its own threshold — but master is effectively red."
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: "${{ steps.check.outputs.commit_failure_streak_detail }}"
+
+            - name: Save commit-failure-streak Slack info to state
+              if: steps.check.outputs.commit_failure_streak_action == 'create'
+              env:
+                  SLACK_CHANNEL_ID: ${{ steps.slack_commit_streak.outputs.channel_id }}
+                  SLACK_TS: ${{ steps.slack_commit_streak.outputs.ts }}
+              run: |
+                  jq \
+                    --arg channel "$SLACK_CHANNEL_ID" \
+                    --arg ts "$SLACK_TS" \
+                    '. + {commit_failure_streak_slack_channel: $channel, commit_failure_streak_slack_ts: $ts}' \
+                    .alerts-devex > .alerts-devex.tmp
+                  mv .alerts-devex.tmp .alerts-devex
+
+            # ============ COMMIT FAILURE STREAK: UPDATE ============
+
+            - name: Update commit-failure-streak Slack message
+              if: steps.check.outputs.commit_failure_streak_action == 'update'
+              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              with:
+                  method: chat.update
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ steps.check.outputs.commit_failure_streak_slack_channel }}"
+                      ts: "${{ steps.check.outputs.commit_failure_streak_slack_ts }}"
+                      text: ":large_orange_circle: Master unstable — ${{ steps.check.outputs.commit_failure_streak_count }} consecutive commits had a critical workflow fail"
+                      blocks:
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: ":large_orange_circle: *Master unstable* — ${{ steps.check.outputs.commit_failure_streak_count }} consecutive commits had a critical workflow fail\nCulprit rotates across workflows, so no single workflow crosses its own threshold — but master is effectively red."
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: "${{ steps.check.outputs.commit_failure_streak_detail }}"
+
+            # ============ COMMIT FAILURE STREAK: RESOLVE ============
+
+            - name: Update commit-failure-streak Slack to resolved
+              if: steps.check.outputs.commit_failure_streak_action == 'resolve'
+              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              with:
+                  method: chat.update
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ steps.check.outputs.commit_failure_streak_slack_channel }}"
+                      ts: "${{ steps.check.outputs.commit_failure_streak_slack_ts }}"
+                      text: ":large_green_circle: Master stable again (streak ended after ${{ steps.check.outputs.commit_failure_streak_last_count }} consecutive red commits)"
+                      blocks:
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: ":large_green_circle: *Master stable again* (streak ended after ${{ steps.check.outputs.commit_failure_streak_last_count }} consecutive red commits)"
 
             # ============ RATE LIMIT: CREATE ============
 

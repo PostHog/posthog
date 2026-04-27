@@ -30,7 +30,7 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     from posthog.models.group.group import Group
     from posthog.models.group_type_mapping import GroupTypeMapping
     from posthog.models.insight_caching_state import InsightCachingState
-    from posthog.models.person import Person, PersonDistinctId, PersonlessDistinctId
+    from posthog.models.person import PersonlessDistinctId
 
     from products.data_modeling.backend.models import Edge, Node
     from products.early_access_features.backend.models import EarlyAccessFeature
@@ -42,7 +42,6 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     _raw_delete(Node.objects.filter(team_id__in=team_ids))
 
     _raw_delete(EarlyAccessFeature.objects.filter(team_id__in=team_ids))
-    _raw_delete_batch(PersonDistinctId.objects.filter(team_id__in=team_ids))
     _raw_delete_batch(PersonlessDistinctId.objects.filter(team_id__in=team_ids))
     _raw_delete(ErrorTrackingIssueFingerprintV2.objects.filter(team_id__in=team_ids))
 
@@ -54,8 +53,53 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     _raw_delete(FeatureFlagHashKeyOverride.objects.filter(team_id__in=team_ids))
     _raw_delete(Group.objects.filter(team_id__in=team_ids))
     _raw_delete(GroupTypeMapping.objects.filter(team_id__in=team_ids))
-    _raw_delete_batch(Person.objects.filter(team_id__in=team_ids))
+
+    # Delete Person + PersonDistinctId via personhog RPC (handles both tables).
+    # Falls back to ORM batch deletion when personhog is not available.
+    _delete_persons_for_teams(team_ids)
+
     _raw_delete(InsightCachingState.objects.filter(team_id__in=team_ids))
+
+
+def _delete_persons_for_teams(team_ids: list[int]) -> None:
+    """Delete Person + PersonDistinctId rows for teams via personhog RPC.
+
+    Falls back to ORM batch deletion when personhog is not available.
+    The RPC handles PersonDistinctId deletion automatically.
+    Uses _personhog_routed per team for consistent gate/metrics/fallback.
+    """
+    from functools import partial
+
+    from posthog.models.person.util import _personhog_routed
+
+    for team_id in team_ids:
+        _personhog_routed(
+            "delete_persons_for_team",
+            partial(_delete_persons_for_team_via_personhog, team_id),
+            partial(_delete_persons_for_team_via_orm, team_id),
+            team_id=team_id,
+        )
+
+
+def _delete_persons_for_team_via_personhog(team_id: int) -> None:
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import DeletePersonsBatchForTeamRequest
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    while True:
+        resp = client.delete_persons_batch_for_team(DeletePersonsBatchForTeamRequest(team_id=team_id, batch_size=10000))
+        if resp.deleted_count == 0:
+            break
+
+
+def _delete_persons_for_team_via_orm(team_id: int) -> None:
+    from posthog.models.person import Person, PersonDistinctId
+
+    _raw_delete_batch(PersonDistinctId.objects.filter(team_id=team_id))
+    _raw_delete_batch(Person.objects.filter(team_id=team_id))
 
 
 def _raw_delete(queryset: Any):

@@ -122,6 +122,7 @@ pub fn build_events(
             skip_person_processing: restrictions.skip_person_processing(),
             redirect_to_dlq: restrictions.redirect_to_dlq(),
             redirect_to_topic: restrictions.redirect_to_topic().map(|s| s.to_string()),
+            overflow_reason: None,
         };
 
         processed.push(ProcessedEvent {

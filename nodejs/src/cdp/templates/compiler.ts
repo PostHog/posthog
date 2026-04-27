@@ -25,7 +25,7 @@ export async function compileHog(hog: string): Promise<HogBytecode> {
             // Load from the tmp dir if it exists, otherwise new object
             try {
                 CACHE = parseJSON(readFileSync(CACHE_FILE, 'utf-8'))
-            } catch (error) {
+            } catch {
                 CACHE = {}
             }
         }

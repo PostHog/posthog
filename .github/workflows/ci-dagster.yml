@@ -6,6 +6,10 @@ on:
             - master
     pull_request:
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
     contents: read
     pull-requests: read
@@ -32,6 +36,22 @@ env:
     RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
 jobs:
+    # Verify the path filter below stays in sync with what dagster files
+    # actually import — prevents silent drift where a new import slips in
+    # without a matching filter entry.
+    validate-paths:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        name: Validate dagster path filter coverage
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  clean: false
+            - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.10.2'
+            - run: uv run .github/scripts/check-dagster-paths.py
+
     # Job to decide if we should run dagster ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
@@ -49,7 +69,7 @@ jobs:
               with:
                   clean: false
 
-            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
@@ -58,11 +78,43 @@ jobs:
                         # --- DAG code itself ---
                         - 'posthog/dags/**'
                         - 'products/*/dags/**'
-                        # Dagster depends on Python, so ensure we run on any possible changes to it
-                        - 'posthog/**/*.py'
-                        - 'ee/**/*.py'
-                        - 'common/**/*.py'
-                        - 'products/*/backend/**/*.py'
+                        # --- posthog submodules that DAGs actually import ---
+                        # (verified by tracing imports of all 148 dagster Python files)
+                        - 'posthog/clickhouse/**'
+                        - 'posthog/models/**'
+                        - 'posthog/hogql/**'
+                        - 'posthog/hogql_queries/**'
+                        - 'posthog/settings/**'
+                        - 'posthog/kafka_client/**'
+                        - 'posthog/schema.py'
+                        - 'posthog/utils.py'
+                        - 'posthog/errors.py'
+                        - 'posthog/exceptions_capture.py'
+                        - 'posthog/metrics.py'
+                        - 'posthog/git.py'
+                        - 'posthog/llm/**'
+                        - 'posthog/person_db_router.py'
+                        - 'posthog/redis.py'
+                        - 'posthog/event_usage.py'
+                        - 'posthog/products.py'
+                        - 'posthog/cloud_utils.py'
+                        - 'posthog/ducklake/**'
+                        # Test infrastructure used by dagster tests
+                        - 'posthog/conftest.py'
+                        - 'posthog/test/**'
+                        # --- ee modules that DAGs import ---
+                        - 'ee/billing/**'
+                        - 'ee/clickhouse/**'
+                        - 'ee/hogai/**'
+                        # --- Only the 8 products that DAGs actually import from ---
+                        - 'products/data_warehouse/backend/**/*.py'
+                        - 'products/error_tracking/backend/**/*.py'
+                        - 'products/event_definitions/backend/**/*.py'
+                        - 'products/growth/backend/**/*.py'
+                        - 'products/llm_analytics/backend/**/*.py'
+                        - 'products/posthog_ai/backend/**/*.py'
+                        - 'products/revenue_analytics/backend/**/*.py'
+                        - 'products/web_analytics/backend/**/*.py'
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-dagster.yml
                         - .github/clickhouse-versions.json
@@ -99,15 +151,17 @@ jobs:
                   echo "oldest_supported=[\"$oldest_supported\"]" >> $GITHUB_OUTPUT
 
     dagster:
-        name: Dagster tests
+        name: Dagster tests (${{ matrix.runner }})
         needs: [changes]
         timeout-minutes: 30
         strategy:
             fail-fast: false
             matrix:
                 clickhouse-server-image: ${{ fromJson(needs.changes.outputs.oldest_supported) }}
+                runner: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('["depot-ubuntu-latest","blacksmith-2vcpu-ubuntu-2404"]') || fromJson('["depot-ubuntu-latest"]') }}
         if: needs.changes.outputs.dagster == 'true'
-        runs-on: depot-ubuntu-latest
+        runs-on: ${{ matrix.runner }}
+        continue-on-error: ${{ startsWith(matrix.runner, 'blacksmith') }}
         steps:
             - name: 'Checkout repo'
               uses: actions/checkout@v6
@@ -165,7 +219,7 @@ jobs:
                   components: cargo
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
                   shared-key: 'v2-rust-backend'
                   workspaces: rust
@@ -212,7 +266,7 @@ jobs:
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: always()
+              if: always() && !startsWith(matrix.runner, 'blacksmith')
               with:
                   name: junit-results-dagster
                   path: junit-*.xml

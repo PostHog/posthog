@@ -80,13 +80,13 @@ def _is_duckgres_shadow_enabled(team: Team) -> bool:
         return False
 
 
-def _compile_hogql_to_postgres_sql(hogql_query: str, team_id: int) -> str:
+def _compile_hogql_to_postgres_sql(hogql_query: str, team_id: int) -> tuple[str, dict[str, object]]:
     from posthog.schema import HogQLQuery
 
     from posthog.ducklake.client import compile_hogql_to_ducklake_sql
 
-    postgres_sql, _ = compile_hogql_to_ducklake_sql(team_id, HogQLQuery(query=hogql_query))
-    return postgres_sql
+    postgres_sql, values, _ = compile_hogql_to_ducklake_sql(team_id, HogQLQuery(query=hogql_query))
+    return postgres_sql, values
 
 
 @database_sync_to_async
@@ -155,16 +155,19 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
 
     start_time = time.monotonic()
     sql: str = ""
+    values: dict[str, object] = {}
     try:
         if inputs.dangerously_execute_raw_sql:
             sql = hogql_query
         else:
-            sql = await database_sync_to_async(_compile_hogql_to_postgres_sql)(hogql_query, team.pk)
+            sql, values = await database_sync_to_async(_compile_hogql_to_postgres_sql)(hogql_query, team.pk)
         await logger.adebug("Duckgres shadow SQL generated", sql=sql)
 
         from posthog.ducklake.client import execute_ducklake_create_table
 
-        result = await database_sync_to_async(execute_ducklake_create_table)(team.pk, sql, schema_name, table_name)
+        result = await database_sync_to_async(execute_ducklake_create_table)(
+            team.pk, sql, schema_name, table_name, values
+        )
         duration = time.monotonic() - start_time
 
         await logger.ainfo(

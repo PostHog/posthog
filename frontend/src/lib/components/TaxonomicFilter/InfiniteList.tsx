@@ -14,13 +14,16 @@ import { ControlledDefinitionPopover } from 'lib/components/DefinitionPopover/De
 import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { AUTOCAPTURE_INTERACTIONS } from 'lib/components/TaxonomicFilter/eventTypeShortcuts'
 import { hasRecentContext } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { hasPinnedContext } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import {
     DataWarehousePopoverField,
     DefinitionPopoverRenderer,
+    isQuickFilterItem,
     isSkeletonItem,
+    QuickFilterItem,
     SkeletonItem,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
@@ -48,6 +51,26 @@ export interface InfiniteListProps {
 
 function hasLocalListContext(item: unknown): boolean {
     return hasRecentContext(item) || hasPinnedContext(item)
+}
+
+function quickFilterPopoverContents(item: QuickFilterItem): JSX.Element {
+    const label = AUTOCAPTURE_INTERACTIONS.find((i) => i.eventType === item.filterValue)?.label ?? item.filterValue
+    const verbLower = label.toLowerCase()
+    const description = item.eventName
+        ? `Autocapture event filtered by ${verbLower} event type`
+        : `${label} event type filter`
+    return (
+        <div className="p-3">
+            <div className="text-sm">{description}</div>
+            <LemonDivider />
+            <div className="text-xs text-secondary">
+                Adds {item.eventName ? <code>{item.eventName}</code> : 'a property filter'} with{' '}
+                <code>
+                    {item.propertyKey} = {item.filterValue}
+                </code>
+            </div>
+        </div>
+    )
 }
 
 function getSourceGroupType(item: TaxonomicDefinitionTypes): TaxonomicFilterGroupType | undefined {
@@ -127,6 +150,22 @@ const renderItemContents = ({
     eventNames: string[]
     isActive: boolean
 }): JSX.Element | string => {
+    if (isQuickFilterItem(item)) {
+        const icon = itemGroup.getIcon ? (
+            <div className="taxonomic-list-row-contents-icon">{itemGroup.getIcon(item)}</div>
+        ) : null
+        return (
+            <div
+                className="taxonomic-list-row-contents min-w-0 flex items-center gap-2"
+                data-attr={`taxonomic-shortcut-${item.filterValue}${item.eventName ? '-series' : '-property'}`}
+            >
+                {icon}
+                <span className="truncate" title={item.name}>
+                    {item.name}
+                </span>
+            </div>
+        )
+    }
     if (hasLocalListContext(item)) {
         const icon = isActive ? (
             <div className="taxonomic-list-row-contents-icon">
@@ -648,6 +687,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
 
     const selectedItemGroup = getItemGroup(selectedItem, taxonomicGroups, group)
     const selectedItemIsRecent = selectedItem ? hasRecentContext(selectedItem) : false
+    const selectedItemIsQuickFilter = selectedItem ? isQuickFilterItem(selectedItem) : false
 
     return (
         <div
@@ -736,42 +776,44 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
                         group={selectedItemGroup}
                         highlightedItemElement={highlightedItemElement}
                         definitionPopoverRenderer={
-                            selectedItemIsRecent
-                                ? ({ item, group, defaultView }) => {
-                                      const recentRenderer = definitionPopoverRenderer
-                                          ? definitionPopoverRenderer({ item, group, defaultView })
-                                          : defaultView
-                                      let label: string
-                                      if (
-                                          hasRecentContext(selectedItem) &&
-                                          selectedItem._recentContext.propertyFilter
-                                      ) {
-                                          label = formatPropertyLabel(selectedItem._recentContext.propertyFilter, {})
-                                      } else {
-                                          const coreDef = getCoreFilterDefinition(
-                                              selectedItem.name,
-                                              selectedItemGroup?.type
-                                          )
-                                          label =
-                                              coreDef?.label ||
-                                              selectedItemGroup?.getName?.(selectedItem) ||
-                                              selectedItem.name ||
-                                              ''
-                                      }
-                                      return (
-                                          <>
-                                              <div className="p-3 pb-0">
-                                                  <div className="text-xs font-semibold text-secondary uppercase">
-                                                      Recent filter
-                                                  </div>
-                                                  <div className="text-sm mt-1">{label}</div>
-                                              </div>
-                                              <LemonDivider />
-                                              {recentRenderer}
-                                          </>
-                                      )
-                                  }
-                                : definitionPopoverRenderer
+                            selectedItemIsQuickFilter
+                                ? ({ item }) => quickFilterPopoverContents(item as QuickFilterItem)
+                                : selectedItemIsRecent
+                                  ? ({ item, group, defaultView }) => {
+                                        const recentRenderer = definitionPopoverRenderer
+                                            ? definitionPopoverRenderer({ item, group, defaultView })
+                                            : defaultView
+                                        let label: string
+                                        if (
+                                            hasRecentContext(selectedItem) &&
+                                            selectedItem._recentContext.propertyFilter
+                                        ) {
+                                            label = formatPropertyLabel(selectedItem._recentContext.propertyFilter, {})
+                                        } else {
+                                            const coreDef = getCoreFilterDefinition(
+                                                selectedItem.name,
+                                                selectedItemGroup?.type
+                                            )
+                                            label =
+                                                coreDef?.label ||
+                                                selectedItemGroup?.getName?.(selectedItem) ||
+                                                selectedItem.name ||
+                                                ''
+                                        }
+                                        return (
+                                            <>
+                                                <div className="p-3 pb-0">
+                                                    <div className="text-xs font-semibold text-secondary uppercase">
+                                                        Recent filter
+                                                    </div>
+                                                    <div className="text-sm mt-1">{label}</div>
+                                                </div>
+                                                <LemonDivider />
+                                                {recentRenderer}
+                                            </>
+                                        )
+                                    }
+                                  : definitionPopoverRenderer
                         }
                     />
                 </BindLogic>

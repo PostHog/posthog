@@ -1,9 +1,15 @@
+import datetime as dt
+
+from django.core.cache import cache
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
+
+HAS_LOGS_CACHE_TTL = int(dt.timedelta(days=7).total_seconds())
 
 
 class HasLogsQueryRunner:
@@ -22,3 +28,14 @@ class HasLogsQueryRunner:
         )
 
         return len(response.results) > 0
+
+
+def team_has_logs(team: Team) -> bool:
+    cache_key = f"team:{team.id}:has_logs"
+    if cache.get(cache_key) is True:
+        return True
+
+    has_logs = HasLogsQueryRunner(team).run()
+    if has_logs:
+        cache.set(cache_key, True, HAS_LOGS_CACHE_TTL)
+    return has_logs

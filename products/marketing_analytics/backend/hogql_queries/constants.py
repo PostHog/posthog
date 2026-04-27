@@ -85,20 +85,31 @@ TOTAL_REPORTED_CONVERSION_VALUE_FIELD = "total_reported_conversion_value"
 # Field used for joining with conversion goals
 MATCH_KEY_FIELD = "match_key"
 
+
 # Fallback query when no valid adapters are found (includes all 9 columns in correct order)
 # Order: match_key, campaign, id, source, impressions, clicks, cost, reported_conversion, reported_conversion_value
-FALLBACK_EMPTY_QUERY = (
-    f"SELECT '' as {MATCH_KEY_FIELD}, "
-    f"'No Campaign' as {MarketingAnalyticsColumnsSchemaNames.CAMPAIGN}, "
-    f"'No ID' as {MarketingAnalyticsColumnsSchemaNames.ID}, "
-    f"'No Source' as {MarketingAnalyticsColumnsSchemaNames.SOURCE}, "
-    f"0.0 as {MarketingAnalyticsColumnsSchemaNames.IMPRESSIONS}, "
-    f"0.0 as {MarketingAnalyticsColumnsSchemaNames.CLICKS}, "
-    f"0.0 as {MarketingAnalyticsColumnsSchemaNames.COST}, "
-    f"0.0 as {MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION}, "
-    f"0.0 as {MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION_VALUE} "
-    "WHERE 1=0"
-)
+def build_fallback_empty_query_ast() -> ast.SelectQuery:
+    return ast.SelectQuery(
+        select=[
+            ast.Alias(alias=MATCH_KEY_FIELD, expr=ast.Constant(value="")),
+            ast.Alias(alias=MarketingAnalyticsColumnsSchemaNames.CAMPAIGN, expr=ast.Constant(value="No Campaign")),
+            ast.Alias(alias=MarketingAnalyticsColumnsSchemaNames.ID, expr=ast.Constant(value="No ID")),
+            ast.Alias(alias=MarketingAnalyticsColumnsSchemaNames.SOURCE, expr=ast.Constant(value="No Source")),
+            ast.Alias(alias=MarketingAnalyticsColumnsSchemaNames.IMPRESSIONS, expr=ast.Constant(value=0.0)),
+            ast.Alias(alias=MarketingAnalyticsColumnsSchemaNames.CLICKS, expr=ast.Constant(value=0.0)),
+            ast.Alias(alias=MarketingAnalyticsColumnsSchemaNames.COST, expr=ast.Constant(value=0.0)),
+            ast.Alias(alias=MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION, expr=ast.Constant(value=0.0)),
+            ast.Alias(
+                alias=MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION_VALUE, expr=ast.Constant(value=0.0)
+            ),
+        ],
+        where=ast.CompareOperation(
+            left=ast.Constant(value=1),
+            op=ast.CompareOperationOp.Eq,
+            right=ast.Constant(value=0),
+        ),
+    )
+
 
 # AST Expression mappings for MarketingAnalyticsBaseColumns
 BASE_COLUMN_MAPPING = {

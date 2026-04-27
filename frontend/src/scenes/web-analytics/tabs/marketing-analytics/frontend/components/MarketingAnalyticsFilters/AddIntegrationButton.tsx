@@ -1,6 +1,6 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
@@ -9,10 +9,6 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { TeamMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
-
-import { sidePanelDocsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelDocsLogic'
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { SidePanelTab } from '~/types'
 
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
@@ -27,8 +23,6 @@ interface AddIntegrationButtonProps {
 }
 
 export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButtonProps = {}): JSX.Element {
-    const { openSidePanel } = useActions(sidePanelStateLogic)
-    const { sidePanelOpen } = useValues(sidePanelStateLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -36,10 +30,6 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
     })
 
     const [showPopover, setShowPopover] = useState(false)
-    const [pendingNavigation, setPendingNavigation] = useState<{
-        integrationId: string
-        onIntegrationSelect?: (integrationId: string) => void
-    } | null>(null)
 
     const groupedIntegrations = {
         native: getEnabledNativeMarketingSources(featureFlags),
@@ -47,62 +37,7 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
         'self-managed': VALID_SELF_MANAGED_MARKETING_SOURCES,
     }
 
-    // Watch for when the docs iframe is ready and trigger pending navigation
-    useEffect(() => {
-        if (!pendingNavigation) {
-            return
-        }
-
-        const checkIframeReady = (): void => {
-            const docsLogic = sidePanelDocsLogic.findMounted()
-            const iframeReady = docsLogic?.values?.iframeReady
-
-            if (iframeReady && pendingNavigation) {
-                // Docs are loaded, trigger navigation
-                if (pendingNavigation.onIntegrationSelect) {
-                    pendingNavigation.onIntegrationSelect(pendingNavigation.integrationId)
-                } else {
-                    router.actions.push(
-                        urls.dataWarehouseSourceNew(
-                            pendingNavigation.integrationId,
-                            urls.marketingAnalyticsApp(),
-                            'Marketing analytics'
-                        )
-                    )
-                }
-                setShowPopover(false)
-                setPendingNavigation(null)
-            }
-        }
-
-        // Check immediately and then set up interval to watch for changes
-        checkIframeReady()
-        const interval = setInterval(checkIframeReady, 100)
-
-        return () => clearInterval(interval)
-    }, [pendingNavigation])
-
-    const handleIntegrateClick = (integrationId: string, sourceType: 'native' | 'external' | 'self-managed'): void => {
-        // Open docs in side panel
-        let docFragment = ''
-        if (sourceType === 'native') {
-            docFragment = '#native-sources'
-        } else if (sourceType === 'external') {
-            docFragment = '#data-warehouse-sources'
-        } else if (sourceType === 'self-managed') {
-            docFragment = '#self-managed-sources'
-        }
-        openSidePanel(SidePanelTab.Docs, `/docs/web-analytics/marketing-analytics${docFragment}`)
-
-        // If panel wasn't open, wait for docs to load before navigating otherwise
-        // there will be a race condition where the panel is opened, then docs are loaded
-        // and the dw source will fail to load because of the url params + fragments conflict
-        if (!sidePanelOpen) {
-            setPendingNavigation({ integrationId, onIntegrationSelect })
-            return
-        }
-
-        // Panel was already open, navigate immediately
+    const handleIntegrateClick = (integrationId: string): void => {
         if (onIntegrationSelect) {
             onIntegrationSelect(integrationId)
         } else {
@@ -131,9 +66,7 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
                         fullWidth
                         size="small"
                         disabledReason={restrictedReason}
-                        onClick={() =>
-                            handleIntegrateClick(integrationId, type as 'native' | 'external' | 'self-managed')
-                        }
+                        onClick={() => handleIntegrateClick(integrationId)}
                         className="justify-start"
                     >
                         <span className="flex items-center gap-2">

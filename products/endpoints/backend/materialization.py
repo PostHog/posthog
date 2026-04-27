@@ -1,5 +1,6 @@
 import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Optional
 
 from posthog.schema import HogQLQuery, HogQLQueryModifiers
@@ -88,6 +89,10 @@ class MaterializableVariable:
     cte_name: Optional[str] = None  # CTE containing the variable; None = top-level query
 
     bucket_fn: Optional[str] = None  # e.g. "toStartOfDay" for range variables on timestamp
+
+    # Plans for propagating this variable's column through each downstream CTE.
+    # Keyed by downstream CTE name. Populated by the analyzer; consumed by the transformer.
+    downstream_plans: dict[str, "DownstreamCTEPlan"] = field(default_factory=dict)
 
 
 @dataclass
@@ -309,12 +314,378 @@ def analyze_variables_for_materialization(
     if has_cte_vars and isinstance(ast_node, ast.SelectQuery) and _has_joins(ast_node):
         return False, "CTE variables with JOINs in the top-level query are not supported for materialization", []
 
+    # Propagation planning: for each CTE-bound variable, classify every downstream
+    # CTE so the transformer can rewrite SELECT / GROUP BY / WHERE to carry the
+    # variable column from the variable-carrying CTE to the terminal CTE.
+    if has_cte_vars and isinstance(ast_node, ast.SelectQuery) and ast_node.ctes:
+        graph = _build_cte_read_graph(ast_node)
+        all_code_names = [v.code_name for v in result_vars if v.cte_name is not None]
+        for var in result_vars:
+            if var.cte_name is None:
+                continue
+            downstream = _downstream_ctes(graph, var.cte_name)
+            propagating = downstream | {var.cte_name}
+            plans: dict[str, DownstreamCTEPlan] = {}
+            for d_cte_name in _topological_order(graph, downstream):
+                d_cte = ast_node.ctes[d_cte_name]
+                plan = _classify_downstream_cte(d_cte_name, d_cte.expr, propagating, all_code_names)
+                if plan.reject_reason:
+                    return False, plan.reject_reason, []
+                plans[d_cte_name] = plan
+            var.downstream_plans = plans
+
     return True, "OK", result_vars
 
 
 def _has_joins(node: ast.SelectQuery) -> bool:
     """Check if a SelectQuery has any JOINs (next_join on select_from)."""
     return node.select_from is not None and node.select_from.next_join is not None
+
+
+# ---------------------------------------------------------------------------
+# CTE variable propagation: graph helpers + downstream shape classifier
+# ---------------------------------------------------------------------------
+#
+# When a variable lives inside a CTE and downstream CTEs read from it,
+# the materialized terminal table must still carry the variable column so the
+# read-time filter can slice rows per-variable-value. These helpers walk the
+# CTE reference graph, classify each downstream CTE's shape, and return a
+# plan object the transformer uses to rewrite SELECT / GROUP BY / WHERE.
+
+
+# Join types between propagating CTEs that preserve per-value row identity
+# under a CROSS-JOIN + equi-predicate rewrite. Outer joins break this (see
+# product_data reasoning in the plan doc), so they're explicitly rejected.
+_SAFE_PROPAGATION_JOIN_TYPES = frozenset({None, "JOIN", "INNER JOIN", "CROSS JOIN"})
+
+
+class DownstreamCTEShape(Enum):
+    PROJECTION = "projection"
+    AGGREGATION = "aggregation"
+    DISTINCT = "distinct"
+    MULTI_JOIN = "multi_join"
+    UNION_ALL = "union_all"
+
+
+@dataclass
+class DownstreamCTEPlan:
+    """How the transformer should propagate a variable through a downstream CTE."""
+
+    cte_name: str
+    shape: DownstreamCTEShape
+    # (alias_or_cte_name, cte_name) pairs for every propagating CTE read in this CTE.
+    # For UNION_ALL, this is left empty; each leg carries its own nested plan.
+    propagating_sources: list[tuple[str, str]] = field(default_factory=list)
+    leg_plans: list["DownstreamCTEPlan"] = field(default_factory=list)
+    reject_reason: Optional[str] = None
+
+
+class _CTEReferenceCollector(TraversingVisitor):
+    """Collect names of sibling CTEs referenced anywhere in an expression subtree.
+
+    A CTE reference appears as ``JoinExpr(table=Field(chain=["cte_name"]))``.
+    We call ``super().visit_join_expr(node)`` so the default recursion
+    (``posthog/hogql/visitor.py:213``) continues into nested subqueries
+    and the ``next_join`` chain.
+    """
+
+    def __init__(self, known_ctes: set[str]):
+        super().__init__()
+        self.known = known_ctes
+        self.referenced: set[str] = set()
+
+    def visit_join_expr(self, node: ast.JoinExpr):
+        if isinstance(node.table, ast.Field) and len(node.table.chain) == 1:
+            name = str(node.table.chain[0])
+            if name in self.known:
+                self.referenced.add(name)
+        super().visit_join_expr(node)
+
+
+def _build_cte_read_graph(node: ast.SelectQuery) -> dict[str, set[str]]:
+    """Map each CTE name to the sibling CTE names its body references (transitively via subtree walk)."""
+    if not node.ctes:
+        return {}
+    cte_names = set(node.ctes.keys())
+    graph: dict[str, set[str]] = {}
+    for name, cte in node.ctes.items():
+        collector = _CTEReferenceCollector(cte_names - {name})
+        collector.visit(cte.expr)
+        graph[name] = collector.referenced
+    return graph
+
+
+def _reads_from(graph: dict[str, set[str]], source: str, target: str, visited: set[str]) -> bool:
+    if source in visited:
+        return False
+    visited.add(source)
+    direct = graph.get(source, set())
+    if target in direct:
+        return True
+    return any(_reads_from(graph, ref, target, visited) for ref in direct)
+
+
+def _downstream_ctes(graph: dict[str, set[str]], start: str) -> set[str]:
+    """Return every CTE that transitively reads from ``start`` (excludes ``start`` itself)."""
+    result: set[str] = set()
+    for name in graph:
+        if name == start:
+            continue
+        if _reads_from(graph, name, start, set()):
+            result.add(name)
+    return result
+
+
+def _topological_order(graph: dict[str, set[str]], subset: set[str]) -> list[str]:
+    """Order CTEs so each appears after any CTE it reads from (within ``subset``)."""
+    result: list[str] = []
+    visited: set[str] = set()
+
+    def visit(n: str) -> None:
+        if n in visited or n not in subset:
+            return
+        visited.add(n)
+        for dep in graph.get(n, set()):
+            visit(dep)
+        result.append(n)
+
+    for n in subset:
+        visit(n)
+    return result
+
+
+def _normalize_join_type(join_type: Optional[str]) -> Optional[str]:
+    """Strip a leading ``GLOBAL `` prefix so classification keys match the base join type."""
+    if join_type is None:
+        return None
+    if join_type.startswith("GLOBAL "):
+        return join_type.removeprefix("GLOBAL ")
+    return join_type
+
+
+def _select_column_name(expr: ast.Expr) -> Optional[str]:
+    """The name a SELECT expression emits — alias, or a single-segment field chain."""
+    if isinstance(expr, ast.Alias):
+        return expr.alias
+    if isinstance(expr, ast.Field) and len(expr.chain) == 1:
+        return str(expr.chain[0])
+    return None
+
+
+def _collect_propagating_sources_top_level(
+    select_from: Optional[ast.JoinExpr],
+    propagating: set[str],
+) -> tuple[list[tuple[str, str]], Optional[str]]:
+    """Walk the top-level ``select_from`` chain, collecting propagating CTE refs.
+
+    Returns ``(sources, reject_reason)``. ``reject_reason`` is non-None if any
+    JoinExpr in the chain references a propagating CTE via an unsupported join type.
+    """
+    sources: list[tuple[str, str]] = []
+    cur = select_from
+    while cur is not None:
+        is_prop = False
+        cte_name: Optional[str] = None
+        if isinstance(cur.table, ast.Field) and len(cur.table.chain) == 1:
+            name = str(cur.table.chain[0])
+            if name in propagating:
+                is_prop = True
+                cte_name = name
+        if is_prop and cte_name is not None:
+            join_type = _normalize_join_type(cur.join_type)
+            if join_type not in _SAFE_PROPAGATION_JOIN_TYPES:
+                return (
+                    [],
+                    f"CTE variable propagation requires CROSS/INNER joins between propagating CTEs; "
+                    f"{cur.join_type} not supported",
+                )
+            alias = cur.alias or cte_name
+            sources.append((alias, cte_name))
+        cur = cur.next_join
+    return sources, None
+
+
+def _has_nested_propagating_reference(node: Optional[ast.Expr], propagating: set[str]) -> bool:
+    """Detect a propagating-CTE reference inside a subquery (e.g. ``FROM (SELECT * FROM prop)``)."""
+    if node is None:
+        return False
+
+    class _Finder(TraversingVisitor):
+        def __init__(self) -> None:
+            super().__init__()
+            self.found = False
+
+        def visit_select_query(self, n: ast.SelectQuery) -> None:
+            if n.select_from is not None:
+                self.visit(n.select_from)
+
+        def visit_select_set_query(self, n: ast.SelectSetQuery) -> None:
+            for leg in n.select_queries():
+                self.visit(leg)
+
+        def visit_join_expr(self, n: ast.JoinExpr) -> None:
+            if isinstance(n.table, ast.Field) and len(n.table.chain) == 1:
+                if str(n.table.chain[0]) in propagating:
+                    self.found = True
+                    return
+            if isinstance(n.table, ast.SelectQuery | ast.SelectSetQuery):
+                self.visit(n.table)
+            if n.next_join is not None:
+                self.visit(n.next_join)
+
+    finder = _Finder()
+    finder.visit(node)
+    return finder.found
+
+
+def _select_from_has_nested_reference(
+    select_from: Optional[ast.JoinExpr],
+    propagating: set[str],
+) -> bool:
+    """Return True if any join in the top chain uses a subquery that references a propagating CTE."""
+    cur = select_from
+    while cur is not None:
+        if isinstance(cur.table, ast.SelectQuery | ast.SelectSetQuery):
+            if _has_nested_propagating_reference(cur.table, propagating):
+                return True
+        cur = cur.next_join
+    return False
+
+
+def _emits_column(select_query: ast.SelectQuery, column_name: str) -> bool:
+    for expr in select_query.select or []:
+        name = _select_column_name(expr)
+        if name == column_name:
+            return True
+    return False
+
+
+def _classify_downstream_cte(
+    cte_name: str,
+    cte_expr: ast.Expr,
+    propagating: set[str],
+    code_names: list[str],
+) -> DownstreamCTEPlan:
+    """Classify a downstream CTE's shape; produce a plan or a rejection reason."""
+
+    if isinstance(cte_expr, ast.SelectSetQuery):
+        non_union_legs = [node.set_operator for node in cte_expr.subsequent_select_queries]
+        if any(op != "UNION ALL" for op in non_union_legs):
+            return DownstreamCTEPlan(
+                cte_name=cte_name,
+                shape=DownstreamCTEShape.UNION_ALL,
+                reject_reason="Only UNION ALL is supported for propagation across set operations",
+            )
+
+        leg_plans: list[DownstreamCTEPlan] = []
+        for i, leg in enumerate(cte_expr.select_queries()):
+            if not isinstance(leg, ast.SelectQuery):
+                return DownstreamCTEPlan(
+                    cte_name=cte_name,
+                    shape=DownstreamCTEShape.UNION_ALL,
+                    reject_reason=(f"Variable propagation failed on UNION leg: nested set queries are not supported"),
+                )
+            leg_plan = _classify_downstream_cte(f"{cte_name}#leg{i}", leg, propagating, code_names)
+            if leg_plan.reject_reason:
+                return DownstreamCTEPlan(
+                    cte_name=cte_name,
+                    shape=DownstreamCTEShape.UNION_ALL,
+                    reject_reason=f"Variable propagation failed on UNION leg: {leg_plan.reject_reason}",
+                )
+            if not leg_plan.propagating_sources and leg_plan.shape != DownstreamCTEShape.UNION_ALL:
+                return DownstreamCTEPlan(
+                    cte_name=cte_name,
+                    shape=DownstreamCTEShape.UNION_ALL,
+                    reject_reason=("Variable propagation failed on UNION leg: leg has no propagating CTE source"),
+                )
+            leg_plans.append(leg_plan)
+
+        return DownstreamCTEPlan(
+            cte_name=cte_name,
+            shape=DownstreamCTEShape.UNION_ALL,
+            leg_plans=leg_plans,
+        )
+
+    if not isinstance(cte_expr, ast.SelectQuery):
+        return DownstreamCTEPlan(
+            cte_name=cte_name,
+            shape=DownstreamCTEShape.PROJECTION,
+            reject_reason=f"Unsupported CTE body type: {type(cte_expr).__name__}",
+        )
+
+    if cte_expr.window_exprs:
+        return DownstreamCTEPlan(
+            cte_name=cte_name,
+            shape=DownstreamCTEShape.PROJECTION,
+            reject_reason="Window functions in downstream CTEs of a variable CTE are not yet supported for materialization",
+        )
+
+    sources, reject = _collect_propagating_sources_top_level(cte_expr.select_from, propagating)
+    if reject:
+        return DownstreamCTEPlan(
+            cte_name=cte_name,
+            shape=DownstreamCTEShape.PROJECTION,
+            reject_reason=reject,
+        )
+
+    if _select_from_has_nested_reference(cte_expr.select_from, propagating):
+        return DownstreamCTEPlan(
+            cte_name=cte_name,
+            shape=DownstreamCTEShape.PROJECTION,
+            reject_reason="CTE variable propagation requires top-level FROM references; nested subquery reference not supported",
+        )
+
+    if not sources:
+        return DownstreamCTEPlan(
+            cte_name=cte_name,
+            shape=DownstreamCTEShape.PROJECTION,
+            reject_reason="Downstream CTE does not read from any propagating CTE",
+        )
+
+    for code_name in code_names:
+        if _emits_column(cte_expr, code_name):
+            return DownstreamCTEPlan(
+                cte_name=cte_name,
+                shape=DownstreamCTEShape.PROJECTION,
+                reject_reason=f"Variable code_name '{code_name}' collides with existing column in downstream CTE {cte_name}",
+            )
+
+    if len(sources) >= 2:
+        shape = DownstreamCTEShape.MULTI_JOIN
+    elif cte_expr.distinct:
+        shape = DownstreamCTEShape.DISTINCT
+    elif cte_expr.group_by or _select_has_aggregate(cte_expr):
+        shape = DownstreamCTEShape.AGGREGATION
+    else:
+        shape = DownstreamCTEShape.PROJECTION
+
+    return DownstreamCTEPlan(
+        cte_name=cte_name,
+        shape=shape,
+        propagating_sources=sources,
+    )
+
+
+def _select_has_aggregate(node: ast.SelectQuery) -> bool:
+    agg_names = set(HOGQL_AGGREGATIONS.keys())
+
+    class _AggFinder(TraversingVisitor):
+        def __init__(self) -> None:
+            super().__init__()
+            self.found = False
+
+        def visit_call(self, n: ast.Call) -> None:
+            if n.name in agg_names:
+                self.found = True
+                return
+            super().visit_call(n)
+
+    finder = _AggFinder()
+    for expr in node.select or []:
+        finder.visit(expr)
+        if finder.found:
+            return True
+    return False
 
 
 class VariablePlaceholderFinder(TraversingVisitor):
@@ -680,8 +1051,89 @@ class MaterializationTransformer(CloningVisitor):
             self._current_cte_name = cte_name
             new_expr = self.visit(cte.expr)
             self._current_cte_name = prev_cte
+
+            # After the CTE body has been cloned/visited, propagate any variable
+            # whose plan targets this CTE. Definition order is also topological,
+            # so upstream CTEs have already been rewritten to emit code_name.
+            for var in self.variable_infos:
+                if var.cte_name is None:
+                    continue
+                plan = var.downstream_plans.get(cte_name)
+                if plan is None:
+                    continue
+                new_expr = self._apply_downstream_plan(new_expr, var, plan)
+
             new_ctes[cte_name] = ast.CTE(name=cte_name, expr=new_expr, cte_type=cte.cte_type)
         return new_ctes
+
+    def _apply_downstream_plan(
+        self,
+        cte_expr: ast.Expr,
+        var: MaterializableVariable,
+        plan: DownstreamCTEPlan,
+    ) -> ast.Expr:
+        """Rewrite a cloned downstream CTE body so it emits ``var.code_name``."""
+        if isinstance(cte_expr, ast.SelectSetQuery):
+            if plan.shape != DownstreamCTEShape.UNION_ALL or not plan.leg_plans:
+                return cte_expr
+            new_initial = self._apply_downstream_plan(cte_expr.initial_select_query, var, plan.leg_plans[0])
+            assert isinstance(new_initial, (ast.SelectQuery, ast.SelectSetQuery))
+            new_subsequent: list[ast.SelectSetNode] = []
+            for i, node in enumerate(cte_expr.subsequent_select_queries):
+                leg_plan = plan.leg_plans[i + 1]
+                rewritten = self._apply_downstream_plan(node.select_query, var, leg_plan)
+                assert isinstance(rewritten, (ast.SelectQuery, ast.SelectSetQuery))
+                new_subsequent.append(ast.SelectSetNode(select_query=rewritten, set_operator=node.set_operator))
+            return ast.SelectSetQuery(
+                initial_select_query=new_initial,
+                subsequent_select_queries=new_subsequent,
+                limit=cte_expr.limit,
+                offset=cte_expr.offset,
+                limit_percent=cte_expr.limit_percent,
+                limit_with_ties=cte_expr.limit_with_ties,
+            )
+
+        if not isinstance(cte_expr, ast.SelectQuery):
+            return cte_expr
+
+        sources = plan.propagating_sources
+        if not sources:
+            return cte_expr
+        first_alias = sources[0][0]
+
+        # Add `first_alias.code_name AS code_name` to SELECT.
+        select_addition = ast.Alias(
+            alias=var.code_name,
+            expr=ast.Field(chain=[first_alias, var.code_name]),
+        )
+        cte_expr.select = [*list(cte_expr.select or []), select_addition]
+
+        if plan.shape == DownstreamCTEShape.AGGREGATION:
+            group_by_field = ast.Field(chain=[var.code_name])
+            if cte_expr.group_by:
+                cte_expr.group_by = [*list(cte_expr.group_by), group_by_field]
+            else:
+                cte_expr.group_by = [group_by_field]
+
+        if plan.shape == DownstreamCTEShape.MULTI_JOIN and len(sources) > 1:
+            for alias, _ in sources[1:]:
+                predicate = ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=[first_alias, var.code_name]),
+                    right=ast.Field(chain=[alias, var.code_name]),
+                )
+                cte_expr.where = self._append_and(cte_expr.where, predicate)
+
+        return cte_expr
+
+    @staticmethod
+    def _append_and(existing: Optional[ast.Expr], new_predicate: ast.Expr) -> ast.Expr:
+        """AND-flatten ``new_predicate`` into ``existing``, collapsing nested ``ast.And``."""
+        if existing is None:
+            return new_predicate
+        if isinstance(existing, ast.And):
+            return ast.And(exprs=[*list(existing.exprs), new_predicate])
+        return ast.And(exprs=[existing, new_predicate])
 
     def _add_variable_columns(self, node: ast.SelectQuery, vars_for_context: list[MaterializableVariable]) -> None:
         """Add aliased variable columns to SELECT, update GROUP BY, and remove variable WHERE clauses."""

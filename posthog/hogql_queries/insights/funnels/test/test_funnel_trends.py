@@ -1,5 +1,5 @@
 from datetime import date, datetime, timedelta
-from typing import Optional
+from typing import Optional, cast
 from zoneinfo import ZoneInfo
 
 from freezegun.api import freeze_time
@@ -27,6 +27,8 @@ from posthog.schema import (
     IntervalType,
     PropertyOperator,
 )
+
+from posthog.hogql import ast
 
 from posthog.constants import FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
@@ -1498,6 +1500,42 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             ],
         )
         self.assertEqual(results[0]["breakdown_value"], ["Chrome"])
+
+    @parameterized.expand(
+        [
+            # (interval, date_from, date_to, breakdown_limit) — cases chosen so
+            # breakdown_limit × num_periods straddles the old 1_000 hard cap.
+            ("week", "2021-01-01 00:00:00", "2021-12-31 23:59:59", 25),
+            ("day", "2021-01-01 00:00:00", "2021-02-19 23:59:59", 25),
+            ("day", "2021-05-01 00:00:00", "2021-05-14 23:59:59", 25),
+            ("hour", "2021-05-01 00:00:00", "2021-05-01 23:59:59", 10),
+        ]
+    )
+    def test_breakdown_limit_scales_with_periods(self, interval, date_from, date_to, breakdown_limit):
+        query = FunnelsQuery(
+            dateRange=DateRange(date_from=date_from, date_to=date_to),
+            interval=interval,
+            series=[
+                EventsNode(event="step one"),
+                EventsNode(event="step two"),
+            ],
+            breakdownFilter=BreakdownFilter(
+                breakdown="$browser",
+                breakdown_type="event",
+                breakdown_limit=breakdown_limit,
+            ),
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+            ),
+        )
+        runner = FunnelsQueryRunner(query=query, team=self.team)
+        num_periods = len(runner.funnel_class._date_range().all_values())
+        expected_limit = breakdown_limit * num_periods
+
+        actual_limit = cast(ast.Constant, runner.to_query().limit).value
+        self.assertEqual(actual_limit, expected_limit)
 
     def test_funnel_step_breakdown_person(self):
         _create_person(distinct_ids=["user_one"], team=self.team, properties={"$browser": "Chrome"})
