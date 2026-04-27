@@ -2,13 +2,14 @@ import { Accordion as AccordionPrimitive } from '@base-ui/react/accordion'
 import { ChevronDownIcon, ChevronUpIcon } from 'lucide-react'
 import * as React from 'react'
 
+import './accordion.css'
 import { cn } from './lib/utils'
 
 function Accordion({ className, ...props }: AccordionPrimitive.Root.Props): React.ReactElement {
     return (
         <AccordionPrimitive.Root
             data-slot="accordion"
-            className={cn('flex w-full flex-col overflow-hidden rounded-sm border', className)}
+            className={cn('quill-accordion flex w-full flex-col', className)}
             {...props}
         />
     )
@@ -19,7 +20,7 @@ function AccordionItem({ className, ...props }: AccordionPrimitive.Item.Props): 
         <AccordionPrimitive.Item
             data-quill
             data-slot="accordion-item"
-            className={cn('not-last:border-b data-open:bg-muted/50', className)}
+            className={cn('quill-accordion__item', className)}
             {...props}
         />
     )
@@ -31,19 +32,21 @@ function AccordionTrigger({ className, children, ...props }: AccordionPrimitive.
             <AccordionPrimitive.Trigger
                 data-slot="accordion-trigger"
                 className={cn(
-                    'group/accordion-trigger cursor-pointer relative flex flex-1 items-start justify-between gap-6 border border-transparent p-2 text-start text-xs/relaxed font-medium transition-all outline-none hover:bg-accent aria-disabled:pointer-events-none aria-disabled:opacity-50 **:data-[slot=accordion-trigger-icon]:ms-auto **:data-[slot=accordion-trigger-icon]:size-4 **:data-[slot=accordion-trigger-icon]:text-muted-foreground',
+                    'quill-accordion__trigger group/accordion-trigger relative flex flex-1 items-start justify-between gap-6',
                     className
                 )}
                 {...props}
             >
-                <span className="group-active/accordion-trigger:translate-y-px">{children}</span>
+                <span>{children}</span>
                 <ChevronDownIcon
                     data-slot="accordion-trigger-icon"
-                    className="pointer-events-none shrink-0 group-aria-expanded/accordion-trigger:hidden"
+                    data-chevron="down"
+                    className="pointer-events-none shrink-0"
                 />
                 <ChevronUpIcon
                     data-slot="accordion-trigger-icon"
-                    className="pointer-events-none hidden shrink-0 group-aria-expanded/accordion-trigger:inline"
+                    data-chevron="up"
+                    className="pointer-events-none shrink-0"
                 />
             </AccordionPrimitive.Trigger>
         </AccordionPrimitive.Header>
@@ -52,19 +55,8 @@ function AccordionTrigger({ className, children, ...props }: AccordionPrimitive.
 
 function AccordionContent({ className, children, ...props }: AccordionPrimitive.Panel.Props): React.ReactElement {
     return (
-        <AccordionPrimitive.Panel
-            data-slot="accordion-content"
-            className="h-(--accordion-panel-height) overflow-hidden px-2 text-xs/relaxed transition-[height] duration-200 ease-out data-ending-style:h-0 data-starting-style:h-0"
-            {...props}
-        >
-            <div
-                className={cn(
-                    'pt-0 pb-2 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground [&_p:not(:last-child)]:mb-4',
-                    className
-                )}
-            >
-                {children}
-            </div>
+        <AccordionPrimitive.Panel data-slot="accordion-content" className="quill-accordion__panel" {...props}>
+            <div className={cn('quill-accordion__panel-content', className)}>{children}</div>
         </AccordionPrimitive.Panel>
     )
 }

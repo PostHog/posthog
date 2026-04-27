@@ -56,19 +56,6 @@ export interface CampaignAuditResultApi {
  * `auto` - auto
  * `mapped` - mapped
  */
-export type CampaignMatchEnumApi = (typeof CampaignMatchEnumApi)[keyof typeof CampaignMatchEnumApi]
-
-export const CampaignMatchEnumApi = {
-    None: 'none',
-    Auto: 'auto',
-    Mapped: 'mapped',
-} as const
-
-/**
- * * `none` - none
- * `auto` - auto
- * `mapped` - mapped
- */
 export type SourceMatchEnumApi = (typeof SourceMatchEnumApi)[keyof typeof SourceMatchEnumApi]
 
 export const SourceMatchEnumApi = {
@@ -89,7 +76,7 @@ export interface UtmEventApi {
 * `none` - none
 * `auto` - auto
 * `mapped` - mapped */
-    campaign_match: CampaignMatchEnumApi
+    campaign_match: SourceMatchEnumApi
     /** How utm_source matched: none, auto (default source), or mapped (custom mapping)
 
 * `none` - none

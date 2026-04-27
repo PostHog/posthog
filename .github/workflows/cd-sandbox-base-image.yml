@@ -21,7 +21,7 @@ jobs:
         steps:
             - uses: actions/checkout@v6
 
-            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: filter
               with:
                   filters: |
@@ -75,7 +75,7 @@ jobs:
                   components: cargo
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
                   shared-key: 'v2-rust-skills'
                   workspaces: rust
@@ -225,3 +225,39 @@ jobs:
                   platforms: linux/arm64,linux/amd64
                   build-args: |
                       BASE_IMAGE=ghcr.io/posthog/posthog-sandbox-base:${{ github.sha }}
+
+    # Single required status check for branch protection. Add future sandbox
+    # image jobs to `needs` here rather than reconfiguring GitHub.
+    sandbox_base_image_check:
+        needs: [changes, build_skills, sandbox_base_build]
+        name: Sandbox Base Image Pass
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        if: always()
+        permissions: {}
+        steps:
+            - name: Check all sandbox image jobs
+              run: |
+                  # Fail if change detection itself failed
+                  if [[ "${{ needs.changes.result }}" == "failure" ]]; then
+                    echo "Change detection job failed."
+                    exit 1
+                  fi
+
+                  # Pass if build wasn't required (no relevant changes, no dispatch, no label)
+                  if [[ "${{ needs.build_skills.result }}" == "skipped" && "${{ needs.sandbox_base_build.result }}" == "skipped" ]]; then
+                    echo "Sandbox image build was skipped (no relevant changes)."
+                    exit 0
+                  fi
+
+                  if [[ "${{ needs.build_skills.result }}" != "success" && "${{ needs.build_skills.result }}" != "skipped" ]]; then
+                    echo "Agent skills build failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.sandbox_base_build.result }}" != "success" && "${{ needs.sandbox_base_build.result }}" != "skipped" ]]; then
+                    echo "Sandbox base image build failed."
+                    exit 1
+                  fi
+
+                  echo "All sandbox image checks passed."

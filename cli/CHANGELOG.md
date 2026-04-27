@@ -1,5 +1,12 @@
 # posthog-cli
 
+# 0.7.10
+
+- feat: add `symbol-sets download` command to download symbol sets by ID or ref
+- feat: add `symbol-sets extract` command for local file extraction
+- fix: prevent ZIP path traversal in dSYM extraction
+- fix: validate symbol set ID is a UUID before download
+
 # 0.7.9
 
 - feat: warn and skip empty sourcemaps (no mappings/sources/names) during upload to surface bundler misconfigurations instead of silently uploading useless symbol sets

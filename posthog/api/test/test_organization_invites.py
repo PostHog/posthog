@@ -1,10 +1,13 @@
 import random
+from datetime import timedelta
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
 from django.core import mail
+from django.core.cache import cache
+from django.utils.timezone import now
 
 from parameterized import parameterized
 from rest_framework import status
@@ -1433,3 +1436,140 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             {"target_email": "cross_org_test@posthog.com"},
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+@patch("posthog.permissions.TimeSensitiveActionPermission.has_permission", return_value=True)
+@patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+class TestOrganizationInviteRateLimits(APIBaseTest):
+    # These tests exercise OrganizationInviteBurstThrottle (50/hour) and
+    # OrganizationInviteSustainedThrottle (100/day) against the live viewset.
+    # Both throttles are keyed per-organization and count invites (not
+    # requests), so a 20-item bulk POST consumes 20 slots.
+
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
+    def tearDown(self):
+        super().tearDown()
+        cache.clear()
+
+    def _payload(self, count: int, seed: str = "burst") -> list[dict]:
+        return [{"target_email": f"test+{seed}_{i}@posthog.com"} for i in range(count)]
+
+    @patch("posthog.rate_limit.OrganizationInviteBurstThrottle.rate", new="3/hour")
+    def test_burst_limit_rejects_single_invites_over_cap(self, _rate_limit_enabled_mock, _time_sensitive_mock):
+        for i in range(3):
+            response = self.client.post(
+                "/api/organizations/@current/invites/",
+                {"target_email": f"burst_{i}@posthog.com"},
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        response = self.client.post(
+            "/api/organizations/@current/invites/",
+            {"target_email": "burst_final@posthog.com"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    @patch("posthog.rate_limit.OrganizationInviteBurstThrottle.rate", new="10/hour")
+    def test_bulk_counts_invites_not_requests(self, _rate_limit_enabled_mock, _time_sensitive_mock):
+        # Two bulk requests of 6 each: the second is blocked because 6+6 > 10,
+        # even though the second request is only the caller's second HTTP hit.
+        response = self.client.post(
+            "/api/organizations/@current/invites/bulk/",
+            self._payload(6, seed="first"),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        response = self.client.post(
+            "/api/organizations/@current/invites/bulk/",
+            self._payload(6, seed="second"),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    @patch("posthog.rate_limit.OrganizationInviteBurstThrottle.rate", new="5/hour")
+    def test_bulk_request_larger_than_cap_is_rejected_even_on_empty_bucket(
+        self, _rate_limit_enabled_mock, _time_sensitive_mock
+    ):
+        response = self.client.post(
+            "/api/organizations/@current/invites/bulk/",
+            self._payload(6, seed="oversize"),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(OrganizationInvite.objects.count(), 0)
+
+    @patch("posthog.rate_limit.OrganizationInviteBurstThrottle.rate", new="2/hour")
+    def test_burst_bucket_resets_after_window(self, _rate_limit_enabled_mock, _time_sensitive_mock):
+        base_time = now()
+        with freeze_time(base_time):
+            for i in range(2):
+                response = self.client.post(
+                    "/api/organizations/@current/invites/",
+                    {"target_email": f"reset_{i}@posthog.com"},
+                )
+                self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            response = self.client.post(
+                "/api/organizations/@current/invites/",
+                {"target_email": "reset_blocked@posthog.com"},
+            )
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+        with freeze_time(base_time + timedelta(hours=1, seconds=1)):
+            response = self.client.post(
+                "/api/organizations/@current/invites/",
+                {"target_email": "reset_later@posthog.com"},
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @patch("posthog.rate_limit.OrganizationInviteBurstThrottle.rate", new="1000/hour")
+    @patch("posthog.rate_limit.OrganizationInviteSustainedThrottle.rate", new="3/day")
+    def test_sustained_limit_caps_invites_over_longer_window(self, _rate_limit_enabled_mock, _time_sensitive_mock):
+        base_time = now()
+        # Space requests more than 1 hour apart (defeating any burst bucket)
+        # but still well within the 24h sustained window.
+        for i in range(3):
+            with freeze_time(base_time + timedelta(hours=2 * i)):
+                response = self.client.post(
+                    "/api/organizations/@current/invites/",
+                    {"target_email": f"sustained_{i}@posthog.com"},
+                )
+                self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        with freeze_time(base_time + timedelta(hours=8)):
+            response = self.client.post(
+                "/api/organizations/@current/invites/",
+                {"target_email": "sustained_blocked@posthog.com"},
+            )
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    @patch("posthog.rate_limit.OrganizationInviteBurstThrottle.rate", new="2/hour")
+    def test_rate_limit_is_scoped_per_organization(self, _rate_limit_enabled_mock, _time_sensitive_mock):
+        other_org = Organization.objects.create(name="Other Org")
+        OrganizationMembership.objects.create(
+            user=self.user, organization=other_org, level=OrganizationMembership.Level.OWNER
+        )
+
+        for i in range(2):
+            response = self.client.post(
+                "/api/organizations/@current/invites/",
+                {"target_email": f"scoped_{i}@posthog.com"},
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Current org is capped.
+        response = self.client.post(
+            "/api/organizations/@current/invites/",
+            {"target_email": "scoped_over@posthog.com"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+        # The other org has its own bucket and can still invite.
+        response = self.client.post(
+            f"/api/organizations/{other_org.id}/invites/",
+            {"target_email": "scoped_other@posthog.com"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)

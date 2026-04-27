@@ -3,6 +3,7 @@ import { ChevronDownIcon, ChevronUpIcon } from 'lucide-react'
 import * as React from 'react'
 
 import { Button } from './button'
+import './collapsible.css'
 import { cn } from './lib/utils'
 
 type CollapsibleVariant = 'default' | 'folder'
@@ -22,7 +23,7 @@ function Collapsible({ variant = 'default', className, ...props }: CollapsiblePr
                 data-variant={variant}
                 className={cn(
                     'group/collapsible',
-                    variant !== 'folder' && 'hover:bg-muted data-open:bg-muted rounded-sm',
+                    variant === 'default' && 'quill-collapsible--variant-default',
                     className
                 )}
                 {...props}
@@ -41,11 +42,13 @@ function CollapsibleTrigger({
         <>
             <ChevronDownIcon
                 data-slot="collapsible-trigger-icon"
-                className="pointer-events-none shrink-0 group-data-[panel-open]/collapsible-trigger:hidden"
+                data-chevron="down"
+                className="pointer-events-none shrink-0"
             />
             <ChevronUpIcon
                 data-slot="collapsible-trigger-icon"
-                className="pointer-events-none hidden shrink-0 group-data-[panel-open]/collapsible-trigger:inline"
+                data-chevron="up"
+                className="pointer-events-none shrink-0"
             />
         </>
     )
@@ -54,11 +57,11 @@ function CollapsibleTrigger({
             data-slot="collapsible-trigger"
             data-variant={variant}
             className={cn(
-                `w-full group/collapsible-trigger aria-expanded:bg-fill-selected px-2 flex items-center gap-2 text-xs/relaxed **:data-[slot=collapsible-trigger-icon]:size-4 **:data-[slot=collapsible-trigger-icon]:text-muted-foreground justify-start`,
-                variant !== 'folder' && 'aria-expanded:bg-transparent',
+                'quill-collapsible__trigger group/collapsible-trigger flex items-center gap-2 justify-start',
+                variant === 'folder' && 'quill-collapsible__trigger--variant-folder',
                 className
             )}
-            render={<Button size="sm"/>}
+            render={<Button size="sm" />}
             {...props}
         >
             {variant === 'folder' && chevrons}
@@ -74,13 +77,13 @@ function CollapsibleContent({ children, className, ...props }: CollapsiblePrimit
     return (
         <CollapsiblePrimitive.Panel
             data-slot="collapsible-content"
-            className="h-[var(--collapsible-panel-height)] overflow-hidden transition-[height] duration-200 ease-out data-[starting-style]:h-0 data-[ending-style]:h-0 relative z-1"
+            className="quill-collapsible__panel"
             {...props}
         >
             <div
                 className={cn(
-                    'px-2 pt-0 pb-2 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground [&_p:not(:last-child)]:mb-4',
-                    variant === 'folder' && 'pr-0',
+                    'quill-collapsible__panel-content',
+                    variant === 'folder' && 'quill-collapsible__panel-content--variant-folder',
                     className
                 )}
             >

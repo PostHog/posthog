@@ -354,8 +354,8 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
                     descriptionContentType: zod
-                        .enum(['text', 'html'])
-                        .describe('* `text` - text\n* `html` - html')
+                        .enum(['html', 'text'])
+                        .describe('* `html` - html\n* `text` - text')
                         .optional()
                         .describe('Format for the description field.\n\n* `text` - text\n* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
@@ -366,8 +366,8 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
                     descriptionContentType: zod
-                        .enum(['text', 'html'])
-                        .describe('* `text` - text\n* `html` - html')
+                        .enum(['html', 'text'])
+                        .describe('* `html` - html\n* `text` - text')
                         .optional()
                         .describe('Format for the description field.\n\n* `text` - text\n* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
@@ -379,8 +379,8 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
                     descriptionContentType: zod
-                        .enum(['text', 'html'])
-                        .describe('* `text` - text\n* `html` - html')
+                        .enum(['html', 'text'])
+                        .describe('* `html` - html\n* `text` - text')
                         .optional()
                         .describe('Format for the description field.\n\n* `text` - text\n* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
@@ -458,8 +458,8 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
                     descriptionContentType: zod
-                        .enum(['text', 'html'])
-                        .describe('* `text` - text\n* `html` - html')
+                        .enum(['html', 'text'])
+                        .describe('* `html` - html\n* `text` - text')
                         .optional()
                         .describe('Format for the description field.\n\n* `text` - text\n* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
@@ -536,8 +536,8 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
                     descriptionContentType: zod
-                        .enum(['text', 'html'])
-                        .describe('* `text` - text\n* `html` - html')
+                        .enum(['html', 'text'])
+                        .describe('* `html` - html\n* `text` - text')
                         .optional()
                         .describe('Format for the description field.\n\n* `text` - text\n* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
@@ -1169,8 +1169,8 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
                     descriptionContentType: zod
-                        .enum(['text', 'html'])
-                        .describe('* `text` - text\n* `html` - html')
+                        .enum(['html', 'text'])
+                        .describe('* `html` - html\n* `text` - text')
                         .optional()
                         .describe('Format for the description field.\n\n* `text` - text\n* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
@@ -1181,8 +1181,8 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
                     descriptionContentType: zod
-                        .enum(['text', 'html'])
-                        .describe('* `text` - text\n* `html` - html')
+                        .enum(['html', 'text'])
+                        .describe('* `html` - html\n* `text` - text')
                         .optional()
                         .describe('Format for the description field.\n\n* `text` - text\n* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
@@ -1194,8 +1194,8 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
                     descriptionContentType: zod
-                        .enum(['text', 'html'])
-                        .describe('* `text` - text\n* `html` - html')
+                        .enum(['html', 'text'])
+                        .describe('* `html` - html\n* `text` - text')
                         .optional()
                         .describe('Format for the description field.\n\n* `text` - text\n* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
@@ -1273,8 +1273,8 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
                     descriptionContentType: zod
-                        .enum(['text', 'html'])
-                        .describe('* `text` - text\n* `html` - html')
+                        .enum(['html', 'text'])
+                        .describe('* `html` - html\n* `text` - text')
                         .optional()
                         .describe('Format for the description field.\n\n* `text` - text\n* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
@@ -1351,8 +1351,8 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
                     descriptionContentType: zod
-                        .enum(['text', 'html'])
-                        .describe('* `text` - text\n* `html` - html')
+                        .enum(['html', 'text'])
+                        .describe('* `html` - html\n* `text` - text')
                         .optional()
                         .describe('Format for the description field.\n\n* `text` - text\n* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),

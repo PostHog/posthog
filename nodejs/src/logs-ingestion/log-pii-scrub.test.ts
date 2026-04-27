@@ -1,5 +1,11 @@
 import { parseJSON } from '../utils/json-parse'
-import { PII_REDACTED, encodeAttributeCell, scrubLogRecord, scrubPlainString } from './log-pii-scrub'
+import {
+    PII_REDACTED,
+    encodeAttributeCell,
+    scrubLogRecord,
+    scrubPlainString,
+    scrubPlainStringWithStats,
+} from './log-pii-scrub'
 import type { LogRecord } from './log-record-avro'
 
 describe('log-pii-scrub', () => {
@@ -37,6 +43,44 @@ describe('log-pii-scrub', () => {
         it('leaves digit runs with fullwidth digits unchanged', () => {
             const panWithFullwidthOne = '4242424242\uFF1142424242'
             expect(scrubPlainString(`card ${panWithFullwidthOne} end`)).toBe(`card ${panWithFullwidthOne} end`)
+        })
+    })
+
+    describe('scrubPlainStringWithStats', () => {
+        // Matches `sk_(?:live|test)_[a-zA-Z0-9]{20,}` — keep construction split like scrubPlainString tests.
+        const syntheticStripeTestKey = 'sk_' + 'test_' + '123456789012345678901234'
+
+        it.each([
+            {
+                _label: 'no pattern matches',
+                input: 'no patterns here',
+                expected: { output: 'no patterns here', piiReplacements: 0 },
+            },
+            {
+                _label: 'one count per email address',
+                input: 'a@b.com and c@d.com',
+                expected: { output: `${PII_REDACTED} and ${PII_REDACTED}`, piiReplacements: 2 },
+            },
+            {
+                _label: 'Bearer-shaped token: one count, preserves Bearer prefix in output',
+                input: 'Authorization: Bearer abc.def.ghi',
+                expected: { output: `Authorization: Bearer ${PII_REDACTED}`, piiReplacements: 1 },
+            },
+            {
+                _label: 'Stripe sk_ key: one count',
+                input: `key ${syntheticStripeTestKey} end`,
+                expected: { output: `key ${PII_REDACTED} end`, piiReplacements: 1 },
+            },
+            {
+                _label: 'Bearer, Stripe, and email each add one to the count',
+                input: `Authorization: Bearer abc.def.ghi ${syntheticStripeTestKey} a@b.co`,
+                expected: {
+                    output: `Authorization: Bearer ${PII_REDACTED} ${PII_REDACTED} ${PII_REDACTED}`,
+                    piiReplacements: 3,
+                },
+            },
+        ] as const)('$_label', ({ input, expected }) => {
+            expect(scrubPlainStringWithStats(input)).toEqual(expected)
         })
     })
 
