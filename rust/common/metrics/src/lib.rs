@@ -240,39 +240,33 @@ mod tests {
     use super::{build_prometheus_builder, normalize_unmatched_path};
 
     #[test]
-    fn test_product_global_label_is_emitted() {
-        let recorder = build_prometheus_builder(Some("feature_flags".to_string())).build_recorder();
-        let handle = recorder.handle();
-        metrics::with_local_recorder(&recorder, || {
-            metrics::counter!("test_counter_with_product").increment(1);
-        });
-        let rendered = handle.render();
-        assert!(
-            rendered.contains("test_counter_with_product"),
-            "rendered metrics missing the counter we just incremented:\n{rendered}"
-        );
-        assert!(
-            rendered.contains("product=\"feature_flags\""),
-            "rendered metrics missing product label:\n{rendered}"
-        );
-    }
-
-    #[test]
-    fn test_no_product_label_when_none() {
-        let recorder = build_prometheus_builder(None).build_recorder();
-        let handle = recorder.handle();
-        metrics::with_local_recorder(&recorder, || {
-            metrics::counter!("test_counter_without_product").increment(1);
-        });
-        let rendered = handle.render();
-        assert!(
-            rendered.contains("test_counter_without_product"),
-            "rendered metrics missing the counter we just incremented:\n{rendered}"
-        );
-        assert!(
-            !rendered.contains("product=\""),
-            "rendered metrics unexpectedly contain product label:\n{rendered}"
-        );
+    fn test_product_global_label_emission() {
+        let cases: &[(&'static str, Option<&'static str>)] = &[
+            ("test_counter_with_product", Some("feature_flags")),
+            ("test_counter_without_product", None),
+        ];
+        for &(counter_name, product) in cases {
+            let recorder = build_prometheus_builder(product.map(str::to_string)).build_recorder();
+            let handle = recorder.handle();
+            metrics::with_local_recorder(&recorder, || {
+                metrics::counter!(counter_name).increment(1);
+            });
+            let rendered = handle.render();
+            assert!(
+                rendered.contains(counter_name),
+                "missing counter {counter_name}:\n{rendered}"
+            );
+            match product {
+                Some(p) => assert!(
+                    rendered.contains(&format!("product=\"{p}\"")),
+                    "missing product label {p}:\n{rendered}"
+                ),
+                None => assert!(
+                    !rendered.contains("product=\""),
+                    "unexpected product label:\n{rendered}"
+                ),
+            }
+        }
     }
 
     #[test]
