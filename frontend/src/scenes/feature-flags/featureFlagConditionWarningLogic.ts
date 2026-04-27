@@ -3,13 +3,20 @@ import { connect, kea, key, path, props, selectors } from 'kea'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 
 import { cohortsModel } from '~/models/cohortsModel'
-import { AnyPropertyFilter, CohortType, FeatureFlagEvaluationRuntime, PropertyFilterType } from '~/types'
+import {
+    AnyPropertyFilter,
+    CohortType,
+    FeatureFlagEvaluationRuntime,
+    FeatureFlagGroupType,
+    PropertyFilterType,
+} from '~/types'
 
 import type { featureFlagConditionWarningLogicType } from './featureFlagConditionWarningLogicType'
 
 export interface FeatureFlagConditionWarningLogicProps {
     properties: AnyPropertyFilter[]
     evaluationRuntime: FeatureFlagEvaluationRuntime
+    filterGroups: FeatureFlagGroupType[] | undefined
 }
 
 const REGEX_LOOKAHEAD = /(?<!\\)\(\?[=!]/ // (?= or (?!
@@ -18,19 +25,20 @@ const REGEX_BACKREFERENCE = /(?<!\\)\\[1-9]/ // \1 through \9
 
 export const featureFlagConditionWarningLogic = kea<featureFlagConditionWarningLogicType>([
     path(['scenes', 'feature-flags', 'featureFlagConditionWarningLogic']),
-    props({} as FeatureFlagConditionWarningLogicProps),
-    key((props) => JSON.stringify(props.properties)),
+    props({ filterGroups: undefined } as FeatureFlagConditionWarningLogicProps),
+    key((props) => JSON.stringify({ properties: props.properties, filterGroups: props.filterGroups })),
     connect(() => ({
         values: [cohortsModel, ['cohortsById']],
     })),
 
     selectors({
         warning: [
-            (s, p) => [s.cohortsById, p.properties, p.evaluationRuntime],
+            (s, p) => [s.cohortsById, p.properties, p.evaluationRuntime, p.filterGroups],
             (
                 cohortsById: Partial<Record<string | number, CohortType>>,
                 properties: AnyPropertyFilter[],
-                evaluationRuntime: FeatureFlagEvaluationRuntime
+                evaluationRuntime: FeatureFlagEvaluationRuntime,
+                filterGroups: FeatureFlagGroupType[] | undefined
             ): string | undefined => {
                 // Local evaluation is only relevant for server-side SDKs, so only show the warning
                 // for flags that can be evaluated server-side (ALL or SERVER)
@@ -39,6 +47,13 @@ export const featureFlagConditionWarningLogic = kea<featureFlagConditionWarningL
                 }
 
                 const issues: string[] = []
+
+                if (filterGroups && filterGroups.length > 1) {
+                    const aggregations = filterGroups.map((g) => g.aggregation_group_type_index ?? null)
+                    if (!aggregations.every((a) => a === aggregations[0])) {
+                        issues.push('mixed user and group targeting')
+                    }
+                }
 
                 properties.forEach((property) => {
                     if (isPropertyFilterWithOperator(property) && property.operator === 'is_not_set') {

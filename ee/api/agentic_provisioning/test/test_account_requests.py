@@ -341,6 +341,21 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
         assert data["type"] == "oauth"
         assert "code" in data["oauth"]
 
+    def test_pkce_partner_with_skip_consent_existing_user_gets_direct_code(self):
+        self.pkce_partner.provisioning_skip_existing_user_consent = True
+        self.pkce_partner.save()
+        User.objects.create_and_join(
+            organization=self.organization, email="existing@example.com", password="testpass", first_name="Existing"
+        )
+        payload = self._account_request_payload()
+        res = self._post_as_pkce_partner(payload)
+        assert res.status_code == 200
+        data = res.json()
+        assert data["type"] == "oauth"
+        assert "code" in data["oauth"]
+        # Consent path would return a requires_auth payload with redirect URL; absence proves consent was skipped.
+        assert "requires_auth" not in data
+
     def test_pkce_partner_missing_code_challenge_returns_400(self):
         User.objects.create_and_join(
             organization=self.organization, email="existing@example.com", password="testpass", first_name="Existing"
