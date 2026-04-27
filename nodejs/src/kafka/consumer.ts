@@ -28,6 +28,7 @@ import { isTestEnv } from '~/utils/env-utils'
 import { parseJSON } from '~/utils/json-parse'
 import { normalizeSessionId } from '~/utils/utils'
 
+import { assembleKafkaClientId, isAutoDeriveClientIdEnabled } from '../common/pod-identity'
 import { instrumentFn } from '../common/tracing/tracing-utils'
 import { defaultConfig } from '../config/config'
 import { logger } from '../utils/logger'
@@ -209,7 +210,12 @@ export class KafkaConsumer {
             : true
 
         this.consumerConfig = {
-            'client.id': hostname(),
+            'client.id': isAutoDeriveClientIdEnabled()
+                ? assembleKafkaClientId('CONSUMER', {
+                      rack: defaultConfig.KAFKA_CLIENT_RACK,
+                      podName: this.podName,
+                  })
+                : hostname(),
             'security.protocol': 'plaintext',
             'metadata.broker.list': 'kafka:9092', // Overridden with KAFKA_CONSUMER_METADATA_BROKER_LIST
             log_level: 4, // WARN as the default

@@ -12,6 +12,7 @@ import {
 import { hostname } from 'os'
 import { Counter, Histogram, Summary } from 'prom-client'
 
+import { assembleKafkaClientId, getPodName, isAutoDeriveClientIdEnabled } from '../common/pod-identity'
 import { instrumentFn } from '../common/tracing/tracing-utils'
 import { DependencyUnavailableError, MessageSizeTooLarge } from '../utils/db/error'
 import { logger } from '../utils/logger'
@@ -66,7 +67,14 @@ export class KafkaProducerWrapper {
     static async create(kafkaClientRack: string | undefined, mode: KafkaConfigTarget = 'PRODUCER') {
         // NOTE: In addition to some defaults we allow overriding any setting via env vars.
         // This makes it much easier to react to issues without needing code changes
-        return KafkaProducerWrapper.createWithConfig(kafkaClientRack, getKafkaConfigFromEnv(mode))
+        const envConfig = getKafkaConfigFromEnv(mode)
+        if (isAutoDeriveClientIdEnabled() && !envConfig['client.id']) {
+            envConfig['client.id'] = assembleKafkaClientId(mode, {
+                rack: kafkaClientRack,
+                podName: getPodName(),
+            })
+        }
+        return KafkaProducerWrapper.createWithConfig(kafkaClientRack, envConfig)
     }
 
     /** Create a producer with a pre-built rdkafka config (merged over defaults). */

@@ -1,5 +1,6 @@
 import { ProducerGlobalConfig } from 'node-rdkafka'
 
+import { assembleKafkaClientId, getPodName, isAutoDeriveClientIdEnabled } from '../../common/pod-identity'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { logger } from '../../utils/logger'
 import { AllowedConfigKey, parseProducerConfig } from './kafka-producer-config'
@@ -75,6 +76,12 @@ export class KafkaProducerRegistryBuilder<P extends string = never, CK extends s
                 }
 
                 const resolvedConfig = parseProducerConfig(values)
+                if (isAutoDeriveClientIdEnabled() && !resolvedConfig['client.id']) {
+                    resolvedConfig['client.id'] = assembleKafkaClientId(name, {
+                        rack: this.kafkaClientRack,
+                        podName: getPodName(),
+                    })
+                }
                 logger.info('📝', `Creating producer "${name}"`, { config: redactConfig(resolvedConfig) })
                 producers[name] = await KafkaProducerWrapper.createWithConfig(
                     this.kafkaClientRack,

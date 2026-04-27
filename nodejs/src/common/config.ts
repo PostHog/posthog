@@ -1,5 +1,6 @@
 import type { BaseServerConfig } from '../servers/base-server'
 import { isDevEnv, isProdEnv, isTestEnv } from '../utils/env-utils'
+import { deriveKafkaClientRack } from './pod-identity'
 
 export const DEFAULT_HTTP_SERVER_PORT = 6738
 
@@ -118,6 +119,7 @@ export type CommonConfig = BaseServerConfig & {
     // Kafka
     KAFKA_HOSTS: string
     KAFKA_CLIENT_RACK: string | undefined
+    KAFKA_AUTO_DERIVE_CLIENT_ID: boolean
     KAFKA_CLIENT_CERT_B64: string | undefined
     KAFKA_CLIENT_CERT_KEY_B64: string | undefined
     KAFKA_TRUSTED_CERT_B64: string | undefined
@@ -274,7 +276,13 @@ export function getDefaultCommonConfig(): CommonConfig {
 
         // Kafka
         KAFKA_HOSTS: 'kafka:9092',
-        KAFKA_CLIENT_RACK: undefined,
+        // Default to deriving rack from K8S_NODE_NAME so we no longer depend on the chart's
+        // bash preamble running envsubst correctly. Explicit KAFKA_CLIENT_RACK env var still wins.
+        KAFKA_CLIENT_RACK: deriveKafkaClientRack(process.env.K8S_NODE_NAME),
+        // When true, producer/consumer client IDs are assembled in code from per-target
+        // env vars (KAFKA_<TARGET>_CLIENT_ID_PREFIX, KAFKA_<TARGET>_CLIENT_ID_EXTRA) plus
+        // the rack and pod name. Off by default so this stays opt-in during rollout.
+        KAFKA_AUTO_DERIVE_CLIENT_ID: false,
         KAFKA_CLIENT_CERT_B64: undefined,
         KAFKA_CLIENT_CERT_KEY_B64: undefined,
         KAFKA_TRUSTED_CERT_B64: undefined,
