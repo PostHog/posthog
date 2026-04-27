@@ -73,7 +73,7 @@ export function PlayerSummaryDock(): JSX.Element | null {
                 'relative border-t bg-surface-primary overflow-hidden flex flex-col',
                 !isResizeInProgress && 'transition-[max-height] duration-300 ease-out'
             )}
-            style={{ maxHeight: isOpen ? expandedHeight : COLLAPSED_HEIGHT }}
+            style={{ maxHeight: isOpen ? `min(${expandedHeight}px, 60%)` : COLLAPSED_HEIGHT }}
             data-attr="player-summary-dock"
         >
             {isOpen && <Resizer {...resizerProps} />}
