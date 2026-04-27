@@ -179,12 +179,13 @@ def copy_demo_data_to_new_team(
         sync_execute(COPY_EVENTS_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_GROUPS_BETWEEN_TEAMS, copy_params)
 
-        GroupTypeMapping.objects.filter(project_id=team.project_id).delete()  # nosemgrep: no-direct-persons-db-orm
-        GroupTypeMapping.objects.bulk_create(  # nosemgrep: no-direct-persons-db-orm
+        # nosemgrep: no-direct-persons-db-orm
+        GroupTypeMapping.objects.filter(project_id=team.project_id).delete()
+        # nosemgrep: no-direct-persons-db-orm
+        GroupTypeMapping.objects.bulk_create(
             GroupTypeMapping(team_id=team.id, project_id=team.project_id, **record)
-            for record in GroupTypeMapping.objects.filter(
-                project_id=master_team.project_id
-            ).values(  # nosemgrep: no-direct-persons-db-orm
+            # nosemgrep: no-direct-persons-db-orm
+            for record in GroupTypeMapping.objects.filter(project_id=master_team.project_id).values(
                 "group_type", "group_type_index", "name_singular", "name_plural"
             )
         )
