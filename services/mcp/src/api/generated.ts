@@ -14305,7 +14305,7 @@ export namespace Schemas {
     * `concept` - concept
     * `alpha` - alpha
     * `beta` - beta
-    * `general-availability` - general-availability
+    * `general-availability` - general availability
     * `archived` - archived
      */
     export type StageEnum = typeof StageEnum[keyof typeof StageEnum];
@@ -14336,7 +14336,7 @@ export namespace Schemas {
     * `concept` - concept
     * `alpha` - alpha
     * `beta` - beta
-    * `general-availability` - general-availability
+    * `general-availability` - general availability
     * `archived` - archived */
       stage: StageEnum;
       /**
@@ -14364,7 +14364,7 @@ export namespace Schemas {
     * `concept` - concept
     * `alpha` - alpha
     * `beta` - beta
-    * `general-availability` - general-availability
+    * `general-availability` - general availability
     * `archived` - archived */
       stage: StageEnum;
       /**
@@ -15648,28 +15648,30 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `openai` - openai
-    * `anthropic` - anthropic
-    * `gemini` - gemini
-    * `openrouter` - openrouter
-    * `fireworks` - fireworks
+     * * `openai` - Openai
+    * `anthropic` - Anthropic
+    * `gemini` - Gemini
+    * `openrouter` - Openrouter
+    * `fireworks` - Fireworks
+    * `azure_openai` - Azure OpenAI
      */
-    export type ModelConfigurationProviderEnum = typeof ModelConfigurationProviderEnum[keyof typeof ModelConfigurationProviderEnum];
+    export type LLMProviderEnum = typeof LLMProviderEnum[keyof typeof LLMProviderEnum];
 
 
-    export const ModelConfigurationProviderEnum = {
+    export const LLMProviderEnum = {
       Openai: 'openai',
       Anthropic: 'anthropic',
       Gemini: 'gemini',
       Openrouter: 'openrouter',
       Fireworks: 'fireworks',
+      AzureOpenai: 'azure_openai',
     } as const;
 
     /**
      * Nested serializer for model configuration.
      */
     export interface ModelConfiguration {
-      provider: ModelConfigurationProviderEnum;
+      provider: LLMProviderEnum;
       /** @maxLength 100 */
       model: string;
       /** @nullable */
@@ -17829,6 +17831,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `success` - success
+    * `warning` - warning
+    * `danger` - danger
+     */
+    export type HealthEnum = typeof HealthEnum[keyof typeof HealthEnum];
+
+
+    export const HealthEnum = {
+      Success: 'success',
+      Warning: 'warning',
+      Danger: 'danger',
+    } as const;
+
+    /**
      * * `critical` - Critical
     * `warning` - Warning
     * `info` - Info
@@ -18206,13 +18222,13 @@ export namespace Schemas {
     export type HogFunctionInputs = {[key: string]: InputsItem};
 
     /**
-     * * `destination` - destination
-    * `site_destination` - site_destination
-    * `internal_destination` - internal_destination
-    * `source_webhook` - source_webhook
-    * `warehouse_source_webhook` - warehouse_source_webhook
-    * `site_app` - site_app
-    * `transformation` - transformation
+     * * `destination` - Destination
+    * `site_destination` - Site Destination
+    * `internal_destination` - Internal Destination
+    * `source_webhook` - Source Webhook
+    * `warehouse_source_webhook` - Warehouse Source Webhook
+    * `site_app` - Site App
+    * `transformation` - Transformation
      */
     export type HogFunctionTypeEnum = typeof HogFunctionTypeEnum[keyof typeof HogFunctionTypeEnum];
 
@@ -18410,13 +18426,13 @@ export namespace Schemas {
       readonly id: string;
       /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.
 
-    * `destination` - destination
-    * `site_destination` - site_destination
-    * `internal_destination` - internal_destination
-    * `source_webhook` - source_webhook
-    * `warehouse_source_webhook` - warehouse_source_webhook
-    * `site_app` - site_app
-    * `transformation` - transformation */
+    * `destination` - Destination
+    * `site_destination` - Site Destination
+    * `internal_destination` - Internal Destination
+    * `source_webhook` - Source Webhook
+    * `warehouse_source_webhook` - Warehouse Source Webhook
+    * `site_app` - Site App
+    * `transformation` - Transformation */
       type?: HogFunctionTypeEnum | NullEnum | null;
       /**
        * Display name for the function.
@@ -20490,24 +20506,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `openai` - Openai
-    * `anthropic` - Anthropic
-    * `gemini` - Gemini
-    * `openrouter` - Openrouter
-    * `fireworks` - Fireworks
-     */
-    export type LLMProviderEnum = typeof LLMProviderEnum[keyof typeof LLMProviderEnum];
-
-
-    export const LLMProviderEnum = {
-      Openai: 'openai',
-      Anthropic: 'anthropic',
-      Gemini: 'gemini',
-      Openrouter: 'openrouter',
-      Fireworks: 'fireworks',
-    } as const;
-
-    /**
      * * `unknown` - Unknown
     * `ok` - Ok
     * `invalid` - Invalid
@@ -20533,6 +20531,23 @@ export namespace Schemas {
       readonly error_message: string | null;
       api_key?: string;
       readonly api_key_masked: string;
+      /** Azure OpenAI endpoint URL */
+      azure_endpoint?: string;
+      /**
+       * Azure OpenAI API version
+       * @maxLength 20
+       */
+      api_version?: string;
+      /**
+       * Azure endpoint (read-only, for display)
+       * @nullable
+       */
+      readonly azure_endpoint_display: string | null;
+      /**
+       * Azure API version (read-only, for display)
+       * @nullable
+       */
+      readonly api_version_display: string | null;
       set_as_active?: boolean;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -20877,8 +20892,8 @@ export namespace Schemas {
     }
 
     /**
-     * * `above` - above
-    * `below` - below
+     * * `above` - Above
+    * `below` - Below
      */
     export type ThresholdOperatorEnum = typeof ThresholdOperatorEnum[keyof typeof ThresholdOperatorEnum];
 
@@ -20957,8 +20972,8 @@ export namespace Schemas {
       threshold_count: number;
       /** Whether the alert fires when the count is above or below the threshold.
 
-    * `above` - above
-    * `below` - below */
+    * `above` - Above
+    * `below` - Below */
       threshold_operator?: ThresholdOperatorEnum;
       /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
       window_minutes?: number;
@@ -21121,8 +21136,8 @@ export namespace Schemas {
       threshold_count: number;
       /** Whether the alert fires when the count is above or below the threshold.
 
-    * `above` - above
-    * `below` - below */
+    * `above` - Above
+    * `below` - Below */
       threshold_operator: ThresholdOperatorEnum;
       /** Window size in minutes — determines bucket interval. */
       window_minutes: number;
@@ -21182,8 +21197,8 @@ export namespace Schemas {
     }
 
     /**
-     * * `feedback` - feedback
-    * `missing_capability` - missing_capability
+     * * `feedback` - Feedback
+    * `missing_capability` - Missing capability
      */
     export type MCPAnalyticsSubmissionKindEnum = typeof MCPAnalyticsSubmissionKindEnum[keyof typeof MCPAnalyticsSubmissionKindEnum];
 
@@ -21198,8 +21213,8 @@ export namespace Schemas {
       readonly id: string;
       /** Whether this submission is general feedback or a missing capability report.
 
-    * `feedback` - feedback
-    * `missing_capability` - missing_capability */
+    * `feedback` - Feedback
+    * `missing_capability` - Missing capability */
       readonly kind: MCPAnalyticsSubmissionKindEnum;
       /** The user's goal in plain language. */
       goal: string;
@@ -21245,11 +21260,11 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `results` - results
-    * `usability` - usability
-    * `bug` - bug
-    * `docs` - docs
-    * `other` - other
+     * * `results` - Results
+    * `usability` - Usability
+    * `bug` - Bug
+    * `docs` - Docs
+    * `other` - Other
      */
     export type MCPFeedbackCreateCategoryEnum = typeof MCPFeedbackCreateCategoryEnum[keyof typeof MCPFeedbackCreateCategoryEnum];
 
@@ -21310,11 +21325,11 @@ export namespace Schemas {
       feedback: string;
       /** High-level category for the feedback.
 
-    * `results` - results
-    * `usability` - usability
-    * `bug` - bug
-    * `docs` - docs
-    * `other` - other */
+    * `results` - Results
+    * `usability` - Usability
+    * `bug` - Bug
+    * `docs` - Docs
+    * `other` - Other */
       category?: MCPFeedbackCreateCategoryEnum;
     }
 
@@ -21666,7 +21681,7 @@ export namespace Schemas {
     }
 
     /**
-     * * `FeatureFlag` - FeatureFlag
+     * * `FeatureFlag` - feature flag
      */
     export type ModelNameEnum = typeof ModelNameEnum[keyof typeof ModelNameEnum];
 
@@ -22167,14 +22182,14 @@ export namespace Schemas {
     }
 
     /**
-     * * `error_tracking` - error_tracking
-    * `eval_clusters` - eval_clusters
-    * `user_created` - user_created
-    * `automation` - automation
-    * `slack` - slack
-    * `support_queue` - support_queue
-    * `session_summaries` - session_summaries
-    * `signal_report` - signal_report
+     * * `error_tracking` - Error Tracking
+    * `eval_clusters` - Eval Clusters
+    * `user_created` - User Created
+    * `automation` - Automation
+    * `slack` - Slack
+    * `support_queue` - Support Queue
+    * `session_summaries` - Session Summaries
+    * `signal_report` - Signal Report
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -22203,6 +22218,25 @@ export namespace Schemas {
       /** @nullable */
       success?: boolean | null;
     }
+
+    export interface OutdatedTrafficAlert {
+      /** Outdated version handling significant traffic. */
+      version: string;
+      /** Traffic-percentage threshold that triggered the alert (10% for most SDKs, 20% for web). */
+      threshold_percent: number;
+    }
+
+    /**
+     * * `healthy` - healthy
+    * `needs_attention` - needs_attention
+     */
+    export type OverallHealthEnum = typeof OverallHealthEnum[keyof typeof OverallHealthEnum];
+
+
+    export const OverallHealthEnum = {
+      Healthy: 'healthy',
+      NeedsAttention: 'needs_attention',
+    } as const;
 
     export interface PaginatedActionList {
       count: number;
@@ -23625,7 +23659,7 @@ export namespace Schemas {
       record_id: string;
       /** The type of record to modify. Currently only "FeatureFlag" is supported.
 
-    * `FeatureFlag` - FeatureFlag */
+    * `FeatureFlag` - feature flag */
       model_name: ModelNameEnum;
       /** The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys). */
       payload: unknown;
@@ -23831,8 +23865,8 @@ export namespace Schemas {
     }
 
     /**
-     * * `collection` - collection
-    * `filters` - filters
+     * * `collection` - Collection
+    * `filters` - Filters
      */
     export type SessionRecordingPlaylistTypeEnum = typeof SessionRecordingPlaylistTypeEnum[keyof typeof SessionRecordingPlaylistTypeEnum];
 
@@ -23873,8 +23907,8 @@ export namespace Schemas {
       readonly recordings_counts: SessionRecordingPlaylistRecordingsCounts;
       /** Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.
 
-    * `collection` - collection
-    * `filters` - filters */
+    * `collection` - Collection
+    * `filters` - Filters */
       type?: SessionRecordingPlaylistTypeEnum | NullEnum | null;
       /** Return whether this is a synthetic playlist */
       readonly is_synthetic: boolean;
@@ -26223,7 +26257,7 @@ export namespace Schemas {
     * `concept` - concept
     * `alpha` - alpha
     * `beta` - beta
-    * `general-availability` - general-availability
+    * `general-availability` - general availability
     * `archived` - archived */
       stage?: StageEnum;
       /**
@@ -27174,13 +27208,13 @@ export namespace Schemas {
       readonly id?: string;
       /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.
 
-    * `destination` - destination
-    * `site_destination` - site_destination
-    * `internal_destination` - internal_destination
-    * `source_webhook` - source_webhook
-    * `warehouse_source_webhook` - warehouse_source_webhook
-    * `site_app` - site_app
-    * `transformation` - transformation */
+    * `destination` - Destination
+    * `site_destination` - Site Destination
+    * `internal_destination` - Internal Destination
+    * `source_webhook` - Source Webhook
+    * `warehouse_source_webhook` - Warehouse Source Webhook
+    * `site_app` - Site App
+    * `transformation` - Transformation */
       type?: HogFunctionTypeEnum | NullEnum | null;
       /**
        * Display name for the function.
@@ -27437,6 +27471,23 @@ export namespace Schemas {
       readonly error_message?: string | null;
       api_key?: string;
       readonly api_key_masked?: string;
+      /** Azure OpenAI endpoint URL */
+      azure_endpoint?: string;
+      /**
+       * Azure OpenAI API version
+       * @maxLength 20
+       */
+      api_version?: string;
+      /**
+       * Azure endpoint (read-only, for display)
+       * @nullable
+       */
+      readonly azure_endpoint_display?: string | null;
+      /**
+       * Azure API version (read-only, for display)
+       * @nullable
+       */
+      readonly api_version_display?: string | null;
       set_as_active?: boolean;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -27520,8 +27571,8 @@ export namespace Schemas {
       threshold_count?: number;
       /** Whether the alert fires when the count is above or below the threshold.
 
-    * `above` - above
-    * `below` - below */
+    * `above` - Above
+    * `below` - Below */
       threshold_operator?: ThresholdOperatorEnum;
       /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
       window_minutes?: number;
@@ -28920,7 +28971,7 @@ export namespace Schemas {
       record_id?: string;
       /** The type of record to modify. Currently only "FeatureFlag" is supported.
 
-    * `FeatureFlag` - FeatureFlag */
+    * `FeatureFlag` - feature flag */
       model_name?: ModelNameEnum;
       /** The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys). */
       payload?: unknown;
@@ -29108,8 +29159,8 @@ export namespace Schemas {
       readonly recordings_counts?: PatchedSessionRecordingPlaylistRecordingsCounts;
       /** Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.
 
-    * `collection` - collection
-    * `filters` - filters */
+    * `collection` - Collection
+    * `filters` - Filters */
       type?: SessionRecordingPlaylistTypeEnum | NullEnum | null;
       /** Return whether this is a synthetic playlist */
       readonly is_synthetic?: boolean;
@@ -31661,13 +31712,13 @@ export namespace Schemas {
     }
 
     /**
-     * * `waiting` - waiting
-    * `issuing` - issuing
-    * `valid` - valid
-    * `warning` - warning
-    * `erroring` - erroring
-    * `deleting` - deleting
-    * `timed_out` - timed_out
+     * * `waiting` - Waiting
+    * `issuing` - Issuing
+    * `valid` - Valid
+    * `warning` - Warning
+    * `erroring` - Erroring
+    * `deleting` - Deleting
+    * `timed_out` - Timed Out
      */
     export type ProxyRecordStatusEnum = typeof ProxyRecordStatusEnum[keyof typeof ProxyRecordStatusEnum];
 
@@ -31691,13 +31742,13 @@ export namespace Schemas {
       readonly target_cname: string;
       /** Current provisioning status. Values: waiting (DNS verification pending), issuing (SSL certificate being issued), valid (proxy is live and working), warning (proxy has issues but is operational), erroring (proxy setup failed), deleting (removal in progress), timed_out (DNS verification timed out).
 
-    * `waiting` - waiting
-    * `issuing` - issuing
-    * `valid` - valid
-    * `warning` - warning
-    * `erroring` - erroring
-    * `deleting` - deleting
-    * `timed_out` - timed_out */
+    * `waiting` - Waiting
+    * `issuing` - Issuing
+    * `valid` - Valid
+    * `warning` - Warning
+    * `erroring` - Erroring
+    * `deleting` - Deleting
+    * `timed_out` - Timed Out */
       readonly status: ProxyRecordStatusEnum;
       /**
        * Human-readable status message with details about errors or warnings, if any.
@@ -34678,6 +34729,107 @@ export namespace Schemas {
     export interface ScoreDefinitionNewVersion {
       /** Next immutable scorer configuration. */
       config: ScoreDefinitionConfig;
+    }
+
+    /**
+     * * `none` - none
+    * `warning` - warning
+    * `danger` - danger
+     */
+    export type SdkAssessmentSeverityEnum = typeof SdkAssessmentSeverityEnum[keyof typeof SdkAssessmentSeverityEnum];
+
+
+    export const SdkAssessmentSeverityEnum = {
+      None: 'none',
+      Warning: 'warning',
+      Danger: 'danger',
+    } as const;
+
+    export interface SdkReleaseAssessment {
+      /** In-use SDK version string, e.g. '1.298.0'. */
+      version: string;
+      /** Number of events captured with this version in the last 7 days. */
+      count: number;
+      /** Timestamp of the most recent event seen for this version (ISO 8601). */
+      max_timestamp: string;
+      /**
+       * When this version was published on GitHub (ISO 8601), or null if unknown.
+       * @nullable
+       */
+      release_date: string | null;
+      /**
+       * Days since this version was released, or null if unknown.
+       * @nullable
+       */
+      days_since_release: number | null;
+      /**
+       * Human-readable relative release age matching the UI (e.g. '5 months ago'). Null when release_date is unknown.
+       * @nullable
+       */
+      released_ago: string | null;
+      /** True when this version is flagged as outdated by smart-semver rules. */
+      is_outdated: boolean;
+      /** True when this version is flagged as old by age alone (separate from semver rules). */
+      is_old: boolean;
+      /** True if is_outdated OR is_old. */
+      needs_updating: boolean;
+      /** True when this version equals or exceeds the latest known published version. */
+      is_current_or_newer: boolean;
+      /** Per-version badge tooltip text matching the SDK Doctor UI exactly. Quote verbatim when reporting to users. Varies by state: 'Released X ago. Upgrade recommended.' for outdated versions, 'You have the latest available. Click Releases above to check for any since.' for current versions, or 'Released X ago. Upgrading is a good idea, but it's not urgent yet.' for recent-but-behind versions. */
+      status_reason: string;
+      /** SQL SELECT statement for drilling into events for this SDK version over the last 7 days. Suitable to pass to the execute-sql tool or to display as a copy-paste snippet. */
+      sql_query: string;
+      /** Relative URL path (starting with /project/{id}/) for the Activity > Explore page pre-filtered to events captured with this lib and lib_version over the last 7 days. Combine with the user's PostHog host (e.g. us.posthog.com) for a clickable link. */
+      activity_page_url: string;
+    }
+
+    export interface SdkAssessment {
+      /** SDK identifier, e.g. 'web', 'posthog-python', 'posthog-node', 'posthog-ios'. */
+      lib: string;
+      /** Human-readable SDK name matching the SDK Doctor UI (e.g. 'Python', 'Node.js', 'Web', 'iOS'). */
+      readable_name: string;
+      /** Most recent published version of this SDK. */
+      latest_version: string;
+      /** True if this SDK needs attention (is_outdated OR is_old). */
+      needs_updating: boolean;
+      /** True if the primary in-use version is flagged as outdated. */
+      is_outdated: boolean;
+      /** True if the primary in-use version is flagged as old by age alone. */
+      is_old: boolean;
+      /** UI severity badge — 'none' when healthy, 'warning' when outdated, 'danger' when the majority of team SDKs are outdated.
+
+    * `none` - none
+    * `warning` - warning
+    * `danger` - danger */
+      severity: SdkAssessmentSeverityEnum;
+      /** Per-SDK programmatic summary (used for ranking/filtering). For user-facing copy, prefer releases[].status_reason (badge tooltip) and banners (top-level alert text) — those match the UI exactly. */
+      reason: string;
+      /** Top-level alert sentences matching the SDK Doctor UI's 'Time for an update!' banner — one per outdated version with significant traffic. Quote verbatim when surfacing the headline to users. */
+      banners: string[];
+      /** Per-version assessment for all versions seen in the last 7 days. */
+      releases: SdkReleaseAssessment[];
+      /** Outdated versions that handle a significant share of traffic (above the threshold). Not populated for mobile SDKs. */
+      outdated_traffic_alerts: OutdatedTrafficAlert[];
+    }
+
+    export interface SdkHealthReport {
+      /** 'healthy' when no SDKs need updating, 'needs_attention' otherwise.
+
+    * `healthy` - healthy
+    * `needs_attention` - needs_attention */
+      overall_health: OverallHealthEnum;
+      /** UI-level status — 'success' when healthy, 'warning' when some SDKs are outdated, 'danger' when the majority are outdated.
+
+    * `success` - success
+    * `warning` - warning
+    * `danger` - danger */
+      health: HealthEnum;
+      /** Number of SDKs that need updating. */
+      needs_updating_count: number;
+      /** Number of distinct PostHog SDKs the project is actively using. */
+      team_sdk_count: number;
+      /** Per-SDK health assessments. */
+      sdks: SdkAssessment[];
     }
 
     export type SentimentResultScores = {[key: string]: number};
@@ -43274,6 +43426,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type SdkDoctorReportRetrieveParams = {
+    /**
+     * When true, bypasses the Redis cache and re-queries ClickHouse for SDK usage. Use sparingly — data is refreshed every 12 hours by a background job.
+     */
+    force_refresh?: boolean;
     };
 
     export type SessionGroupSummariesListParams = {

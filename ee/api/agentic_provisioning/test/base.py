@@ -58,6 +58,7 @@ class ProvisioningTestBase(APIBaseTest):
                 "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
                 "redirect_uris": "https://localhost",
                 "algorithm": "RS256",
+                "provisioning_can_issue_deep_links": True,
             },
         )
 

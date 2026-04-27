@@ -119,23 +119,66 @@ function resolveDashedToIndex(idx: number | undefined, length: number): number |
     return Math.min(length - 1, rounded)
 }
 
+const hatchPatternCache = new Map<string, CanvasPattern>()
+
+function getHatchPattern(ctx: CanvasRenderingContext2D, color: string): CanvasPattern | string {
+    const cached = hatchPatternCache.get(color)
+    if (cached) {
+        return cached
+    }
+    const size = 14
+    const patCanvas = document.createElement('canvas')
+    patCanvas.width = size
+    patCanvas.height = size
+    const patCtx = patCanvas.getContext('2d')
+    if (!patCtx) {
+        return color
+    }
+    patCtx.strokeStyle = color
+    patCtx.lineWidth = 4
+    patCtx.beginPath()
+    patCtx.moveTo(0, size)
+    patCtx.lineTo(size, 0)
+    patCtx.stroke()
+    patCtx.beginPath()
+    patCtx.moveTo(-size / 2, size / 2)
+    patCtx.lineTo(size / 2, -size / 2)
+    patCtx.stroke()
+    patCtx.beginPath()
+    patCtx.moveTo(size / 2, size + size / 2)
+    patCtx.lineTo(size + size / 2, size / 2)
+    patCtx.stroke()
+    const pattern = ctx.createPattern(patCanvas, 'repeat')
+    if (pattern) {
+        hatchPatternCache.set(color, pattern)
+        return pattern
+    }
+    return color
+}
+
+interface AreaPoint {
+    x: number
+    y: number
+    dataIndex: number
+}
+
 export function drawArea(drawCtx: DrawContext, series: Series, yValues?: number[], bottomValues?: number[]): void {
     const { ctx, xScale, yScale, labels, dimensions } = drawCtx
     const data = yValues ?? series.data
     const opacity = series.fillOpacity ?? 0.5
     const baseline = dimensions.plotTop + dimensions.plotHeight
+    const dashedFrom = resolveDashedFromIndex(series.dashedFromIndex, data.length)
 
-    // Split into contiguous segments to handle data gaps consistently with drawLine
-    const segments: { top: { x: number; y: number }[]; bottom: { x: number; y: number }[] }[] = []
-    let currentTop: { x: number; y: number }[] = []
-    let currentBottom: { x: number; y: number }[] = []
+    const segments: { top: AreaPoint[]; bottom: AreaPoint[] }[] = []
+    let currentTop: AreaPoint[] = []
+    let currentBottom: AreaPoint[] = []
     for (let i = 0; i < data.length; i++) {
         const x = xScale(labels[i])
         const yTop = yScale(data[i])
         if (x != null && isFinite(yTop)) {
-            currentTop.push({ x, y: yTop })
+            currentTop.push({ x, y: yTop, dataIndex: i })
             const yBot = bottomValues ? yScale(bottomValues[i]) : baseline
-            currentBottom.push({ x, y: isFinite(yBot) ? yBot : baseline })
+            currentBottom.push({ x, y: isFinite(yBot) ? yBot : baseline, dataIndex: i })
         } else if (currentTop.length > 0) {
             segments.push({ top: currentTop, bottom: currentBottom })
             currentTop = []
@@ -147,26 +190,52 @@ export function drawArea(drawCtx: DrawContext, series: Series, yValues?: number[
     }
 
     ctx.globalAlpha = opacity
-    ctx.fillStyle = series.color
 
     for (const { top, bottom } of segments) {
         if (top.length < 2) {
             continue
         }
-        ctx.beginPath()
-        ctx.moveTo(top[0].x, top[0].y)
-        for (let i = 1; i < top.length; i++) {
-            ctx.lineTo(top[i].x, top[i].y)
+
+        if (dashedFrom === null) {
+            ctx.fillStyle = series.color
+            fillAreaPath(ctx, top, bottom)
+        } else {
+            const splitIdx = top.findIndex((p) => p.dataIndex >= dashedFrom)
+
+            if (splitIdx === -1) {
+                ctx.fillStyle = series.color
+                fillAreaPath(ctx, top, bottom)
+            } else if (splitIdx > 0) {
+                ctx.fillStyle = series.color
+                fillAreaPath(ctx, top.slice(0, splitIdx + 1), bottom.slice(0, splitIdx + 1))
+            }
+
+            if (splitIdx >= 0 && splitIdx < top.length) {
+                const hatchStart = Math.max(0, splitIdx - 1)
+                ctx.fillStyle = getHatchPattern(ctx, series.color)
+                fillAreaPath(ctx, top.slice(hatchStart), bottom.slice(hatchStart))
+            }
         }
-        // Close along bottom edge in reverse
-        for (let i = bottom.length - 1; i >= 0; i--) {
-            ctx.lineTo(bottom[i].x, bottom[i].y)
-        }
-        ctx.closePath()
-        ctx.fill()
     }
 
     ctx.globalAlpha = 1
+}
+
+function fillAreaPath(
+    ctx: CanvasRenderingContext2D,
+    top: { x: number; y: number }[],
+    bottom: { x: number; y: number }[]
+): void {
+    ctx.beginPath()
+    ctx.moveTo(top[0].x, top[0].y)
+    for (let i = 1; i < top.length; i++) {
+        ctx.lineTo(top[i].x, top[i].y)
+    }
+    for (let i = bottom.length - 1; i >= 0; i--) {
+        ctx.lineTo(bottom[i].x, bottom[i].y)
+    }
+    ctx.closePath()
+    ctx.fill()
 }
 
 export function drawPoints(drawCtx: DrawContext, series: Series, yValues?: number[]): void {

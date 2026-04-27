@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1118_subscriptiondelivery_change_summary"),
+        ("posthog", "1123_backfill_provisioning_can_issue_deep_links"),
     ]
 
     operations = [

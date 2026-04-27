@@ -2178,8 +2178,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         ],
 
         saveAsMenuItems: [
-            (s) => [s.editorSource, s.dashboardId],
-            (editorSource, dashboardId): { primary: SaveAsMenuItem; secondary: SaveAsMenuItem[] } => {
+            (s) => [s.editorSource, s.dashboardId, s.featureFlags],
+            (editorSource, dashboardId, featureFlags): { primary: SaveAsMenuItem; secondary: SaveAsMenuItem[] } => {
+                const endpointsEnabled = !!featureFlags[FEATURE_FLAGS.ENDPOINTS]
                 const saveAsInsightItem: SaveAsMenuItem = {
                     action: 'insight',
                     label: dashboardId ? 'Save & add to dashboard' : 'Save as insight',
@@ -2194,7 +2195,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     dataAttr: 'sql-editor-save-view-button',
                 }
 
-                if (editorSource === 'endpoint') {
+                if (editorSource === 'endpoint' && endpointsEnabled) {
                     return {
                         primary: saveAsEndpointItem,
                         secondary: [saveAsInsightItem, saveAsViewItem],
@@ -2203,7 +2204,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                 return {
                     primary: saveAsInsightItem,
-                    secondary: [saveAsEndpointItem, saveAsViewItem],
+                    secondary: endpointsEnabled ? [saveAsEndpointItem, saveAsViewItem] : [saveAsViewItem],
                 }
             },
         ],

@@ -3,11 +3,8 @@ import logging
 
 from asgiref.sync import async_to_sync
 from rest_framework import serializers
-from temporalio.client import WorkflowExecutionStatus
-from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.models import User
-from posthog.temporal.ai.video_segment_clustering.constants import clustering_workflow_id
 from posthog.temporal.common.client import sync_connect
 
 from .models import (
@@ -50,7 +47,7 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
 
     def get_status(self, obj: SignalSourceConfig) -> str | None:
         if obj.source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER:
-            return self._get_clustering_status(obj)
+            return self._get_session_analysis_status(obj.team_id)
 
         mapping = _DATA_IMPORT_SOURCE_MAP.get((obj.source_product, obj.source_type))
         if mapping is None:
@@ -58,30 +55,23 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         ext_source_type, schema_name = mapping
         return self._get_data_import_status(obj.team_id, ext_source_type, schema_name)
 
-    def _get_clustering_status(self, obj: SignalSourceConfig) -> str | None:
-        workflow_id = clustering_workflow_id(obj.team_id, obj.id)
+    def _get_session_analysis_status(self, team_id: int) -> str | None:
+        """ "running" iff any `summarize-session` workflow for this team is currently executing."""
+        query = f'PostHogTeamId = {team_id} AND WorkflowType = "summarize-session" AND ExecutionStatus = "Running"'
+
         try:
-            client = sync_connect()
-            handle = client.get_workflow_handle(workflow_id)
-            desc = async_to_sync(handle.describe)()
-            status = desc.status
-            if status == WorkflowExecutionStatus.RUNNING:
+            temporal = sync_connect()
+
+            async def has_running() -> bool:
+                async for _ in temporal.list_workflows(query=query, page_size=1):
+                    return True
+                return False
+
+            if async_to_sync(has_running)():
                 return "running"
-            if status == WorkflowExecutionStatus.COMPLETED:
-                return "completed"
-            if status in (
-                WorkflowExecutionStatus.FAILED,
-                WorkflowExecutionStatus.TERMINATED,
-                WorkflowExecutionStatus.CANCELED,
-                WorkflowExecutionStatus.TIMED_OUT,
-            ):
-                return "failed"
-            return None
-        except RPCError as e:
-            if e.status == RPCStatusCode.NOT_FOUND:
-                return None
-            logger.warning("Failed to fetch clustering workflow status: %s", e)
-            return None
+        except Exception as e:
+            logger.warning("Failed to list session summarization workflows: %s", e)
+        return None
 
     def _get_data_import_status(self, team_id: int, ext_source_type: str, schema_name: str) -> str | None:
         from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
@@ -111,11 +101,22 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs: dict) -> dict:
         source_product = attrs.get("source_product", getattr(self.instance, "source_product", None))
+        source_type = attrs.get("source_type", getattr(self.instance, "source_type", None))
+        enabled = attrs.get("enabled", getattr(self.instance, "enabled", False))
         config = attrs.get("config", {})
         if source_product == SignalSourceConfig.SourceProduct.SESSION_REPLAY and config:
             recording_filters = config.get("recording_filters")
             if recording_filters is not None and not isinstance(recording_filters, dict):
                 raise serializers.ValidationError({"config": "recording_filters must be a JSON object"})
+        if enabled and source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER:
+            get_team = self.context.get("get_team")
+            team = get_team() if get_team else None
+            if team is not None and not team.organization.is_ai_data_processing_approved:
+                raise serializers.ValidationError(
+                    {
+                        "enabled": "AI data processing must be approved at the organization level to enable session analysis."
+                    }
+                )
         return attrs
 
 

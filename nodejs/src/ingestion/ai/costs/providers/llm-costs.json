@@ -1301,10 +1301,6 @@
                 "completion_token": 3.78e-7,
                 "cache_read_token": 2.52e-8
             },
-            "akashml-fp8": {
-                "prompt_token": 2.8e-7,
-                "completion_token": 4.2e-7
-            },
             "alibaba": {
                 "prompt_token": 5.7e-7,
                 "completion_token": 0.00000171,
@@ -1426,6 +1422,11 @@
                 "prompt_token": 0.00000174,
                 "completion_token": 0.00000348,
                 "cache_read_token": 1.45e-7
+            },
+            "io-net": {
+                "prompt_token": 0.00000445,
+                "completion_token": 0.0000055,
+                "cache_read_token": 3.5e-7
             }
         }
     },
@@ -2029,8 +2030,8 @@
                 "completion_token": 1.3e-7
             },
             "sambanova": {
-                "prompt_token": 2e-7,
-                "completion_token": 3.5e-7
+                "prompt_token": 2.2e-7,
+                "completion_token": 5.9e-7
             }
         }
     },
@@ -2227,6 +2228,11 @@
             "akashml-fp8": {
                 "prompt_token": 1.4e-7,
                 "completion_token": 4e-7
+            },
+            "chutes-fp4": {
+                "prompt_token": 1.3e-7,
+                "completion_token": 3.8e-7,
+                "cache_read_token": 6.5e-8
             },
             "deepinfra-fp8": {
                 "prompt_token": 1.3e-7,
@@ -2994,8 +3000,8 @@
                 "completion_token": 0.00000138
             },
             "sambanova": {
-                "prompt_token": 3e-7,
-                "completion_token": 0.0000012
+                "prompt_token": 2.2e-7,
+                "completion_token": 5.9e-7
             },
             "siliconflow-fp8": {
                 "prompt_token": 3e-7,
@@ -4763,6 +4769,38 @@
         }
     },
     {
+        "model": "openai/gpt-5.5",
+        "cost": {
+            "default": {
+                "prompt_token": 0.000005,
+                "completion_token": 0.00003,
+                "cache_read_token": 5e-7,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 0.000005,
+                "completion_token": 0.00003,
+                "cache_read_token": 5e-7,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-5.5-pro",
+        "cost": {
+            "default": {
+                "prompt_token": 0.00003,
+                "completion_token": 0.00018,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 0.00003,
+                "completion_token": 0.00018,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
         "model": "openai/gpt-audio",
         "cost": {
             "default": {
@@ -5802,9 +5840,9 @@
         "model": "qwen/qwen3-coder-next",
         "cost": {
             "default": {
-                "prompt_token": 1.5e-7,
+                "prompt_token": 1.4e-7,
                 "completion_token": 8e-7,
-                "cache_read_token": 1.1e-7
+                "cache_read_token": 9e-8
             },
             "atlas-cloud-fp8": {
                 "prompt_token": 1.8e-7,
@@ -5812,9 +5850,9 @@
                 "cache_read_token": 1.8e-7
             },
             "ionstream-fp8": {
-                "prompt_token": 1.5e-7,
+                "prompt_token": 1.4e-7,
                 "completion_token": 8e-7,
-                "cache_read_token": 1.1e-7
+                "cache_read_token": 9e-8
             },
             "novita-fp8": {
                 "prompt_token": 2e-7,
@@ -7066,7 +7104,8 @@
         "cost": {
             "default": {
                 "prompt_token": 3e-7,
-                "completion_token": 9e-7
+                "completion_token": 9e-7,
+                "cache_read_token": 5e-8
             },
             "novita-bf16": {
                 "prompt_token": 3e-7,
@@ -7344,6 +7383,11 @@
                 "prompt_token": 0.0000014,
                 "completion_token": 0.0000044,
                 "cache_read_token": 2.6e-7
+            },
+            "ionstream-fp8": {
+                "prompt_token": 0.00000135,
+                "completion_token": 0.00000425,
+                "cache_read_token": 2.5e-7
             },
             "novita-fp8": {
                 "prompt_token": 0.0000014,
