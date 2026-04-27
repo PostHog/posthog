@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
 
 import { IconGithub, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonSkeleton } from '@posthog/lemon-ui'
@@ -19,13 +18,6 @@ function GitHubInstallationRow({ integration }: { integration: PersonalGitHubInt
 
     const logic = installationId ? userGithubIntegrationLogic({ installationId }) : null
     const { repositories, repositoriesLoading } = useValues(logic ?? userGithubIntegrationLogic({ installationId: '' }))
-    const { loadRepositories } = useActions(logic ?? userGithubIntegrationLogic({ installationId: '' }))
-
-    useEffect(() => {
-        if (installationId) {
-            loadRepositories()
-        }
-    }, [installationId, loadRepositories])
 
     const handleDisconnect = (): void => {
         LemonDialog.open({

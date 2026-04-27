@@ -256,3 +256,141 @@ class UserGitHubIntegration(GitHubIntegrationBase):
             self.integration.delete()
         except Exception:
             logger.warning("UserGitHubIntegration: failed to delete unusable integration", exc_info=True)
+<<<<<<< HEAD
+||||||| parent of d1acea8af4b (Update user_integration.py)
+
+
+def user_github_integration_from_installation(
+    user: "User",
+    installation: "GitHubInstallationAccess",
+    authorization: "GitHubUserAuthorization",
+    *,
+    create_only: bool = False,
+) -> UserIntegration:
+    """Create or update a UserIntegration from a GitHub App installation + user authorization.
+
+    Called when a user installs the GitHub App and authorizes it in one flow.
+    Writes both installation-level and user-level credentials atomically.
+
+    When ``create_only=True`` the row is created only if one does not already exist
+    (using ``get_or_create``). This is the correct mode for the auto-create path on
+    team App installation, where an existing personal integration must not be overwritten.
+    The default (``False``) performs ``update_or_create`` — appropriate for the explicit
+    Linked Accounts connect flow where the user is intentionally replacing credentials.
+    """
+    now = int(time.time())
+    expires_in = datetime.fromisoformat(installation.token_expires_at).timestamp() - now
+
+    config: dict[str, Any] = {
+        "installation_id": installation.installation_id,
+        "expires_in": expires_in,
+        "refreshed_at": now,
+        "repository_selection": installation.repository_selection,
+        "account": {
+            "type": (installation.installation_info.get("account") or {}).get("type"),
+            "name": (installation.installation_info.get("account") or {}).get("login", installation.installation_id),
+        },
+        "github_user": {"login": authorization.gh_login, "id": authorization.gh_id},
+        "user_token_refreshed_at": now,
+    }
+    if authorization.access_token_expires_in is not None:
+        config["user_access_token_expires_at"] = now + authorization.access_token_expires_in
+    if authorization.refresh_token_expires_in is not None:
+        config["user_refresh_token_expires_at"] = now + authorization.refresh_token_expires_in
+
+    sensitive_config = {
+        "access_token": installation.access_token,
+        "user_access_token": authorization.access_token,
+        "user_refresh_token": authorization.refresh_token,
+    }
+
+    if create_only:
+        integration, _created = UserIntegration.objects.get_or_create(
+            user=user,
+            kind="github",
+            integration_id=installation.installation_id,
+            defaults={
+                "config": config,
+                "sensitive_config": sensitive_config,
+            },
+        )
+    else:
+        integration, _created = UserIntegration.objects.update_or_create(
+            user=user,
+            kind="github",
+            integration_id=installation.installation_id,
+            defaults={
+                "config": config,
+                "sensitive_config": sensitive_config,
+            },
+        )
+    return integration
+=======
+
+
+def user_github_integration_from_installation(
+    user: "User",
+    installation: "GitHubInstallationAccess",
+    authorization: "GitHubUserAuthorization",
+    *,
+    create_only: bool = False,
+) -> UserIntegration:
+    """Create or update a UserIntegration from a GitHub App installation + user authorization.
+
+    Called when a user installs the GitHub App and authorizes it in one flow.
+    Writes both installation-level and user-level credentials atomically.
+
+    When ``create_only=True`` the row is created only if one does not already exist
+    (using ``get_or_create``). This is the correct mode for the auto-create path on
+    team App installation, where an existing personal integration must not be overwritten.
+    The default (``False``) performs ``update_or_create`` — appropriate for the explicit
+    Linked Accounts connect flow where the user is intentionally replacing credentials.
+    """
+    expires_in = datetime.fromisoformat(installation.token_expires_at.replace('Z', '+00:00')).timestamp() - now
+    expires_in = datetime.fromisoformat(installation.token_expires_at).timestamp() - now
+
+    config: dict[str, Any] = {
+        "installation_id": installation.installation_id,
+        "expires_in": expires_in,
+        "refreshed_at": now,
+        "repository_selection": installation.repository_selection,
+        "account": {
+            "type": (installation.installation_info.get("account") or {}).get("type"),
+            "name": (installation.installation_info.get("account") or {}).get("login", installation.installation_id),
+        },
+        "github_user": {"login": authorization.gh_login, "id": authorization.gh_id},
+        "user_token_refreshed_at": now,
+    }
+    if authorization.access_token_expires_in is not None:
+        config["user_access_token_expires_at"] = now + authorization.access_token_expires_in
+    if authorization.refresh_token_expires_in is not None:
+        config["user_refresh_token_expires_at"] = now + authorization.refresh_token_expires_in
+
+    sensitive_config = {
+        "access_token": installation.access_token,
+        "user_access_token": authorization.access_token,
+        "user_refresh_token": authorization.refresh_token,
+    }
+
+    if create_only:
+        integration, _created = UserIntegration.objects.get_or_create(
+            user=user,
+            kind="github",
+            integration_id=installation.installation_id,
+            defaults={
+                "config": config,
+                "sensitive_config": sensitive_config,
+            },
+        )
+    else:
+        integration, _created = UserIntegration.objects.update_or_create(
+            user=user,
+            kind="github",
+            integration_id=installation.installation_id,
+            defaults={
+                "config": config,
+                "sensitive_config": sensitive_config,
+            },
+        )
+    return integration
+>>>>>>> d1acea8af4b (Update user_integration.py)

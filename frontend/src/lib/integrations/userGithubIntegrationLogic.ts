@@ -1,4 +1,4 @@
-import { actions, isBreakpoint, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, events, isBreakpoint, kea, key, listeners, path, props, reducers } from 'kea'
 
 import api from 'lib/api'
 
@@ -77,6 +77,14 @@ export const userGithubIntegrationLogic = kea<userGithubIntegrationLogicType>([
                     throw e
                 }
                 actions.loadRepositoriesPageFailure()
+            }
+        },
+    })),
+
+    events(({ actions, props }) => ({
+        afterMount: () => {
+            if (props.installationId) {
+                actions.loadRepositories()
             }
         },
     })),
